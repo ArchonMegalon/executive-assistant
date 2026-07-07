@@ -156,6 +156,12 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
         for _, name, command, env in calls
     )
     assert any(
+        name == "mymedia_alexa_readiness"
+        and command == ("scripts/materialize_mymedia_alexa_readiness.py",)
+        and env is None
+        for _, name, command, env in calls
+    )
+    assert any(
         name == "proactive_ooda_operator_status"
         and command == ("scripts/materialize_proactive_ooda_operator_status.py",)
         and env is None
@@ -184,10 +190,12 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
     assert names.index("telegram_video_delivery_live_receipt") < names.index("whole_project_gold_map")
     assert names.index("ea_provider_contract_receipts") < names.index("whole_project_gold_map")
     assert names.index("whole_project_gold_map") < names.index("teable_env_recovery_readiness")
-    assert names.index("teable_env_recovery_readiness") < names.index("whatsapp_web_action_processor_readiness")
+    assert names.index("teable_env_recovery_readiness") < names.index("mymedia_alexa_readiness")
+    assert names.index("mymedia_alexa_readiness") < names.index("whatsapp_web_action_processor_readiness")
     assert names.index("whatsapp_web_action_processor_readiness") < names.index("proactive_ooda_operator_status")
     assert names.index("proactive_ooda_operator_status") < names.index("proactive_ooda_gold_acceptance")
     assert names.index("proactive_ooda_gold_acceptance") < names.index("continuous_improvement_goal_posture")
+    assert names.index("mymedia_alexa_readiness") < names.index("continuous_improvement_goal_posture")
     assert names.index("memorial_stt_provider_benchmark") < names.index("memorial_operator_status")
     assert names.index("runtime_dependency_evidence") < names.index("deploy_context")
     assert names.index("deploy_context") < names.index("release_manifest")

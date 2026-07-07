@@ -9,6 +9,7 @@ class BrainProfile:
     lane: str
     public_model: str
     provider_hint_order: tuple[str, ...]
+    aliases: tuple[str, ...] = ()
     default_capability_key: str = ""
     backend_key: str = ""
     health_provider_key: str = ""
@@ -20,8 +21,8 @@ class BrainProfile:
 
 DEFAULT_PUBLIC_MODEL = "ea-coder-best"
 FAST_PUBLIC_MODEL = "ea-coder-fast"
-GROUNDWORK_PUBLIC_MODEL = "ea-groundwork-gemini"
-GROUNDWORK_PUBLIC_MODEL_ALIAS = "ea-groundwork"
+GROUNDWORK_PUBLIC_MODEL = "ea-groundwork"
+GROUNDWORK_PUBLIC_MODEL_ALIAS = "ea-groundwork-gemini"
 REVIEW_LIGHT_PUBLIC_MODEL = "ea-review-light"
 MAGICX_PUBLIC_MODEL = "ea-magicx-coder"
 ONEMIN_PUBLIC_MODEL = "ea-onemin-coder"
@@ -101,6 +102,7 @@ BRAIN_PROFILES: tuple[BrainProfile, ...] = (
         lane="groundwork",
         public_model=GROUNDWORK_PUBLIC_MODEL,
         provider_hint_order=("onemin", "magixai", "gemini_vortex"),
+        aliases=(GROUNDWORK_PUBLIC_MODEL_ALIAS,),
         default_capability_key="code_generate",
         backend_key="onemin",
         health_provider_key="onemin",
@@ -123,6 +125,7 @@ BRAIN_PROFILES: tuple[BrainProfile, ...] = (
         lane="audit",
         public_model=AUDIT_PUBLIC_MODEL,
         provider_hint_order=("onemin", "browseract", "gemini_vortex"),
+        aliases=(AUDIT_PUBLIC_MODEL_ALIAS,),
         default_capability_key="reasoned_patch_review",
         backend_key="onemin",
         health_provider_key="onemin",
@@ -135,10 +138,10 @@ BRAIN_PROFILES: tuple[BrainProfile, ...] = (
         profile="survival",
         lane="survival",
         public_model=SURVIVAL_PUBLIC_MODEL,
-        provider_hint_order=("browseract", "gemini_vortex", "onemin"),
+        provider_hint_order=("onemin", "browseract", "gemini_vortex"),
         default_capability_key="code_generate",
-        backend_key="chatplayground",
-        health_provider_key="chatplayground",
+        backend_key="onemin",
+        health_provider_key="onemin",
         risk_labels=("budget_exhausted", "backup", "slow_path"),
         merge_policy="auto_if_low_risk",
     ),
@@ -152,6 +155,6 @@ def list_brain_profiles() -> tuple[BrainProfile, ...]:
 def get_brain_profile(name_or_model: str) -> BrainProfile | None:
     target = str(name_or_model or "").strip()
     for profile in BRAIN_PROFILES:
-        if target in {profile.profile, profile.public_model}:
+        if target in {profile.profile, profile.public_model, *tuple(profile.aliases or ())}:
             return profile
     return None

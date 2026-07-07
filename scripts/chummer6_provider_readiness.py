@@ -462,6 +462,7 @@ def provider_state(name: str) -> dict[str, object]:
 def text_provider_state(name: str) -> dict[str, object]:
     normalized = str(name or "").strip().lower()
     if normalized in {"ea", "planner", "skill", "gemini", "gemini_vortex"}:
+        onemin = provider_state("onemin")
         gemini = provider_state("gemini_vortex")
         worker_ready = (EA_ROOT / "scripts" / "chummer6_guide_worker.py").exists()
         bootstrap_ready = (EA_ROOT / "scripts" / "bootstrap_chummer6_guide_skill.py").exists()
@@ -481,7 +482,9 @@ def text_provider_state(name: str) -> dict[str, object]:
             for value in (skill_state.get("missing_skill_keys") or [])
             if str(value).strip()
         ]
-        available = bool(gemini.get("available")) and worker_ready and bootstrap_ready and not missing_skill_keys
+        onemin_available = bool(onemin.get("available"))
+        gemini_available = bool(gemini.get("available"))
+        available = bool(onemin_available or gemini_available) and worker_ready and bootstrap_ready and not missing_skill_keys
         if available:
             status = "ready"
             upserted = [
@@ -489,22 +492,26 @@ def text_provider_state(name: str) -> dict[str, object]:
                 for value in (skill_state.get("upserted_skill_keys") or [])
                 if str(value).strip()
             ]
-            if upserted:
-                detail = "EA planner brain can route Chummer6 prompt generation through the Gemini Vortex structured-generation tool, and missing Chummer6 skills were auto-registered locally."
+            if onemin_available and gemini_available:
+                detail = "EA planner brain can route Chummer6 prompt generation through the EA groundwork lane with 1min.AI primary and Gemini Vortex fallback."
+            elif onemin_available:
+                detail = "EA planner brain can route Chummer6 prompt generation through the EA groundwork lane with 1min.AI primary."
             else:
-                detail = "EA planner brain can route Chummer6 prompt generation through the Gemini Vortex structured-generation tool."
+                detail = "EA planner brain can route Chummer6 prompt generation through the EA groundwork lane, but only the Gemini Vortex fallback is currently available."
+            if upserted:
+                detail = f"{detail[:-1]}, and missing Chummer6 skills were auto-registered locally."
         else:
             status = "not_ready"
             if missing_skill_keys:
                 detail = "EA text brain is missing required Chummer6 skill registrations."
             else:
-                detail = "EA text brain is missing either Gemini Vortex, the worker, or the Chummer6 skill bootstrap."
+                detail = "EA text brain is missing either the 1min.AI primary lane, the Gemini fallback, the worker, or the Chummer6 skill bootstrap."
         return {
             "provider": "ea",
             "status": status,
             "available": available,
             "detail": detail,
-            "backing_provider": "gemini_vortex",
+            "backing_provider": "onemin" if onemin_available else "gemini_vortex",
             "skill_catalog": skill_state,
         }
     return {

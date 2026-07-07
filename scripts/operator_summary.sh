@@ -324,7 +324,14 @@ def compact(value: object) -> str:
 
 receipt = build_goal_posture(root=root)
 lenses = {str(lens.get("key") or ""): dict(lens) for lens in list(receipt.get("lenses") or []) if isinstance(lens, dict)}
+detect_lens = dict(lenses.get("detect", {}) or {})
+operator_readiness = dict(detect_lens.get("operator_readiness_aggregate") or {})
 deliver_components = {str(component.get("key") or ""): dict(component) for component in list(lenses.get("deliver", {}).get("components") or []) if isinstance(component, dict)}
+operator_focus = [
+    str(item).strip()
+    for item in list(operator_readiness.get("attention_component_keys") or [])
+    if str(item).strip()
+]
 print("north star:        dependable executive, conversation, and media operating system")
 print(f"detect:            {compact(lenses.get('detect', {}).get('status'))} -> make verify-whole-project-signal-to-decision-receipt")
 print(f"decide:            {compact(lenses.get('decide', {}).get('status'))} -> make verify-office-loop-goal-receipt")
@@ -338,6 +345,15 @@ print(
 )
 print(f"recover:           {compact(lenses.get('recover', {}).get('status'))} -> make env-check-teable / make env-fresh-host-teable")
 print(f"prove:             {compact(lenses.get('prove', {}).get('status'))} -> make verify-executive-assistant-quality-readiness")
+print(
+    "operator triage:   "
+    f"{compact(operator_readiness.get('status'))} / "
+    f"ready={str(bool(operator_readiness.get('ready'))).lower()} / "
+    f"mode={compact(operator_readiness.get('pairing_probe_mode'))} -> "
+    "make probe-operator-readiness"
+)
+print(f"operator focus:    {compact(', '.join(operator_focus) if operator_focus else 'none')}")
+print(f"operator next:     {compact(operator_readiness.get('next_action'))}")
 print(f"detect next:       {compact(lenses.get('detect', {}).get('next_action'))}")
 print(f"decide next:       {compact(lenses.get('decide', {}).get('next_action'))}")
 print(f"deliver next:      {compact(lenses.get('deliver', {}).get('next_action'))}")
@@ -546,21 +562,17 @@ def derive_fast_lane_route(payload: dict[str, object]) -> dict[str, str]:
         }
     configured = ["onemin", "magixai", "gemini_vortex"]
     pressure = compact(((payload.get("onemin_aggregate") or {}).get("attempt_throttle_pressure_15m"))).lower()
-    effective = list(configured)
-    if pressure in {"medium", "high"}:
-        preferred: list[str] = []
-        if provider_ready_from_payload(payload, "gemini_vortex"):
-            preferred.append("gemini_vortex")
-        if provider_ready_from_payload(payload, "magixai"):
-            preferred.append("magixai")
-        if preferred:
-            merged: list[str] = []
-            for item in [*preferred, *configured]:
-                if item not in merged:
-                    merged.append(item)
-            effective = merged
-    posture = "pressure_spillover" if effective != configured else "configured_order"
-    reason = f"onemin_pressure_{pressure}" if posture == "pressure_spillover" and pressure != "missing" else "configured_order"
+    effective: list[str] = []
+    if provider_ready_from_payload(payload, "onemin"):
+        effective.append("onemin")
+    if provider_ready_from_payload(payload, "magixai"):
+        effective.append("magixai")
+    if provider_ready_from_payload(payload, "gemini_vortex"):
+        effective.append("gemini_vortex")
+    if not effective:
+        effective = list(configured)
+    posture = "onemin_primary" if effective and effective[0] == "onemin" else "onemin_unavailable"
+    reason = f"onemin_pressure_{pressure}" if pressure != "missing" else "configured_order"
     return {
         "posture": compact(posture),
         "reason": compact(reason),
@@ -726,6 +738,11 @@ echo "goal posture:      make verify-continuous-improvement-goal-posture"
 echo "office loop:       make verify-office-loop-goal-receipt"
 echo "ea quality:        make verify-executive-assistant-quality-readiness"
 echo "ea live ops:       make probe-operator-readiness"
+echo "ea live receipt:   make materialize-ea-operator-readiness"
+echo "ea live verify:    make verify-ea-operator-readiness"
+echo "google oauth:      make probe-google-workspace-oauth"
+echo "live provider:     make probe-live-provider PROVIDER=pushbullet"
+echo "provider pressure: make probe-live-provider-cost-pressure WINDOW=24h"
 echo "signal packet:     make verify-whole-project-signal-to-decision-receipt"
 echo "scope audit:       make verify-whole-project-scope-gap-audit"
 echo "active media:      make verify-active-media-ltd-goal-bundle"
@@ -740,6 +757,14 @@ echo "wa audio bundle:   make verify-whatsapp-audiobook-operator-proof-bundle"
 echo "wa audiobook live: make verify-whatsapp-audiobook-live-delivery-receipt"
 echo "wa share play:     make verify-whatsapp-audiobook-public-share-playback"
 echo "teable recovery:   make probe-teable-recovery"
+echo "mymedia/alexa:     make probe-mymedia-alexa"
+echo "mymedia scan:      make rescan-mymedia-library"
+echo "mymedia route:     make repair-mymedia-public-surface"
+echo "mymedia receipt:   make materialize-mymedia-alexa-readiness"
+echo "mymedia ready:     make verify-mymedia-alexa-readiness"
+echo "mymedia pair:      make trigger-mymedia-amazon-pairing"
+echo "mymedia code:      make submit-mymedia-amazon-pairing-code OTP_CODE=123456"
+echo "mymedia pair tg:   make send-mymedia-amazon-pairing-telegram"
 echo "memorial status:   make materialize-memorial-operator-status"
 echo "source groups:     make inspect-source-dirty-groups"
 echo "source verify:     make verify-source-dirty-groups"

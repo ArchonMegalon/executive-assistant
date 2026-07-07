@@ -1402,6 +1402,20 @@ def test_release_manifest_artifact_plane_verifier_allows_proactive_ooda_gold_acc
     assert issues == []
 
 
+def test_release_manifest_artifact_plane_verifier_allows_mymedia_alexa_readiness_for_ea_core() -> None:
+    module = _load_script("verify_release_manifest_artifact_plane")
+    release_manifest = {
+        "artifact_set": [
+            ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+            ".codex-studio/published/mymedia_alexa_readiness.generated.json",
+        ]
+    }
+
+    issues = module.validate_artifact_plane(release_manifest=release_manifest, enabled_modes=["EA_CORE"])
+
+    assert issues == []
+
+
 def test_release_authority_verifier_rejects_missing_public_origin() -> None:
     module = _load_script("verify_release_authority")
     release_manifest = {

@@ -45,6 +45,8 @@ SCRIPTS=(
   scripts/verify_whole_project_gold_map.py
   scripts/materialize_whatsapp_web_action_processor_readiness.py
   scripts/verify_whatsapp_web_action_processor_readiness.py
+  scripts/materialize_mymedia_alexa_readiness.py
+  scripts/verify_mymedia_alexa_readiness.py
   scripts/materialize_proactive_ooda_operator_status.py
   scripts/verify_proactive_ooda_operator_status.py
   scripts/materialize_proactive_ooda_gold_acceptance.py

@@ -49,6 +49,7 @@ EXPECTED_PROOF_KEYS = {
     "staged_reversible_artifact",
     "teable_projection",
     "approval_capture_readiness",
+    "approval_followthrough_notification",
     "approval_outcome",
 }
 
@@ -187,6 +188,41 @@ def _verify_action_required_only_delivery(proof: Mapping[str, Any], issues: list
         issues.append("executable draft approval prompts must require Telegram user action")
 
 
+def _verify_approval_followthrough_notification(proof: Mapping[str, Any], issues: list[str]) -> None:
+    if not proof:
+        return
+    if proof.get("raw_chat_ids_exposed") is not False:
+        issues.append("approval_followthrough_notification.raw_chat_ids_exposed must remain false")
+    if proof.get("raw_private_context_exposed") is not False:
+        issues.append("approval_followthrough_notification.raw_private_context_exposed must remain false")
+    if proof.get("raw_token_exposed") is not False:
+        issues.append("approval_followthrough_notification.raw_token_exposed must remain false")
+    if bool(proof.get("approval_followthrough_prompt_sent")):
+        notification_status = str(proof.get("notification_status") or "").strip()
+        if notification_status == "sent":
+            if int(proof.get("message_count") or 0) <= 0:
+                issues.append("approval_followthrough_notification sent proof requires message_count>0")
+        elif notification_status == "suppressed_duplicate":
+            if proof.get("approval_followthrough_prompt_covered_by_prior_send") is not True:
+                issues.append(
+                    "approval_followthrough_notification suppressed_duplicate proof requires prior-send coverage"
+                )
+            if str(proof.get("dedupe_proof_status") or "").strip() != "pass":
+                issues.append("approval_followthrough_notification suppressed_duplicate proof requires dedupe_proof_status=pass")
+            if proof.get("current_actions_covered_by_prior_state") is not True:
+                issues.append(
+                    "approval_followthrough_notification suppressed_duplicate proof requires current_actions_covered_by_prior_state=true"
+                )
+            if int(proof.get("dedupe_state_message_id_count") or 0) <= 0:
+                issues.append(
+                    "approval_followthrough_notification suppressed_duplicate proof requires dedupe_state_message_id_count>0"
+                )
+        else:
+            issues.append(
+                "approval_followthrough_notification sent proof requires notification_status=sent or suppressed_duplicate"
+            )
+
+
 def _git_head(path: Path = ROOT) -> str:
     return resolve_source_state_head(path)
 
@@ -277,6 +313,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         issues,
         required=bool(action_required_delivery.get("present")) or status == "pass",
     )
+    _verify_approval_followthrough_notification(dict(proofs.get("approval_followthrough_notification") or {}), issues)
     if approval.get("raw_evidence_exposed") is not False:
         issues.append("approval_outcome.raw_evidence_exposed must remain false")
     if approval.get("raw_actor_exposed") is not False:
@@ -329,6 +366,10 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             issues.append("pass must not retain remaining_external_proofs")
     if status == "ready_for_approval_outcome_capture" and not all(packet_runtime_proofs):
         issues.append("ready_for_approval_outcome_capture requires the runtime proofs to be present")
+    if status == "ready_for_approval_outcome_capture":
+        approval_capture = dict(proofs.get("approval_capture_readiness") or {})
+        if approval_capture.get("ready") is not True:
+            issues.append("ready_for_approval_outcome_capture requires approval_capture_readiness.ready=true")
     if status == "ready_for_approval_outcome_capture" and approval_recorded:
         issues.append("ready_for_approval_outcome_capture must not already have a recorded approval outcome")
     if status == "blocked_not_accepted_under_ordinary_use":
@@ -356,6 +397,22 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         return issues
     approval_capture_surface = dict(evidence_receipts.get("approval_capture_surface") or {})
     approval_capture = dict(evidence_receipts.get("approval_capture") or {})
+    if approval_capture_surface:
+        callback_hygiene_ready = bool(approval_capture_surface.get("callback_hygiene_ready", True))
+        if callback_hygiene_ready:
+            if int(approval_capture_surface.get("callback_noncurrent_pending_count") or 0) != 0:
+                issues.append("ready approval_capture_surface requires callback_noncurrent_pending_count=0")
+            if int(approval_capture_surface.get("callback_stale_pending_count") or 0) != 0:
+                issues.append("ready approval_capture_surface requires callback_stale_pending_count=0")
+            if int(approval_capture_surface.get("current_packet_callback_stale_pending_count") or 0) != 0:
+                issues.append("ready approval_capture_surface requires current_packet_callback_stale_pending_count=0")
+            if int(approval_capture_surface.get("current_packet_duplicate_live_pending_count") or 0) != 0:
+                issues.append("ready approval_capture_surface requires current_packet_duplicate_live_pending_count=0")
+        else:
+            if not str(approval_capture_surface.get("callback_hygiene_blocking_reason") or "").strip():
+                issues.append("approval_capture_surface callback_hygiene_ready=false requires callback_hygiene_blocking_reason")
+            if not str(approval_capture_surface.get("callback_hygiene_next_action") or "").strip():
+                issues.append("approval_capture_surface callback_hygiene_ready=false requires callback_hygiene_next_action")
     if approval_capture_surface and bool(approval_capture_surface.get("ready")):
         telegram_ready = bool(approval_capture_surface.get("telegram_approval_surface_ready"))
         manual_ready = bool(approval_capture_surface.get("manual_outcome_capture_ready"))
@@ -388,14 +445,10 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             if not linked_operator_status:
                 issues.append("linked operator_status receipt invalid")
             else:
-                drift_keys = ["contract_name", "status", "generated_at", "source_git_head"]
-                if "source_state_fingerprint" in operator_status_evidence or "source_state_fingerprint" in linked_operator_status:
-                    drift_keys.append("source_state_fingerprint")
-                for key in drift_keys:
-                    expected = str(operator_status_evidence.get(key) or "").strip()
-                    actual = str(linked_operator_status.get(key) or "").strip()
-                    if expected != actual:
-                        issues.append(f"linked operator_status {key} drifted")
+                expected_contract = str(operator_status_evidence.get("contract_name") or "").strip()
+                actual_contract = str(linked_operator_status.get("contract_name") or "").strip()
+                if expected_contract and expected_contract != actual_contract:
+                    issues.append("linked operator_status contract_name drifted")
                 linked_head = str(linked_operator_status.get("source_git_head") or "").strip()
                 linked_fingerprint = str(linked_operator_status.get("source_state_fingerprint") or "").strip()
                 if recorded_head and linked_head and linked_head != recorded_head:

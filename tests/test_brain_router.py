@@ -25,6 +25,7 @@ def test_brain_router_prefers_available_profile_hints(monkeypatch) -> None:
 def test_brain_router_falls_through_to_magixai_when_gemini_is_unavailable(monkeypatch) -> None:
     monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "/nonexistent/ea-gemini-unavailable")
     repo = InMemoryProviderBindingRepository()
     repo.upsert(principal_id="exec-1", provider_key="onemin", status="disabled")
     router = BrainRouterService(provider_registry=ProviderRegistryService(provider_binding_repo=repo))
@@ -32,7 +33,7 @@ def test_brain_router_falls_through_to_magixai_when_gemini_is_unavailable(monkey
     decision = router.resolve_profile("easy", principal_id="exec-1")
 
     assert decision.profile == "easy"
-    assert decision.provider_hint_order == ("magixai", "gemini_vortex")
+    assert decision.provider_hint_order == ("magixai",)
     assert decision.backend_key == "magixai"
     assert decision.health_provider_key == "magixai"
 
@@ -116,3 +117,24 @@ def test_brain_router_prefers_onemin_for_review_light_when_available(monkeypatch
     assert decision.provider_hint_order[0] == "onemin"
     assert decision.backend_key == "onemin"
     assert decision.health_provider_key == "onemin"
+
+
+def test_brain_router_resolves_groundwork_legacy_alias_to_canonical_profile(monkeypatch) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+
+    router = BrainRouterService(provider_registry=ProviderRegistryService())
+    decision = router.resolve_profile("ea-groundwork-gemini")
+
+    assert decision.profile == "groundwork"
+    assert decision.public_model == "ea-groundwork"
+    assert decision.backend_key == "onemin"
+
+
+def test_brain_router_resolves_audit_alias(monkeypatch) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+
+    router = BrainRouterService(provider_registry=ProviderRegistryService())
+    decision = router.resolve_profile("ea-audit")
+
+    assert decision.profile == "audit"
+    assert decision.public_model == "ea-audit-jury"

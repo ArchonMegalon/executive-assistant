@@ -7,6 +7,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -20,6 +21,7 @@ from app.services.cloudflare_access import (
     build_operator_notes,
     resolve_access_identity,
 )
+from app.services.operator_access import OPERATOR_ACCESS_ROLES
 from app.settings import (
     RuntimeProfile,
     is_prod_mode,
@@ -512,9 +514,6 @@ def is_operator_context(context: RequestContext) -> bool:
     return bool(context.operator_authorized and str(context.operator_id or "").strip())
 
 
-_OPERATOR_PRIVILEGED_ROLES = frozenset({"operator", "admin", "reviewer", "cloudflare_access"})
-
-
 def _authorized_operator_id(
     container: AppContainer,
     *,
@@ -531,7 +530,7 @@ def _authorized_operator_id(
     if str(profile.status or "").strip().lower() != "active":
         return ""
     roles = {str(role or "").strip().lower() for role in tuple(profile.roles or ()) if str(role or "").strip()}
-    if not roles.intersection(_OPERATOR_PRIVILEGED_ROLES):
+    if not roles.intersection(OPERATOR_ACCESS_ROLES):
         return ""
     return normalized_operator
 
@@ -560,6 +559,130 @@ def _default_authorized_operator_id(
         if operator_id:
             return operator_id
     return ""
+
+
+def _principal_email_hint(principal_id: str) -> str:
+    normalized = str(principal_id or "").strip()
+    if normalized.startswith("cf-email:"):
+        candidate = normalized.partition(":")[2].strip().lower()
+        if "@" in candidate:
+            return candidate
+    return ""
+
+
+def _display_name_from_email(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    local = normalized.split("@", 1)[0] if "@" in normalized else normalized
+    parts = [part for part in re.split(r"[._+-]+", local) if part]
+    return " ".join(part[:1].upper() + part[1:] for part in parts)
+
+
+def _operator_id_from_email(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    local = normalized.split("@", 1)[0] if "@" in normalized else normalized
+    slug = re.sub(r"[^a-z0-9]+", "-", local).strip("-")
+    return f"operator-{slug or 'workspace'}"
+
+
+def _workspace_session_authorized_operator_id(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    role: str,
+    operator_id: str,
+    access_email: str,
+    display_name: str,
+) -> str:
+    normalized_principal = str(principal_id or "").strip()
+    normalized_role = str(role or "principal").strip().lower() or "principal"
+    normalized_operator = str(operator_id or "").strip()
+    normalized_email = str(access_email or "").strip().lower()
+    normalized_display_name = str(display_name or "").strip()
+    if not normalized_principal:
+        return ""
+    if normalized_role == "operator" and normalized_operator:
+        authorized = _authorized_operator_id(
+            container,
+            principal_id=normalized_principal,
+            operator_id=normalized_operator,
+        )
+        if authorized:
+            return authorized
+    list_profiles = getattr(getattr(container, "orchestrator", None), "list_operator_profiles", None)
+    if not callable(list_profiles):
+        return ""
+    expected_operator_id = _operator_id_from_email(normalized_email) if normalized_email else ""
+    expected_display_name = _display_name_from_email(normalized_email).strip().lower() if normalized_email else ""
+    principal_email_hint = _principal_email_hint(normalized_principal)
+    best_score = -10**9
+    best_operator_id = ""
+    try:
+        rows = list_profiles(principal_id=normalized_principal, status="active", limit=100)
+    except TypeError:
+        return ""
+    for row in list(rows or []):
+        candidate_id = _authorized_operator_id(
+            container,
+            principal_id=normalized_principal,
+            operator_id=str(getattr(row, "operator_id", "") or "").strip(),
+        )
+        if not candidate_id:
+            continue
+        roles = {
+            str(value or "").strip().lower()
+            for value in tuple(getattr(row, "roles", ()) or ())
+            if str(value or "").strip()
+        }
+        display_name = str(getattr(row, "display_name", "") or "").strip().lower()
+        score = 0
+        if normalized_operator and candidate_id == normalized_operator:
+            score += 120
+        if expected_operator_id and candidate_id == expected_operator_id:
+            score += 100
+        if candidate_id == normalized_principal:
+            score += 80
+        if expected_display_name:
+            if display_name == expected_display_name:
+                score += 60
+            elif display_name and (expected_display_name in display_name or display_name in expected_display_name):
+                score += 20
+        if principal_email_hint and principal_email_hint == normalized_email:
+            score += 40
+        if "reviewer" in roles:
+            score += 20
+        if "cloudflare_access" in roles:
+            score += 15
+        if "automation" in roles:
+            score -= 40
+        if score <= best_score:
+            continue
+        best_score = score
+        best_operator_id = candidate_id
+    if best_score > 0:
+        return best_operator_id
+    if not normalized_email:
+        return ""
+    try:
+        from app.product.service import build_product_service
+
+        operator_context = build_product_service(container).resolve_workspace_access_operator_context(
+            principal_id=normalized_principal,
+            email=normalized_email,
+            role=normalized_role,
+            display_name=normalized_display_name,
+            operator_id=normalized_operator,
+            source_kind="workspace_access_session",
+        )
+    except ValueError:
+        return ""
+    resolved_operator_id = str(operator_context.get("operator_id") or "").strip()
+    if not resolved_operator_id:
+        return ""
+    return _authorized_operator_id(
+        container,
+        principal_id=normalized_principal,
+        operator_id=resolved_operator_id,
+    )
 
 
 def get_request_context(
@@ -602,13 +725,14 @@ def get_request_context(
             _log_auth_failure(request, detail="principal_required", profile=profile, expected_token_configured=bool(_configured_api_token(container)))
             raise HTTPException(status_code=401, detail="principal_required")
         role = str(workspace_session.get("role") or "principal").strip().lower() or "principal"
-        operator_id = ""
-        if role == "operator":
-            operator_id = _authorized_operator_id(
-                container,
-                principal_id=principal_id,
-                operator_id=str(workspace_session.get("operator_id") or "").strip(),
-            )
+        operator_id = _workspace_session_authorized_operator_id(
+            container,
+            principal_id=principal_id,
+            role=role,
+            operator_id=str(workspace_session.get("operator_id") or "").strip(),
+            access_email=str(workspace_session.get("email") or "").strip().lower(),
+            display_name=str(workspace_session.get("display_name") or "").strip(),
+        )
         context = RequestContext(
             principal_id=principal_id,
             authenticated=True,
@@ -676,6 +800,11 @@ def get_request_context(
             principal_id=principal_id,
             operator_id=_requested_operator_id(request),
         )
+        if not operator_id:
+            operator_id = _default_authorized_operator_id(
+                container,
+                principal_id=principal_id,
+            )
     context = RequestContext(
         principal_id=principal_id,
         authenticated=authenticated,

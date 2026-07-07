@@ -39,7 +39,12 @@ PROPERTY_API_SUFFIXES = (
 
 def _path_matches_prefix(path: str, prefixes: tuple[str, ...]) -> bool:
     normalized = str(path or "").strip() or "/"
-    return any(normalized == prefix or normalized.startswith(f"{prefix}/") for prefix in prefixes)
+    return any(
+        normalized == prefix
+        or normalized.startswith(f"{prefix}/")
+        or normalized.startswith(prefix)
+        for prefix in prefixes
+    )
 
 
 def is_property_app_surface_path(path: str) -> bool:

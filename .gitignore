@@ -73,6 +73,7 @@ state/proactive_ooda_safe_work_results/
 state/proactive_ooda_stage_packets/
 ea/state/
 .state/home-girschele/
+.state/
 
 # Editor/OS noise
 .DS_Store
@@ -97,6 +98,8 @@ feedback/*github-review-pr.md
 tmp_amazon*
 tmp_baagl*
 tmp_default_wishlist.png
+tmp_mymedia*.png
+tmp_mymedia_*/
 tmp_move_dropdown.png
 tmp_noah_after_one_move.png
 tmp_yourlists.png

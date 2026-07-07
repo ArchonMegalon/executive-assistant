@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import urllib.parse
+
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.api.dependencies import get_cloudflare_access_identity, get_container, require_operator_context
+from app.api.dependencies import RequestContext, get_cloudflare_access_identity, get_container, get_request_context, is_operator_context
+from app.api.routes.landing_browser import _normalize_browser_return_to
 from app.api.routes.landing_archive_support import _archive_home_html, _archive_publication_html_path, _is_archive_host
 from app.api.routes.landing_content import (
     EA_DOC_LINKS,
@@ -24,10 +27,27 @@ from app.api.routes.landing_public_support import (
     _public_page_context,
     _render_public_template,
 )
-from app.api.routes.landing_shared_support import _load_project_mode_payloads
+from app.api.routes.landing_shared_support import _load_project_mode_payloads, operator_bootstrap_needed
 from app.container import AppContainer
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.public_branding import request_brand
+
+
+def _operator_surface_redirect(
+    *,
+    request: Request,
+    container: AppContainer,
+    context: RequestContext,
+    return_to: str,
+) -> RedirectResponse | None:
+    if is_operator_context(context):
+        return None
+    target_return_to = _normalize_browser_return_to(return_to, default="/modes")
+    if operator_bootstrap_needed(container, principal_id=context.principal_id):
+        target = f"/admin/bootstrap-operator?return_to={urllib.parse.quote(target_return_to, safe='')}"
+        return RedirectResponse(target, status_code=303)
+    sign_in_target = f"/sign-in?return_to={urllib.parse.quote(target_return_to, safe='')}"
+    return RedirectResponse(sign_in_target, status_code=303)
 
 
 def landing(
@@ -99,8 +119,16 @@ def project_modes_page(
     request: Request,
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
-    _: None = Depends(require_operator_context),
-) -> HTMLResponse:
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse | RedirectResponse:
+    redirect = _operator_surface_redirect(
+        request=request,
+        container=container,
+        context=context,
+        return_to=str(request.url.path or "/modes"),
+    )
+    if redirect is not None:
+        return redirect
     principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     modes_payload, show_payload = _load_project_mode_payloads()
     display_names = {

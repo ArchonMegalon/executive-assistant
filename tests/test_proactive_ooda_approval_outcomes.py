@@ -165,6 +165,16 @@ def test_finalize_proactive_ooda_approval_outcome_materializes_gold_and_syncs(mo
     assert calls["gold"]["stage_packet_dir"] == tmp_path / "provider-ledger" / "proactive_ooda_stage_packets"
     assert calls["gold"]["safe_work_result_dir"] == tmp_path / "provider-ledger" / "proactive_ooda_safe_work_results"
     assert calls["gold"]["approval_outcome_path"] == tmp_path / "provider-ledger" / "proactive_ooda_latest_approval_outcome.generated.json"
+    approval_payload = json.loads(
+        (tmp_path / "provider-ledger" / "proactive_ooda_latest_approval_outcome.generated.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    approval_text = json.dumps(approval_payload, sort_keys=True)
+    assert "stage_packet:private-packet-123" not in approval_text
+    assert "safe_work_result:private-artifact-456" not in approval_text
+    assert approval_payload["teable_sync"]["status"] == "synced"
+    assert approval_payload["teable_sync"]["sync_attempted"] is True
 
 
 def test_finalize_proactive_ooda_approval_outcome_keeps_recorded_outcome_when_materializers_are_unavailable(

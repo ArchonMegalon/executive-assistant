@@ -19,6 +19,7 @@ from app.services.proactive_ooda_approval_capture import (
 from app.services.proactive_ooda_approval_outcomes import default_proactive_ooda_approval_outcome_path
 from app.services.proactive_ooda_operator_actions import proactive_next_action_surface
 from app.services.proactive_ooda_runtime_artifacts import (
+    current_packet_user_approval_surface,
     latest_payloads,
     load_runtime_artifact_bundle,
     resolve_runtime_artifact_paths,
@@ -36,6 +37,7 @@ CALLBACK_PREFIX = "po"
 _EMAIL_RE = re.compile(r"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}", re.IGNORECASE)
 CALLBACK_DECISION_STATUSES = {"approved", "rejected", "deferred", "dismissed"}
 CALLBACK_TERMINAL_STATUSES = {*CALLBACK_DECISION_STATUSES, "expired", "superseded"}
+_NON_ASSISTANT_GRADE_WORK_TYPES = {"record_internal_action", "internal_action", "operator_action"}
 
 
 def default_proactive_ooda_telegram_approval_callback_dir(
@@ -340,6 +342,7 @@ def expire_stale_proactive_ooda_telegram_approval_callbacks(
     callback_dir: str | Path = "",
     now: datetime | None = None,
     supersede_noncurrent: bool = False,
+    supersede_active_pending: bool = False,
     active_packet_ref: str = "",
     active_staged_artifact_ref: str = "",
 ) -> dict[str, Any]:
@@ -392,19 +395,25 @@ def expire_stale_proactive_ooda_telegram_approval_callbacks(
                 skipped_count += 1
                 continue
             if not _callback_record_expired(record, now=observed_at):
-                if active_refs_present and _callback_record_matches_refs(
+                matches_active_refs = active_refs_present and _callback_record_matches_refs(
                     record,
                     packet_ref=normalized_active_packet_ref,
                     staged_artifact_ref=normalized_active_artifact_ref,
-                ):
+                )
+                if matches_active_refs:
                     current_live_pending_rows.append((candidate, record))
+                if matches_active_refs and supersede_active_pending:
+                    _mark_callback_record_superseded(
+                        candidate,
+                        record,
+                        superseded_at=observed_at,
+                        superseded_reason="current_packet_no_longer_requires_user_action",
+                    )
+                    superseded_count += 1
+                    continue
                 if supersede_noncurrent and (
                     not active_refs_present
-                    or not _callback_record_matches_refs(
-                        record,
-                        packet_ref=normalized_active_packet_ref,
-                        staged_artifact_ref=normalized_active_artifact_ref,
-                    )
+                    or not matches_active_refs
                 ):
                     _mark_callback_record_superseded(candidate, record, superseded_at=observed_at)
                     superseded_count += 1
@@ -591,6 +600,7 @@ def _approval_callback_principal_candidates(
         for env_name in (
             "EA_PROACTIVE_OODA_PRINCIPAL_ID",
             "EA_TELEGRAM_DEFAULT_PRINCIPAL_ID",
+            "EA_GOOGLE_DEFAULT_PRINCIPAL_ID",
             "EA_DEFAULT_PRINCIPAL_ID",
         ):
             candidate = str(os.getenv(env_name) or "").strip()
@@ -598,6 +608,24 @@ def _approval_callback_principal_candidates(
                 principal_ids.append(candidate)
     if not principal_ids:
         return ()
+    if container is not None:
+        try:
+            binding_principal_ids = tuple(
+                google_oauth_service._google_binding_principal_ids(
+                    container=container,
+                    principal_id=normalized_principal_id or principal_ids[0],
+                )
+            )
+        except Exception:
+            binding_principal_ids = ()
+        for candidate in binding_principal_ids:
+            normalized = str(candidate or "").strip()
+            if not normalized:
+                continue
+            if normalized == "local-user" and "local-user" not in principal_ids:
+                continue
+            if normalized not in principal_ids:
+                principal_ids.append(normalized)
     if container is None:
         return tuple(principal_ids)
     try:
@@ -2007,21 +2035,97 @@ def _current_runtime_packet_refs(
     stage_packet_dir: str | Path,
     safe_work_result_dir: str | Path,
 ) -> tuple[str, str]:
+    bundles: list[dict[str, Any]] = []
     try:
-        bundle = load_runtime_artifact_bundle(
+        bundles.append(
+            load_runtime_artifact_bundle(
+                root=root,
+                state_path=state_path,
+                receipt_path=receipt_path,
+                stage_packet_dir=stage_packet_dir,
+                safe_work_result_dir=safe_work_result_dir,
+            )
+        )
+    except Exception:
+        return "", ""
+    try:
+        proof_bundle = load_runtime_artifact_bundle(
             root=root,
             state_path=state_path,
             receipt_path=receipt_path,
             stage_packet_dir=stage_packet_dir,
             safe_work_result_dir=safe_work_result_dir,
+            prefer_browse_backed_delivery=True,
         )
     except Exception:
-        return "", ""
+        proof_bundle = {}
+    if proof_bundle:
+        proof_refs = _bundle_packet_refs(proof_bundle)
+        if proof_refs and all(proof_refs) and proof_refs != _bundle_packet_refs(bundles[0]):
+            bundles.append(proof_bundle)
+    for bundle in bundles:
+        candidate_refs = _assistant_grade_user_approval_refs(bundle)
+        if candidate_refs:
+            return candidate_refs
+    return "", ""
+
+
+def _assistant_grade_user_approval_refs(bundle: dict[str, Any]) -> tuple[str, str]:
     stage_packet = dict(bundle.get("stage_packet") or {})
     safe_work_result = dict(bundle.get("safe_work_result") or {})
-    current_packet_ref = str(stage_packet.get("packet_ref") or stage_packet.get("packet_id") or "").strip()
-    current_artifact_ref = _safe_work_result_ref_from_payload(safe_work_result)
-    return current_packet_ref, current_artifact_ref
+    packet_ref, artifact_ref = _bundle_packet_refs(bundle)
+    if not packet_ref or not artifact_ref:
+        return "", ""
+    if not _assistant_grade_packet(stage_packet=stage_packet, safe_work_result=safe_work_result):
+        return "", ""
+    if not current_packet_user_approval_surface(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    ):
+        return "", ""
+    return packet_ref, artifact_ref
+
+
+def _bundle_packet_refs(bundle: dict[str, Any]) -> tuple[str, str]:
+    stage_packet = dict(bundle.get("stage_packet") or {})
+    safe_work_result = dict(bundle.get("safe_work_result") or {})
+    return (
+        str(stage_packet.get("packet_ref") or stage_packet.get("packet_id") or "").strip(),
+        _safe_work_result_ref_from_payload(safe_work_result),
+    )
+
+
+def _assistant_grade_packet(
+    *,
+    stage_packet: dict[str, Any],
+    safe_work_result: dict[str, Any],
+) -> bool:
+    stage = dict(stage_packet.get("stage") or {})
+    stage_kind = str(stage.get("kind") or "").strip().lower()
+    work_type = _approval_request_work_type(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    )
+    return stage_kind not in _NON_ASSISTANT_GRADE_WORK_TYPES and work_type not in _NON_ASSISTANT_GRADE_WORK_TYPES
+
+
+def _approval_request_work_type(
+    *,
+    stage_packet: dict[str, Any],
+    safe_work_result: dict[str, Any],
+) -> str:
+    stage = dict(stage_packet.get("stage") or {})
+    payload = dict(stage.get("payload") or {})
+    safe_work_order = dict(stage_packet.get("safe_work_order") or {})
+    for value in (
+        safe_work_result.get("work_type"),
+        safe_work_order.get("work_type"),
+        payload.get("work_type"),
+    ):
+        text = str(value or "").strip().lower()
+        if text:
+            return text
+    return ""
 
 
 def _callback_record_matches_refs(

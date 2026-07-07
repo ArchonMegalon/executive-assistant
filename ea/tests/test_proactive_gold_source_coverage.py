@@ -162,6 +162,43 @@ def test_gold_operator_runtime_blocks_when_operator_status_receipt_is_stale_for_
     assert detail["next_action"] == "repair_proactive_operator_runtime_posture"
 
 
+def test_gold_operator_runtime_next_action_keeps_concrete_google_recovery_when_source_snapshot_is_stale(
+    monkeypatch: object,
+) -> None:
+    monkeypatch.setattr(gold_acceptance, "_git_head", lambda path=gold_acceptance.ROOT: "new-head")
+    monkeypatch.setattr(gold_acceptance, "_source_fingerprint", lambda path=gold_acceptance.ROOT: "new-fingerprint")
+
+    action = gold_acceptance._operator_runtime_next_action(  # noqa: SLF001
+        {
+            "status": "ready_with_recovery_action",
+            "reason": "google_workspace_signal_source_unhealthy:google_oauth_invalid_grant",
+            "next_action": "reauthorize_google_workspace_binding",
+            "source_git_head": "old-head",
+            "source_state_fingerprint": "old-fingerprint",
+        }
+    )
+
+    assert action == "reauthorize_google_workspace_binding"
+    assert gold_acceptance._next_action_surface_fields(action)["next_action_label"] == "Reconnect Google workspace"  # noqa: SLF001
+
+
+def test_gold_operator_runtime_next_action_uses_generic_repair_when_stale_snapshot_has_no_concrete_recovery(
+    monkeypatch: object,
+) -> None:
+    monkeypatch.setattr(gold_acceptance, "_git_head", lambda path=gold_acceptance.ROOT: "new-head")
+    monkeypatch.setattr(gold_acceptance, "_source_fingerprint", lambda path=gold_acceptance.ROOT: "new-fingerprint")
+
+    action = gold_acceptance._operator_runtime_next_action(  # noqa: SLF001
+        {
+            "status": "ready_with_live_receipt",
+            "source_git_head": "old-head",
+            "source_state_fingerprint": "old-fingerprint",
+        }
+    )
+
+    assert action == "repair_proactive_operator_runtime_posture"
+
+
 def test_gold_operator_runtime_accepts_operator_status_receipt_for_current_source() -> None:
     ready, detail = gold_acceptance._operator_status_source_posture(  # noqa: SLF001
         {
@@ -533,6 +570,47 @@ def test_operator_status_approval_capture_surface_blocks_duplicate_live_pending_
     assert surface["current_packet_duplicate_live_pending_count"] == 1
 
 
+def test_operator_status_approval_capture_surface_internal_action_is_not_recordable() -> None:
+    surface = operator_status_receipt._approval_capture_surface(  # noqa: SLF001
+        report={
+            "delivery_route": {"ready": True, "selected_channel": "telegram"},
+            "stage_packets": {"ready": True},
+            "safe_work_results": {"ready": True},
+        },
+        artifact_probe={
+            "approval_outcome_path": str(ROOT / "state" / "proactive_ooda_latest_approval_outcome.generated.json"),
+            "approval_callback_dir": str(ROOT / "state" / "proactive_ooda_approval_callbacks"),
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "current_packet_callback_record_count": 0,
+            "current_packet_callback_pending_count": 0,
+            "current_packet_live_callback_record_count": 0,
+            "current_packet_live_pending_count": 0,
+            "current_packet_callback_latest_status": "superseded",
+            "current_packet": {"present": True, "status": "internal_action"},
+            "stage_packet": {
+                "packet_ref": "stage_packet:google-setup",
+                "approval": {"required": True},
+                "stage": {"kind": "internal_action", "payload": {"work_type": "record_internal_action"}},
+            },
+            "safe_work_result": {
+                "result_ref": "safe_work_result:google-setup",
+                "status": "staged_for_user_decision",
+                "work_type": "record_internal_action",
+                "approval": {"required": True},
+                "approval_prompt": "Retry Google auth",
+                "staged_action_url": "https://myexternalbrain.com/integrations/google",
+            },
+            "source": "unit_test",
+        },
+    )
+
+    assert surface["current_packet_approval_request_recordable"] is False
+    assert surface["current_packet_user_action_required"] is False
+    assert surface["manual_outcome_capture_ready"] is False
+    assert surface["telegram_approval_surface_ready"] is False
+
+
 def test_gold_approval_capture_surface_blocks_duplicate_live_pending_callbacks() -> None:
     surface, ready = gold_acceptance._approval_capture_surface_receipt(  # noqa: SLF001
         operator_status={
@@ -575,6 +653,54 @@ def test_gold_approval_capture_surface_blocks_duplicate_live_pending_callbacks()
     assert surface["telegram_approval_surface_ready"] is False
     assert surface["duplicate_live_pending_callbacks_present"] is True
     assert surface["current_packet_duplicate_live_pending_count"] == 1
+
+
+def test_gold_approval_capture_surface_internal_action_is_not_recordable() -> None:
+    surface, ready = gold_acceptance._approval_capture_surface_receipt(  # noqa: SLF001
+        operator_status={
+            "approval_capture_surface": {
+                "selected_channel": "telegram",
+                "callback_dir_exists": True,
+                "callback_record_count": 23,
+                "callback_pending_count": 0,
+                "callback_recorded_count": 3,
+                "current_packet_present": True,
+                "current_packet_status": "internal_action",
+                "current_packet_approval_request_recordable": True,
+                "current_packet_user_action_required": False,
+                "telegram_approval_surface_ready": False,
+                "manual_outcome_capture_ready": False,
+            },
+        },
+        bundle={
+            "approval_callback_dir": ROOT / "state" / "proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 23,
+            "approval_callback_pending_count": 0,
+            "stage_packet": {
+                "packet_ref": "stage_packet:google-setup",
+                "approval": {"required": True},
+                "stage": {"kind": "internal_action", "payload": {"work_type": "record_internal_action"}},
+            },
+            "safe_work_result": {
+                "result_ref": "safe_work_result:google-setup",
+                "status": "staged_for_user_decision",
+                "work_type": "record_internal_action",
+                "approval": {"required": True},
+                "approval_prompt": "Retry Google auth",
+                "staged_action_url": "https://myexternalbrain.com/integrations/google",
+            },
+        },
+        approval_outcome_path=ROOT / "state" / "proactive_ooda_latest_approval_outcome.generated.json",
+        used_live_runtime_probe=True,
+    )
+
+    assert ready is False
+    assert surface["current_packet_approval_request_recordable"] is False
+    assert surface["current_packet_user_action_required"] is False
+    assert surface["manual_outcome_capture_ready"] is False
+    assert surface["telegram_approval_surface_ready"] is False
 
 
 def test_gold_approval_capture_surface_fails_closed_when_operator_current_packet_hashes_do_not_match_bundle() -> None:
@@ -683,6 +809,7 @@ def test_gold_next_action_uses_manual_outcome_capture_when_live_surface_targets_
         staged_present=True,
         teable_present=True,
         approval_capture_readiness_present=False,
+        approval_capture_readiness_ready=True,
         approval_row={"approval_outcome_recorded": False, "accepted": False},
         approval_capture_surface_ready=False,
         approval_capture_telegram_ready=True,
@@ -691,6 +818,60 @@ def test_gold_next_action_uses_manual_outcome_capture_when_live_surface_targets_
     )
 
     assert action == "record_proactive_ooda_approval_outcome"
+
+
+def test_gold_next_action_uses_operator_recovery_when_current_packet_has_no_approval_to_capture() -> None:
+    action = gold_acceptance._next_action(  # noqa: SLF001
+        operator_runtime_ready=True,
+        operator_status={
+            "status": "ready_with_recovery_action",
+            "reason": "source_health_google_workspace:google_oauth_invalid_grant",
+            "next_action": "reauthorize_google_workspace_binding",
+        },
+        delivery_present=True,
+        action_required_delivery_present=True,
+        assistant_grade_present=True,
+        browser_action_contract_present=True,
+        browse_present=True,
+        chosen_present=True,
+        staged_present=True,
+        teable_present=True,
+        approval_capture_readiness_present=True,
+        approval_capture_readiness_ready=False,
+        approval_capture_required=False,
+        approval_row={"approval_outcome_recorded": False, "accepted": False},
+        approval_capture_surface_ready=False,
+        approval_capture_telegram_ready=False,
+        approval_capture_manual_ready=False,
+        approval_capture_surface_matches_packet_artifacts=False,
+    )
+
+    assert action == "reauthorize_google_workspace_binding"
+
+
+def test_gold_next_action_stages_fresh_packet_when_current_packet_has_no_approval_to_capture() -> None:
+    action = gold_acceptance._next_action(  # noqa: SLF001
+        operator_runtime_ready=True,
+        operator_status={},
+        delivery_present=True,
+        action_required_delivery_present=True,
+        assistant_grade_present=True,
+        browser_action_contract_present=True,
+        browse_present=True,
+        chosen_present=True,
+        staged_present=True,
+        teable_present=True,
+        approval_capture_readiness_present=True,
+        approval_capture_readiness_ready=False,
+        approval_capture_required=False,
+        approval_row={"approval_outcome_recorded": False, "accepted": False},
+        approval_capture_surface_ready=False,
+        approval_capture_telegram_ready=False,
+        approval_capture_manual_ready=False,
+        approval_capture_surface_matches_packet_artifacts=False,
+    )
+
+    assert action == "stage_fresh_assistant_grade_proactive_packet"
 
 
 def test_gold_verifier_blocks_linked_operator_status_that_is_stale_for_current_source(tmp_path: Path) -> None:
@@ -814,6 +995,62 @@ def test_historical_accepted_bundle_lookup_finds_matching_artifacts(tmp_path: Pa
     assert bundle["run_receipt"]["notification_status"] == "sent"
 
 
+def test_historical_accepted_bundle_lookup_uses_snapshot_when_artifacts_rotated_away() -> None:
+    stage_packet = {
+        "packet_ref": "stage_packet:historical-snapshot",
+        "generated_at": "2026-07-02T11:39:32Z",
+        "stage": {"kind": "research_packet", "payload": {"work_type": "compare_options"}},
+        "safe_work_order": {"work_type": "compare_options"},
+    }
+    safe_work_result = {
+        "result_ref": "safe_work_result:historical-snapshot",
+        "generated_at": "2026-07-02T11:39:33Z",
+        "status": "staged_for_user_decision",
+        "work_type": "compare_options",
+        "audit": {"status": "pass", "issues": []},
+        "recommended_option_or_draft": {"kind": "shortlist_candidate", "value": {"label": "Snapshot candidate"}},
+        "shortlist": [{"label": "Snapshot candidate"}],
+    }
+    run_receipt = {
+        "generated_at": "2026-07-02T11:39:32Z",
+        "notification_status": "sent",
+        "item_count": 1,
+        "stage_packet_ref_hashes": [gold_acceptance._hash_value(stage_packet["packet_ref"])],  # noqa: SLF001
+        "safe_work_result_ref_hashes": [gold_acceptance._hash_value(safe_work_result["result_ref"])],  # noqa: SLF001
+    }
+    approval_row = {
+        "approval_outcome_recorded": True,
+        "accepted": True,
+        "packet_ref_sha256": gold_acceptance._hash_value(stage_packet["packet_ref"]),  # noqa: SLF001
+        "staged_artifact_sha256": gold_acceptance._hash_value(safe_work_result["result_ref"]),  # noqa: SLF001
+        "bundle_snapshot": {
+            "present": True,
+            "schema": "ea.proactive_ooda.approved_bundle_snapshot.v1",
+            "source": "approval_record_time_runtime_bundle",
+            "recorded_at": "2026-07-02T15:20:09Z",
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/historical-run.json",
+            "run_receipt": run_receipt,
+            "stage_packet_path": "/data/provider-ledger/proactive_ooda_stage_packets/historical-stage.json",
+            "stage_packet": gold_acceptance._redact_snapshot_bundle_refs(stage_packet),  # noqa: SLF001
+            "safe_work_result_path": "/data/provider-ledger/proactive_ooda_safe_work_results/historical-safe.json",
+            "safe_work_result": gold_acceptance._redact_snapshot_bundle_refs(safe_work_result),  # noqa: SLF001
+        },
+    }
+
+    bundle = gold_acceptance._historical_accepted_bundle_from_approval_outcome(  # noqa: SLF001
+        approval_row=approval_row,
+        run_receipt_path=Path("/data/provider-ledger/proactive_ooda_latest_run.generated.json"),
+        stage_packet_dir=Path("/data/provider-ledger/proactive_ooda_stage_packets"),
+        safe_work_result_dir=Path("/data/provider-ledger/proactive_ooda_safe_work_results"),
+    )
+
+    assert bundle["selection_source"] == "historical_accepted_approval_outcome"
+    assert str(bundle["run_receipt_path"]).endswith("historical-run.json")
+    assert bundle["stage_packet"]["packet_ref_sha256"] == gold_acceptance._hash_value(stage_packet["packet_ref"])  # noqa: SLF001
+    assert bundle["safe_work_result"]["result_ref_sha256"] == gold_acceptance._hash_value(safe_work_result["result_ref"])  # noqa: SLF001
+    assert bundle["run_receipt"]["notification_status"] == "sent"
+
+
 def test_live_historical_accepted_bundle_lookup_uses_docker_compose_exec_for_container_only_paths(
     monkeypatch: object,
 ) -> None:
@@ -894,17 +1131,19 @@ def test_materializer_prefers_historical_accepted_bundle_when_current_packet_is_
         "generated_at": "2026-07-02T11:39:32Z",
         "approval": {"required": True},
         "safe_work_order": {
-            "work_type": "record_internal_action",
+            "work_type": "compare_options",
             "handoff_policy": {
                 "safe_to_execute_before_approval": True,
                 "external_actions_remain_staged_only": True,
             },
         },
         "stage": {
-            "kind": "internal_action",
+            "kind": "research_packet",
             "payload": {
-                "work_type": "record_internal_action",
-                "request_text": "Record the weekly review outcome.",
+                "work_type": "compare_options",
+                "request_text": "Find a shortlist of electricians for a new outlet near the AC vent in 1200 Wien.",
+                "research_query": "Elektriker 1200 Wien neue Steckdose Klimageraet",
+                "search_queries": ["Elektriker 1200 Wien neue Steckdose Klimageraet"],
             },
         },
     }
@@ -912,28 +1151,35 @@ def test_materializer_prefers_historical_accepted_bundle_when_current_packet_is_
         "result_ref": "safe_work_result:historical-safe",
         "generated_at": "2026-07-02T11:39:33Z",
         "status": "staged_for_user_decision",
-        "work_type": "record_internal_action",
+        "work_type": "compare_options",
         "approval": {"required": True},
         "audit": {"status": "pass", "issues": []},
         "browser_action_receipt": {},
         "execution_receipt": {
-            "network_fetch_count": 0,
-            "network_fetch_success_count": 0,
-            "page_checks": [],
+            "network_fetch_count": 2,
+            "network_fetch_success_count": 2,
+            "page_checks": [
+                {"url": "https://elektriker.example.test/a", "reachable": True},
+                {"url": "https://elektriker.example.test/b", "reachable": True},
+            ],
             "irreversible_actions_attempted": [],
-            "search_candidate_count": 0,
-            "search_queries_used": [],
-            "research_search_plan": {"mode": "internal_action_surface"},
+            "search_candidate_count": 2,
+            "search_queries_used": ["Elektriker 1200 Wien neue Steckdose Klimageraet"],
+            "research_search_plan": {"mode": "web_search"},
         },
         "recommended_option_or_draft": {
-            "kind": "internal_action",
+            "kind": "shortlist_candidate",
             "value": {
-                "label": "Record outcome",
-                "url": "https://example.test/actions/review",
+                "label": "Elektriker Musterbetrieb",
+                "url": "https://elektriker.example.test/a",
+                "source": "business_listing",
             },
         },
-        "shortlist": [],
-        "staged_action_url": "https://example.test/actions/review",
+        "shortlist": [
+            {"label": "Elektriker Musterbetrieb", "url": "https://elektriker.example.test/a"},
+            {"label": "Wien Elektro Team", "url": "https://elektriker.example.test/b"},
+        ],
+        "staged_action_url": "https://elektriker.example.test/a",
     }
     historical_stage_path = stage_dir / "historical-stage.json"
     historical_safe_path = safe_dir / "historical-safe.json"
@@ -1249,17 +1495,19 @@ def test_materializer_prefers_live_historical_bundle_when_current_paths_are_cont
                 "packet_ref": "stage_packet:historical-packet",
                 "approval": {"required": True},
                 "safe_work_order": {
-                    "work_type": "record_internal_action",
+                    "work_type": "compare_options",
                     "handoff_policy": {
                         "safe_to_execute_before_approval": True,
                         "external_actions_remain_staged_only": True,
                     },
                 },
                 "stage": {
-                    "kind": "internal_action",
+                    "kind": "research_packet",
                     "payload": {
-                        "work_type": "record_internal_action",
-                        "request_text": "Record the weekly review outcome.",
+                        "work_type": "compare_options",
+                        "request_text": "Find a shortlist of electricians for a new outlet near the AC vent in 1200 Wien.",
+                        "research_query": "Elektriker 1200 Wien neue Steckdose Klimageraet",
+                        "search_queries": ["Elektriker 1200 Wien neue Steckdose Klimageraet"],
                     },
                 },
             },
@@ -1267,25 +1515,35 @@ def test_materializer_prefers_live_historical_bundle_when_current_paths_are_cont
             "safe_work_result": {
                 "result_ref": "safe_work_result:historical-safe",
                 "status": "staged_for_user_decision",
-                "work_type": "record_internal_action",
+                "work_type": "compare_options",
                 "approval": {"required": True},
                 "audit": {"status": "pass", "issues": []},
                 "browser_action_receipt": {},
                 "execution_receipt": {
-                    "network_fetch_count": 0,
-                    "network_fetch_success_count": 0,
-                    "page_checks": [],
+                    "network_fetch_count": 2,
+                    "network_fetch_success_count": 2,
+                    "page_checks": [
+                        {"url": "https://elektriker.example.test/a", "reachable": True},
+                        {"url": "https://elektriker.example.test/b", "reachable": True},
+                    ],
                     "irreversible_actions_attempted": [],
-                    "search_candidate_count": 0,
-                    "search_queries_used": [],
-                    "research_search_plan": {"mode": "internal_action_surface"},
+                    "search_candidate_count": 2,
+                    "search_queries_used": ["Elektriker 1200 Wien neue Steckdose Klimageraet"],
+                    "research_search_plan": {"mode": "web_search"},
                 },
                 "recommended_option_or_draft": {
-                    "kind": "internal_action",
-                    "value": {"label": "Record outcome", "url": "https://example.test/actions/review"},
+                    "kind": "shortlist_candidate",
+                    "value": {
+                        "label": "Elektriker Musterbetrieb",
+                        "url": "https://elektriker.example.test/a",
+                        "source": "business_listing",
+                    },
                 },
-                "shortlist": [],
-                "staged_action_url": "https://example.test/actions/review",
+                "shortlist": [
+                    {"label": "Elektriker Musterbetrieb", "url": "https://elektriker.example.test/a"},
+                    {"label": "Wien Elektro Team", "url": "https://elektriker.example.test/b"},
+                ],
+                "staged_action_url": "https://elektriker.example.test/a",
             },
             "selection_source": "historical_accepted_approval_outcome",
         },

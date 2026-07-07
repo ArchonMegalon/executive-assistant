@@ -48,7 +48,7 @@ def test_scheduler_property_scout_stays_disabled_without_assistant_property_lane
     assert runner._scheduler_property_scout_enabled() is False
 
 
-def test_scheduler_property_scout_enabled_only_with_boundary_and_flags(monkeypatch: object) -> None:
+def test_scheduler_property_scout_stays_disabled_even_with_legacy_property_flags(monkeypatch: object) -> None:
     monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
     monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "PROPERTY")
     monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
@@ -57,7 +57,7 @@ def test_scheduler_property_scout_enabled_only_with_boundary_and_flags(monkeypat
     monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
     monkeypatch.setenv("EA_SCHEDULER_PROPERTY_SCOUT_ENABLED", "1")
 
-    assert runner._scheduler_property_scout_enabled() is True
+    assert runner._scheduler_property_scout_enabled() is False
 
 
 def test_scheduler_property_scout_disabled_when_flat_search_is_disallowed(monkeypatch: object) -> None:
@@ -159,11 +159,31 @@ def test_start_property_search_run_is_blocked_when_flat_search_disabled(monkeypa
     assert "Flat-search feature is disabled" in str(payload.get("message") or "")
 
 
-def test_assistant_property_boundary_cleanup_skips_when_lane_enabled(monkeypatch: object) -> None:
+def test_assistant_property_boundary_cleanup_runs_even_when_legacy_property_flags_exist(monkeypatch: object) -> None:
+    import app.product.service as product_service_module
+    import app.services.assistant_property_boundary_cleanup as cleanup_module
+
     monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
     monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "PROPERTY")
     monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
     monkeypatch.setenv("PROPERTYQUARRY_SCHEDULER_PROFILE", "property")
+    monkeypatch.setattr(
+        cleanup_module,
+        "cleanup_hidden_property_runtime_state",
+        lambda **kwargs: {
+            "archived_total": 0,
+            "stage_packet_total": 0,
+            "safe_work_result_total": 0,
+            "approval_callback_total": 0,
+        },
+    )
+    monkeypatch.setattr(
+        product_service_module,
+        "build_product_service",
+        lambda container: SimpleNamespace(
+            cleanup_hidden_property_tasks=lambda **kwargs: {"closed_total": 0, "skipped_total": 0}
+        ),
+    )
 
     container = SimpleNamespace(
         settings=SimpleNamespace(auth=SimpleNamespace(default_principal_id="principal-1")),
@@ -172,8 +192,8 @@ def test_assistant_property_boundary_cleanup_skips_when_lane_enabled(monkeypatch
 
     result = runner._run_scheduler_assistant_property_boundary_cleanup(container, logging.getLogger("test"))
 
-    assert result["ran"] is False
-    assert result["reason"] == "assistant_property_lane_enabled"
+    assert result["ran"] is True
+    assert result["reason"] == ""
 
 
 def test_assistant_property_boundary_cleanup_archives_runtime_and_closes_hidden_tasks(monkeypatch: object) -> None:

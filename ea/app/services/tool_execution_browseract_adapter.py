@@ -3081,6 +3081,91 @@ class BrowserActToolAdapter:
             },
         }
 
+    @classmethod
+    def _amazon_login_surface_state(
+        cls,
+        *,
+        response: dict[str, object],
+        current_url: str,
+        title: str,
+        body_text: str,
+    ) -> dict[str, object]:
+        render_status = str(response.get("render_status") or "").strip().lower()
+        normalized_url = str(current_url or "").strip().lower()
+        fragments = _collect_text_fragments(
+            {
+                "title": title,
+                "url": current_url,
+                "body_text": body_text,
+                "labels": response.get("labels"),
+                "buttons": response.get("buttons"),
+                "links": response.get("links"),
+                "extracts": response.get("extracts"),
+            }
+        )
+        if _has_marker(
+            fragments,
+            (
+                "passkey",
+                "webauthn",
+                "security key",
+                "sicherheitsschlussel",
+                "sicherheitsschluessel",
+                "sicherheitsschlüssel",
+            ),
+        ):
+            return {
+                "login_state": "passkey_required",
+                "blocker_code": "passkey_required",
+                "user_action_required": True,
+            }
+        if (
+            "/ap/mfa" in normalized_url
+            or _has_marker(
+                fragments,
+                (
+                    "zwei-schritt-verifizierung",
+                    "für zusätzliche sicherheit",
+                    "fur zusatzliche sicherheit",
+                    "two-step verification",
+                    "two-step-verification",
+                    "two factor authentication",
+                    "verification code",
+                    "security code",
+                    "code eingeben",
+                    "otp senden",
+                    "whatsapp",
+                ),
+            )
+        ):
+            return {
+                "login_state": "mfa_required",
+                "blocker_code": "mfa_code_required",
+                "user_action_required": True,
+            }
+        if render_status in {"auth_handoff_required", "challenge_required", "session_expired"}:
+            blocker_code = "session_expired" if render_status == "session_expired" else "challenge_required"
+            return {
+                "login_state": "challenge_required",
+                "blocker_code": blocker_code,
+                "user_action_required": True,
+            }
+        if (
+            cls._looks_like_turnstile(response)
+            or cls._looks_like_cloudflare_challenge(response)
+            or cls._looks_like_chatgpt_human_verification(response)
+        ):
+            return {
+                "login_state": "challenge_required",
+                "blocker_code": "challenge_required",
+                "user_action_required": True,
+            }
+        return {
+            "login_state": "authenticated",
+            "blocker_code": "",
+            "user_action_required": False,
+        }
+
     def execute_amazon_login(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
         principal_id = self._resolve_principal_id(request, payload)
@@ -3143,6 +3228,12 @@ class BrowserActToolAdapter:
         render_status = str(response.get("render_status") or "completed").strip() or "completed"
         body_text = str(response.get("bodyText") or response.get("outputText") or "").strip()
         action_kind = str(request.action_kind or "account.login") or "account.login"
+        surface_state = self._amazon_login_surface_state(
+            response=response,
+            current_url=current_url,
+            title=title,
+            body_text=body_text,
+        )
         structured_output_json = {
             "title": title or None,
             "url": current_url or None,
@@ -3163,7 +3254,9 @@ class BrowserActToolAdapter:
                 "action_kind": action_kind,
                 "provider_backend": "amazon_browseract_template",
                 "render_status": render_status,
-                "login_state": "authenticated",
+                "login_state": surface_state["login_state"],
+                "user_action_required": bool(surface_state["user_action_required"]),
+                "blocker_code": str(surface_state["blocker_code"] or ""),
                 "requested_url": str(response.get("requested_url") or f"browseract-template://{service.template_key}").strip(),
                 "editor_url": current_url or account_url or login_url,
                 "title": title or None,
@@ -3182,6 +3275,9 @@ class BrowserActToolAdapter:
                 "auth_mode": "secret_file_or_inline",
                 "login_email_present": bool(login_email),
                 "password_present": bool(login_password),
+                "login_state": surface_state["login_state"],
+                "user_action_required": bool(surface_state["user_action_required"]),
+                "blocker_code": str(surface_state["blocker_code"] or ""),
                 "requested_login_url": login_url,
                 "requested_account_url": account_url or "",
                 "tool_version": definition.version,
@@ -5228,7 +5324,7 @@ class BrowserActToolAdapter:
             current_spec=current_spec if isinstance(current_spec, dict) else {},
             scaffold=scaffold,
         )
-        envelope, model = self._run_gemini_repair_prompt(repair_prompt)
+        envelope, model, repair_source = self._run_repair_prompt(repair_prompt)
         packet = self._normalize_workflow_repair_packet(
             envelope,
             workflow_name=workflow_name,
@@ -5236,6 +5332,7 @@ class BrowserActToolAdapter:
             scaffold=scaffold,
             failure_summary=failure_summary,
             failure_goals=failure_goals,
+            repair_source=repair_source,
         )
         slug = str((((packet.get("workflow_spec") or {}).get("meta") or {}).get("slug")) or self._slugify(workflow_name))
         normalized_text = "\n".join(
@@ -5672,6 +5769,19 @@ class BrowserActToolAdapter:
         except Exception:
             return 180
 
+    def _repair_requested_model(self) -> str:
+        from app.services.brain_catalog import ONEMIN_PUBLIC_MODEL
+
+        configured = str(os.environ.get("EA_BROWSERACT_REPAIR_REQUESTED_MODEL") or "").strip()
+        return configured or ONEMIN_PUBLIC_MODEL
+
+    def _repair_max_output_tokens(self) -> int:
+        raw = str(os.environ.get("EA_BROWSERACT_REPAIR_MAX_OUTPUT_TOKENS") or "2400").strip() or "2400"
+        try:
+            return max(256, min(8192, int(raw)))
+        except Exception:
+            return 2400
+
     def _strip_fences(self, text: str) -> str:
         raw = str(text or "").strip()
         if raw.startswith("```"):
@@ -5679,6 +5789,49 @@ class BrowserActToolAdapter:
         if raw.endswith("```"):
             raw = raw[:-3].strip()
         return raw
+
+    def _run_upstream_repair_prompt(self, prompt: str) -> tuple[dict[str, object], str, str]:
+        from app.services import responses_upstream as upstream
+
+        requested_model = self._repair_requested_model()
+        try:
+            result = upstream.generate_text(
+                prompt=prompt,
+                requested_model=requested_model,
+                max_output_tokens=self._repair_max_output_tokens(),
+                chatplayground_audit_principal_id="browseract_workflow_repair",
+            )
+        except upstream.ResponsesUpstreamError as exc:
+            detail = str(exc).strip() or "upstream_repair_prompt_failed"
+            raise ToolExecutionError(f"upstream_repair_prompt_failed:{detail[:400]}") from exc
+
+        provider_key = str(result.provider_key or "").strip() or "upstream"
+        raw = self._strip_fences(str(result.text or ""))
+        if not raw:
+            raise ToolExecutionError(f"{provider_key}_empty_output:browseract.repair_workflow_spec")
+        try:
+            loaded = json.loads(raw)
+        except Exception as exc:
+            raise ToolExecutionError(f"{provider_key}_non_json:browseract.repair_workflow_spec") from exc
+        if not isinstance(loaded, dict):
+            raise ToolExecutionError(f"{provider_key}_non_object:browseract.repair_workflow_spec")
+        return loaded, str(result.model or requested_model or "").strip(), provider_key
+
+    def _run_repair_prompt(self, prompt: str) -> tuple[dict[str, object], str, str]:
+        primary_failure = ""
+        try:
+            return self._run_upstream_repair_prompt(prompt)
+        except ToolExecutionError as exc:
+            primary_failure = str(exc).strip()
+
+        try:
+            envelope, model = self._run_gemini_repair_prompt(prompt)
+            return envelope, model, "gemini_vortex"
+        except ToolExecutionError as exc:
+            if primary_failure:
+                detail = f"{str(exc).strip()} | onemin_primary_failed:{primary_failure[:240]}"
+                raise ToolExecutionError(detail) from exc
+            raise
 
     def _run_gemini_repair_prompt(self, prompt: str) -> tuple[dict[str, object], str]:
         model = self._gemini_model()
@@ -5798,6 +5951,7 @@ class BrowserActToolAdapter:
         scaffold: dict[str, object],
         failure_summary: str,
         failure_goals: list[str],
+        repair_source: str,
     ) -> dict[str, object]:
         packet = dict(raw)
         diagnosis = str(packet.get("diagnosis") or failure_summary).strip() or failure_summary
@@ -5824,7 +5978,7 @@ class BrowserActToolAdapter:
         meta["repair_failure_summary"] = failure_summary
         meta["repair_failure_goals"] = failure_goals
         meta["repair_generated_at"] = now_utc_iso()
-        meta["repair_source"] = "gemini_vortex"
+        meta["repair_source"] = str(repair_source or "gemini_vortex").strip() or "gemini_vortex"
         spec["meta"] = meta
         return {
             "diagnosis": diagnosis,

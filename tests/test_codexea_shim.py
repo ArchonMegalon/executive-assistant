@@ -37,9 +37,11 @@ def _fake_codex(tmp_path: Path) -> Path:
                 "  'EA_API_TOKEN',",
                 "  'EA_MCP_API_TOKEN',",
                 "  'EA_BASE_URL',",
+                "  'EA_MCP_MODEL',",
                 "  'EA_MCP_BASE_URL',",
                 "  'EA_PRINCIPAL_ID',",
                 "  'EA_MCP_PRINCIPAL_ID',",
+                "  'CODEXEA_MODEL_STACK',",
                 "  'CODEXEA_ORIGINAL_CWD',",
                 "  'CODEXEA_REPO_ROOT',",
                 "  'HOME',",
@@ -80,6 +82,7 @@ def _run_shim(
             "EA_API_TOKEN",
             "EA_MCP_API_TOKEN",
             "EA_BASE_URL",
+            "EA_MCP_MODEL",
             "EA_MCP_BASE_URL",
             "CODEXEA_STATUS_URL",
             "CODEXEA_PROFILES_URL",
@@ -98,6 +101,7 @@ def _run_shim(
             "CODEXEA_MODELS_CACHE_PATH",
             "CODEXEA_BOOTSTRAP",
             "CODEXEA_BOOTSTRAP_PROMPT_FILE",
+            "CODEXEA_MODE",
             "CODEXEA_MODEL",
             "CODEXEA_WORKER_MODEL",
             "CODEXEA_IMPLEMENT_MODEL",
@@ -105,6 +109,8 @@ def _run_shim(
             "CODEXEA_CORE_MODEL",
             "CODEXEA_REPAIR_MODEL",
             "CODEXEA_EASY_MODEL",
+            "CODEXEA_EASY_MCP_MODEL",
+            "CODEXEA_EASY_SUBMODE",
             "CODEXEA_GROUNDWORK_MODEL",
             "CODEXEA_REVIEW_LIGHT_MODEL",
             "CODEXEA_JURY_MODEL",
@@ -183,6 +189,7 @@ def _run_shim_stdout(tmp_path: Path, *args: str, extra_env: dict[str, str] | Non
             "CODEXEA_MODELS_CACHE_PATH",
             "CODEXEA_BOOTSTRAP",
             "CODEXEA_BOOTSTRAP_PROMPT_FILE",
+            "CODEXEA_MODE",
             "CODEXEA_MODEL",
             "CODEXEA_WORKER_MODEL",
             "CODEXEA_IMPLEMENT_MODEL",
@@ -190,6 +197,8 @@ def _run_shim_stdout(tmp_path: Path, *args: str, extra_env: dict[str, str] | Non
             "CODEXEA_CORE_MODEL",
             "CODEXEA_REPAIR_MODEL",
             "CODEXEA_EASY_MODEL",
+            "CODEXEA_EASY_MCP_MODEL",
+            "CODEXEA_EASY_SUBMODE",
             "CODEXEA_GROUNDWORK_MODEL",
             "CODEXEA_REVIEW_LIGHT_MODEL",
             "CODEXEA_JURY_MODEL",
@@ -2646,6 +2655,86 @@ def test_interactive_flag_prompt_inherits_wait_bootstrap_without_contract(tmp_pa
     assert "You are running under the CodexEA worker contract." not in rendered_args
 
 
+def test_easy_lane_defaults_to_ea_fast_route_instead_of_explicit_gemini(tmp_path: Path) -> None:
+    result = _run_shim(
+        tmp_path,
+        "easy",
+        "Summarize the latest queue",
+    )
+
+    rendered_args = "\n".join(str(arg) for arg in result["argv"])
+    assert result["launch_receipt"]["mode"] == "responses"
+    assert result["launch_receipt"]["provider"] == "ea"
+    assert result["launch_receipt"]["submode"] == "responses_fast"
+    assert result["launch_receipt"]["model"] == "ea-coder-fast"
+    assert 'model="ea-coder-fast"' in rendered_args
+    assert 'model_provider="ea"' in rendered_args
+    assert '"X-EA-Codex-Profile"="easy"' in rendered_args
+
+
+def test_easy_lane_mcp_escape_hatch_inherits_onemin_default_model(tmp_path: Path) -> None:
+    result = _run_shim(
+        tmp_path,
+        "easy",
+        "Summarize the latest queue without the EA responses lane",
+        extra_env={"CODEXEA_MODE": "mcp", "CODEXEA_ALLOW_EASY_MODE_OVERRIDE": "1"},
+    )
+
+    argv = result["argv"]
+    rendered_args = "\n".join(str(arg) for arg in argv)
+    env = result["env"]
+    assert result["launch_receipt"]["mode"] == "mcp"
+    assert result["launch_receipt"]["provider"] == "mcp"
+    assert result["launch_receipt"]["submode"] == "mcp"
+    assert result["launch_receipt"]["model"] == "ChatGPT 5.5 (1min.ai)"
+    assert env["EA_MCP_MODEL"] == "ChatGPT 5.5 (1min.ai)"
+    assert 'model="ChatGPT 5.5 (1min.ai)"' in rendered_args
+    assert 'model_provider="ea"' not in rendered_args
+    assert "exec" in argv
+
+
+def test_groundwork_lane_defaults_to_provider_neutral_groundwork_alias(tmp_path: Path) -> None:
+    result = _run_shim(
+        tmp_path,
+        "groundwork",
+        "Draft a compact groundwork brief",
+    )
+
+    rendered_args = "\n".join(str(arg) for arg in result["argv"])
+    assert 'model="ea-groundwork"' in rendered_args
+    assert '"X-EA-Codex-Profile"="groundwork"' in rendered_args
+
+
+def test_review_light_lane_launch_stack_keeps_chatplayground_ahead_of_gemini(tmp_path: Path) -> None:
+    result = _run_shim(
+        tmp_path,
+        "review_light",
+        "Audit the proposed patch",
+    )
+
+    model_stack = str(result["env"]["CODEXEA_MODEL_STACK"])
+    assert "codex:ea-review-light" in model_stack
+    assert "route:1min.ai:" in model_stack
+    assert "chatplayground" in model_stack
+    assert "gemini_vortex:" in model_stack
+    assert model_stack.index("chatplayground") < model_stack.index("gemini_vortex:")
+
+
+def test_survival_lane_launch_stack_keeps_chatplayground_ahead_of_gemini(tmp_path: Path) -> None:
+    result = _run_shim(
+        tmp_path,
+        "survival",
+        "Recover the session with maximum survivability",
+    )
+
+    model_stack = str(result["env"]["CODEXEA_MODEL_STACK"])
+    assert "codex:ea-coder-survival" in model_stack
+    assert "route:1min.ai:" in model_stack
+    assert "chatplayground" in model_stack
+    assert "gemini_vortex:" in model_stack
+    assert model_stack.index("chatplayground") < model_stack.index("gemini_vortex:")
+
+
 def test_resume_session_uses_interactive_terminal_defaults(tmp_path: Path) -> None:
     result = _run_shim(
         tmp_path,
@@ -2736,6 +2825,25 @@ def test_worker_lane_codex_default_model_uses_safe_ea_responses_default(tmp_path
     assert "exec" in argv
     assert '"lane": "worker"' in str(argv[-1])
     assert "Probe the route without forcing a model override." in str(argv[-1])
+
+
+def test_controller_lane_defaults_to_onemin_display_model(tmp_path: Path) -> None:
+    result = _run_shim(
+        tmp_path,
+        "controller",
+        "Coordinate the next coding slice",
+        extra_env={
+            "CODEXEA_CONTROLLER_MODEL": "",
+            "CODEXEA_CONTRACT_OBJECTIVE": "Coordinate the next coding slice.",
+        },
+    )
+
+    rendered_args = "\n".join(str(arg) for arg in result["argv"])
+    assert result["launch_receipt"]["mode"] == "responses"
+    assert result["launch_receipt"]["provider"] == "ea"
+    assert result["launch_receipt"]["model"] == "ChatGPT 5.5 (1min.ai)"
+    assert 'model="ChatGPT 5.5 (1min.ai)"' in rendered_args
+    assert '"X-EA-Codex-Profile"="audit"' in rendered_args
 
 
 def test_worker_lane_can_still_opt_into_mcp_mode_explicitly(tmp_path: Path) -> None:

@@ -99,7 +99,7 @@ def _verify_surface(
     }:
         if not href.endswith("/admin/proactive-ooda/approval"):
             issues.append(f"{prefix} approval-capture next_action_href must target /admin/proactive-ooda/approval")
-        if label != "Open approval capture":
+        if label != "Record packet verdict":
             issues.append(f"{prefix} approval-capture next_action_label drifted")
         if method != "get":
             issues.append(f"{prefix} approval-capture next_action_method must be get")
@@ -150,6 +150,21 @@ def _preferred_action_surface(*surfaces: dict[str, str]) -> dict[str, str]:
             if not str(selected.get(key) or "").strip():
                 selected[key] = str(fallback_same_action.get(key) or "").strip()
     return selected
+
+
+def _prefer_operator_runtime_surface_for_blocked_proactive_followthrough(
+    *,
+    gold_status: str,
+    gold_surface: dict[str, str],
+    operator_surface: dict[str, str],
+) -> bool:
+    if gold_status != "blocked_operator_runtime_posture":
+        return False
+    operator_action = str(operator_surface.get("next_action") or "").strip()
+    if not operator_action:
+        return False
+    gold_action = str(gold_surface.get("next_action") or "").strip()
+    return gold_action in {"", "repair_proactive_operator_runtime_posture"}
 
 
 def _google_workspace_requires_action(payload: dict[str, Any]) -> bool:
@@ -247,12 +262,18 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
     provider_cost_controls = dict(proactive_goal.get("provider_cost_controls") or {})
     if provider_cost_controls.get("background_work_primary_provider") != "onemin":
         issues.append("office_loop_provider_cost_control_background_provider_not_onemin")
+    if provider_cost_controls.get("background_work_route_authority") != "active_onemin_manager_when_usable":
+        issues.append("office_loop_provider_cost_control_background_route_authority_missing")
+    if provider_cost_controls.get("background_work_prefer_onemin_whenever_usable") is not True:
+        issues.append("office_loop_provider_cost_control_onemin_preference_missing")
     if provider_cost_controls.get("gemini_vertex_alias") != "gemini_vortex":
         issues.append("office_loop_provider_cost_control_gemini_alias_missing")
     if provider_cost_controls.get("gemini_token_tracking_required") is not True:
         issues.append("office_loop_provider_cost_control_gemini_token_tracking_not_required")
     if provider_cost_controls.get("gemini_soft_cap_required") is not True:
         issues.append("office_loop_provider_cost_control_gemini_soft_cap_not_required")
+    if provider_cost_controls.get("gemini_fallback_only_when_onemin_unavailable_or_explicit") is not True:
+        issues.append("office_loop_provider_cost_control_gemini_fallback_boundary_missing")
     if provider_cost_controls.get("explicit_gemini_requests_allowed") is not True:
         issues.append("office_loop_provider_cost_control_explicit_gemini_not_allowed")
     if (
@@ -269,10 +290,22 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         issues.append("office_loop_provider_cost_background_primary_not_onemin")
     if list(background_routing.get("default_provider_order") or [])[:3] != ["onemin", "magixai", "gemini_vortex"]:
         issues.append("office_loop_provider_cost_default_order_drifted")
+    if list(background_routing.get("fast_provider_order") or [])[:3] != ["onemin", "magixai", "gemini_vortex"]:
+        issues.append("office_loop_provider_cost_fast_order_drifted")
+    if list(background_routing.get("cheap_provider_order") or [])[:3] != ["onemin", "magixai", "gemini_vortex"]:
+        issues.append("office_loop_provider_cost_cheap_order_drifted")
     if list(background_routing.get("groundwork_provider_order") or [])[:3] != ["onemin", "magixai", "gemini_vortex"]:
         issues.append("office_loop_provider_cost_groundwork_order_drifted")
+    if list(background_routing.get("hard_provider_order") or [])[:3] != ["onemin", "magixai", "gemini_vortex"]:
+        issues.append("office_loop_provider_cost_hard_order_drifted")
     if background_routing.get("onemin_preferred_when_speed_is_not_critical") is not True:
         issues.append("office_loop_provider_cost_onemin_preference_missing")
+    if background_routing.get("onemin_preferred_whenever_usable") is not True:
+        issues.append("office_loop_provider_cost_onemin_preference_scope_missing")
+    if background_routing.get("route_through_active_onemin_manager_when_available") is not True:
+        issues.append("office_loop_provider_cost_onemin_manager_route_missing")
+    if background_routing.get("gemini_fallback_only_when_onemin_unavailable_or_explicit") is not True:
+        issues.append("office_loop_provider_cost_gemini_fallback_boundary_missing")
     if "groundwork" not in list(background_routing.get("cost_sensitive_lanes") or []):
         issues.append("office_loop_provider_cost_groundwork_lane_missing")
     gemini_vertex = dict(provider_cost_posture.get("gemini_vertex") or {})
@@ -280,6 +313,8 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         issues.append("office_loop_provider_cost_gemini_provider_key_drifted")
     if gemini_vertex.get("token_tracking_required") is not True:
         issues.append("office_loop_provider_cost_gemini_token_tracking_missing")
+    if gemini_vertex.get("fallback_only") is not True:
+        issues.append("office_loop_provider_cost_gemini_fallback_only_missing")
     if gemini_vertex.get("dispatch_ledger") != "provider_dispatch_events.jsonl":
         issues.append("office_loop_provider_cost_dispatch_ledger_drifted")
     if gemini_vertex.get("live_pressure_probe_command") != "python3 scripts/ea_live_ops.py probe-provider-cost-pressure --window 24h --format json":
@@ -331,10 +366,21 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
     scope_gap_evidence = dict(evidence_receipts.get("whole_project_scope_gap_audit") or {})
     google_workspace_evidence = dict(evidence_receipts.get("google_workspace_oauth_readiness") or {})
     proactive_posture = dict(receipt.get("proactive_ooda_followthrough_posture") or {})
+    expected_gold_surface = _next_action_surface(proactive_gold_evidence)
+    expected_operator_runtime_surface = _next_action_surface(proactive_operator_evidence)
     expected_followthrough_surface = _preferred_action_surface(
-        _next_action_surface(proactive_gold_evidence),
-        _next_action_surface(proactive_operator_evidence),
+        expected_gold_surface,
+        expected_operator_runtime_surface,
     )
+    if _prefer_operator_runtime_surface_for_blocked_proactive_followthrough(
+        gold_status=str(proactive_gold_evidence.get("status") or "").strip(),
+        gold_surface=expected_gold_surface,
+        operator_surface=expected_operator_runtime_surface,
+    ):
+        expected_followthrough_surface = _preferred_action_surface(
+            expected_operator_runtime_surface,
+            expected_gold_surface,
+        )
     expected_google_workspace_surface = (
         _next_action_surface(google_workspace_evidence) if _google_workspace_requires_action(google_workspace_evidence) else {}
     )

@@ -118,7 +118,7 @@ def test_survival_falls_back_from_gemini_vortex_to_gemini_web(monkeypatch: pytes
 def test_survival_route_order_defaults_to_onemin_before_ui_rescue(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EA_SURVIVAL_ROUTE_ORDER", raising=False)
 
-    assert _survival_route_order() == ("onemin", "gemini_vortex", "gemini_web", "chatplayground")
+    assert _survival_route_order() == ("onemin", "chatplayground", "gemini_vortex", "gemini_web")
 
 
 def test_survival_uses_onemin_before_ui_backends(monkeypatch: pytest.MonkeyPatch) -> None:

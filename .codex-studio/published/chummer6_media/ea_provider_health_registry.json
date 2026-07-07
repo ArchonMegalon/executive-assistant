@@ -10,14 +10,21 @@
               "detail": "onemin:manager_unavailable",
               "ok": false,
               "observed_at": 1782472914.442611
+            },
+            {
+              "target": "assets/hero/chummer6-hero.png",
+              "outcome": "manager_unavailable",
+              "detail": "onemin:manager_unavailable",
+              "ok": false,
+              "observed_at": 1783050274.9006023
             }
           ],
           "success_count": 0,
-          "failure_count": 1,
-          "updated_at": 1782472914.442615
+          "failure_count": 2,
+          "updated_at": 1783050274.9006064
         }
       },
-      "updated_at": 1782472914.4426153
+      "updated_at": 1783050274.9006076
     },
     "browseract_prompting_systems": {
       "families": {
@@ -29,14 +36,21 @@
               "detail": "browseract_prompting_systems:rendered",
               "ok": true,
               "observed_at": 1782472914.5170238
+            },
+            {
+              "target": "assets/horizons/jackpoint.png",
+              "outcome": "success",
+              "detail": "browseract_prompting_systems:rendered",
+              "ok": true,
+              "observed_at": 1783050275.3087046
             }
           ],
-          "success_count": 1,
+          "success_count": 2,
           "failure_count": 0,
-          "updated_at": 1782472914.5170267
+          "updated_at": 1783050275.3087084
         }
       },
-      "updated_at": 1782472914.5170271
+      "updated_at": 1783050275.3087096
     },
     "media_factory": {
       "families": {
@@ -48,14 +62,21 @@
               "detail": "media_factory:rendered",
               "ok": true,
               "observed_at": 1782472922.3493662
+            },
+            {
+              "target": "assets/pages/current-status.png",
+              "outcome": "success",
+              "detail": "media_factory:rendered",
+              "ok": true,
+              "observed_at": 1783050338.71172
             }
           ],
-          "success_count": 1,
+          "success_count": 2,
           "failure_count": 0,
-          "updated_at": 1782472922.3493707
+          "updated_at": 1783050338.711724
         }
       },
-      "updated_at": 1782472922.349371
+      "updated_at": 1783050338.711725
     }
   }
 }

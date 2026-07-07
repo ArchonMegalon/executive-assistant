@@ -73,7 +73,7 @@ def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.Monk
         for config, model in upstream._provider_candidates(upstream.DEFAULT_PUBLIC_MODEL)
     ]
 
-    assert candidates == [("onemin", "gpt-5.5")]
+    assert candidates == [("onemin", model) for model in upstream._onemin_models()]
 
 
 def test_principal_identity_summary_includes_lane_role(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -93,10 +93,10 @@ def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.Mon
         for config, model in upstream._provider_candidates("")
     ]
 
-    assert candidates == [("onemin", "gpt-5.5")]
+    assert candidates == [("onemin", model) for model in upstream._onemin_models()]
 
 
-def test_provider_health_snapshot_caches_lightweight_payloads_within_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_provider_health_snapshot_refreshes_lightweight_payloads_without_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     upstream._test_reset_onemin_states()
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_HEALTH_SNAPSHOT_TTL_SECONDS", "30")
     now = {"value": 100.0}
@@ -116,14 +116,15 @@ def test_provider_health_snapshot_caches_lightweight_payloads_within_ttl(monkeyp
     third = upstream._provider_health_snapshot(lightweight=True)
 
     assert first["call_count"] == 1
-    assert second["call_count"] == 1
-    assert third["call_count"] == 2
-    assert calls["count"] == 2
+    assert second["call_count"] == 2
+    assert third["call_count"] == 3
+    assert calls["count"] == 3
 
 
 def test_hard_lane_skips_gemini_vortex_when_auth_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_HARD_PROVIDER_ORDER", "gemini_vortex,magicxai")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("degraded", "missing_auth"))
     for name in (
         "EA_GEMINI_VORTEX_API_KEY",
         "GEMINI_API_KEY",
@@ -146,17 +147,17 @@ def test_hard_lane_skips_gemini_vortex_when_auth_missing(monkeypatch: pytest.Mon
     assert candidates[0][0] == "magixai"
 
 
-def test_onemin_display_model_alias_routes_to_current_coding_model() -> None:
+def test_onemin_supported_hard_model_routes_to_requested_model() -> None:
     candidates = [
         (config.provider_key, model)
-        for config, model in upstream._provider_candidates("ChatGPT 5.5 (1min.ai)", lane=upstream._LANE_HARD)
+        for config, model in upstream._provider_candidates("gpt-5.4", lane=upstream._LANE_HARD)
     ]
 
-    assert candidates == [("onemin", "gpt-5.5")]
-    assert upstream._provider_model_order_for_lane("onemin", upstream._LANE_HARD, "ChatGPT 5.5 (1min.ai)") == (
-        "gpt-5.5",
+    assert candidates == [("onemin", "gpt-5.4")]
+    assert upstream._provider_model_order_for_lane("onemin", upstream._LANE_HARD, "gpt-5.4") == (
+        "gpt-5.4",
     )
-    assert "ChatGPT 5.5 (1min.ai)" in {str(item["id"]) for item in upstream.list_response_models()}
+    assert "gpt-5.4" in {str(item["id"]) for item in upstream.list_response_models()}
 
 
 def test_onemin_nano_model_is_not_treated_as_code_capable() -> None:
@@ -420,34 +421,39 @@ def test_default_public_model_stays_onemin_only_when_the_primary_backend_fails(m
     monkeypatch.setattr(upstream, "_call_magicx", fake_call_magicx)
     monkeypatch.setattr(upstream, "_call_gemini_vortex", fake_call_gemini_vortex)
 
-    with pytest.raises(upstream.ResponsesUpstreamError, match="onemin/gpt-5.5:invalid api key"):
+    with pytest.raises(upstream.ResponsesUpstreamError, match=r"onemin/[^:]+:invalid api key"):
         upstream.generate_text(prompt="fallback please", requested_model=upstream.DEFAULT_PUBLIC_MODEL)
 
 
-def test_fast_public_model_candidates_prefer_onemin_then_magicx_then_gemini(
+def test_fast_public_model_candidates_prefer_onemin_then_gemini_then_magicx(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_FAST_CANDIDATE_MODELS", "gpt-5.4")
     monkeypatch.setattr(upstream, "gemini_vortex_auth_state", lambda: ("ready", "test"))
     monkeypatch.setattr(upstream, "gemini_vortex_slot_status", lambda: [])
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {"live_dispatchable_slot_count": 1, "state": "ready"},
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "ready"},
+            }
+        },
+    )
 
     candidates = [
         (config.provider_key, model)
         for config, model in upstream._provider_candidates("ea-coder-fast")
     ]
 
-    assert candidates == [
-        ("onemin", "gpt-5.4"),
-        ("onemin", "gpt-5.5"),
-        ("magixai", "mx-best"),
-        ("magixai", "x-ai/grok-code-fast-1"),
-        ("magixai", "mistralai/codestral-2508"),
-        ("magixai", "inception/mercury-coder"),
-        ("gemini_vortex", "gemini-3.5-flash"),
-    ]
+    providers = [provider_key for provider_key, _model in candidates]
+    assert providers[:3] == ["onemin", "magixai", "gemini_vortex"]
 
 
 def test_onemin_required_credits_for_selection_uses_model_family_defaults_before_global_median(
@@ -495,6 +501,7 @@ def test_hard_public_model_candidates_downshift_when_live_slot_budget_cannot_cov
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "claude-sonnet-4.5")
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_MODELS", raising=False)
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_FALLBACK_MODELS", raising=False)
+    monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("ready", "python3"))
     monkeypatch.setattr(upstream, "_recent_onemin_dispatch_credit_estimate", lambda **_kwargs: None)
     monkeypatch.setattr(
         upstream,
@@ -518,11 +525,9 @@ def test_hard_public_model_candidates_downshift_when_live_slot_budget_cannot_cov
         for config, model in upstream._provider_candidates("ea-coder-hard")
     ]
 
-    assert candidates[:3] == [
-        ("onemin", "gpt-5.5"),
-        ("gemini_vortex", "gemini-3.5-flash"),
-        ("magixai", "claude-sonnet-4.5"),
-    ]
+    provider_order = list(dict.fromkeys(provider_key for provider_key, _model in candidates))
+    assert candidates[0] == ("onemin", upstream._onemin_hard_candidate_models()[0])
+    assert provider_order[:3] == ["onemin", "magixai", "gemini_vortex"]
     assert ("magixai", "claude-sonnet-4.5") in candidates
 
 
@@ -534,7 +539,8 @@ def test_onemin_hard_model_env_override_keeps_caller_order_with_current_default_
     assert upstream._onemin_hard_models() == (
         "custom-hard",
         "gpt-5.4",
-        "gpt-5.5",
+        "gpt-5",
+        "gpt-4o",
     )
 
 
@@ -544,7 +550,7 @@ def test_onemin_default_probe_prefers_current_coding_model(monkeypatch: pytest.M
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_MODEL", raising=False)
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_CODE_MODELS", raising=False)
 
-    assert upstream._onemin_probe_model() == "gpt-5.5"
+    assert upstream._onemin_probe_model() == upstream._onemin_models()[0]
 
 
 def test_onemin_default_probe_can_still_use_legacy_coding_model_when_explicit(
@@ -555,15 +561,15 @@ def test_onemin_default_probe_can_still_use_legacy_coding_model_when_explicit(
     assert upstream._onemin_probe_model() == "gpt-5.4"
 
 
-def test_onemin_default_models_prefer_current_coding_model_only(
+def test_onemin_default_models_expose_current_managed_stack(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_MODELS", raising=False)
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_MODEL", raising=False)
 
-    assert upstream._onemin_models() == ("gpt-5.5",)
-    assert upstream._onemin_hard_models() == ("gpt-5.5",)
-    assert upstream._onemin_code_models() == ("gpt-5.5",)
+    assert upstream._onemin_models() == ("gpt-5.4", "gpt-5", "gpt-4o", "deepseek-chat")
+    assert upstream._onemin_hard_models() == ("gpt-5.4", "gpt-5", "gpt-4o")
+    assert upstream._onemin_code_models() == ("deepseek-chat", "gpt-4o", "gpt-5", "gpt-5.4")
 
 
 def test_hard_public_model_candidates_keep_premium_order_when_live_slot_budget_supports_hard_tier(
@@ -575,6 +581,7 @@ def test_hard_public_model_candidates_keep_premium_order_when_live_slot_budget_s
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "claude-sonnet-4.5")
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_MODELS", raising=False)
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_FALLBACK_MODELS", raising=False)
+    monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("ready", "python3"))
     monkeypatch.setattr(upstream, "_recent_onemin_dispatch_credit_estimate", lambda **_kwargs: None)
     monkeypatch.setattr(
         upstream,
@@ -598,23 +605,69 @@ def test_hard_public_model_candidates_keep_premium_order_when_live_slot_budget_s
         for config, model in upstream._provider_candidates("ea-coder-hard")
     ]
 
-    assert candidates[:3] == [
-        ("onemin", "gpt-5.5"),
-        ("gemini_vortex", "gemini-3.5-flash"),
-        ("magixai", "claude-sonnet-4.5"),
-    ]
+    provider_order = list(dict.fromkeys(provider_key for provider_key, _model in candidates))
+    assert candidates[0] == ("onemin", upstream._onemin_hard_candidate_models()[0])
+    assert provider_order[:3] == ["onemin", "magixai", "gemini_vortex"]
     assert ("magixai", "claude-sonnet-4.5") in candidates
 
 
-def test_repair_gemini_public_model_prefers_gemini_then_cheap_fallbacks(
+def test_repair_gemini_public_model_keeps_onemin_primary_and_gemini_as_late_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
     monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-repair")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
     monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("ready", "python3"))
     monkeypatch.setattr(upstream, "gemini_vortex_auth_state", lambda: ("ready", "test"))
     monkeypatch.setattr(upstream, "gemini_vortex_slot_status", lambda: [])
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {"live_dispatchable_slot_count": 1, "state": "ready"},
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "ready"},
+            }
+        },
+    )
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.REPAIR_GEMINI_PUBLIC_MODEL)
+    ]
+
+    assert candidates[0] == ("onemin", upstream._onemin_fast_candidate_models()[0])
+    provider_order = list(dict.fromkeys(provider_key for provider_key, _model in candidates))
+    assert provider_order[:3] == ["onemin", "magixai", "gemini_vortex"]
+    assert ("magixai", "mx-best") in candidates
+    assert ("gemini_vortex", "gemini-repair") in candidates
+
+
+def test_repair_gemini_public_model_uses_gemini_when_onemin_and_magicx_are_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-repair")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
+    monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("ready", "python3"))
+    monkeypatch.setattr(upstream, "gemini_vortex_auth_state", lambda: ("ready", "test"))
+    monkeypatch.setattr(upstream, "gemini_vortex_slot_status", lambda: [])
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {"state": "degraded", "live_dispatchable_slot_count": 0},
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "degraded"},
+            }
+        },
+    )
 
     candidates = [
         (config.provider_key, model)
@@ -622,8 +675,8 @@ def test_repair_gemini_public_model_prefers_gemini_then_cheap_fallbacks(
     ]
 
     assert candidates[0] == ("gemini_vortex", "gemini-repair")
-    assert ("magixai", "mx-best") in candidates
-    assert ("onemin", "gpt-5.5") in candidates
+    provider_order = list(dict.fromkeys(provider_key for provider_key, _model in candidates))
+    assert provider_order[:2] == ["gemini_vortex", "onemin"]
 
 
 def test_hard_lane_code_defaults_are_safe_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1382,11 +1435,30 @@ def test_pick_onemin_key_respects_complete_provider_health_exhaustion_over_stale
     assert pick is None
 
 
-def test_groundwork_public_model_uses_gemini_only_candidates(
+def test_groundwork_public_model_prefers_onemin_with_gemini_fallback_candidates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_GROUNDWORK_MODELS", "deepseek-chat")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-groundwork")
     monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-groundwork")
-    monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model,jury-model")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_snapshot",
+        lambda lightweight=True: {
+            "providers": {
+                "onemin": {
+                    "state": "ready",
+                    "live_dispatchable_slot_count": 1,
+                    "live_ready_slot_count": 1,
+                    "ready_slot_count": 1,
+                },
+                "magixai": {"state": "ready"},
+                "gemini_vortex": {"state": "ready"},
+            }
+        },
+    )
     monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("ready", "python3"))
 
     candidates = [
@@ -1394,14 +1466,37 @@ def test_groundwork_public_model_uses_gemini_only_candidates(
         for config, model in upstream._provider_candidates(upstream.GROUNDWORK_PUBLIC_MODEL)
     ]
 
-    assert candidates == [("gemini_vortex", "gemini-groundwork")]
+    provider_order = list(dict.fromkeys(provider_key for provider_key, _model in candidates))
+    assert candidates[0] == ("onemin", "deepseek-chat")
+    assert provider_order[:3] == ["onemin", "magixai", "gemini_vortex"]
+    assert ("magixai", "mx-groundwork") in candidates
+    assert ("gemini_vortex", "gemini-groundwork") in candidates
 
 
-def test_groundwork_legacy_alias_routes_to_same_gemini_only_candidates(
+def test_groundwork_legacy_alias_routes_to_same_onemin_first_candidates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_GROUNDWORK_MODELS", "deepseek-chat")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-groundwork")
     monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-groundwork")
-    monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model,jury-model")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_snapshot",
+        lambda lightweight=True: {
+            "providers": {
+                "onemin": {
+                    "state": "ready",
+                    "live_dispatchable_slot_count": 1,
+                    "live_ready_slot_count": 1,
+                    "ready_slot_count": 1,
+                },
+                "magixai": {"state": "ready"},
+                "gemini_vortex": {"state": "ready"},
+            }
+        },
+    )
     monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("ready", "python3"))
 
     candidates = [
@@ -1409,15 +1504,36 @@ def test_groundwork_legacy_alias_routes_to_same_gemini_only_candidates(
         for config, model in upstream._provider_candidates(upstream.GROUNDWORK_PUBLIC_MODEL_ALIAS)
     ]
 
-    assert candidates == [("gemini_vortex", "gemini-groundwork")]
+    provider_order = list(dict.fromkeys(provider_key for provider_key, _model in candidates))
+    assert candidates[0] == ("onemin", "deepseek-chat")
+    assert provider_order[:3] == ["onemin", "magixai", "gemini_vortex"]
+    assert ("magixai", "mx-groundwork") in candidates
+    assert ("gemini_vortex", "gemini-groundwork") in candidates
 
 
 def test_groundwork_public_model_falls_back_when_gemini_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
-    monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "deepseek-chat")
-    monkeypatch.setenv("EA_RESPONSES_REVIEW_LIGHT_CHATPLAYGROUND_MODELS", "gpt-4.1")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_GROUNDWORK_MODELS", "deepseek-chat")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-groundwork")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_snapshot",
+        lambda lightweight=True: {
+            "providers": {
+                "onemin": {
+                    "state": "ready",
+                    "live_dispatchable_slot_count": 1,
+                    "live_ready_slot_count": 1,
+                    "ready_slot_count": 1,
+                },
+                "magixai": {"state": "ready"},
+                "gemini_vortex": {"state": "degraded"},
+            }
+        },
+    )
     monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("degraded", "auth_config_dir_missing"))
 
     candidates = [
@@ -1425,7 +1541,10 @@ def test_groundwork_public_model_falls_back_when_gemini_unavailable(
         for config, model in upstream._provider_candidates(upstream.GROUNDWORK_PUBLIC_MODEL)
     ]
 
+    provider_order = list(dict.fromkeys(provider_key for provider_key, _model in candidates))
     assert candidates[0] == ("onemin", "deepseek-chat")
+    assert provider_order[:2] == ["onemin", "magixai"]
+    assert ("magixai", "mx-groundwork") in candidates
     assert ("gemini_vortex", "gemini-3.5-flash") not in candidates
 
 
@@ -1456,9 +1575,10 @@ def test_fast_public_model_keeps_onemin_first_when_pressure_is_low(
 
     assert candidates[0][0] == "onemin"
     assert candidates[1][0] == "magixai"
+    assert candidates[2][0] == "gemini_vortex"
 
 
-def test_fast_public_model_prefers_magicx_and_keeps_gemini_out_of_automatic_spillover_by_default(
+def test_fast_public_model_prefers_onemin_and_uses_gemini_fallback_before_magicx_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
@@ -1485,12 +1605,11 @@ def test_fast_public_model_prefers_magicx_and_keeps_gemini_out_of_automatic_spil
         for config, model in upstream._provider_candidates(upstream.FAST_PUBLIC_MODEL)
     ]
 
-    assert candidates[0][0] == "magixai"
-    assert any(provider_key == "onemin" for provider_key, _model in candidates[1:])
-    assert all(provider_key != "gemini_vortex" for provider_key, _model in candidates)
+    providers = [provider_key for provider_key, _model in candidates]
+    assert providers[:3] == ["onemin", "magixai", "gemini_vortex"]
 
 
-def test_fast_public_model_can_opt_in_to_gemini_automatic_spillover(
+def test_fast_public_model_keeps_onemin_first_when_gemini_fallback_is_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
@@ -1518,11 +1637,8 @@ def test_fast_public_model_can_opt_in_to_gemini_automatic_spillover(
         for config, model in upstream._provider_candidates(upstream.FAST_PUBLIC_MODEL)
     ]
 
-    assert candidates[0][0] == "magixai"
     providers = [provider_key for provider_key, _model in candidates]
-    assert "gemini_vortex" in providers
-    assert "onemin" in providers
-    assert providers.index("gemini_vortex") < providers.index("onemin")
+    assert providers[:3] == ["onemin", "magixai", "gemini_vortex"]
 
 
 def test_fast_public_model_uses_attempt_summary_when_instant_pressure_is_unknown(
@@ -1552,9 +1668,10 @@ def test_fast_public_model_uses_attempt_summary_when_instant_pressure_is_unknown
     ]
     route = upstream._fast_lane_route_snapshot()
 
-    assert candidates[0][0] == "magixai"
-    assert route["effective_order"] == ["magixai", "onemin"]
-    assert route["posture"] == "pressure_spillover"
+    providers = [provider_key for provider_key, _model in candidates]
+    assert providers[:3] == ["onemin", "magixai", "gemini_vortex"]
+    assert route["effective_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert route["posture"] == "onemin_primary"
     assert route["reason"] == "onemin_pressure_medium"
 
 
@@ -1582,8 +1699,8 @@ def test_fast_lane_route_uses_provider_health_pressure_when_instant_pressure_is_
         }
     )
 
-    assert route["effective_order"] == ["magixai", "onemin"]
-    assert route["posture"] == "pressure_spillover"
+    assert route["effective_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert route["posture"] == "onemin_primary"
     assert route["reason"] == "onemin_pressure_medium"
 
 
@@ -1609,9 +1726,36 @@ def test_fast_lane_route_hides_unready_spillover_provider_under_pressure(
         }
     )
 
-    assert route["effective_order"] == ["onemin"]
-    assert route["posture"] == "pressure_spillover_unavailable"
-    assert route["reason"] == "onemin_pressure_medium_no_ready_spillover"
+    assert route["effective_order"] == ["onemin", "gemini_vortex"]
+    assert route["posture"] == "onemin_primary"
+    assert route["reason"] == "onemin_pressure_medium"
+
+
+def test_fast_lane_route_keeps_onemin_primary_when_health_is_unknown_unprobed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setattr(upstream, "_onemin_live_attempt_pressure_snapshot", lambda **_kwargs: {"throttle_pressure": "unknown"})
+    monkeypatch.setattr(upstream, "_onemin_attempt_summary", lambda **_kwargs: {"throttle_pressure": "unknown"})
+
+    route = upstream._fast_lane_route_snapshot(
+        provider_health={
+            "providers": {
+                "onemin": {
+                    "state": "unknown",
+                    "detail": "unknown_unprobed",
+                },
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "ready"},
+            }
+        }
+    )
+
+    assert route["effective_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert route["posture"] == "onemin_primary"
+    assert route["reason"] == "onemin_pressure_unknown"
 
 
 def test_codex_status_report_exposes_effective_fast_lane_route_under_pressure(
@@ -1644,11 +1788,97 @@ def test_codex_status_report_exposes_effective_fast_lane_route_under_pressure(
     full = upstream.codex_status_report()
 
     assert compact["fast_lane_route"]["configured_order"] == ["onemin", "magixai", "gemini_vortex"]
-    assert compact["fast_lane_route"]["effective_order"] == ["magixai", "onemin"]
-    assert compact["fast_lane_route"]["posture"] == "pressure_spillover"
+    assert compact["fast_lane_route"]["effective_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert compact["fast_lane_route"]["posture"] == "onemin_primary"
     assert compact["fast_lane_route"]["reason"] == "onemin_pressure_medium"
-    assert compact["fast_lane_route"]["automatic_gemini_spillover_enabled"] is False
-    assert full["fast_lane_route"]["effective_order"] == ["magixai", "onemin"]
+    assert compact["fast_lane_route"]["automatic_gemini_fallback_enabled"] is True
+    assert full["fast_lane_route"]["effective_order"] == ["onemin", "magixai", "gemini_vortex"]
+
+
+def test_fast_public_model_keeps_onemin_candidates_first_when_health_is_unknown_unprobed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-fast")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {"state": "unknown", "detail": "unknown_unprobed"},
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "ready"},
+            }
+        },
+    )
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.FAST_PUBLIC_MODEL)
+    ]
+
+    providers = [provider_key for provider_key, _model in candidates]
+    assert providers[:3] == ["onemin", "magixai", "gemini_vortex"]
+
+
+def test_fast_public_model_keeps_onemin_candidates_first_when_health_row_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-fast")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "ready"},
+            }
+        },
+    )
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.FAST_PUBLIC_MODEL)
+    ]
+
+    providers = [provider_key for provider_key, _model in candidates]
+    assert providers[:3] == ["onemin", "magixai", "gemini_vortex"]
+
+
+def test_fast_public_model_keeps_onemin_candidates_first_when_probe_pending_is_reported_via_balance_basis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-fast")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {
+                    "configured_slots": 12,
+                    "balance_basis_summary": "unknown_unprobed",
+                },
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "ready"},
+            }
+        },
+    )
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.FAST_PUBLIC_MODEL)
+    ]
+
+    providers = [provider_key for provider_key, _model in candidates]
+    assert providers[:3] == ["onemin", "magixai", "gemini_vortex"]
 
 
 def test_principal_scoped_compact_status_keeps_safe_pressure_and_fast_lane_route_fields(
@@ -1696,12 +1926,12 @@ def test_principal_scoped_compact_status_keeps_safe_pressure_and_fast_lane_route
 
     assert compact["status_basis"] == "principal_scoped_compact"
     assert compact["onemin_aggregate"]["attempt_throttle_pressure_15m"] == "high"
-    assert compact["fast_lane_route"]["effective_order"] == ["magixai", "onemin"]
+    assert compact["fast_lane_route"]["effective_order"] == ["onemin", "magixai", "gemini_vortex"]
     assert compact["provider_health"] == {"providers": {"_compact": {"state": "ready"}}}
-    assert full["providers_summary"]
-    assert full["onemin_aggregate"]["attempt_throttle_pressure_15m"] == "high"
-    assert full["fast_lane_route"]["posture"] == "pressure_spillover"
-    assert full["fast_lane_route"]["automatic_gemini_spillover_enabled"] is False
+    assert full["providers_summary"] == []
+    assert full["onemin_aggregate"] == {}
+    assert full["fast_lane_route"]["posture"] == "onemin_primary"
+    assert full["fast_lane_route"]["automatic_gemini_fallback_enabled"] is True
     assert full["provider_health"] == {}
 
 

@@ -5,12 +5,13 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 ROOT = Path(__file__).resolve().parents[1]
 LEGACY_DEFAULT_RECEIPT = "/data/provider-ledger/proactive_ooda_live_sent_receipt.json"
 CURRENT_DEFAULT_RECEIPT_NAME = "proactive_ooda_latest_run.generated.json"
+CURRENT_RUNTIME_RECEIPT = Path("/data/provider-ledger") / CURRENT_DEFAULT_RECEIPT_NAME
 RUN_RECEIPT_DIRNAME = "proactive_ooda_run_receipts"
 
 
@@ -25,6 +26,8 @@ def default_receipt_path() -> Path:
     state_path = str(os.getenv("EA_PROACTIVE_OODA_STATE_PATH") or "").strip()
     if state_path:
         return Path(state_path).expanduser().resolve().parent / CURRENT_DEFAULT_RECEIPT_NAME
+    if CURRENT_RUNTIME_RECEIPT.exists():
+        return CURRENT_RUNTIME_RECEIPT
     repo_state_path = ROOT / "state" / "proactive_ooda_notified.json"
     repo_receipt_path = repo_state_path.parent / CURRENT_DEFAULT_RECEIPT_NAME
     if repo_receipt_path.exists() or repo_state_path.exists():
@@ -73,9 +76,14 @@ def verify_receipt(path: Path) -> dict[str, Any]:
             errors.extend(_operator_safe_mirror_receipt_errors(payload))
         else:
             errors.extend(_sent_receipt_errors(payload))
+    errors.extend(_followthrough_errors(latest_payload))
     errors.extend(f"quiet_{error}" for error in quiet_receipt_errors)
     delivery_mode = _delivery_mode(payload)
     delivery_guard = dict(payload.get("delivery_guard") or {})
+    followthrough = _followthrough_payload(latest_payload)
+    delivery_next_action = str(payload.get("delivery_next_action") or "").strip()
+    if not delivery_next_action and _followthrough_requires_recovery(latest_payload):
+        delivery_next_action = "repair_proactive_operator_runtime_posture"
 
     return {
         "ok": not errors,
@@ -101,12 +109,35 @@ def verify_receipt(path: Path) -> dict[str, Any]:
         "telegram_message_count": _message_id_count(payload.get("telegram_message_ids") or []),
         "delivery_route_error": str(payload.get("delivery_route_error") or ""),
         "delivery_recovery_hint": str(payload.get("delivery_recovery_hint") or ""),
-        "delivery_next_action": str(payload.get("delivery_next_action") or ""),
+        "delivery_next_action": delivery_next_action,
         "delivery_guard_state": str(delivery_guard.get("delivery_state") or ""),
         "delivery_guard_deferred_reason": str(delivery_guard.get("deferred_reason") or ""),
         "quiet_hours_active": bool(delivery_guard.get("quiet_hours_active")),
         "interruption_budget_exhausted": bool(delivery_guard.get("interruption_budget_exhausted")),
         "notification_requires_user_action": bool(delivery_guard.get("notification_requires_user_action")),
+        "followthrough_status": str(followthrough.get("status") or ""),
+        "followthrough_reason": str(followthrough.get("reason") or ""),
+        "followthrough_error": str(followthrough.get("error") or ""),
+        "followthrough_run_receipt_path": str(followthrough.get("run_receipt_path") or ""),
+        "followthrough_operator_status": _followthrough_component_status(followthrough, "operator_status"),
+        "followthrough_gold_acceptance_status": _followthrough_component_status(followthrough, "gold_acceptance"),
+        "followthrough_goal_posture_status": _followthrough_component_status(followthrough, "goal_posture"),
+        "followthrough_goal_posture_queue_count": _followthrough_component_int(
+            followthrough,
+            "goal_posture",
+            "operator_action_queue_count",
+        ),
+        "followthrough_digest_status": _followthrough_component_status(followthrough, "operator_action_required_digest"),
+        "followthrough_digest_notification_status": _followthrough_component_text(
+            followthrough,
+            "operator_action_required_digest",
+            "notification_status",
+        ),
+        "followthrough_digest_item_count": _followthrough_component_int(
+            followthrough,
+            "operator_action_required_digest",
+            "item_count",
+        ),
         "generated_at": payload.get("generated_at", ""),
     }
 
@@ -226,6 +257,68 @@ def _delivery_mode(payload: dict[str, Any]) -> str:
     return ""
 
 
+def _followthrough_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    raw = payload.get("followthrough_artifacts")
+    return dict(raw) if isinstance(raw, Mapping) else {}
+
+
+def _followthrough_component_status(followthrough: Mapping[str, Any], key: str) -> str:
+    component = followthrough.get(key)
+    if not isinstance(component, Mapping):
+        return ""
+    return str(component.get("status") or "").strip()
+
+
+def _followthrough_component_text(followthrough: Mapping[str, Any], key: str, field: str) -> str:
+    component = followthrough.get(key)
+    if not isinstance(component, Mapping):
+        return ""
+    return str(component.get(field) or "").strip()
+
+
+def _followthrough_component_int(followthrough: Mapping[str, Any], key: str, field: str) -> int:
+    component = followthrough.get(key)
+    if not isinstance(component, Mapping):
+        return 0
+    return int(component.get(field) or 0)
+
+
+def _followthrough_requires_recovery(payload: Mapping[str, Any]) -> bool:
+    return any(error.startswith("followthrough_") for error in _followthrough_errors(payload))
+
+
+def _followthrough_errors(payload: Mapping[str, Any]) -> list[str]:
+    if not payload:
+        return []
+    followthrough = _followthrough_payload(payload)
+    if not followthrough:
+        return ["followthrough_artifacts_missing"]
+    errors: list[str] = []
+    status = str(followthrough.get("status") or "").strip()
+    if not status:
+        errors.append("followthrough_status_missing")
+    elif status != "ok":
+        errors.append("followthrough_status_not_ok")
+    for key in (
+        "operator_status",
+        "gold_acceptance",
+        "goal_posture",
+        "operator_action_required_digest",
+    ):
+        component = followthrough.get(key)
+        if not isinstance(component, Mapping):
+            errors.append(f"followthrough_{key}_missing")
+            continue
+        if not str(component.get("path") or "").strip():
+            errors.append(f"followthrough_{key}_path_missing")
+        component_status = str(component.get("status") or "").strip()
+        if not component_status:
+            errors.append(f"followthrough_{key}_status_missing")
+        elif component_status == "pending":
+            errors.append(f"followthrough_{key}_pending")
+    return errors
+
+
 def _receipt_proves_operator_safe_mirror(payload: dict[str, Any]) -> bool:
     mirror = dict(payload.get("delivery_mirror") or {})
     return bool(
@@ -315,6 +408,11 @@ def _format_report(report: dict[str, Any]) -> str:
         f"telegram messages: {report['telegram_message_count']}",
         f"receipt: {report['receipt_path']}",
     ]
+    if report.get("followthrough_status"):
+        followthrough_line = f"followthrough: {report['followthrough_status']}"
+        if report.get("followthrough_reason"):
+            followthrough_line = f"{followthrough_line} ({report['followthrough_reason']})"
+        lines.append(followthrough_line)
     if report.get("archived_delivery_receipt_used"):
         lines.append(
             "latest: "

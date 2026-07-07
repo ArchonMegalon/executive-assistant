@@ -9294,6 +9294,7 @@ def _telegram_stage_inline_proactive_task(
         "staged_artifact_ref": safe_work_refs[0] if safe_work_refs else "",
         "approval_prompt": str(safe_work_result.get("approval_prompt") or "").strip(),
         "staged_action_url": str(safe_work_result.get("staged_action_url") or "").strip(),
+        "work_type": str(safe_work_result.get("work_type") or "").strip().lower(),
     }
     inline_buttons: list[list[tuple[str, str]]] = []
     approval_surface: dict[str, object] = {}

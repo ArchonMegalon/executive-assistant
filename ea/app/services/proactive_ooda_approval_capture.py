@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.services.proactive_ooda_approval_outcomes import (
+    attach_proactive_ooda_approval_bundle_snapshot,
+    attach_proactive_ooda_approval_teable_sync,
     default_proactive_ooda_artifact_dir,
     default_proactive_ooda_approval_outcome_path,
     record_proactive_ooda_approval_outcome,
@@ -98,6 +100,12 @@ def finalize_proactive_ooda_approval_outcome(
         stage_packet_dir=stage_packet_dir,
         safe_work_result_dir=safe_work_result_dir,
     )
+    approval_outcome = attach_proactive_ooda_approval_bundle_snapshot(
+        approval_outcome=approval_outcome,
+        output_path=resolved_approval_outcome_path,
+        bundle=bundle,
+        recorded_at=str(approval_outcome.get("recorded_at") or recorded_at or "").strip(),
+    )
     effective_run_receipt_path = _path_or_default(bundle.get("run_receipt_path"), root=resolved_root, fallback=receipt_path)
     effective_stage_packet_dir = _path_or_default(bundle.get("stage_packet_dir"), root=resolved_root, fallback=stage_packet_dir)
     effective_safe_work_result_dir = _path_or_default(bundle.get("safe_work_result_dir"), root=resolved_root, fallback=safe_work_result_dir)
@@ -119,6 +127,25 @@ def finalize_proactive_ooda_approval_outcome(
             "error": _materialization_error(exc),
             "path": resolved_operator_status_path,
         }
+
+    teable_sync: dict[str, Any] = {
+        "status": "disabled",
+        "sync_attempted": False,
+        "blocked_reason": "",
+    }
+    sync_enabled = teable_sync_decider or teable_sync_enabled
+    if sync_enabled():
+        syncer = teable_syncer or sync_proactive_ooda_approval_outcome_to_teable
+        teable_sync = syncer(
+            receipt=dict(bundle.get("run_receipt") or {}),
+            safe_work_result=dict(bundle.get("safe_work_result") or {}),
+            approval_outcome=approval_outcome,
+        )
+        approval_outcome = attach_proactive_ooda_approval_teable_sync(
+            approval_outcome=approval_outcome,
+            output_path=resolved_approval_outcome_path,
+            teable_sync=teable_sync,
+        )
 
     materializer = gold_materializer or _materialize_gold_acceptance
     gold_acceptance_materialization = {
@@ -147,19 +174,6 @@ def finalize_proactive_ooda_approval_outcome(
                 "error": _materialization_error(exc),
                 "path": resolved_gold_acceptance_path,
             }
-    teable_sync: dict[str, Any] = {
-        "status": "disabled",
-        "sync_attempted": False,
-        "blocked_reason": "",
-    }
-    sync_enabled = teable_sync_decider or teable_sync_enabled
-    if sync_enabled():
-        syncer = teable_syncer or sync_proactive_ooda_approval_outcome_to_teable
-        teable_sync = syncer(
-            receipt=dict(bundle.get("run_receipt") or {}),
-            safe_work_result=dict(bundle.get("safe_work_result") or {}),
-            approval_outcome=approval_outcome,
-        )
     return {
         "approval_outcome": approval_outcome,
         "approval_outcome_path": resolved_approval_outcome_path,

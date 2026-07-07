@@ -16,6 +16,24 @@ class MemorialRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
         public_memorials._MEMORIAL_RUNTIME_READINESS_CACHE_STATE.clear()
 
+    def test_resolve_memorial_voice_chat_model_prefers_fast_before_gemini(self) -> None:
+        payload = {"chat_models": [public_memorials.GEMINI_VORTEX_PUBLIC_MODEL, public_memorials.FAST_PUBLIC_MODEL]}
+
+        model = public_memorials._resolve_memorial_voice_chat_model(
+            payload,
+            {},
+            "Hallo Manfred, kann ich jetzt mit dir reden?",
+        )
+
+        self.assertEqual(model, public_memorials.FAST_PUBLIC_MODEL)
+
+    def test_resolve_memorial_realtime_chat_model_prefers_fast_before_gemini(self) -> None:
+        payload = {"chat_models": [public_memorials.GEMINI_VORTEX_PUBLIC_MODEL, public_memorials.FAST_PUBLIC_MODEL]}
+
+        model = public_memorials._resolve_memorial_realtime_chat_model(payload, {})
+
+        self.assertEqual(model, public_memorials.FAST_PUBLIC_MODEL)
+
     def test_public_memorial_page_opens_with_person_context_before_runtime_button(self) -> None:
         payload = {
             "slug": "manfred",

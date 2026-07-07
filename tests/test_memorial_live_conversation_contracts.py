@@ -5008,6 +5008,18 @@ def test_memorial_voice_chat_model_keeps_memorial_local_fast_as_default_non_live
     assert selected == "memorial-local-fast"
 
 
+def test_memorial_voice_chat_model_prefers_ea_fast_before_gemini_for_non_live_turns() -> None:
+    from app.api.routes import public_memorials
+
+    selected = public_memorials._resolve_memorial_voice_chat_model(
+        {"chat_models": [GEMINI_VORTEX_PUBLIC_MODEL, "ea-coder-fast", "deepseek-chat"]},
+        {},
+        "Erzaehl mir etwas ueber deine Jugend.",
+    )
+
+    assert selected == "ea-coder-fast"
+
+
 def test_memorial_voice_chat_model_uses_gemini_live_fallback_without_explicit_model_catalog() -> None:
     from app.api.routes import public_memorials
 

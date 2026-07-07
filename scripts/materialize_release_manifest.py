@@ -25,6 +25,7 @@ _CORE_ALWAYS_ALLOWED_PREFIXES = (
     ".codex-studio/published/ea_executive_assistant_",
     ".codex-studio/published/ea_office_loop_goal",
     ".codex-studio/published/ea_proactive_ooda_",
+    ".codex-studio/published/mymedia_alexa_readiness",
     ".codex-studio/published/release_manifest.generated",
     ".codex-studio/published/teable_env_recovery_readiness",
     ".codex-studio/published/telegram_audiobook_",

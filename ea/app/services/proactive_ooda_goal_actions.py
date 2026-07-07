@@ -6,12 +6,17 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Mapping
 
+from app.services.assistant_property_lane import (
+    assistant_property_lane_enabled,
+    assistant_property_signal_present,
+)
 from app.services.proactive_ooda_service import ProactiveSignal
 from app.services.public_urls import ea_public_app_base_url
 
 
 GOAL_ACTION_QUEUE_SIGNAL_SCHEMA = "ea.proactive_ooda.goal_action_queue_signal.v1"
 DEFAULT_GOAL_ACTION_QUEUE_LIMIT = 1
+DEFAULT_ALLOWED_OPERATOR_STREAMS = ("office_loop", "office_setup", "recovery")
 
 _SENSITIVE_TRUE_KEYS = {
     "callback_tokens_exposed",
@@ -49,6 +54,7 @@ def load_goal_action_queue_signals(
     *,
     limit: int = DEFAULT_GOAL_ACTION_QUEUE_LIMIT,
     public_base_url: str = "",
+    allowed_operator_streams: tuple[str, ...] | str | None = None,
 ) -> tuple[ProactiveSignal, ...]:
     payload = _read_goal_posture(path)
     if not payload:
@@ -57,6 +63,7 @@ def load_goal_action_queue_signals(
         payload,
         limit=limit,
         public_base_url=public_base_url,
+        allowed_operator_streams=allowed_operator_streams,
     )
 
 
@@ -65,12 +72,17 @@ def goal_action_queue_signals(
     *,
     limit: int = DEFAULT_GOAL_ACTION_QUEUE_LIMIT,
     public_base_url: str = "",
+    allowed_operator_streams: tuple[str, ...] | str | None = None,
 ) -> tuple[ProactiveSignal, ...]:
     rows = posture.get("operator_action_queue")
     if not isinstance(rows, list):
         return ()
     base_url = _normalized_base_url(public_base_url)
     source_fingerprint = str(posture.get("source_state_fingerprint") or "").strip()
+    effective_allowed_streams = _effective_allowed_operator_streams(
+        posture,
+        allowed_operator_streams=allowed_operator_streams,
+    )
     signals: list[ProactiveSignal] = []
     for raw_row in rows:
         if len(signals) >= max(int(limit or 0), 0):
@@ -78,14 +90,41 @@ def goal_action_queue_signals(
         if not isinstance(raw_row, Mapping):
             continue
         row = dict(raw_row)
+        if _row_hidden_from_ea_property_boundary(row):
+            continue
+        if not _row_proactive_signal_allowed(row):
+            continue
         if not _row_is_user_action(row):
             continue
         if _row_exposes_sensitive_material(row):
+            continue
+        if not _row_stream_allowed(row, allowed_operator_streams=effective_allowed_streams):
             continue
         signal = _signal_from_action_row(row, source_fingerprint=source_fingerprint, public_base_url=base_url)
         if signal is not None:
             signals.append(signal)
     return tuple(signals)
+
+
+def _row_hidden_from_ea_property_boundary(row: Mapping[str, Any]) -> bool:
+    if assistant_property_lane_enabled():
+        return False
+    return assistant_property_signal_present(
+        row.get("key"),
+        row.get("operator_stream"),
+        row.get("title"),
+        row.get("instruction"),
+        row.get("required_next_receipt"),
+        row.get("next_action"),
+        row.get("next_action_href"),
+        row.get("next_action_label"),
+        row.get("console_deep_link"),
+        row,
+    )
+
+
+def _row_proactive_signal_allowed(row: Mapping[str, Any]) -> bool:
+    return row.get("proactive_signal_allowed") is True
 
 
 def _signal_from_action_row(
@@ -114,6 +153,7 @@ def _signal_from_action_row(
     payload = {
         "schema": GOAL_ACTION_QUEUE_SIGNAL_SCHEMA,
         "queue_key": key,
+        "operator_stream": _compact(str(row.get("operator_stream") or ""), 48),
         "source_state_fingerprint_hash": _hash_value(source_fingerprint) if source_fingerprint else "",
         "row_fingerprint": row_fingerprint,
         "delivery_policy": "action_required_only",
@@ -133,7 +173,16 @@ def _signal_from_action_row(
                     "The goal posture already classified this as a user-action blocker and permits action-required delivery.",
                     220,
                 ),
-                "tags": ("goal_posture", "operator_action", str(row.get("lens") or "").strip()),
+                "tags": tuple(
+                    item
+                    for item in (
+                        "goal_posture",
+                        "operator_action",
+                        str(row.get("lens") or "").strip(),
+                        str(row.get("operator_stream") or "").strip(),
+                    )
+                    if str(item or "").strip()
+                ),
             },
             "decide": {
                 "summary": approval_prompt,
@@ -202,6 +251,67 @@ def _row_exposes_sensitive_material(row: Mapping[str, Any]) -> bool:
         if row.get(key) is True:
             return True
     return False
+
+
+def _normalize_operator_streams(values: tuple[str, ...] | str | None) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    if isinstance(values, str):
+        raw_values = [part.strip() for part in values.split(",")]
+    else:
+        raw_values = [str(item or "").strip() for item in list(values or [])]
+    aliases = {
+        "default": DEFAULT_ALLOWED_OPERATOR_STREAMS,
+        "office": DEFAULT_ALLOWED_OPERATOR_STREAMS,
+        "office_only": DEFAULT_ALLOWED_OPERATOR_STREAMS,
+        "office_loop": ("office_loop",),
+        "office-loop": ("office_loop",),
+        "office_setup": ("office_setup",),
+        "office-setup": ("office_setup",),
+        "recovery": ("recovery",),
+        "media": ("media_memorial",),
+        "media_memorial": ("media_memorial",),
+        "all": ("*",),
+        "*": ("*",),
+    }
+    normalized: list[str] = []
+    for value in raw_values:
+        if not value:
+            continue
+        for item in aliases.get(value.lower(), (value,)):
+            token = str(item or "").strip()
+            if token and token not in normalized:
+                normalized.append(token)
+    return tuple(normalized)
+
+
+def _effective_allowed_operator_streams(
+    posture: Mapping[str, Any],
+    *,
+    allowed_operator_streams: tuple[str, ...] | str | None,
+) -> tuple[str, ...]:
+    configured = _normalize_operator_streams(allowed_operator_streams)
+    if configured:
+        return configured
+    policy = posture.get("operator_delivery_policy")
+    if isinstance(policy, Mapping):
+        configured = _normalize_operator_streams(policy.get("default_action_digest_streams"))
+        if configured:
+            return configured
+    return DEFAULT_ALLOWED_OPERATOR_STREAMS
+
+
+def _row_stream_allowed(
+    row: Mapping[str, Any],
+    *,
+    allowed_operator_streams: tuple[str, ...],
+) -> bool:
+    operator_stream = str(row.get("operator_stream") or "").strip()
+    if not operator_stream:
+        return True
+    if "*" in set(allowed_operator_streams):
+        return True
+    return operator_stream in allowed_operator_streams
 
 
 def _action_href(row: Mapping[str, Any], *, public_base_url: str) -> str:
@@ -304,11 +414,11 @@ def _row_fingerprint(row: Mapping[str, Any], *, source_fingerprint: str) -> str:
     stable = {
         "key": str(row.get("key") or "").strip(),
         "kind": str(row.get("kind") or "").strip(),
+        "operator_stream": str(row.get("operator_stream") or "").strip(),
         "next_action": str(row.get("next_action") or "").strip(),
         "next_action_href": str(row.get("next_action_href") or row.get("next_action_form_href") or "").strip(),
         "required_next_receipt": str(row.get("required_next_receipt") or "").strip(),
         "missing_setup": [str(item or "").strip() for item in list(row.get("missing_setup") or []) if str(item or "").strip()],
-        "source_state_fingerprint": source_fingerprint,
         "user_action_required": row.get("user_action_required") is True,
         "telegram_push_allowed": row.get("telegram_push_allowed") is True,
     }

@@ -116,6 +116,11 @@ def test_operator_summary_lists_ltd_release_gates() -> None:
     assert "ea quality:        make verify-executive-assistant-quality-readiness" in operator_summary
     assert "signal packet:     make verify-whole-project-signal-to-decision-receipt" in operator_summary
     assert "scope audit:       make verify-whole-project-scope-gap-audit" in operator_summary
+    assert "ea live receipt:   make materialize-ea-operator-readiness" in operator_summary
+    assert "ea live verify:    make verify-ea-operator-readiness" in operator_summary
+    assert "google oauth:      make probe-google-workspace-oauth" in operator_summary
+    assert "live provider:     make probe-live-provider PROVIDER=pushbullet" in operator_summary
+    assert "provider pressure: make probe-live-provider-cost-pressure WINDOW=24h" in operator_summary
     assert "manfred realtime:  make verify-manfred-realtime-conversation-readiness" in operator_summary
     assert "tg audio ready:    make verify-telegram-audiobook-live-readiness" in operator_summary
     assert "tg audiobook live: make verify-telegram-audiobook-live-delivery-receipt" in operator_summary
@@ -127,6 +132,14 @@ def test_operator_summary_lists_ltd_release_gates() -> None:
     assert "wa audiobook live: make verify-whatsapp-audiobook-live-delivery-receipt" in operator_summary
     assert "wa share play:     make verify-whatsapp-audiobook-public-share-playback" in operator_summary
     assert "teable recovery:   make probe-teable-recovery" in operator_summary
+    assert "mymedia/alexa:     make probe-mymedia-alexa" in operator_summary
+    assert "mymedia scan:      make rescan-mymedia-library" in operator_summary
+    assert "mymedia route:     make repair-mymedia-public-surface" in operator_summary
+    assert "mymedia receipt:   make materialize-mymedia-alexa-readiness" in operator_summary
+    assert "mymedia ready:     make verify-mymedia-alexa-readiness" in operator_summary
+    assert "mymedia pair:      make trigger-mymedia-amazon-pairing" in operator_summary
+    assert "mymedia code:      make submit-mymedia-amazon-pairing-code OTP_CODE=123456" in operator_summary
+    assert "mymedia pair tg:   make send-mymedia-amazon-pairing-telegram" in operator_summary
     assert "runtime supply:    make verify-runtime-supply-chain" in operator_summary
     assert "release auth:      make verify-release-authority" in operator_summary
     assert "release runtime:   make verify-release-authority-runtime" in operator_summary
@@ -145,6 +158,9 @@ def test_operator_summary_lists_ltd_release_gates() -> None:
     assert "deliver:" in operator_summary
     assert "recover:" in operator_summary
     assert "prove:" in operator_summary
+    assert "operator triage:" in operator_summary
+    assert "operator focus:" in operator_summary
+    assert "operator next:" in operator_summary
     assert "-- release authority --" in operator_summary
     assert "release posture:" in operator_summary
     assert "release issues:" in operator_summary
@@ -187,6 +203,43 @@ def test_codex_provider_lane_order_policy_is_documented() -> None:
         assert "fast/cheap" in text
         assert "1min" in text
         assert "magicx" in text
+
+
+def test_google_workspace_oauth_live_ops_contract_is_documented() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "make probe-google-workspace-oauth" in readme
+    assert "EA_GOOGLE_WORKSPACE_EXPECTED_EMAIL" in readme
+    assert "EA_GOOGLE_OAUTH_EXPECTED_EMAIL" in readme
+    assert "expected_google_email_missing" in runbook
+    assert "make probe-google-workspace-oauth" in runbook
+    assert "EA_GOOGLE_WORKSPACE_EXPECTED_EMAIL=" in env_example
+    assert "EA_GOOGLE_OAUTH_EXPECTED_EMAIL=" in env_example
+
+
+def test_mymedia_background_scan_status_is_documented() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+
+    assert "status=ready_library_scan_in_progress" in readme
+    assert "status=ready_library_scan_in_progress" in runbook
+    assert "wait_for_mymedia_library_scan" in readme
+    assert "wait_for_mymedia_library_scan" in runbook
+
+
+def test_ea_operator_readiness_receipt_lane_is_documented() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+
+    assert "materialize_ea_operator_readiness.py" in readme
+    assert "make materialize-ea-operator-readiness" in readme
+    assert "make verify-ea-operator-readiness" in readme
+    assert "ea_operator_readiness.generated.json" in readme
+    assert "passive pairing mode" in runbook
+    assert "make materialize-ea-operator-readiness" in runbook
+    assert "make verify-ea-operator-readiness" in runbook
 
 
 def test_fleet_codexea_launcher_keeps_critical_defaults_in_sync_with_repo_source() -> None:
@@ -238,6 +291,37 @@ def test_makefile_exposes_telegram_audiobook_live_delivery_receipt_targets() -> 
     assert "scripts/ea_live_ops.py probe-whatsapp-pairing --format operator" in makefile
     assert "send-whatsapp-pairing-telegram:" in makefile
     assert "scripts/ea_live_ops.py probe-whatsapp-pairing --send-telegram --format operator" in makefile
+    assert "probe-live-provider:" in makefile
+    assert 'scripts/ea_live_ops.py probe-provider --provider "$${PROVIDER}" --format operator' in makefile
+    assert "materialize-ea-operator-readiness:" in makefile
+    assert "scripts/materialize_ea_operator_readiness.py --pretty" in makefile
+    assert "verify-ea-operator-readiness:" in makefile
+    assert "scripts/verify_ea_operator_readiness.py --pretty" in makefile
+    assert "probe-google-workspace-oauth:" in makefile
+    assert 'scripts/ea_live_ops.py probe-google-workspace-oauth --expected-google-email "$$EXPECTED_GOOGLE_EMAIL" --format operator' in makefile
+    assert "EXPECTED_GOOGLE_EMAIL or EA_GOOGLE_WORKSPACE_EXPECTED_EMAIL is required" in makefile
+    assert "probe-live-provider-cost-pressure:" in makefile
+    assert 'scripts/ea_live_ops.py probe-provider-cost-pressure --window "$${WINDOW:-24h}" --principal-id "$${PRINCIPAL_ID:-}" --format operator' in makefile
+    assert "probe-mymedia-alexa:" in makefile
+    assert "scripts/ea_live_ops.py probe-mymedia-alexa --format operator" in makefile
+    assert "rescan-mymedia-library:" in makefile
+    assert "scripts/ea_live_ops.py rescan-mymedia-library --format operator" in makefile
+    assert "repair-mymedia-public-surface:" in makefile
+    assert "scripts/ea_live_ops.py repair-mymedia-public-surface --format operator" in makefile
+    assert "materialize-mymedia-alexa-readiness:" in makefile
+    assert "scripts/materialize_mymedia_alexa_readiness.py" in makefile
+    assert "verify-mymedia-alexa-readiness:" in makefile
+    assert "scripts/verify_mymedia_alexa_readiness.py" in makefile
+    assert "trigger-mymedia-amazon-pairing:" in makefile
+    assert "scripts/ea_live_ops.py trigger-mymedia-amazon-pairing --format operator" in makefile
+    assert "submit-mymedia-amazon-pairing-code:" in makefile
+    assert 'scripts/ea_live_ops.py submit-mymedia-amazon-pairing-code --otp-code "$(OTP_CODE)" --format operator' in makefile
+    assert "send-mymedia-amazon-pairing-telegram:" in makefile
+    assert "scripts/ea_live_ops.py send-mymedia-amazon-pairing-telegram --format operator" in makefile
+    assert "trigger-mymedia-amazon-pairing:" in makefile
+    assert "scripts/ea_live_ops.py trigger-mymedia-amazon-pairing --format operator" in makefile
+    assert "send-mymedia-amazon-pairing-telegram:" in makefile
+    assert "scripts/ea_live_ops.py send-mymedia-amazon-pairing-telegram --format operator" in makefile
     assert "materialize-whatsapp-audiobook-operator-proof-bundle:" in makefile
     assert "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py" in makefile
     assert "verify-whatsapp-audiobook-operator-proof-bundle:" in makefile
@@ -860,6 +944,10 @@ def test_operator_summary_prints_grounded_packet_guidance() -> None:
     )
     assert "-- goal posture --" in result.stdout
     assert "north star:" in result.stdout
+    assert "operator triage:" in result.stdout
+    assert "operator focus:" in result.stdout
+    assert "operator next:" in result.stdout
+    assert "make probe-operator-readiness" in result.stdout
     assert "detect next:" in result.stdout
     assert "recover next:" in result.stdout
     assert "prove next:" in result.stdout
@@ -914,8 +1002,10 @@ def test_operator_summary_docs_mention_goal_posture() -> None:
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
 
     assert "detect`, `decide`, `deliver`, `recover`, and `prove` lenses" in readme
+    assert "`operator triage`, `operator focus`, and `operator next`" in readme
     assert "materialize-continuous-improvement-goal-posture" in readme
     assert "detect`, `decide`, `deliver`, `recover`, and `prove`" in runbook
+    assert "`operator triage`, `operator focus`, and `operator next`" in runbook
     assert "verify-continuous-improvement-goal-posture" in runbook
 
 
@@ -1318,6 +1408,59 @@ def test_whatsapp_web_action_processor_readiness_scripts_help_and_wiring() -> No
     assert "scripts/ea_live_ops.py probe-whatsapp-pairing --format operator" in makefile
     assert "send-whatsapp-pairing-telegram:" in makefile
     assert "scripts/ea_live_ops.py probe-whatsapp-pairing --send-telegram --format operator" in makefile
+    assert "probe-mymedia-alexa:" in makefile
+    assert "scripts/ea_live_ops.py probe-mymedia-alexa --format operator" in makefile
+
+
+def test_mymedia_alexa_readiness_scripts_help_and_wiring() -> None:
+    materialize = subprocess.run(
+        ["python3", "scripts/materialize_mymedia_alexa_readiness.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    verify = subprocess.run(
+        ["python3", "scripts/verify_mymedia_alexa_readiness.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+
+    assert "Materialize the My Media for Alexa no-secret readiness receipt." in materialize.stdout
+    assert "Verify the My Media for Alexa no-secret readiness receipt." in verify.stdout
+    assert "scripts/materialize_mymedia_alexa_readiness.py" in smoke_help
+    assert "scripts/verify_mymedia_alexa_readiness.py" in smoke_help
+    assert "materialize-mymedia-alexa-readiness:" in makefile
+    assert "scripts/materialize_mymedia_alexa_readiness.py" in makefile
+    assert "verify-mymedia-alexa-readiness:" in makefile
+    assert "scripts/verify_mymedia_alexa_readiness.py" in makefile
+    assert "rescan-mymedia-library:" in makefile
+    assert "repair-mymedia-public-surface:" in makefile
+    assert "submit-mymedia-amazon-pairing-code:" in makefile
+    assert "make rescan-mymedia-library" in readme
+    assert "make repair-mymedia-public-surface" in readme
+    assert "make verify-mymedia-alexa-readiness" in readme
+    assert "--no-pairing" in readme
+    assert "probe-google-workspace-oauth --expected-google-email work.tibor.girschele@gmail.com --format operator" in readme
+    assert "make probe-live-provider PROVIDER=pushbullet" in readme
+    assert "python3 scripts/materialize_pushbullet_delivery_readiness.py --pretty" in readme
+    assert "python3 scripts/verify_pushbullet_delivery_readiness.py --pretty" in readme
+    assert "account=` label such as `default->elisabeth`" in readme
+    assert "make submit-mymedia-amazon-pairing-code OTP_CODE=..." in runbook
+    assert "make rescan-mymedia-library" in runbook
+    assert "make repair-mymedia-public-surface" in runbook
+    assert "make probe-live-provider-cost-pressure WINDOW=24h" in runbook
+    assert "probe-operator-readiness --no-pairing --format operator" in runbook
+    assert "probe-google-workspace-oauth --expected-google-email work.tibor.girschele@gmail.com --format operator" in runbook
+    assert "python3 scripts/materialize_pushbullet_delivery_readiness.py --pretty" in runbook
+    assert "python3 scripts/verify_pushbullet_delivery_readiness.py --pretty" in runbook
+    assert "account=` label such as `default->elisabeth`" in runbook
 
 
 def test_proactive_ooda_operator_status_scripts_help_and_wiring() -> None:

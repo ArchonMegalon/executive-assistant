@@ -12,6 +12,7 @@ from pathlib import Path
 EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
 DEFAULT_CHUMMER6_GUIDE_PUBLISH_REPO = "chummer6/docs"
+_BRAIN_ROUTER_ALLOWED_TOOLS = ["provider.brain_router.structured_generate", "artifact_repository"]
 
 
 def env_value(name: str) -> str:
@@ -85,6 +86,33 @@ def _budget_policy(*, publishable: bool) -> dict[str, object]:
     return budget
 
 
+def _structured_model_policy(*, brain_profile: str) -> dict[str, object]:
+    return {
+        "brain_profile": brain_profile,
+        "default_model": "ea-groundwork" if brain_profile == "groundwork" else "ea-audit-jury",
+        "posthoc_review_profile": "review_light",
+        "fallback_brain_profile": "survival",
+        "output_mode": "json",
+    }
+
+
+def _guide_provider_hints(
+    *,
+    output: list[str] | None = None,
+    media: list[str] | None = None,
+    style: list[str] | None = None,
+) -> dict[str, object]:
+    hints: dict[str, object] = {
+        "primary": ["1min.AI"],
+        "research": ["BrowserAct"],
+        "output": output or ["1min.AI", "Gemini Vortex"],
+        "style": style or ["1min.AI", "Gemini Vortex"],
+    }
+    if media:
+        hints["media"] = media
+    return hints
+
+
 def _common_skill_fields(*, publishable: bool) -> dict[str, object]:
     return {
         "task_key": "chummer6_guide_refresh",
@@ -92,7 +120,7 @@ def _common_skill_fields(*, publishable: bool) -> dict[str, object]:
         "default_risk_class": "low",
         "default_approval_class": "none",
         "workflow_template": "tool_then_artifact",
-        "allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"],
+        "allowed_tools": list(_BRAIN_ROUTER_ALLOWED_TOOLS),
         "evidence_requirements": [
             "public_page_registry",
             "public_part_registry",
@@ -135,12 +163,8 @@ def _common_skill_fields(*, publishable: bool) -> dict[str, object]:
             "required": ["deliverable_type"],
         },
         "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
-        "model_policy_json": {
-            "provider": "gemini_vortex",
-            "default_model": env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-3.5-flash",
-            "output_mode": "json",
-        },
-        "tool_policy_json": {"allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"]},
+        "model_policy_json": _structured_model_policy(brain_profile="groundwork"),
+        "tool_policy_json": {"allowed_tools": list(_BRAIN_ROUTER_ALLOWED_TOOLS)},
         "runtime_policy_json": {
             "mechanics_boundary": "core_receipts_only",
             "mechanics_claim_receipt_required": True,
@@ -216,12 +240,7 @@ def build_public_writer_skill_payload() -> dict[str, object]:
             "description": "Builds registry-first, reader-first Chummer6 guide copy for the SR4-SR6 public story, with page-class-aware rewrites, fail-closed placeholder and dev-speak checks, and practical next steps for players and GMs.",
             "memory_writes": ["chummer6_public_copy_fact"],
             "tags": ["chummer6", "guide", "public-writer", "audience", "copy"],
-            "provider_hints_json": {
-                "primary": ["Gemini Vortex"],
-                "research": ["BrowserAct"],
-                "output": ["Gemini Vortex", "Prompting Systems"],
-                "style": ["Gemini Vortex"],
-            },
+            "provider_hints_json": _guide_provider_hints(output=["1min.AI", "Prompting Systems", "Gemini Vortex"]),
         }
     )
     return payload
@@ -236,13 +255,10 @@ def build_visual_director_skill_payload() -> dict[str, object]:
             "description": "Delivers flagship visual direction for Chummer6 pages: scene planning with narrative readability, cinematic poster energy, and a strict render-then-overlay flow that makes every image teachable at a glance.",
             "memory_writes": ["chummer6_style_epoch", "chummer6_scene_ledger", "chummer6_visual_critic_fact"],
             "tags": ["chummer6", "guide", "visual-direction", "style-epoch", "scene-ledger"],
-            "provider_hints_json": {
-                "primary": ["Gemini Vortex"],
-                "research": ["BrowserAct"],
-                "output": ["Gemini Vortex", "Media Factory", "AI Magicx", "Prompting Systems", "BrowserAct"],
-                "media": ["Media Factory", "AI Magicx", "Prompting Systems", "BrowserAct"],
-                "style": ["Gemini Vortex"],
-            },
+            "provider_hints_json": _guide_provider_hints(
+                output=["1min.AI", "Media Factory", "AI Magicx", "Prompting Systems", "BrowserAct", "Gemini Vortex"],
+                media=["Media Factory", "AI Magicx", "Prompting Systems", "BrowserAct"],
+            ),
         }
     )
     return _apply_visual_contract_context(payload)
@@ -268,6 +284,7 @@ def build_public_auditor_skill_payload() -> dict[str, object]:
         "reject_developer_facing_public_copy": True,
         "send_rejected_copy_back_to_generator": True,
     }
+    payload["model_policy_json"] = _structured_model_policy(brain_profile="audit")
     payload.update(
         {
             "skill_key": "chummer6_public_auditor",
@@ -276,12 +293,7 @@ def build_public_auditor_skill_payload() -> dict[str, object]:
             "description": "Audits generated public Chummer6 copy after the writer pass, fails unresolved CTA or placeholder output, and rejects internal, developer-facing, or weak visitor copy with concrete repair guidance.",
             "memory_writes": ["chummer6_public_audit_fact"],
             "tags": ["chummer6", "guide", "public-audit", "editorial", "qa"],
-            "provider_hints_json": {
-                "primary": ["Gemini Vortex"],
-                "research": ["BrowserAct"],
-                "output": ["Gemini Vortex", "Prompting Systems"],
-                "style": ["Gemini Vortex"],
-            },
+            "provider_hints_json": _guide_provider_hints(output=["1min.AI", "Prompting Systems", "Gemini Vortex"]),
         }
     )
     return payload
@@ -289,6 +301,7 @@ def build_public_auditor_skill_payload() -> dict[str, object]:
 
 def build_scene_auditor_skill_payload() -> dict[str, object]:
     payload = _common_skill_fields(publishable=False)
+    payload["model_policy_json"] = _structured_model_policy(brain_profile="audit")
     payload.update(
         {
             "skill_key": "chummer6_scene_auditor",
@@ -297,12 +310,7 @@ def build_scene_auditor_skill_payload() -> dict[str, object]:
             "description": "Audits scene plans before render so every page avoids generic table-vibe layouts and lands as a clear, cinematic story moment with room for readable overlays.",
             "memory_writes": ["chummer6_scene_audit_fact"],
             "tags": ["chummer6", "guide", "scene-audit", "visual-direction", "qa"],
-            "provider_hints_json": {
-                "primary": ["Gemini Vortex"],
-                "research": ["BrowserAct"],
-                "output": ["Gemini Vortex", "Prompting Systems"],
-                "style": ["Gemini Vortex"],
-            },
+            "provider_hints_json": _guide_provider_hints(output=["1min.AI", "Prompting Systems", "Gemini Vortex"]),
         }
     )
     return _apply_visual_contract_context(payload)
@@ -310,6 +318,7 @@ def build_scene_auditor_skill_payload() -> dict[str, object]:
 
 def build_visual_auditor_skill_payload() -> dict[str, object]:
     payload = _common_skill_fields(publishable=False)
+    payload["model_policy_json"] = _structured_model_policy(brain_profile="audit")
     payload.update(
         {
             "skill_key": "chummer6_visual_auditor",
@@ -318,13 +327,10 @@ def build_visual_auditor_skill_payload() -> dict[str, object]:
             "description": "Performs post-render visual QA for flagship-quality guide imagery: remove synthetic grain/noise, keep strong semantic anchors, and only keep overlays backed by what the scene actually shows.",
             "memory_writes": ["chummer6_visual_audit_fact"],
             "tags": ["chummer6", "guide", "visual-audit", "qa"],
-            "provider_hints_json": {
-                "primary": ["Gemini Vortex"],
-                "research": ["BrowserAct"],
-                "output": ["Gemini Vortex", "AI Magicx", "Prompting Systems"],
-                "media": ["AI Magicx", "Prompting Systems"],
-                "style": ["Gemini Vortex"],
-            },
+            "provider_hints_json": _guide_provider_hints(
+                output=["1min.AI", "AI Magicx", "Prompting Systems", "Gemini Vortex"],
+                media=["AI Magicx", "Prompting Systems"],
+            ),
         }
     )
     return _apply_visual_contract_context(payload)
@@ -332,6 +338,7 @@ def build_visual_auditor_skill_payload() -> dict[str, object]:
 
 def build_pack_auditor_skill_payload() -> dict[str, object]:
     payload = _common_skill_fields(publishable=False)
+    payload["model_policy_json"] = _structured_model_policy(brain_profile="audit")
     payload.update(
         {
             "skill_key": "chummer6_pack_auditor",
@@ -340,12 +347,7 @@ def build_pack_auditor_skill_payload() -> dict[str, object]:
             "description": "Final pack-level curator for Chummer6 guide output: editorial consistency, flagship visual coherence, readable critical assets, and clear publish gates that preserve player value.",
             "memory_writes": ["chummer6_pack_audit_fact"],
             "tags": ["chummer6", "guide", "pack-audit", "qa"],
-            "provider_hints_json": {
-                "primary": ["Gemini Vortex"],
-                "research": ["BrowserAct"],
-                "output": ["Gemini Vortex"],
-                "style": ["Gemini Vortex"],
-            },
+            "provider_hints_json": _guide_provider_hints(output=["1min.AI", "Gemini Vortex"]),
         }
     )
     return _apply_visual_contract_context(payload)
@@ -372,6 +374,7 @@ def build_user_auditor_skill_payload() -> dict[str, object]:
         "reject_developer_facing_public_copy": True,
         "send_rejected_copy_back_to_generator": True,
     }
+    payload["model_policy_json"] = _structured_model_policy(brain_profile="audit")
     payload.update(
         {
             "skill_key": "chummer6_user_auditor",
@@ -380,12 +383,7 @@ def build_user_auditor_skill_payload() -> dict[str, object]:
             "description": "Audits generated public Chummer6 copy and rewrites developer-facing language into visitor language. Ensures each page answers what the user can do next with clear proof, practical next steps, and player or GM value.",
             "memory_writes": ["chummer6_user_audit_fact"],
             "tags": ["chummer6", "guide", "user-audit", "audience", "conversion"],
-            "provider_hints_json": {
-                "primary": ["Gemini Vortex"],
-                "research": ["BrowserAct"],
-                "output": ["Gemini Vortex", "Prompting Systems"],
-                "style": ["Gemini Vortex"],
-            },
+            "provider_hints_json": _guide_provider_hints(output=["1min.AI", "Prompting Systems", "Gemini Vortex"]),
         }
     )
     return payload

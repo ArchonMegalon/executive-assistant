@@ -13,8 +13,9 @@ def test_project_mode_switchboard_is_operator_only_and_renders_separate_product_
     client = build_product_client(principal_id="exec-project-mode-switchboard")
     operator_client = build_operator_product_client(principal_id="operator-project-mode-switchboard")
 
-    response = client.get("/modes")
-    assert response.status_code in {401, 403}
+    response = client.get("/modes", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/bootstrap-operator?return_to=%2Fmodes"
 
     response = operator_client.get("/modes")
 
@@ -29,6 +30,17 @@ def test_project_mode_switchboard_is_operator_only_and_renders_separate_product_
     assert 'class="mode-pill ready"' in response.text
     assert 'href="/memorials/' not in response.text
     assert 'href="/properties' not in response.text
+
+
+def test_project_mode_switchboard_redirects_principal_session_to_sign_in_when_operator_scope_is_missing() -> None:
+    principal_id = "exec-project-mode-signin"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    response = client.get("/modes", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/sign-in?return_to=%2Fmodes"
 
 
 def test_operator_provider_dashboard_shows_governed_lanes_without_secret_ids() -> None:

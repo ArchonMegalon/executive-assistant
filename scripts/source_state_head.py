@@ -11,7 +11,12 @@ GENERATED_ONLY_PREFIXES = (
     ".runtime/",
     ".codex-design/product/",
     ".codex-studio/published/",
+    ".state/",
+    "state/",
+    "tmp/",
+    "tmp_",
     "ea/.runtime/",
+    "ea/state/",
     "scripts/verify_",
     "tests/",
 )

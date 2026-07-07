@@ -1245,13 +1245,20 @@ def create_workspace_access_session_legacy(
     email, role, display_name, operator_id, expires_in_hours, default_target = _normalize_workspace_access_legacy_payload(
         body=dict(body or {})
     )
+    access_grant = service.resolve_workspace_access_grant(
+        principal_id=context.principal_id,
+        email=email,
+        default_role=role,
+        display_name=display_name,
+        operator_id=operator_id,
+    )
     try:
         payload = service.issue_workspace_access_session(
             principal_id=context.principal_id,
             email=email,
-            role=role,
-            display_name=display_name,
-            operator_id=operator_id,
+            role=str(access_grant.get("role") or role).strip().lower() or role,
+            display_name=str(access_grant.get("display_name") or display_name).strip() or display_name,
+            operator_id=str(access_grant.get("operator_id") or operator_id).strip(),
             source_kind="workspace_access_api",
             expires_in_hours=expires_in_hours,
             default_target=default_target,

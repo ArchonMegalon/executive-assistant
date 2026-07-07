@@ -178,7 +178,7 @@ def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: p
 
     existing_principal = "user-4a1702ea0e8d9ec5"
     client.headers.update({"X-EA-Principal-ID": existing_principal})
-    start_workspace(client, mode="personal", workspace_name="Principal Property Workspace")
+    start_workspace(client, mode="personal", workspace_name="Principal Assistant Workspace")
 
     sign_in_start = client.post(
         "/sign-in/google",
@@ -222,7 +222,7 @@ def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: p
 
     opened = client.get(callback.headers["location"], follow_redirects=False)
     assert opened.status_code == 303
-    assert opened.headers["location"] == "/app/properties"
+    assert opened.headers["location"] == "/app/today"
     assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
 
 

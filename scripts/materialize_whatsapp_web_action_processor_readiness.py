@@ -131,6 +131,9 @@ def _next_action(report: dict[str, Any]) -> str:
         return "send_epub_over_whatsapp_to_start_or_refresh_live_audiobook_flow"
 
     reasons = [str(item).strip() for item in list(report.get("reasons") or []) if str(item).strip()]
+    sidecar_status = str(report.get("sidecar_status") or "").strip()
+    qr_required = bool(report.get("sidecar_qr_required"))
+    qr_present = bool(report.get("sidecar_qr_present"))
     if "callback_secret_missing" in reasons:
         return "seed_whatsapp_callback_secret_and_rerun_readiness"
     if any(code in reasons for code in ("state_file_container_probe_unavailable", "processor_container_disabled_or_not_running")):
@@ -153,6 +156,8 @@ def _next_action(report: dict[str, Any]) -> str:
     if any(code in reasons for code in ("api_container_callback_secret_missing", "processor_container_callback_secret_missing")):
         return "sync_callback_secret_into_runtime_containers"
     if "sidecar_not_ready" in reasons or "sidecar_message_text_storage_disabled" in reasons:
+        if qr_required or qr_present or sidecar_status == "qr_required":
+            return "scan_whatsapp_web_qr"
         return "restore_whatsapp_web_session_sidecar_readiness"
     return "fix_whatsapp_web_action_processor_readiness"
 

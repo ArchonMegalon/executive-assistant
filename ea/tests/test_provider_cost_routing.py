@@ -8,9 +8,11 @@ from unittest.mock import patch
 from app.api.routes import responses as responses_route
 from app.domain.models import ToolDefinition, ToolInvocationRequest
 from app.services import responses_upstream
-from app.services.brain_catalog import GEMINI_VORTEX_PUBLIC_MODEL, GROUNDWORK_PUBLIC_MODEL
+from app.services.brain_catalog import GEMINI_VORTEX_PUBLIC_MODEL, GROUNDWORK_PUBLIC_MODEL, SURVIVAL_PUBLIC_MODEL
 from app.services.brain_router import BrainRouterService
+from app.services.onemin_manager import register_onemin_manager
 from app.services.provider_registry import ProviderRegistryService
+from app.services import survival_lane
 from app.services.tool_execution_onemin_adapter import OneminToolAdapter
 
 
@@ -55,6 +57,33 @@ def test_groundwork_profile_prefers_onemin_for_non_urgent_background_work() -> N
     assert decision.health_provider_key == "onemin"
 
 
+def test_survival_profile_keeps_onemin_before_gemini_fallback() -> None:
+    env = {
+        **_provider_env(),
+        "BROWSERACT_API_KEY": "browseract-key",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        decision = BrainRouterService(ProviderRegistryService()).resolve_profile(SURVIVAL_PUBLIC_MODEL)
+
+    assert decision.provider_hint_order[:3] == ("onemin", "browseract", "gemini_vortex")
+    assert decision.backend_key == "onemin"
+    assert decision.health_provider_key == "onemin"
+
+
+def test_survival_route_order_keeps_gemini_as_last_family_fallback() -> None:
+    env = {
+        **_provider_env(),
+        "BROWSERACT_API_KEY": "browseract-key",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        assert survival_lane._survival_route_order() == (
+            "onemin",
+            "chatplayground",
+            "gemini_vortex",
+            "gemini_web",
+        )
+
+
 def test_groundwork_structured_route_uses_onemin_text_tool() -> None:
     with patch.dict(os.environ, _provider_env(), clear=True):
         route = ProviderRegistryService().route_brain_profile_capability_with_context(
@@ -72,7 +101,7 @@ def test_groundwork_structured_route_uses_onemin_text_tool() -> None:
     assert route.tool_name == "provider.onemin.code_generate"
 
 
-def test_groundwork_response_candidates_use_onemin_then_magicx_before_gemini() -> None:
+def test_groundwork_response_candidates_use_onemin_then_magicx_then_gemini_fallback() -> None:
     with (
         patch.dict(os.environ, _provider_env(), clear=True),
         patch.object(responses_upstream, "_provider_health_snapshot", return_value=_health(onemin_dispatchable=True)),
@@ -82,14 +111,14 @@ def test_groundwork_response_candidates_use_onemin_then_magicx_before_gemini() -
     assert _provider_first_occurrence(candidates)[:3] == ["onemin", "magixai", "gemini_vortex"]
 
 
-def test_default_provider_order_keeps_magicx_before_gemini_for_non_hard_work() -> None:
+def test_default_provider_order_keeps_onemin_then_magicx_then_gemini_fallback() -> None:
     with patch.dict(os.environ, _provider_env(), clear=True):
         provider_order = responses_upstream._provider_order()
 
     assert provider_order[:3] == ("onemin", "magixai", "gemini_vortex")
 
 
-def test_groundwork_response_candidates_spill_to_magicx_before_gemini_when_onemin_unavailable() -> None:
+def test_groundwork_response_candidates_spill_to_gemini_before_magicx_when_onemin_unavailable() -> None:
     with (
         patch.dict(os.environ, _provider_env(), clear=True),
         patch.object(responses_upstream, "_provider_health_snapshot", return_value=_health(onemin_dispatchable=False)),
@@ -229,6 +258,75 @@ def test_groundwork_ready_provider_prefers_ready_onemin_over_ready_gemini() -> N
     assert provider == "onemin"
 
 
+def test_groundwork_ready_provider_keeps_gemini_as_last_fallback_when_onemin_is_down() -> None:
+    provider = responses_route._groundwork_ready_provider(
+        {"profile": "groundwork"},
+        provider_health=_health(onemin_dispatchable=False),
+    )
+
+    assert provider == "magixai"
+
+
+def test_groundwork_ready_provider_keeps_onemin_first_when_health_is_unknown_unprobed() -> None:
+    provider = responses_route._groundwork_ready_provider(
+        {"profile": "groundwork"},
+        provider_health={
+            "providers": {
+                "onemin": {"state": "unknown", "detail": "unknown_unprobed"},
+                "magixai": {"state": "ready"},
+                "gemini_vortex": {"state": "ready"},
+            }
+        },
+    )
+
+    assert provider == "onemin"
+
+
+def test_groundwork_ready_provider_keeps_onemin_first_when_health_row_is_missing() -> None:
+    with patch.dict(os.environ, _provider_env(), clear=True):
+        provider = responses_route._groundwork_ready_provider(
+            {"profile": "groundwork"},
+            provider_health={
+                "providers": {
+                    "magixai": {"state": "ready"},
+                    "gemini_vortex": {"state": "ready"},
+                }
+            },
+        )
+
+    assert provider == "onemin"
+
+
+def test_repair_ready_provider_keeps_onemin_first_when_health_is_unknown_unprobed() -> None:
+    provider = responses_route._repair_ready_provider(
+        {"profile": "repair", "provider_hint_order": ("onemin", "magixai", "gemini_vortex")},
+        provider_health={
+            "providers": {
+                "onemin": {"state": "unknown", "detail": "unknown_unprobed"},
+                "magixai": {"state": "ready"},
+                "gemini_vortex": {"state": "ready"},
+            }
+        },
+    )
+
+    assert provider == "onemin"
+
+
+def test_repair_ready_provider_keeps_onemin_first_when_health_row_is_missing() -> None:
+    with patch.dict(os.environ, _provider_env(), clear=True):
+        provider = responses_route._repair_ready_provider(
+            {"profile": "repair", "provider_hint_order": ("onemin", "magixai", "gemini_vortex")},
+            provider_health={
+                "providers": {
+                    "magixai": {"state": "ready"},
+                    "gemini_vortex": {"state": "ready"},
+                }
+            },
+        )
+
+    assert provider == "onemin"
+
+
 def test_onemin_groundwork_execution_uses_background_lane_and_model(monkeypatch) -> None:
     adapter = OneminToolAdapter()
     calls: list[dict[str, object]] = []
@@ -280,3 +378,93 @@ def test_onemin_groundwork_execution_uses_background_lane_and_model(monkeypatch)
     assert "Desired output" in str(calls[0]["prompt"])
     assert result.model_name == "deepseek-chat"
     assert result.output_json["structured_output_json"]["plan"] == ["check"]
+
+
+def test_onemin_text_execution_reserves_through_active_manager(monkeypatch, tmp_path) -> None:
+    class FakeManager:
+        def __init__(self) -> None:
+            self.reserved: list[dict[str, object]] = []
+            self.recorded: list[dict[str, object]] = []
+            self.released: list[dict[str, object]] = []
+
+        def _provider_health_is_authoritative(self, *, provider_health):
+            return True
+
+        def reserve_for_candidates(self, **kwargs):
+            self.reserved.append(dict(kwargs))
+            return {"api_key": "managed-key", "lease_id": "lease-1"}
+
+        def record_usage(self, **kwargs):
+            self.recorded.append(dict(kwargs))
+
+        def release_lease(self, **kwargs):
+            self.released.append(dict(kwargs))
+
+    manager = FakeManager()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "managed-key")
+    responses_upstream._test_reset_onemin_states()
+    register_onemin_manager(manager)
+    try:
+        monkeypatch.setattr(
+            responses_upstream,
+            "_provider_health_report",
+            lambda **_kwargs: {
+                "providers": {
+                    "onemin": {
+                        "state": "ready",
+                        "live_dispatchable_slot_count": 1,
+                        "slots": [
+                            {
+                                "account_name": "ONEMIN_AI_API_KEY",
+                                "slot": "primary",
+                                "state": "ready",
+                                "remaining_credits": 100000,
+                            }
+                        ],
+                    }
+                }
+            },
+        )
+        monkeypatch.setattr(
+            responses_upstream,
+            "_post_onemin_json_with_attempt",
+            lambda **_kwargs: (
+                200,
+                {
+                    "success": True,
+                    "aiRecord": {
+                        "aiRecordDetail": {
+                            "resultObject": {"text": "managed answer"},
+                        }
+                    },
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 4},
+                },
+            ),
+        )
+
+        result = responses_upstream._call_onemin(
+            responses_upstream.ProviderConfig(
+                provider_key="onemin",
+                display_name="1min.AI",
+                api_keys=("managed-key",),
+                default_models=("deepseek-chat",),
+                timeout_seconds=5,
+            ),
+            prompt="prepare background notes",
+            model="deepseek-chat",
+            lane="groundwork",
+            principal_id="operator",
+        )
+
+        assert result.text == "managed answer"
+        assert result.provider_account_name == "ONEMIN_AI_API_KEY"
+        assert manager.reserved
+        assert manager.reserved[0]["lane"] == "groundwork"
+        assert manager.reserved[0]["capability"] == "code_generate"
+        assert manager.reserved[0]["principal_id"] == "operator"
+        assert manager.recorded and manager.recorded[0]["lease_id"] == "lease-1"
+        assert manager.released and manager.released[-1] == {"lease_id": "lease-1", "status": "released"}
+    finally:
+        register_onemin_manager(None)
+        responses_upstream._test_reset_onemin_states()

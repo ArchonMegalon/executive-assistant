@@ -44,7 +44,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - exercised in lean unit environments.
     websockets = None
 
-from app.services.brain_catalog import DEFAULT_PUBLIC_MODEL, GEMINI_VORTEX_PUBLIC_MODEL
+from app.services.brain_catalog import DEFAULT_PUBLIC_MODEL, FAST_PUBLIC_MODEL, GEMINI_VORTEX_PUBLIC_MODEL
 from app.services.memorial_openvoice import (
     OPENVOICE_TTS_PLUGIN_ID,
     PIPER_FAST_TTS_PLUGIN_ID,
@@ -2455,12 +2455,14 @@ def _resolve_memorial_voice_chat_model(
     selected, models, _ = _resolve_memorial_chat_model(payload, private_profile, "")
     live_interaction = _is_memorial_live_interaction_question(question)
     direct_contact = _is_memorial_contact_question(question)
-    if live_interaction or direct_contact:
-        return GEMINI_VORTEX_PUBLIC_MODEL
-    preferred = ("memorial-local-fast", GEMINI_VORTEX_PUBLIC_MODEL, "ea-coder-fast", "deepseek-chat")
+    preferred = ("memorial-local-fast", FAST_PUBLIC_MODEL, "deepseek-chat")
     for candidate in preferred:
         if candidate in models:
             return candidate
+    if GEMINI_VORTEX_PUBLIC_MODEL in models:
+        return GEMINI_VORTEX_PUBLIC_MODEL
+    if live_interaction or direct_contact:
+        return GEMINI_VORTEX_PUBLIC_MODEL
     return selected
 
 
@@ -2470,17 +2472,17 @@ def _resolve_memorial_realtime_chat_model(
 ) -> str:
     models = _collect_memorial_chat_models(payload, private_profile)
     preferred = (
-        GEMINI_VORTEX_PUBLIC_MODEL,
-        "ea-coder-fast",
-        "deepseek-chat",
         "memorial-local-fast",
+        FAST_PUBLIC_MODEL,
+        "deepseek-chat",
     )
     for candidate in preferred:
-        if candidate == GEMINI_VORTEX_PUBLIC_MODEL:
-            return candidate
         if candidate in models:
             return candidate
-    return _resolve_memorial_chat_default_model(payload, private_profile, models)
+    if GEMINI_VORTEX_PUBLIC_MODEL in models:
+        return GEMINI_VORTEX_PUBLIC_MODEL
+    selected = _resolve_memorial_chat_default_model(payload, private_profile, models)
+    return selected or GEMINI_VORTEX_PUBLIC_MODEL
 
 
 def _load_private_profile(slug: str) -> dict[str, object]:
@@ -7569,6 +7571,7 @@ def _build_memorial_rescue_contact_turn_payload(
     rescue_reason: str,
 ) -> dict[str, object]:
     payload = _load_memorial(slug)
+    private_profile = _load_private_profile(slug)
     base_config = _load_voice_config(slug)
     merged_config = dict(base_config)
     tts_options = _tts_plugin_options(
@@ -7631,7 +7634,7 @@ def _build_memorial_rescue_contact_turn_payload(
         "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
         "llm_model": "memorial_guardrail",
         "llm_provider": "memorial_guardrail",
-        "llm_request_model": GEMINI_VORTEX_PUBLIC_MODEL,
+        "llm_request_model": _resolve_memorial_voice_chat_model(payload, private_profile, ""),
         "llm_fallback_used": False,
         "fallback_reason": fallback_reason,
         "turn_rescue_reason": rescue_reason,

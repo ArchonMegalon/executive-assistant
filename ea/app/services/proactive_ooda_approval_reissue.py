@@ -106,6 +106,7 @@ def reissue_current_proactive_ooda_approval(
             "staged_action_url": str(approval_request.get("staged_action_url") or "").strip(),
             "approved_execution_mode": str(approval_request.get("approved_execution_mode") or "").strip(),
             "approved_action": str(approval_request.get("approved_action") or "").strip(),
+            "work_type": str(approval_request.get("work_type") or "").strip(),
         },
     )
     approval_surface = _approval_surface_from_receipt(receipt)
@@ -274,6 +275,7 @@ def current_proactive_ooda_approval_request(bundle: Mapping[str, Any]) -> dict[s
         "staged_action_url": staged_action_url,
         "approved_execution_mode": str(stage_payload.get("approved_execution_mode") or "").strip(),
         "approved_action": str(stage_payload.get("approved_action") or "").strip(),
+        "work_type": _approval_request_work_type(stage_packet=stage_packet, safe_work_result=safe_work_result),
         "stage_kind": str(dict(stage_packet.get("stage") or {}).get("kind") or "").strip(),
         "safe_work_status": str(safe_work_result.get("status") or "").strip(),
     }
@@ -288,6 +290,24 @@ def _safe_work_quality_gate_blocks_approval(safe_work_result: Mapping[str, Any])
         return True
     execution_receipt = dict(safe_work_result.get("execution_receipt") or {})
     return str(execution_receipt.get("stop_condition") or "").strip().lower() == "quality_gate_failed"
+
+
+def _approval_request_work_type(
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> str:
+    stage = dict(stage_packet.get("stage") or {})
+    stage_payload = dict(stage.get("payload") or {})
+    safe_work_order = dict(stage_packet.get("safe_work_order") or {})
+    for value in (
+        safe_work_result.get("work_type"),
+        safe_work_order.get("work_type"),
+        stage_payload.get("work_type"),
+    ):
+        text = str(value or "").strip().lower()
+        if text:
+            return text
+    return ""
 
 
 def _default_container_factory() -> Any:

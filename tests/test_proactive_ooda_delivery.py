@@ -392,6 +392,110 @@ def test_send_proactive_notification_can_send_explicit_pushbullet_preference(mon
     assert events["sent"]["receipt_json"]["message_ids"] == ["p" * 64]
 
 
+def test_send_proactive_notification_suppresses_non_actionable_pushbullet_packet(monkeypatch) -> None:
+    monkeypatch.setenv("PB_TOKEN_ELISABETH", "push-token")
+    monkeypatch.setenv("PUSHBULLET_ELISABETH_EMAIL", "elisabeth.girschele@gmail.com")
+    sent_pushes: list[dict[str, object]] = []
+    events: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        delivery,
+        "send_pushbullet_note",
+        lambda **kwargs: sent_pushes.append(dict(kwargs)) or PushbulletDeliveryReceipt(
+            client_key=str(kwargs.get("client_key") or ""),
+            status="sent",
+            push_id_hash="p" * 64,
+            push_type="note",
+            recipient_ref_hash="r" * 64,
+        ),
+    )
+
+    class _ChannelRuntime:
+        def queue_delivery(self, channel, recipient, content, metadata=None, *, principal_id="", idempotency_key=""):
+            events["queued"] = {"channel": channel, "recipient": recipient, "content": content}
+            return SimpleNamespace(delivery_id="delivery-pb-1", status="pending")
+
+        def mark_delivery_sent(self, delivery_id, *, principal_id, receipt_json=None):
+            events["sent"] = {"delivery_id": delivery_id, "receipt_json": dict(receipt_json or {})}
+            return None
+
+    receipt = delivery.send_proactive_ooda_notification(
+        principal_id="exec",
+        text="EA OODA packet",
+        channel_runtime=_ChannelRuntime(),
+        memory_runtime=SimpleNamespace(
+            list_delivery_preferences=lambda **_kwargs: [
+                _delivery_preference(channel="pushbullet", recipient_ref="elisabeth"),
+            ],
+            list_communication_policies=lambda **_kwargs: [],
+            list_follow_ups=lambda **_kwargs: [],
+        ),
+        approval_request={
+            "packet_ref": "stage_packet:packet-1",
+            "staged_artifact_ref": "safe_work_result:result-1",
+            "approval_prompt": (
+                "Approve whether EA should proceed with this staged shortlist candidate. "
+                "Research, compare, or draft only; require explicit approval before purchase, booking, cancellation, sending, posting, or commitment."
+            ),
+            "staged_action_url": "https://example.com/candidate",
+        },
+    )
+
+    assert receipt.channel == "pushbullet"
+    assert receipt.message_ids == ()
+    assert receipt.route_error == "pushbullet_notification_suppressed_non_actionable"
+    assert dict(receipt.approval_surface or {}).get("status") == "suppressed_non_actionable"
+    assert sent_pushes == []
+    assert events == {}
+
+
+def test_send_proactive_notification_suppresses_internal_whatsapp_status_packet(monkeypatch) -> None:
+    memory_runtime = SimpleNamespace(
+        list_delivery_preferences=lambda **_kwargs: [_delivery_preference(channel="whatsapp")],
+        list_communication_policies=lambda **_kwargs: [],
+        list_follow_ups=lambda **_kwargs: [],
+    )
+    tool_runtime = SimpleNamespace(
+        list_connector_bindings=lambda principal_id, limit=200: [_whatsapp_web_binding()],
+    )
+    monkeypatch.setattr(
+        delivery,
+        "check_whatsapp_web_session_readiness",
+        lambda **_kwargs: SimpleNamespace(ready=True, reason="ready", probe_reason="ready"),
+    )
+    sent_whatsapp: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        delivery,
+        "send_whatsapp_delivery_text",
+        lambda **kwargs: sent_whatsapp.append(dict(kwargs)) or SimpleNamespace(message_ids=("wa-1",)),
+    )
+    events: dict[str, object] = {}
+
+    class _ChannelRuntime:
+        def queue_delivery(self, channel, recipient, content, metadata=None, *, principal_id="", idempotency_key=""):
+            events["queued"] = {"channel": channel, "recipient": recipient, "content": content}
+            return SimpleNamespace(delivery_id="delivery-wa-1", status="pending")
+
+        def mark_delivery_sent(self, delivery_id, *, principal_id, receipt_json=None):
+            events["sent"] = {"delivery_id": delivery_id, "receipt_json": dict(receipt_json or {})}
+            return None
+
+    receipt = delivery.send_proactive_ooda_notification(
+        principal_id="exec",
+        text="Proactive OODA runtime receipt materialization completed.",
+        tool_runtime=tool_runtime,
+        channel_runtime=_ChannelRuntime(),
+        memory_runtime=memory_runtime,
+    )
+
+    assert receipt.channel == "whatsapp"
+    assert receipt.message_ids == ()
+    assert receipt.route_error == "whatsapp_notification_suppressed_non_actionable"
+    assert dict(receipt.approval_surface or {}).get("status") == "suppressed_non_actionable"
+    assert sent_whatsapp == []
+    assert events == {}
+
+
 def test_send_proactive_notification_sends_follow_up_approval_prompt_with_buttons(monkeypatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token")
     monkeypatch.setattr(delivery, "resolve_primary_telegram_binding", lambda tool_runtime, *, principal_id: _telegram_binding())

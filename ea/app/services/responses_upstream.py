@@ -4547,7 +4547,7 @@ def _provider_order_from_env(raw: str, *, fallback: tuple[str, ...], env_name: s
     if ordered:
         return tuple(ordered)
     valid_fallback = [key for key in fallback if key in _KNOWN_PROVIDER_KEYS]
-    return tuple(valid_fallback) if valid_fallback else ("onemin", "gemini_vortex", "magixai")
+    return tuple(valid_fallback) if valid_fallback else ("onemin", "magixai", "gemini_vortex")
 
 
 def _provider_order() -> tuple[str, ...]:
@@ -4574,8 +4574,8 @@ def _groundwork_provider_order() -> tuple[str, ...]:
 
 
 def _hard_provider_order() -> tuple[str, ...]:
-    raw = _env("EA_RESPONSES_HARD_PROVIDER_ORDER", "onemin,gemini_vortex,magixai")
-    return _provider_order_from_env(raw, fallback=("onemin", "gemini_vortex", "magixai"), env_name="EA_RESPONSES_HARD_PROVIDER_ORDER")
+    raw = _env("EA_RESPONSES_HARD_PROVIDER_ORDER", "onemin,magixai,gemini_vortex")
+    return _provider_order_from_env(raw, fallback=("onemin", "magixai", "gemini_vortex"), env_name="EA_RESPONSES_HARD_PROVIDER_ORDER")
 
 
 _GEMINI_VORTEX_COST_GATED_LANES = frozenset(
@@ -4684,6 +4684,28 @@ def _onemin_provider_row_is_dispatchable(provider: dict[str, object]) -> bool:
     return _provider_row_is_ready(provider)
 
 
+def _onemin_provider_row_unknown_unprobed(provider: dict[str, object]) -> bool:
+    if not isinstance(provider, dict) or not provider:
+        return bool(_onemin_key_names())
+    state = str(provider.get("state") or "").strip().lower()
+    detail = str(provider.get("detail") or "").strip().lower()
+    if state != "unknown":
+        balance_basis_summary = str(provider.get("balance_basis_summary") or "").strip().lower()
+        if balance_basis_summary != "unknown_unprobed":
+            return False
+        configured_slots = _to_int(provider.get("configured_slots"), 0, minimum=0, maximum=1_000_000)
+        return configured_slots > 0 or bool(_onemin_key_names())
+    return detail in {"unknown_unprobed", ""}
+
+
+def _onemin_provider_row_keep_primary(provider: dict[str, object]) -> bool:
+    if _onemin_provider_row_is_dispatchable(provider):
+        return True
+    if not _onemin_provider_row_unknown_unprobed(provider):
+        return False
+    return bool(_onemin_key_names())
+
+
 def _provider_order_for_lane_health(
     *,
     lane: str,
@@ -4702,18 +4724,31 @@ def _provider_order_for_lane_health(
     gemini_cost_gated = lane in _GEMINI_VORTEX_COST_GATED_LANES and _gemini_vortex_token_soft_cap_exceeded()
     if gemini_cost_gated and "gemini_vortex" in ordered:
         ordered = tuple(provider_key for provider_key in ordered if provider_key != "gemini_vortex")
-    if lane in {_LANE_FAST, _LANE_OVERFLOW} and "gemini_vortex" in ordered:
-        try:
-            gemini_state, _ = _gemini_vortex_health_state()
-        except Exception:
-            gemini_state = "unknown"
-        if gemini_state != "ready":
+    providers = dict((_provider_health_snapshot(lightweight=True).get("providers") or {}))
+    if lane in {
+        _LANE_FAST,
+        _LANE_OVERFLOW,
+        _LANE_HARD,
+        _LANE_REVIEW,
+        _LANE_AUDIT,
+        _LANE_REVIEW_LIGHT,
+        _LANE_GROUNDWORK,
+    } and "gemini_vortex" in ordered:
+        gemini_provider_row = dict(providers.get("gemini_vortex") or {})
+        if gemini_provider_row:
+            gemini_ready = _provider_row_is_ready(gemini_provider_row)
+        else:
+            try:
+                gemini_state, _ = _gemini_vortex_health_state()
+            except Exception:
+                gemini_state = "unknown"
+            gemini_ready = gemini_state == "ready"
+        if not gemini_ready:
             ordered = tuple(provider_key for provider_key in ordered if provider_key != "gemini_vortex")
     if "onemin" not in ordered:
         return ordered
-    providers = dict((_provider_health_snapshot(lightweight=True).get("providers") or {}))
     onemin = dict(providers.get("onemin") or {})
-    if _onemin_provider_row_is_dispatchable(onemin):
+    if _onemin_provider_row_keep_primary(onemin):
         return ordered
     preferred: list[str] = []
     if lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT} and _provider_row_is_ready(dict(providers.get("chatplayground") or {})):
@@ -4723,7 +4758,7 @@ def _provider_order_for_lane_health(
     elif lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT}:
         fallback_order = ("chatplayground", "gemini_vortex", "magixai")
     else:
-        fallback_order = ("gemini_vortex", "magixai")
+        fallback_order = ("magixai", "gemini_vortex")
     for provider_key in fallback_order:
         if provider_key == "gemini_vortex" and gemini_cost_gated:
             continue
@@ -5071,9 +5106,7 @@ def list_response_models() -> list[dict[str, object]]:
         REVIEW_LIGHT_PUBLIC_MODEL,
         ONEMIN_PUBLIC_MODEL,
         GEMINI_VORTEX_PUBLIC_MODEL,
-        REPAIR_GEMINI_PUBLIC_MODEL,
         GROUNDWORK_PUBLIC_MODEL,
-        GROUNDWORK_PUBLIC_MODEL_ALIAS,
         SURVIVAL_PUBLIC_MODEL,
         "ea-coder-hard",
         HARD_BATCH_PUBLIC_MODEL,
@@ -5942,8 +5975,7 @@ def _provider_candidates(
     if normalized == DEFAULT_PUBLIC_MODEL or requested == "":
         # Keep the public default biased toward the fast lane. In the current
         # public execution policy, the default alias stays intentionally pinned
-        # to onemin even though the explicit fast lane can spill to cheaper
-        # Gemini/Magicx backends first.
+        # to onemin; provider fallbacks keep Gemini behind 1minAI.
         if lane in {_LANE_FAST, _LANE_OVERFLOW}:
             provider_keys_by_lane = ("onemin",)
         candidates: list[tuple[ProviderConfig, str]] = []
@@ -5968,17 +6000,17 @@ def _provider_candidates(
     if normalized == REPAIR_GEMINI_PUBLIC_MODEL:
         candidates: list[tuple[ProviderConfig, str]] = []
         seen: set[tuple[str, str]] = set()
-        primary_model_names = (
+        # Keep the legacy repair alias for callers, but route it through the
+        # same cheap-lane provider policy: 1min first via the manager, Gemini
+        # only when later fallbacks are actually needed.
+        repair_gemini_models = (
             _provider_model_order_for_lane("gemini_vortex", lane, requested)
             or _gemini_vortex_models()
         )
-        for model_name in primary_model_names:
-            key = ("gemini_vortex", model_name)
-            if key in seen:
-                continue
-            seen.add(key)
-            candidates.append((configs["gemini_vortex"], model_name))
+        repair_gemini_model = next(iter(repair_gemini_models), "")
         for config, model_name in _provider_candidates(FAST_PUBLIC_MODEL, lane=lane):
+            if config.provider_key == "gemini_vortex" and repair_gemini_model:
+                model_name = repair_gemini_model
             key = (config.provider_key, model_name)
             if key in seen:
                 continue
@@ -6086,31 +6118,32 @@ def _provider_candidates(
 
     if normalized in {FAST_PUBLIC_MODEL, "ea-overflow"}:
         candidates: list[tuple[ProviderConfig, str]] = []
-        pressure = str(
-            _onemin_live_attempt_pressure_snapshot(now=_now_epoch(), window_seconds=900.0).get("throttle_pressure")
-            or ""
-        ).strip().lower()
-        if pressure in {"", "unknown"}:
-            pressure = str(_onemin_attempt_summary(now=_now_epoch(), window_seconds=900.0).get("throttle_pressure") or "low").strip().lower()
         health = _provider_health_report(lightweight=True)
         onemin_health = dict((health.get("providers") or {}).get("onemin") or {})
         onemin_ready = (
             configs.get("onemin") is not None
             and configs["onemin"].api_keys
-            and int(onemin_health.get("live_dispatchable_slot_count") or 0) > 0
+            and _onemin_provider_row_keep_primary(onemin_health)
         )
-        fast_gemini_spillover = _to_bool(_env("EA_RESPONSES_FAST_GEMINI_SPILLOVER", "0"), False)
-        if pressure == "low" and onemin_ready:
-            ordered_keys = ["onemin", "magixai"]
-            if fast_gemini_spillover:
-                ordered_keys.append("gemini_vortex")
-            provider_keys_by_lane = tuple(ordered_keys)
-        else:
-            ordered_keys = ["magixai"]
-            if fast_gemini_spillover:
-                ordered_keys.append("gemini_vortex")
+        gemini_fallback_enabled = _to_bool(_env("EA_RESPONSES_FAST_GEMINI_SPILLOVER", "1"), True)
+        fallback_keys: list[str] = []
+        if "magixai" in provider_keys_by_lane and _provider_row_is_ready(dict((health.get("providers") or {}).get("magixai") or {})):
+            fallback_keys.append("magixai")
+        gemini_fallback_available = (
+            gemini_fallback_enabled
+            and "gemini_vortex" in provider_keys_by_lane
+            and not _gemini_vortex_token_soft_cap_exceeded()
+            and _provider_row_is_ready(dict((health.get("providers") or {}).get("gemini_vortex") or {}))
+        )
+        if gemini_fallback_available:
+            fallback_keys.append("gemini_vortex")
+        ordered_keys = []
+        if onemin_ready:
             ordered_keys.append("onemin")
-            provider_keys_by_lane = tuple(ordered_keys)
+        ordered_keys.extend(fallback_keys)
+        if not onemin_ready and "onemin" in provider_keys_by_lane:
+            ordered_keys.append("onemin")
+        provider_keys_by_lane = tuple(dict.fromkeys(ordered_keys))
         for provider_key in provider_keys_by_lane:
             config = configs.get(provider_key)
             if config is None:
@@ -9106,7 +9139,7 @@ def _fast_lane_pressure(
 
 def _fast_lane_provider_ready(provider_key: str, provider: dict[str, object]) -> bool:
     if provider_key == "onemin":
-        return _onemin_provider_row_is_dispatchable(provider)
+        return _onemin_provider_row_keep_primary(provider)
     return _provider_row_is_ready(provider)
 
 
@@ -9117,7 +9150,7 @@ def _fast_lane_route_snapshot(provider_health: dict[str, object] | None = None) 
     configured_order = [
         key
         for key in dict.fromkeys(
-            part.strip()
+            _normalize_provider(part)
             for part in _env("EA_RESPONSES_FAST_PROVIDER_ORDER", "onemin,magixai,gemini_vortex").split(",")
         )
         if key in _KNOWN_PROVIDER_KEYS
@@ -9125,42 +9158,30 @@ def _fast_lane_route_snapshot(provider_health: dict[str, object] | None = None) 
     if not configured_order:
         configured_order = ["onemin", "magixai", "gemini_vortex"]
     pressure = _fast_lane_pressure(provider_health=provider_health)
-    gemini_spillover_enabled = _to_bool(_env("EA_RESPONSES_FAST_GEMINI_SPILLOVER", "0"), False)
+    gemini_fallback_enabled = (
+        _to_bool(_env("EA_RESPONSES_FAST_GEMINI_SPILLOVER", "1"), True)
+        and not _gemini_vortex_token_soft_cap_exceeded()
+    )
 
     ready_by_provider = {
         provider_key: _fast_lane_provider_ready(provider_key, dict(providers.get(provider_key) or {}))
         for provider_key in configured_order
     }
     onemin_ready = bool(ready_by_provider.get("onemin"))
-    spillover_order = [
+    fallback_order = [
         provider_key
         for provider_key in ("magixai", "gemini_vortex")
         if provider_key in configured_order
         and ready_by_provider.get(provider_key)
-        and (provider_key != "gemini_vortex" or gemini_spillover_enabled)
+        and (provider_key != "gemini_vortex" or gemini_fallback_enabled)
     ]
 
-    if pressure in {"medium", "high"}:
-        effective_order = [*spillover_order]
-        if onemin_ready:
-            effective_order.append("onemin")
-        if spillover_order:
-            posture = "pressure_spillover"
-            reason = f"onemin_pressure_{pressure}"
-        else:
-            effective_order = ["onemin"] if onemin_ready else []
-            posture = "pressure_spillover_unavailable"
-            reason = f"onemin_pressure_{pressure}_no_ready_spillover"
-    else:
-        effective_order = []
-        if onemin_ready:
-            effective_order.append("onemin")
-        if ready_by_provider.get("magixai"):
-            effective_order.append("magixai")
-        if gemini_spillover_enabled and ready_by_provider.get("gemini_vortex"):
-            effective_order.append("gemini_vortex")
-        posture = "onemin_primary" if onemin_ready else "onemin_unavailable"
-        reason = "onemin_pressure_low" if pressure == "low" else "onemin_pressure_unknown"
+    effective_order = []
+    if onemin_ready:
+        effective_order.append("onemin")
+    effective_order.extend(fallback_order)
+    posture = "onemin_primary" if onemin_ready else "onemin_unavailable"
+    reason = f"onemin_pressure_{pressure}" if pressure in {"low", "medium", "high"} else "onemin_pressure_unknown"
 
     return {
         "configured_order": configured_order,
@@ -9168,7 +9189,8 @@ def _fast_lane_route_snapshot(provider_health: dict[str, object] | None = None) 
         "posture": posture,
         "reason": reason,
         "pressure": pressure,
-        "automatic_gemini_spillover_enabled": gemini_spillover_enabled,
+        "automatic_gemini_spillover_enabled": gemini_fallback_enabled,
+        "automatic_gemini_fallback_enabled": gemini_fallback_enabled,
     }
 
 

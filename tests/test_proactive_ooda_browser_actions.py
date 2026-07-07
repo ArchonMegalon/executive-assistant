@@ -61,6 +61,57 @@ def _browser_cart_packet() -> dict[str, object]:
     return build_stage_packets(digest)[0]
 
 
+def _browser_amazon_mfa_packet() -> dict[str, object]:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="cf-email:user@example.test",
+        signals=[
+            {
+                "source_ref": "opportunity:amazon-login",
+                "signal_type": "telegram_message",
+                "channel": "telegram",
+                "title": "Finish the Amazon-linked browser task",
+                "summary": "Use the stored account and stop at any reversible login challenge.",
+                "payload": {
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "observe": {"summary": "Amazon account login is required before EA can continue."},
+                        "orient": {"summary": "This is reversible until a human challenge appears."},
+                        "decide": {"summary": "Resume only after the human challenge is cleared.", "approval_required": True},
+                        "act": {
+                            "summary": "Log in, stop for any verification code, and wait for operator handoff.",
+                            "stage": {
+                                "kind": "account_review",
+                                "summary": "Stage the Amazon-linked browser task until the login challenge is resolved.",
+                                "work_type": "prepare_cart_or_link",
+                                "browser_task": {
+                                    "site_url": "https://www.amazon.de/",
+                                    "login_url": "https://www.amazon.de/ap/signin",
+                                    "credential_ref": "vault://ea/amazon/account",
+                                    "login_email": "archon.megalon@gmail.com",
+                                    "login_password": "never-store-this",
+                                    "operations": ["authenticate"],
+                                    "execution": {
+                                        "attempted_operations": ["authenticate"],
+                                        "current_url": "https://na.account.amazon.com/ap/mfa?ie=UTF8&arb=fixture",
+                                        "page_text": (
+                                            "Zwei-Schritt-Verifizierung "
+                                            "Für zusätzliche Sicherheit gib bitte den Code ein, der an eine Telefonnummer gesendet wurde, die auf 419 endet "
+                                            "Code eingeben "
+                                            "Code an WhatsApp senden"
+                                        ),
+                                    },
+                                },
+                            },
+                            "external_action_policy": "Do not purchase, pay, book, send, post, cancel, or commit without explicit approval.",
+                        },
+                    }
+                },
+            }
+        ],
+    )
+    return build_stage_packets(digest)[0]
+
+
 def test_browser_action_receipt_redacts_credentials_and_requires_handoff() -> None:
     packet = _browser_cart_packet()
 
@@ -83,6 +134,22 @@ def test_browser_action_receipt_redacts_credentials_and_requires_handoff() -> No
     assert "vault://ea/shop/pagro" not in serialized
 
 
+def test_browser_action_receipt_extracts_masked_mfa_detail_from_german_challenge() -> None:
+    packet = _browser_amazon_mfa_packet()
+
+    receipt = build_browser_action_receipt(packet, generated_at="2026-07-04T11:16:00+00:00")
+    challenge = receipt["handoff"]["challenge"]
+
+    assert receipt["status"] == "blocked_human_handoff_required"
+    assert receipt["handoff"]["blocker_code"] == "mfa_code_required"
+    assert challenge["primary_channel"] == "phone"
+    assert challenge["available_channels"] == ["whatsapp", "phone"]
+    assert challenge["destination_hint"] == "phone ending 419"
+    assert challenge["raw_destination_stored"] is False
+    assert "phone ending 419" in challenge["operator_instruction"]
+    assert "WhatsApp code delivery" in challenge["operator_instruction"]
+
+
 def test_safe_work_result_turns_browser_challenge_into_user_handoff() -> None:
     packet = _browser_cart_packet()
 
@@ -93,6 +160,18 @@ def test_safe_work_result_turns_browser_challenge_into_user_handoff() -> None:
     assert result["execution_receipt"]["browser_action_user_action_required"] is True
     assert result["execution_receipt"]["browser_action_status"] == "blocked_human_handoff_required"
     assert "No purchase, booking, send, post, cancel, payment, or commitment" in result["approval_prompt"]
+
+
+def test_safe_work_result_uses_masked_mfa_handoff_prompt() -> None:
+    packet = _browser_amazon_mfa_packet()
+
+    result = build_safe_work_result(packet, generated_at="2026-07-04T11:16:00+00:00")
+
+    assert result["status"] == "blocked_human_handoff_required"
+    assert "phone ending 419" in result["summary"]
+    assert "Provide the verification code sent to the phone ending 419." in result["approval_prompt"]
+    assert "WhatsApp code delivery" in result["approval_prompt"]
+    assert result["execution_receipt"]["stop_condition"] == "human_challenge_required"
 
 
 def test_runner_treats_browser_handoff_as_action_required(tmp_path) -> None:

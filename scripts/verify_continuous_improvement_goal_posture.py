@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ KNOWN_STATUSES = {
     "ready_for_live_epub_delivery_test",
     "ready_configured",
     "ready_live_verified",
+    "ready",
     "audiobookshelf_imported",
     "mixed_local_progress",
     "ready_local_audit",
@@ -36,16 +38,32 @@ KNOWN_STATUSES = {
     "blocked_stale_source_evidence",
     "blocked",
     "blocked_setup_required",
+    "blocked_pairing_required",
+    "blocked_runtime_unavailable",
+    "blocked_console_unreachable",
+    "blocked_watch_folder_missing",
+    "blocked_watch_folder_error",
+    "blocked_external_access_not_ready",
+    "blocked_connection_pending",
+    "blocked_connection_not_ready",
+    "ready_library_scan_in_progress",
+    "blocked_library_scan_pending",
+    "blocked_library_empty",
     "active_with_blockers",
     "command_backed_no_published_receipt",
     "missing_receipt",
     "waiting",
     "waiting_for_live_epub",
+    "probe_failed",
+    "unknown",
     "fail",
     "failed",
 }
 BASE_DELIVER_COMPONENTS = {"promo_media", "manfred_speech", "telegram_audiobook", "whatsapp_audiobook"}
 PUSHBULLET_RECEIPT_NAME = "ea_pushbullet_delivery_readiness.generated.json"
+PUSHBULLET_RUNTIME_RECEIPT_NAME = "pushbullet_readiness.generated.json"
+MYMEDIA_RECEIPT_NAME = "mymedia_alexa_readiness.generated.json"
+OPERATOR_READINESS_RECEIPT_NAME = "ea_operator_readiness.generated.json"
 EXPECTED_COMPONENTS = {
     "deliver": BASE_DELIVER_COMPONENTS,
 }
@@ -79,6 +97,7 @@ DELIVER_BLOCKER_PROOF_KEYS = {
     "deliver:telegram_audiobook": "telegram_audiobook_live_delivery",
     "deliver:whatsapp_audiobook": "whatsapp_audiobook_live_delivery",
     "deliver:pushbullet_delivery": "pushbullet_delivery_setup",
+    "deliver:mymedia_alexa": "mymedia_alexa_setup",
 }
 EXPECTED_PROOF_ACTION_SURFACES = {
     "morning_brief_operator_acceptance": ("/admin/actions/acceptance-evidence", "post"),
@@ -114,12 +133,17 @@ PROACTIVE_OODA_FRESH_SOURCE_RECEIPTS = {
     "ea_proactive_ooda_gold_acceptance.generated.json",
     "ea_proactive_ooda_operator_status.generated.json",
 }
+CHEAP_PROVIDER_ORDER = ["onemin", "magixai", "gemini_vortex"]
+HARD_PROVIDER_ORDER = ["onemin", "magixai", "gemini_vortex"]
 TEABLE_RECOVERY_PROOF_RECEIPT_NAME = "teable_env_recovery_proof.generated.json"
 EA_QUALITY_ACCEPTANCE_PROOF_KEYS = {
     "real_commitment_recovered_or_closed": "ea_real_commitment_recovered_or_closed",
     "real_approved_action_audited": "ea_real_approved_action_audited",
     "real_provider_failure_recovered": "ea_real_provider_failure_recovered",
 }
+KNOWN_OPERATOR_STREAMS = {"office_loop", "office_setup", "recovery", "media_memorial"}
+DEFAULT_ACTION_DIGEST_STREAMS = ["office_loop", "office_setup", "recovery"]
+_OPERATOR_READINESS_OBSERVED_AT_RE = re.compile(r"(^|;\s*)observed_at=[^;]+")
 
 
 def _json(path: Path) -> dict[str, Any]:
@@ -150,6 +174,37 @@ def _infer_root(path: Path) -> Path:
             marker_index = resolved.parts.index(marker)
             return Path(*resolved.parts[:marker_index])
     return ROOT
+
+
+def _source_ref_is_runtime_backed(path_text: str) -> bool:
+    text = str(path_text or "").strip()
+    return text.startswith("docker-exec:") or text.startswith("docker:")
+
+
+def _source_ref_name(path_text: str) -> str:
+    text = str(path_text or "").strip()
+    if not text:
+        return ""
+    if _source_ref_is_runtime_backed(text):
+        return text.rsplit("/", 1)[-1]
+    return Path(text).name
+
+
+def _source_ref_present(repo_root: Path, path_text: str) -> bool:
+    text = str(path_text or "").strip()
+    if _source_ref_is_runtime_backed(text):
+        return True
+    return (repo_root / text).exists()
+
+
+def _normalize_operator_readiness_summary(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    normalized = _OPERATOR_READINESS_OBSERVED_AT_RE.sub(r"\1", text)
+    normalized = re.sub(r";\s*;", ";", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip(" ;")
 
 
 def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[str]:
@@ -229,7 +284,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             issues.append(f"{key} lens must list verifier commands")
         if key in {"detect", "decide", "prove"}:
             sources = list(lens.get("source_receipts") or [])
-            expected_source_count = 4 if key == "detect" else 1
+            expected_source_count = 5 if key == "detect" else 1
             if len(sources) != expected_source_count:
                 issues.append(f"{key} lens must have exactly {expected_source_count} source receipt(s)")
             for source in sources:
@@ -238,9 +293,10 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append(f"{key} source receipt path missing")
                     continue
                 source_path = repo_root / path_text
-                if bool(source.get("present")) != source_path.exists():
+                source_present = _source_ref_present(repo_root, path_text)
+                if bool(source.get("present")) != source_present:
                     issues.append(f"{key} source receipt presence drifted for {path_text}")
-                if source_path.exists():
+                if source_present and not _source_ref_is_runtime_backed(path_text) and source_path.exists():
                     payload = _json(source_path)
                     source_status = str(source.get("status") or "").strip().lower()
                     payload_status = str(payload.get("status") or "missing_receipt").strip().lower()
@@ -270,6 +326,253 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append("detect lens verifier_commands must include Telegram Business readiness verifier")
                 if not any("verify_google_workspace_oauth_readiness.py" in str(command) for command in commands):
                     issues.append("detect lens verifier_commands must include Google Workspace OAuth readiness verifier")
+                if not any("verify_ea_operator_readiness.py" in str(command) for command in commands):
+                    issues.append("detect lens verifier_commands must include operator readiness verifier")
+            operator_readiness = lens.get("operator_readiness_aggregate")
+            if not isinstance(operator_readiness, dict):
+                issues.append("detect lens must include operator_readiness_aggregate")
+            else:
+                if operator_readiness.get("key") != "ea_operator_readiness_aggregate":
+                    issues.append("detect operator_readiness_aggregate key must be ea_operator_readiness_aggregate")
+                for privacy_key in (
+                    "raw_component_payload_exposed",
+                    "raw_delivery_token_exposed",
+                    "raw_qr_artifact_exposed",
+                    "raw_chat_ref_exposed",
+                ):
+                    if operator_readiness.get(privacy_key) is not False:
+                        issues.append(f"operator_readiness_aggregate must not expose {privacy_key}")
+                for count_key in (
+                    "component_count",
+                    "blocked_count",
+                    "probe_failed_count",
+                    "supplemental_attention_count",
+                    "supplemental_blocked_count",
+                    "supplemental_probe_failed_count",
+                ):
+                    if int(operator_readiness.get(count_key) or 0) < 0:
+                        issues.append(f"operator_readiness_aggregate {count_key} must be non-negative")
+                component_keys = operator_readiness.get("component_keys") or []
+                steering_component_keys = operator_readiness.get("steering_component_keys") or []
+                attention_component_keys = operator_readiness.get("attention_component_keys") or []
+                supplemental_attention_component_keys = operator_readiness.get("supplemental_attention_component_keys") or []
+                supplemental_next_actions = operator_readiness.get("supplemental_next_actions") or []
+                if not isinstance(component_keys, list) or any(not str(item).strip() for item in component_keys):
+                    issues.append("operator_readiness_aggregate component_keys must be a list of non-empty strings")
+                if not isinstance(steering_component_keys, list) or any(not str(item).strip() for item in steering_component_keys):
+                    issues.append("operator_readiness_aggregate steering_component_keys must be a list of non-empty strings")
+                if not isinstance(attention_component_keys, list) or any(
+                    not str(item).strip() for item in attention_component_keys
+                ):
+                    issues.append(
+                        "operator_readiness_aggregate attention_component_keys must be a list of non-empty strings"
+                    )
+                if not isinstance(supplemental_attention_component_keys, list) or any(
+                    not str(item).strip() for item in supplemental_attention_component_keys
+                ):
+                    issues.append(
+                        "operator_readiness_aggregate supplemental_attention_component_keys must be a list of non-empty strings"
+                    )
+                if not isinstance(supplemental_next_actions, list):
+                    issues.append("operator_readiness_aggregate supplemental_next_actions must be a list")
+                operator_source = next(
+                    (
+                        dict(source)
+                        for source in sources
+                        if isinstance(source, dict)
+                        and Path(str(source.get("path") or "")).name == OPERATOR_READINESS_RECEIPT_NAME
+                    ),
+                    {},
+                )
+                if not operator_source:
+                    issues.append("detect lens must cite the operator readiness receipt")
+                else:
+                    operator_source_path_text = str(operator_source.get("path") or "").strip()
+                    operator_source_path = repo_root / operator_source_path_text if operator_source_path_text else None
+                    operator_source_present = bool(operator_source.get("present"))
+                    if not operator_source_present:
+                        if str(operator_readiness.get("status") or "").strip() != "missing_receipt":
+                            issues.append(
+                                "operator_readiness_aggregate status must be missing_receipt when the source receipt is absent"
+                            )
+                        if operator_readiness.get("ready") is not False:
+                            issues.append(
+                                "operator_readiness_aggregate ready must be false when the source receipt is absent"
+                            )
+                        if str(operator_readiness.get("pairing_probe_mode") or "").strip():
+                            issues.append(
+                                "operator_readiness_aggregate pairing_probe_mode must be empty when the source receipt is absent"
+                            )
+                        if int(operator_readiness.get("component_count") or 0) != 0:
+                            issues.append(
+                                "operator_readiness_aggregate component_count must be zero when the source receipt is absent"
+                            )
+                        if int(operator_readiness.get("blocked_count") or 0) != 0:
+                            issues.append(
+                                "operator_readiness_aggregate blocked_count must be zero when the source receipt is absent"
+                            )
+                        if int(operator_readiness.get("probe_failed_count") or 0) != 0:
+                            issues.append(
+                                "operator_readiness_aggregate probe_failed_count must be zero when the source receipt is absent"
+                            )
+                        if int(operator_readiness.get("supplemental_attention_count") or 0) != 0:
+                            issues.append(
+                                "operator_readiness_aggregate supplemental_attention_count must be zero when the source receipt is absent"
+                            )
+                        if int(operator_readiness.get("supplemental_blocked_count") or 0) != 0:
+                            issues.append(
+                                "operator_readiness_aggregate supplemental_blocked_count must be zero when the source receipt is absent"
+                            )
+                        if int(operator_readiness.get("supplemental_probe_failed_count") or 0) != 0:
+                            issues.append(
+                                "operator_readiness_aggregate supplemental_probe_failed_count must be zero when the source receipt is absent"
+                            )
+                        if component_keys:
+                            issues.append(
+                                "operator_readiness_aggregate component_keys must be empty when the source receipt is absent"
+                            )
+                        if steering_component_keys:
+                            issues.append(
+                                "operator_readiness_aggregate steering_component_keys must be empty when the source receipt is absent"
+                            )
+                        if attention_component_keys:
+                            issues.append(
+                                "operator_readiness_aggregate attention_component_keys must be empty when the source receipt is absent"
+                            )
+                        if supplemental_attention_component_keys:
+                            issues.append(
+                                "operator_readiness_aggregate supplemental_attention_component_keys must be empty when the source receipt is absent"
+                            )
+                        if str(operator_readiness.get("next_action") or "").strip():
+                            issues.append(
+                                "operator_readiness_aggregate next_action must be empty when the source receipt is absent"
+                            )
+                        if supplemental_next_actions:
+                            issues.append(
+                                "operator_readiness_aggregate supplemental_next_actions must be empty when the source receipt is absent"
+                            )
+                        if str(operator_readiness.get("summary") or "").strip():
+                            issues.append(
+                                "operator_readiness_aggregate summary must be empty when the source receipt is absent"
+                            )
+                    elif operator_source_path and operator_source_path.exists():
+                        operator_payload = _json(operator_source_path)
+                        expected_component_keys = [
+                            str(item).strip()
+                            for item in list(operator_payload.get("component_keys") or [])
+                            if str(item).strip()
+                        ]
+                        expected_steering_component_keys = [
+                            str(item).strip()
+                            for item in list(operator_payload.get("steering_component_keys") or [])
+                            if str(item).strip()
+                        ]
+                        expected_attention_component_keys = [
+                            str(item).strip()
+                            for item in list(operator_payload.get("attention_component_keys") or [])
+                            if str(item).strip()
+                        ]
+                        expected_supplemental_attention_component_keys = [
+                            str(item).strip()
+                            for item in list(operator_payload.get("supplemental_attention_component_keys") or [])
+                            if str(item).strip()
+                        ]
+                        expected_supplemental_next_actions = [
+                            {
+                                "component_key": str(dict(item).get("component_key") or "").strip(),
+                                "action": str(dict(item).get("action") or "").strip(),
+                                "href": str(dict(item).get("href") or "").strip(),
+                                "label": str(dict(item).get("label") or "").strip(),
+                                "method": str(dict(item).get("method") or "").strip(),
+                                "reason": str(dict(item).get("reason") or "").strip(),
+                            }
+                            for item in list(operator_payload.get("supplemental_next_actions") or [])
+                            if isinstance(item, dict) and str(dict(item).get("component_key") or "").strip()
+                        ]
+                        if str(operator_readiness.get("status") or "").strip() != str(
+                            operator_payload.get("status") or "missing_receipt"
+                        ).strip().lower():
+                            issues.append(
+                                "operator_readiness_aggregate status must mirror operator readiness receipt"
+                            )
+                        if bool(operator_readiness.get("ready")) != bool(operator_payload.get("ready")):
+                            issues.append(
+                                "operator_readiness_aggregate ready must mirror operator readiness receipt"
+                            )
+                        if str(operator_readiness.get("pairing_probe_mode") or "").strip() != str(
+                            operator_payload.get("pairing_probe_mode") or ""
+                        ).strip():
+                            issues.append(
+                                "operator_readiness_aggregate pairing_probe_mode must mirror operator readiness receipt"
+                            )
+                        if int(operator_readiness.get("component_count") or 0) != int(
+                            operator_payload.get("component_count") or 0
+                        ):
+                            issues.append(
+                                "operator_readiness_aggregate component_count must mirror operator readiness receipt"
+                            )
+                        if int(operator_readiness.get("blocked_count") or 0) != int(
+                            operator_payload.get("blocked_count") or 0
+                        ):
+                            issues.append(
+                                "operator_readiness_aggregate blocked_count must mirror operator readiness receipt"
+                            )
+                        if int(operator_readiness.get("probe_failed_count") or 0) != int(
+                            operator_payload.get("probe_failed_count") or 0
+                        ):
+                            issues.append(
+                                "operator_readiness_aggregate probe_failed_count must mirror operator readiness receipt"
+                            )
+                        if int(operator_readiness.get("supplemental_attention_count") or 0) != int(
+                            operator_payload.get("supplemental_attention_count") or 0
+                        ):
+                            issues.append(
+                                "operator_readiness_aggregate supplemental_attention_count must mirror operator readiness receipt"
+                            )
+                        if int(operator_readiness.get("supplemental_blocked_count") or 0) != int(
+                            operator_payload.get("supplemental_blocked_count") or 0
+                        ):
+                            issues.append(
+                                "operator_readiness_aggregate supplemental_blocked_count must mirror operator readiness receipt"
+                            )
+                        if int(operator_readiness.get("supplemental_probe_failed_count") or 0) != int(
+                            operator_payload.get("supplemental_probe_failed_count") or 0
+                        ):
+                            issues.append(
+                                "operator_readiness_aggregate supplemental_probe_failed_count must mirror operator readiness receipt"
+                            )
+                        if component_keys != expected_component_keys:
+                            issues.append(
+                                "operator_readiness_aggregate component_keys must mirror operator readiness receipt"
+                            )
+                        if steering_component_keys != expected_steering_component_keys:
+                            issues.append(
+                                "operator_readiness_aggregate steering_component_keys must mirror operator readiness receipt"
+                            )
+                        if attention_component_keys != expected_attention_component_keys:
+                            issues.append(
+                                "operator_readiness_aggregate attention_component_keys must mirror operator readiness receipt"
+                            )
+                        if supplemental_attention_component_keys != expected_supplemental_attention_component_keys:
+                            issues.append(
+                                "operator_readiness_aggregate supplemental_attention_component_keys must mirror operator readiness receipt"
+                            )
+                        if str(operator_readiness.get("next_action") or "").strip() != str(
+                            operator_payload.get("next_action") or ""
+                        ).strip():
+                            issues.append(
+                                "operator_readiness_aggregate next_action must mirror operator readiness receipt"
+                            )
+                        if supplemental_next_actions != expected_supplemental_next_actions:
+                            issues.append(
+                                "operator_readiness_aggregate supplemental_next_actions must mirror operator readiness receipt"
+                            )
+                        if _normalize_operator_readiness_summary(operator_readiness.get("summary")) != _normalize_operator_readiness_summary(
+                            operator_payload.get("summary")
+                        ):
+                            issues.append(
+                                "operator_readiness_aggregate summary must mirror operator readiness receipt"
+                            )
         if key == "decide":
             provider_cost = lens.get("provider_cost_control")
             if not isinstance(provider_cost, dict):
@@ -279,22 +582,22 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append("decide provider_cost_control status must be active_cost_control")
                 if provider_cost.get("primary_background_provider") != "onemin":
                     issues.append("decide provider_cost_control primary background provider must be onemin")
-                if list(provider_cost.get("default_provider_order") or [])[:3] != [
-                    "onemin",
-                    "magixai",
-                    "gemini_vortex",
-                ]:
+                if list(provider_cost.get("default_provider_order") or [])[:3] != CHEAP_PROVIDER_ORDER:
                     issues.append("decide provider_cost_control default provider order drifted")
-                if list(provider_cost.get("groundwork_provider_order") or [])[:3] != [
-                    "onemin",
-                    "magixai",
-                    "gemini_vortex",
-                ]:
+                if list(provider_cost.get("fast_provider_order") or [])[:3] != CHEAP_PROVIDER_ORDER:
+                    issues.append("decide provider_cost_control fast provider order drifted")
+                if list(provider_cost.get("cheap_provider_order") or [])[:3] != CHEAP_PROVIDER_ORDER:
+                    issues.append("decide provider_cost_control cheap provider order drifted")
+                if list(provider_cost.get("groundwork_provider_order") or [])[:3] != CHEAP_PROVIDER_ORDER:
                     issues.append("decide provider_cost_control groundwork provider order drifted")
+                if list(provider_cost.get("hard_provider_order") or [])[:3] != HARD_PROVIDER_ORDER:
+                    issues.append("decide provider_cost_control hard provider order drifted")
                 if "groundwork" not in list(provider_cost.get("cost_sensitive_lanes") or []):
                     issues.append("decide provider_cost_control must include groundwork as cost-sensitive")
                 if provider_cost.get("onemin_preferred_when_speed_is_not_critical") is not True:
                     issues.append("decide provider_cost_control must prefer 1min.ai when speed is not critical")
+                if provider_cost.get("onemin_preferred_whenever_usable") is not True:
+                    issues.append("decide provider_cost_control must prefer 1min.ai whenever usable")
                 if provider_cost.get("gemini_provider_key") != "gemini_vortex":
                     issues.append("decide provider_cost_control Gemini provider key drifted")
                 if provider_cost.get("gemini_token_tracking_required") is not True:
@@ -341,20 +644,20 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append("decide provider_cost_pressure must be checked")
                 if provider_pressure.get("primary_background_provider") != "onemin":
                     issues.append("decide provider_cost_pressure primary background provider must be onemin")
-                if list(provider_pressure.get("provider_order") or [])[:3] != [
-                    "onemin",
-                    "magixai",
-                    "gemini_vortex",
-                ]:
+                if list(provider_pressure.get("provider_order") or [])[:3] != CHEAP_PROVIDER_ORDER:
                     issues.append("decide provider_cost_pressure provider order drifted")
-                if list(provider_pressure.get("groundwork_provider_order") or [])[:3] != [
-                    "onemin",
-                    "magixai",
-                    "gemini_vortex",
-                ]:
+                if list(provider_pressure.get("fast_provider_order") or [])[:3] != CHEAP_PROVIDER_ORDER:
+                    issues.append("decide provider_cost_pressure fast provider order drifted")
+                if list(provider_pressure.get("cheap_provider_order") or [])[:3] != CHEAP_PROVIDER_ORDER:
+                    issues.append("decide provider_cost_pressure cheap provider order drifted")
+                if list(provider_pressure.get("groundwork_provider_order") or [])[:3] != CHEAP_PROVIDER_ORDER:
                     issues.append("decide provider_cost_pressure groundwork provider order drifted")
+                if list(provider_pressure.get("hard_provider_order") or [])[:3] != HARD_PROVIDER_ORDER:
+                    issues.append("decide provider_cost_pressure hard provider order drifted")
                 if provider_pressure.get("onemin_preferred_when_speed_is_not_critical") is not True:
                     issues.append("decide provider_cost_pressure must prefer 1min.ai when speed is not critical")
+                if provider_pressure.get("onemin_preferred_whenever_usable") is not True:
+                    issues.append("decide provider_cost_pressure must prefer 1min.ai whenever usable")
                 if provider_pressure.get("gemini_provider_key") != "gemini_vortex":
                     issues.append("decide provider_cost_pressure Gemini provider key drifted")
                 if (
@@ -382,8 +685,24 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             component_keys = {str(component.get("key") or "") for component in components if isinstance(component, dict)}
             expected_components = set(EXPECTED_COMPONENTS["deliver"])
             pushbullet_receipt_path = repo_root / ".codex-studio/published" / PUSHBULLET_RECEIPT_NAME
+            mymedia_receipt_path = repo_root / ".codex-studio/published" / MYMEDIA_RECEIPT_NAME
             if pushbullet_receipt_path.exists():
                 expected_components.add("pushbullet_delivery")
+            if mymedia_receipt_path.exists():
+                expected_components.add("mymedia_alexa")
+            for component in components:
+                if not isinstance(component, dict):
+                    continue
+                component_key = str(component.get("key") or "").strip()
+                source_names = {
+                    _source_ref_name(str(source.get("path") or ""))
+                    for source in list(component.get("source_receipts") or [])
+                    if isinstance(source, dict)
+                }
+                if {PUSHBULLET_RECEIPT_NAME, PUSHBULLET_RUNTIME_RECEIPT_NAME} & source_names:
+                    expected_components.add("pushbullet_delivery")
+                if MYMEDIA_RECEIPT_NAME in source_names:
+                    expected_components.add("mymedia_alexa")
             if component_keys != expected_components:
                 issues.append("deliver lens components drifted")
             for component in components:
@@ -416,11 +735,11 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                         if component.get(privacy_key) is not False:
                             issues.append(f"pushbullet delivery component must not expose {privacy_key}")
                     source_names = {
-                        Path(str(source.get("path") or "")).name
+                        _source_ref_name(str(source.get("path") or ""))
                         for source in component_sources
                         if isinstance(source, dict)
                     }
-                    if PUSHBULLET_RECEIPT_NAME not in source_names:
+                    if not ({PUSHBULLET_RECEIPT_NAME, PUSHBULLET_RUNTIME_RECEIPT_NAME} & source_names):
                         issues.append("pushbullet delivery component must cite the Pushbullet readiness receipt")
                     if component_status == "blocked_setup_required":
                         missing_setup = [
@@ -432,6 +751,31 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                             issues.append("blocked Pushbullet delivery component must include missing_setup")
                         if component.get("pushbullet_note_delivery_ready") is not False:
                             issues.append("blocked Pushbullet delivery component must not claim delivery ready")
+                if component_key == "mymedia_alexa":
+                    for privacy_key in (
+                        "raw_refresh_token_exposed",
+                        "raw_paired_user_exposed",
+                        "raw_watch_folder_paths_exposed",
+                        "raw_public_ip_exposed",
+                        "raw_pairing_resume_url_exposed",
+                    ):
+                        if component.get(privacy_key) is not False:
+                            issues.append(f"My Media component must not expose {privacy_key}")
+                    source_names = {
+                        Path(str(source.get("path") or "")).name
+                        for source in component_sources
+                        if isinstance(source, dict)
+                    }
+                    if MYMEDIA_RECEIPT_NAME not in source_names:
+                        issues.append("My Media component must cite the My Media readiness receipt")
+                    if component.get("echo_playback_claim_allowed") is not False:
+                        issues.append("My Media component must not claim real Echo playback readiness")
+                    if component.get("pairing_resume_ready") and not str(component.get("pairing_resume_command") or "").strip():
+                        issues.append("My Media component pairing resume state requires a resume command")
+                    if component.get("telegram_delivery_ready") not in {True, False}:
+                        issues.append("My Media component must expose telegram_delivery_ready as a boolean")
+                    if component.get("telegram_delivery_ready") is not True and not str(component.get("telegram_delivery_reason") or "").strip():
+                        issues.append("My Media component must explain Telegram delivery repair when telegram_delivery_ready is false")
             if status not in {"mixed_local_progress", "ready_local_evidence", "pass"}:
                 issues.append("deliver lens must stay conservative (mixed_local_progress, ready_local_evidence, or pass)")
         if key == "recover":
@@ -506,7 +850,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         str(item) for item in list(receipt.get("rules") or [])
     ):
         issues.append("missing transcript-ingest rule")
-    if "Provider-cost governance is part of the goal: background and non-urgent work should prefer 1min.ai, Gemini/Vertex usage must be token-tracked, and Gemini soft caps may remove it from background candidate lists without blocking explicit Gemini requests." not in "\n".join(
+    if "Provider-cost governance is part of the goal: whenever a lane can route through the active 1min.ai manager it should prefer 1min.ai first, Gemini/Vertex usage must be token-tracked, and Gemini soft caps may remove it from background candidate lists without blocking explicit Gemini requests." not in "\n".join(
         str(item) for item in list(receipt.get("rules") or [])
     ):
         issues.append("missing provider-cost governance rule")
@@ -515,8 +859,16 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
     ):
         issues.append("missing Teable projection rule for proactive OODA")
     required_next_receipts = set(str(item) for item in list(receipt.get("required_next_receipts") or []) if str(item).strip())
+    acceptance_proof_requirements = list(receipt.get("acceptance_proof_requirements") or [])
+    pending_visible_proof_keys = {
+        str(requirement.get("key") or "").strip()
+        for requirement in acceptance_proof_requirements
+        if isinstance(requirement, dict)
+        and str(requirement.get("status") or "").strip() != "satisfied"
+        and dict(requirement.get("action_context") or {}).get("operator_queue_visible") is not False
+    }
     operator_action_queue = list(receipt.get("operator_action_queue") or [])
-    if required_next_receipts and not operator_action_queue:
+    if pending_visible_proof_keys and not operator_action_queue:
         issues.append("operator_action_queue must be present while required_next_receipts is nonempty")
     operator_delivery_policy = receipt.get("operator_delivery_policy")
     if not isinstance(operator_delivery_policy, dict):
@@ -531,6 +883,8 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             issues.append("operator_delivery_policy.quiet_hours_respected must be true")
         if operator_delivery_policy.get("irreversible_actions_consent_gated") is not True:
             issues.append("operator_delivery_policy.irreversible_actions_consent_gated must be true")
+        if list(operator_delivery_policy.get("default_action_digest_streams") or []) != DEFAULT_ACTION_DIGEST_STREAMS:
+            issues.append("operator_delivery_policy.default_action_digest_streams drifted")
     queue_keys: set[str] = set()
     if operator_action_queue:
         first_action = dict(operator_action_queue[0]) if isinstance(operator_action_queue[0], dict) else {}
@@ -555,18 +909,24 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 issues.append("operator_action_queue entries must be objects")
                 continue
             action_key = str(row.get("key") or "").strip()
+            user_action_required = row.get("user_action_required") is True
             if not action_key:
                 issues.append("operator_action_queue entries must include key")
             if action_key in queue_keys:
                 issues.append(f"operator_action_queue duplicate key: {action_key}")
             queue_keys.add(action_key)
+            operator_stream = str(row.get("operator_stream") or "").strip()
+            if not operator_stream:
+                issues.append(f"operator_action_queue entries must include operator_stream: {action_key}")
+            elif operator_stream not in KNOWN_OPERATOR_STREAMS:
+                issues.append(f"operator_action_queue uses unknown operator_stream: {action_key}:{operator_stream}")
             if not str(row.get("next_action") or "").strip():
                 issues.append(f"operator_action_queue entry missing next_action: {action_key}")
             if not str(row.get("next_action_href") or "").strip():
                 issues.append(f"operator_action_queue entry missing next_action_href: {action_key}")
-            if not str(row.get("next_action_form_href") or "").strip():
+            if user_action_required and not str(row.get("next_action_form_href") or "").strip():
                 issues.append(f"operator_action_queue entry missing next_action_form_href: {action_key}")
-            if str(row.get("next_action_form_method") or "").strip().lower() != "get":
+            if user_action_required and str(row.get("next_action_form_method") or "").strip().lower() != "get":
                 issues.append(f"operator_action_queue entry next_action_form_method must be get: {action_key}")
             if row.get("raw_private_context_exposed") is not False:
                 issues.append(f"operator_action_queue must not expose raw private context: {action_key}")
@@ -606,12 +966,44 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 issues.append(f"operator_action_queue must not expose raw voice IDs: {action_key}")
             if row.get("callback_tokens_exposed") is not False:
                 issues.append(f"operator_action_queue must not expose callback tokens: {action_key}")
-            user_action_required = row.get("user_action_required") is True
+            requirement = next(
+                (
+                    dict(item)
+                    for item in acceptance_proof_requirements
+                    if isinstance(item, dict) and str(item.get("key") or "").strip() == action_key
+                ),
+                {},
+            )
+            action_context = (
+                dict(requirement.get("action_context") or {})
+                if isinstance(requirement.get("action_context"), dict)
+                else {}
+            )
             expected_delivery_policy = "action_required_only" if user_action_required else "queue_only"
             if row.get("delivery_policy") != expected_delivery_policy:
                 issues.append(f"operator_action_queue delivery_policy mismatch: {action_key}")
-            if row.get("telegram_push_allowed") is not user_action_required:
+            expected_telegram_push_allowed = (
+                action_context.get("telegram_push_allowed")
+                if isinstance(action_context.get("telegram_push_allowed"), bool)
+                else user_action_required
+            )
+            if row.get("telegram_push_allowed") is not expected_telegram_push_allowed:
                 issues.append(f"operator_action_queue telegram_push_allowed mismatch: {action_key}")
+            expected_action_digest_eligible = bool(
+                user_action_required
+                and row.get("delivery_policy") == "action_required_only"
+                and row.get("telegram_push_allowed") is True
+                and operator_stream in DEFAULT_ACTION_DIGEST_STREAMS
+            )
+            if row.get("action_digest_eligible") is not expected_action_digest_eligible:
+                issues.append(f"operator_action_queue action_digest_eligible mismatch: {action_key}")
+            suppressed_reason = str(row.get("default_action_digest_suppressed_reason") or "").strip()
+            if expected_action_digest_eligible:
+                if suppressed_reason:
+                    issues.append(f"digest-eligible queue row must not carry suppression reason: {action_key}")
+            elif user_action_required and operator_stream not in DEFAULT_ACTION_DIGEST_STREAMS:
+                if suppressed_reason != "operator_stream_not_in_default_action_digest":
+                    issues.append(f"default digest stream suppression reason mismatch: {action_key}")
             if row.get("interruption_budget") != ("action_required" if user_action_required else "none"):
                 issues.append(f"operator_action_queue interruption_budget mismatch: {action_key}")
             if row.get("quiet_hours_respected") is not True:
@@ -629,7 +1021,12 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append(f"real-world acceptance capture must require user action: {action_key}")
                 if row.get("delivery_policy") != "action_required_only":
                     issues.append(f"real-world acceptance capture must be action-required only: {action_key}")
-                if row.get("telegram_push_allowed") is not True:
+                if action_key == "weekly_signal_to_decision_review_acceptance":
+                    if row.get("telegram_push_allowed") is not False:
+                        issues.append("weekly signal review proof capture must stay out of Telegram pushes")
+                    if str(row.get("default_action_digest_suppressed_reason") or "").strip() != "telegram_push_not_allowed":
+                        issues.append("weekly signal review proof capture must explain digest suppression")
+                elif row.get("telegram_push_allowed") is not True:
                     issues.append(f"real-world acceptance capture may push only as an action-required item: {action_key}")
                 if row.get("non_action_progress_push_allowed") is not False:
                     issues.append(f"real-world acceptance capture must not allow progress pushes: {action_key}")
@@ -656,10 +1053,30 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 if not any("verify_continuous_improvement_goal_posture.py" in str(command) for command in refresh_commands):
                     issues.append(f"stale source refresh must include continuous posture verification: {action_key}")
         if isinstance(operator_delivery_policy, dict) and first_action:
+            digest_eligible_count = sum(
+                1
+                for row in operator_action_queue
+                if isinstance(row, dict) and row.get("action_digest_eligible") is True
+            )
+            digest_suppressed_count = sum(
+                1
+                for row in operator_action_queue
+                if isinstance(row, dict)
+                and row.get("user_action_required") is True
+                and row.get("action_digest_eligible") is not True
+            )
+            if int(operator_delivery_policy.get("default_action_digest_eligible_count") or 0) != digest_eligible_count:
+                issues.append("operator_delivery_policy.default_action_digest_eligible_count must match queue")
+            if int(operator_delivery_policy.get("default_action_digest_suppressed_count") or 0) != digest_suppressed_count:
+                issues.append("operator_delivery_policy.default_action_digest_suppressed_count must match queue")
             if operator_delivery_policy.get("telegram_push_allowed_for_next_action") is not bool(
                 first_action.get("telegram_push_allowed")
             ):
                 issues.append("operator_delivery_policy.telegram_push_allowed_for_next_action must match first queue item")
+            if operator_delivery_policy.get("next_action_digest_eligible") is not bool(
+                first_action.get("action_digest_eligible")
+            ):
+                issues.append("operator_delivery_policy.next_action_digest_eligible must match first queue item")
             if operator_delivery_policy.get("next_action_requires_user") is not bool(first_action.get("user_action_required")):
                 issues.append("operator_delivery_policy.next_action_requires_user must match first queue item")
             if str(operator_delivery_policy.get("next_action_delivery_policy") or "").strip() != str(
@@ -714,6 +1131,15 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             issues.append(f"acceptance proof requirement {key or index} missing evidence_kind")
         if not str(requirement.get("next_action") or "").strip():
             issues.append(f"acceptance proof requirement {key or index} missing next_action")
+        action_context = (
+            dict(requirement.get("action_context") or {})
+            if isinstance(requirement.get("action_context"), dict)
+            else {}
+        )
+        proactive_user_action_required = (
+            key == "proactive_ooda_packet_acceptance"
+            and action_context.get("user_action_required") is True
+        )
         next_action_href = str(requirement.get("next_action_href") or "").strip()
         next_action_label = str(requirement.get("next_action_label") or "").strip()
         next_action_method = str(requirement.get("next_action_method") or "").strip().lower()
@@ -726,15 +1152,22 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             issues.append(f"acceptance proof requirement {key or index} missing next_action_label")
         if next_action_method not in {"get", "post"}:
             issues.append(f"acceptance proof requirement {key or index} has invalid next_action_method")
-        if not next_action_form_href:
+        if proactive_user_action_required and not next_action_form_href:
             issues.append(f"acceptance proof requirement {key or index} missing next_action_form_href")
-        if not next_action_form_label:
+        if proactive_user_action_required and not next_action_form_label:
             issues.append(f"acceptance proof requirement {key or index} missing next_action_form_label")
-        if next_action_form_method != "get":
+        if proactive_user_action_required and next_action_form_method != "get":
             issues.append(f"acceptance proof requirement {key or index} next_action_form_method must be get")
         expected_surface = EXPECTED_PROOF_ACTION_SURFACES.get(key)
         if key == "proactive_ooda_packet_acceptance" and status == "satisfied":
             expected_surface = ("/app/today", "get")
+        if key == "proactive_ooda_packet_acceptance" and not proactive_user_action_required:
+            expected_surface = None
+        if (
+            key == "proactive_ooda_packet_acceptance"
+            and str(requirement.get("next_action") or "").strip() == "stage_fresh_assistant_grade_proactive_packet"
+        ):
+            expected_surface = ("/app/queue", "get")
         if (
             key == "telegram_audiobook_live_delivery"
             and str(requirement.get("next_action") or "").strip()
@@ -750,6 +1183,13 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         expected_form_surface = EXPECTED_PROOF_FORM_SURFACES.get(key)
         if key == "proactive_ooda_packet_acceptance" and status == "satisfied":
             expected_form_surface = ("/app/today", "get")
+        if key == "proactive_ooda_packet_acceptance" and not proactive_user_action_required:
+            expected_form_surface = None
+        if (
+            key == "proactive_ooda_packet_acceptance"
+            and str(requirement.get("next_action") or "").strip() == "stage_fresh_assistant_grade_proactive_packet"
+        ):
+            expected_form_surface = ("/app/queue", "get")
         if (
             key == "telegram_audiobook_live_delivery"
             and str(requirement.get("next_action") or "").strip()
@@ -774,12 +1214,17 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 issues.append(f"acceptance proof requirement {key or index} source receipt path missing")
                 continue
             source_path = repo_root / path_text
-            source_name = source_path.name
+            source_name = _source_ref_name(path_text)
             if key == "proactive_ooda_packet_acceptance" and source_name in PROACTIVE_OODA_FRESH_SOURCE_RECEIPTS:
                 proactive_source_receipt_names.add(source_name)
-            if bool(source.get("present")) != source_path.exists():
+            source_present = _source_ref_present(repo_root, path_text)
+            if bool(source.get("present")) != source_present:
                 issues.append(f"acceptance proof requirement {key or index} source receipt presence drifted for {path_text}")
             if key == "proactive_ooda_packet_acceptance" and source_name in PROACTIVE_OODA_FRESH_SOURCE_RECEIPTS:
+                if not source_present or _source_ref_is_runtime_backed(path_text):
+                    if not source_present:
+                        issues.append(f"proactive_ooda_packet_acceptance source receipt missing: {path_text}")
+                    continue
                 if not source_path.exists():
                     issues.append(f"proactive_ooda_packet_acceptance source receipt missing: {path_text}")
                     continue
@@ -806,12 +1251,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append(f"proactive_ooda_packet_acceptance source receipt freshness flag false: {path_text}")
     if proof_receipts != required_next_receipts:
         issues.append("acceptance_proof_requirements must cover every required_next_receipts item exactly")
-    pending_proof_keys = {
-        str(requirement.get("key") or "").strip()
-        for requirement in acceptance_proof_requirements
-        if isinstance(requirement, dict) and str(requirement.get("status") or "").strip() != "satisfied"
-    }
-    if queue_keys and queue_keys != pending_proof_keys:
+    if queue_keys and queue_keys != pending_visible_proof_keys:
         issues.append("operator_action_queue keys must match pending acceptance proof requirement keys")
     acceptance_receipt_path = repo_root / ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json"
     acceptance_receipt = _json(acceptance_receipt_path)
@@ -830,7 +1270,12 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             if not accepted:
                 if requirement_status != "pending_real_world_evidence":
                     issues.append(f"pending EA quality proof must stay pending: {proof_key}")
-                if proof_key not in queue_keys:
+                action_context = (
+                    dict(requirement.get("action_context") or {})
+                    if isinstance(requirement.get("action_context"), dict)
+                    else {}
+                )
+                if action_context.get("operator_queue_visible") is not False and proof_key not in queue_keys:
                     issues.append(f"pending EA quality proof must appear in operator_action_queue: {proof_key}")
     missing_proactive_sources = sorted(PROACTIVE_OODA_FRESH_SOURCE_RECEIPTS - proactive_source_receipt_names)
     if missing_proactive_sources:
@@ -847,13 +1292,23 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         if proactive_requirement.get("evidence_kind") != "approval_outcome":
             issues.append("proactive_ooda_packet_acceptance evidence_kind must be approval_outcome")
         proactive_status = str(proactive_requirement.get("status") or "").strip()
+        proactive_action_context = (
+            dict(proactive_requirement.get("action_context") or {})
+            if isinstance(proactive_requirement.get("action_context"), dict)
+            else {}
+        )
+        proactive_user_action_required = proactive_action_context.get("user_action_required") is True
         if proactive_status != "satisfied" and REQUIRED_PROACTIVE_OODA_RECEIPT not in required_next_receipts:
             issues.append("required_next_receipts must include proactive OODA Teable proof until proactive acceptance is satisfied")
         next_action = str(proactive_requirement.get("next_action") or "")
         if proactive_status == "satisfied":
             if next_action != "maintain_proactive_ooda_gold_acceptance_evidence":
                 issues.append("satisfied proactive_ooda_packet_acceptance must maintain gold acceptance evidence")
-        elif "record_proactive_ooda_approval_outcome" not in next_action and "tap_proactive_telegram_approval_button" not in next_action:
+        elif proactive_user_action_required and (
+            "record_proactive_ooda_approval_outcome" not in next_action
+            and "tap_proactive_telegram_approval_button" not in next_action
+            and next_action != "stage_fresh_assistant_grade_proactive_packet"
+        ):
             issues.append("proactive_ooda_packet_acceptance must point at the Telegram approval outcome capture")
         capture_surfaces = " ".join(str(surface or "") for surface in list(proactive_requirement.get("capture_surfaces") or []))
         if "ea_proactive_ooda_gold_acceptance.generated.json" not in capture_surfaces:
@@ -1075,7 +1530,10 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         issues.append("blocked Pushbullet delivery readiness must have pushbullet_delivery_setup proof requirement")
     if pushbullet_requirement:
         capture_surfaces = " ".join(str(surface or "") for surface in list(pushbullet_requirement.get("capture_surfaces") or []))
-        if PUSHBULLET_RECEIPT_NAME not in capture_surfaces:
+        if (
+            PUSHBULLET_RECEIPT_NAME not in capture_surfaces
+            and PUSHBULLET_RUNTIME_RECEIPT_NAME not in capture_surfaces
+        ):
             issues.append("pushbullet_delivery_setup must cite the Pushbullet readiness surface")
         if pushbullet_requirement.get("evidence_kind") != "delivery_channel_setup":
             issues.append("pushbullet_delivery_setup evidence_kind mismatch")
@@ -1131,6 +1589,137 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 for private_key in ("raw_email_exposed", "raw_token_exposed", "raw_secret_exposed", "raw_chat_ids_exposed"):
                     if pushbullet_queue_row.get(private_key) is not False:
                         issues.append(f"pushbullet_delivery_setup queue row must not expose {private_key}")
+    mymedia_requirement = proof_by_key.get("mymedia_alexa_setup") or {}
+    mymedia_blocked = any(reason.startswith("deliver:mymedia_alexa") for reason in blocking_reasons)
+    deliver_components = list(dict(by_key.get("deliver") or {}).get("components") or [])
+    mymedia_deliver_component = next(
+        (
+            dict(component)
+            for component in deliver_components
+            if isinstance(component, dict) and str(component.get("key") or "").strip() == "mymedia_alexa"
+        ),
+        {},
+    )
+    if mymedia_blocked and not mymedia_requirement:
+        issues.append("blocked My Media readiness must have mymedia_alexa_setup proof requirement")
+    if mymedia_requirement:
+        capture_surfaces = " ".join(str(surface or "") for surface in list(mymedia_requirement.get("capture_surfaces") or []))
+        if MYMEDIA_RECEIPT_NAME not in capture_surfaces:
+            issues.append("mymedia_alexa_setup must cite the My Media readiness surface")
+        if mymedia_requirement.get("evidence_kind") != "delivery_channel_setup":
+            issues.append("mymedia_alexa_setup evidence_kind mismatch")
+        action_context = mymedia_requirement.get("action_context")
+        if mymedia_blocked:
+            if not isinstance(action_context, dict):
+                issues.append("blocked mymedia_alexa_setup must include action_context")
+            else:
+                if action_context.get("kind") != "mymedia_alexa_setup":
+                    issues.append("mymedia_alexa_setup action_context kind mismatch")
+                if action_context.get("user_action_required") is not True:
+                    issues.append("blocked mymedia_alexa_setup must require user action")
+                if action_context.get("telegram_push_allowed") is not True:
+                    issues.append("mymedia_alexa_setup may push only as an action-required item")
+                if str(action_context.get("delivery_policy") or "").strip() != "action_required_only":
+                    issues.append("mymedia_alexa_setup delivery_policy must be action_required_only")
+                if not str(action_context.get("instruction") or "").strip():
+                    issues.append("blocked mymedia_alexa_setup must include instruction")
+                missing_setup = [
+                    str(item).strip()
+                    for item in list(action_context.get("missing_setup") or [])
+                    if str(item).strip()
+                ]
+                if not missing_setup:
+                    issues.append("blocked mymedia_alexa_setup action_context must include missing_setup")
+                setup_checklist = action_context.get("setup_checklist")
+                if not isinstance(setup_checklist, list) or not setup_checklist:
+                    issues.append("blocked mymedia_alexa_setup action_context must include setup_checklist")
+                if not str(action_context.get("telegram_message") or "").strip():
+                    issues.append("blocked mymedia_alexa_setup action_context must include telegram_message")
+                if action_context.get("echo_playback_claim_allowed") is not False:
+                    issues.append("mymedia_alexa_setup action_context must not claim real Echo playback")
+                if action_context.get("pairing_resume_ready") and not str(action_context.get("pairing_resume_command") or "").strip():
+                    issues.append("mymedia_alexa_setup resume-ready context must include pairing_resume_command")
+                if action_context.get("telegram_delivery_ready") not in {True, False}:
+                    issues.append("blocked mymedia_alexa_setup action_context must include telegram_delivery_ready")
+                if action_context.get("telegram_delivery_ready") is not True and not str(
+                    action_context.get("telegram_delivery_reason") or ""
+                ).strip():
+                    issues.append("blocked mymedia_alexa_setup action_context must explain Telegram delivery repair")
+                if mymedia_deliver_component:
+                    if action_context.get("telegram_delivery_ready") is not mymedia_deliver_component.get("telegram_delivery_ready"):
+                        issues.append("mymedia_alexa_setup action_context telegram_delivery_ready must match deliver component")
+                    if str(action_context.get("telegram_delivery_transport") or "").strip() != str(
+                        mymedia_deliver_component.get("telegram_delivery_transport") or ""
+                    ).strip():
+                        issues.append("mymedia_alexa_setup action_context telegram_delivery_transport must match deliver component")
+                    if str(action_context.get("telegram_delivery_reason") or "").strip() != str(
+                        mymedia_deliver_component.get("telegram_delivery_reason") or ""
+                    ).strip():
+                        issues.append("mymedia_alexa_setup action_context telegram_delivery_reason must match deliver component")
+                for private_key in (
+                    "raw_refresh_token_exposed",
+                    "raw_paired_user_exposed",
+                    "raw_watch_folder_paths_exposed",
+                    "raw_public_ip_exposed",
+                    "raw_pairing_resume_url_exposed",
+                    "raw_chat_ids_exposed",
+                    "raw_token_exposed",
+                    "raw_secret_exposed",
+                ):
+                    if action_context.get(private_key) is not False:
+                        issues.append(f"mymedia_alexa_setup action_context must not expose {private_key}")
+            mymedia_queue_row = next(
+                (
+                    dict(row)
+                    for row in operator_action_queue
+                    if isinstance(row, dict) and str(row.get("key") or "").strip() == "mymedia_alexa_setup"
+                ),
+                {},
+            )
+            if not mymedia_queue_row:
+                issues.append("blocked mymedia_alexa_setup must appear in operator_action_queue")
+            else:
+                if mymedia_queue_row.get("user_action_required") is not True:
+                    issues.append("mymedia_alexa_setup queue row must require user action")
+                if mymedia_queue_row.get("telegram_push_allowed") is not True:
+                    issues.append("mymedia_alexa_setup queue row must allow action-required Telegram push")
+                if not mymedia_queue_row.get("missing_setup"):
+                    issues.append("mymedia_alexa_setup queue row must include missing_setup")
+                if not str(mymedia_queue_row.get("instruction") or "").strip():
+                    issues.append("mymedia_alexa_setup queue row must include instruction")
+                if mymedia_queue_row.get("echo_playback_claim_allowed") is not False:
+                    issues.append("mymedia_alexa_setup queue row must not claim real Echo playback")
+                if mymedia_queue_row.get("pairing_resume_ready") and not str(mymedia_queue_row.get("pairing_resume_command") or "").strip():
+                    issues.append("mymedia_alexa_setup queue row resume-ready state must include pairing_resume_command")
+                if mymedia_queue_row.get("telegram_delivery_ready") not in {True, False}:
+                    issues.append("mymedia_alexa_setup queue row must include telegram_delivery_ready")
+                if mymedia_queue_row.get("telegram_delivery_ready") is not True and not str(
+                    mymedia_queue_row.get("telegram_delivery_reason") or ""
+                ).strip():
+                    issues.append("mymedia_alexa_setup queue row must explain Telegram delivery repair")
+                if action_context:
+                    if mymedia_queue_row.get("telegram_delivery_ready") is not action_context.get("telegram_delivery_ready"):
+                        issues.append("mymedia_alexa_setup queue row telegram_delivery_ready must match action_context")
+                    if str(mymedia_queue_row.get("telegram_delivery_transport") or "").strip() != str(
+                        action_context.get("telegram_delivery_transport") or ""
+                    ).strip():
+                        issues.append("mymedia_alexa_setup queue row telegram_delivery_transport must match action_context")
+                    if str(mymedia_queue_row.get("telegram_delivery_reason") or "").strip() != str(
+                        action_context.get("telegram_delivery_reason") or ""
+                    ).strip():
+                        issues.append("mymedia_alexa_setup queue row telegram_delivery_reason must match action_context")
+                for private_key in (
+                    "raw_refresh_token_exposed",
+                    "raw_paired_user_exposed",
+                    "raw_watch_folder_paths_exposed",
+                    "raw_public_ip_exposed",
+                    "raw_pairing_resume_url_exposed",
+                    "raw_chat_ids_exposed",
+                    "raw_token_exposed",
+                    "raw_secret_exposed",
+                ):
+                    if mymedia_queue_row.get(private_key) is not False:
+                        issues.append(f"mymedia_alexa_setup queue row must not expose {private_key}")
     telegram_requirement = proof_by_key.get("telegram_audiobook_live_delivery") or {}
     if telegram_requirement:
         capture_surfaces = " ".join(str(surface or "") for surface in list(telegram_requirement.get("capture_surfaces") or []))

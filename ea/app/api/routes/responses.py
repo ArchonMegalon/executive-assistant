@@ -227,6 +227,7 @@ from app.services.brain_catalog import (
 from app.services.responses_upstream import (
     ResponsesUpstreamError,
     UpstreamResult,
+    _onemin_provider_row_unknown_unprobed,
     _onemin_secret_env_names as upstream_onemin_secret_env_names,
     _resolve_default_response_lane,
     codex_status_report,
@@ -1152,6 +1153,8 @@ def _repair_ready_provider(
     ]
     if "onemin" in hints:
         onemin = dict(providers.get("onemin") or {})
+        if _profile_provider_row_ready(onemin) or _onemin_provider_row_unknown_unprobed(onemin):
+            return "onemin"
         try:
             live_remaining_credits_total = int(float(onemin.get("live_remaining_credits_total") or 0))
         except Exception:
@@ -1191,11 +1194,6 @@ def _profile_provider_row_ready(provider: dict[str, object]) -> bool:
     return False
 
 
-def _profile_provider_row_explicitly_bad(provider: dict[str, object]) -> bool:
-    state = str(provider.get("state") or "").strip().lower()
-    return state in {"degraded", "missing", "unavailable", "disabled", "error"}
-
-
 def _groundwork_ready_provider(
     profile: dict[str, object],
     *,
@@ -1204,13 +1202,12 @@ def _groundwork_ready_provider(
     if str(profile.get("profile") or "").strip().lower() != "groundwork":
         return ""
     providers = dict(((provider_health or {}).get("providers") or {}))
-    gemini = dict(providers.get("gemini_vortex") or {})
+    # Groundwork stays on 1min first. When live health is still unprobed, keep
+    # onemin ahead of later fallbacks instead of immediately presenting Gemini.
     onemin = dict(providers.get("onemin") or {})
-    if _profile_provider_row_ready(onemin):
+    if _profile_provider_row_ready(onemin) or _onemin_provider_row_unknown_unprobed(onemin):
         return "onemin"
-    if _profile_provider_row_explicitly_bad(onemin) and not _profile_provider_row_explicitly_bad(gemini):
-        return "gemini_vortex"
-    for provider_key in ("onemin", "magixai", "chatplayground", "gemini_vortex"):
+    for provider_key in ("magixai", "chatplayground", "gemini_vortex"):
         row = dict(providers.get(provider_key) or {})
         if _profile_provider_row_ready(row):
             return provider_key
@@ -2282,11 +2279,14 @@ def _effective_codex_profile_model(
     health_provider_key = str(profile.get("health_provider_key") or "").strip().lower()
     effective_provider = backend or health_provider_key
     if normalized_profile == "repair":
-        if effective_provider == "onemin":
+        # Repair stays 1min-first. If the upstream profile metadata has not been
+        # concretely promoted to a fallback provider yet, fail closed to the
+        # managed 1min lane instead of surfacing the Gemini repair alias.
+        if effective_provider in {"", "onemin"}:
             return ONEMIN_PUBLIC_MODEL
         if effective_provider == "magixai":
             return MAGICX_PUBLIC_MODEL
-        if effective_provider in {"gemini_vortex", ""}:
+        if effective_provider == "gemini_vortex":
             return REPAIR_GEMINI_PUBLIC_MODEL
     if normalized_profile == "groundwork":
         if effective_provider == "onemin":
@@ -7398,7 +7398,7 @@ def _run_survival_response(
         "principal_id": context.principal_id,
         "survival_lane": True,
         "survival_background": True,
-        "survival_route_order": str(os.environ.get("EA_SURVIVAL_ROUTE_ORDER") or "onemin,gemini_vortex,gemini_web,chatplayground"),
+        "survival_route_order": str(os.environ.get("EA_SURVIVAL_ROUTE_ORDER") or "onemin,chatplayground,gemini_vortex,gemini_web"),
     }
     if codex_profile:
         response_metadata.update(

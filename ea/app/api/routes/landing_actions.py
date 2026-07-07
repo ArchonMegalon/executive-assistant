@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,23 +12,32 @@ import urllib.parse
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
+from app.api.dependencies import RequestContext, _workspace_session_payload, get_container, get_request_context, is_operator_context
 from app.api.routes.admin_view_models import (
     ACTIVE_MEDIA_LTD_GOAL_RECEIPT as EA_ACTIVE_MEDIA_LTD_GOAL_RECEIPT,
     EXECUTIVE_ASSISTANT_ACCEPTANCE_EVIDENCE_RECEIPT as EA_ACCEPTANCE_EVIDENCE_RECEIPT,
     OFFICE_LOOP_GOAL_RECEIPT as EA_OFFICE_LOOP_GOAL_RECEIPT,
     WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT as EA_SCOPE_GAP_AUDIT_RECEIPT,
     WHOLE_PROJECT_SIGNAL_TO_DECISION_RECEIPT as EA_SIGNAL_TO_DECISION_RECEIPT,
+    _assistant_property_scoped_proactive_runtime,
 )
-from app.api.routes.landing_browser import _form_value, _normalize_browser_return_to
+from app.api.routes.landing_browser import _form_value, _normalize_browser_return_to, _workspace_session_cookie_kwargs
 from app.api.routes.landing_shared_support import (
     _default_operator_id_for_browser,
     bootstrap_initial_operator_profile,
+    operator_bootstrap_needed,
 )
 from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services.proactive_ooda_approval_capture import finalize_proactive_ooda_approval_outcome
-from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
+from app.services.proactive_ooda_live_ops_bridge import (
+    record_live_proactive_ooda_approval_outcome,
+    reissue_live_proactive_ooda_approval,
+)
+from app.services.proactive_ooda_runtime_artifacts import (
+    default_proactive_ooda_runtime_root,
+    load_runtime_artifact_bundle,
+)
 from app.services.proactive_ooda_teable_sync import (
     sync_proactive_ooda_approval_outcome_to_teable,
     teable_sync_enabled,
@@ -128,6 +138,7 @@ _REQUIRED_SIGNAL_SOURCES = [
     "release_install_update_friction",
     "privacy_or_boundary_incidents",
 ]
+_SIGNAL_OPERATOR_ACTION_KEY = "weekly_signal_to_decision_review_acceptance"
 _SIGNAL_EVIDENCE_PARTS = {
     "review": {
         "label": "real weekly signal-to-decision review accepted by the operator",
@@ -150,9 +161,59 @@ def _load_json(path: Path) -> dict[str, object]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _load_current_proactive_ooda_runtime_bundle() -> dict[str, object]:
+    try:
+        return dict(
+            load_runtime_artifact_bundle(
+                root=default_proactive_ooda_runtime_root(),
+                state_path=str(os.getenv("EA_PROACTIVE_OODA_STATE_PATH") or "state/proactive_ooda_notified.json").strip()
+                or "state/proactive_ooda_notified.json",
+                receipt_path=str(os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH") or "").strip(),
+                stage_packet_dir=str(os.getenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR") or "").strip(),
+                safe_work_result_dir=str(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR") or "").strip(),
+            )
+        )
+    except Exception:
+        return {}
+
+
+def _signal_evidence_capture_property_scoped() -> bool:
+    return _assistant_property_scoped_proactive_runtime(
+        _load_current_proactive_ooda_runtime_bundle(),
+        proactive_operator_receipt=_load_json(EA_PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT),
+        proactive_gold_receipt=_load_json(EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT),
+    )
+
+
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _request_relative_uri(request: Request) -> str:
+    path = str(request.url.path or "").strip() or "/admin/goals"
+    query = str(request.url.query or "").strip()
+    return f"{path}?{query}" if query else path
+
+
+def _admin_operator_access_redirect(
+    *,
+    request: Request,
+    container: AppContainer,
+    context: RequestContext,
+    return_to: str = "",
+) -> RedirectResponse | None:
+    if is_operator_context(context):
+        return None
+    target_return_to = _normalize_browser_return_to(
+        return_to or _request_relative_uri(request),
+        default="/admin/goals",
+    )
+    if operator_bootstrap_needed(container, principal_id=context.principal_id):
+        bootstrap_target = f"/admin/bootstrap-operator?return_to={urllib.parse.quote(target_return_to, safe='')}"
+        return RedirectResponse(bootstrap_target, status_code=303)
+    sign_in_target = f"/sign-in?return_to={urllib.parse.quote(target_return_to, safe='')}"
+    return RedirectResponse(sign_in_target, status_code=303)
 
 
 def _quality_next_action_context(proof_key: str) -> dict[str, object]:
@@ -544,6 +605,68 @@ def _signal_evidence_form_html(*, evidence_part: str, return_to: str) -> str:
 """
 
 
+def _signal_evidence_property_scope_blocked_html(*, return_to: str) -> str:
+    safe_return_to = html.escape(return_to, quote=True)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Signal Evidence Blocked</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f7f7f5;
+      color: #1f2933;
+    }}
+    body {{
+      margin: 0;
+      padding: 32px;
+    }}
+    main {{
+      max-width: 760px;
+      margin: 0 auto;
+    }}
+    section {{
+      background: #ffffff;
+      border: 1px solid #d9ded8;
+      border-radius: 8px;
+      padding: 20px;
+    }}
+    h1 {{
+      font-size: 1.5rem;
+      line-height: 1.25;
+      margin: 0 0 12px;
+    }}
+    p {{
+      line-height: 1.5;
+    }}
+    a.button {{
+      display: inline-block;
+      margin-top: 16px;
+      border-radius: 6px;
+      padding: 10px 14px;
+      background: #245b45;
+      color: #ffffff;
+      font-weight: 700;
+      text-decoration: none;
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>Signal Evidence Blocked</h1>
+      <p>The current proactive runtime is property-scoped and apartment-search work is disabled for EA. This signal-evidence capture surface stays local until a non-property packet is current.</p>
+      <a class="button" href="{safe_return_to}">Back to goals</a>
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+
 def _empty_acceptance_row() -> dict[str, object]:
     return {
         "accepted": False,
@@ -669,6 +792,92 @@ def _signal_evidence_capture_requirements(receipt: dict[str, object]) -> list[di
     return rows
 
 
+def _signal_evidence_operator_action_packet(
+    *,
+    next_action: str,
+    next_action_evidence_part: str,
+    review_accepted: bool,
+    follow_accepted: bool,
+) -> dict[str, object]:
+    if not next_action_evidence_part:
+        return {
+            "status": "not_required",
+            "user_action_required": False,
+            "action_required_reason": "",
+            "next_action": "review_closed_signal_to_decision_claim",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
+            "next_action_form_href": "",
+            "next_action_form_label": "",
+            "next_action_form_method": "",
+            "instruction": (
+                "Both redacted weekly review and follow-through evidence are recorded; "
+                "review the closed signal-to-decision claim before widening product claims."
+            ),
+            "delivery_policy": "queue_only",
+            "telegram_push_allowed": False,
+            "interruption_budget": "none",
+            "required_next_receipt": "",
+            "accepted_parts": {
+                "review": review_accepted,
+                "followthrough": follow_accepted,
+            },
+            "required_form_fields": list(_SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS),
+            "quiet_hours_respected": True,
+            "non_action_progress_push_allowed": False,
+            "irreversible_actions_consent_gated": True,
+            "claim_boundary": "does_not_prove_closed_signal_to_decision_loop_until_review_and_followthrough_are_accepted",
+            "raw_acceptance_text_exposed": False,
+            "raw_actor_identity_exposed": False,
+            "raw_object_reference_exposed": False,
+            "raw_private_context_exposed": False,
+            "next_action_evidence_part": "",
+            "required_next_receipt": "",
+        }
+
+    requirement = _SIGNAL_EVIDENCE_PARTS[next_action_evidence_part]
+    if next_action_evidence_part == "review":
+        instruction = (
+            "Record redacted evidence that the weekly signal-to-decision review was actually reviewed."
+        )
+    else:
+        instruction = (
+            "Record redacted evidence that one reviewed signal led to a verified follow-through receipt."
+        )
+    return {
+        "status": "action_required",
+        "user_action_required": True,
+        "action_required_reason": "real_world_acceptance_missing",
+        "next_action": next_action,
+        "next_action_href": _SIGNAL_EVIDENCE_CAPTURE_PATH,
+        "next_action_label": "Record a signal-loop outcome",
+        "next_action_method": _SIGNAL_EVIDENCE_CAPTURE_METHOD.lower(),
+        "next_action_form_href": _signal_evidence_form_href(next_action_evidence_part),
+        "next_action_form_label": "Record a signal-loop outcome",
+        "next_action_form_method": _SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower(),
+        "next_action_evidence_part": next_action_evidence_part,
+        "required_next_receipt": requirement["label"],
+        "instruction": instruction,
+        "accepted_parts": {
+            "review": review_accepted,
+            "followthrough": follow_accepted,
+        },
+        "delivery_policy": "action_required_only",
+        "telegram_push_allowed": True,
+        "interruption_budget": "action_required",
+        "required_form_fields": list(_SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS),
+        "quiet_hours_respected": True,
+        "non_action_progress_push_allowed": False,
+        "irreversible_actions_consent_gated": True,
+        "claim_boundary": "does_not_prove_closed_signal_to_decision_loop_until_review_and_followthrough_are_accepted",
+        "raw_acceptance_text_exposed": False,
+        "raw_actor_identity_exposed": False,
+        "raw_object_reference_exposed": False,
+        "raw_private_context_exposed": False,
+    }
+
+
 def _signal_source_row(key: str) -> dict[str, object]:
     return {
         "key": key,
@@ -681,8 +890,19 @@ def _signal_source_row(key: str) -> dict[str, object]:
 def _refresh_signal_evidence_contract(receipt: dict[str, object]) -> None:
     review_accepted = bool(receipt.get("real_weekly_operator_review_accepted"))
     follow_accepted = bool(receipt.get("closed_loop_followthrough_receipt_verified"))
+    if review_accepted:
+        next_action = str(_SIGNAL_EVIDENCE_PARTS["followthrough"]["next_action"])
+        next_action_evidence_part = "followthrough"
+    else:
+        next_action = str(_SIGNAL_EVIDENCE_PARTS["review"]["next_action"])
+        next_action_evidence_part = "review"
+    if follow_accepted and review_accepted:
+        next_action = "review_closed_signal_to_decision_claim"
+        next_action_evidence_part = ""
     receipt.update(_source_state_fields())
     receipt["contract_name"] = "ea.whole_project_signal_to_decision_receipt.v1"
+    receipt["generated_by"] = "ea/scripts/materialize_whole_project_signal_to_decision_receipt.py"
+    receipt["release_authority_claim_allowed"] = False
     receipt["status"] = (
         "ready_real_signal_to_decision_closure"
         if review_accepted and follow_accepted
@@ -691,14 +911,23 @@ def _refresh_signal_evidence_contract(receipt: dict[str, object]) -> None:
         else "ready_local_packet_pending_operator_acceptance"
     )
     if not review_accepted:
-        receipt["next_action"] = str(_SIGNAL_EVIDENCE_PARTS["review"]["next_action"])
-        receipt["next_action_evidence_part"] = "review"
+        next_action = str(_SIGNAL_EVIDENCE_PARTS["review"]["next_action"])
+        next_action_evidence_part = "review"
     elif not follow_accepted:
-        receipt["next_action"] = str(_SIGNAL_EVIDENCE_PARTS["followthrough"]["next_action"])
-        receipt["next_action_evidence_part"] = "followthrough"
+        next_action = str(_SIGNAL_EVIDENCE_PARTS["followthrough"]["next_action"])
+        next_action_evidence_part = "followthrough"
     else:
-        receipt["next_action"] = "review_closed_signal_to_decision_claim"
-        receipt["next_action_evidence_part"] = ""
+        next_action = "review_closed_signal_to_decision_claim"
+        next_action_evidence_part = ""
+    receipt["next_action"] = next_action
+    receipt["next_action_evidence_part"] = next_action_evidence_part
+    receipt["operator_action_key"] = _SIGNAL_OPERATOR_ACTION_KEY if next_action_evidence_part else ""
+    receipt["operator_action_packet"] = _signal_evidence_operator_action_packet(
+        next_action=next_action,
+        next_action_evidence_part=next_action_evidence_part,
+        review_accepted=review_accepted,
+        follow_accepted=follow_accepted,
+    )
     if receipt["next_action_evidence_part"]:
         receipt["next_action_href"] = _SIGNAL_EVIDENCE_CAPTURE_PATH
         receipt["next_action_label"] = "Record a signal-loop outcome"
@@ -766,7 +995,10 @@ def _materialize_admin_proactive_ooda_operator_status(
     build_proactive_ooda_operator_status(
         output_path=output_path,
         live_receipt_path=live_receipt_path,
-        allow_live_route_probe=False,
+        # Keep the published admin receipt aligned with the live CLI materializer so
+        # source-coverage and provider-cost governance do not regress to not_checked.
+        allow_live_route_probe=True,
+        skip_provider_cost_pressure_probe=False,
     )
 
 
@@ -806,6 +1038,32 @@ def _record_admin_proactive_ooda_approval_outcome(
     if dry_run:
         return {"status": "dry_run", "recorded": False, "error": ""}
     gold_path = Path(EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT)
+    live_result = record_live_proactive_ooda_approval_outcome(
+        principal_id=principal_id,
+        outcome=outcome,
+        evidence=evidence,
+        actor=actor,
+        source_kind=source_kind,
+        packet_ref=packet_ref,
+        staged_artifact_ref=staged_artifact_ref,
+        dry_run=False,
+    )
+    live_status = str(live_result.get("status") or "").strip() or "failed"
+    live_error = str(live_result.get("error") or "").strip()
+    if live_status in {"recorded", "already_decided"}:
+        followthrough_refresh = _refresh_admin_proactive_ooda_followthrough_receipts()
+        return {
+            **live_result,
+            "recorded": True,
+            "error": "",
+            "followthrough_refresh": followthrough_refresh,
+        }
+    if live_status not in {"probe_failed", "record_failed"}:
+        return {
+            **live_result,
+            "recorded": False,
+            "followthrough_refresh": {},
+        }
     try:
         finalized = finalize_proactive_ooda_approval_outcome(
             principal_id=principal_id,
@@ -839,6 +1097,8 @@ def _record_admin_proactive_ooda_approval_outcome(
         "status": "recorded" if recorded else "record_failed",
         "recorded": recorded,
         "error": "" if recorded else str(approval_outcome.get("reason") or "approval_outcome_not_recorded"),
+        "live_runtime_status": live_status,
+        "live_runtime_error": live_error,
         "followthrough_refresh": followthrough_refresh,
     }
 
@@ -870,12 +1130,31 @@ def _default_acceptance_receipt() -> dict[str, object]:
 def _default_signal_receipt() -> dict[str, object]:
     receipt = {
         "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
-        "status": "ready_local_packet_pending_operator_acceptance",
+        "generated_by": "ea/scripts/materialize_whole_project_signal_to_decision_receipt.py",
         "goal_completion_claim_allowed": False,
+        "queue_truth_claim_allowed": False,
+        "release_authority_claim_allowed": False,
+        "next_action": "record_redacted_signal_review_acceptance",
+        "operator_action_key": _SIGNAL_OPERATOR_ACTION_KEY,
+        "next_action_href": _SIGNAL_EVIDENCE_CAPTURE_PATH,
+        "next_action_label": "Record a signal-loop outcome",
+        "next_action_method": _SIGNAL_EVIDENCE_CAPTURE_METHOD.lower(),
+        "next_action_form_href": _signal_evidence_form_href("review"),
+        "next_action_form_label": "Record a signal-loop outcome",
+        "next_action_form_method": _SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower(),
+        "next_action_evidence_part": "review",
+        "operator_action_packet": _signal_evidence_operator_action_packet(
+            next_action="record_redacted_signal_review_acceptance",
+            next_action_evidence_part="review",
+            review_accepted=False,
+            follow_accepted=False,
+        ),
+        "status": "ready_local_packet_pending_operator_acceptance",
         "real_weekly_operator_review_accepted": False,
         "closed_loop_followthrough_receipt_verified": False,
         "operator_review": {
             "accepted": False,
+            "status": "missing_or_invalid",
             "source_kind": "",
             "recorded_at": "",
             "review_sha256": "",
@@ -887,6 +1166,7 @@ def _default_signal_receipt() -> dict[str, object]:
         },
         "followthrough_receipt": {
             "accepted": False,
+            "status": "missing_or_invalid",
             "source_kind": "",
             "recorded_at": "",
             "followthrough_sha256": "",
@@ -895,6 +1175,19 @@ def _default_signal_receipt() -> dict[str, object]:
             "raw_followthrough_exposed": False,
             "raw_actor_exposed": False,
             "raw_packet_ref_exposed": False,
+        },
+        "boundary_posture": {
+            "ea_is_product_truth": False,
+            "local_signal_synthesis_not_canonical_queue_or_release_truth": True,
+        },
+        "signal_sources": [_signal_source_row(key) for key in _REQUIRED_SIGNAL_SOURCES],
+        "decision_packet": {
+            "decision_items": [
+                {"key": "provider_runtime_recovery", "source": "provider_runtime_failures"},
+                {"key": "audiobook_acceptance", "source": "audiobook_and_media_acceptance"},
+                {"key": "spoken_conversation_acceptance", "source": "manfred_spoken_conversation_acceptance"},
+                {"key": "privacy_boundary_review", "source": "privacy_or_boundary_incidents"},
+            ]
         },
         "signal_evidence_capture_surface": _signal_evidence_capture_surface(),
         "privacy": {
@@ -911,6 +1204,7 @@ def _default_signal_receipt() -> dict[str, object]:
     }
     receipt["signal_evidence_capture_requirements"] = _signal_evidence_capture_requirements(receipt)
     receipt.update(_source_state_fields())
+    _refresh_signal_evidence_contract(receipt)
     return receipt
 
 
@@ -1178,6 +1472,50 @@ def _refresh_admin_proactive_ooda_followthrough_receipts() -> dict[str, object]:
     return results
 
 
+def _refresh_admin_proactive_ooda_runtime_receipts() -> dict[str, object]:
+    results: dict[str, object] = {}
+    bundle = _load_current_proactive_ooda_runtime_bundle()
+    run_receipt_path = bundle.get("run_receipt_path")
+    stage_packet_dir = bundle.get("stage_packet_dir")
+    safe_work_result_dir = bundle.get("safe_work_result_dir")
+    approval_outcome_path = bundle.get("approval_outcome_path")
+
+    try:
+        _materialize_admin_proactive_ooda_operator_status(
+            output_path=EA_PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT,
+            live_receipt_path=run_receipt_path if isinstance(run_receipt_path, Path) else None,
+        )
+        operator_receipt = _load_json(EA_PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT)
+        results["operator_status"] = {
+            "status": "materialized",
+            "receipt_status": str(operator_receipt.get("status") or "").strip(),
+        }
+    except Exception as exc:
+        results["operator_status"] = {"status": "failed", "error": type(exc).__name__}
+
+    try:
+        _materialize_admin_proactive_ooda_gold_acceptance(
+            output_path=EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT,
+            operator_status_path=EA_PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT,
+            run_receipt_path=run_receipt_path if isinstance(run_receipt_path, Path) else None,
+            stage_packet_dir=stage_packet_dir if isinstance(stage_packet_dir, Path) else None,
+            safe_work_result_dir=safe_work_result_dir if isinstance(safe_work_result_dir, Path) else None,
+            approval_outcome_path=(
+                approval_outcome_path if isinstance(approval_outcome_path, Path) else EA_PROACTIVE_OODA_APPROVAL_OUTCOME_RECEIPT
+            ),
+        )
+        gold_receipt = _load_json(EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT)
+        results["gold_acceptance"] = {
+            "status": "materialized",
+            "receipt_status": str(gold_receipt.get("status") or "").strip(),
+        }
+    except Exception as exc:
+        results["gold_acceptance"] = {"status": "failed", "error": type(exc).__name__}
+
+    results["followthrough"] = _refresh_admin_proactive_ooda_followthrough_receipts()
+    return results
+
+
 def _record_acceptance_evidence_receipt(
     *,
     proof_key: str,
@@ -1219,6 +1557,31 @@ def _record_acceptance_evidence_receipt(
     return receipt
 
 
+def _reissue_admin_proactive_ooda_approval(
+    *,
+    principal_id: str,
+    dry_run: bool,
+    force: bool,
+    reissue_after_seconds: int,
+) -> dict[str, object]:
+    result = reissue_live_proactive_ooda_approval(
+        principal_id=principal_id,
+        dry_run=dry_run,
+        force=force,
+        reissue_after_seconds=max(int(reissue_after_seconds or 0), 0),
+    )
+    status = str(result.get("status") or "").strip()
+    if status in {"sent", "already_live_pending", "already_decided"}:
+        return {
+            **result,
+            "runtime_refresh": _refresh_admin_proactive_ooda_runtime_receipts(),
+        }
+    return {
+        **result,
+        "runtime_refresh": {},
+    }
+
+
 @router.post("/admin/actions/bootstrap-operator")
 async def admin_bootstrap_operator(
     request: Request,
@@ -1232,8 +1595,9 @@ async def admin_bootstrap_operator(
     if str(context.operator_id or "").strip():
         separator = "&" if "?" in return_to else "?"
         return RedirectResponse(f"{return_to}{separator}operator_bootstrap=already_ready", status_code=303)
+    workspace_session = _workspace_session_payload(request, container)
     try:
-        bootstrap_initial_operator_profile(
+        operator_profile = bootstrap_initial_operator_profile(
             container,
             principal_id=context.principal_id,
             access_email=str(context.access_email or "").strip().lower(),
@@ -1247,7 +1611,25 @@ async def admin_bootstrap_operator(
             raise HTTPException(status_code=409, detail=detail) from exc
         raise HTTPException(status_code=400, detail=detail) from exc
     separator = "&" if "?" in return_to else "?"
-    return RedirectResponse(f"{return_to}{separator}operator_bootstrap=ready", status_code=303)
+    response = RedirectResponse(f"{return_to}{separator}operator_bootstrap=ready", status_code=303)
+    workspace_email = str((workspace_session or {}).get("email") or context.access_email or "").strip().lower()
+    if workspace_email:
+        operator_session = build_product_service(container).issue_workspace_access_session(
+            principal_id=context.principal_id,
+            email=workspace_email,
+            role="operator",
+            display_name=str(getattr(operator_profile, "display_name", "") or _form_value(body, "display_name", "")).strip(),
+            operator_id=str(getattr(operator_profile, "operator_id", "") or _form_value(body, "operator_id", "")).strip(),
+            source_kind="bootstrap_operator",
+            default_target=return_to,
+        )
+        response.set_cookie(
+            "ea_workspace_session",
+            str(operator_session.get("access_token") or "").strip(),
+            **_workspace_session_cookie_kwargs(request, expires_at=str(operator_session.get("expires_at") or "").strip()),
+        )
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
 
 
 @router.post("/app/actions/drafts/{draft_ref}")
@@ -1355,8 +1737,16 @@ async def app_create_commitment(
 @router.get("/admin/actions/acceptance-evidence")
 async def admin_acceptance_evidence_form(
     request: Request,
-    _: None = Depends(require_operator_context),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    redirect = _admin_operator_access_redirect(
+        request=request,
+        container=container,
+        context=context,
+    )
+    if redirect is not None:
+        return redirect
     return_to = _normalize_browser_return_to(
         str(request.query_params.get("return_to") or "/admin/goals"),
         default="/admin/goals",
@@ -1371,11 +1761,19 @@ async def admin_acceptance_evidence_form(
 @router.post("/admin/actions/acceptance-evidence")
 async def admin_record_acceptance_evidence(
     request: Request,
+    container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
-    _: None = Depends(require_operator_context),
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
+    redirect = _admin_operator_access_redirect(
+        request=request,
+        container=container,
+        context=context,
+        return_to=return_to,
+    )
+    if redirect is not None:
+        return redirect
     proof_key = _form_value(body, "proof_key", "")
     source_kind = _form_value(body, "source_kind", "unknown")
     evidence = _form_value(body, "evidence", "")
@@ -1398,12 +1796,25 @@ async def admin_record_acceptance_evidence(
 @router.get("/admin/actions/signal-to-decision-evidence")
 async def admin_signal_to_decision_evidence_form(
     request: Request,
-    _: None = Depends(require_operator_context),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    redirect = _admin_operator_access_redirect(
+        request=request,
+        container=container,
+        context=context,
+    )
+    if redirect is not None:
+        return redirect
     return_to = _normalize_browser_return_to(
         str(request.query_params.get("return_to") or "/admin/goals"),
         default="/admin/goals",
     )
+    if _signal_evidence_capture_property_scoped():
+        return HTMLResponse(
+            _signal_evidence_property_scope_blocked_html(return_to=return_to),
+            status_code=200,
+        )
     evidence_part = str(request.query_params.get("evidence_part") or "").strip()
     return HTMLResponse(
         _signal_evidence_form_html(evidence_part=evidence_part, return_to=return_to),
@@ -1414,11 +1825,19 @@ async def admin_signal_to_decision_evidence_form(
 @router.post("/admin/actions/signal-to-decision-evidence")
 async def admin_record_signal_to_decision_evidence(
     request: Request,
+    container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
-    _: None = Depends(require_operator_context),
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
+    redirect = _admin_operator_access_redirect(
+        request=request,
+        container=container,
+        context=context,
+        return_to=return_to,
+    )
+    if redirect is not None:
+        return redirect
     evidence_part = _form_value(body, "evidence_part", "")
     source_kind = _form_value(body, "source_kind", "unknown")
     evidence = _form_value(body, "evidence", "")
@@ -1426,6 +1845,8 @@ async def admin_record_signal_to_decision_evidence(
     actor = str(context.operator_id or context.access_email or context.principal_id or "operator").strip()
     if evidence_part not in _SIGNAL_EVIDENCE_PARTS:
         raise HTTPException(status_code=400, detail="signal_evidence_part_invalid")
+    if _signal_evidence_capture_property_scoped():
+        raise HTTPException(status_code=409, detail="signal_evidence_property_scope_blocked")
     if not evidence.strip() or not packet_ref.strip():
         raise HTTPException(status_code=400, detail="signal_evidence_and_packet_ref_required")
 
@@ -1482,11 +1903,19 @@ async def admin_record_signal_to_decision_evidence(
 @router.post("/admin/actions/proactive-ooda-evidence")
 async def admin_record_proactive_ooda_evidence(
     request: Request,
+    container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
-    _: None = Depends(require_operator_context),
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
+    redirect = _admin_operator_access_redirect(
+        request=request,
+        container=container,
+        context=context,
+        return_to=return_to,
+    )
+    if redirect is not None:
+        return redirect
     outcome = _form_value(body, "outcome", "approved")
     source_kind = _form_value(body, "source_kind", "unknown")
     evidence = _form_value(body, "evidence", "")
@@ -1510,6 +1939,44 @@ async def admin_record_proactive_ooda_evidence(
     error = str(result.get("error") or "").strip()
     if error:
         query["proactive_ooda_error"] = error
+    return RedirectResponse(f"{return_to}{separator}{urllib.parse.urlencode(query)}", status_code=303)
+
+
+@router.post("/admin/actions/proactive-ooda-reissue")
+async def admin_reissue_proactive_ooda_approval(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
+    redirect = _admin_operator_access_redirect(
+        request=request,
+        container=container,
+        context=context,
+        return_to=return_to,
+    )
+    if redirect is not None:
+        return redirect
+    dry_run = _form_value(body, "dry_run", "").strip().lower() in {"1", "true", "yes", "on"}
+    force = _form_value(body, "force", "").strip().lower() in {"1", "true", "yes", "on"}
+    raw_threshold = _form_value(body, "reissue_after_seconds", "")
+    try:
+        reissue_after_seconds = max(int(raw_threshold or "0"), 0)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="reissue_after_seconds_invalid")
+    result = _reissue_admin_proactive_ooda_approval(
+        principal_id=context.principal_id,
+        dry_run=dry_run,
+        force=force,
+        reissue_after_seconds=reissue_after_seconds,
+    )
+    separator = "&" if "?" in return_to else "?"
+    status = str(result.get("status") or "failed").strip() or "failed"
+    query = {"proactive_ooda_reissue_status": status}
+    error = str(result.get("error") or "").strip()
+    if error:
+        query["proactive_ooda_reissue_error"] = error
     return RedirectResponse(f"{return_to}{separator}{urllib.parse.urlencode(query)}", status_code=303)
 
 

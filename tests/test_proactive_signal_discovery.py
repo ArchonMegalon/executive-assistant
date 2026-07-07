@@ -477,6 +477,136 @@ def test_discovery_skips_property_scout_observations_when_flat_search_disabled(m
     assert "property_scout_sync_completed" not in captured["event_types"]
 
 
+def test_discovery_prefers_richer_prior_telegram_draft_request_and_skips_low_fidelity_office_echo(monkeypatch) -> None:
+    rows = [
+        (
+            "obs-office-echo",
+            "cf-email:tibor.girschele@gmail.com",
+            "product",
+            "office_signal_ooda_evaluated",
+            {
+                "channel": "telegram",
+                "summary": (
+                    "Signal from Telegram. suche mir rauchfangkehrer - ich brauche ein Gutachten, "
+                    "ob ich meinen Zimmerkamin als Abluftrohr eines Klimageraets verwenden kann. "
+                    "Stage 1 commitment candidate..."
+                ),
+                "ooda_loop": {
+                    "actor": "telegram_inline_proactive_stage",
+                    "act": {
+                        "summary": "Staged 1 candidate and 0 reply drafts.",
+                        "staged_candidate_count": 1,
+                        "staged_draft_count": 0,
+                    },
+                },
+            },
+            "2026-06-28T17:28:43+00:00",
+            "telegram:987654321098",
+            "",
+            "",
+        ),
+        (
+            "obs-telegram-compare-2",
+            "cf-email:tibor.girschele@gmail.com",
+            "telegram",
+            "telegram.message",
+            {
+                "text": (
+                    "suche mir rauchfangkehrer - ich brauche ein Gutachten, ob ich meinen Zimmerkamin "
+                    "als Abluftrohr eines Klimageraets verwenden kann"
+                )
+            },
+            "2026-06-28T17:28:33+00:00",
+            "telegram:987654321098",
+            "11",
+            "",
+        ),
+        (
+            "obs-telegram-compare-1",
+            "cf-email:tibor.girschele@gmail.com",
+            "telegram",
+            "telegram.message",
+            {
+                "text": (
+                    "suche mir rauchfangkehrer - ich brauche ein Gutachten, ob ich meinen Zimmerkamin "
+                    "als Abluftrohr eines Klimageraets verwenden kann"
+                )
+            },
+            "2026-06-28T17:23:30+00:00",
+            "telegram:987654321098",
+            "1",
+            "",
+        ),
+        (
+            "obs-telegram-rich",
+            "cf-email:tibor.girschele@gmail.com",
+            "telegram",
+            "telegram.message",
+            {
+                "text": (
+                    "Suche mir einen Rauchfangkehrer. Ich brauche ein Gutachten, ob ich meinen Zimmerkamin "
+                    "als Abluftrohr eines Klimageraets verwenden kann. Wenn du einen gefunden hast, "
+                    "formuliere eine Emailanfrage und speicher sie als Draft in meiner Inbox."
+                )
+            },
+            "2026-06-28T16:14:42+00:00",
+            "telegram:987654321098",
+            "782663283",
+            "",
+        ),
+    ]
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, _query: str, _params: tuple[object, ...]) -> None:
+            return None
+
+        def fetchall(self) -> list[object]:
+            return rows
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def cursor(self) -> FakeCursor:
+            return FakeCursor()
+
+    class FakePsycopg:
+        @staticmethod
+        def connect(url: str, connect_timeout: int = 5) -> FakeConnection:
+            return FakeConnection()
+
+    monkeypatch.setitem(sys.modules, "psycopg", FakePsycopg)
+
+    signals = discover_postgres_observation_signals(
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        database_url="postgres://test",
+        limit=20,
+        lookback_hours=24,
+    )
+
+    assert len(signals) == 1
+    signal = signals[0]
+    assert signal.signal_type == "telegram_message"
+    assert signal.payload is not None
+    ooda_loop = signal.payload.get("ooda_loop")
+    assert isinstance(ooda_loop, dict)
+    stage = ooda_loop["act"]["stage"]
+    assert stage["work_type"] == "draft"
+    assert stage["draft_mode"] == "research_backed_inquiry"
+    assert stage["auto_execute_action"] == "save_gmail_draft"
+    assert "speicher sie als draft" in stage["draft_request_text"].lower()
+    assert stage["research_query"] == "Rauchfangkehrer"
+
+
 def test_opportunity_rules_create_consent_gated_ooda_signal(tmp_path) -> None:
     result = discover_opportunity_rule_signals(
         raw_config=json.dumps(
@@ -1456,7 +1586,12 @@ def test_pocket_transcript_uses_actionable_display_text_for_mixed_recordings() -
     assert "blood pressure" not in signal.summary.lower()
     ooda_loop = signal.payload.get("ooda_loop")
     assert isinstance(ooda_loop, dict)
-    assert ooda_loop["act"]["stage"]["research_query"] == "Elektriker fuer zusaetzliche Steckdosen."
+    stage = ooda_loop["act"]["stage"]
+    assert stage["research_query"] == "Elektriker fuer zusaetzliche Steckdosen."
+    assert "Elektriker" in stage["draft_request_text"]
+    assert "Blutdruck" not in stage["draft_request_text"]
+    assert "leg swelling" not in stage["draft_request_text"].lower()
+    assert "blood pressure" not in " ".join(stage["search_queries"]).lower()
 
 
 def test_pocket_transcript_ignores_ambient_self_talk_without_direct_task_marker() -> None:

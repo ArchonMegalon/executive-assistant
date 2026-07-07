@@ -17,7 +17,14 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RECEIPT = ROOT / ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json"
 CONTRACT_NAME = "ea.google_workspace_oauth_readiness.v1"
-KNOWN_STATUSES = {"pass", "ready_manual_console_check", "blocked_setup_required"}
+KNOWN_STATUSES = {"pass", "ready_manual_console_check", "ready_retry_required", "blocked_setup_required"}
+RETRY_ONLY_MISSING_SETUP = {
+    "oauth_access_retry_or_account_selection_required",
+    "oauth_account_selection_mismatch",
+}
+MANUAL_CONSOLE_CHECK_ONLY_MISSING_SETUP = {
+    "oauth_test_user_confirmation_pending",
+}
 REQUIRED_WORKSPACE_APIS = {
     "gmail.googleapis.com",
     "calendar-json.googleapis.com",
@@ -195,10 +202,20 @@ def verify_receipt_for_test(receipt: dict[str, Any], *, root: Path = ROOT) -> li
         for item in list(receipt.get("missing_setup") or [])
         if str(item).strip()
     ]
-    if status == "blocked_setup_required" and not missing_setup:
-        issues.append("blocked_setup_required receipt must include missing_setup")
-    if status != "blocked_setup_required" and missing_setup:
-        issues.append("non-blocked receipt must not include missing_setup")
+    if status in {"blocked_setup_required", "ready_retry_required"} and not missing_setup:
+        issues.append(f"{status} receipt must include missing_setup")
+    if status == "pass" and missing_setup:
+        issues.append("pass receipt must not include missing_setup")
+    if status == "ready_manual_console_check":
+        manual_only_missing = {item for item in missing_setup if item}
+        if not manual_only_missing:
+            issues.append("ready_manual_console_check receipt must include missing_setup")
+        elif not manual_only_missing.issubset(MANUAL_CONSOLE_CHECK_ONLY_MISSING_SETUP):
+            issues.append("ready_manual_console_check receipt must only contain manual-console-check missing_setup items")
+    if status == "ready_retry_required":
+        retry_only_missing = {item for item in missing_setup if item}
+        if not retry_only_missing or not retry_only_missing.issubset(RETRY_ONLY_MISSING_SETUP):
+            issues.append("ready_retry_required receipt must only contain retry/account-selection missing_setup items")
     if str(receipt.get("observed_error") or "").strip() == "access_denied":
         if "oauth_account_selection_mismatch" in missing_setup:
             expected_blocker = "oauth_account_selection_mismatch"

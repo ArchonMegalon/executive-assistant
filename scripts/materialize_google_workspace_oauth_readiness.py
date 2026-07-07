@@ -24,6 +24,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json"
+DEFAULT_OPERATOR_STATUS = ROOT / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
 CONTRACT_NAME = "ea.google_workspace_oauth_readiness.v1"
 DEFAULT_SCOPE_BUNDLE = "full_workspace"
 GOOGLE_AUTH_AUDIENCE_PATH = "Google Auth Platform > Audience > Test users"
@@ -54,6 +55,18 @@ PRIVATE_FLAGS = (
     "raw_observed_google_email_exposed",
     "raw_error_description_exposed",
 )
+RETRY_ONLY_MISSING_SETUP = {
+    "oauth_access_retry_or_account_selection_required",
+    "oauth_account_selection_mismatch",
+}
+MANUAL_CONSOLE_CHECK_ONLY_MISSING_SETUP = {
+    "oauth_test_user_confirmation_pending",
+}
+LIVE_REAUTH_RETRY_REASONS = {
+    "disconnected_by_operator",
+    "google_oauth_invalid_grant",
+    "google_oauth_refresh_failed",
+}
 RunCommand = Callable[[list[str], float], tuple[int, str, str]]
 
 
@@ -68,6 +81,14 @@ def _sha256(value: str) -> str:
 
 def _env(name: str) -> str:
     return str(os.environ.get(name) or "").strip()
+
+
+def _configured_expected_google_email() -> str:
+    for key in ("EA_GOOGLE_WORKSPACE_EXPECTED_EMAIL", "EA_GOOGLE_OAUTH_EXPECTED_EMAIL"):
+        value = str(os.environ.get(key) or "").strip().lower()
+        if "@" in value:
+            return value
+    return ""
 
 
 def _load_env_file(path: Path | None) -> None:
@@ -91,6 +112,53 @@ def _source_state() -> dict[str, str]:
         "source_state_fingerprint": resolve_source_worktree_fingerprint(ROOT),
         "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
     }
+
+
+def _load_json(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _source_fresh(payload: dict[str, Any], *, current_source_state: dict[str, str]) -> bool:
+    source_head = str(payload.get("source_git_head") or "").strip()
+    source_fingerprint = str(payload.get("source_state_fingerprint") or "").strip()
+    return bool(
+        (source_head and source_head == str(current_source_state.get("source_git_head") or "").strip())
+        or (
+            source_fingerprint
+            and source_fingerprint == str(current_source_state.get("source_state_fingerprint") or "").strip()
+        )
+    )
+
+
+def _operator_status_reauth_required_reason(
+    *,
+    current_source_state: dict[str, str],
+    operator_status_path: Path | None = None,
+) -> str:
+    operator_status_path = operator_status_path or DEFAULT_OPERATOR_STATUS
+    payload = _load_json(operator_status_path)
+    if not payload or not _source_fresh(payload, current_source_state=current_source_state):
+        return ""
+    source_health = dict(payload.get("source_health") or {})
+    for raw_issue in list(source_health.get("issues") or []):
+        issue = dict(raw_issue or {}) if isinstance(raw_issue, dict) else {}
+        source_key = str(issue.get("source_key") or issue.get("source_type") or "").strip()
+        if source_key != "google_workspace":
+            continue
+        error_code = str(issue.get("error_code") or "").strip()
+        if error_code:
+            return error_code
+    reason = str(payload.get("reason") or "").strip()
+    for prefix in ("source_health_google_workspace:", "google_workspace_signal_source_unhealthy:"):
+        if reason.startswith(prefix):
+            return reason[len(prefix) :].strip()
+    return ""
 
 
 def _project_number_from_client_id(client_id: str) -> str:
@@ -246,6 +314,13 @@ def _gcloud_probe(
 
 def _setup_checklist(missing: list[str], *, console_link: str, auth_link_template: str) -> list[dict[str, str]]:
     entries = {
+        "oauth_test_user_confirmation_pending": {
+            "label": "Confirm the work Google account is allowed in OAuth Audience",
+            "how": (
+                f"Open {console_link}, go to {GOOGLE_AUTH_AUDIENCE_PATH}, confirm the requested account is listed there "
+                f"or add it if missing, save, then retry {auth_link_template}."
+            ),
+        },
         "oauth_test_user_missing_or_app_unverified": {
             "label": "Confirm the work Google account is allowed in OAuth Audience",
             "how": (
@@ -308,11 +383,21 @@ def _setup_checklist(missing: list[str], *, console_link: str, auth_link_templat
     return result
 
 
-def _instruction_text(*, missing: list[str]) -> str:
+def _instruction_text(*, missing: list[str], reauth_required_reason: str = "") -> str:
+    if reauth_required_reason in LIVE_REAUTH_RETRY_REASONS and "oauth_access_retry_or_account_selection_required" in missing:
+        return (
+            "Google Workspace auth needs reauthorization before EA can rely on that source. "
+            "Retry the Full Workspace auth link with the approved work Google account."
+        )
     if "oauth_account_selection_mismatch" in missing:
         return (
             "Retry the Full Workspace auth link and switch to the intended work Google account in the Google account chooser. "
             "The selected Google account observed on the failed consent attempt did not match the expected work account."
+        )
+    if "oauth_test_user_confirmation_pending" in missing:
+        return (
+            "Open the Google Auth Platform Audience page, confirm the requested work Google account is allowed there, "
+            "add it if missing, save, then retry the Full Workspace auth link."
         )
     if "gcloud_project_mismatch" in missing:
         return (
@@ -334,9 +419,15 @@ def _instruction_text(*, missing: list[str]) -> str:
     )
 
 
-def _telegram_message(*, missing: list[str], console_link: str) -> str:
+def _telegram_message(*, missing: list[str], console_link: str, reauth_required_reason: str = "") -> str:
     if not missing:
         return ""
+    if reauth_required_reason in LIVE_REAUTH_RETRY_REASONS and "oauth_access_retry_or_account_selection_required" in missing:
+        return (
+            "Action needed: Google Workspace auth needs reauthorization before EA can rely on that source. "
+            "Retry the Full Workspace auth link with the approved work account. "
+            f"If Google still blocks it, re-open the Audience page and confirm the tester/project setup. Console: {console_link}"
+        )
     if "oauth_account_selection_mismatch" in missing:
         return (
             "Action needed: Google Full Workspace auth was attempted with a different selected Google account than the intended work account. "
@@ -347,6 +438,12 @@ def _telegram_message(*, missing: list[str], console_link: str) -> str:
         return (
             "Action needed: Google Full Workspace auth is tied to a different OAuth project than the current gcloud default. "
             f"Open the OAuth project's Audience page, confirm the work account is a test user there, then retry the auth link. Console: {console_link}"
+        )
+    if "oauth_test_user_confirmation_pending" in missing:
+        return (
+            "Action needed: Google Full Workspace auth still needs a manual Audience-page check. "
+            "Open Google Auth Platform, confirm the requested work account is allowed there, add it if missing, save, then retry the auth link. "
+            f"Console: {console_link}"
         )
     if "oauth_test_user_missing_or_app_unverified" in missing:
         return (
@@ -386,6 +483,7 @@ def build_receipt(
     error_description: str = "",
     observed_google_email: str = "",
     test_user_confirmed: bool = False,
+    reauth_required_reason: str = "",
     probe_gcloud: bool = False,
     include_env_file: Path | None = None,
     runner: RunCommand | None = None,
@@ -393,7 +491,7 @@ def build_receipt(
 ) -> dict[str, Any]:
     _load_env_file(include_env_file)
     normalized_scope = str(scope_bundle or DEFAULT_SCOPE_BUNDLE).strip() or DEFAULT_SCOPE_BUNDLE
-    normalized_email = str(expected_google_email or "").strip().lower()
+    normalized_email = str(expected_google_email or "").strip().lower() or _configured_expected_google_email()
     normalized_observed_google_email = str(observed_google_email or "").strip().lower()
     expected_email_present = "@" in normalized_email
     observed_email_present = "@" in normalized_observed_google_email
@@ -405,6 +503,11 @@ def build_receipt(
     client_id = _env("EA_GOOGLE_OAUTH_CLIENT_ID")
     project_id = _env("EA_GOOGLE_OAUTH_PROJECT_ID")
     project_number = _project_number_from_client_id(client_id)
+    current_source_state = _source_state()
+    normalized_reauth_required_reason = str(reauth_required_reason or "").strip() or _operator_status_reauth_required_reason(
+        current_source_state=current_source_state
+    )
+    reauth_retry_required = normalized_reauth_required_reason in LIVE_REAUTH_RETRY_REASONS
     console_link = _console_deep_link(project_id)
     auth_link_template = _connect_link_template(
         scope_bundle=normalized_scope,
@@ -433,6 +536,13 @@ def build_receipt(
                 if test_user_confirmed
                 else "oauth_test_user_missing_or_app_unverified"
             )
+    elif reauth_retry_required:
+        if observed_email_present and expected_email_present and not observed_matches_expected:
+            missing.append("oauth_account_selection_mismatch")
+        else:
+            missing.append("oauth_access_retry_or_account_selection_required")
+    elif expected_email_present and not test_user_confirmed:
+        missing.append("oauth_test_user_confirmation_pending")
 
     gcloud = {"enabled": False, "raw_gcloud_account_exposed": False, "raw_gcloud_token_exposed": False}
     workspace_api_status = {
@@ -469,7 +579,12 @@ def build_receipt(
             else:
                 missing.append("google_workspace_api_probe_unavailable")
     missing = list(dict.fromkeys(item for item in missing if item))
-    if missing:
+    retry_only_missing = {item for item in missing if item}
+    if missing and retry_only_missing.issubset(RETRY_ONLY_MISSING_SETUP):
+        status = "ready_retry_required"
+    elif missing and retry_only_missing.issubset(MANUAL_CONSOLE_CHECK_ONLY_MISSING_SETUP):
+        status = "ready_manual_console_check"
+    elif missing:
         status = "blocked_setup_required"
     elif test_user_confirmed:
         status = "pass"
@@ -491,13 +606,14 @@ def build_receipt(
         "contract_name": CONTRACT_NAME,
         "generated_at": _utc_now(),
         "generated_by": "scripts/materialize_google_workspace_oauth_readiness.py",
-        **_source_state(),
+        **current_source_state,
         "status": status,
         "scope_bundle": normalized_scope,
         "observed_error": str(observed_error or "").strip(),
         "observed_error_description_present": bool(str(error_description or "").strip()),
         "observed_error_description_sha256": error_description_hash,
         "blocker_kind": blocker_kind,
+        "reauth_required_reason": normalized_reauth_required_reason,
         "google_auth_platform_path": GOOGLE_AUTH_AUDIENCE_PATH,
         "console_deep_link": console_link,
         "auth_link_template": auth_link_template,
@@ -538,11 +654,15 @@ def build_receipt(
         "missing_setup": missing,
         "operator_action": {
             "user_action_required": action_required,
-            "instruction": _instruction_text(missing=missing),
+            "instruction": _instruction_text(
+                missing=missing,
+                reauth_required_reason=normalized_reauth_required_reason,
+            ),
             "next_action": next_action,
             "next_action_href": "/integrations/google",
             "next_action_label": next_action_label,
             "next_action_method": "get",
+            "reauth_required_reason": normalized_reauth_required_reason,
             "missing_setup": missing,
             "setup_checklist": setup_checklist,
             "console_deep_link": console_link,
@@ -555,7 +675,11 @@ def build_receipt(
             "observed_google_email_sha256": _sha256(normalized_observed_google_email),
             "observed_google_domain": _email_domain(normalized_observed_google_email),
             "observed_google_account_matches_expected": observed_matches_expected,
-            "telegram_message": _telegram_message(missing=missing, console_link=console_link),
+            "telegram_message": _telegram_message(
+                missing=missing,
+                console_link=console_link,
+                reauth_required_reason=normalized_reauth_required_reason,
+            ),
             "delivery_policy": "action_required_only" if action_required else "queue_only",
             "telegram_push_allowed": action_required,
             "interruption_budget": "action_required" if action_required else "none",
@@ -607,6 +731,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--error-description", default="")
     parser.add_argument("--observed-google-email", default="")
     parser.add_argument("--test-user-confirmed", action="store_true")
+    parser.add_argument("--reauth-required-reason", default="")
     parser.add_argument("--probe-gcloud", action="store_true")
     parser.add_argument("--timeout-seconds", type=float, default=5.0)
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
@@ -625,6 +750,7 @@ def main() -> int:
         error_description=args.error_description,
         observed_google_email=args.observed_google_email,
         test_user_confirmed=bool(args.test_user_confirmed),
+        reauth_required_reason=getattr(args, "reauth_required_reason", ""),
         probe_gcloud=bool(args.probe_gcloud),
         include_env_file=None if args.no_env_file else args.env_file,
         timeout_seconds=float(args.timeout_seconds or 5.0),
@@ -632,7 +758,7 @@ def main() -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(receipt, indent=2, sort_keys=True) if args.pretty else output_path)
-    return 0 if str(receipt.get("status") or "") in {"pass", "ready_manual_console_check", "blocked_setup_required"} else 2
+    return 0 if str(receipt.get("status") or "") in {"pass", "ready_manual_console_check", "ready_retry_required", "blocked_setup_required"} else 2
 
 
 if __name__ == "__main__":  # pragma: no cover

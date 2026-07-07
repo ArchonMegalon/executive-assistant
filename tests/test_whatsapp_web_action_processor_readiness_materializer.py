@@ -228,3 +228,56 @@ def test_default_args_enable_container_checks_when_docker_is_available(monkeypat
     args = module._default_args(checker, output=tmp_path / "receipt.json")
 
     assert args.check_containers is True
+
+
+def test_materialize_whatsapp_web_action_processor_readiness_emits_qr_scan_action_for_qr_required_sidecar(
+    tmp_path: Path,
+) -> None:
+    module = _load_script()
+    args = _args(
+        tmp_path,
+        env_lines=[
+            "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET=secret-value",
+            "EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED=1",
+            f"EA_WHATSAPP_WEB_ACTION_STATE_FILE={tmp_path / 'processed.json'}",
+            "EA_WHATSAPP_WEB_SESSION_API_BASE_URL=http://wa-web.test",
+            "EA_WHATSAPP_WEB_DEFAULT_SESSION_REF=session-1",
+        ],
+    )
+
+    def _fake_request_json(*, url: str, **_kwargs):
+        if url.endswith("/healthz"):
+            return {"ok": True, "status": "ready", "session_ref": "session-1"}
+        if url.endswith("/status"):
+            return {
+                "ok": True,
+                "ready": False,
+                "status": "qr_required",
+                "store_message_text": True,
+                "qr_required": True,
+                "last_qr_at": "2026-06-29T13:10:14Z",
+            }
+        if url.endswith("/qr"):
+            return {
+                "ok": True,
+                "qr_present": True,
+                "qr_required": True,
+                "last_qr_at": "2026-06-29T13:10:14Z",
+            }
+        raise AssertionError(url)
+
+    receipt = module.build_whatsapp_web_action_processor_readiness(
+        output_path=args.output,
+        generated_at="2026-06-29T13:10:49Z",
+        args=args,
+        request_json=_fake_request_json,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["reason"] == "sidecar_not_ready"
+    assert receipt["sidecar_status"] == "qr_required"
+    assert receipt["sidecar_qr_required"] is True
+    assert receipt["sidecar_qr_present"] is True
+    assert receipt["next_action"] == "scan_whatsapp_web_qr"
+    persisted = json.loads(args.output.read_text(encoding="utf-8"))
+    assert persisted["next_action"] == "scan_whatsapp_web_qr"

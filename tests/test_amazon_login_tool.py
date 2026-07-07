@@ -181,3 +181,56 @@ def test_amazon_login_tool_executes_via_tools_api_with_secret_file(
     workflow_spec = dict(packet["workflow_spec_json"])
     assert workflow_spec["meta"]["slug"] == "amazon_login_live"
     assert any(str(node.get("id")) == "continue" for node in workflow_spec["nodes"])
+
+
+def test_amazon_login_tool_reports_mfa_handoff_instead_of_authenticated(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    password_file = tmp_path / "amazon_password"
+    password_file.write_text("fixture-password\n", encoding="utf-8")
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setenv("EA_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
+    monkeypatch.setenv("AMAZON_AUTH_MODE", "secret_file")
+    monkeypatch.setenv("AMAZON_ACCOUNT_EMAIL", "amazon-user@example.test")
+    monkeypatch.setenv("AMAZON_PASSWORD_FILE", str(password_file))
+
+    def _fake_worker(cls, *, service_key: str, packet: dict[str, object], timeout_seconds: int) -> dict[str, object]:
+        return {
+            "render_status": "completed",
+            "requested_url": "browseract-template://amazon_login_live",
+            "title": "Amazon.de Anmeldung",
+            "url": "https://www.amazon.de/ap/mfa?ie=UTF8&arb=fixture",
+            "bodyText": (
+                "Schau auf WhatsApp nach einer Nachricht mit deinem Sicherheitscode. "
+                "Zwei-Schritt-Verifizierung Code eingeben"
+            ),
+            "labels": ["Zwei-Schritt-Verifizierung"],
+            "buttons": ["Anmelden"],
+            "links": [],
+            "extracts": {"account_page": "Zwei-Schritt-Verifizierung"},
+        }
+
+    monkeypatch.setattr(BrowserActToolAdapter, "_run_ui_service_worker", classmethod(_fake_worker))
+
+    client = _operator_client()
+    response = client.post(
+        "/v1/tools/execute",
+        json={
+            "tool_name": "provider.amazon.login",
+            "action_kind": "account.login",
+            "payload_json": {
+                "login_url": "https://www.amazon.de/ap/signin",
+                "account_url": "https://www.amazon.de/gp/css/homepage.html",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["output_json"]["login_state"] == "mfa_required"
+    assert payload["output_json"]["user_action_required"] is True
+    assert payload["output_json"]["blocker_code"] == "mfa_code_required"
+    assert payload["receipt_json"]["login_state"] == "mfa_required"
+    assert payload["receipt_json"]["user_action_required"] is True
+    assert payload["receipt_json"]["blocker_code"] == "mfa_code_required"

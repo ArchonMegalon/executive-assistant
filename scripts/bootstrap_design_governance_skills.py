@@ -32,8 +32,7 @@ SKILLS: list[dict[str, object]] = [
         "authority_profile_json": {"authority_class": "draft", "review_class": "design"},
         "model_policy_json": {"brain_profile": "review_light"},
         "provider_hints_json": {
-            "primary": ["ChatPlayground AI"],
-            "secondary": ["Gemini Vortex"],
+            "primary": ["1min.AI", "ChatPlayground AI", "Gemini Vortex"],
             "notes": ["Escalation packets should be cheap, crisp, and grounded in the existing canon."],
         },
         "tool_policy_json": {"allowed_tools": ["artifact_repository"]},
@@ -65,8 +64,7 @@ SKILLS: list[dict[str, object]] = [
         "authority_profile_json": {"authority_class": "draft", "review_class": "design"},
         "model_policy_json": {"brain_profile": "groundwork"},
         "provider_hints_json": {
-            "primary": ["Gemini Vortex"],
-            "secondary": ["ChatPlayground AI"],
+            "primary": ["1min.AI", "Gemini Vortex", "ChatPlayground AI"],
             "notes": ["Use the reasoning lane for clustering and root-cause reduction, not for bookkeeping."],
         },
         "tool_policy_json": {"allowed_tools": ["artifact_repository"]},
@@ -98,7 +96,7 @@ SKILLS: list[dict[str, object]] = [
         "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
         "model_policy_json": {"brain_profile": "review_light"},
         "provider_hints_json": {
-            "primary": ["ChatPlayground AI"],
+            "primary": ["1min.AI", "ChatPlayground AI", "Gemini Vortex"],
             "notes": ["Summaries should stay compact and evidence-backed."],
         },
         "tool_policy_json": {"allowed_tools": ["artifact_repository"]},

@@ -30,7 +30,7 @@ def test_text_provider_state_requires_registered_chummer6_skills(monkeypatch: py
             "status": "ready",
             "available": True,
         }
-        if name == "gemini_vortex"
+        if name in {"onemin", "gemini_vortex"}
         else readiness.provider_state(name),
     )
     monkeypatch.setattr(
@@ -63,7 +63,7 @@ def test_text_provider_state_reports_auto_registered_skills(monkeypatch: pytest.
             "status": "ready",
             "available": True,
         }
-        if name == "gemini_vortex"
+        if name in {"onemin", "gemini_vortex"}
         else readiness.provider_state(name),
     )
     monkeypatch.setattr(
@@ -82,8 +82,43 @@ def test_text_provider_state_reports_auto_registered_skills(monkeypatch: pytest.
 
     assert state["available"] is True
     assert state["status"] == "ready"
+    assert "1min.AI primary and Gemini Vortex fallback" in state["detail"]
     assert "auto-registered locally" in state["detail"]
+    assert state["backing_provider"] == "onemin"
     assert state["skill_catalog"]["upserted_skill_keys"] == ["chummer6_public_writer"]
+
+
+def test_text_provider_state_allows_gemini_as_fallback_when_onemin_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    readiness = _load_module()
+    monkeypatch.setattr(
+        readiness,
+        "provider_state",
+        lambda name: {
+            "provider": name,
+            "status": "ready" if name == "gemini_vortex" else "not_configured",
+            "available": name == "gemini_vortex",
+        }
+        if name in {"onemin", "gemini_vortex"}
+        else readiness.provider_state(name),
+    )
+    monkeypatch.setattr(
+        readiness,
+        "chummer6_skill_catalog_state",
+        lambda: {
+            "status": "ready",
+            "required_skill_keys": ["chummer6_public_writer"],
+            "registered_skill_keys": ["chummer6_public_writer"],
+            "missing_skill_keys": [],
+            "upserted_skill_keys": [],
+        },
+    )
+
+    state = readiness.text_provider_state("ea")
+
+    assert state["available"] is True
+    assert state["status"] == "ready"
+    assert "only the Gemini Vortex fallback is currently available" in state["detail"]
+    assert state["backing_provider"] == "gemini_vortex"
 
 
 def test_browseract_prompting_systems_explicit_workflow_is_configured_but_unverified(monkeypatch: pytest.MonkeyPatch) -> None:

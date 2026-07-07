@@ -22,6 +22,11 @@ def test_proactive_ooda_has_deployable_lightweight_service_and_operator_targets(
     assert "EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED=${EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED:-0}" in compose
     assert "DATABASE_URL=${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@ea-db:5432/ea}" in compose
     assert "ea_provider_ledger:/data/provider-ledger" in compose
+    assert "./.codex-studio/published:/app/.codex-studio/published" in compose
+    assert "./.runtime:/app/.runtime" in compose
+    assert 'if [ "$${EA_PROACTIVE_OODA_ENABLED:-0}" = "1" ]; then' in compose
+    assert "python /app/scripts/verify_proactive_ooda_live_receipt.py" in compose
+    assert "start_period: 2m" in compose
     assert "ea-proactive-ooda" in makefile
     assert "deploy-ea-ooda-runtime:" in makefile
     assert "bash scripts/deploy_proactive_ooda_runtime.sh" in makefile
@@ -32,7 +37,10 @@ def test_proactive_ooda_has_deployable_lightweight_service_and_operator_targets(
     assert "timeout --kill-after=10s" in deploy_script
     assert "run_ooda_exec property-scout-disabled" in deploy_script
     assert "run_ooda_exec teable-resync" in deploy_script
+    assert "repair_ooda_runtime_output_permissions()" in deploy_script
+    assert 'chmod -R a+rwX "${APP_ROOT}/.codex-studio/published" "${APP_ROOT}/.runtime"' in deploy_script
     assert "compose up -d --no-build --no-deps --force-recreate ea-proactive-ooda ea-telegram-teable-sync" in deploy_script
+    assert "wait_ready ea-proactive-ooda 180" in deploy_script
     assert "bootstrap_proactive_ooda_teable_tables.py\" --create-missing --write-config" in deploy_script
     assert "resync_proactive_ooda_teable_projection.py" in deploy_script
     assert "verify_proactive_ooda_operator_status.py" in deploy_script

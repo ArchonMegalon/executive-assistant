@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
@@ -19,6 +20,7 @@ _CLIENT_KEY_RE = re.compile(r"[^a-z0-9_]+")
 @dataclass(frozen=True)
 class PushbulletClientConfig:
     client_key: str
+    email_env: str
     email_sha256: str
     email_domain: str
     email_present: bool
@@ -43,6 +45,16 @@ UrlOpen = Callable[..., Any]
 def _sha256(value: str) -> str:
     normalized = str(value or "").strip()
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest() if normalized else ""
+
+
+def _email_identity(email: str) -> str:
+    normalized = str(email or "").strip().lower()
+    if "@" not in normalized:
+        return normalized
+    local, domain = normalized.split("@", 1)
+    if domain in {"gmail.com", "googlemail.com"}:
+        return f"{local.replace('.', '')}@gmail.com"
+    return f"{local}@{domain}"
 
 
 def _client_key(value: str) -> str:
@@ -75,8 +87,9 @@ def _client_from_env(
     email = _env_value(env, email_env)
     return PushbulletClientConfig(
         client_key=_client_key(client_key),
-        email_sha256=_sha256(email.lower()),
-        email_domain=_email_domain(email),
+        email_env=email_env,
+        email_sha256=_sha256(_email_identity(email)),
+        email_domain=_email_domain(_email_identity(email)),
         email_present=bool(email),
         token_env=token_env,
         token_present=bool(_env_value(env, token_env)),
@@ -161,6 +174,10 @@ def _token_for_client(client: PushbulletClientConfig, env: Mapping[str, str]) ->
     return _env_value(env, client.token_env)
 
 
+def _email_for_client(client: PushbulletClientConfig, env: Mapping[str, str]) -> str:
+    return _email_identity(_env_value(env, client.email_env))
+
+
 def _request_json(
     *,
     method: str,
@@ -233,7 +250,7 @@ def probe_pushbullet_client(
         user = _request_json(method="GET", path="/v2/users/me", token=token, timeout=timeout, opener=opener)
     except RuntimeError as exc:
         return {"status": "blocked", "reason": str(exc), "client_key": client.client_key}
-    email = str(user.get("email_normalized") or user.get("email") or "").strip().lower()
+    email = _email_identity(str(user.get("email_normalized") or user.get("email") or ""))
     expected_hash = client.email_sha256
     actual_hash = _sha256(email)
     email_matches = bool(expected_hash and actual_hash and expected_hash == actual_hash)
@@ -250,12 +267,66 @@ def probe_pushbullet_client(
     }
 
 
+def pushbullet_client_email(client_key: str, env: Mapping[str, str] | None = None) -> str:
+    values = _env_mapping(env)
+    client = pushbullet_client_by_key(client_key, values)
+    if client is None:
+        return ""
+    return _email_for_client(client, values)
+
+
+def list_pushbullet_pushes(
+    client_key: str,
+    *,
+    modified_after: float = 0.0,
+    active_only: bool = True,
+    env: Mapping[str, str] | None = None,
+    opener: UrlOpen | None = None,
+    timeout: float = 20.0,
+) -> tuple[dict[str, object], ...]:
+    values = _env_mapping(env)
+    client = pushbullet_client_by_key(client_key, values)
+    if client is None:
+        raise RuntimeError("pushbullet_client_missing")
+    token = _token_for_client(client, values)
+    if not token:
+        raise RuntimeError("pushbullet_token_missing")
+
+    pushes: list[dict[str, object]] = []
+    cursor = ""
+    while True:
+        query: dict[str, str] = {
+            "modified_after": str(max(float(modified_after or 0.0), 0.0)),
+            "active": "true" if active_only else "false",
+        }
+        if cursor:
+            query["cursor"] = cursor
+        response = _request_json(
+            method="GET",
+            path=f"/v2/pushes?{urllib.parse.urlencode(query)}",
+            token=token,
+            timeout=timeout,
+            opener=opener,
+        )
+        items = response.get("pushes")
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict):
+                    pushes.append(dict(item))
+        cursor = str(response.get("cursor") or "").strip()
+        if not cursor:
+            break
+    pushes.sort(key=lambda item: (float(item.get("modified") or 0.0), str(item.get("iden") or "")))
+    return tuple(pushes)
+
+
 def send_pushbullet_note(
     *,
     client_key: str,
     title: str,
     body: str,
     url: str = "",
+    target_email: str = "",
     env: Mapping[str, str] | None = None,
     opener: UrlOpen | None = None,
     timeout: float = 20.0,
@@ -273,6 +344,9 @@ def send_pushbullet_note(
         "title": str(title or "").strip(),
         "body": str(body or "").strip(),
     }
+    normalized_target_email = str(target_email or "").strip().lower()
+    if normalized_target_email:
+        payload["email"] = normalized_target_email
     if push_type == "link":
         payload["url"] = str(url or "").strip()
     response = _request_json(

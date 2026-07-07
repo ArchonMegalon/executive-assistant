@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -72,9 +73,30 @@ _CHALLENGE_MARKERS = (
     ("turnstile_required", ("turnstile", "cf-turnstile", "challenge-platform")),
     ("captcha_required", ("captcha", "recaptcha", "hcaptcha")),
     ("human_verification_required", ("verify you are human", "prove you are human", "human verification")),
-    ("mfa_code_required", ("multi-factor", "two-factor", "2fa", "mfa", "verification code")),
-    ("otp_required", ("one-time password", "otp code")),
+    (
+        "mfa_code_required",
+        (
+            "multi-factor",
+            "two-factor",
+            "2fa",
+            "mfa",
+            "verification code",
+            "zwei-schritt-verifizierung",
+            "bestätigungscode",
+            "bestaetigungscode",
+            "code eingeben",
+        ),
+    ),
+    ("otp_required", ("one-time password", "otp code", "einmalpasswort")),
     ("passkey_required", ("passkey", "webauthn", "security key")),
+)
+
+_EMAIL_RE = re.compile(r"([A-Z0-9._%+\-]{1,64})@([A-Z0-9.\-]+\.[A-Z]{2,})", re.IGNORECASE)
+_PHONE_ENDING_PATTERNS = (
+    re.compile(r"auf\s+(\d{2,6})\s+endet", re.IGNORECASE),
+    re.compile(r"ending(?:\s+in)?\s+(\d{2,6})", re.IGNORECASE),
+    re.compile(r"ends(?:\s+in)?\s+(\d{2,6})", re.IGNORECASE),
+    re.compile(r"phone(?:\s+number)?[^\d]{0,40}(\d{2,6})", re.IGNORECASE),
 )
 
 
@@ -177,6 +199,13 @@ def build_browser_action_receipt(
         staged_artifact_present=staged_artifact_present,
         execution=execution,
     )
+    challenge = _challenge_handoff_detail(
+        blocker_code=blocker_code,
+        execution=execution,
+        browser_task=browser_task,
+        stage_payload=stage_payload,
+        input_contract=input_contract,
+    )
     user_action_required = status in {
         "blocked_human_handoff_required",
         "blocked_credentials_required",
@@ -265,6 +294,7 @@ def build_browser_action_receipt(
             "reason": _handoff_reason(blocker_code),
             "next_action": _next_action(blocker_code),
             "resume_instruction": _resume_instruction(blocker_code),
+            "challenge": challenge,
             "keep_session_alive_requested": _truthy(
                 browser_task.get("keep_session_alive"),
                 default=True,
@@ -328,7 +358,10 @@ def browser_action_user_prompt(receipt: Mapping[str, Any]) -> str:
     handoff = receipt.get("handoff") if isinstance(receipt.get("handoff"), Mapping) else {}
     if bool(handoff.get("required")):
         reason = str(handoff.get("reason") or "The website needs a human step before EA can continue.").strip()
-        return f"{reason} Complete the website step, then approve whether EA should resume the reversible browser task. No purchase, booking, send, post, cancel, payment, or commitment will happen without explicit approval."
+        challenge = handoff.get("challenge") if isinstance(handoff.get("challenge"), Mapping) else {}
+        instruction = str(challenge.get("operator_instruction") or "").strip()
+        detail = f" {instruction}" if instruction else ""
+        return f"{reason}{detail} Complete the website step, then approve whether EA should resume the reversible browser task. No purchase, booking, send, post, cancel, payment, or commitment will happen without explicit approval."
     if str(receipt.get("status") or "") == "blocked_policy_violation":
         return "EA stopped because the browser task attempted an irreversible action boundary. Approve a revised reversible-only plan before resuming."
     return ""
@@ -522,6 +555,243 @@ def _resume_instruction(blocker_code: str) -> str:
     if blocker_code == "credentials_required":
         return "Provide or approve a scoped credential reference, then rerun the browser task."
     return "Resume only after the operator confirms the browser state is ready."
+
+
+def _challenge_handoff_detail(
+    *,
+    blocker_code: str,
+    execution: Mapping[str, Any],
+    browser_task: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+    input_contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    if blocker_code not in {"mfa_code_required", "otp_required", "passkey_required"}:
+        return {}
+    fragments = _challenge_text_fragments(
+        execution=execution,
+        browser_task=browser_task,
+        stage_payload=stage_payload,
+        input_contract=input_contract,
+    )
+    available_channels = _challenge_channels(
+        fragments=fragments,
+        explicit_values=(
+            execution.get("challenge_channel"),
+            execution.get("challenge_channels"),
+            execution.get("verification_channel"),
+            execution.get("verification_channels"),
+            browser_task.get("challenge_channel"),
+            browser_task.get("challenge_channels"),
+            stage_payload.get("challenge_channel"),
+            input_contract.get("challenge_channel"),
+        ),
+        blocker_code=blocker_code,
+    )
+    destination_hint = _sanitize_destination_hint(
+        _first_text(
+            execution.get("destination_hint"),
+            execution.get("challenge_destination_hint"),
+            browser_task.get("destination_hint"),
+            browser_task.get("challenge_destination_hint"),
+            stage_payload.get("destination_hint"),
+            input_contract.get("destination_hint"),
+        ),
+        fragments=fragments,
+    )
+    primary_channel = _primary_challenge_channel(
+        explicit_value=_first_text(
+            execution.get("challenge_channel"),
+            execution.get("verification_channel"),
+            browser_task.get("challenge_channel"),
+            stage_payload.get("challenge_channel"),
+            input_contract.get("challenge_channel"),
+        ),
+        available_channels=available_channels,
+        blocker_code=blocker_code,
+        destination_hint=destination_hint,
+    )
+    operator_instruction = _challenge_operator_instruction(
+        blocker_code=blocker_code,
+        primary_channel=primary_channel,
+        available_channels=available_channels,
+        destination_hint=destination_hint,
+    )
+    return {
+        "primary_channel": primary_channel,
+        "available_channels": list(available_channels),
+        "destination_hint": destination_hint,
+        "operator_instruction": operator_instruction,
+        "raw_destination_stored": False,
+    }
+
+
+def _challenge_text_fragments(
+    *,
+    execution: Mapping[str, Any],
+    browser_task: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+    input_contract: Mapping[str, Any],
+) -> str:
+    sources = (
+        _collect_text(execution, limit=256),
+        _first_text(
+            browser_task.get("challenge_text"),
+            browser_task.get("challenge_page_text"),
+            stage_payload.get("challenge_text"),
+            input_contract.get("challenge_text"),
+            stage_payload.get("browser_challenge_text"),
+            input_contract.get("browser_challenge_text"),
+        ),
+        _first_text(
+            browser_task.get("destination_hint"),
+            browser_task.get("challenge_destination_hint"),
+            stage_payload.get("destination_hint"),
+            input_contract.get("destination_hint"),
+        ),
+        _first_text(
+            browser_task.get("challenge_channel"),
+            browser_task.get("challenge_channels"),
+            stage_payload.get("challenge_channel"),
+            input_contract.get("challenge_channel"),
+        ),
+    )
+    return " ".join(part for part in sources if part)
+
+
+def _challenge_channels(
+    *,
+    fragments: str,
+    explicit_values: tuple[object, ...],
+    blocker_code: str,
+) -> tuple[str, ...]:
+    channels: list[str] = []
+    for value in explicit_values:
+        channels.extend(_normalized_challenge_channels(value))
+    lowered = fragments.lower()
+    keyword_map = (
+        ("whatsapp", ("whatsapp",)),
+        ("email", ("e-mail", "email")),
+        ("phone", ("telefonnummer", "phone number", "text message", "sms", "code sent to a phone")),
+        ("authenticator_app", ("authenticator app", "authenticator", "otp app", "code generator")),
+        ("passkey", ("passkey", "webauthn", "security key")),
+    )
+    for channel, markers in keyword_map:
+        if any(marker in lowered for marker in markers):
+            channels.append(channel)
+    if blocker_code == "passkey_required":
+        channels.append("passkey")
+    if blocker_code in {"mfa_code_required", "otp_required"} and destination_hint_like_phone(lowered):
+        channels.append("phone")
+    return tuple(dict.fromkeys(channel for channel in channels if channel))
+
+
+def _normalized_challenge_channels(value: object) -> list[str]:
+    values: list[str] = []
+    if isinstance(value, str):
+        raw = [segment.strip() for segment in re.split(r"[,\n;/]+", value) if segment.strip()]
+    elif isinstance(value, (list, tuple, set)):
+        raw = [str(item or "").strip() for item in value if str(item or "").strip()]
+    else:
+        raw = []
+    for item in raw:
+        normalized = item.lower().replace("-", "_").replace(" ", "_")
+        if normalized in {"sms", "text_message", "phone", "phone_code", "phone_number"}:
+            values.append("phone")
+        elif normalized in {"email", "e_mail", "mail"}:
+            values.append("email")
+        elif normalized in {"whatsapp", "wa"}:
+            values.append("whatsapp")
+        elif normalized in {"authenticator", "authenticator_app", "otp_app", "totp"}:
+            values.append("authenticator_app")
+        elif normalized in {"passkey", "webauthn", "security_key"}:
+            values.append("passkey")
+    return values
+
+
+def destination_hint_like_phone(value: str) -> bool:
+    return any(pattern.search(value) for pattern in _PHONE_ENDING_PATTERNS)
+
+
+def _sanitize_destination_hint(explicit_value: str, *, fragments: str) -> str:
+    explicit = str(explicit_value or "").strip()
+    if explicit:
+        masked = _masked_destination_from_text(explicit)
+        if masked:
+            return masked
+    return _masked_destination_from_text(fragments)
+
+
+def _masked_destination_from_text(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    for pattern in _PHONE_ENDING_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return f"phone ending {match.group(1)}"
+    email_match = _EMAIL_RE.search(text)
+    if email_match:
+        local = email_match.group(1)
+        domain = email_match.group(2).lower()
+        prefix = (local[:1] or "*").lower()
+        return f"email {prefix}***@{domain}"
+    digits = "".join(character for character in text if character.isdigit())
+    if len(digits) >= 7:
+        return f"phone ending {digits[-4:]}"
+    return ""
+
+
+def _primary_challenge_channel(
+    *,
+    explicit_value: str,
+    available_channels: tuple[str, ...],
+    blocker_code: str,
+    destination_hint: str,
+) -> str:
+    explicit = _normalized_challenge_channels(explicit_value)
+    if explicit:
+        return explicit[0]
+    if blocker_code == "passkey_required":
+        return "passkey"
+    if destination_hint.startswith("phone ending"):
+        return "phone"
+    if destination_hint.startswith("email "):
+        return "email"
+    if available_channels:
+        return available_channels[0]
+    if blocker_code in {"mfa_code_required", "otp_required"}:
+        return "verification_code"
+    return ""
+
+
+def _challenge_operator_instruction(
+    *,
+    blocker_code: str,
+    primary_channel: str,
+    available_channels: tuple[str, ...],
+    destination_hint: str,
+) -> str:
+    if blocker_code == "passkey_required" or primary_channel == "passkey":
+        return "Complete the passkey or device approval step in the live browser session."
+    if primary_channel == "authenticator_app":
+        instruction = "Provide the verification code from the authenticator app."
+    elif primary_channel == "email":
+        instruction = (
+            f"Provide the verification code sent to {destination_hint}."
+            if destination_hint
+            else "Provide the verification code sent by email."
+        )
+    elif primary_channel == "phone":
+        instruction = (
+            f"Provide the verification code sent to the {destination_hint}."
+            if destination_hint
+            else "Provide the verification code sent to the linked phone."
+        )
+    else:
+        instruction = "Provide the one-time verification code from the website challenge."
+    if "whatsapp" in available_channels and primary_channel != "whatsapp":
+        instruction += " The page also offers WhatsApp code delivery."
+    return instruction
 
 
 def _host(value: str) -> str:

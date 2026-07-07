@@ -12,6 +12,7 @@ from uuid import uuid4
 PROACTIVE_OODA_APPROVAL_OUTCOME_SCHEMA = "ea.proactive_ooda_approval_outcome.v1"
 PROACTIVE_OODA_APPROVAL_OUTCOME_EVENT_TYPE = "proactive_ooda.approval_outcome"
 PROACTIVE_OODA_APPROVAL_OUTCOME_FILENAME = "proactive_ooda_latest_approval_outcome.generated.json"
+PROACTIVE_OODA_APPROVAL_BUNDLE_SNAPSHOT_SCHEMA = "ea.proactive_ooda.approved_bundle_snapshot.v1"
 PROACTIVE_OODA_RUN_RECEIPT_DIRNAME = "proactive_ooda_run_receipts"
 
 
@@ -83,6 +84,44 @@ def record_proactive_ooda_approval_outcome(
     return payload
 
 
+def attach_proactive_ooda_approval_bundle_snapshot(
+    *,
+    approval_outcome: Mapping[str, Any],
+    output_path: str | Path,
+    bundle: Mapping[str, Any] | None,
+    recorded_at: str | None = None,
+) -> dict[str, Any]:
+    snapshot = build_proactive_ooda_approval_bundle_snapshot(
+        bundle=bundle,
+        recorded_at=recorded_at,
+    )
+    payload = dict(approval_outcome or {})
+    if not snapshot:
+        return payload
+    payload["bundle_snapshot"] = snapshot
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
+def attach_proactive_ooda_approval_teable_sync(
+    *,
+    approval_outcome: Mapping[str, Any],
+    output_path: str | Path,
+    teable_sync: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    payload = dict(approval_outcome or {})
+    sync_payload = _json_safe(dict(teable_sync or {}))
+    if not sync_payload:
+        return payload
+    payload["teable_sync"] = sync_payload
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
 def build_proactive_ooda_approval_outcome_payload(
     *,
     principal_id: str,
@@ -139,6 +178,39 @@ def build_proactive_ooda_approval_outcome_payload(
             "raw_actor_exposed": False,
             "raw_packet_ref_exposed": False,
             "raw_staged_artifact_exposed": False,
+        },
+    }
+
+
+def build_proactive_ooda_approval_bundle_snapshot(
+    *,
+    bundle: Mapping[str, Any] | None,
+    recorded_at: str | None = None,
+) -> dict[str, Any]:
+    runtime_bundle = dict(bundle or {})
+    run_receipt = dict(runtime_bundle.get("run_receipt") or {})
+    stage_packet = dict(runtime_bundle.get("stage_packet") or {})
+    safe_work_result = dict(runtime_bundle.get("safe_work_result") or {})
+    if not (run_receipt or stage_packet or safe_work_result):
+        return {}
+    return {
+        "schema": PROACTIVE_OODA_APPROVAL_BUNDLE_SNAPSHOT_SCHEMA,
+        "present": True,
+        "recorded_at": str(recorded_at or _utc_now()).strip(),
+        "source": "approval_record_time_runtime_bundle",
+        "run_receipt_path": _path_text(runtime_bundle.get("run_receipt_path")),
+        "run_receipt": _json_safe(run_receipt),
+        "stage_packet_path": _path_text(runtime_bundle.get("stage_packet_path")),
+        "stage_packet": _redacted_bundle_value(stage_packet),
+        "safe_work_result_path": _path_text(runtime_bundle.get("safe_work_result_path")),
+        "safe_work_result": _redacted_bundle_value(safe_work_result),
+        "privacy": {
+            "raw_principal_id_stored": False,
+            "raw_credentials_stored": False,
+            "raw_cookie_or_session_stored": False,
+            "raw_secret_values_stored": False,
+            "raw_packet_ref_stored": False,
+            "raw_staged_artifact_ref_stored": False,
         },
     }
 
@@ -303,6 +375,51 @@ def _writable_path(path: Path) -> bool:
 def _hash_value(value: str) -> str:
     normalized = str(value or "").strip()
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest() if normalized else ""
+
+
+def _path_text(value: Any) -> str:
+    if isinstance(value, Path):
+        return value.as_posix()
+    return str(value or "").strip()
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Path):
+        return value.as_posix()
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    return str(value)
+
+
+def _redacted_bundle_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Path):
+        return value.as_posix()
+    if isinstance(value, Mapping):
+        payload: dict[str, Any] = {}
+        for raw_key, raw_item in value.items():
+            key = str(raw_key)
+            item = raw_item
+            if key == "packet_ref":
+                normalized = str(item or "").strip()
+                payload["packet_ref_sha256"] = _hash_value(normalized)
+                payload["packet_ref_kind"] = _artifact_kind(normalized)
+                continue
+            if key in {"result_ref", "staged_artifact_ref"}:
+                normalized = str(item or "").strip()
+                payload[f"{key}_sha256"] = _hash_value(normalized)
+                payload[f"{key}_kind"] = _artifact_kind(normalized)
+                continue
+            payload[key] = _redacted_bundle_value(item)
+        return payload
+    if isinstance(value, (list, tuple, set)):
+        return [_redacted_bundle_value(item) for item in value]
+    return str(value)
 
 
 def _utc_now() -> str:

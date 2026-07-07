@@ -541,11 +541,18 @@ def google_oauth_browser_callback(
         workspace_name = str(dict(onboarding_status.get("workspace") or {}).get("name") or "").strip() or str(
             account.google_email or account.binding.principal_id or brand["name"]
         ).strip()
+        access_grant = product.resolve_workspace_access_grant(
+            principal_id=account.binding.principal_id,
+            email=account.google_email,
+            default_role="principal",
+            display_name=workspace_name,
+        )
         access = product.issue_workspace_access_session(
             principal_id=account.binding.principal_id,
             email=account.google_email,
-            role="principal",
-            display_name=workspace_name,
+            role=str(access_grant.get("role") or "principal").strip().lower() or "principal",
+            display_name=str(access_grant.get("display_name") or workspace_name).strip() or workspace_name,
+            operator_id=str(access_grant.get("operator_id") or "").strip(),
             source_kind="google_sign_in",
             default_target=default_target,
         )

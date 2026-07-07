@@ -38,6 +38,48 @@ def test_runner_no_longer_exposes_openvoice_tts_sidecar(monkeypatch: pytest.Monk
     assert not hasattr(runner, "_run_openvoice")
 
 
+def test_scheduler_pushbullet_relay_enabled_prefers_explicit_flags(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _load_runner_module(monkeypatch)
+
+    monkeypatch.delenv("EA_SCHEDULER_PUSHBULLET_RELAY_ENABLED", raising=False)
+    monkeypatch.setenv("EA_PUSHBULLET_RELAY_ENABLED", "1")
+    assert runner._scheduler_pushbullet_relay_enabled() is True
+
+    monkeypatch.setenv("EA_SCHEDULER_PUSHBULLET_RELAY_ENABLED", "0")
+    assert runner._scheduler_pushbullet_relay_enabled() is False
+
+
+def test_run_scheduler_pushbullet_relay_returns_service_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _load_runner_module(monkeypatch)
+    observed: dict[str, object] = {}
+
+    def _fake_run_pushbullet_relay_once(*, timeout: float = 20.0):
+        observed["timeout"] = timeout
+        return {
+            "ran": True,
+            "forwarded_total": 1,
+            "inspected_total": 2,
+            "matched_total": 1,
+            "skipped_total": 1,
+            "blocked_rule_count": 0,
+            "primed_rule_count": 0,
+            "errors": 0,
+            "rules": [],
+        }
+
+    import sys
+
+    sys.modules["app.services.pushbullet_relay"] = SimpleNamespace(run_pushbullet_relay_once=_fake_run_pushbullet_relay_once)
+    try:
+        summary = runner._run_scheduler_pushbullet_relay(SimpleNamespace(), logging.getLogger("test.runner"))
+    finally:
+        sys.modules.pop("app.services.pushbullet_relay", None)
+
+    assert observed["timeout"] == 20.0
+    assert summary["forwarded_total"] == 1
+    assert summary["errors"] == 0
+
+
 def test_scheduler_onemin_billing_refresh_runs_browseract_and_provider_api_sweep(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -249,11 +249,12 @@ def send_proactive_ooda_notification(
     if not route.ready:
         detail = route.errors[0] if route.errors else "delivery_route_unavailable"
         raise RuntimeError(detail)
-    if _telegram_delivery_should_suppress_non_actionable(
+    if _delivery_should_suppress_non_actionable(
         route=route,
         text=text,
         approval_request=approval_request,
     ):
+        route_error = _suppressed_non_actionable_route_error(route)
         return ProactiveOodaDeliveryReceipt(
             channel=route.selected_channel,
             delivery_transport=route.selected_transport or route.selected_channel,
@@ -262,14 +263,17 @@ def send_proactive_ooda_notification(
             recipient_ref_hash=route.recipient_ref_hash,
             message_ids=(),
             binding_id=route.binding_id,
-            route_error="telegram_notification_suppressed_non_actionable",
-            recovery_hint="Telegram action-required-only policy suppressed an internal proactive OODA status packet.",
+            route_error=route_error,
+            recovery_hint=(
+                f"{route.selected_channel or 'operator'} action-required-only policy suppressed "
+                "a non-actionable proactive OODA status packet."
+            ),
             next_action="review_proactive_ooda_runtime_in_dashboard",
             approval_surface={
                 "present": False,
-                "channel": "telegram",
+                "channel": route.selected_channel,
                 "status": "suppressed_non_actionable",
-                "reason": "telegram_action_required_only",
+                "reason": "action_required_only",
             },
         )
 
@@ -370,16 +374,14 @@ def _send_via_route(
     )
 
 
-def _telegram_delivery_should_suppress_non_actionable(
+def _delivery_should_suppress_non_actionable(
     *,
     route: ProactiveOodaDeliveryStatus,
     text: str,
     approval_request: Mapping[str, Any] | None,
 ) -> bool:
-    if route.selected_channel != "telegram":
-        return False
     request = dict(approval_request or {})
-    action_required_only = _telegram_action_required_only_mode()
+    action_required_only = _action_required_only_mode()
     if not request:
         return action_required_only and telegram_ooda_text_is_internal_noise(text)
     if approval_request_needs_telegram_user_action(request):
@@ -398,9 +400,20 @@ def _telegram_delivery_should_suppress_non_actionable(
     )
 
 
+def _suppressed_non_actionable_route_error(route: ProactiveOodaDeliveryStatus) -> str:
+    channel = str(route.selected_channel or "").strip() or "operator"
+    return f"{channel}_notification_suppressed_non_actionable"
+
+
+def _action_required_only_mode() -> bool:
+    raw = os.getenv("EA_PROACTIVE_OODA_ACTION_REQUIRED_ONLY")
+    if raw is None:
+        raw = os.getenv("EA_TELEGRAM_ACTION_REQUIRED_ONLY", "1")
+    return str(raw or "1").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _telegram_action_required_only_mode() -> bool:
-    raw = str(os.getenv("EA_TELEGRAM_ACTION_REQUIRED_ONLY", "1") or "1").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
+    return _action_required_only_mode()
 
 
 def _channel_route_status(

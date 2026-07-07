@@ -197,6 +197,15 @@ LOW_SIGNAL_MAIL_TERMS = (
     "zahlung an",
 )
 
+LOW_SIGNAL_STATUS_QUESTION_TERMS = (
+    "any update",
+    "did you find anything",
+    "what did you find",
+    "was hast du gefunden",
+    "what did you get",
+    "what happened",
+)
+
 STRUCTURED_STAGE_MATERIAL_KEYS = (
     "candidate_items",
     "candidates",
@@ -435,21 +444,31 @@ class ProactiveOodaService:
         signals: Iterable[ProactiveSignal | Mapping[str, Any]],
         already_notified_refs: set[str] | None = None,
     ) -> ProactiveOodaDigest:
-        seen = set(already_notified_refs or set())
+        persisted_seen = set(already_notified_refs or set())
+        run_seen: set[str] = set()
         items: list[OodaInk] = []
         notified_markers: list[str] = []
         for raw_signal in signals:
             signal = raw_signal if isinstance(raw_signal, ProactiveSignal) else ProactiveSignal.from_mapping(raw_signal)
             signal_ref = signal.stable_ref()
             signal_marker = signal.dedupe_marker()
-            if _marker_seen(signal_ref, seen) or _marker_seen(signal_marker, seen):
+            marker_persists = _persist_dedupe_marker_across_runs(signal, signal_marker)
+            if _marker_seen(signal_ref, persisted_seen) or _marker_seen(signal_ref, run_seen):
+                continue
+            if _marker_seen(signal_marker, run_seen):
+                continue
+            if marker_persists and _marker_seen(signal_marker, persisted_seen):
                 continue
             ink = self._orient_signal(signal)
             if not ink.notify:
                 continue
             items.append(ink)
-            _remember_marker(signal_ref, seen=seen, emitted=notified_markers)
-            _remember_marker(signal_marker, seen=seen, emitted=notified_markers)
+            _remember_marker(signal_ref, seen=run_seen, emitted=notified_markers)
+            _remember_marker(
+                signal_marker,
+                seen=run_seen,
+                emitted=notified_markers if marker_persists else None,
+            )
             if len(items) >= self._max_items:
                 break
         return ProactiveOodaDigest(
@@ -1161,17 +1180,30 @@ def _marker_seen(marker: str, seen: set[str]) -> bool:
     return any(candidate in seen for candidate in _marker_variants(normalized))
 
 
-def _remember_marker(marker: str, *, seen: set[str], emitted: list[str]) -> None:
+def _remember_marker(marker: str, *, seen: set[str], emitted: list[str] | None) -> None:
     normalized = str(marker or "").strip()
     if not normalized:
         return
-    emitted.append(normalized)
+    if emitted is not None:
+        emitted.append(normalized)
     seen.update(_marker_variants(normalized))
 
 
 def _marker_variants(marker: str) -> tuple[str, str]:
     normalized = str(marker or "").strip()
     return normalized, _state_key(normalized)
+
+
+def _persist_dedupe_marker_across_runs(signal: ProactiveSignal, marker: str) -> bool:
+    normalized_marker = str(marker or "").strip()
+    if not normalized_marker:
+        return False
+    if not normalized_marker.startswith("external_id:"):
+        return True
+    source_ref = str(signal.source_ref or "").strip().lower()
+    if source_ref.startswith("observation:"):
+        return False
+    return True
 
 
 def _has_nonstructured_actionable_intent(
@@ -1183,6 +1215,8 @@ def _has_nonstructured_actionable_intent(
 ) -> bool:
     if approval_required or has_due:
         return True
+    if _is_low_signal_status_question(signal, text=text):
+        return False
     if _contains_any(text, DIRECT_REQUEST_TERMS):
         return True
     if _contains_any(text, STRONG_ACTION_TERMS):
@@ -1211,6 +1245,20 @@ def _is_low_signal_mail(signal: ProactiveSignal, *, text: str) -> bool:
     if str(payload.get("precedence") or "").strip().lower() in {"bulk", "junk", "list"}:
         return True
     return _contains_any(text, LOW_SIGNAL_MAIL_TERMS)
+
+
+def _is_low_signal_status_question(signal: ProactiveSignal, *, text: str) -> bool:
+    normalized = " ".join(str(text or "").split()).strip().lower()
+    if not normalized:
+        return False
+    if _contains_any(normalized, LOW_SIGNAL_STATUS_QUESTION_TERMS):
+        return True
+    if not normalized.endswith("?"):
+        return False
+    signal_type = str(signal.signal_type or "").strip().lower()
+    if signal_type not in {"pocket_transcript", "alexa_transcript", "telegram_message", "whatsapp_message"}:
+        return False
+    return normalized.startswith(("what did ", "did you ", "any update", "was hast ", "gibt es"))
 
 
 def _is_low_signal_product_commitment_candidate(signal: ProactiveSignal, *, text: str) -> bool:

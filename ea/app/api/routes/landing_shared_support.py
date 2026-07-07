@@ -6,6 +6,10 @@ import re
 
 from app.container import AppContainer
 from app.product.commercial import workspace_plan_for_mode
+from app.services.operator_access import (
+    first_operator_access_profile,
+    operator_access_profile_count,
+)
 
 _OPERATOR_BOOTSTRAP_SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -42,20 +46,25 @@ def _expected_api_token(container: AppContainer) -> str:
 
 
 def _default_operator_id_for_browser(container: AppContainer, *, principal_id: str) -> str:
-    operators = container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=1)
-    if not operators:
+    operators = container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=25)
+    selected = first_operator_access_profile(operators)
+    if selected is None:
         return ""
-    return str(operators[0].operator_id or "").strip()
+    return str(selected.operator_id or "").strip()
 
 
 def operator_bootstrap_needed(container: AppContainer, *, principal_id: str) -> bool:
-    operators = container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=1)
-    return not bool(operators)
+    operators = container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=25)
+    return first_operator_access_profile(operators) is None
 
 
 def operator_bootstrap_defaults(*, principal_id: str, access_email: str = "") -> dict[str, str]:
     email_hint = str(access_email or _principal_email_hint(principal_id)).strip().lower()
-    operator_id = _operator_id_from_email(email_hint) if email_hint else _operator_id_from_principal(principal_id)
+    operator_id = (
+        str(principal_id or "").strip()
+        if email_hint and _principal_email_hint(principal_id) == email_hint
+        else _operator_id_from_email(email_hint) if email_hint else _operator_id_from_principal(principal_id)
+    )
     display_name = _display_name_from_email(email_hint) if email_hint else "Workspace Operator"
     return {
         "email_hint": email_hint,
@@ -89,7 +98,7 @@ def bootstrap_initial_operator_profile(
     workspace = dict(status.get("workspace") or {})
     plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
     active = container.orchestrator.list_operator_profiles(principal_id=normalized_principal, status="active", limit=500)
-    if len(active) >= plan.entitlements.operator_seats:
+    if operator_access_profile_count(active) >= plan.entitlements.operator_seats:
         raise ValueError("operator_seat_limit_reached")
     email_hint = str(defaults.get("email_hint") or "").strip()
     default_notes = "Bootstrapped the first operator profile for this workspace."

@@ -35,9 +35,14 @@ def project_modes_page(
     request: Request,
     container: deps.AppContainer = Depends(deps.get_container),
     access_identity: deps.CloudflareAccessIdentity | None = Depends(deps.get_cloudflare_access_identity),
-    _: None = Depends(deps.require_operator_context),
+    context: deps.RequestContext = Depends(deps.get_request_context),
 ) -> HTMLResponse:
-    return support.project_modes_page(request=request, container=container, access_identity=access_identity)
+    return support.project_modes_page(
+        request=request,
+        container=container,
+        access_identity=access_identity,
+        context=context,
+    )
 
 
 @router.get("/product", response_class=HTMLResponse)

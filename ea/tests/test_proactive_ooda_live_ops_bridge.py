@@ -89,6 +89,55 @@ def test_resolve_proactive_ooda_capture_bundle_prefers_live_runtime_probe() -> N
     assert dict(dict(result["approval_selection"])["approval_outcome"])["status"] == "approved"
 
 
+def test_resolve_proactive_ooda_capture_bundle_live_probe_preserves_internal_action_pending_counts() -> None:
+    def _live_probe(*, timeout_seconds: float | None = None) -> dict[str, object]:
+        assert timeout_seconds == 13.0
+        return {
+            "probe_ok": True,
+            "stage_packet": {
+                "packet_ref": "stage_packet:google-setup",
+                "approval": {"required": True},
+                "stage": {
+                    "kind": "internal_action",
+                    "payload": {
+                        "work_type": "record_internal_action",
+                        "request_text": "Open Google setup and add the work account as a test user.",
+                    },
+                },
+            },
+            "safe_work_result": {
+                "result_ref": "safe_work_result:google-setup",
+                "status": "staged_for_user_decision",
+                "work_type": "record_internal_action",
+                "approval_prompt": "Open Google setup and add the work account as a test user.",
+                "staged_action_url": "https://myexternalbrain.com/integrations/google",
+                "approval": {"required": True},
+            },
+            "current_packet_live_pending_count": 1,
+            "current_packet_callback_pending_count": 1,
+            "current_packet_callback_raw_pending_count": 1,
+            "approval_callback_pending_count": 1,
+            "approval_callback_live_pending_count": 1,
+            "approval_callback_raw_pending_count": 1,
+        }
+
+    result = proactive_ooda_live_ops_bridge.resolve_proactive_ooda_capture_bundle(
+        root=Path("/workspace"),
+        state_path="state/proactive_ooda_notified.json",
+        timeout_seconds=13.0,
+        live_probe=_live_probe,
+        bundle_loader=lambda **_: {},
+    )
+
+    bundle = dict(result["bundle"])
+    assert bundle["current_packet_live_pending_count"] == 1
+    assert bundle["current_packet_callback_pending_count"] == 1
+    assert bundle["current_packet_callback_raw_pending_count"] == 1
+    assert bundle["approval_callback_pending_count"] == 1
+    assert bundle["approval_callback_live_pending_count"] == 1
+    assert bundle["approval_callback_raw_pending_count"] == 1
+
+
 def test_resolve_proactive_ooda_capture_bundle_falls_back_to_host_bundle() -> None:
     host_bundle = {
         "stage_packet": {"packet_ref": "stage_packet:host-packet", "approval": {"required": True}},

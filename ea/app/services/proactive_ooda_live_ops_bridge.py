@@ -8,6 +8,7 @@ import sys
 from typing import Any, Callable, Mapping
 
 from app.services.proactive_ooda_runtime_artifacts import (
+    current_packet_user_approval_surface,
     load_runtime_artifact_bundle,
     select_current_approval_outcome_for_bundle,
 )
@@ -192,6 +193,50 @@ def record_live_proactive_ooda_approval_outcome(
     }
 
 
+def reissue_live_proactive_ooda_approval(
+    *,
+    principal_id: str,
+    dry_run: bool = False,
+    force: bool = False,
+    reissue_after_seconds: int = 0,
+    timeout_seconds: float | None = None,
+    reissuer: Callable[..., Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    run = reissuer or _reissue_live_proactive_approval
+    try:
+        report = dict(
+            run(
+                principal_id=principal_id,
+                dry_run=dry_run,
+                force=force,
+                reissue_after_seconds=reissue_after_seconds,
+                timeout_seconds=timeout_seconds or proactive_ooda_live_ops_timeout_seconds(),
+            )
+        )
+    except Exception as exc:
+        report = {
+            "sent": False,
+            "status": "bridge_exception",
+            "reason": "reissue_failed:bridge_exception",
+            "blocking_reason": type(exc).__name__,
+        }
+    status = str(report.get("status") or "").strip()
+    if not status:
+        status = "sent" if bool(report.get("sent")) else str(report.get("reason") or "failed").strip() or "failed"
+    error = ""
+    if status not in {"sent", "already_live_pending", "already_decided", "dry_run"}:
+        error = str(
+            report.get("blocking_reason")
+            or report.get("reason")
+            or status
+        ).strip()
+    return {
+        **report,
+        "status": status,
+        "error": error,
+    }
+
+
 def _record_live_proactive_approval_outcome(
     *,
     principal_id: str,
@@ -220,7 +265,38 @@ def _record_live_proactive_approval_outcome(
     return dict(report) if isinstance(report, dict) else {}
 
 
+def _reissue_live_proactive_approval(
+    *,
+    principal_id: str,
+    dry_run: bool = False,
+    force: bool = False,
+    reissue_after_seconds: int = 0,
+    timeout_seconds: float | None = None,
+) -> dict[str, Any]:
+    module = _ea_live_ops_module()
+    report = module.reissue_proactive_approval(
+        principal_id=principal_id,
+        dry_run=dry_run,
+        force=force,
+        reissue_after_seconds=reissue_after_seconds,
+        timeout_seconds=timeout_seconds or proactive_ooda_live_ops_timeout_seconds(),
+        output_format="json",
+    )
+    return dict(report) if isinstance(report, dict) else {}
+
+
 def _bundle_from_live_artifact_probe(report: Mapping[str, Any]) -> dict[str, Any]:
+    stage_packet = dict(report.get("stage_packet") or {})
+    safe_work_result = dict(report.get("safe_work_result") or {})
+    current_packet_requires_user_approval = current_packet_user_approval_surface(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    )
+    current_packet_live_pending_count = int(report.get("current_packet_live_pending_count") or 0)
+    current_packet_callback_pending_count = int(report.get("current_packet_callback_pending_count") or 0)
+    current_packet_callback_raw_pending_count = int(report.get("current_packet_callback_raw_pending_count") or 0)
+    approval_callback_pending_count = int(report.get("approval_callback_pending_count") or 0)
+    approval_callback_live_pending_count = int(report.get("approval_callback_live_pending_count") or 0)
     return {
         "state_path": str(report.get("state_path") or "").strip(),
         "run_receipt_path": str(report.get("run_receipt_path") or "").strip(),
@@ -231,18 +307,19 @@ def _bundle_from_live_artifact_probe(report: Mapping[str, Any]) -> dict[str, Any
         "approval_callback_dir": str(report.get("approval_callback_dir") or "").strip(),
         "stage_packet_path": str(report.get("stage_packet_path") or "").strip(),
         "safe_work_result_path": str(report.get("safe_work_result_path") or "").strip(),
+        "artifact_filter_reason": str(report.get("artifact_filter_reason") or "").strip(),
         "run_receipt": dict(report.get("run_receipt") or {}),
         "action_required_only_quiet_receipt": dict(report.get("action_required_only_quiet_receipt") or {}),
-        "stage_packet": dict(report.get("stage_packet") or {}),
-        "safe_work_result": dict(report.get("safe_work_result") or {}),
+        "stage_packet": stage_packet,
+        "safe_work_result": safe_work_result,
         "approval_outcome": dict(report.get("approval_outcome") or {}),
         "current_packet_callback_outcome": dict(report.get("current_packet_callback_outcome") or {}),
         "approval_callback_dir_exists": bool(report.get("approval_callback_dir_exists")),
         "approval_callback_dir_writable": bool(report.get("approval_callback_dir_writable")),
         "approval_callback_record_count": int(report.get("approval_callback_record_count") or 0),
-        "approval_callback_pending_count": int(report.get("approval_callback_pending_count") or 0),
+        "approval_callback_pending_count": approval_callback_pending_count,
         "approval_callback_raw_pending_count": int(report.get("approval_callback_raw_pending_count") or 0),
-        "approval_callback_live_pending_count": int(report.get("approval_callback_live_pending_count") or 0),
+        "approval_callback_live_pending_count": approval_callback_live_pending_count,
         "approval_callback_unexpired_pending_count": int(report.get("approval_callback_unexpired_pending_count") or 0),
         "approval_callback_noncurrent_pending_count": int(report.get("approval_callback_noncurrent_pending_count") or 0),
         "approval_callback_expired_pending_count": int(report.get("approval_callback_expired_pending_count") or 0),
@@ -252,15 +329,15 @@ def _bundle_from_live_artifact_probe(report: Mapping[str, Any]) -> dict[str, Any
         "approval_callback_superseded_count": int(report.get("approval_callback_superseded_count") or 0),
         "approval_callback_terminal_count": int(report.get("approval_callback_terminal_count") or 0),
         "current_packet_callback_record_count": int(report.get("current_packet_callback_record_count") or 0),
-        "current_packet_callback_pending_count": int(report.get("current_packet_callback_pending_count") or 0),
-        "current_packet_callback_raw_pending_count": int(report.get("current_packet_callback_raw_pending_count") or 0),
+        "current_packet_callback_pending_count": current_packet_callback_pending_count,
+        "current_packet_callback_raw_pending_count": current_packet_callback_raw_pending_count,
         "current_packet_callback_expired_pending_count": int(report.get("current_packet_callback_expired_pending_count") or 0),
         "current_packet_callback_stale_pending_count": int(report.get("current_packet_callback_stale_pending_count") or 0),
         "current_packet_callback_recorded_count": int(report.get("current_packet_callback_recorded_count") or 0),
         "current_packet_callback_expired_count": int(report.get("current_packet_callback_expired_count") or 0),
         "current_packet_callback_superseded_count": int(report.get("current_packet_callback_superseded_count") or 0),
         "current_packet_live_callback_record_count": int(report.get("current_packet_live_callback_record_count") or 0),
-        "current_packet_live_pending_count": int(report.get("current_packet_live_pending_count") or 0),
+        "current_packet_live_pending_count": current_packet_live_pending_count,
         "current_packet_callback_latest_status": str(report.get("current_packet_callback_latest_status") or "").strip(),
         "current_packet_callback_latest_expired": bool(report.get("current_packet_callback_latest_expired")),
         "current_packet_callback_latest_created_at": str(report.get("current_packet_callback_latest_created_at") or "").strip(),

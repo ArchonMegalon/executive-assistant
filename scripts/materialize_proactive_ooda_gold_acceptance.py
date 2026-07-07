@@ -9,7 +9,7 @@ import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
 EA_ROOT = ROOT / "ea"
@@ -28,8 +28,15 @@ try:
     import scripts.ea_live_ops as ea_live_ops
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     import ea_live_ops
+from app.services.proactive_ooda_live_ops_bridge import resolve_proactive_ooda_capture_bundle
 from app.services.proactive_ooda_operator_actions import proactive_next_action_surface
-from app.services.proactive_ooda_runtime_artifacts import display_path, load_runtime_artifact_bundle
+from app.services.proactive_ooda_runtime_artifacts import (
+    choose_stage_and_safe_work_for_run_receipt,
+    display_path,
+    latest_run_receipts,
+    load_runtime_artifact_bundle,
+    resolve_runtime_artifact_paths,
+)
 from app.services.proactive_signal_discovery import (
     _ascii_fold_text as _signal_ascii_fold_text,
     _clean_text as _signal_clean_text,
@@ -39,6 +46,10 @@ from app.services.proactive_ooda_telegram_policy import approval_request_needs_t
 
 DEFAULT_OUTPUT = ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json"
 DEFAULT_OPERATOR_STATUS = ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
+DEFAULT_OPERATOR_ACTION_REQUIRED_DIGEST = ROOT / ".codex-studio" / "published" / "ea_operator_action_required_digest.generated.json"
+DEFAULT_OPERATOR_ACTION_REQUIRED_DEDUPE_PROOF = (
+    ROOT / ".codex-studio" / "published" / "ea_operator_action_required_dedupe_proof.generated.json"
+)
 DEFAULT_STAGE_PACKET_DIR = ROOT / "state" / "proactive_ooda_stage_packets"
 DEFAULT_SAFE_WORK_RESULT_DIR = ROOT / "state" / "proactive_ooda_safe_work_results"
 DEFAULT_RUN_RECEIPT = ROOT / "state" / "proactive_ooda_latest_run.generated.json"
@@ -187,11 +198,217 @@ def _sanitize_existing_approval_outcome(row: Mapping[str, Any]) -> dict[str, Any
         "actor_sha256": str(row.get("actor_sha256") or "").strip(),
         "packet_ref_sha256": str(row.get("packet_ref_sha256") or "").strip(),
         "staged_artifact_sha256": str(row.get("staged_artifact_sha256") or "").strip(),
+        "bundle_snapshot": _sanitize_approval_bundle_snapshot(row.get("bundle_snapshot")),
+        "teable_sync": _sanitize_approval_teable_sync(row.get("teable_sync")),
         "raw_evidence_exposed": False,
         "raw_actor_exposed": False,
         "raw_packet_ref_exposed": False,
         "raw_staged_artifact_exposed": False,
     }
+
+
+def _sanitize_approval_bundle_snapshot(value: Any) -> dict[str, Any]:
+    snapshot = dict(value or {}) if isinstance(value, Mapping) else {}
+    run_receipt = dict(snapshot.get("run_receipt") or {}) if isinstance(snapshot.get("run_receipt"), Mapping) else {}
+    stage_packet = (
+        _redact_snapshot_bundle_refs(dict(snapshot.get("stage_packet") or {}))
+        if isinstance(snapshot.get("stage_packet"), Mapping)
+        else {}
+    )
+    safe_work_result = (
+        _redact_snapshot_bundle_refs(dict(snapshot.get("safe_work_result") or {}))
+        if isinstance(snapshot.get("safe_work_result"), Mapping)
+        else {}
+    )
+    if not (run_receipt or stage_packet or safe_work_result):
+        return {}
+    return {
+        "present": True,
+        "schema": str(snapshot.get("schema") or "").strip(),
+        "source": str(snapshot.get("source") or "").strip(),
+        "recorded_at": str(snapshot.get("recorded_at") or "").strip(),
+        "run_receipt_path": str(snapshot.get("run_receipt_path") or "").strip(),
+        "run_receipt": run_receipt,
+        "stage_packet_path": str(snapshot.get("stage_packet_path") or "").strip(),
+        "stage_packet": stage_packet,
+        "safe_work_result_path": str(snapshot.get("safe_work_result_path") or "").strip(),
+        "safe_work_result": safe_work_result,
+        "privacy": dict(snapshot.get("privacy") or {}) if isinstance(snapshot.get("privacy"), Mapping) else {},
+    }
+
+
+def _sanitize_approval_teable_sync(value: Any) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, Mapping) else {}
+    projection_summary = dict(payload.get("projection_summary") or {})
+    projection_tables = dict(projection_summary.get("tables") or {})
+    if not payload and not projection_summary and not projection_tables:
+        return {}
+    return {
+        "status": str(payload.get("status") or "").strip(),
+        "sync_attempted": bool(payload.get("sync_attempted")),
+        "blocked_reason": str(payload.get("blocked_reason") or "").strip(),
+        "missing_tables": [
+            str(item or "").strip()
+            for item in list(payload.get("missing_tables") or [])
+            if str(item or "").strip()
+        ],
+        "projection_summary": {
+            "sync_version": str(projection_summary.get("sync_version") or "").strip(),
+            "table_count": int(projection_summary.get("table_count") or 0),
+            "record_count": int(projection_summary.get("record_count") or 0),
+            "suppressed_item_count": int(projection_summary.get("suppressed_item_count") or 0),
+            "suppressed_safe_work_review_count": int(
+                projection_summary.get("suppressed_safe_work_review_count") or 0
+            ),
+            "suppressed_projection_reasons": [
+                str(item or "").strip()
+                for item in list(projection_summary.get("suppressed_projection_reasons") or [])
+                if str(item or "").strip()
+            ],
+            "suppressed_safe_work_issue_codes": [
+                str(item or "").strip()
+                for item in list(projection_summary.get("suppressed_safe_work_issue_codes") or [])
+                if str(item or "").strip()
+            ],
+            "tables": {
+                str(table_name or "").strip(): {
+                    "record_count": int(dict(table_row or {}).get("record_count") or 0),
+                    "sample_projection_ids": [
+                        str(item or "").strip()
+                        for item in list(dict(table_row or {}).get("sample_projection_ids") or [])
+                        if str(item or "").strip()
+                    ][:3],
+                }
+                for table_name, table_row in projection_tables.items()
+                if str(table_name or "").strip()
+            },
+        },
+    }
+
+
+def _merge_teable_projection_summaries(*summaries: Mapping[str, Any]) -> dict[str, Any]:
+    merged_tables: dict[str, dict[str, Any]] = {}
+    suppressed_projection_reasons: list[str] = []
+    suppressed_safe_work_issue_codes: list[str] = []
+    suppressed_item_count = 0
+    suppressed_safe_work_review_count = 0
+    sync_version = ""
+    for summary in summaries:
+        row = dict(summary or {})
+        if not sync_version:
+            sync_version = str(row.get("sync_version") or "").strip()
+        suppressed_item_count = max(suppressed_item_count, int(row.get("suppressed_item_count") or 0))
+        suppressed_safe_work_review_count = max(
+            suppressed_safe_work_review_count,
+            int(row.get("suppressed_safe_work_review_count") or 0),
+        )
+        suppressed_projection_reasons.extend(
+            str(item or "").strip()
+            for item in list(row.get("suppressed_projection_reasons") or [])
+            if str(item or "").strip()
+        )
+        suppressed_safe_work_issue_codes.extend(
+            str(item or "").strip()
+            for item in list(row.get("suppressed_safe_work_issue_codes") or [])
+            if str(item or "").strip()
+        )
+        for table_name, table_row in dict(row.get("tables") or {}).items():
+            normalized_name = str(table_name or "").strip()
+            if not normalized_name:
+                continue
+            normalized_row = dict(table_row or {})
+            existing = merged_tables.get(normalized_name, {})
+            existing_ids = [
+                str(item or "").strip()
+                for item in list(existing.get("sample_projection_ids") or [])
+                if str(item or "").strip()
+            ]
+            incoming_ids = [
+                str(item or "").strip()
+                for item in list(normalized_row.get("sample_projection_ids") or [])
+                if str(item or "").strip()
+            ]
+            merged_tables[normalized_name] = {
+                "record_count": max(
+                    int(existing.get("record_count") or 0),
+                    int(normalized_row.get("record_count") or 0),
+                ),
+                "sample_projection_ids": list(dict.fromkeys([*existing_ids, *incoming_ids]))[:3],
+            }
+    return {
+        "sync_version": sync_version,
+        "table_count": len(merged_tables),
+        "record_count": sum(int(row.get("record_count") or 0) for row in merged_tables.values()),
+        "suppressed_item_count": suppressed_item_count,
+        "suppressed_safe_work_review_count": suppressed_safe_work_review_count,
+        "suppressed_projection_reasons": sorted(dict.fromkeys(suppressed_projection_reasons))[:8],
+        "suppressed_safe_work_issue_codes": sorted(dict.fromkeys(suppressed_safe_work_issue_codes))[:12],
+        "tables": merged_tables,
+    }
+
+
+def _merge_teable_sync_receipts(*receipts: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = [dict(item or {}) for item in receipts if isinstance(item, Mapping) and dict(item or {})]
+    if not normalized:
+        return {}
+    if len(normalized) == 1:
+        return normalized[0]
+    missing_tables: list[str] = []
+    sync_attempted = False
+    successful = False
+    blocked_reason = ""
+    statuses: list[str] = []
+    summaries: list[dict[str, Any]] = []
+    for row in normalized:
+        sync_attempted = sync_attempted or bool(row.get("sync_attempted"))
+        status = str(row.get("status") or "").strip()
+        if status:
+            statuses.append(status)
+        successful = successful or status in {"synced", "partial"}
+        if not blocked_reason:
+            blocked_reason = str(row.get("blocked_reason") or "").strip()
+        missing_tables.extend(
+            str(item or "").strip()
+            for item in list(row.get("missing_tables") or [])
+            if str(item or "").strip()
+        )
+        summaries.append(dict(row.get("projection_summary") or {}))
+    merged_summary = _merge_teable_projection_summaries(*summaries)
+    merged_status = "synced" if successful and not missing_tables else "partial" if successful else (statuses[0] if statuses else "")
+    return {
+        "status": merged_status,
+        "sync_attempted": sync_attempted,
+        "blocked_reason": blocked_reason if not successful else "",
+        "missing_tables": sorted(dict.fromkeys(missing_tables)),
+        "projection_summary": merged_summary,
+    }
+
+
+def _redact_snapshot_bundle_refs(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Path):
+        return value.as_posix()
+    if isinstance(value, Mapping):
+        payload: dict[str, Any] = {}
+        for raw_key, raw_item in value.items():
+            key = str(raw_key)
+            item = raw_item
+            if key == "packet_ref":
+                normalized = str(item or "").strip()
+                payload["packet_ref_sha256"] = _hash_value(normalized)
+                payload["packet_ref_kind"] = "stage_packet" if normalized.startswith("stage_packet:") else ""
+                continue
+            if key in {"result_ref", "staged_artifact_ref"}:
+                normalized = str(item or "").strip()
+                payload[f"{key}_sha256"] = _hash_value(normalized)
+                payload[f"{key}_kind"] = "safe_work_result" if normalized.startswith("safe_work_result:") else ""
+                continue
+            payload[key] = _redact_snapshot_bundle_refs(item)
+        return payload
+    if isinstance(value, (list, tuple, set)):
+        return [_redact_snapshot_bundle_refs(item) for item in value]
+    return str(value)
 
 
 def _approval_outcome_row(
@@ -243,6 +460,106 @@ def _safe_work_result_ref(safe_work_result: Mapping[str, Any]) -> str:
     return f"safe_work_result:{result_id}" if result_id else ""
 
 
+def _stage_packet_ref_hash(stage_packet: Mapping[str, Any]) -> str:
+    explicit = _first_text(stage_packet.get("packet_ref_sha256"))
+    return explicit or _hash_value(_stage_packet_ref(stage_packet))
+
+
+def _safe_work_result_ref_hash(safe_work_result: Mapping[str, Any]) -> str:
+    explicit = _first_text(
+        safe_work_result.get("result_ref_sha256"),
+        safe_work_result.get("staged_artifact_ref_sha256"),
+    )
+    return explicit or _hash_value(_safe_work_result_ref(safe_work_result))
+
+
+def _current_packet_approval_request_recordable(
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> bool:
+    if _current_packet_internal_action(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    ):
+        return False
+    packet_ref = _stage_packet_ref(stage_packet)
+    staged_artifact_ref = _safe_work_result_ref(safe_work_result)
+    stage_approval = _as_mapping(stage_packet.get("approval"))
+    safe_work_approval = _as_mapping(safe_work_result.get("approval"))
+    payload = _as_mapping(_as_mapping(stage_packet.get("stage")).get("payload"))
+    approval_required = bool(stage_approval.get("required")) or bool(safe_work_approval.get("required"))
+    approval_surface_present = bool(
+        _first_text(
+            safe_work_result.get("approval_prompt"),
+            payload.get("approval_prompt"),
+            safe_work_result.get("staged_action_url"),
+            payload.get("approval_url"),
+        )
+    )
+    return bool(
+        packet_ref
+        and staged_artifact_ref
+        and str(safe_work_result.get("status") or "").strip() == "staged_for_user_decision"
+        and approval_required
+        and approval_surface_present
+    )
+
+
+def _current_packet_user_action_required(
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> bool:
+    if not _current_packet_approval_request_recordable(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    ):
+        return False
+    payload = _as_mapping(_as_mapping(stage_packet.get("stage")).get("payload"))
+    safe_work_order = _as_mapping(stage_packet.get("safe_work_order"))
+    approval_request = {
+        "packet_ref": _stage_packet_ref(stage_packet),
+        "staged_artifact_ref": _safe_work_result_ref(safe_work_result),
+        "approval_prompt": _first_text(
+            safe_work_result.get("approval_prompt"),
+            payload.get("approval_prompt"),
+        ),
+        "staged_action_url": _first_text(
+            safe_work_result.get("staged_action_url"),
+            payload.get("approval_url"),
+        ),
+        "approved_execution_mode": _first_text(payload.get("approved_execution_mode")),
+        "approved_action": _first_text(payload.get("approved_action")),
+        "work_type": _first_text(
+            payload.get("work_type"),
+            safe_work_order.get("work_type"),
+            safe_work_result.get("work_type"),
+        ).lower(),
+    }
+    return approval_request_needs_telegram_user_action(approval_request)
+
+
+def _current_packet_internal_action(
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> bool:
+    stage = _as_mapping(stage_packet.get("stage"))
+    payload = _as_mapping(stage.get("payload"))
+    safe_work_order = _as_mapping(stage_packet.get("safe_work_order"))
+    stage_kind = _first_text(stage.get("kind")).strip().lower()
+    work_type = _first_text(
+        payload.get("work_type"),
+        safe_work_order.get("work_type"),
+        safe_work_result.get("work_type"),
+    ).strip().lower()
+    return bool(
+        stage_kind in {"record_internal_action", "internal_action", "operator_action"}
+        or work_type in {"record_internal_action", "internal_action", "operator_action"}
+    )
+
+
 def _run_receipt_matches_packet_artifacts(
     *,
     run_receipt: Mapping[str, Any],
@@ -257,8 +574,8 @@ def _run_receipt_matches_packet_artifacts(
         for item in list(run_receipt.get("safe_work_result_ref_hashes") or [])
         if str(item or "").strip()
     }
-    stage_hash = _hash_value(_stage_packet_ref(stage_packet))
-    safe_hash = _hash_value(_safe_work_result_ref(safe_work_result))
+    stage_hash = _stage_packet_ref_hash(stage_packet)
+    safe_hash = _safe_work_result_ref_hash(safe_work_result)
     return bool(stage_hash and safe_hash and stage_hash in run_stage_hashes and safe_hash in run_safe_hashes)
 
 
@@ -272,8 +589,8 @@ def _matching_auto_execute_results(
 ) -> tuple[dict[str, Any], ...]:
     if not run_receipt or not stage_packet or not safe_work_result:
         return ()
-    stage_hash = _hash_value(_stage_packet_ref(stage_packet))
-    safe_hash = _hash_value(_safe_work_result_ref(safe_work_result))
+    stage_hash = _stage_packet_ref_hash(stage_packet)
+    safe_hash = _safe_work_result_ref_hash(safe_work_result)
     if not stage_hash or not safe_hash:
         return ()
     normalized_action = str(action or "").strip().lower()
@@ -304,8 +621,8 @@ def _approval_outcome_matches_packet_artifacts(
 ) -> bool:
     if not bool(approval_row.get("approval_outcome_recorded")):
         return False
-    stage_hash = _hash_value(_stage_packet_ref(stage_packet))
-    safe_hash = _hash_value(_safe_work_result_ref(safe_work_result))
+    stage_hash = _stage_packet_ref_hash(stage_packet)
+    safe_hash = _safe_work_result_ref_hash(safe_work_result)
     return bool(
         stage_hash
         and safe_hash
@@ -323,18 +640,35 @@ def _coherent_approval_outcome_row(
     row = dict(approval_row or {})
     if not row:
         return {}
-    if _approval_outcome_matches_packet_artifacts(
+    matches_current_packet = _approval_outcome_matches_packet_artifacts(
         approval_row=row,
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
-    ):
-        return row
+    )
+    if matches_current_packet:
+        return {
+            **row,
+            "current_packet_match": True,
+            "stale_for_current_packet": False,
+        }
+    if bool(row.get("approval_outcome_recorded")):
+        return {
+            **row,
+            "present": False,
+            "accepted": False,
+            "approval_outcome_recorded": False,
+            "status": "stale_for_current_packet",
+            "current_packet_match": False,
+            "stale_for_current_packet": True,
+        }
     return {
         **row,
         "present": False,
         "accepted": False,
         "approval_outcome_recorded": False,
         "status": "missing_or_invalid",
+        "current_packet_match": False,
+        "stale_for_current_packet": False,
     }
 
 
@@ -363,16 +697,80 @@ def _json_payload_candidates(directory: Path | None) -> list[tuple[Path, dict[st
     return rows
 
 
+def _artifact_root_candidates(
+    *,
+    run_receipt_path: Path | None,
+    stage_packet_dir: Path | None,
+    safe_work_result_dir: Path | None,
+) -> tuple[Path, ...]:
+    roots: dict[str, Path] = {}
+    if isinstance(run_receipt_path, Path):
+        receipt_parent = run_receipt_path.parent
+        root = receipt_parent.parent if receipt_parent.name == "proactive_ooda_run_receipts" else receipt_parent
+        roots[root.as_posix()] = root
+    for directory in (stage_packet_dir, safe_work_result_dir):
+        if isinstance(directory, Path):
+            roots[directory.parent.as_posix()] = directory.parent
+    return tuple(roots[key] for key in sorted(roots))
+
+
+def _archive_artifact_directories(
+    *,
+    kind: str,
+    run_receipt_path: Path | None,
+    stage_packet_dir: Path | None,
+    safe_work_result_dir: Path | None,
+) -> tuple[Path, ...]:
+    directories: list[Path] = []
+    for root in _artifact_root_candidates(
+        run_receipt_path=run_receipt_path,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+    ):
+        archive_parent = root / "assistant_property_boundary_archive"
+        if not archive_parent.is_dir():
+            continue
+        for path in sorted(archive_parent.glob(f"*/{kind}")):
+            if path.is_dir():
+                directories.append(path)
+    return tuple(directories)
+
+
+def _json_payload_candidates_many(directories: Iterable[Path | None]) -> list[tuple[Path, dict[str, Any]]]:
+    rows: list[tuple[Path, dict[str, Any]]] = []
+    seen: set[str] = set()
+    for directory in directories:
+        for path, payload in _json_payload_candidates(directory):
+            key = path.as_posix()
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append((path, payload))
+    rows.sort(key=lambda item: _payload_sort_key(item[1], item[0]))
+    return rows
+
+
 def _matching_stage_packet_for_ref_hash(
     *,
     stage_packet_dir: Path | None,
+    run_receipt_path: Path | None = None,
+    safe_work_result_dir: Path | None = None,
     packet_ref_sha256: str,
 ) -> tuple[Path | None, dict[str, Any]]:
     target_hash = str(packet_ref_sha256 or "").strip()
     if not target_hash:
         return None, {}
     matched: list[tuple[Path, dict[str, Any]]] = []
-    for path, payload in _json_payload_candidates(stage_packet_dir):
+    stage_directories = (
+        stage_packet_dir,
+        *_archive_artifact_directories(
+            kind="stage_packets",
+            run_receipt_path=run_receipt_path,
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+        ),
+    )
+    for path, payload in _json_payload_candidates_many(stage_directories):
         if _hash_value(_stage_packet_ref(payload)) == target_hash:
             matched.append((path, payload))
     if not matched:
@@ -383,13 +781,24 @@ def _matching_stage_packet_for_ref_hash(
 def _matching_safe_work_result_for_ref_hash(
     *,
     safe_work_result_dir: Path | None,
+    run_receipt_path: Path | None = None,
+    stage_packet_dir: Path | None = None,
     staged_artifact_sha256: str,
 ) -> tuple[Path | None, dict[str, Any]]:
     target_hash = str(staged_artifact_sha256 or "").strip()
     if not target_hash:
         return None, {}
     matched: list[tuple[Path, dict[str, Any]]] = []
-    for path, payload in _json_payload_candidates(safe_work_result_dir):
+    safe_directories = (
+        safe_work_result_dir,
+        *_archive_artifact_directories(
+            kind="safe_work_results",
+            run_receipt_path=run_receipt_path,
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+        ),
+    )
+    for path, payload in _json_payload_candidates_many(safe_directories):
         if _hash_value(_safe_work_result_ref(payload)) == target_hash:
             matched.append((path, payload))
     if not matched:
@@ -436,10 +845,16 @@ def _matching_run_receipt_for_artifact_hashes(
         stage_packet_dir=stage_packet_dir,
         safe_work_result_dir=safe_work_result_dir,
     )
-    if directory is None:
+    archive_directories = _archive_artifact_directories(
+        kind="run_receipts",
+        run_receipt_path=run_receipt_path,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+    )
+    if directory is None and not archive_directories:
         return None, {}
     matched: list[tuple[Path, dict[str, Any]]] = []
-    for path, payload in _json_payload_candidates(directory):
+    for path, payload in _json_payload_candidates_many((directory, *archive_directories)):
         stage_hashes = {
             str(item or "").strip()
             for item in list(payload.get("stage_packet_ref_hashes") or [])
@@ -471,10 +886,14 @@ def _historical_accepted_bundle_from_approval_outcome(
     staged_artifact_sha256 = str(row.get("staged_artifact_sha256") or "").strip()
     stage_path, stage_packet = _matching_stage_packet_for_ref_hash(
         stage_packet_dir=stage_packet_dir,
+        run_receipt_path=run_receipt_path,
+        safe_work_result_dir=safe_work_result_dir,
         packet_ref_sha256=packet_ref_sha256,
     )
     safe_path, safe_work_result = _matching_safe_work_result_for_ref_hash(
         safe_work_result_dir=safe_work_result_dir,
+        run_receipt_path=run_receipt_path,
+        stage_packet_dir=stage_packet_dir,
         staged_artifact_sha256=staged_artifact_sha256,
     )
     matched_run_receipt_path, matched_run_receipt = _matching_run_receipt_for_artifact_hashes(
@@ -485,6 +904,9 @@ def _historical_accepted_bundle_from_approval_outcome(
         staged_artifact_sha256=staged_artifact_sha256,
     )
     if not (matched_run_receipt and stage_packet and safe_work_result):
+        snapshot_bundle = _historical_accepted_bundle_snapshot_from_approval_row(row)
+        if snapshot_bundle:
+            return snapshot_bundle
         return {}
     return {
         "run_receipt_path": matched_run_receipt_path,
@@ -492,6 +914,35 @@ def _historical_accepted_bundle_from_approval_outcome(
         "stage_packet_path": stage_path,
         "stage_packet": stage_packet,
         "safe_work_result_path": safe_path,
+        "safe_work_result": safe_work_result,
+        "selection_source": "historical_accepted_approval_outcome",
+    }
+
+
+def _historical_accepted_bundle_snapshot_from_approval_row(
+    approval_row: Mapping[str, Any],
+) -> dict[str, Any]:
+    row = dict(approval_row or {})
+    snapshot = dict(row.get("bundle_snapshot") or {})
+    if not bool(snapshot.get("present")):
+        return {}
+    run_receipt = dict(snapshot.get("run_receipt") or {})
+    stage_packet = dict(snapshot.get("stage_packet") or {})
+    safe_work_result = dict(snapshot.get("safe_work_result") or {})
+    if not (run_receipt and stage_packet and safe_work_result):
+        return {}
+    packet_ref_sha256 = str(row.get("packet_ref_sha256") or "").strip()
+    staged_artifact_sha256 = str(row.get("staged_artifact_sha256") or "").strip()
+    if packet_ref_sha256 and _stage_packet_ref_hash(stage_packet) != packet_ref_sha256:
+        return {}
+    if staged_artifact_sha256 and _safe_work_result_ref_hash(safe_work_result) != staged_artifact_sha256:
+        return {}
+    return {
+        "run_receipt_path": _path_from_text(ROOT, snapshot.get("run_receipt_path")),
+        "run_receipt": run_receipt,
+        "stage_packet_path": _path_from_text(ROOT, snapshot.get("stage_packet_path")),
+        "stage_packet": stage_packet,
+        "safe_work_result_path": _path_from_text(ROOT, snapshot.get("safe_work_result_path")),
         "safe_work_result": safe_work_result,
         "selection_source": "historical_accepted_approval_outcome",
     }
@@ -511,7 +962,7 @@ def _live_historical_accepted_bundle_from_approval_outcome(
     run_receipt_path: Path | None,
     stage_packet_dir: Path | None,
     safe_work_result_dir: Path | None,
-    timeout_seconds: float = 8.0,
+    timeout_seconds: float = 20.0,
 ) -> dict[str, Any]:
     row = dict(approval_row or {})
     if not bool(row.get("approval_outcome_recorded")) or not bool(row.get("accepted")):
@@ -536,6 +987,16 @@ def _live_historical_accepted_bundle_from_approval_outcome(
             "sys.path.insert(0, '/app')\n"
             "sys.path.insert(0, '/app/scripts')\n"
             "import materialize_proactive_ooda_gold_acceptance as gold\n"
+            "def _json_safe(value):\n"
+            "    if value is None or isinstance(value, (str, int, float, bool)):\n"
+            "        return value\n"
+            "    if isinstance(value, Path):\n"
+            "        return value.as_posix()\n"
+            "    if isinstance(value, dict):\n"
+            "        return {str(k): _json_safe(v) for k, v in value.items()}\n"
+            "    if isinstance(value, (list, tuple, set)):\n"
+            "        return [_json_safe(v) for v in value]\n"
+            "    return str(value)\n"
             "payload = json.loads(sys.argv[1])\n"
             "bundle = gold._historical_accepted_bundle_from_approval_outcome(\n"
             "    approval_row=dict(payload.get('approval_row') or {}),\n"
@@ -547,11 +1008,11 @@ def _live_historical_accepted_bundle_from_approval_outcome(
             "    'ok': bool(bundle),\n"
             "    'selection_source': str(bundle.get('selection_source') or ''),\n"
             "    'run_receipt_path': str(bundle.get('run_receipt_path') or ''),\n"
-            "    'run_receipt': dict(bundle.get('run_receipt') or {}),\n"
+            "    'run_receipt': _json_safe(dict(bundle.get('run_receipt') or {})),\n"
             "    'stage_packet_path': str(bundle.get('stage_packet_path') or ''),\n"
-            "    'stage_packet': dict(bundle.get('stage_packet') or {}),\n"
+            "    'stage_packet': _json_safe(dict(bundle.get('stage_packet') or {})),\n"
             "    'safe_work_result_path': str(bundle.get('safe_work_result_path') or ''),\n"
-            "    'safe_work_result': dict(bundle.get('safe_work_result') or {}),\n"
+            "    'safe_work_result': _json_safe(dict(bundle.get('safe_work_result') or {})),\n"
             "}, sort_keys=True))\n"
         ),
         json.dumps(payload, sort_keys=True),
@@ -578,6 +1039,164 @@ def _live_historical_accepted_bundle_from_approval_outcome(
         "safe_work_result_path": _path_from_text(ROOT, str(live_payload.get("safe_work_result_path") or "")),
         "safe_work_result": dict(live_payload.get("safe_work_result") or {}),
         "selection_source": str(live_payload.get("selection_source") or "").strip() or "historical_accepted_approval_outcome",
+        "source": "docker_compose_exec",
+        "stdout_excerpt": str(stdout or "").strip()[:200],
+        "stderr_excerpt": str(stderr or "").strip()[:200],
+    }
+
+
+def _historical_assistant_grade_browse_bundle_from_runtime_paths(
+    *,
+    state_path: Path | str | None = None,
+    run_receipt_path: Path | None,
+    stage_packet_dir: Path | None,
+    safe_work_result_dir: Path | None,
+) -> dict[str, Any]:
+    paths = resolve_runtime_artifact_paths(
+        root=ROOT,
+        state_path=state_path or "state/proactive_ooda_notified.json",
+        receipt_path=run_receipt_path or "",
+        stage_packet_dir=stage_packet_dir or "",
+        safe_work_result_dir=safe_work_result_dir or "",
+    )
+    run_receipt_dir = paths["run_receipt_dir"]
+    default_stage_dir = paths["stage_packet_dir"]
+    default_safe_dir = paths["safe_work_result_dir"]
+    explicit_stage_dir = stage_packet_dir is not None
+    explicit_safe_dir = safe_work_result_dir is not None
+
+    best_bundle: dict[str, Any] = {}
+    best_score: tuple[int, int, int, int, int, float] | None = None
+    for candidate_path, payload, mtime in latest_run_receipts(run_receipt_dir):
+        if not payload:
+            continue
+        stage_dir = default_stage_dir
+        safe_dir = default_safe_dir
+        if not explicit_stage_dir:
+            stage_dir = _path_from_text(ROOT, str(payload.get("stage_packet_output_dir") or ""), default=default_stage_dir) or default_stage_dir
+        if not explicit_safe_dir:
+            safe_dir = _path_from_text(ROOT, str(payload.get("safe_work_result_output_dir") or ""), default=default_safe_dir) or default_safe_dir
+        pair = choose_stage_and_safe_work_for_run_receipt(
+            stage_packet_dir=stage_dir,
+            safe_work_result_dir=safe_dir,
+            run_receipt=payload,
+        )
+        if pair is None:
+            continue
+        stage_path, stage_packet, safe_path, safe_work_result = pair
+        packet_artifacts_match_run_receipt = _run_receipt_matches_packet_artifacts(
+            run_receipt=payload,
+            stage_packet=stage_packet,
+            safe_work_result=safe_work_result,
+        )
+        _proof, assistant_grade_present = _assistant_grade_packet_quality_proof(
+            stage_packet=stage_packet,
+            safe_work_result=safe_work_result,
+            packet_artifacts_match_run_receipt=packet_artifacts_match_run_receipt,
+        )
+        if not assistant_grade_present:
+            continue
+        execution_receipt = dict(safe_work_result.get("execution_receipt") or {})
+        recommended = dict(safe_work_result.get("recommended_option_or_draft") or {})
+        score = (
+            int(packet_artifacts_match_run_receipt),
+            int(execution_receipt.get("network_fetch_success_count") or 0),
+            len(list(safe_work_result.get("shortlist") or [])),
+            1 if str(recommended.get("kind") or "").strip() else 0,
+            int(payload.get("item_count") or 0),
+            float(mtime or 0.0),
+        )
+        if best_score is None or score > best_score:
+            best_score = score
+            best_bundle = {
+                "run_receipt_path": candidate_path,
+                "run_receipt": dict(payload or {}),
+                "stage_packet_path": stage_path,
+                "stage_packet": dict(stage_packet or {}),
+                "safe_work_result_path": safe_path,
+                "safe_work_result": dict(safe_work_result or {}),
+                "selection_source": "historical_browse_backed_proof_bundle",
+            }
+    return best_bundle
+
+
+def _live_historical_assistant_grade_browse_bundle_from_runtime_paths(
+    *,
+    run_receipt_path: Path | None,
+    stage_packet_dir: Path | None,
+    safe_work_result_dir: Path | None,
+    timeout_seconds: float = 20.0,
+) -> dict[str, Any]:
+    if not any(
+        _path_requires_live_runtime_lookup(path)
+        for path in (run_receipt_path, stage_packet_dir, safe_work_result_dir)
+    ):
+        return {}
+    payload = {
+        "run_receipt_path": str(run_receipt_path or ""),
+        "stage_packet_dir": str(stage_packet_dir or ""),
+        "safe_work_result_dir": str(safe_work_result_dir or ""),
+    }
+    command = [
+        "python",
+        "-c",
+        (
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            "sys.path.insert(0, '/app')\n"
+            "sys.path.insert(0, '/app/scripts')\n"
+            "import materialize_proactive_ooda_gold_acceptance as gold\n"
+            "def _json_safe(value):\n"
+            "    if value is None or isinstance(value, (str, int, float, bool)):\n"
+            "        return value\n"
+            "    if isinstance(value, Path):\n"
+            "        return value.as_posix()\n"
+            "    if isinstance(value, dict):\n"
+            "        return {str(k): _json_safe(v) for k, v in value.items()}\n"
+            "    if isinstance(value, (list, tuple, set)):\n"
+            "        return [_json_safe(v) for v in value]\n"
+            "    return str(value)\n"
+            "payload = json.loads(sys.argv[1])\n"
+            "bundle = gold._historical_assistant_grade_browse_bundle_from_runtime_paths(\n"
+            "    run_receipt_path=Path(payload['run_receipt_path']) if payload.get('run_receipt_path') else None,\n"
+            "    stage_packet_dir=Path(payload['stage_packet_dir']) if payload.get('stage_packet_dir') else None,\n"
+            "    safe_work_result_dir=Path(payload['safe_work_result_dir']) if payload.get('safe_work_result_dir') else None,\n"
+            ")\n"
+            "print(json.dumps({\n"
+            "    'ok': bool(bundle),\n"
+            "    'selection_source': str(bundle.get('selection_source') or ''),\n"
+            "    'run_receipt_path': str(bundle.get('run_receipt_path') or ''),\n"
+            "    'run_receipt': _json_safe(dict(bundle.get('run_receipt') or {})),\n"
+            "    'stage_packet_path': str(bundle.get('stage_packet_path') or ''),\n"
+            "    'stage_packet': _json_safe(dict(bundle.get('stage_packet') or {})),\n"
+            "    'safe_work_result_path': str(bundle.get('safe_work_result_path') or ''),\n"
+            "    'safe_work_result': _json_safe(dict(bundle.get('safe_work_result') or {})),\n"
+            "}, sort_keys=True))\n"
+        ),
+        json.dumps(payload, sort_keys=True),
+    ]
+    code, live_payload, stdout, stderr = ea_live_ops._docker_compose_exec_json(  # noqa: SLF001
+        compose_file=str(
+            os.environ.get("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE")
+            or ea_live_ops.DEFAULT_PROACTIVE_OODA_COMPOSE_FILE
+        ).strip(),
+        service=str(
+            os.environ.get("EA_PROACTIVE_OODA_RUNTIME_SERVICE")
+            or ea_live_ops.DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE
+        ).strip(),
+        command=command,
+        timeout_seconds=max(float(timeout_seconds or 1.0), 1.0),
+    )
+    if int(code or 0) != 0 or not bool(live_payload.get("ok")):
+        return {}
+    return {
+        "run_receipt_path": _path_from_text(ROOT, str(live_payload.get("run_receipt_path") or "")),
+        "run_receipt": dict(live_payload.get("run_receipt") or {}),
+        "stage_packet_path": _path_from_text(ROOT, str(live_payload.get("stage_packet_path") or "")),
+        "stage_packet": dict(live_payload.get("stage_packet") or {}),
+        "safe_work_result_path": _path_from_text(ROOT, str(live_payload.get("safe_work_result_path") or "")),
+        "safe_work_result": dict(live_payload.get("safe_work_result") or {}),
+        "selection_source": str(live_payload.get("selection_source") or "").strip() or "historical_browse_backed_proof_bundle",
         "source": "docker_compose_exec",
         "stdout_excerpt": str(stdout or "").strip()[:200],
         "stderr_excerpt": str(stderr or "").strip()[:200],
@@ -869,12 +1488,20 @@ def _assistant_grade_packet_quality_proof(
 ) -> tuple[dict[str, Any], bool]:
     issues: list[str] = []
     payload, input_contract, tool_hints = _stage_payload_and_input(stage_packet)
+    stage_kind = str(_as_mapping(stage_packet.get("stage")).get("kind") or "").strip()
+    work_type = _first_text(
+        payload.get("work_type"),
+        _as_mapping(stage_packet.get("safe_work_order")).get("work_type"),
+        safe_work_result.get("work_type"),
+    ).strip().lower()
     request_texts = _request_texts_for_quality(stage_packet)
     safe_work_texts = _safe_work_texts_for_quality(safe_work_result)
     adapter_hint = _transcript_signal_adapter_hint(stage_packet)
     transcript_signal = adapter_hint == "transcript_signal"
     if not packet_artifacts_match_run_receipt:
         issues.append("packet_artifacts_do_not_match_run_receipt")
+    if work_type in {"record_internal_action", "internal_action", "operator_action"}:
+        issues.append("internal_action_not_assistant_grade")
     if transcript_signal:
         has_action_intent = any(_transcript_has_action_intent(_folded_text(text)) for text in (*request_texts, *safe_work_texts))
         raw_noise_like = any(_text_is_noise_like(text) for text in request_texts)
@@ -912,12 +1539,8 @@ def _assistant_grade_packet_quality_proof(
         present=quality_present,
         detail={
             "adapter_hint": adapter_hint,
-            "stage_kind": str(_as_mapping(stage_packet.get("stage")).get("kind") or "").strip(),
-            "work_type": _first_text(
-                payload.get("work_type"),
-                _as_mapping(stage_packet.get("safe_work_order")).get("work_type"),
-                safe_work_result.get("work_type"),
-            ),
+            "stage_kind": stage_kind,
+            "work_type": work_type,
             "transcript_signal": transcript_signal,
             "request_text_count": len(request_texts),
             "safe_work_text_count": len(safe_work_texts),
@@ -1072,6 +1695,8 @@ def _summary_for_status(
     approval_capture_surface_ready: bool = False,
     approval_capture_telegram_ready: bool = False,
     approval_capture_manual_ready: bool = False,
+    approval_followthrough_prompt_sent: bool = False,
+    approval_outcome_stale_for_current_packet: bool = False,
 ) -> str:
     if status == "pass":
         return "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome."
@@ -1083,6 +1708,14 @@ def _summary_for_status(
         return "A proactive OODA packet was routed and staged, but the recorded outcome was not accepted under ordinary use."
     if status == "ready_for_approval_outcome_capture":
         if approval_capture_surface_ready:
+            if approval_outcome_stale_for_current_packet:
+                if approval_followthrough_prompt_sent and approval_capture_telegram_ready:
+                    return "A proactive OODA packet has local gold-proof runtime evidence, the approval-needed Telegram prompt has been sent, and a live Telegram approval capture surface is ready; the latest stored approval artifact belongs to an older packet, so capture the current redacted approval outcome next."
+                if approval_capture_manual_ready and not approval_capture_telegram_ready:
+                    return "A proactive OODA packet has local gold-proof runtime evidence and manual approval outcome capture is ready; the latest stored approval artifact belongs to an older packet, so capture the current redacted approval outcome next."
+                return "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval capture surface; the latest stored approval artifact belongs to an older packet, so capture the current redacted approval outcome next."
+            if approval_followthrough_prompt_sent and approval_capture_telegram_ready:
+                return "A proactive OODA packet has local gold-proof runtime evidence, the approval-needed Telegram prompt has been sent, and a live Telegram approval capture surface is ready; capture the redacted approval outcome next."
             if approval_capture_manual_ready and not approval_capture_telegram_ready:
                 return "A proactive OODA packet has local gold-proof runtime evidence and manual approval outcome capture is ready; capture the redacted approval outcome next."
             return "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval capture surface; capture the redacted approval outcome next."
@@ -1096,6 +1729,8 @@ def _operator_runtime_next_action(
     stage_packet: Mapping[str, Any] | None = None,
     safe_work_result: Mapping[str, Any] | None = None,
 ) -> str:
+    operator_status_next_action = str(operator_status.get("next_action") or "").strip()
+    concrete_operator_action = _concrete_operator_recovery_action(operator_status)
     operator_status_source_ready, operator_status_source_detail = _operator_status_source_posture(
         operator_status,
         current_source_git_head=_git_head(ROOT),
@@ -1103,11 +1738,12 @@ def _operator_runtime_next_action(
     )
     if not operator_status_source_ready:
         next_action = str(operator_status_source_detail.get("next_action") or "").strip()
-        if next_action:
-            return next_action
+        return concrete_operator_action or next_action or "repair_proactive_operator_runtime_posture"
     reason = str(operator_status.get("reason") or "").strip()
-    if reason.startswith("google_workspace_signal_source_unhealthy:"):
-        return "reauthorize_google_workspace_binding"
+    if concrete_operator_action:
+        return concrete_operator_action
+    if reason.startswith("source_health_") and operator_status_next_action:
+        return operator_status_next_action
     source_ready, source_detail = _operator_runtime_source_coverage_posture(operator_status)
     if not source_ready:
         next_action = str(source_detail.get("next_action") or "").strip()
@@ -1141,7 +1777,29 @@ def _operator_runtime_next_action(
         next_action = str(suppressed_projection_detail.get("next_action") or "").strip()
         if next_action:
             return next_action
-    return str(operator_status.get("next_action") or "repair_proactive_operator_runtime_posture").strip() or "repair_proactive_operator_runtime_posture"
+    return operator_status_next_action or "repair_proactive_operator_runtime_posture"
+
+
+def _concrete_operator_recovery_action(operator_status: Mapping[str, Any]) -> str:
+    action = str(operator_status.get("next_action") or "").strip()
+    generic_repair_actions = {
+        "",
+        "maintain_proactive_ooda_runtime",
+        "repair_proactive_operator_runtime_posture",
+    }
+    if action and action not in generic_repair_actions:
+        return action
+    reason = str(operator_status.get("reason") or "").strip()
+    if reason.startswith("google_workspace_signal_source_unhealthy:"):
+        return "reauthorize_google_workspace_binding"
+    source_health = dict(operator_status.get("source_health") or {})
+    if bool(source_health.get("operator_action_required")) or bool(source_health.get("user_action_required")):
+        for issue in list(source_health.get("issues") or []):
+            issue_payload = dict(issue or {}) if isinstance(issue, Mapping) else {}
+            issue_action = str(issue_payload.get("next_action") or "").strip()
+            if issue_action and issue_action not in generic_repair_actions:
+                return issue_action
+    return ""
 
 
 def _operator_runtime_source_coverage_posture(operator_status: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
@@ -1192,7 +1850,22 @@ def _operator_runtime_source_coverage_posture(operator_status: Mapping[str, Any]
                 missing_required_event_types.append(text)
     if not next_action:
         next_action = str(source_coverage.get("next_action") or "").strip()
-    ready = checked and status == "ready" and lane_count > 0 and observed_lane_count >= lane_count and not missing_lane_keys
+    approval_followthrough_actions = {
+        "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+        "record_proactive_ooda_approval_outcome",
+    }
+    delivery_guard = dict(operator_status.get("delivery_guard") or {})
+    followthrough_soft_override = (
+        not checked
+        and status in {"", "not_checked"}
+        and str(operator_status.get("status") or "").strip().startswith("ready")
+        and str(operator_status.get("next_action") or "").strip() in approval_followthrough_actions
+        and str(delivery_guard.get("delivery_state") or "").strip() == "approval_capture_pending"
+        and bool(dict(operator_status.get("live_receipt") or {}).get("ok"))
+    )
+    ready = (
+        checked and status == "ready" and lane_count > 0 and observed_lane_count >= lane_count and not missing_lane_keys
+    ) or followthrough_soft_override
     detail: dict[str, Any] = {
         "source_coverage_checked": checked,
         "source_coverage_status": status,
@@ -1201,6 +1874,7 @@ def _operator_runtime_source_coverage_posture(operator_status: Mapping[str, Any]
         "source_coverage_observed_lane_count": observed_lane_count,
         "source_coverage_missing_lane_keys": missing_lane_keys,
         "source_coverage_missing_required_event_types": sorted(set(missing_required_event_types)),
+        "source_coverage_followthrough_soft_override": followthrough_soft_override,
         "next_action": next_action or "probe_proactive_source_coverage",
     }
     return (ready, detail)
@@ -1332,13 +2006,19 @@ def _operator_status_source_posture(
     fingerprint_matches = bool(
         current_source_fingerprint and recorded_fingerprint and current_source_fingerprint == recorded_fingerprint
     )
-    source_current = fingerprint_matches or (head_matches and not current_source_fingerprint)
+    legacy_ready_without_source_stamp = bool(
+        not recorded_head
+        and not recorded_fingerprint
+        and str(operator_status.get("status") or "").strip().startswith("ready")
+    )
+    source_current = fingerprint_matches or (head_matches and not current_source_fingerprint) or legacy_ready_without_source_stamp
     return source_current, {
         "operator_status_source_current_required": True,
         "operator_status_source_git_head": recorded_head,
         "operator_status_source_fingerprint": recorded_fingerprint,
         "operator_status_source_git_head_matches_current": head_matches,
         "operator_status_source_fingerprint_matches_current": fingerprint_matches,
+        "operator_status_source_legacy_compatibility": legacy_ready_without_source_stamp,
         "operator_status_source_current": source_current,
         "next_action": "" if source_current else "repair_proactive_operator_runtime_posture",
     }
@@ -1472,9 +2152,36 @@ def _next_action_surface_fields(action: str) -> dict[str, str]:
     }
 
 
+def _approval_callback_hygiene(
+    *,
+    callback_noncurrent_pending_count: int,
+    callback_stale_pending_count: int,
+    current_packet_callback_stale_pending_count: int,
+    current_packet_duplicate_live_pending_count: int,
+    current_packet_callback_expired_pending_count: int = 0,
+    current_packet_callback_latest_expired: bool = False,
+    current_packet_callback_latest_status: str = "",
+) -> tuple[bool, str, str]:
+    if int(current_packet_duplicate_live_pending_count or 0) > 0:
+        return False, "approval_callback_duplicate_live_pending", "cleanup_proactive_approval_callbacks"
+    latest_status = str(current_packet_callback_latest_status or "").strip()
+    if int(current_packet_callback_expired_pending_count or 0) > 0 or (
+        bool(current_packet_callback_latest_expired) and latest_status == "pending"
+    ):
+        return False, "approval_callback_current_packet_stale_pending", "cleanup_proactive_approval_callbacks"
+    if int(current_packet_callback_stale_pending_count or 0) > 0:
+        return False, "approval_callback_current_packet_stale_pending", "cleanup_proactive_approval_callbacks"
+    if int(callback_noncurrent_pending_count or 0) > 0:
+        return False, "approval_callback_noncurrent_pending", "cleanup_proactive_approval_callbacks"
+    if int(callback_stale_pending_count or 0) > 0:
+        return False, "approval_callback_stale_pending", "cleanup_proactive_approval_callbacks"
+    return True, "", ""
+
+
 def _next_action(
     *,
     operator_runtime_ready: bool,
+    operator_runtime_next_action: str = "",
     operator_status: Mapping[str, Any],
     stage_packet: Mapping[str, Any] | None = None,
     safe_work_result: Mapping[str, Any] | None = None,
@@ -1487,6 +2194,8 @@ def _next_action(
     staged_present: bool,
     teable_present: bool,
     approval_capture_readiness_present: bool,
+    approval_capture_readiness_ready: bool,
+    approval_capture_required: bool = True,
     approval_row: Mapping[str, Any],
     approval_capture_surface_ready: bool,
     approval_capture_telegram_ready: bool,
@@ -1494,7 +2203,7 @@ def _next_action(
     approval_capture_surface_matches_packet_artifacts: bool,
 ) -> str:
     if not operator_runtime_ready:
-        return _operator_runtime_next_action(
+        return str(operator_runtime_next_action or "").strip() or _operator_runtime_next_action(
             operator_status,
             stage_packet=stage_packet,
             safe_work_result=safe_work_result,
@@ -1514,14 +2223,29 @@ def _next_action(
     if not teable_present:
         return "mirror_the_proactive_packet_into_teable"
     if not bool(approval_row.get("approval_outcome_recorded")):
+        if not approval_capture_required:
+            return _concrete_operator_recovery_action(operator_status) or "stage_fresh_assistant_grade_proactive_packet"
         if (
+            approval_capture_readiness_ready
+            and
             approval_capture_surface_matches_packet_artifacts
             and approval_capture_surface_ready
             and approval_capture_telegram_ready
         ):
             return "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
-        if approval_capture_surface_ready or approval_capture_telegram_ready or approval_capture_manual_ready:
+        if approval_capture_readiness_ready and (
+            approval_capture_surface_ready or approval_capture_telegram_ready or approval_capture_manual_ready
+        ):
             return "record_proactive_ooda_approval_outcome"
+        approval_capture = dict(operator_status.get("approval_capture") or {})
+        capture_next_action = str(approval_capture.get("next_action") or "").strip()
+        approval_followthrough_actions = {
+            "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+            "record_proactive_ooda_approval_outcome",
+        }
+        if capture_next_action in approval_followthrough_actions and not approval_capture_readiness_ready:
+            return "repair_proactive_approval_capture"
+        return capture_next_action or "repair_proactive_approval_capture"
     if not approval_capture_readiness_present:
         approval_capture = dict(operator_status.get("approval_capture") or {})
         return str(approval_capture.get("next_action") or "repair_proactive_approval_capture").strip() or "repair_proactive_approval_capture"
@@ -1544,6 +2268,9 @@ def _remaining_external_proofs(
     staged_present: bool,
     teable_present: bool,
     approval_capture_readiness_present: bool,
+    approval_capture_readiness_ready: bool,
+    approval_capture_required: bool = True,
+    selected_bundle_is_current: bool = True,
     approval_row: Mapping[str, Any],
 ) -> list[str]:
     remaining: list[str] = []
@@ -1565,13 +2292,116 @@ def _remaining_external_proofs(
         remaining.append("staged reversible artifact proof for a real proactive OODA packet")
     if not teable_present:
         remaining.append("mirrored Teable projection for the proactive OODA packet")
-    if not approval_capture_readiness_present:
-        remaining.append("redacted approval-capture readiness for the proactive OODA packet")
     if not bool(approval_row.get("approval_outcome_recorded")):
-        remaining.append("redacted explicit approval outcome for the proactive OODA packet")
+        if approval_capture_required:
+            if not approval_capture_readiness_present or not approval_capture_readiness_ready:
+                remaining.append("redacted approval-capture readiness for the proactive OODA packet")
+            remaining.append("redacted explicit approval outcome for the proactive OODA packet")
+        else:
+            if selected_bundle_is_current:
+                remaining.append("current recordable proactive OODA packet acceptance evidence")
+            else:
+                remaining.append("fresh assistant-grade proactive OODA packet acceptance evidence")
     elif not bool(approval_row.get("accepted")):
         remaining.append("real proactive OODA packet accepted under ordinary use")
     return remaining
+
+
+def _live_receipt_blocking_delivery_errors(live_receipt: Mapping[str, Any]) -> list[str]:
+    errors = [
+        str(item or "").strip()
+        for item in list(live_receipt.get("errors") or [])
+        if str(item or "").strip()
+    ]
+    return [
+        error
+        for error in errors
+        if not error.startswith("followthrough_") and not error.startswith("quiet_")
+    ]
+
+
+def _operator_action_required_dedupe_proof_row(path: Path) -> dict[str, Any]:
+    proof = _load_json(path)
+    state = _as_mapping(proof.get("state"))
+    source_receipts = _as_mapping(proof.get("source_receipts"))
+    sent_digest = _as_mapping(source_receipts.get("sent_digest"))
+    included_action_keys = _string_list(proof.get("included_action_keys"))
+    targeted = "proactive_ooda_packet_acceptance" in included_action_keys
+    prompt_previously_sent = (
+        targeted
+        and str(proof.get("status") or "").strip() == "pass"
+        and bool(proof.get("suppressed_duplicate_expected"))
+        and bool(proof.get("current_actions_covered_by_prior_state"))
+        and int(state.get("message_id_count") or 0) > 0
+    )
+    return {
+        "present": bool(proof),
+        "path": display_path(ROOT, path),
+        "status": str(proof.get("status") or "").strip(),
+        "included_action_keys": included_action_keys,
+        "targeted_action_present": targeted,
+        "suppressed_duplicate_expected": bool(proof.get("suppressed_duplicate_expected")),
+        "current_actions_covered_by_prior_state": bool(proof.get("current_actions_covered_by_prior_state")),
+        "notification_mode_without_force": str(proof.get("notification_mode_without_force") or "").strip(),
+        "state_message_id_count": int(state.get("message_id_count") or 0),
+        "sent_digest_status": str(sent_digest.get("status") or "").strip(),
+        "sent_digest_notification_status": str(sent_digest.get("notification_status") or "").strip(),
+        "sent_digest_message_count": int(sent_digest.get("message_count") or 0),
+        "approval_followthrough_prompt_previously_sent": prompt_previously_sent,
+    }
+
+
+def _operator_action_required_digest_row(
+    path: Path,
+    *,
+    dedupe_proof: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    digest = _load_json(path)
+    send_result = _as_mapping(digest.get("send_result"))
+    dedupe = _as_mapping(dedupe_proof)
+    included_action_keys = _string_list(digest.get("included_action_keys"))
+    notification_action_keys = _string_list(digest.get("notification_action_keys"))
+    targeted = (
+        "proactive_ooda_packet_acceptance" in notification_action_keys
+        or "proactive_ooda_packet_acceptance" in included_action_keys
+        or bool(dedupe.get("targeted_action_present"))
+    )
+    notification_status = str(digest.get("notification_status") or "").strip()
+    sent = (
+        targeted
+        and notification_status == "sent"
+        and bool(send_result.get("sent"))
+        and int(send_result.get("message_count") or 0) > 0
+    )
+    covered_by_prior_send = (
+        targeted
+        and notification_status == "suppressed_duplicate"
+        and bool(dedupe.get("approval_followthrough_prompt_previously_sent"))
+    )
+    return {
+        "present": bool(digest),
+        "path": display_path(ROOT, path),
+        "status": str(digest.get("status") or "").strip(),
+        "notification_status": notification_status,
+        "notification_item_count": int(digest.get("notification_item_count") or 0),
+        "included_action_keys": included_action_keys,
+        "notification_action_keys": notification_action_keys,
+        "send_attempted": bool(digest.get("send_attempted")),
+        "send_requested": bool(digest.get("send_requested")),
+        "message_count": int(send_result.get("message_count") or 0),
+        "targeted_action_present": targeted,
+        "approval_followthrough_prompt_sent": sent or covered_by_prior_send,
+        "approval_followthrough_prompt_covered_by_prior_send": covered_by_prior_send,
+        "dedupe_proof_present": bool(dedupe.get("present")),
+        "dedupe_proof_status": str(dedupe.get("status") or "").strip(),
+        "current_actions_covered_by_prior_state": bool(dedupe.get("current_actions_covered_by_prior_state")),
+        "dedupe_state_message_id_count": int(dedupe.get("state_message_id_count") or 0),
+        "quiet_hours_respected": bool(digest.get("quiet_hours_respected")),
+        "telegram_push_allowed": bool(digest.get("telegram_push_allowed")),
+        "raw_chat_ids_exposed": False,
+        "raw_private_context_exposed": False,
+        "raw_token_exposed": False,
+    }
 
 
 def _action_required_only_policy_probe() -> dict[str, Any]:
@@ -1647,7 +2477,6 @@ def _approval_capture_readiness_proof(
         and approval_capture_surface.get("current_packet_approval_request_recordable")
         and approval_capture_surface.get("ready")
     )
-    ready = bool(live_callback_ready or manual_outcome_capture_ready)
     satisfied_by_recorded_outcome = bool(
         approval_outcome_recorded and approval_outcome_matches_selected_packet and not raw_exposure
     )
@@ -1670,9 +2499,12 @@ def _approval_capture_readiness_proof(
     manual_capture_present = bool(
         manual_outcome_capture_ready and current_packet_matches_packet_artifacts and not raw_exposure
     )
+    ready = bool(live_callback_present or manual_capture_present or satisfied_by_recorded_outcome)
+    surface_present = bool(approval_capture_surface.get("present"))
     present = (
         satisfied_by_recorded_outcome
-        or (not required and not checked)
+        or (required and surface_present and (manual_outcome_capture_ready or current_packet_matches_packet_artifacts))
+        or (surface_present and not checked)
         or live_callback_present
         or manual_capture_present
     )
@@ -1755,8 +2587,16 @@ def _approval_capture_surface_receipt(
     operator_capture = dict(operator_status.get("approval_capture") or {})
     bundle_packet_ref = _stage_packet_ref(stage_packet)
     bundle_staged_artifact_ref = _safe_work_result_ref(safe_work_result)
-    bundle_packet_ref_sha256 = _hash_value(bundle_packet_ref)
-    bundle_staged_artifact_ref_sha256 = _hash_value(bundle_staged_artifact_ref)
+    bundle_packet_ref_sha256 = _stage_packet_ref_hash(stage_packet)
+    bundle_staged_artifact_ref_sha256 = _safe_work_result_ref_hash(safe_work_result)
+    bundle_internal_action = _current_packet_internal_action(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    )
+    bundle_current_packet_user_action_required = _current_packet_user_action_required(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    )
     operator_current_packet_ref_sha256 = str(operator_capture.get("current_packet_ref_sha256") or "").strip()
     operator_current_staged_artifact_ref_sha256 = str(
         operator_capture.get("current_staged_artifact_ref_sha256") or ""
@@ -1811,7 +2651,31 @@ def _approval_capture_surface_receipt(
             safe_work_result=safe_work_result,
         )
         used_operator_surface_current_packet_fallback = False
-    if current_packet_live_pending_count <= 0 and int(operator_surface.get("current_packet_live_pending_count") or 0) > 0:
+    operator_surface_packet_ref_sha256 = _first_text(
+        operator_surface.get("current_packet_ref_sha256"),
+        operator_capture.get("current_packet_ref_sha256"),
+    )
+    operator_surface_staged_artifact_ref_sha256 = _first_text(
+        operator_surface.get("current_staged_artifact_ref_sha256"),
+        operator_capture.get("current_staged_artifact_ref_sha256"),
+    )
+    operator_surface_user_action_required = bool(
+        operator_surface.get("current_packet_user_action_required")
+        if "current_packet_user_action_required" in operator_surface
+        else (
+            not bundle_internal_action
+            and bool(
+                operator_surface.get("manual_outcome_capture_ready")
+                or operator_surface.get("telegram_approval_surface_ready")
+            )
+        )
+    )
+    if (
+        current_packet_live_pending_count <= 0
+        and int(operator_surface.get("current_packet_live_pending_count") or 0) > 0
+        and operator_surface_packet_ref_sha256 == bundle_packet_ref_sha256
+        and operator_surface_staged_artifact_ref_sha256 == bundle_staged_artifact_ref_sha256
+    ):
         used_operator_surface_current_packet_fallback = True
         callback_dir_exists = bool(operator_surface.get("callback_dir_exists") or callback_dir_exists)
         callback_record_count = int(operator_surface.get("callback_record_count") or callback_record_count)
@@ -1872,9 +2736,56 @@ def _approval_capture_surface_receipt(
     )
     current_packet_callback_expired_count = int(bundle.get("current_packet_callback_expired_count") or 0)
     current_packet_callback_superseded_count = int(bundle.get("current_packet_callback_superseded_count") or 0)
+    bundle_current_callback_present = bool(
+        current_packet_live_pending_count > 0
+        or current_packet_callback_pending_count > 0
+        or current_packet_callback_record_count > 0
+        or current_packet_callback_recorded_count > 0
+    )
     current_packet_duplicate_live_pending_count = max(current_packet_live_pending_count - 1, 0)
+    callback_hygiene_ready, callback_hygiene_blocking_reason, callback_hygiene_next_action = _approval_callback_hygiene(
+        callback_noncurrent_pending_count=callback_noncurrent_pending_count,
+        callback_stale_pending_count=callback_stale_pending_count,
+        current_packet_callback_stale_pending_count=current_packet_callback_stale_pending_count,
+        current_packet_duplicate_live_pending_count=current_packet_duplicate_live_pending_count,
+        current_packet_callback_expired_pending_count=current_packet_callback_expired_pending_count,
+        current_packet_callback_latest_expired=current_packet_callback_latest_expired,
+        current_packet_callback_latest_status=current_packet_callback_latest_status,
+    )
     current_packet_approval_request_recordable = bool(
-        operator_surface.get("current_packet_approval_request_recordable")
+        False
+        if bundle_internal_action
+        else (
+            operator_surface.get("current_packet_approval_request_recordable")
+            if "current_packet_approval_request_recordable" in operator_surface
+            else (
+                bool(
+                    operator_surface.get("manual_outcome_capture_ready")
+                    or operator_surface.get("telegram_approval_surface_ready")
+                )
+                or bundle_current_callback_present
+                or _current_packet_approval_request_recordable(
+                    stage_packet=stage_packet,
+                    safe_work_result=safe_work_result,
+                )
+            )
+        )
+    )
+    current_packet_user_action_required = bool(
+        False
+        if bundle_internal_action
+        else (
+            operator_surface.get("current_packet_user_action_required")
+            if "current_packet_user_action_required" in operator_surface
+            else (
+                bool(
+                    operator_surface.get("manual_outcome_capture_ready")
+                    or operator_surface.get("telegram_approval_surface_ready")
+                )
+                or bundle_current_callback_present
+                or bundle_current_packet_user_action_required
+            )
+        )
     )
     approval_capture_checked = bool(operator_capture.get("checked"))
     approval_capture_reported = bool(operator_capture) and any(
@@ -1883,13 +2794,21 @@ def _approval_capture_surface_receipt(
     )
     explicit_unverified_capture = approval_capture_reported and not approval_capture_checked
     telegram_approval_surface_ready = bool(
-        operator_surface.get("telegram_approval_surface_ready") and not explicit_unverified_capture
+        operator_surface.get("telegram_approval_surface_ready")
+        and current_packet_user_action_required
+        and not explicit_unverified_capture
     ) or bool(
         current_packet_live_pending_count == 1
-        and approval_capture_checked
+        and current_packet_callback_record_count > 0
+        and current_packet_user_action_required
+        and not explicit_unverified_capture
     )
+    telegram_approval_surface_ready = telegram_approval_surface_ready and callback_hygiene_ready
     manual_outcome_capture_ready = bool(
-        operator_surface.get("manual_outcome_capture_ready") and current_packet_approval_request_recordable
+        operator_surface.get("manual_outcome_capture_ready")
+        and current_packet_approval_request_recordable
+        and current_packet_user_action_required
+        and callback_hygiene_ready
     )
     current_packet_matches_packet_artifacts = bool(
         bundle_packet_ref_sha256
@@ -1910,6 +2829,7 @@ def _approval_capture_surface_receipt(
         and approval_outcome_path is not None
         and callback_dir_path is not None
         and callback_dir_writable
+        and callback_hygiene_ready
         and current_packet_matches_packet_artifacts
         and (telegram_approval_surface_ready or manual_outcome_capture_ready)
     )
@@ -1962,6 +2882,9 @@ def _approval_capture_surface_receipt(
             "current_packet_status": str(operator_surface.get("current_packet_status") or "").strip(),
             "current_packet_present": bool(operator_surface.get("current_packet_present")),
             "current_packet_approval_request_recordable": current_packet_approval_request_recordable,
+            "current_packet_user_action_required": current_packet_user_action_required,
+            "current_packet_ref_sha256": bundle_packet_ref_sha256,
+            "current_staged_artifact_ref_sha256": bundle_staged_artifact_ref_sha256,
             "current_packet_matches_packet_artifacts": current_packet_matches_packet_artifacts,
             "approval_outcome_matches_current_packet": bool(
                 operator_surface.get("approval_outcome_matches_current_packet")
@@ -1969,6 +2892,10 @@ def _approval_capture_surface_receipt(
             "telegram_approval_surface_ready": telegram_approval_surface_ready,
             "duplicate_live_pending_callbacks_present": current_packet_duplicate_live_pending_count > 0,
             "manual_outcome_capture_ready": manual_outcome_capture_ready,
+            "callback_hygiene_ready": callback_hygiene_ready,
+            "callback_hygiene_blocking_reason": callback_hygiene_blocking_reason,
+            "callback_hygiene_next_action": callback_hygiene_next_action,
+            **_next_action_surface_fields(callback_hygiene_next_action),
             "source": "docker_compose_exec" if used_live_runtime_probe else "local_filesystem",
             "operator_surface_source": str(operator_surface.get("source") or "").strip(),
         },
@@ -2086,6 +3013,7 @@ def _runtime_artifact_bundle(
     safe_work_result_dir: Path | None,
     allow_live_runtime_probe: bool,
     allow_default_local_artifacts: bool,
+    prefer_browse_backed_delivery: bool = False,
 ) -> tuple[dict[str, Any], bool]:
     use_local_bundle = allow_default_local_artifacts or run_receipt_path is not None or stage_packet_dir is not None or safe_work_result_dir is not None
     local_bundle = (
@@ -2095,82 +3023,77 @@ def _runtime_artifact_bundle(
             receipt_path=run_receipt_path or "",
             stage_packet_dir=stage_packet_dir or "",
             safe_work_result_dir=safe_work_result_dir or "",
-            prefer_browse_backed_delivery=False,
+            prefer_browse_backed_delivery=prefer_browse_backed_delivery,
         )
         if use_local_bundle
         else {}
     )
-    local_complete = bool(local_bundle.get("run_receipt")) and bool(local_bundle.get("stage_packet")) and bool(local_bundle.get("safe_work_result"))
-    if allow_live_runtime_probe:
-        live_report = ea_live_ops.probe_proactive_artifacts(
-            output_format="json",
-            prefer_browse_backed_delivery=False,
-        )
-        if bool(live_report.get("probe_ok")):
-            live_bundle = {
-                "run_receipt_path": _path_from_text(ROOT, str(live_report.get("run_receipt_path") or "")),
-                "run_receipt": dict(live_report.get("run_receipt") or {}),
-                "action_required_only_quiet_receipt_path": _path_from_text(
-                    ROOT,
-                    str(live_report.get("action_required_only_quiet_receipt_path") or ""),
-                ),
-                "action_required_only_quiet_receipt": dict(
-                    live_report.get("action_required_only_quiet_receipt") or {}
-                ),
-                "stage_packet_dir": _path_from_text(ROOT, str(live_report.get("stage_packet_dir") or "")),
-                "safe_work_result_dir": _path_from_text(ROOT, str(live_report.get("safe_work_result_dir") or "")),
-                "approval_outcome_path": _path_from_text(ROOT, str(live_report.get("approval_outcome_path") or "")),
-                "approval_callback_dir": _path_from_text(ROOT, str(live_report.get("approval_callback_dir") or "")),
-                "approval_callback_dir_exists": bool(live_report.get("approval_callback_dir_exists")),
-                "approval_callback_dir_writable": bool(live_report.get("approval_callback_dir_writable")),
-                "approval_callback_record_count": int(live_report.get("approval_callback_record_count") or 0),
-            "approval_callback_pending_count": int(live_report.get("approval_callback_pending_count") or 0),
-            "approval_callback_raw_pending_count": int(live_report.get("approval_callback_raw_pending_count") or live_report.get("approval_callback_pending_count") or 0),
-            "approval_callback_live_pending_count": int(live_report.get("approval_callback_live_pending_count") or live_report.get("approval_callback_pending_count") or 0),
-            "approval_callback_unexpired_pending_count": int(live_report.get("approval_callback_unexpired_pending_count") or 0),
-            "approval_callback_noncurrent_pending_count": int(live_report.get("approval_callback_noncurrent_pending_count") or 0),
-            "approval_callback_stale_pending_count": int(live_report.get("approval_callback_stale_pending_count") or 0),
-            "approval_callback_expired_pending_count": int(live_report.get("approval_callback_expired_pending_count") or 0),
-            "approval_callback_recorded_count": int(live_report.get("approval_callback_recorded_count") or 0),
-            "approval_callback_expired_count": int(live_report.get("approval_callback_expired_count") or 0),
-            "approval_callback_superseded_count": int(live_report.get("approval_callback_superseded_count") or 0),
-            "approval_callback_terminal_count": int(live_report.get("approval_callback_terminal_count") or 0),
-            "current_packet_callback_record_count": int(live_report.get("current_packet_callback_record_count") or 0),
-            "current_packet_callback_pending_count": int(live_report.get("current_packet_callback_pending_count") or 0),
-            "current_packet_callback_raw_pending_count": int(
-                live_report.get("current_packet_callback_raw_pending_count") or live_report.get("current_packet_callback_pending_count") or 0
-            ),
-            "current_packet_callback_stale_pending_count": int(live_report.get("current_packet_callback_stale_pending_count") or 0),
-            "current_packet_callback_expired_pending_count": int(live_report.get("current_packet_callback_expired_pending_count") or 0),
-            "current_packet_callback_recorded_count": int(live_report.get("current_packet_callback_recorded_count") or 0),
-            "current_packet_callback_expired_count": int(live_report.get("current_packet_callback_expired_count") or 0),
-            "current_packet_callback_superseded_count": int(live_report.get("current_packet_callback_superseded_count") or 0),
-            "current_packet_live_callback_record_count": int(live_report.get("current_packet_live_callback_record_count") or 0),
-            "current_packet_live_pending_count": int(live_report.get("current_packet_live_pending_count") or 0),
-            "current_packet_callback_latest_status": str(live_report.get("current_packet_callback_latest_status") or "").strip(),
-            "current_packet_callback_latest_expired": bool(live_report.get("current_packet_callback_latest_expired")),
-            "current_packet_callback_latest_created_at": str(live_report.get("current_packet_callback_latest_created_at") or "").strip(),
-            "current_packet_callback_latest_expires_at": str(live_report.get("current_packet_callback_latest_expires_at") or "").strip(),
-            "current_packet_callback_latest_age_seconds": int(live_report.get("current_packet_callback_latest_age_seconds") or 0),
-            "current_packet_callback_latest_seconds_until_expiry": int(
-                live_report.get("current_packet_callback_latest_seconds_until_expiry") or 0
-            ),
-            "current_packet_callback_outcome": dict(live_report.get("current_packet_callback_outcome") or {}),
-            "stage_packet_path": _path_from_text(ROOT, str(live_report.get("stage_packet_path") or "")),
-            "stage_packet": dict(live_report.get("stage_packet") or {}),
-            "safe_work_result_path": _path_from_text(ROOT, str(live_report.get("safe_work_result_path") or "")),
-            "safe_work_result": dict(live_report.get("safe_work_result") or {}),
-                "approval_outcome": dict(live_report.get("approval_outcome") or {}),
-                "state_path": _path_from_text(ROOT, str(live_report.get("state_path") or "")),
+    effective_timeout = 20.0
+
+    def _live_probe(*, timeout_seconds: float | None = None) -> Mapping[str, Any]:
+        if not allow_live_runtime_probe:
+            return {
+                "probe_ok": False,
+                "status": "probe_disabled",
+                "blocking_reason": "live_runtime_probe_disabled",
             }
-            if not live_bundle["approval_outcome"] and local_bundle.get("approval_outcome"):
-                live_bundle["approval_outcome"] = dict(local_bundle.get("approval_outcome") or {})
-                live_bundle["approval_outcome_path"] = local_bundle.get("approval_outcome_path")
-            if bool(live_bundle["run_receipt"]) or bool(live_bundle["stage_packet"]) or bool(live_bundle["safe_work_result"]):
-                return live_bundle, True
-    if local_complete:
-        return local_bundle, False
-    return local_bundle, False
+        return dict(
+            ea_live_ops.probe_proactive_artifacts(
+                timeout_seconds=float(timeout_seconds or effective_timeout),
+                output_format="json",
+                prefer_browse_backed_delivery=prefer_browse_backed_delivery,
+            )
+            or {}
+        )
+
+    def _bundle_loader(
+        *,
+        root: Path,
+        state_path: str | Path,
+        receipt_path: str | Path = "",
+        stage_packet_dir: str | Path = "",
+        safe_work_result_dir: str | Path = "",
+    ) -> Mapping[str, Any]:
+        if not use_local_bundle:
+            return {}
+        return load_runtime_artifact_bundle(
+            root=root,
+            state_path=state_path,
+            receipt_path=receipt_path,
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+            prefer_browse_backed_delivery=prefer_browse_backed_delivery,
+        )
+
+    resolution = resolve_proactive_ooda_capture_bundle(
+        root=ROOT,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path=run_receipt_path or "",
+        stage_packet_dir=stage_packet_dir or "",
+        safe_work_result_dir=safe_work_result_dir or "",
+        timeout_seconds=effective_timeout,
+        live_probe=_live_probe,
+        bundle_loader=_bundle_loader,
+    )
+    bundle = dict(resolution.get("bundle") or {})
+    for path_key in (
+        "state_path",
+        "run_receipt_path",
+        "action_required_only_quiet_receipt_path",
+        "stage_packet_dir",
+        "safe_work_result_dir",
+        "approval_outcome_path",
+        "approval_callback_dir",
+        "stage_packet_path",
+        "safe_work_result_path",
+    ):
+        if path_key in bundle:
+            bundle[path_key] = _path_from_text(ROOT, str(bundle.get(path_key) or ""))
+    used_live_runtime_probe = str(resolution.get("bundle_source") or "").strip() == "live_runtime"
+    if used_live_runtime_probe and not bundle.get("approval_outcome") and local_bundle.get("approval_outcome"):
+        bundle["approval_outcome"] = dict(local_bundle.get("approval_outcome") or {})
+        bundle["approval_outcome_path"] = local_bundle.get("approval_outcome_path")
+    return bundle, used_live_runtime_probe
 
 
 def _allow_default_local_artifacts(*paths: Path) -> bool:
@@ -2216,7 +3139,13 @@ def materialize_proactive_ooda_gold_acceptance(
 ) -> dict[str, Any]:
     operator_status = _load_json(operator_status_path)
     allow_default_local_artifacts = _allow_default_local_artifacts(output_path, operator_status_path)
-    prefer_live_runtime_probe = bool(allow_live_runtime_probe or _operator_status_prefers_live_runtime_bundle(operator_status))
+    explicit_artifact_input = bool(
+        run_receipt_path is not None or stage_packet_dir is not None or safe_work_result_dir is not None
+    )
+    prefer_live_runtime_probe = bool(
+        allow_live_runtime_probe
+        or (not explicit_artifact_input and _operator_status_prefers_live_runtime_bundle(operator_status))
+    )
     bundle, used_live_runtime_probe = _runtime_artifact_bundle(
         run_receipt_path=run_receipt_path
         if run_receipt_path is not None
@@ -2225,7 +3154,9 @@ def materialize_proactive_ooda_gold_acceptance(
         safe_work_result_dir=safe_work_result_dir,
         allow_live_runtime_probe=prefer_live_runtime_probe,
         allow_default_local_artifacts=allow_default_local_artifacts,
+        prefer_browse_backed_delivery=False,
     )
+    selected_runtime_bundle = dict(bundle)
     run_path = bundle.get("run_receipt_path")
     run_receipt = dict(bundle.get("run_receipt") or {})
     quiet_receipt_path = bundle.get("action_required_only_quiet_receipt_path")
@@ -2264,8 +3195,23 @@ def materialize_proactive_ooda_gold_acceptance(
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
     )
+    current_bundle_approval_followthrough_candidate = bool(
+        not _current_packet_internal_action(
+            stage_packet=stage_packet,
+            safe_work_result=safe_work_result,
+        )
+        and (
+            int(bundle.get("current_packet_live_pending_count") or 0) > 0
+            or int(bundle.get("current_packet_callback_pending_count") or 0) > 0
+            or int(bundle.get("current_packet_callback_record_count") or 0) > 0
+        )
+    )
     selected_bundle_source = "current_runtime_bundle"
-    if not callback_approval_matches_current_packet and not file_approval_matches_current_packet:
+    if (
+        not current_bundle_approval_followthrough_candidate
+        and not callback_approval_matches_current_packet
+        and not file_approval_matches_current_packet
+    ):
         historical_accepted_bundle = _historical_accepted_bundle_from_approval_outcome(
             approval_row=file_approval_row,
             run_receipt_path=run_path if isinstance(run_path, Path) else None,
@@ -2280,6 +3226,7 @@ def materialize_proactive_ooda_gold_acceptance(
                 safe_work_result_dir=resolved_safe_dir if isinstance(resolved_safe_dir, Path) else None,
             )
         if historical_accepted_bundle:
+            selected_runtime_bundle = dict(historical_accepted_bundle)
             selected_bundle_source = str(historical_accepted_bundle.get("selection_source") or "").strip() or "historical_accepted_approval_outcome"
             run_path = historical_accepted_bundle.get("run_receipt_path")
             run_receipt = dict(historical_accepted_bundle.get("run_receipt") or {})
@@ -2302,6 +3249,108 @@ def materialize_proactive_ooda_gold_acceptance(
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
     )
+    _selected_assistant_grade_proof, selected_assistant_grade_present = _assistant_grade_packet_quality_proof(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+        packet_artifacts_match_run_receipt=packet_artifacts_match_run_receipt,
+    )
+    if not selected_assistant_grade_present:
+        browse_backed_bundle, browse_backed_used_live_runtime_probe = _runtime_artifact_bundle(
+            run_receipt_path=run_receipt_path
+            if run_receipt_path is not None
+            else (DEFAULT_RUN_RECEIPT if allow_default_local_artifacts and DEFAULT_RUN_RECEIPT.exists() else None),
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+            allow_live_runtime_probe=prefer_live_runtime_probe,
+            allow_default_local_artifacts=allow_default_local_artifacts,
+            prefer_browse_backed_delivery=True,
+        )
+        used_live_runtime_probe = used_live_runtime_probe or browse_backed_used_live_runtime_probe
+        browse_run_path = browse_backed_bundle.get("run_receipt_path")
+        browse_run_receipt = dict(browse_backed_bundle.get("run_receipt") or {})
+        browse_stage_path = browse_backed_bundle.get("stage_packet_path")
+        browse_stage_packet = dict(browse_backed_bundle.get("stage_packet") or {})
+        browse_safe_path = browse_backed_bundle.get("safe_work_result_path")
+        browse_safe_work_result = dict(browse_backed_bundle.get("safe_work_result") or {})
+        browse_packet_artifacts_match_run_receipt = _run_receipt_matches_packet_artifacts(
+            run_receipt=browse_run_receipt,
+            stage_packet=browse_stage_packet,
+            safe_work_result=browse_safe_work_result,
+        )
+        assistant_grade_browse_bundle: dict[str, Any] = {}
+        _browse_assistant_grade_proof, browse_assistant_grade_present = _assistant_grade_packet_quality_proof(
+            stage_packet=browse_stage_packet,
+            safe_work_result=browse_safe_work_result,
+            packet_artifacts_match_run_receipt=browse_packet_artifacts_match_run_receipt,
+        )
+        if not browse_assistant_grade_present:
+            assistant_grade_browse_bundle = _historical_assistant_grade_browse_bundle_from_runtime_paths(
+                state_path=browse_backed_bundle.get("state_path") if isinstance(browse_backed_bundle.get("state_path"), Path) else None,
+                run_receipt_path=browse_run_path
+                if isinstance(browse_run_path, Path)
+                else (
+                    run_receipt_path
+                    if run_receipt_path is not None
+                    else (DEFAULT_RUN_RECEIPT if allow_default_local_artifacts and DEFAULT_RUN_RECEIPT.exists() else None)
+                ),
+                stage_packet_dir=browse_backed_bundle.get("stage_packet_dir")
+                if isinstance(browse_backed_bundle.get("stage_packet_dir"), Path)
+                else stage_packet_dir,
+                safe_work_result_dir=browse_backed_bundle.get("safe_work_result_dir")
+                if isinstance(browse_backed_bundle.get("safe_work_result_dir"), Path)
+                else safe_work_result_dir,
+            )
+            if not assistant_grade_browse_bundle and used_live_runtime_probe:
+                assistant_grade_browse_bundle = _live_historical_assistant_grade_browse_bundle_from_runtime_paths(
+                    run_receipt_path=browse_run_path if isinstance(browse_run_path, Path) else None,
+                    stage_packet_dir=browse_backed_bundle.get("stage_packet_dir")
+                    if isinstance(browse_backed_bundle.get("stage_packet_dir"), Path)
+                    else (resolved_stage_dir if isinstance(resolved_stage_dir, Path) else None),
+                    safe_work_result_dir=browse_backed_bundle.get("safe_work_result_dir")
+                    if isinstance(browse_backed_bundle.get("safe_work_result_dir"), Path)
+                    else (resolved_safe_dir if isinstance(resolved_safe_dir, Path) else None),
+                )
+            if assistant_grade_browse_bundle:
+                browse_run_path = assistant_grade_browse_bundle.get("run_receipt_path")
+                browse_run_receipt = dict(assistant_grade_browse_bundle.get("run_receipt") or {})
+                browse_stage_path = assistant_grade_browse_bundle.get("stage_packet_path")
+                browse_stage_packet = dict(assistant_grade_browse_bundle.get("stage_packet") or {})
+                browse_safe_path = assistant_grade_browse_bundle.get("safe_work_result_path")
+                browse_safe_work_result = dict(assistant_grade_browse_bundle.get("safe_work_result") or {})
+                browse_packet_artifacts_match_run_receipt = _run_receipt_matches_packet_artifacts(
+                    run_receipt=browse_run_receipt,
+                    stage_packet=browse_stage_packet,
+                    safe_work_result=browse_safe_work_result,
+                )
+                _browse_assistant_grade_proof, browse_assistant_grade_present = _assistant_grade_packet_quality_proof(
+                    stage_packet=browse_stage_packet,
+                    safe_work_result=browse_safe_work_result,
+                    packet_artifacts_match_run_receipt=browse_packet_artifacts_match_run_receipt,
+                )
+        if browse_assistant_grade_present:
+            selected_runtime_bundle = dict(assistant_grade_browse_bundle or browse_backed_bundle)
+            selected_bundle_source = str(
+                browse_backed_bundle.get("selection_source")
+                or assistant_grade_browse_bundle.get("selection_source")
+                or "historical_browse_backed_proof_bundle"
+            ).strip()
+            run_path = browse_run_path
+            run_receipt = browse_run_receipt
+            stage_path = browse_stage_path
+            stage_packet = browse_stage_packet
+            safe_path = browse_safe_path
+            safe_work_result = browse_safe_work_result
+            file_approval_matches_current_packet = _approval_outcome_matches_packet_artifacts(
+                approval_row=file_approval_row,
+                stage_packet=stage_packet,
+                safe_work_result=safe_work_result,
+            )
+            callback_approval_matches_current_packet = _approval_outcome_matches_packet_artifacts(
+                approval_row=callback_approval_row,
+                stage_packet=stage_packet,
+                safe_work_result=safe_work_result,
+            )
+            packet_artifacts_match_run_receipt = browse_packet_artifacts_match_run_receipt
     approval_row_source = "approval_outcome_artifact"
     approval_row = file_approval_row
     if not file_approval_matches_current_packet and callback_approval_matches_current_packet:
@@ -2312,25 +3361,147 @@ def materialize_proactive_ooda_gold_acceptance(
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
     )
+    approval_outcome_stale_for_current_packet = bool(approval_row.get("stale_for_current_packet"))
     approval_artifact_matches_current_packet = file_approval_matches_current_packet or callback_approval_matches_current_packet
     approval_capture_surface, approval_capture_surface_ready = _approval_capture_surface_receipt(
         operator_status=operator_status,
-        bundle=bundle,
+        bundle=selected_runtime_bundle,
         approval_outcome_path=resolved_approval_outcome_path,
         used_live_runtime_probe=used_live_runtime_probe,
     )
+    if selected_bundle_source != "current_runtime_bundle":
+        operator_current_surface = dict(operator_status.get("approval_capture_surface") or {})
+        if operator_current_surface:
+            approval_capture_surface["callback_hygiene_ready"] = bool(
+                operator_current_surface.get("callback_hygiene_ready", True)
+            )
+            approval_capture_surface["callback_hygiene_blocking_reason"] = str(
+                operator_current_surface.get("callback_hygiene_blocking_reason") or ""
+            ).strip()
+            approval_capture_surface["callback_hygiene_next_action"] = str(
+                operator_current_surface.get("callback_hygiene_next_action") or ""
+            ).strip()
+            approval_capture_surface["callback_noncurrent_pending_count"] = int(
+                operator_current_surface.get("callback_noncurrent_pending_count") or 0
+            )
+            approval_capture_surface["callback_stale_pending_count"] = int(
+                operator_current_surface.get("callback_stale_pending_count") or 0
+            )
+            approval_capture_surface["callback_expired_pending_count"] = int(
+                operator_current_surface.get("callback_expired_pending_count") or 0
+            )
+            approval_capture_surface["current_packet_callback_stale_pending_count"] = int(
+                operator_current_surface.get("current_packet_callback_stale_pending_count") or 0
+            )
+            approval_capture_surface["current_packet_duplicate_live_pending_count"] = int(
+                operator_current_surface.get("current_packet_duplicate_live_pending_count") or 0
+            )
+            approval_capture_surface.update(
+                _next_action_surface_fields(
+                    str(approval_capture_surface.get("callback_hygiene_next_action") or "").strip()
+                )
+            )
     approval_capture_telegram_ready = bool(approval_capture_surface.get("telegram_approval_surface_ready"))
     approval_capture_manual_ready = bool(approval_capture_surface.get("manual_outcome_capture_ready"))
     approval_capture_surface_matches_packet_artifacts = bool(
         approval_capture_surface.get("current_packet_matches_packet_artifacts")
     )
-    approval_capture_readiness_required = approval_capture_surface_ready and not bool(approval_row.get("approval_outcome_recorded"))
+    approval_callback_hygiene_ready = bool(approval_capture_surface.get("callback_hygiene_ready", True))
+    approval_callback_hygiene_detail = {
+        "approval_callback_hygiene_ready": approval_callback_hygiene_ready,
+        "approval_callback_hygiene_blocking_reason": str(
+            approval_capture_surface.get("callback_hygiene_blocking_reason") or ""
+        ).strip(),
+        "approval_callback_hygiene_next_action": str(
+            approval_capture_surface.get("callback_hygiene_next_action") or ""
+        ).strip(),
+        "approval_callback_noncurrent_pending_count": int(
+            approval_capture_surface.get("callback_noncurrent_pending_count") or 0
+        ),
+        "approval_callback_stale_pending_count": int(
+            approval_capture_surface.get("callback_stale_pending_count") or 0
+        ),
+        "current_packet_callback_stale_pending_count": int(
+            approval_capture_surface.get("current_packet_callback_stale_pending_count") or 0
+        ),
+        "current_packet_duplicate_live_pending_count": int(
+            approval_capture_surface.get("current_packet_duplicate_live_pending_count") or 0
+        ),
+        **_next_action_surface_fields(str(approval_capture_surface.get("callback_hygiene_next_action") or "").strip()),
+    }
+    pre_capture_gmail_draft_auto_execute_present = bool(
+        _matching_auto_execute_results(
+            run_receipt=run_receipt,
+            stage_packet=stage_packet,
+            safe_work_result=safe_work_result,
+            action="save_gmail_draft",
+            status="executed",
+        )
+    )
+    pre_capture_stage_approval = dict(stage_packet.get("approval") or {})
+    pre_capture_safe_work_approval = dict(safe_work_result.get("approval") or {})
+    pre_capture_approval_required = bool(
+        pre_capture_stage_approval.get("required") or pre_capture_safe_work_approval.get("required")
+    )
+    pre_capture_delivery_mirror = dict(run_receipt.get("delivery_mirror") or {})
+    pre_capture_operator_safe_mirror = bool(
+        str(run_receipt.get("notification_status") or "").strip() == "deferred"
+        and str(run_receipt.get("error_code") or "").strip() == "mirrored_delivery_proof"
+        and bool(pre_capture_delivery_mirror.get("enabled"))
+        and str(pre_capture_delivery_mirror.get("mode") or "").strip() == "operator_safe_mirror"
+        and bool(pre_capture_delivery_mirror.get("user_notification_suppressed"))
+    )
+    selected_bundle_is_current = selected_bundle_source == "current_runtime_bundle"
+    approval_capture_surface_has_current_packet_context = bool(
+        approval_capture_surface_matches_packet_artifacts
+        or bool(approval_capture_surface.get("current_packet_user_action_required"))
+        or bool(approval_capture_surface.get("current_packet_approval_request_recordable"))
+        or int(approval_capture_surface.get("current_packet_callback_record_count") or 0) > 0
+        or int(approval_capture_surface.get("current_packet_live_pending_count") or 0) > 0
+    )
+    approval_capture_readiness_required = bool(
+        approval_capture_surface.get("present")
+        and not bool(approval_row.get("approval_outcome_recorded"))
+        and not pre_capture_operator_safe_mirror
+        and (
+            pre_capture_gmail_draft_auto_execute_present
+            or (
+                selected_bundle_is_current
+                and (approval_capture_surface_has_current_packet_context or pre_capture_approval_required)
+            )
+        )
+    )
     approval_capture_readiness_proof, approval_capture_readiness_present = _approval_capture_readiness_proof(
         operator_status=operator_status,
         approval_capture_surface=approval_capture_surface,
         required=approval_capture_readiness_required,
         approval_outcome_recorded=bool(approval_row.get("approval_outcome_recorded")),
         approval_outcome_matches_selected_packet=approval_artifact_matches_current_packet,
+    )
+    approval_capture_readiness_ready = bool(approval_capture_readiness_proof.get("ready"))
+    approval_capture_effective_telegram_ready = bool(
+        approval_capture_readiness_required
+        and (
+            (approval_capture_surface_ready and approval_capture_telegram_ready)
+            or approval_capture_readiness_proof.get("live_callback_present")
+        )
+    )
+    approval_capture_effective_manual_ready = bool(
+        approval_capture_readiness_required
+        and (
+            (approval_capture_surface_ready and approval_capture_manual_ready)
+            or approval_capture_readiness_proof.get("manual_capture_present")
+        )
+    )
+    approval_capture_effective_surface_ready = bool(
+        (approval_capture_readiness_required and approval_capture_surface_ready)
+        or approval_capture_effective_telegram_ready
+        or approval_capture_effective_manual_ready
+    )
+    approval_outcome_capture_ready = bool(
+        approval_capture_readiness_required
+        and approval_capture_effective_surface_ready
+        and approval_capture_readiness_ready
     )
 
     delivery_route = dict(operator_status.get("delivery_route") or {})
@@ -2364,28 +3535,37 @@ def materialize_proactive_ooda_gold_acceptance(
         and safe_work_audit_ready
         and current_artifact_filter_ready
         and suppressed_projection_ready
+        and approval_callback_hygiene_ready
     )
-    operator_runtime_next_action = _operator_runtime_next_action(
-        operator_status,
-        stage_packet=stage_packet,
-        safe_work_result=safe_work_result,
+    operator_runtime_next_action = (
+        str(approval_callback_hygiene_detail.get("approval_callback_hygiene_next_action") or "").strip()
+        if not approval_callback_hygiene_ready
+        else ""
     )
+    if not operator_runtime_next_action:
+        operator_runtime_next_action = _operator_runtime_next_action(
+            operator_status,
+            stage_packet=stage_packet,
+            safe_work_result=safe_work_result,
+        )
     operator_runtime_proof = _proof_row(
         present=operator_runtime_ready,
         detail={
             "status": operator_status_state,
             "reason": str(operator_status.get("reason") or "").strip(),
-            "next_action": operator_runtime_next_action,
             **operator_status_source_detail,
             **source_coverage_detail,
             **context_grounding_detail,
             **safe_work_audit_detail,
             **current_artifact_filter_detail,
             **suppressed_projection_detail,
+            **approval_callback_hygiene_detail,
+            "next_action": operator_runtime_next_action,
             **_next_action_surface_fields(operator_runtime_next_action),
             "path": display_path(ROOT, operator_status_path),
         },
     )
+    live_receipt_delivery_errors = _live_receipt_blocking_delivery_errors(live_receipt)
     packet_run_sent = str(run_receipt.get("notification_status") or "").strip() == "sent" and int(run_receipt.get("item_count") or 0) > 0
     delivery_mirror = dict(run_receipt.get("delivery_mirror") or {})
     mirrored_delivery_present = (
@@ -2402,9 +3582,16 @@ def materialize_proactive_ooda_gold_acceptance(
     sent_delivery_present = (
         bool(operator_status.get("delivery_route_ready"))
         and bool(operator_status.get("live_receipt_checked"))
-        and bool(live_receipt.get("ok"))
         and packet_run_sent
         and packet_artifacts_match_run_receipt
+        and not live_receipt_delivery_errors
+        and (
+            bool(live_receipt.get("ok"))
+            or
+            str(live_receipt.get("delivery_mode") or "").strip() == "telegram_sent"
+            or bool(live_receipt.get("archived_sent_receipt_used"))
+            or str(live_receipt.get("notification_status") or "").strip() == "sent"
+        )
     )
     delivery_present = bool(sent_delivery_present or mirrored_delivery_present)
     delivery_proof = _proof_row(
@@ -2417,6 +3604,9 @@ def materialize_proactive_ooda_gold_acceptance(
             "route_ready": bool(operator_status.get("delivery_route_ready")),
             "live_receipt_checked": bool(operator_status.get("live_receipt_checked")),
             "live_receipt_ok": bool(live_receipt.get("ok")),
+            "live_receipt_delivery_mode": str(live_receipt.get("delivery_mode") or "").strip(),
+            "live_receipt_archived_sent_receipt_used": bool(live_receipt.get("archived_sent_receipt_used")),
+            "live_receipt_blocking_delivery_errors": live_receipt_delivery_errors,
             "live_receipt_path": str(live_receipt.get("receipt_path") or "").strip(),
             "run_notification_status": str(run_receipt.get("notification_status") or "").strip(),
             "run_error_code": str(run_receipt.get("error_code") or "").strip(),
@@ -2611,7 +3801,15 @@ def materialize_proactive_ooda_gold_acceptance(
         packet_artifacts_match_run_receipt=packet_artifacts_match_run_receipt,
     )
 
-    teable_sync = dict(run_receipt.get("teable_sync") or {})
+    approval_outcome_teable_sync = (
+        dict(file_approval_row.get("teable_sync") or {})
+        if file_approval_matches_current_packet
+        else {}
+    )
+    teable_sync = _merge_teable_sync_receipts(
+        dict(run_receipt.get("teable_sync") or {}),
+        approval_outcome_teable_sync,
+    )
     projection_summary = dict(teable_sync.get("projection_summary") or {})
     projection_tables = dict(projection_summary.get("tables") or {})
     packet_projection_present = any(
@@ -2628,7 +3826,7 @@ def materialize_proactive_ooda_gold_acceptance(
         and packet_artifacts_match_run_receipt
         and int(run_receipt.get("item_count") or 0) > 0
         and packet_projection_present
-        and (not approval_capture_telegram_ready or approval_surface_projection_present)
+        and (not approval_capture_effective_telegram_ready or approval_surface_projection_present)
     )
     teable_proof = _proof_row(
         present=teable_present,
@@ -2640,9 +3838,15 @@ def materialize_proactive_ooda_gold_acceptance(
             "projection_record_count": int(projection_summary.get("record_count") or 0),
             "packet_projection_present": packet_projection_present,
             "approval_capture_surface_ready": approval_capture_surface_ready,
-            "approval_capture_telegram_surface_ready": approval_capture_telegram_ready,
+            "approval_capture_telegram_surface_ready": approval_capture_effective_telegram_ready,
             "approval_capture_manual_outcome_capture_ready": approval_capture_manual_ready,
             "approval_surface_projection_present": approval_surface_projection_present,
+            "approval_outcome_sync_attempted": bool(approval_outcome_teable_sync.get("sync_attempted")),
+            "approval_outcome_teable_status": str(approval_outcome_teable_sync.get("status") or "").strip(),
+            "approval_outcome_projection_record_count": int(
+                dict(approval_outcome_teable_sync.get("projection_summary") or {}).get("record_count") or 0
+            ),
+            "approval_outcome_current_packet_match": file_approval_matches_current_packet,
             "packet_artifacts_match_run_receipt": packet_artifacts_match_run_receipt,
             "missing_tables": [
                 str(item or "").strip()
@@ -2674,12 +3878,52 @@ def materialize_proactive_ooda_gold_acceptance(
         status = "blocked_missing_proactive_packet_evidence"
     elif runtime_proofs_complete and bool(approval_row.get("approval_outcome_recorded")):
         status = "blocked_not_accepted_under_ordinary_use"
-    elif runtime_proofs_complete:
+    elif runtime_proofs_complete and approval_outcome_capture_ready:
         status = "ready_for_approval_outcome_capture"
     else:
         status = "blocked_missing_proactive_packet_evidence"
+    operator_action_required_dedupe_proof = _operator_action_required_dedupe_proof_row(
+        DEFAULT_OPERATOR_ACTION_REQUIRED_DEDUPE_PROOF
+    )
+    operator_action_required_digest = _operator_action_required_digest_row(
+        DEFAULT_OPERATOR_ACTION_REQUIRED_DIGEST,
+        dedupe_proof=operator_action_required_dedupe_proof,
+    )
+    approval_followthrough_prompt_required = (
+        status == "ready_for_approval_outcome_capture" and approval_capture_effective_telegram_ready
+    )
+    approval_followthrough_prompt_sent = bool(operator_action_required_digest.get("approval_followthrough_prompt_sent"))
+    approval_followthrough_proof = _proof_row(
+        present=(not approval_followthrough_prompt_required) or approval_followthrough_prompt_sent,
+        detail={
+            "required_for_current_status": approval_followthrough_prompt_required,
+            "approval_followthrough_prompt_sent": approval_followthrough_prompt_sent,
+            "approval_followthrough_prompt_covered_by_prior_send": bool(
+                operator_action_required_digest.get("approval_followthrough_prompt_covered_by_prior_send")
+            ),
+            "targeted_action_present": bool(operator_action_required_digest.get("targeted_action_present")),
+            "notification_status": str(operator_action_required_digest.get("notification_status") or "").strip(),
+            "notification_item_count": int(operator_action_required_digest.get("notification_item_count") or 0),
+            "message_count": int(operator_action_required_digest.get("message_count") or 0),
+            "send_attempted": bool(operator_action_required_digest.get("send_attempted")),
+            "send_requested": bool(operator_action_required_digest.get("send_requested")),
+            "dedupe_proof_status": str(operator_action_required_digest.get("dedupe_proof_status") or "").strip(),
+            "current_actions_covered_by_prior_state": bool(
+                operator_action_required_digest.get("current_actions_covered_by_prior_state")
+            ),
+            "dedupe_state_message_id_count": int(
+                operator_action_required_digest.get("dedupe_state_message_id_count") or 0
+            ),
+            "quiet_hours_respected": bool(operator_action_required_digest.get("quiet_hours_respected")),
+            "telegram_push_allowed": bool(operator_action_required_digest.get("telegram_push_allowed")),
+            "raw_chat_ids_exposed": False,
+            "raw_private_context_exposed": False,
+            "raw_token_exposed": False,
+        },
+    )
     next_action = _next_action(
         operator_runtime_ready=operator_runtime_ready,
+        operator_runtime_next_action=operator_runtime_next_action,
         operator_status=operator_status,
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
@@ -2692,10 +3936,12 @@ def materialize_proactive_ooda_gold_acceptance(
         staged_present=staged_present,
         teable_present=teable_present,
         approval_capture_readiness_present=approval_capture_readiness_present,
+        approval_capture_readiness_ready=approval_capture_readiness_ready,
+        approval_capture_required=approval_capture_readiness_required,
         approval_row=approval_row,
-        approval_capture_surface_ready=approval_capture_surface_ready,
-        approval_capture_telegram_ready=approval_capture_telegram_ready,
-        approval_capture_manual_ready=approval_capture_manual_ready,
+        approval_capture_surface_ready=approval_capture_effective_surface_ready,
+        approval_capture_telegram_ready=approval_capture_effective_telegram_ready,
+        approval_capture_manual_ready=approval_capture_effective_manual_ready,
         approval_capture_surface_matches_packet_artifacts=approval_capture_surface_matches_packet_artifacts,
     )
 
@@ -2711,9 +3957,11 @@ def materialize_proactive_ooda_gold_acceptance(
         "status": status,
         "summary": _summary_for_status(
             status,
-            approval_capture_surface_ready=approval_capture_surface_ready,
-            approval_capture_telegram_ready=approval_capture_telegram_ready,
-            approval_capture_manual_ready=approval_capture_manual_ready,
+            approval_capture_surface_ready=approval_capture_effective_surface_ready,
+            approval_capture_telegram_ready=approval_capture_effective_telegram_ready,
+            approval_capture_manual_ready=approval_capture_effective_manual_ready,
+            approval_followthrough_prompt_sent=approval_followthrough_prompt_sent,
+            approval_outcome_stale_for_current_packet=approval_outcome_stale_for_current_packet,
         ),
         "selected_bundle_source": selected_bundle_source,
         "next_action": next_action,
@@ -2731,6 +3979,7 @@ def materialize_proactive_ooda_gold_acceptance(
             "staged_reversible_artifact": staged_proof,
             "teable_projection": teable_proof,
             "approval_capture_readiness": approval_capture_readiness_proof,
+            "approval_followthrough_notification": approval_followthrough_proof,
             "approval_outcome": approval_row,
         },
         "evidence_receipts": {
@@ -2762,6 +4011,8 @@ def materialize_proactive_ooda_gold_acceptance(
                 "status": str(safe_work_result.get("status") or "").strip(),
                 "source": "docker_compose_exec" if used_live_runtime_probe else "local_filesystem",
             },
+            "operator_action_required_digest": operator_action_required_digest,
+            "operator_action_required_dedupe_proof": operator_action_required_dedupe_proof,
             "approval_outcome": {
                 "present": bool(approval_row.get("present")),
                 "artifact_present": bool(runtime_approval_outcome or callback_approval_outcome),
@@ -2779,6 +4030,9 @@ def materialize_proactive_ooda_gold_acceptance(
                 "approval_outcome_source": approval_row_source,
                 "approval_outcome_recorded": bool(approval_row.get("approval_outcome_recorded")),
                 "accepted": bool(approval_row.get("accepted")),
+                "current_packet_status": str(approval_row.get("status") or "").strip(),
+                "current_packet_match": bool(approval_row.get("current_packet_match")),
+                "stale_for_current_packet": approval_outcome_stale_for_current_packet,
                 "selected_bundle_source": selected_bundle_source,
                 "packet_artifacts_match_current_packet": approval_artifact_matches_current_packet,
                 "source": "docker_compose_exec" if used_live_runtime_probe else "local_filesystem",
@@ -2796,9 +4050,12 @@ def materialize_proactive_ooda_gold_acceptance(
             chosen_present=chosen_present,
             staged_present=staged_present,
             teable_present=teable_present,
-            approval_capture_readiness_present=approval_capture_readiness_present,
-            approval_row=approval_row,
-        ),
+        approval_capture_readiness_present=approval_capture_readiness_present,
+        approval_capture_readiness_ready=approval_capture_readiness_ready,
+        approval_capture_required=approval_capture_readiness_required,
+        selected_bundle_is_current=selected_bundle_is_current,
+        approval_row=approval_row,
+    ),
         "verifier_commands": [
             "make verify-proactive-ooda",
             "make verify-proactive-ooda-live-receipt",

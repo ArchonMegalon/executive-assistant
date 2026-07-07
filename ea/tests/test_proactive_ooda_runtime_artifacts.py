@@ -112,6 +112,50 @@ def _property_candidate_safe_work_result() -> dict[str, object]:
     }
 
 
+def _property_scope_callback(*, packet_ref: str, staged_artifact_ref: str) -> dict[str, object]:
+    return {
+        "schema": "ea.proactive_ooda_telegram_approval_callback.v1",
+        "callback_token": "property-callback",
+        "created_at": "2026-07-01T12:00:00Z",
+        "expires_at": "2026-07-07T12:00:00Z",
+        "status": "pending",
+        "packet_ref": packet_ref,
+        "staged_artifact_ref": staged_artifact_ref,
+    }
+
+
+def _internal_action_stage_packet() -> dict[str, object]:
+    return {
+        "schema": proactive_ooda_runtime_artifacts.STAGE_PACKET_SCHEMA,
+        "packet_ref": "stage_packet:google-setup",
+        "generated_at": "2026-07-01T08:00:00+00:00",
+        "stage": {
+            "kind": "internal_action",
+            "summary": "Action needed: Google Workspace OAuth test-user setup.",
+            "payload": {
+                "work_type": "record_internal_action",
+                "request_text": "Open Google setup and add the work account as a test user.",
+            },
+        },
+        "approval": {"required": True},
+    }
+
+
+def _internal_action_safe_work_result() -> dict[str, object]:
+    return {
+        "schema": proactive_ooda_runtime_artifacts.SAFE_WORK_RESULT_SCHEMA,
+        "result_ref": "safe_work_result:google-setup",
+        "generated_at": "2026-07-01T08:00:01+00:00",
+        "status": "staged_for_user_decision",
+        "work_type": "record_internal_action",
+        "summary": "Action needed: Google Workspace OAuth test-user setup.",
+        "approval_prompt": "Open Google setup and add the work account as a test user.",
+        "staged_action_url": "https://myexternalbrain.com/integrations/google",
+        "approval": {"required": True},
+        "audit": {"status": "pass", "issues": []},
+    }
+
+
 def test_disabled_flat_search_filters_current_runtime_property_candidate_artifact(
     monkeypatch: object,
     tmp_path: Path,
@@ -164,6 +208,66 @@ def test_property_candidate_artifacts_stay_filtered_even_when_feature_flag_is_on
     assert bundle["artifact_filter_reason"] == "flat_search_disabled_property_scout"
     assert bundle["stage_packet"] == {}
     assert bundle["safe_work_result"] == {}
+
+
+def test_property_callback_metadata_is_counted_as_property_scoped_in_summary(monkeypatch: object, tmp_path: Path) -> None:
+    stage_dir = tmp_path / "stage"
+    safe_dir = tmp_path / "safe"
+    state_dir = tmp_path / "state"
+    callback_dir = state_dir / "proactive_ooda_approval_callbacks"
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_json(stage_dir / "stage.json", _property_candidate_stage_packet())
+    _write_json(safe_dir / "safe.json", _property_candidate_safe_work_result())
+    _write_json(
+        callback_dir / "callback.json",
+        _property_scope_callback(
+            packet_ref="stage_packet:property-candidates",
+            staged_artifact_ref="safe_work_result:property-candidates",
+        ),
+    )
+
+    bundle = proactive_ooda_runtime_artifacts.load_runtime_artifact_bundle(
+        root=tmp_path,
+        state_path=str(state_dir / "proactive_ooda_notified.json"),
+        stage_packet_dir=stage_dir,
+        safe_work_result_dir=safe_dir,
+    )
+
+    assert bundle["artifact_filter_reason"] == "flat_search_disabled_property_scout"
+    assert bundle["approval_callback_property_scoped_pending_count"] == 1
+    assert bundle["approval_callback_stale_property_pending_count"] >= 1
+
+
+def test_internal_action_callbacks_do_not_count_as_current_pending_approval_surface(tmp_path: Path) -> None:
+    stage_dir = tmp_path / "stage"
+    safe_dir = tmp_path / "safe"
+    state_dir = tmp_path / "state"
+    callback_dir = state_dir / "proactive_ooda_approval_callbacks"
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+    stage_packet = _internal_action_stage_packet()
+    safe_work_result = _internal_action_safe_work_result()
+    _write_json(stage_dir / "stage.json", stage_packet)
+    _write_json(safe_dir / "safe.json", safe_work_result)
+    _write_json(
+        callback_dir / "callback.json",
+        _property_scope_callback(
+            packet_ref=str(stage_packet["packet_ref"]),
+            staged_artifact_ref=str(safe_work_result["result_ref"]),
+        ),
+    )
+
+    bundle = proactive_ooda_runtime_artifacts.load_runtime_artifact_bundle(
+        root=tmp_path,
+        state_path=str(state_dir / "proactive_ooda_notified.json"),
+        stage_packet_dir=stage_dir,
+        safe_work_result_dir=safe_dir,
+    )
+
+    assert bundle["current_packet_callback_pending_count"] == 0
+    assert bundle["current_packet_live_pending_count"] == 0
+    assert bundle["approval_callback_raw_pending_count"] == 1
 
 
 def test_property_safe_work_is_not_teable_projectable_even_when_feature_flag_is_on(monkeypatch: object) -> None:
@@ -246,3 +350,91 @@ def test_runtime_artifacts_prefer_delivered_browse_backed_receipt_over_newer_int
     assert proof_bundle["safe_work_result"]["result_ref"] == "safe_work_result:browse"
     execution = proof_bundle["safe_work_result"]["execution_receipt"]
     assert execution["network_fetch_success_count"] == 1
+
+
+def test_runtime_artifacts_prefer_assistant_grade_browse_packet_over_newer_internal_action_for_proof(
+    tmp_path: Path,
+) -> None:
+    stage_dir = tmp_path / "stage"
+    safe_dir = tmp_path / "safe"
+    run_dir = tmp_path / "state" / proactive_ooda_runtime_artifacts.RUN_RECEIPT_DIRNAME
+    primary_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+
+    browse_stage = {
+        **_stage_packet("stage_packet:browse-decision"),
+        "stage": {"kind": "decision_packet", "summary": "Stage one reversible next step."},
+    }
+    browse_safe = _safe_work_result(
+        "safe_work_result:browse-decision",
+        network_fetch_success_count=1,
+        recommended_label="Verified vendor",
+    )
+    internal_stage = {
+        **_stage_packet("stage_packet:internal-op"),
+        "stage": {"kind": "internal_action", "summary": "Record operator action."},
+        "safe_work_order": {"work_type": "record_internal_action"},
+    }
+    internal_safe = _safe_work_result(
+        "safe_work_result:internal-op",
+        network_fetch_success_count=1,
+        recommended_label="Record internal action",
+    )
+    browse_safe["source_packet_ref_hash"] = _sha256(str(browse_stage["packet_ref"]))
+    internal_safe["source_packet_ref_hash"] = _sha256(str(internal_stage["packet_ref"]))
+    _write_json(stage_dir / "browse-decision.json", browse_stage)
+    _write_json(safe_dir / "browse-decision.json", browse_safe)
+    _write_json(stage_dir / "internal-op.json", internal_stage)
+    _write_json(safe_dir / "internal-op.json", internal_safe)
+
+    browse_receipt = run_dir / "20260629T082402_159262_0000-deferred-browse.json"
+    internal_receipt = run_dir / "20260703T092744_575415_0000-failed-internal.json"
+    _write_json(
+        primary_receipt_path,
+        {
+            "notification_status": "skipped_no_items",
+            "item_count": 0,
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "stage_packet_ref_hashes": [],
+            "safe_work_result_ref_hashes": [],
+            "telegram_message_ids": [],
+        },
+    )
+    _write_json(
+        browse_receipt,
+        {
+            "notification_status": "deferred",
+            "item_count": 1,
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "stage_packet_ref_hashes": [_sha256(str(browse_stage["packet_ref"]))],
+            "safe_work_result_ref_hashes": [_sha256(str(browse_safe["result_ref"]))],
+            "telegram_message_ids": [],
+        },
+    )
+    _write_json(
+        internal_receipt,
+        {
+            "notification_status": "failed",
+            "item_count": 1,
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "stage_packet_ref_hashes": [_sha256(str(internal_stage["packet_ref"]))],
+            "safe_work_result_ref_hashes": [_sha256(str(internal_safe["result_ref"]))],
+            "telegram_message_ids": [],
+        },
+    )
+    os.utime(browse_receipt, (1000, 1000))
+    os.utime(internal_receipt, (2000, 2000))
+
+    proof_bundle = proactive_ooda_runtime_artifacts.load_runtime_artifact_bundle(
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        stage_packet_dir=stage_dir,
+        safe_work_result_dir=safe_dir,
+        prefer_browse_backed_delivery=True,
+    )
+
+    assert proof_bundle["run_receipt_path"] == browse_receipt
+    assert proof_bundle["stage_packet"]["packet_ref"] == "stage_packet:browse-decision"
+    assert proof_bundle["safe_work_result"]["result_ref"] == "safe_work_result:browse-decision"

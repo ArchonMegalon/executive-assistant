@@ -3,9 +3,12 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import logging
 import subprocess
 import sys
+import urllib.error
 from argparse import Namespace
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -97,6 +100,22 @@ def test_docker_compose_exec_json_defaults_to_ea_project(monkeypatch) -> None:
     assert observed["timeout"] == 12.0
 
 
+def test_proactive_runtime_inputs_default_to_repo_state_on_host(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.delenv("EA_PROACTIVE_OODA_STATE_PATH", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_RECEIPT_PATH", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR", raising=False)
+    monkeypatch.setattr(module, "_proactive_runtime_root", lambda: Path("/docker/EA"))
+
+    inputs = module._proactive_runtime_inputs()
+
+    assert inputs["state_path"] == "/docker/EA/state/proactive_ooda_notified.json"
+    assert inputs["receipt_path"] == "/docker/EA/state/proactive_ooda_latest_run.generated.json"
+    assert inputs["stage_packet_dir"] == "/docker/EA/state/proactive_ooda_stage_packets"
+    assert inputs["safe_work_result_dir"] == "/docker/EA/state/proactive_ooda_safe_work_results"
+
+
 def test_docker_compose_exec_json_reports_timeout_payload(monkeypatch) -> None:
     module = _module()
 
@@ -175,7 +194,7 @@ def test_proactive_source_coverage_report_classifies_sources_without_raw_payload
         observation_limit=50,
     )
 
-    assert report["status"] == "ready"
+    assert report["status"] == "repaired"
     assert report["observation_row_count"] == 3
     assert report["observed_lane_count"] == report["lane_count"]
     assert report["missing_lane_keys"] == []
@@ -300,6 +319,137 @@ def test_probe_provider_unmixr_prefers_runtime_container_preflight(monkeypatch) 
     assert report["raw"]["preflight_status"] == "warn"
 
 
+def test_probe_provider_pushbullet_reports_missing_setup_without_raw_secrets(monkeypatch) -> None:
+    module = _module()
+    observed: dict[str, object] = {}
+
+    def _fake_build_receipt(*, probe_live: bool, timeout_seconds: float, required_clients=()):  # type: ignore[no-untyped-def]
+        observed["probe_live"] = probe_live
+        observed["timeout_seconds"] = timeout_seconds
+        observed["required_clients"] = tuple(required_clients or ())
+        return {
+            "status": "blocked_setup_required",
+            "generated_at": "2026-07-02T20:10:00Z",
+            "generated_by": "scripts/materialize_pushbullet_delivery_readiness.py",
+            "provider": "pushbullet",
+            "account_label": "default(missing)",
+            "account_label_basis": "default_client_missing",
+            "client_count": 1,
+            "multi_client_expected": True,
+            "required_client_keys": ["default", "elisabeth"],
+            "client_coverage": {
+                "configured_client_count": 1,
+                "configured_required_client_count": 1,
+                "token_present_required_client_count": 0,
+                "missing_client_keys": ["default"],
+                "missing_token_keys": ["elisabeth"],
+            },
+            "missing_setup": [
+                "pushbullet_client_missing:default",
+                "pushbullet_token_missing:elisabeth",
+            ],
+            "operator_action": {
+                "next_action": "create_missing_pushbullet_access_tokens",
+                "next_action_href": "https://www.pushbullet.com/#settings/account",
+                "next_action_label": "Open Pushbullet account settings",
+                "next_action_method": "get",
+            },
+            "live_probes": [],
+        }
+
+    monkeypatch.setattr(module.pushbullet_delivery_readiness, "build_receipt", _fake_build_receipt)
+    monkeypatch.setattr(module, "_provider_display_name", lambda _provider_key: "Pushbullet")
+
+    report = module.probe_provider("pushbullet", output_format="operator", timeout_seconds=12.0)
+
+    assert observed == {
+        "probe_live": True,
+        "timeout_seconds": 12.0,
+        "required_clients": (),
+    }
+    assert report["provider_key"] == "pushbullet"
+    assert report["status"] == "blocked_setup_required"
+    assert report["ready"] is False
+    assert report["probe_ok"] is True
+    assert report["account_label"] == "default(missing)"
+    assert report["account_label_basis"] == "default_client_missing"
+    assert report["reason"] == "pushbullet_client_missing:default,pushbullet_token_missing:elisabeth"
+    assert report["next_action"] == "create_missing_pushbullet_access_tokens"
+    assert report["next_action_href"] == "https://www.pushbullet.com/#settings/account"
+    assert report["next_action_label"] == "Open Pushbullet account settings"
+    assert report["next_action_method"] == "get"
+    assert report["raw"]["required_client_keys"] == ["default", "elisabeth"]
+    assert report["raw"]["account_label_basis"] == "default_client_missing"
+    assert report["raw"]["configured_required_client_count"] == 1
+    assert report["raw"]["token_present_required_client_count"] == 0
+    assert report["raw"]["missing_client_keys"] == ["default"]
+    assert report["raw"]["missing_token_keys"] == ["elisabeth"]
+    assert report["raw"]["raw_email_exposed"] is False
+    assert report["raw"]["raw_token_exposed"] is False
+    assert "pushbullet_readiness status=blocked_setup_required" in str(report["operator_text"])
+    assert "account=default(missing)" in str(report["operator_text"])
+    assert "missing_clients=default" in str(report["operator_text"])
+    assert "missing_tokens=elisabeth" in str(report["operator_text"])
+    assert "next=create_missing_pushbullet_access_tokens" in str(report["operator_text"])
+
+
+def test_probe_provider_pushbullet_live_verified_reports_ready_state(monkeypatch) -> None:
+    module = _module()
+
+    monkeypatch.setattr(
+        module.pushbullet_delivery_readiness,
+        "build_receipt",
+        lambda **_kwargs: {
+            "status": "ready_live_verified",
+            "generated_at": "2026-07-02T20:12:00Z",
+            "generated_by": "scripts/materialize_pushbullet_delivery_readiness.py",
+            "provider": "pushbullet",
+            "account_label": "default->elisabeth",
+            "account_label_basis": "default_client_ref",
+            "default_client_ref": "elisabeth",
+            "client_count": 2,
+            "multi_client_expected": True,
+            "required_client_keys": ["default", "elisabeth"],
+            "client_coverage": {
+                "configured_client_count": 2,
+                "configured_required_client_count": 2,
+                "token_present_required_client_count": 2,
+                "missing_client_keys": [],
+                "missing_token_keys": [],
+            },
+            "missing_setup": [],
+            "operator_action": {
+                "next_action": "keep_pushbullet_clients_configured",
+                "next_action_href": "https://www.pushbullet.com/#settings/account",
+                "next_action_label": "Open Pushbullet account settings",
+                "next_action_method": "get",
+            },
+            "live_probes": [
+                {"status": "pass", "client_key": "default", "raw_email_exposed": False, "raw_token_exposed": False},
+                {"status": "pass", "client_key": "elisabeth", "raw_email_exposed": False, "raw_token_exposed": False},
+            ],
+        },
+    )
+    monkeypatch.setattr(module, "_provider_display_name", lambda _provider_key: "Pushbullet")
+
+    report = module.probe_provider("pushbullet", output_format="json", timeout_seconds=5.0)
+
+    assert report["provider_key"] == "pushbullet"
+    assert report["status"] == "ready_live_verified"
+    assert report["ready"] is True
+    assert report["probe_ok"] is True
+    assert report["account_label"] == "default->elisabeth"
+    assert report["account_label_basis"] == "default_client_ref"
+    assert report["reason"] == ""
+    assert report["next_action"] == "keep_pushbullet_clients_configured"
+    assert report["raw"]["client_count"] == 2
+    assert report["raw"]["account_label_basis"] == "default_client_ref"
+    assert report["raw"]["live_probe_count"] == 2
+    assert report["raw"]["missing_setup"] == []
+    assert report["raw"]["raw_email_exposed"] is False
+    assert report["raw"]["raw_token_exposed"] is False
+
+
 def test_probe_provider_cost_pressure_reports_runtime_token_pressure(monkeypatch) -> None:
     module = _module()
 
@@ -315,7 +465,7 @@ def test_probe_provider_cost_pressure_reports_runtime_token_pressure(monkeypatch
                 "provider_order": ["onemin", "magixai", "gemini_vortex"],
                 "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
                 "cheap_provider_order": ["onemin", "magixai", "gemini_vortex"],
-                "hard_provider_order": ["onemin", "gemini_vortex", "magixai"],
+                "hard_provider_order": ["onemin", "magixai", "gemini_vortex"],
                 "cost_gated_lanes": ["audit", "fast", "groundwork", "overflow", "review", "review_light"],
                 "gemini_token_usage": {
                     "provider_key": "gemini_vortex",
@@ -356,7 +506,7 @@ def test_probe_provider_cost_pressure_reports_runtime_token_pressure(monkeypatch
                     "remaining_percent_total": 80.0,
                     "next_topup_at": "2026-07-03T00:00:00Z",
                 },
-                "fast_lane_route": {"effective_order": ["onemin", "magixai"]},
+                "fast_lane_route": {"effective_order": ["onemin", "magixai", "gemini_vortex"]},
             },
             "ea-api",
         ),
@@ -369,8 +519,10 @@ def test_probe_provider_cost_pressure_reports_runtime_token_pressure(monkeypatch
     assert report["status"] == "gemini_soft_cap_exceeded"
     assert report["source"] == "runtime_container_exec:ea-api:provider_ledger_cache"
     assert report["primary_background_provider"] == "onemin"
+    assert report["fast_provider_order"][:3] == ["onemin", "magixai", "gemini_vortex"]
     assert report["groundwork_provider_order"][:3] == ["onemin", "magixai", "gemini_vortex"]
     assert report["onemin_preferred_when_speed_is_not_critical"] is True
+    assert report["onemin_preferred_whenever_usable"] is True
     assert report["onemin_usable"] is True
     assert report["onemin_ready_slots"] == 12
     assert report["gemini_token_tracking"]["24h"]["total_tokens"] == 205000
@@ -400,7 +552,7 @@ def test_probe_provider_cost_pressure_falls_back_to_host_payload(monkeypatch) ->
             "provider_order": ["onemin", "magixai", "gemini_vortex"],
             "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
             "cheap_provider_order": ["onemin", "magixai", "gemini_vortex"],
-            "hard_provider_order": ["onemin", "gemini_vortex", "magixai"],
+            "hard_provider_order": ["onemin", "magixai", "gemini_vortex"],
             "cost_gated_lanes": ["groundwork"],
             "gemini_token_usage": {
                 "provider_key": "gemini_vortex",
@@ -422,6 +574,54 @@ def test_probe_provider_cost_pressure_falls_back_to_host_payload(monkeypatch) ->
     assert report["onemin_usable"] is False
     assert report["gemini_token_tracking"]["background_cost_gate"] == "open"
     assert report["routing_decision"] == "keep_onemin_first_but_use_cost_gated_fallback_until_onemin_ready"
+
+
+def test_probe_provider_cost_pressure_treats_unknown_unprobed_onemin_as_probe_pending(monkeypatch) -> None:
+    module = _module()
+
+    monkeypatch.setattr(
+        module,
+        "_runtime_provider_cost_pressure_payload",
+        lambda **_kwargs: (124, {"ok": False, "reason": "TimeoutExpired:30s"}, "ea-api"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_provider_cost_pressure_payload_from_host",
+        lambda **_kwargs: {
+            "ok": True,
+            "observed_at": "2026-07-02T10:05:00Z",
+            "window": "24h",
+            "provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "cheap_provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "hard_provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "cost_gated_lanes": ["groundwork"],
+            "gemini_token_usage": {
+                "provider_key": "gemini_vortex",
+                "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+                "selected_window": {"total_tokens": 10, "soft_cap_tokens": 200000, "state": "within_soft_cap"},
+                "24h": {"total_tokens": 10, "soft_cap_tokens": 200000, "state": "within_soft_cap"},
+            },
+            "onemin_capacity": {
+                "configured_slots": 70,
+                "ready_slots": 0,
+                "unknown_slots": 70,
+                "state": "unknown",
+            },
+            "onemin_aggregate": {},
+            "onemin_billing_aggregate": {},
+        },
+    )
+
+    report = module.probe_provider_cost_pressure(output_format="json")
+
+    assert report["probe_ok"] is True
+    assert report["source"] == "host_process:provider_ledger_cache"
+    assert report["status"] == "active_cost_control_onemin_probe_pending"
+    assert report["onemin_usable"] is True
+    assert report["onemin_probe_pending"] is True
+    assert report["onemin_unknown_slots"] == 70
+    assert report["routing_decision"] == "prefer_onemin_background_pending_probe_with_gemini_fallback_only"
 
 
 def test_probe_provider_onemin_prefers_runtime_container_aggregate(monkeypatch) -> None:
@@ -465,7 +665,7 @@ def test_probe_provider_onemin_prefers_runtime_container_aggregate(monkeypatch) 
     report = module.probe_provider("onemin", output_format="operator")
 
     assert report["provider_key"] == "onemin"
-    assert report["status"] == "ready"
+    assert report["status"] == "repaired"
     assert report["remaining"] == 123456
     assert report["refresh_at"] == "2026-07-01T00:00:00Z"
     assert report["observed_at"] == "2026-06-29T12:00:00Z"
@@ -754,6 +954,7 @@ def test_probe_whatsapp_pairing_can_dry_run_telegram_document_send(monkeypatch, 
         send_telegram_to_principal="principal-1",
         dry_run=True,
         output_dir=str(tmp_path),
+        telegram_operator_streams="media",
     )
 
     assert report["telegram_sent"] is False
@@ -817,6 +1018,7 @@ def test_probe_whatsapp_pairing_telegram_caption_withholds_host_local_pair_url(m
         send_telegram_to_principal="principal-1",
         dry_run=True,
         output_dir=str(tmp_path),
+        telegram_operator_streams="media",
     )
 
     caption = str(observed["caption"])
@@ -826,7 +1028,47 @@ def test_probe_whatsapp_pairing_telegram_caption_withholds_host_local_pair_url(m
     assert "pair_url=http://127.0.0.1:8098" not in caption
     assert "pair_url_scope=host_local" in caption
     assert "scan the attached QR" in caption
-    assert Path(str(observed["document_ref"])).is_file()
+
+
+def test_probe_whatsapp_pairing_suppresses_telegram_when_media_stream_not_allowed(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_safe_load_whatsapp_binding", lambda _args: (None, ""))
+    monkeypatch.setattr(module, "_qr_age_seconds", lambda _value: 12)
+    monkeypatch.setattr(
+        module,
+        "_sidecar_get",
+        lambda **_kwargs: {
+            "ok": True,
+            "ready": False,
+            "status": "qr_required",
+            "qr_present": True,
+            "qr_required": True,
+            "last_qr_at": "2026-06-29T14:00:00Z",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_sidecar_bytes",
+        lambda **_kwargs: (b"<svg>qr</svg>", "image/svg+xml", "https://wa-web.test/sessions/session-1/qr.svg"),
+    )
+    monkeypatch.setattr(
+        module,
+        "send_telegram_document",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("telegram send should stay suppressed")),
+    )
+
+    report = module.probe_whatsapp_pairing(
+        args=_args(session_ref="session-1"),
+        output_format="json",
+        send_telegram_to_principal="principal-1",
+        dry_run=True,
+        output_dir=str(tmp_path),
+    )
+
+    assert report["telegram_sent"] is False
+    assert report["telegram_reason"] == "operator_stream_not_allowed"
+    assert report["telegram_delivery_transport"] == "telegram_bot_document"
+    assert report["allowed_operator_streams"] == ["office_loop", "office_setup", "recovery"]
 
 
 def test_probe_whatsapp_pairing_reports_degraded_fallback_when_binding_lookup_errors(monkeypatch, tmp_path: Path) -> None:
@@ -1053,6 +1295,45 @@ def test_probe_telegram_readiness_runtime_failure_is_not_probe_ok(monkeypatch) -
     assert report["next_action"] == "inspect_telegram_readiness_runtime_probe"
 
 
+def test_probe_telegram_readiness_runtime_timeout_falls_back_to_host_scan(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T15:08:00Z")
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_exec_json",
+        lambda **_kwargs: (124, {"ok": False, "reason": "TimeoutExpired:15s"}, "ea-api"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_telegram_readiness_payload_from_host",
+        lambda **_kwargs: {
+            "ok": True,
+            "ready": True,
+            "status": "ready",
+            "reason": "",
+            "binding_id": "binding-1",
+            "principal_id": "principal-1",
+            "binding_status": "enabled",
+            "chat_ref_present": True,
+            "chat_ref_sha256": "f" * 64,
+            "bot_key": "default",
+            "bot_handle": "ea_concierge_bot",
+            "bot_token_present": True,
+        },
+    )
+
+    report = module.probe_telegram_readiness(principal_id="principal-1", timeout_seconds=15.0, output_format="json")
+
+    assert report["probe_ok"] is True
+    assert report["ready"] is True
+    assert report["status"] == "ready"
+    assert report["reason"] == ""
+    assert report["binding_id"] == "binding-1"
+    assert report["chat_ref_sha256"] == "f" * 64
+    assert report["runtime_container"] == "ea-api"
+    assert report["source"] == "host_process:telegram_delivery.local_binding_scan"
+
+
 def test_probe_teable_recovery_reports_ready_without_raw_table_id(monkeypatch) -> None:
     module = _module()
     monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T14:10:00Z")
@@ -1147,6 +1428,67 @@ def test_probe_teable_recovery_maps_wrong_secret_mode_to_operator_action(monkeyp
     assert "wrong_modes=1" in str(report["operator_text"])
 
 
+def test_probe_teable_recovery_prioritizes_hash_drift_over_generic_verify_failure(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_sync_env_to_teable_json(command: str, *, timeout_seconds: float):
+        if command == "verify":
+            return 1, {
+                "status": "fail",
+                "table_id": "tbl-secret-id",
+                "expected_rows": 551,
+                "same_hash": 547,
+                "missing_count": 0,
+                "different_hash_count": 4,
+                "different_hash_keys": [
+                    "ea_root:CODEXEA_IMPLEMENT_MODEL",
+                    "ea_root:CODEXEA_REPAIR_MODEL",
+                    "ea_root:CODEXEA_WORKER_MODEL",
+                    "ea_root:EA_SURVIVAL_ROUTE_ORDER",
+                ],
+                "missing_secret_value_count": 0,
+                "extra_restorable_count": 0,
+                "uncovered_local_secret_file_count": 0,
+            }, ""
+        if command == "local-status":
+            return 1, {
+                "status": "fail",
+                "table_id": "tbl-secret-id",
+                "expected_rows": 551,
+                "same_hash": 547,
+                "root_restore_count": 434,
+                "local_restore_count": 100,
+                "service_restore_count": 11,
+                "referenced_file_restore_count": 6,
+                "missing_artifact_count": 0,
+                "wrong_mode_count": 0,
+                "different_hash_count": 4,
+                "different_hash_keys": [
+                    "ea_root:EA_SURVIVAL_ROUTE_ORDER",
+                    "ea_root:CODEXEA_IMPLEMENT_MODEL",
+                ],
+                "wrong_modes": [],
+            }, ""
+        raise AssertionError(command)
+
+    monkeypatch.setattr(module, "_sync_env_to_teable_json", _fake_sync_env_to_teable_json)
+
+    report = module.probe_teable_recovery(output_format="operator")
+
+    assert report["ready"] is False
+    assert report["status"] == "blocked"
+    assert report["reason"] == "teable_recovery_local_hash_drift"
+    assert report["next_action"] == "run_env_recover_teable_or_refresh_backup_after_review"
+    assert report["different_hash_count"] == 4
+    assert report["different_hash_key_samples"] == [
+        "ea_root:CODEXEA_IMPLEMENT_MODEL",
+        "ea_root:CODEXEA_REPAIR_MODEL",
+        "ea_root:CODEXEA_WORKER_MODEL",
+        "ea_root:EA_SURVIVAL_ROUTE_ORDER",
+    ]
+    assert "drift=ea_root:CODEXEA_IMPLEMENT_MODEL" in str(report["operator_text"])
+
+
 def test_main_probe_teable_recovery_operator_prints_plain_text(monkeypatch, capsys) -> None:
     module = _module()
     monkeypatch.setattr(module, "parse_args", lambda: Namespace(command="probe-teable-recovery", format="operator", timeout_seconds=5.0))
@@ -1203,6 +1545,81 @@ def test_parse_args_probe_google_workspace_oauth_uses_proactive_principal_defaul
     assert args.scope_bundle == "full_workspace"
     assert args.probe_gcloud is True
     assert args.observed_google_email == ""
+
+
+def test_parse_args_trigger_mymedia_amazon_pairing_uses_private_runtime_defaults(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    defaults_path = tmp_path / "mymedia-runtime-defaults.json"
+    defaults_path.write_text(
+        json.dumps(
+            {
+                "amazon_otp_channel": "sms",
+                "amazon_phone_suffix": "777",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_RUNTIME_DEFAULTS_PATH", str(defaults_path))
+    monkeypatch.setattr(sys, "argv", ["ea_live_ops.py", "trigger-mymedia-amazon-pairing"])
+
+    args = module.parse_args()
+
+    assert args.command == "trigger-mymedia-amazon-pairing"
+    assert args.otp_channel == "sms"
+    assert args.phone_suffix == "777"
+
+
+def test_parse_args_repair_mymedia_console_api_uses_runtime_defaults(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_CONTAINER", "mymediaalexa")
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_WEB_BASE_URL", "http://127.0.0.1:52051")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["ea_live_ops.py", "repair-mymedia-console-api", "--format", "operator", "--timeout-seconds", "90"],
+    )
+
+    args = module.parse_args()
+
+    assert args.command == "repair-mymedia-console-api"
+    assert args.container_name == "mymediaalexa"
+    assert args.web_base_url == "http://127.0.0.1:52051"
+    assert args.format == "operator"
+    assert args.timeout_seconds == 90.0
+
+
+def test_parse_args_probe_sonarr_tv_season_uses_runtime_defaults(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_SONARR_BASE_URL", "http://127.0.0.1:8989")
+    monkeypatch.setenv("EA_SONARR_CONFIG_PATH", "/docker/arr-v2/sonarr/config.xml")
+    monkeypatch.setenv("EA_SONARR_STAGING_ROOT", "/mnt/pcloud/staging/downloads")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "ea_live_ops.py",
+            "probe-sonarr-tv-season",
+            "--series-id",
+            "36",
+            "--season-number",
+            "2",
+            "--format",
+            "operator",
+        ],
+    )
+
+    args = module.parse_args()
+
+    assert args.command == "probe-sonarr-tv-season"
+    assert args.series_id == 36
+    assert args.season_number == 2
+    assert args.sonarr_base_url == "http://127.0.0.1:8989"
+    assert args.sonarr_config_path == "/docker/arr-v2/sonarr/config.xml"
+    assert args.staging_root == "/mnt/pcloud/staging/downloads"
+    assert args.format == "operator"
 
 
 def test_probe_google_workspace_oauth_reports_mismatch_without_raw_email(monkeypatch) -> None:
@@ -1357,6 +1774,2754 @@ def test_probe_google_workspace_oauth_reports_observed_account_mismatch_without_
     assert "archon.megalon@gmail.com" not in serialized
 
 
+def test_probe_mymedia_alexa_reports_pairing_required_and_scan_blocked_by_pairing(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T12:10:00Z")
+    pairing_dir = tmp_path / "active-pairing"
+    pairing_dir.mkdir()
+    (pairing_dir / "storage_state.json").write_text('{"cookies":[{"name":"session"}]}', encoding="utf-8")
+    (pairing_dir / "session.json").write_text(
+        json.dumps(
+            {
+                "resume_url": "https://www.amazon.com/ap/signin",
+                "otp_channel": "whatsapp",
+                "phone_suffix": "419",
+                "surface_kind": "waiting_for_code",
+                "captured_at": "2026-07-04T12:05:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_DIR", str(pairing_dir))
+    data_dir = tmp_path / "mymedia-data"
+    data_dir.mkdir()
+    (data_dir / "Preferences.xml").write_text(
+        """<?xml version="1.0"?>
+<DynamicConfiguration>
+  <Label>ea-host</Label>
+  <PairedUser />
+  <RefreshToken />
+  <UseIP4Address>87.106.22.139</UseIP4Address>
+  <AllowExternalAccess>2</AllowExternalAccess>
+</DynamicConfiguration>
+""",
+        encoding="utf-8",
+    )
+    (data_dir / "Messages.xml").write_text(
+        """<?xml version="1.0"?>
+<ArrayOfEntry>
+  <Entry>
+    <Value>
+      <Title>Index integrity errors found</Title>
+      <MessageType>Error</MessageType>
+    </Value>
+  </Entry>
+  <Entry>
+    <Value>
+      <Title>Could not restore backup index as none existed, clearing index.</Title>
+      <MessageType>Warning</MessageType>
+    </Value>
+  </Entry>
+</ArrayOfEntry>
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        module,
+        "_docker_inspect_container_json",
+        lambda *_args, **_kwargs: {
+            "State": {"Running": True, "Status": "running"},
+            "Mounts": [
+                {"Destination": "/datadir", "Source": str(data_dir)},
+            ],
+        },
+    )
+
+    def _fake_api(url: str, **_kwargs):
+        if url.endswith("/api/Summary"):
+            return True, {"GetSummaryInfoResult": {"ConnectionStatus": 0, "Tracks": 0, "WatchFolders": 1}}, 200, ""
+        if url.endswith("/api/WatchFolders"):
+            return True, {"GetWatchFoldersResult": [{"Status": 0, "Errors": 0}]}, 200, ""
+        if url.endswith("/api/Login"):
+            return False, {}, 500, "Account not paired"
+        raise AssertionError(url)
+
+    monkeypatch.setattr(module, "_mymedia_api_json", _fake_api)
+
+    report = module.probe_mymedia_alexa(
+        container_name="mymediaalexa",
+        web_base_url="http://127.0.0.1:52051",
+        output_format="operator",
+    )
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["probe_ok"] is True
+    assert report["ready"] is False
+    assert report["status"] == "blocked_pairing_required"
+    assert report["reason"] == "amazon_account_not_paired"
+    assert report["next_action"] == "enter_mymedia_amazon_pairing_code"
+    assert report["pairing_ready"] is False
+    assert report["pairing_resume_ready"] is True
+    assert report["library_scan_pending"] is True
+    assert report["library_scan_blocked_by_pairing"] is True
+    assert report["remote_access_mode"] == "push"
+    assert report["public_ip_present"] is True
+    assert report["connection_status"] == "not_connected"
+    assert report["watch_folder_states"] == ["queued"]
+    assert report["message_warning_count"] == 1
+    assert report["message_error_count"] == 1
+    assert report["pairing_artifact_cleanup_attempted"] is False
+    assert report["pairing_artifact_cleanup_removed_count"] == 0
+    assert "blocked_pairing_required" in str(report["operator_text"])
+    assert "87.106.22.139" not in serialized
+    assert "/datadir" not in serialized
+    assert (pairing_dir / "storage_state.json").exists()
+    assert (pairing_dir / "session.json").exists()
+
+
+def test_probe_mymedia_alexa_reports_ready_without_leaking_pairing_material(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T12:11:00Z")
+    pairing_dir = tmp_path / "stale-pairing"
+    pairing_dir.mkdir()
+    (pairing_dir / "storage_state.json").write_text('{"cookies":[{"name":"session"}]}', encoding="utf-8")
+    (pairing_dir / "session.json").write_text(
+        json.dumps(
+            {
+                "resume_url": "https://www.amazon.com/ap/signin",
+                "otp_channel": "whatsapp",
+                "phone_suffix": "419",
+                "surface_kind": "waiting_for_code",
+                "captured_at": "2026-07-04T12:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (pairing_dir / "surface.png").write_bytes(b"png")
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_DIR", str(pairing_dir))
+    data_dir = tmp_path / "mymedia-data"
+    data_dir.mkdir()
+    (data_dir / "Preferences.xml").write_text(
+        """<?xml version="1.0"?>
+<DynamicConfiguration>
+  <Label>ea-host</Label>
+  <PairedUser>archon.megalon@gmail.com</PairedUser>
+  <RefreshToken>refresh-token-secret</RefreshToken>
+  <UseIP4Address>87.106.22.139</UseIP4Address>
+  <AllowExternalAccess>2</AllowExternalAccess>
+</DynamicConfiguration>
+""",
+        encoding="utf-8",
+    )
+    (data_dir / "Messages.xml").write_text("""<?xml version="1.0"?><ArrayOfEntry />\n""", encoding="utf-8")
+    monkeypatch.setattr(
+        module,
+        "_docker_inspect_container_json",
+        lambda *_args, **_kwargs: {
+            "State": {"Running": True, "Status": "running"},
+            "Mounts": [
+                {"Destination": "/datadir", "Source": str(data_dir)},
+            ],
+        },
+    )
+
+    def _fake_api(url: str, **_kwargs):
+        if url.endswith("/api/Summary"):
+            return (
+                True,
+                {
+                    "GetSummaryInfoResult": {
+                        "ConnectionStatus": 2,
+                        "Tracks": 42,
+                        "WatchFolders": 1,
+                        "Albums": 7,
+                        "Artists": 5,
+                        "Genres": 3,
+                    }
+                },
+                200,
+                "",
+            )
+        if url.endswith("/api/WatchFolders"):
+            return True, {"GetWatchFoldersResult": [{"Status": 2, "Errors": 0}]}, 200, ""
+        if url.endswith("/api/Login"):
+            return True, {"GetMyMediaLoginResult": "paired-user"}, 200, ""
+        raise AssertionError(url)
+
+    monkeypatch.setattr(module, "_mymedia_api_json", _fake_api)
+
+    report = module.probe_mymedia_alexa(
+        container_name="mymediaalexa",
+        web_base_url="http://127.0.0.1:52051",
+        output_format="json",
+    )
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["probe_ok"] is True
+    assert report["ready"] is True
+    assert report["status"] == "ready"
+    assert report["pairing_ready"] is True
+    assert report["pairing_session_pending"] is False
+    assert report["pairing_resume_ready"] is False
+    assert report["pairing_artifact_cleanup_attempted"] is True
+    assert report["pairing_artifact_cleanup_removed_count"] == 3
+    assert report["pairing_artifact_cleanup_error_count"] == 0
+    assert report["connection_status"] == "connected"
+    assert report["watch_folder_states"] == ["serving"]
+    assert report["tracks"] == 42
+    assert report["message_count"] == 0
+    assert "archon.megalon@gmail.com" not in serialized
+    assert "refresh-token-secret" not in serialized
+    assert "87.106.22.139" not in serialized
+    assert not pairing_dir.exists()
+
+
+def test_probe_mymedia_alexa_prefers_wait_when_scan_is_already_progressing(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    data_dir = tmp_path / "mymedia-data"
+    data_dir.mkdir()
+    (data_dir / "Preferences.xml").write_text(
+        """<?xml version="1.0"?>
+<DynamicConfiguration>
+  <RefreshToken>refresh-token-secret</RefreshToken>
+  <AllowExternalAccess>2</AllowExternalAccess>
+</DynamicConfiguration>
+""",
+        encoding="utf-8",
+    )
+    (data_dir / "Messages.xml").write_text("""<?xml version="1.0"?><ArrayOfEntry />\n""", encoding="utf-8")
+    monkeypatch.setattr(
+        module,
+        "_docker_inspect_container_json",
+        lambda *_args, **_kwargs: {
+            "State": {"Running": True, "Status": "running"},
+            "Mounts": [{"Destination": "/datadir", "Source": str(data_dir)}],
+        },
+    )
+
+    def _fake_api(url: str, **_kwargs):
+        if url.endswith("/api/Summary"):
+            return True, {"GetSummaryInfoResult": {"Tracks": 12, "Albums": 1, "Artists": 1, "Genres": 1, "ConnectionStatus": 2}}, 200, ""
+        if url.endswith("/api/WatchFolders"):
+            return True, {"GetWatchFoldersResult": [{"Status": 0, "Errors": 0}]}, 200, ""
+        if url.endswith("/api/Login"):
+            return True, {"GetMyMediaLoginResult": "paired-user"}, 200, ""
+        raise AssertionError(url)
+
+    monkeypatch.setattr(module, "_mymedia_api_json", _fake_api)
+
+    report = module.probe_mymedia_alexa(
+        container_name="mymediaalexa",
+        web_base_url="http://127.0.0.1:52051",
+        timeout_seconds=5.0,
+        output_format="json",
+    )
+
+    assert report["ready"] is True
+    assert report["status"] == "ready_library_scan_in_progress"
+    assert report["reason"] == "mymedia_library_scan_in_progress"
+    assert report["next_action"] == "wait_for_mymedia_library_scan"
+    assert report["watch_folder_states"] == ["queued"]
+    assert report["tracks"] == 12
+
+
+def test_mymedia_public_surface_probe_classifies_cloudflare_access_redirect(monkeypatch) -> None:
+    module = _module()
+
+    monkeypatch.setattr(
+        module,
+        "_request_text_response",
+        lambda **_kwargs: (
+            302,
+            {
+                "Location": "https://girschele.cloudflareaccess.com/cdn-cgi/access/login/home.girschele.com",
+                "WWW-Authenticate": 'Cloudflare-Access resource_metadata="https://home.girschele.com/.well-known/cloudflare-access-protected-resource/"',
+                "Content-Type": "text/html; charset=UTF-8",
+            },
+            "",
+            "",
+        ),
+    )
+
+    report = module._mymedia_public_surface_probe("https://home.girschele.com", timeout_seconds=5.0)
+
+    assert report["configured"] is True
+    assert report["probe_attempted"] is True
+    assert report["ready"] is True
+    assert report["status"] == "access_protected"
+    assert report["reason"] == ""
+    assert report["access_protected"] is True
+    assert report["redirect_host"] == "girschele.cloudflareaccess.com"
+
+
+def test_mymedia_public_surface_probe_classifies_cloudflare_block(monkeypatch) -> None:
+    module = _module()
+
+    monkeypatch.setattr(
+        module,
+        "_request_text_response",
+        lambda **_kwargs: (
+            403,
+            {"Content-Type": "text/html; charset=UTF-8"},
+            "<title>Attention Required! | Cloudflare</title><h1>Sorry, you have been blocked</h1>",
+            "",
+        ),
+    )
+
+    report = module._mymedia_public_surface_probe("https://mymedia.girschele.com", timeout_seconds=5.0)
+
+    assert report["configured"] is True
+    assert report["probe_attempted"] is True
+    assert report["ready"] is False
+    assert report["status"] == "blocked_by_cloudflare"
+    assert report["reason"] == "mymedia_public_console_blocked_by_cloudflare"
+    assert report["cloudflare_blocked"] is True
+    assert report["next_action"] == "repair_mymedia_public_console_route"
+
+
+def test_mymedia_public_surface_tunnel_origin_derives_bridge_host_from_local_console_url() -> None:
+    module = _module()
+
+    assert (
+        module._mymedia_public_surface_tunnel_origin("http://127.0.0.1:52051/index.html#!/setup")
+        == "http://172.17.0.1:52051"
+    )
+    assert (
+        module._mymedia_public_surface_tunnel_origin(
+            "http://127.0.0.1:52051/index.html#!/setup",
+            explicit_origin_url="https://internal.example.test:8443/path",
+        )
+        == "https://internal.example.test:8443"
+    )
+
+
+def test_cloudflare_expression_add_host_exception_appends_new_host_to_matching_host_set() -> None:
+    module = _module()
+    expression = '((cf.client.bot)) and not (http.host in {"photos.girschele.com" "home.girschele.com"})'
+
+    updated = module._cloudflare_expression_add_host_exception(
+        expression,
+        required_existing_hosts=["home.girschele.com"],
+        new_host="mymedia.girschele.com",
+    )
+
+    assert '"mymedia.girschele.com"' in updated
+    assert '"home.girschele.com"' in updated
+    assert updated.count('"mymedia.girschele.com"') == 1
+
+
+def test_repair_mymedia_public_surface_repairs_route_and_reprobes(monkeypatch) -> None:
+    module = _module()
+    before = {
+        "configured": True,
+        "base_url_scope": "public",
+        "probe_attempted": True,
+        "ready": False,
+        "status": "blocked_by_cloudflare",
+        "reason": "mymedia_public_console_blocked_by_cloudflare",
+        "next_action": "repair_mymedia_public_console_route",
+        "next_action_href": "https://mymedia.girschele.com",
+        "next_action_label": "Open public My Media URL",
+        "next_action_method": "get",
+    }
+    after = dict(before)
+    after.update(
+        {
+            "ready": True,
+            "status": "access_protected",
+            "reason": "",
+            "next_action": "",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
+        }
+    )
+    probes = iter([before, after])
+    written: dict[str, object] = {}
+    monkeypatch.setattr(module, "_mymedia_public_surface_probe", lambda *_args, **_kwargs: next(probes))
+    monkeypatch.setattr(module, "_cloudflare_auth_ready", lambda: True)
+    monkeypatch.setattr(
+        module,
+        "_cloudflare_lookup_zone_for_host",
+        lambda hostname, **_kwargs: {
+            "ok": True,
+            "zone_id": "zone-1",
+            "account_id": "account-1",
+            "zone_name": "girschele.com",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_cloudflare_lookup_named_tunnel",
+        lambda account_id, tunnel_name, **_kwargs: {
+            "ok": True,
+            "tunnel_id": "tunnel-1",
+            "tunnel_domain": "tunnel-1.cfargotunnel.com",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_cloudflare_upsert_dns_record",
+        lambda zone_id, **_kwargs: {"ok": True, "changed": True, "record_present": True},
+    )
+    monkeypatch.setattr(
+        module,
+        "_cloudflare_upsert_tunnel_ingress",
+        lambda account_id, tunnel_id, **_kwargs: {"ok": True, "changed": True, "route_present": True},
+    )
+    monkeypatch.setattr(
+        module,
+        "_cloudflare_lookup_access_service_token",
+        lambda account_id, **_kwargs: {"ok": True, "service_token_id": "token-1", "service_token_name": "CodexLiz"},
+    )
+    monkeypatch.setattr(
+        module,
+        "_cloudflare_upsert_access_app",
+        lambda zone_id, **_kwargs: {"ok": True, "changed": True, "app_present": True},
+    )
+    monkeypatch.setattr(
+        module,
+        "_cloudflare_patch_private_host_block_exceptions",
+        lambda zone_id, **_kwargs: {"ok": True, "changed": True, "patched_rule_count": 3},
+    )
+    monkeypatch.setattr(module.time, "sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(module, "_write_private_json", lambda _path, payload: written.update(dict(payload)))
+
+    report = module.repair_mymedia_public_surface(
+        web_base_url="http://127.0.0.1:52051",
+        public_web_base_url="https://mymedia.girschele.com",
+        timeout_seconds=5.0,
+        output_format="operator",
+    )
+
+    assert report["status"] == "repaired"
+    assert report["ready"] is True
+    assert report["dns_changed"] is True
+    assert report["tunnel_changed"] is True
+    assert report["access_app_changed"] is True
+    assert report["firewall_changed"] is True
+    assert report["after_public_surface"]["status"] == "access_protected"
+    assert "mymedia_public_surface status=repaired" in str(report["operator_text"])
+    assert written["status"] == "repaired"
+
+
+def test_repair_mymedia_console_api_restarts_container_and_reprobes(monkeypatch) -> None:
+    module = _module()
+    before = {
+        "probe_ok": True,
+        "ready": False,
+        "status": "blocked_console_unreachable",
+        "reason": "mymedia_console_api_unreachable",
+        "next_action": "repair_mymedia_console_api",
+        "next_action_href": "http://127.0.0.1:52051/index.html",
+        "next_action_label": "Open My Media console",
+        "next_action_method": "get",
+        "container_running": True,
+        "api_reachable": False,
+    }
+    after = {
+        "probe_ok": True,
+        "ready": False,
+        "status": "blocked_connection_not_ready",
+        "reason": "amazon_connection_not_ready",
+        "next_action": "inspect_mymedia_amazon_connection",
+        "next_action_href": "http://127.0.0.1:52051/index.html",
+        "next_action_label": "Open My Media console",
+        "next_action_method": "get",
+        "container_running": True,
+        "api_reachable": True,
+    }
+    probes = iter([before, after])
+    written: dict[str, object] = {}
+    monkeypatch.setattr(module, "probe_mymedia_alexa", lambda **_kwargs: dict(next(probes)))
+    monkeypatch.setattr(module, "_docker_restart_container", lambda *_args, **_kwargs: {"ok": True, "reason": ""})
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T14:20:00Z")
+    monkeypatch.setattr(module, "_write_private_json", lambda _path, payload: written.update(dict(payload)))
+
+    report = module.repair_mymedia_console_api(
+        container_name="mymediaalexa",
+        web_base_url="http://127.0.0.1:52051",
+        timeout_seconds=5.0,
+        output_format="operator",
+    )
+
+    assert report["status"] == "repaired"
+    assert report["ready"] is False
+    assert report["restart_attempted"] is True
+    assert report["restart_ok"] is True
+    assert report["api_recovered"] is True
+    assert report["next_action"] == "inspect_mymedia_amazon_connection"
+    assert report["after_probe"]["status"] == "blocked_connection_not_ready"
+    assert "mymedia_console_api status=repaired" in str(report["operator_text"])
+    assert written["status"] == "repaired"
+
+
+def test_repair_mymedia_console_api_reports_ready_without_restart_when_api_healthy(monkeypatch) -> None:
+    module = _module()
+    probe = {
+        "probe_ok": True,
+        "ready": False,
+        "status": "blocked_connection_not_ready",
+        "reason": "amazon_connection_not_ready",
+        "next_action": "inspect_mymedia_amazon_connection",
+        "next_action_href": "http://127.0.0.1:52051/index.html",
+        "next_action_label": "Open My Media console",
+        "next_action_method": "get",
+        "container_running": True,
+        "api_reachable": True,
+    }
+    written: dict[str, object] = {}
+    monkeypatch.setattr(module, "probe_mymedia_alexa", lambda **_kwargs: dict(probe))
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T14:20:00Z")
+    monkeypatch.setattr(module, "_write_private_json", lambda _path, payload: written.update(dict(payload)))
+
+    report = module.repair_mymedia_console_api(
+        container_name="mymediaalexa",
+        web_base_url="http://127.0.0.1:52051",
+        timeout_seconds=5.0,
+        output_format="json",
+    )
+
+    assert report["status"] == "ready"
+    assert report["ready"] is True
+    assert report["restart_attempted"] is False
+    assert report["api_recovered"] is True
+    assert report["next_action"] == "inspect_mymedia_amazon_connection"
+    assert written["status"] == "ready"
+
+
+def test_probe_sonarr_tv_season_reports_staging_candidate_for_missing_episodes(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    config_path = tmp_path / "sonarr-config.xml"
+    config_path.write_text("<Config><ApiKey>abc123</ApiKey></Config>", encoding="utf-8")
+    staging_root = tmp_path / "staging"
+    candidate_dir = staging_root / "LEGO.Ninjago.Dragons.Rising.S02.1080p.NF.WEB-DL.DDP5.1.H.264-STRiKES"
+    candidate_dir.mkdir(parents=True)
+    (candidate_dir / "LEGO.Ninjago.Dragons.Rising.S02E03.Beyond.the.Phantasm.Cave.1080p.NF.WEB-DL.mkv").write_text(
+        "ep3",
+        encoding="utf-8",
+    )
+    (candidate_dir / "LEGO.Ninjago.Dragons.Rising.S02E04.Force.From.the.East.1080p.NF.WEB-DL.mkv").write_text(
+        "ep4",
+        encoding="utf-8",
+    )
+
+    def _fake_request(*, path: str, **_kwargs):
+        if path == "/api/v3/series":
+            return [
+                {
+                    "id": 36,
+                    "title": "LEGO Ninjago: Dragons Rising",
+                    "path": "/mnt/pcloud/PLEX/Requested/TV/LEGO Ninjago - Dragons Rising",
+                    "seasonFolder": True,
+                    "seasons": [{"seasonNumber": 2, "monitored": True}],
+                }
+            ]
+        if path == "/api/v3/episode?seriesId=36":
+            return [
+                {"id": 13503, "seasonNumber": 2, "episodeNumber": 1, "hasFile": True, "episodeFileId": 1943},
+                {"id": 13504, "seasonNumber": 2, "episodeNumber": 2, "hasFile": True, "episodeFileId": 1944},
+                {"id": 13505, "seasonNumber": 2, "episodeNumber": 3, "hasFile": False},
+                {"id": 13506, "seasonNumber": 2, "episodeNumber": 4, "hasFile": False},
+            ]
+        if path == "/api/v3/episodefile?seriesId=36":
+            return [
+                {"id": 1943, "path": "/library/LEGO.Ninjago.Dragons.Rising.S02E01.mkv", "mediaInfo": {"videoCodec": "h264"}},
+                {"id": 1944, "path": "/library/LEGO.Ninjago.Dragons.Rising.S02E02.mkv", "mediaInfo": {"videoCodec": "h264"}},
+            ]
+        raise AssertionError(path)
+
+    monkeypatch.setattr(module, "_sonarr_request_json_value", _fake_request)
+    monkeypatch.setattr(
+        module,
+        "_sonarr_list_queue",
+        lambda **_kwargs: [
+            {
+                "id": 1549244358,
+                "seriesId": 36,
+                "episodeId": 13505,
+                "seasonNumber": 2,
+                "episodeNumber": 3,
+                "title": "LEGO.Ninjago.Dragons.Rising.S02E03.1080p.WEB.h264-DOLORES",
+                "trackedDownloadState": "downloading",
+                "errorMessage": "qBittorrent is downloading metadata",
+                "added": "2026-07-01T16:08:18Z",
+            }
+        ],
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T14:45:00Z")
+    monkeypatch.setattr(
+        module,
+        "_sonarr_probe_file_playability",
+        lambda path, timeout_seconds: {
+            "path": str(path),
+            "ok": True,
+            "probed": True,
+            "method": "ffprobe",
+            "reason": "",
+            "detail": "h264",
+        },
+    )
+
+    report = module.probe_sonarr_tv_season(
+        series_id=36,
+        season_number=2,
+        sonarr_base_url="http://127.0.0.1:8989",
+        sonarr_config_path=str(config_path),
+        staging_root=str(staging_root),
+        timeout_seconds=5.0,
+        output_format="operator",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "blocked_staging_import_available"
+    assert report["missing_episode_numbers"] == [3, 4]
+    assert report["metadata_queue_episode_numbers"] == [3]
+    assert report["selected_staging_candidate_name"] == candidate_dir.name
+    assert report["selected_staging_candidate_cover_count"] == 2
+    assert "staging_candidate=" in str(report["operator_text"])
+
+
+def test_probe_sonarr_tv_season_ignores_invalid_staging_candidates(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    config_path = tmp_path / "sonarr-config.xml"
+    config_path.write_text("<Config><ApiKey>abc123</ApiKey></Config>", encoding="utf-8")
+    staging_root = tmp_path / "staging"
+    invalid_file = staging_root / "LEGO.Ninjago.Dragons.Rising.S02E04.1080p.WEB.h264-DOLORES[EZTVx.to].mkv"
+    invalid_file.parent.mkdir(parents=True, exist_ok=True)
+    invalid_file.write_text("stub", encoding="utf-8")
+
+    def _fake_request(*, path: str, **_kwargs):
+        if path == "/api/v3/series":
+            return [
+                {
+                    "id": 36,
+                    "title": "LEGO Ninjago: Dragons Rising",
+                    "path": "/mnt/pcloud/PLEX/Requested/TV/LEGO Ninjago - Dragons Rising",
+                    "seasonFolder": True,
+                    "seasons": [{"seasonNumber": 2, "monitored": True}],
+                }
+            ]
+        if path == "/api/v3/episode?seriesId=36":
+            return [
+                {"id": 13504, "seasonNumber": 2, "episodeNumber": 4, "hasFile": False},
+            ]
+        if path == "/api/v3/episodefile?seriesId=36":
+            return []
+        raise AssertionError(path)
+
+    monkeypatch.setattr(module, "_sonarr_request_json_value", _fake_request)
+    monkeypatch.setattr(module, "_sonarr_list_queue", lambda **_kwargs: [])
+    monkeypatch.setattr(
+        module,
+        "_sonarr_probe_file_playability",
+        lambda path, timeout_seconds: {
+            "path": str(path),
+            "ok": False,
+            "probed": True,
+            "method": "ffprobe",
+            "reason": "ffprobe_invalid_media",
+            "detail": "EBML header parsing failed",
+        },
+    )
+
+    report = module.probe_sonarr_tv_season(
+        series_id=36,
+        season_number=2,
+        sonarr_base_url="http://127.0.0.1:8989",
+        sonarr_config_path=str(config_path),
+        staging_root=str(staging_root),
+        timeout_seconds=5.0,
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "blocked_missing_episodes"
+    assert report["selected_staging_candidate_name"] == ""
+    assert report["selected_staging_candidate_cover_count"] == 0
+    assert report["staging_candidate_count"] == 1
+
+
+def test_probe_sonarr_tv_season_downgrades_fresh_metadata_queue_to_recovery_action(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    config_path = tmp_path / "sonarr-config.xml"
+    config_path.write_text("<Config><ApiKey>abc123</ApiKey></Config>", encoding="utf-8")
+
+    def _fake_request(*, path: str, **_kwargs):
+        if path == "/api/v3/series":
+            return [
+                {
+                    "id": 36,
+                    "title": "LEGO Ninjago: Dragons Rising",
+                    "path": "/mnt/pcloud/PLEX/Requested/TV/LEGO Ninjago - Dragons Rising",
+                    "seasonFolder": True,
+                    "seasons": [{"seasonNumber": 2, "monitored": True}],
+                }
+            ]
+        if path == "/api/v3/episode?seriesId=36":
+            return [
+                {"id": 13511, "seasonNumber": 2, "episodeNumber": 9, "hasFile": False},
+            ]
+        if path == "/api/v3/episodefile?seriesId=36":
+            return []
+        raise AssertionError(path)
+
+    monkeypatch.setattr(module, "_sonarr_request_json_value", _fake_request)
+    monkeypatch.setattr(
+        module,
+        "_sonarr_list_queue",
+        lambda **_kwargs: [
+            {
+                "id": 111,
+                "seriesId": 36,
+                "episodeId": 13511,
+                "seasonNumber": 2,
+                "episodeNumber": 9,
+                "title": "LEGO.Ninjago.Dragons.Rising.S02E09.1080p.WEB.h264-DOLORES",
+                "trackedDownloadState": "downloading",
+                "errorMessage": "qBittorrent is downloading metadata",
+                "added": "2026-07-05T16:00:00Z",
+            }
+        ],
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T16:05:00Z")
+    monkeypatch.setattr(
+        module,
+        "_sonarr_probe_file_playability",
+        lambda path, timeout_seconds: {
+            "path": str(path),
+            "ok": False,
+            "probed": True,
+            "method": "ffprobe",
+            "reason": "ffprobe_invalid_media",
+            "detail": "EBML header parsing failed",
+        },
+    )
+
+    report = module.probe_sonarr_tv_season(
+        series_id=36,
+        season_number=2,
+        sonarr_base_url="http://127.0.0.1:8989",
+        sonarr_config_path=str(config_path),
+        staging_root=str(tmp_path / "staging"),
+        timeout_seconds=5.0,
+        output_format="json",
+    )
+
+    assert report["status"] == "ready_with_recovery_action"
+    assert report["reason"] == "sonarr_metadata_queue_downloading_metadata"
+    assert report["next_action"] == "wait_for_download_client_or_reprobe_sonarr_tv_season"
+
+
+def test_probe_sonarr_tv_season_reports_media_info_drift_when_file_is_playable(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    config_path = tmp_path / "sonarr-config.xml"
+    config_path.write_text("<Config><ApiKey>abc123</ApiKey></Config>", encoding="utf-8")
+    episode_path = tmp_path / "LEGO.Ninjago.Dragons.Rising.S02E03.Beyond.the.Phantasm.Cave.1080p.NF.WEB-DL.mkv"
+    episode_path.write_text("placeholder", encoding="utf-8")
+
+    def _fake_request(*, path: str, **_kwargs):
+        if path == "/api/v3/series":
+            return [
+                {
+                    "id": 36,
+                    "title": "LEGO Ninjago: Dragons Rising",
+                    "path": "/mnt/pcloud/PLEX/Requested/TV/LEGO Ninjago - Dragons Rising",
+                    "seasonFolder": True,
+                    "seasons": [{"seasonNumber": 2, "monitored": True}],
+                }
+            ]
+        if path == "/api/v3/episode?seriesId=36":
+            return [
+                {"id": 13505, "seasonNumber": 2, "episodeNumber": 3, "hasFile": True, "episodeFileId": 1945},
+            ]
+        if path == "/api/v3/episodefile?seriesId=36":
+            return [
+                {"id": 1945, "path": str(episode_path), "mediaInfo": None},
+            ]
+        raise AssertionError(path)
+
+    monkeypatch.setattr(module, "_sonarr_request_json_value", _fake_request)
+    monkeypatch.setattr(module, "_sonarr_list_queue", lambda **_kwargs: [])
+    monkeypatch.setattr(
+        module,
+        "_sonarr_probe_file_playability",
+        lambda path, timeout_seconds: {
+            "path": str(path),
+            "ok": True,
+            "probed": True,
+            "method": "ffprobe",
+            "reason": "",
+            "detail": "h264",
+        },
+    )
+
+    report = module.probe_sonarr_tv_season(
+        series_id=36,
+        season_number=2,
+        sonarr_base_url="http://127.0.0.1:8989",
+        sonarr_config_path=str(config_path),
+        staging_root=str(tmp_path / "staging"),
+        timeout_seconds=5.0,
+        output_format="operator",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "ready_with_recovery_action"
+    assert report["ready"] is False
+    assert report["media_info_missing_episode_numbers"] == [3]
+    assert report["unreadable_episode_numbers"] == []
+    assert report["episode_file_probe_method"] == "ffprobe"
+    assert "media_info_missing=1[3]" in str(report["operator_text"])
+
+
+def test_probe_sonarr_tv_season_reports_unreadable_files(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    config_path = tmp_path / "sonarr-config.xml"
+    config_path.write_text("<Config><ApiKey>abc123</ApiKey></Config>", encoding="utf-8")
+    episode_path = tmp_path / "LEGO.Ninjago.Dragons.Rising.S02E03.Beyond.the.Phantasm.Cave.1080p.NF.WEB-DL.mkv"
+    episode_path.write_text("placeholder", encoding="utf-8")
+
+    def _fake_request(*, path: str, **_kwargs):
+        if path == "/api/v3/series":
+            return [
+                {
+                    "id": 36,
+                    "title": "LEGO Ninjago: Dragons Rising",
+                    "path": "/mnt/pcloud/PLEX/Requested/TV/LEGO Ninjago - Dragons Rising",
+                    "seasonFolder": True,
+                    "seasons": [{"seasonNumber": 2, "monitored": True}],
+                }
+            ]
+        if path == "/api/v3/episode?seriesId=36":
+            return [
+                {"id": 13505, "seasonNumber": 2, "episodeNumber": 3, "hasFile": True, "episodeFileId": 1945},
+            ]
+        if path == "/api/v3/episodefile?seriesId=36":
+            return [
+                {"id": 1945, "path": str(episode_path), "mediaInfo": None},
+            ]
+        raise AssertionError(path)
+
+    monkeypatch.setattr(module, "_sonarr_request_json_value", _fake_request)
+    monkeypatch.setattr(module, "_sonarr_list_queue", lambda **_kwargs: [])
+    monkeypatch.setattr(
+        module,
+        "_sonarr_probe_file_playability",
+        lambda path, timeout_seconds: {
+            "path": str(path),
+            "ok": False,
+            "probed": True,
+            "method": "ffprobe",
+            "reason": "ffprobe_invalid_media",
+            "detail": "EBML header parsing failed",
+        },
+    )
+
+    report = module.probe_sonarr_tv_season(
+        series_id=36,
+        season_number=2,
+        sonarr_base_url="http://127.0.0.1:8989",
+        sonarr_config_path=str(config_path),
+        staging_root=str(tmp_path / "staging"),
+        timeout_seconds=5.0,
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "blocked_unreadable_episode_files"
+    assert report["ready"] is False
+    assert report["media_info_missing_episode_numbers"] == [3]
+    assert report["unreadable_episode_numbers"] == [3]
+    assert report["unreadable_episode_count"] == 1
+
+
+def test_sonarr_request_command_retries_http_error_once(monkeypatch) -> None:
+    module = _module()
+    calls = {"count": 0}
+
+    def _fake_request(**_kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise urllib.error.HTTPError(
+                url="http://127.0.0.1:8989/api/v3/command",
+                code=400,
+                msg="bad request",
+                hdrs=None,
+                fp=None,
+            )
+        return {"id": 41}
+
+    monkeypatch.setattr(module, "_sonarr_request_json_value", _fake_request)
+    monkeypatch.setattr(module, "_sonarr_wait_for_command", lambda **_kwargs: {"status": "completed"})
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+
+    report = module._sonarr_request_command(
+        base_url="http://127.0.0.1:8989",
+        api_key="abc123",
+        name="RefreshSeries",
+        body={"seriesId": 36},
+        timeout_seconds=5.0,
+    )
+
+    assert report["ok"] is True
+    assert report["command_id"] == 41
+    assert report["status"] == "completed"
+    assert report["attempts"] == 2
+
+
+def test_sonarr_request_json_value_adds_content_type_for_post(monkeypatch) -> None:
+    module = _module()
+    observed: dict[str, object] = {}
+
+    def _fake_request_json_value(**kwargs):
+        observed.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(module, "_request_json_value", _fake_request_json_value)
+
+    payload = module._sonarr_request_json_value(
+        base_url="http://127.0.0.1:8989",
+        api_key="abc123",
+        path="/api/v3/command",
+        method="POST",
+        body={"name": "EpisodeSearch", "episodeIds": [13505]},
+        timeout_seconds=5.0,
+    )
+
+    assert payload == {"ok": True}
+    assert observed["headers"]["X-Api-Key"] == "abc123"
+    assert observed["headers"]["Content-Type"] == "application/json"
+
+
+def test_repair_sonarr_tv_season_imports_files_rescans_and_clears_queue(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    series_root = tmp_path / "library" / "LEGO Ninjago - Dragons Rising"
+    staging_root = tmp_path / "staging"
+    candidate_dir = staging_root / "LEGO.Ninjago.Dragons.Rising.S02.1080p.NF.WEB-DL.DDP5.1.H.264-STRiKES"
+    candidate_dir.mkdir(parents=True)
+    ep3 = candidate_dir / "LEGO.Ninjago.Dragons.Rising.S02E03.Beyond.the.Phantasm.Cave.1080p.NF.WEB-DL.mkv"
+    ep4 = candidate_dir / "LEGO.Ninjago.Dragons.Rising.S02E04.Force.From.the.East.1080p.NF.WEB-DL.mkv"
+    ep3.write_text("ep3", encoding="utf-8")
+    ep4.write_text("ep4", encoding="utf-8")
+    config_path = tmp_path / "sonarr-config.xml"
+    config_path.write_text("<Config><ApiKey>abc123</ApiKey></Config>", encoding="utf-8")
+
+    pre_probe = {
+        "probe_ok": True,
+        "ready": False,
+        "status": "blocked_staging_import_available",
+        "reason": "sonarr_missing_episodes_have_staging_candidate",
+        "next_action": "repair_sonarr_tv_season",
+        "series_id": 36,
+        "series_title": "LEGO Ninjago: Dragons Rising",
+        "series_path": str(series_root),
+        "season_folder": True,
+        "season_number": 2,
+        "missing_episode_numbers": [3, 4],
+        "metadata_queue_episode_numbers": [3, 4],
+        "staging_candidates": [
+            {
+                "name": candidate_dir.name,
+                "path": str(candidate_dir),
+                "cover_count": 2,
+                "valid_cover_count": 2,
+            }
+        ],
+        "selected_staging_candidate": {
+            "name": candidate_dir.name,
+            "path": str(candidate_dir),
+            "cover_count": 2,
+            "valid_cover_count": 2,
+        },
+    }
+    post_probe = {
+        "probe_ok": True,
+        "ready": False,
+        "status": "blocked_stale_metadata_queue",
+        "reason": "sonarr_stale_metadata_queue",
+        "next_action": "repair_sonarr_tv_season",
+        "series_id": 36,
+        "series_title": "LEGO Ninjago: Dragons Rising",
+        "series_path": str(series_root),
+        "season_folder": True,
+        "season_number": 2,
+        "have_episode_numbers": [1, 2, 3, 4],
+        "missing_episode_numbers": [],
+        "metadata_queue_episode_numbers": [3, 4],
+        "metadata_queue_items": [
+            {"id": 101, "episode_number": 3, "episode_has_file": True, "is_stale": True},
+            {"id": 102, "episode_number": 4, "episode_has_file": True, "is_stale": True},
+        ],
+    }
+    final_probe = {
+        "probe_ok": True,
+        "ready": True,
+        "status": "ready",
+        "reason": "",
+        "next_action": "",
+        "series_id": 36,
+        "series_title": "LEGO Ninjago: Dragons Rising",
+        "series_path": str(series_root),
+        "season_folder": True,
+        "season_number": 2,
+        "have_episode_numbers": [1, 2, 3, 4],
+        "missing_episode_numbers": [],
+        "metadata_queue_episode_numbers": [],
+        "metadata_queue_items": [],
+    }
+    probes = iter([pre_probe, post_probe, final_probe])
+    written: dict[str, object] = {}
+    delete_calls: list[list[int]] = []
+
+    monkeypatch.setattr(module, "probe_sonarr_tv_season", lambda **_kwargs: dict(next(probes)))
+    monkeypatch.setattr(module, "_read_xml_api_key", lambda _path: "abc123")
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T15:00:00Z")
+    monkeypatch.setattr(module, "_write_private_json", lambda _path, payload: written.update(dict(payload)))
+    monkeypatch.setattr(module, "_sonarr_request_json_value", lambda **_kwargs: {"id": 42})
+    monkeypatch.setattr(module, "_sonarr_wait_for_command", lambda **_kwargs: {"status": "completed"})
+    monkeypatch.setattr(
+        module,
+        "_sonarr_probe_file_playability",
+        lambda path, timeout_seconds: {
+            "path": str(path),
+            "ok": True,
+            "probed": True,
+            "method": "ffprobe",
+            "reason": "",
+            "detail": "h264",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_sonarr_delete_queue_rows",
+        lambda **kwargs: delete_calls.append(list(kwargs["queue_ids"])) or {"ok": True, "removed_count": len(kwargs["queue_ids"])},
+    )
+
+    report = module.repair_sonarr_tv_season(
+        series_id=36,
+        season_number=2,
+        sonarr_base_url="http://127.0.0.1:8989",
+        sonarr_config_path=str(config_path),
+        staging_root=str(staging_root),
+        timeout_seconds=5.0,
+        output_format="operator",
+    )
+
+    season_dir = series_root / "Season 2"
+    assert report["status"] == "repaired"
+    assert report["ready"] is True
+    assert report["moved_file_count"] == 2
+    assert report["moved_episode_numbers"] == [3, 4]
+    assert report["queue_rows_removed"] == 2
+    assert report["removed_queue_episode_numbers"] == [3, 4]
+    assert delete_calls == [[101, 102]]
+    assert (season_dir / ep3.name).exists()
+    assert (season_dir / ep4.name).exists()
+    assert not ep3.exists()
+    assert not ep4.exists()
+    assert written["status"] == "repaired"
+    assert "queue_removed=2" in str(report["operator_text"])
+
+
+def test_repair_sonarr_tv_season_imports_from_multiple_candidates(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    series_root = tmp_path / "library" / "LEGO Ninjago - Dragons Rising"
+    staging_root = tmp_path / "staging"
+    ep4_candidate = staging_root / "LEGO.Ninjago.Dragons.Rising.S02E04.1080p.WEB.h264-DOLORES[EZTVx.to].mkv"
+    ep8_candidate = staging_root / "LEGO.Ninjago.Dragons.Rising.S02E08.1080p.WEB.h264-DOLORES[EZTVx.to].mkv"
+    ep4_candidate.parent.mkdir(parents=True, exist_ok=True)
+    ep4_candidate.write_text("ep4", encoding="utf-8")
+    ep8_candidate.write_text("ep8", encoding="utf-8")
+    config_path = tmp_path / "sonarr-config.xml"
+    config_path.write_text("<Config><ApiKey>abc123</ApiKey></Config>", encoding="utf-8")
+
+    pre_probe = {
+        "probe_ok": True,
+        "ready": False,
+        "status": "blocked_staging_import_available",
+        "reason": "sonarr_missing_episodes_have_staging_candidate",
+        "next_action": "repair_sonarr_tv_season",
+        "series_id": 36,
+        "series_title": "LEGO Ninjago: Dragons Rising",
+        "series_path": str(series_root),
+        "season_folder": True,
+        "season_number": 2,
+        "missing_episode_numbers": [4, 8],
+        "missing_episode_ids": [13506, 13510],
+        "metadata_queue_episode_numbers": [],
+        "staging_candidates": [
+            {
+                "name": ep4_candidate.name,
+                "path": str(ep4_candidate),
+                "cover_count": 1,
+                "valid_cover_count": 1,
+            },
+            {
+                "name": ep8_candidate.name,
+                "path": str(ep8_candidate),
+                "cover_count": 1,
+                "valid_cover_count": 1,
+            },
+        ],
+        "selected_staging_candidate": {
+            "name": ep4_candidate.name,
+            "path": str(ep4_candidate),
+            "cover_count": 1,
+            "valid_cover_count": 1,
+        },
+    }
+    post_probe = {
+        "probe_ok": True,
+        "ready": True,
+        "status": "ready",
+        "reason": "",
+        "next_action": "",
+        "series_id": 36,
+        "series_title": "LEGO Ninjago: Dragons Rising",
+        "series_path": str(series_root),
+        "season_folder": True,
+        "season_number": 2,
+        "have_episode_numbers": [4, 8],
+        "missing_episode_numbers": [],
+        "missing_episode_ids": [],
+        "unreadable_episode_numbers": [],
+        "metadata_queue_episode_numbers": [],
+        "metadata_queue_items": [],
+    }
+    probes = iter([pre_probe, post_probe])
+    written: dict[str, object] = {}
+
+    monkeypatch.setattr(module, "probe_sonarr_tv_season", lambda **_kwargs: dict(next(probes)))
+    monkeypatch.setattr(module, "_read_xml_api_key", lambda _path: "abc123")
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T15:00:00Z")
+    monkeypatch.setattr(module, "_write_private_json", lambda _path, payload: written.update(dict(payload)))
+    monkeypatch.setattr(module, "_sonarr_list_queue", lambda **_kwargs: [])
+    monkeypatch.setattr(
+        module,
+        "_sonarr_probe_file_playability",
+        lambda path, timeout_seconds: {
+            "path": str(path),
+            "ok": True,
+            "probed": True,
+            "method": "ffprobe",
+            "reason": "",
+            "detail": "h264",
+        },
+    )
+    monkeypatch.setattr(module, "_sonarr_request_command", lambda **_kwargs: {"ok": True, "command_id": 41, "status": "completed", "attempts": 1})
+
+    report = module.repair_sonarr_tv_season(
+        series_id=36,
+        season_number=2,
+        sonarr_base_url="http://127.0.0.1:8989",
+        sonarr_config_path=str(config_path),
+        staging_root=str(staging_root),
+        timeout_seconds=5.0,
+        output_format="json",
+    )
+
+    season_dir = series_root / "Season 2"
+    assert report["status"] == "repaired"
+    assert report["moved_file_count"] == 2
+    assert report["moved_episode_numbers"] == [4, 8]
+    assert (season_dir / ep4_candidate.name).exists()
+    assert (season_dir / ep8_candidate.name).exists()
+    assert written["status"] == "repaired"
+
+
+def test_repair_sonarr_tv_season_reports_ready_without_changes(monkeypatch) -> None:
+    module = _module()
+    probe = {
+        "probe_ok": True,
+        "ready": True,
+        "status": "ready",
+        "reason": "",
+        "next_action": "",
+        "series_id": 36,
+        "series_title": "LEGO Ninjago: Dragons Rising",
+        "season_number": 2,
+        "missing_episode_numbers": [],
+        "metadata_queue_episode_numbers": [],
+        "series_path": "/mnt/pcloud/PLEX/Requested/TV/LEGO Ninjago - Dragons Rising",
+        "season_folder": True,
+    }
+    written: dict[str, object] = {}
+    monkeypatch.setattr(module, "probe_sonarr_tv_season", lambda **_kwargs: dict(probe))
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T15:00:00Z")
+    monkeypatch.setattr(module, "_write_private_json", lambda _path, payload: written.update(dict(payload)))
+
+    report = module.repair_sonarr_tv_season(
+        series_id=36,
+        season_number=2,
+        timeout_seconds=5.0,
+        output_format="json",
+    )
+
+    assert report["status"] == "ready"
+    assert report["ready"] is True
+    assert report["moved_file_count"] == 0
+    assert report["queue_rows_removed"] == 0
+    assert written["status"] == "ready"
+
+
+def test_repair_sonarr_tv_season_quarantines_unreadable_file_and_requests_search(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    series_root = tmp_path / "library" / "LEGO Ninjago - Dragons Rising"
+    season_dir = series_root / "Season 2"
+    season_dir.mkdir(parents=True)
+    bad_file = season_dir / "LEGO.Ninjago.Dragons.Rising.S02E03.Beyond.the.Phantasm.Cave.1080p.NF.WEB-DL.mkv"
+    bad_file.write_text("broken", encoding="utf-8")
+    config_path = tmp_path / "sonarr-config.xml"
+    config_path.write_text("<Config><ApiKey>abc123</ApiKey></Config>", encoding="utf-8")
+
+    pre_probe = {
+        "probe_ok": True,
+        "ready": False,
+        "status": "blocked_unreadable_episode_files",
+        "reason": "sonarr_unreadable_episode_files",
+        "next_action": "repair_sonarr_tv_season",
+        "series_id": 36,
+        "series_title": "LEGO Ninjago: Dragons Rising",
+        "series_path": str(series_root),
+        "season_folder": True,
+        "season_number": 2,
+        "missing_episode_numbers": [],
+        "missing_episode_ids": [],
+        "media_info_missing_episode_numbers": [3],
+        "unreadable_episode_numbers": [3],
+        "selected_staging_candidate": {},
+    }
+    post_probe = {
+        "probe_ok": True,
+        "ready": False,
+        "status": "blocked_missing_episodes",
+        "reason": "sonarr_missing_episodes",
+        "next_action": "search_sonarr_missing_episodes",
+        "series_id": 36,
+        "series_title": "LEGO Ninjago: Dragons Rising",
+        "series_path": str(series_root),
+        "season_folder": True,
+        "season_number": 2,
+        "have_episode_numbers": [1, 2],
+        "missing_episode_numbers": [3],
+        "missing_episode_ids": [13505],
+        "unreadable_episode_numbers": [],
+        "metadata_queue_episode_numbers": [],
+        "metadata_queue_items": [],
+    }
+    final_probe = dict(post_probe)
+    probes = iter([pre_probe, post_probe, final_probe])
+    written: dict[str, object] = {}
+
+    monkeypatch.setattr(module, "probe_sonarr_tv_season", lambda **_kwargs: dict(next(probes)))
+    monkeypatch.setattr(module, "_read_xml_api_key", lambda _path: "abc123")
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T15:00:00Z")
+    monkeypatch.setattr(module, "_write_private_json", lambda _path, payload: written.update(dict(payload)))
+    monkeypatch.setattr(module, "_sonarr_list_queue", lambda **_kwargs: [])
+
+    def _fake_request(**kwargs):
+        body = dict(kwargs.get("body") or {})
+        match body.get("name"):
+            case "RefreshSeries":
+                return {"id": 41}
+            case "RescanSeries":
+                return {"id": 42}
+            case "EpisodeSearch":
+                return {"id": 43}
+        raise AssertionError(body)
+
+    monkeypatch.setattr(module, "_sonarr_request_json_value", _fake_request)
+    monkeypatch.setattr(module, "_sonarr_wait_for_command", lambda **_kwargs: {"status": "completed"})
+
+    report = module.repair_sonarr_tv_season(
+        series_id=36,
+        season_number=2,
+        sonarr_base_url="http://127.0.0.1:8989",
+        sonarr_config_path=str(config_path),
+        staging_root=str(tmp_path / "staging"),
+        timeout_seconds=5.0,
+        output_format="operator",
+    )
+
+    quarantine_dir = Path(str(report["quarantine_dir"]))
+    assert report["status"] == "recovery_in_progress"
+    assert report["ready"] is False
+    assert report["quarantined_file_count"] == 1
+    assert report["quarantined_episode_numbers"] == [3]
+    assert report["refresh_requested"] is True
+    assert report["refresh_status"] == "completed"
+    assert report["rescan_requested"] is True
+    assert report["rescan_status"] == "completed"
+    assert report["search_requested"] is True
+    assert report["search_status"] == "completed"
+    assert report["search_episode_numbers"] == [3]
+    assert report["next_action"] == "wait_for_download_client_or_reprobe_sonarr_tv_season"
+    assert not bad_file.exists()
+    assert quarantine_dir.exists()
+
+
+def test_repair_sonarr_tv_season_replaces_metadata_only_queue_with_viable_release(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    config_path = tmp_path / "sonarr-config.xml"
+    config_path.write_text("<Config><ApiKey>abc123</ApiKey></Config>", encoding="utf-8")
+
+    pre_probe = {
+        "probe_ok": True,
+        "ready": False,
+        "status": "ready_with_recovery_action",
+        "reason": "sonarr_metadata_queue_downloading_metadata",
+        "next_action": "wait_for_download_client_or_reprobe_sonarr_tv_season",
+        "series_id": 36,
+        "series_title": "LEGO Ninjago: Dragons Rising",
+        "series_path": str(tmp_path / "library" / "LEGO Ninjago - Dragons Rising"),
+        "season_folder": True,
+        "season_number": 2,
+        "missing_episode_numbers": [11],
+        "missing_episode_ids": [13513],
+        "metadata_queue_episode_numbers": [11],
+        "metadata_queue_items": [
+            {
+                "id": 201,
+                "episode_number": 11,
+                "episode_has_file": False,
+                "is_stale": False,
+            }
+        ],
+    }
+    post_probe = dict(pre_probe)
+    replacement_probe = {
+        "probe_ok": True,
+        "ready": False,
+        "status": "blocked_missing_episodes",
+        "reason": "sonarr_missing_episodes",
+        "next_action": "search_sonarr_missing_episodes",
+        "series_id": 36,
+        "series_title": "LEGO Ninjago: Dragons Rising",
+        "series_path": str(tmp_path / "library" / "LEGO Ninjago - Dragons Rising"),
+        "season_folder": True,
+        "season_number": 2,
+        "missing_episode_numbers": [11],
+        "missing_episode_ids": [13513],
+        "metadata_queue_episode_numbers": [],
+        "metadata_queue_items": [],
+    }
+    probes = iter([pre_probe, post_probe, replacement_probe])
+    written: dict[str, object] = {}
+    queue_snapshots = iter(
+        [
+            [
+                {
+                    "id": 201,
+                    "seriesId": 36,
+                    "downloadId": "D6836FE76CBC4F040804284D20DBC199F342F9D2",
+                    "trackedDownloadState": "downloading",
+                    "errorMessage": "qBittorrent is downloading metadata",
+                    "added": "2026-07-05T15:45:00Z",
+                    "episode": {"id": 13513, "seasonNumber": 2, "episodeNumber": 11},
+                }
+            ],
+            [
+                {
+                    "id": 301,
+                    "seriesId": 36,
+                    "downloadId": "AABBCCDDEEFF00112233445566778899AABBCCDD",
+                    "trackedDownloadState": "downloading",
+                    "errorMessage": "",
+                    "added": "2026-07-05T16:16:00Z",
+                    "episode": {"id": 13513, "seasonNumber": 2, "episodeNumber": 11},
+                }
+            ],
+        ]
+    )
+    delete_calls: list[dict[str, object]] = []
+    grab_calls: list[str] = []
+
+    monkeypatch.setattr(module, "probe_sonarr_tv_season", lambda **_kwargs: dict(next(probes)))
+    monkeypatch.setattr(module, "_read_xml_api_key", lambda _path: "abc123")
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T16:20:00Z")
+    monkeypatch.setattr(module, "_write_private_json", lambda _path, payload: written.update(dict(payload)))
+    monkeypatch.setattr(module, "_sonarr_list_queue", lambda **_kwargs: list(next(queue_snapshots)))
+    monkeypatch.setattr(
+        module,
+        "_sonarr_list_releases_for_episode",
+        lambda **_kwargs: [
+            {
+                "title": "LEGO.Ninjago.Dragons.Rising.S02E11.1080p.WEB.h264-DOLORES",
+                "mappedSeasonNumber": 2,
+                "mappedEpisodeNumbers": [11],
+                "downloadAllowed": True,
+                "rejections": ["Release in queue already meets cutoff: WEBDL-1080p v1"],
+                "seeders": 1,
+                "qualityWeight": 1200,
+                "quality": {"quality": {"resolution": 1080}},
+                "size": 948654464,
+                "infoHash": "d6836fe76cbc4f040804284d20dbc199f342f9d2",
+            },
+            {
+                "title": "LEGO Ninjago Dragons Rising S02E11 1080p HEVC x265 MeGusta EZTV",
+                "mappedSeasonNumber": 2,
+                "mappedEpisodeNumbers": [11],
+                "downloadAllowed": True,
+                "rejections": ["Release in queue already meets cutoff: WEBDL-1080p v1"],
+                "seeders": 25,
+                "qualityWeight": 900,
+                "quality": {"quality": {"resolution": 1080}},
+                "size": 340444640,
+                "infoHash": "aabbccddeeff00112233445566778899aabbccdd",
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "_sonarr_delete_queue_rows",
+        lambda **kwargs: delete_calls.append(dict(kwargs)) or {"ok": True, "removed_count": len(kwargs["queue_ids"])},
+    )
+    monkeypatch.setattr(
+        module,
+        "_sonarr_grab_release",
+        lambda **kwargs: grab_calls.append(str(kwargs["release"]["title"])) or {"ok": True, "response": {}},
+    )
+    monkeypatch.setattr(module, "_sonarr_request_command", lambda **_kwargs: {"ok": True, "command_id": 41, "status": "completed", "attempts": 1})
+
+    report = module.repair_sonarr_tv_season(
+        series_id=36,
+        season_number=2,
+        sonarr_base_url="http://127.0.0.1:8989",
+        sonarr_config_path=str(config_path),
+        staging_root=str(tmp_path / "staging"),
+        timeout_seconds=5.0,
+        output_format="json",
+    )
+
+    assert report["status"] == "recovery_in_progress"
+    assert report["reason"] == "sonarr_missing_episodes_already_queued"
+    assert report["next_action"] == "wait_for_download_client_or_reprobe_sonarr_tv_season"
+    assert report["replacement_grab_count"] == 1
+    assert report["replacement_episode_numbers"] == [11]
+    assert report["search_requested"] is False
+    assert report["queued_missing_episode_numbers_after"] == [11]
+    assert delete_calls == [
+        {
+            "base_url": "http://127.0.0.1:8989",
+            "api_key": "abc123",
+            "queue_ids": [201],
+            "timeout_seconds": 5.0,
+            "blocklist": True,
+            "skip_redownload": True,
+        }
+    ]
+    assert grab_calls == ["LEGO Ninjago Dragons Rising S02E11 1080p HEVC x265 MeGusta EZTV"]
+    assert written["replacement_grab_count"] == 1
+    assert written["status"] == "recovery_in_progress"
+
+
+def test_repair_mymedia_public_surface_uses_private_runtime_defaults_when_env_missing(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    defaults_path = tmp_path / "mymedia-runtime-defaults.json"
+    defaults_path.write_text(
+        json.dumps(
+            {
+                "access_emails": "ops@example.test,backup@example.test",
+                "cloudflare_exception_base_hosts": "home.girschele.com,photos.girschele.com",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_RUNTIME_DEFAULTS_PATH", str(defaults_path))
+    monkeypatch.delenv("EA_MYMEDIA_ALEXA_ACCESS_EMAILS", raising=False)
+    monkeypatch.delenv("EA_MYMEDIA_ALEXA_CLOUDFLARE_EXCEPTION_BASE_HOSTS", raising=False)
+    before = {
+        "configured": True,
+        "base_url_scope": "public",
+        "probe_attempted": True,
+        "ready": False,
+        "status": "blocked_by_cloudflare",
+        "reason": "mymedia_public_console_blocked_by_cloudflare",
+        "next_action": "repair_mymedia_public_console_route",
+        "next_action_href": "https://mymedia.girschele.com",
+        "next_action_label": "Open public My Media URL",
+        "next_action_method": "get",
+    }
+    after = dict(before)
+    after.update(
+        {
+            "ready": True,
+            "status": "access_protected",
+            "reason": "",
+            "next_action": "",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
+        }
+    )
+    probes = iter([before, after])
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(module, "_mymedia_public_surface_probe", lambda *_args, **_kwargs: next(probes))
+    monkeypatch.setattr(module, "_cloudflare_auth_ready", lambda: True)
+    monkeypatch.setattr(
+        module,
+        "_cloudflare_lookup_zone_for_host",
+        lambda hostname, **_kwargs: {
+            "ok": True,
+            "zone_id": "zone-1",
+            "account_id": "account-1",
+            "zone_name": "girschele.com",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_cloudflare_lookup_named_tunnel",
+        lambda account_id, tunnel_name, **_kwargs: {
+            "ok": True,
+            "tunnel_id": "tunnel-1",
+            "tunnel_domain": "tunnel-1.cfargotunnel.com",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_cloudflare_upsert_dns_record",
+        lambda zone_id, **_kwargs: {"ok": True, "changed": False, "record_present": True},
+    )
+    monkeypatch.setattr(
+        module,
+        "_cloudflare_upsert_tunnel_ingress",
+        lambda account_id, tunnel_id, **_kwargs: {"ok": True, "changed": False, "route_present": True},
+    )
+    monkeypatch.setattr(
+        module,
+        "_cloudflare_lookup_access_service_token",
+        lambda account_id, **_kwargs: {"ok": True, "service_token_id": "token-1", "service_token_name": "CodexLiz"},
+    )
+
+    def _fake_access_app(zone_id, **kwargs):
+        captured["access_emails_csv"] = kwargs["access_emails_csv"]
+        return {"ok": True, "changed": False, "app_present": True}
+
+    def _fake_firewall(zone_id, **kwargs):
+        captured["required_existing_hosts"] = list(kwargs["required_existing_hosts"])
+        return {"ok": True, "changed": False, "patched_rule_count": 0}
+
+    monkeypatch.setattr(module, "_cloudflare_upsert_access_app", _fake_access_app)
+    monkeypatch.setattr(module, "_cloudflare_patch_private_host_block_exceptions", _fake_firewall)
+    monkeypatch.setattr(module.time, "sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(module, "_write_private_json", lambda *_args, **_kwargs: None)
+
+    report = module.repair_mymedia_public_surface(
+        web_base_url="http://127.0.0.1:52051",
+        public_web_base_url="https://mymedia.girschele.com",
+        timeout_seconds=5.0,
+        output_format="json",
+    )
+
+    assert report["status"] == "ready"
+    assert captured["access_emails_csv"] == "ops@example.test,backup@example.test"
+    assert captured["required_existing_hosts"] == ["home.girschele.com", "photos.girschele.com"]
+
+
+def test_probe_mymedia_alexa_embeds_optional_public_surface_probe(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    data_dir = tmp_path / "mymedia-data"
+    data_dir.mkdir()
+    (data_dir / "Preferences.xml").write_text(
+        """<?xml version="1.0"?>
+<DynamicConfiguration>
+  <RefreshToken>refresh-token-secret</RefreshToken>
+  <AllowExternalAccess>2</AllowExternalAccess>
+</DynamicConfiguration>
+""",
+        encoding="utf-8",
+    )
+    (data_dir / "Messages.xml").write_text("""<?xml version="1.0"?><ArrayOfEntry />\n""", encoding="utf-8")
+    monkeypatch.setattr(
+        module,
+        "_docker_inspect_container_json",
+        lambda *_args, **_kwargs: {
+            "State": {"Running": True, "Status": "running"},
+            "Mounts": [{"Destination": "/datadir", "Source": str(data_dir)}],
+        },
+    )
+
+    def _fake_api(url: str, **_kwargs):
+        if url.endswith("/api/Summary"):
+            return True, {"GetSummaryInfoResult": {"Tracks": 12, "Albums": 1, "Artists": 1, "Genres": 1, "ConnectionStatus": 2}}, 200, ""
+        if url.endswith("/api/WatchFolders"):
+            return True, {"GetWatchFoldersResult": [{"Status": 4, "Errors": 0}]}, 200, ""
+        if url.endswith("/api/Login"):
+            return True, {"GetMyMediaLoginResult": "paired-user"}, 200, ""
+        raise AssertionError(url)
+
+    monkeypatch.setattr(module, "_mymedia_api_json", _fake_api)
+    monkeypatch.setattr(
+        module,
+        "_mymedia_public_surface_probe",
+        lambda *args, **_kwargs: {
+            "configured": True,
+            "base_url_scope": "public",
+            "probe_attempted": True,
+            "ready": False,
+            "status": "blocked_by_cloudflare",
+            "reason": "mymedia_public_console_blocked_by_cloudflare",
+            "http_status_code": 403,
+            "access_protected": False,
+            "cloudflare_blocked": True,
+            "redirect_host": "",
+            "content_type": "text/html; charset=UTF-8",
+            "next_action": "repair_mymedia_public_console_route",
+            "next_action_href": "https://mymedia.girschele.com",
+            "next_action_label": "Open public My Media URL",
+            "next_action_method": "get",
+            "source": "http.public_surface_probe",
+        },
+    )
+
+    report = module.probe_mymedia_alexa(
+        container_name="mymediaalexa",
+        web_base_url="http://127.0.0.1:52051",
+        public_web_base_url="https://mymedia.girschele.com",
+        timeout_seconds=5.0,
+        output_format="operator",
+    )
+
+    assert report["ready"] is True
+    assert report["status"] == "ready_library_scan_in_progress"
+    assert report["public_surface_configured"] is True
+    assert report["public_surface_ready"] is False
+    assert report["public_surface_status"] == "blocked_by_cloudflare"
+    assert report["public_surface_reason"] == "mymedia_public_console_blocked_by_cloudflare"
+    assert report["public_surface_http_status_code"] == 403
+    assert "public_surface_status=blocked_by_cloudflare" in str(report["operator_text"])
+
+
+def test_mymedia_pairing_surface_kind_classifies_setup_login_route_selection_and_waiting_states() -> None:
+    module = _module()
+
+    setup = module._mymedia_pairing_surface_kind(
+        "http://127.0.0.1:52051/index.html#!/setup",
+        "Welcome to My Media for Alexa. pair your server with the primary Amazon account you use on your Alexa device.",
+    )
+    password = module._mymedia_pairing_surface_kind(
+        "https://na.account.amazon.com/ap/signin",
+        "Sign in archon.megalon@gmail.com Change Password Forgot password? Sign in with a passkey",
+    )
+    route_selection = module._mymedia_pairing_surface_kind(
+        "https://na.account.amazon.com/ap/mfa/new-otp?ie=UTF8&arb=fixture",
+        "Two-Step Verification Choose where you'd like to receive or generate the code. Send OTP",
+    )
+    waiting = module._mymedia_pairing_surface_kind(
+        "https://na.account.amazon.com/ap/mfa?ie=UTF8&arb=fixture",
+        "Look on WhatsApp for a message with your security code. Two-Step Verification Enter code",
+    )
+
+    assert setup["kind"] == "setup_intro"
+    assert password["kind"] == "amazon_signin"
+    assert route_selection["kind"] == "mfa_route_selection"
+    assert waiting["kind"] == "waiting_for_code"
+    assert waiting["invalid_code"] is False
+
+
+def test_mymedia_pairing_wait_for_visible_selector_retries_until_password_field_appears(monkeypatch) -> None:
+    module = _module()
+    state = {"tick": 0}
+
+    class _FakeLocator:
+        def __init__(self, selector: str) -> None:
+            self.selector = selector
+
+        @property
+        def first(self) -> "_FakeLocator":
+            return self
+
+        def is_visible(self, timeout: int = 0) -> bool:
+            return self.selector == "input#ap_password" and state["tick"] >= 1
+
+    class _FakePage:
+        def locator(self, selector: str) -> _FakeLocator:
+            return _FakeLocator(selector)
+
+        def wait_for_timeout(self, _milliseconds: int) -> None:
+            state["tick"] += 1
+
+    monkeypatch.setattr(module.time, "monotonic", lambda: state["tick"] * 0.1)
+
+    selector = module._mymedia_pairing_wait_for_visible_selector(
+        _FakePage(),
+        ("input[name='password']", "input#ap_password", "input[type='password']"),
+        timeout_seconds=2.0,
+    )
+
+    assert selector == "input#ap_password"
+
+
+def test_mymedia_action_surface_maps_code_and_consent_recovery_to_setup_page() -> None:
+    module = _module()
+
+    code_href, code_label, code_method = module._mymedia_action_surface(
+        base_url="http://127.0.0.1:52051",
+        next_action="enter_mymedia_amazon_pairing_code",
+    )
+    consent_href, consent_label, consent_method = module._mymedia_action_surface(
+        base_url="http://127.0.0.1:52051",
+        next_action="approve_mymedia_amazon_consent",
+    )
+
+    assert code_href == "http://127.0.0.1:52051/index.html#!/setup"
+    assert code_label == "Open My Media setup"
+    assert code_method == "get"
+    assert consent_href == "http://127.0.0.1:52051/index.html#!/setup"
+    assert consent_label == "Open My Media setup"
+    assert consent_method == "get"
+
+
+def test_mymedia_action_surface_maps_wait_for_scan_to_watch_folders_page() -> None:
+    module = _module()
+
+    href, label, method = module._mymedia_action_surface(
+        base_url="http://127.0.0.1:52051",
+        next_action="wait_for_mymedia_library_scan",
+    )
+
+    assert href == "http://127.0.0.1:52051/index.html#!/tables"
+    assert label == "Open Watch Folders"
+    assert method == "get"
+
+
+def test_mymedia_pairing_route_matches_channel_and_suffix() -> None:
+    module = _module()
+
+    assert module._mymedia_pairing_route_matches(
+        "Send me a WhatsApp message to my number ending in 419",
+        otp_channel="whatsapp",
+        phone_suffix="419",
+    )
+    assert module._mymedia_pairing_route_matches(
+        "Eine SMS an meine Telefonnummer schicken, die auf 777 endet",
+        otp_channel="sms",
+        phone_suffix="777",
+    )
+    assert module._mymedia_pairing_route_matches(
+        "Text me at my number ending in 777",
+        otp_channel="sms",
+        phone_suffix="777",
+    )
+    assert module._mymedia_pairing_route_matches(
+        "Unter meiner Nummer anrufen, die auf 419 endet",
+        otp_channel="call",
+        phone_suffix="419",
+    )
+    assert not module._mymedia_pairing_route_matches(
+        "Send me a WhatsApp message to my number ending in 777",
+        otp_channel="whatsapp",
+        phone_suffix="419",
+    )
+
+
+def test_mymedia_pairing_route_request_issue_surfaces_cooldown_and_sms_unavailable() -> None:
+    module = _module()
+
+    cooldown = module._mymedia_pairing_route_request_issue(
+        "There was a problem. Please wait at least one minute before requesting another code.",
+        otp_channel="sms",
+        phone_suffix="777",
+    )
+    assert cooldown == {
+        "status": "blocked_pairing_code_request_cooldown",
+        "reason": "mymedia_pairing_code_request_cooldown",
+        "next_action": "wait_before_retrying_mymedia_pairing_code",
+        "blockers": ["mfa_code_request_cooldown"],
+    }
+
+    unavailable = module._mymedia_pairing_route_request_issue(
+        "For added security, we need to verify your phone number. We are unable to send an SMS to the phone number ending with 777 at this time.",
+        otp_channel="sms",
+        phone_suffix="777",
+    )
+    assert unavailable == {
+        "status": "blocked_pairing_route_unavailable",
+        "reason": "mymedia_pairing_route_unavailable",
+        "next_action": "switch_mymedia_pairing_route",
+        "blockers": ["mfa_route_unavailable"],
+        "failed_route": "sms:*777",
+    }
+
+
+def test_mymedia_pairing_session_status_marks_waiting_bundle_resumable(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    pairing_dir = tmp_path / "mymedia-pairing"
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_DIR", str(pairing_dir))
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_SESSION_MAX_AGE_SECONDS", "1800")
+    pairing_dir.mkdir(parents=True, exist_ok=True)
+    (pairing_dir / "storage_state.json").write_text("{}", encoding="utf-8")
+    (pairing_dir / "session.json").write_text(
+        json.dumps(
+            {
+                "resume_url": "https://na.account.amazon.com/ap/cvf",
+                "otp_channel": "whatsapp",
+                "phone_suffix": "419",
+                "surface_kind": "waiting_for_code",
+                "captured_at": "2026-07-04T12:35:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status = module._mymedia_pairing_session_status(
+        now=datetime.fromisoformat("2026-07-04T12:45:00+00:00"),
+    )
+
+    assert status["pending_surface"] is True
+    assert status["resume_ready"] is True
+    assert status["stale"] is False
+    assert status["surface_kind"] == "waiting_for_code"
+    assert status["age_seconds"] == 600
+
+
+def test_mymedia_pairing_preserve_previous_actionable_handoff_restores_waiting_bundle(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    pairing_dir = tmp_path / "mymedia-pairing"
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_DIR", str(pairing_dir))
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_SESSION_MAX_AGE_SECONDS", "1800")
+    pairing_dir.mkdir(parents=True, exist_ok=True)
+    original_state = b'{"cookies":[{"name":"session"}]}'
+    original_session = json.dumps(
+        {
+            "resume_url": "https://na.account.amazon.com/ap/cvf",
+            "otp_channel": "whatsapp",
+            "phone_suffix": "419",
+            "surface_kind": "waiting_for_code",
+            "site": "na.account.amazon.com",
+            "current_path": "/ap/mfa",
+            "captured_at": "2026-07-04T14:40:50Z",
+        }
+    ).encode("utf-8")
+    original_screenshot = b"old-surface"
+    (pairing_dir / "storage_state.json").write_bytes(original_state)
+    (pairing_dir / "session.json").write_bytes(original_session)
+    (pairing_dir / "surface.png").write_bytes(original_screenshot)
+
+    snapshot = module._mymedia_pairing_capture_existing_resume_bundle(
+        now=datetime.fromisoformat("2026-07-04T14:41:00+00:00")
+    )
+    assert snapshot["resume_ready"] is True
+
+    (pairing_dir / "storage_state.json").write_bytes(b'{"cookies":[]}')
+    (pairing_dir / "session.json").write_text(
+        json.dumps(
+            {
+                "resume_url": "https://na.account.amazon.com/ap/mfa/new-otp",
+                "otp_channel": "sms",
+                "phone_suffix": "777",
+                "surface_kind": "mfa_route_selection",
+                "site": "na.account.amazon.com",
+                "current_path": "/ap/mfa/new-otp",
+                "captured_at": "2026-07-04T14:41:05Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (pairing_dir / "surface.png").write_bytes(b"new-surface")
+
+    report = module._mymedia_pairing_preserve_previous_actionable_handoff(
+        {
+            "status": "blocked_pairing_route_unavailable",
+            "reason": "mymedia_pairing_route_unavailable",
+            "surface_kind": "mfa_route_selection",
+            "selected_route": "sms:*777",
+            "failed_route": "sms:*777",
+            "state_written": True,
+            "session_written": True,
+            "screenshot_written": True,
+        },
+        previous_bundle=snapshot,
+        web_base_url="http://127.0.0.1:52051",
+        observed_at="2026-07-04T14:41:06Z",
+        output_dir="",
+        now=datetime.fromisoformat("2026-07-04T14:41:06+00:00"),
+    )
+
+    assert report["status"] == "waiting_for_code"
+    assert report["reason"] == "mfa_code_requested"
+    assert report["otp_channel"] == "whatsapp"
+    assert report["phone_suffix"] == "419"
+    assert report["pairing_resume_ready"] is True
+    assert report["previous_actionable_handoff_preserved"] is True
+    assert report["attempt_status"] == "blocked_pairing_route_unavailable"
+    assert report["attempt_failed_route"] == "sms:*777"
+    assert report["source"] == "mymedia_setup.saved_session_preserved"
+    assert (pairing_dir / "storage_state.json").read_bytes() == original_state
+    assert json.loads((pairing_dir / "session.json").read_text(encoding="utf-8"))["surface_kind"] == "waiting_for_code"
+    assert (pairing_dir / "surface.png").read_bytes() == original_screenshot
+
+
+def test_provider_display_name_uses_memory_backed_host_container(monkeypatch) -> None:
+    module = _module()
+    module._container.cache_clear()
+    sentinel_settings = object()
+    seen: dict[str, object] = {}
+
+    class _State:
+        display_name = "Pushbullet"
+
+    class _Registry:
+        def binding_state(self, provider_key: str):
+            seen["provider_key"] = provider_key
+            return _State()
+
+    class _Container:
+        provider_registry = _Registry()
+
+    monkeypatch.setattr(module, "get_settings", lambda: "settings")
+    monkeypatch.setattr(
+        module,
+        "settings_with_storage_backend",
+        lambda settings, backend: sentinel_settings if settings == "settings" and backend == "memory" else None,
+    )
+
+    def _fake_build_container(*, settings=None):
+        seen["settings"] = settings
+        return _Container()
+
+    monkeypatch.setattr(module, "build_container", _fake_build_container)
+
+    try:
+        assert module._provider_display_name("pushbullet") == "Pushbullet"
+        assert seen["settings"] is sentinel_settings
+        assert seen["provider_key"] == "pushbullet"
+    finally:
+        module._container.cache_clear()
+
+
+def test_trigger_mymedia_amazon_pairing_dry_run_reports_operator_safe_handoff(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T12:30:00Z")
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "pairing_ready": False,
+            "status": "blocked_pairing_required",
+        },
+    )
+
+    report = module.trigger_mymedia_amazon_pairing(
+        web_base_url="http://127.0.0.1:52051",
+        otp_channel="whatsapp",
+        phone_suffix="419",
+        dry_run=True,
+        output_format="operator",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "dry_run"
+    assert report["next_action"] == "request_mymedia_pairing_code"
+    assert report["otp_channel"] == "whatsapp"
+    assert report["phone_suffix"] == "419"
+    assert "mymedia_pairing status=dry_run" in str(report["operator_text"])
+
+
+def test_trigger_mymedia_amazon_pairing_uses_private_runtime_defaults_when_env_missing(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    defaults_path = tmp_path / "mymedia-runtime-defaults.json"
+    defaults_path.write_text(
+        json.dumps(
+            {
+                "amazon_otp_channel": "sms",
+                "amazon_phone_suffix": "777",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_RUNTIME_DEFAULTS_PATH", str(defaults_path))
+    monkeypatch.delenv("EA_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL", raising=False)
+    monkeypatch.delenv("EA_MYMEDIA_ALEXA_AMAZON_PHONE_SUFFIX", raising=False)
+    monkeypatch.delenv("AMAZON_OTP_CHANNEL", raising=False)
+    monkeypatch.delenv("AMAZON_OTP_SUFFIX", raising=False)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T12:30:00Z")
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "pairing_ready": False,
+            "status": "blocked_pairing_required",
+        },
+    )
+
+    report = module.trigger_mymedia_amazon_pairing(
+        web_base_url="http://127.0.0.1:52051",
+        dry_run=True,
+        output_format="json",
+    )
+
+    assert report["status"] == "dry_run"
+    assert report["otp_channel"] == "sms"
+    assert report["phone_suffix"] == "777"
+
+
+def test_send_mymedia_amazon_pairing_telegram_reuses_saved_waiting_session(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    pairing_dir = tmp_path / "mymedia-pairing"
+    pairing_dir.mkdir(parents=True, exist_ok=True)
+    (pairing_dir / "storage_state.json").write_text("{}", encoding="utf-8")
+    (pairing_dir / "session.json").write_text(
+        json.dumps(
+            {
+                "resume_url": "https://na.account.amazon.com/ap/cvf",
+                "otp_channel": "sms",
+                "phone_suffix": "419",
+                "surface_kind": "waiting_for_code",
+                "site": "na.account.amazon.com",
+                "current_path": "/ap/mfa",
+                "captured_at": "2026-07-04T13:35:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_DIR", str(pairing_dir))
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_SESSION_MAX_AGE_SECONDS", "1800")
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T13:40:00Z")
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "pairing_ready": False,
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+        },
+    )
+    sent: dict[str, object] = {}
+
+    def _fake_send_telegram(*, principal_id: str, text: str, dry_run: bool, timeout_seconds: float) -> dict[str, object]:
+        sent.update(
+            {
+                "principal_id": principal_id,
+                "text": text,
+                "dry_run": dry_run,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        return {
+            "sent": True,
+            "reason": "sent",
+            "principal_id": principal_id,
+            "message_count": 1,
+            "chat_ref_present": True,
+            "chat_ref_sha256": "abc123",
+        }
+
+    monkeypatch.setattr(module, "send_telegram", _fake_send_telegram)
+    monkeypatch.setattr(
+        module,
+        "trigger_mymedia_amazon_pairing",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("should reuse saved handoff")),
+    )
+
+    report = module.send_mymedia_amazon_pairing_telegram(
+        web_base_url="http://127.0.0.1:52051",
+        otp_channel="sms",
+        phone_suffix="419",
+        telegram_principal_id="cf-email:tibor.girschele@gmail.com",
+        output_format="operator",
+        telegram_operator_streams="media",
+    )
+
+    assert report["status"] == "waiting_for_code"
+    assert report["next_action"] == "enter_mymedia_amazon_pairing_code"
+    assert report["pairing_resume_ready"] is True
+    assert report["telegram_sent"] is True
+    assert report["source"] == "mymedia_setup.saved_session"
+    assert sent["principal_id"] == "cf-email:tibor.girschele@gmail.com"
+    assert "Reply in Codex with the current 6-digit code" in str(sent["text"])
+    assert "mymedia_pairing status=waiting_for_code" in str(report["operator_text"])
+
+
+def test_send_mymedia_amazon_pairing_telegram_prefers_saved_session_over_env_default_route(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    pairing_dir = tmp_path / "mymedia-pairing"
+    pairing_dir.mkdir(parents=True, exist_ok=True)
+    (pairing_dir / "storage_state.json").write_text("{}", encoding="utf-8")
+    (pairing_dir / "session.json").write_text(
+        json.dumps(
+            {
+                "resume_url": "https://na.account.amazon.com/ap/cvf",
+                "otp_channel": "sms",
+                "phone_suffix": "419",
+                "surface_kind": "waiting_for_code",
+                "site": "na.account.amazon.com",
+                "current_path": "/ap/mfa",
+                "captured_at": "2026-07-04T13:35:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_DIR", str(pairing_dir))
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_SESSION_MAX_AGE_SECONDS", "1800")
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL", "whatsapp")
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T13:40:00Z")
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "pairing_ready": False,
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "trigger_mymedia_amazon_pairing",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("should not retrigger when a fresh saved session exists")),
+    )
+    monkeypatch.setattr(
+        module,
+        "send_telegram",
+        lambda **kwargs: {
+            "sent": True,
+            "reason": "sent",
+            "principal_id": kwargs["principal_id"],
+            "message_count": 1,
+            "chat_ref_present": True,
+            "chat_ref_sha256": "ghi789",
+        },
+    )
+
+    report = module.send_mymedia_amazon_pairing_telegram(
+        web_base_url="http://127.0.0.1:52051",
+        telegram_principal_id="cf-email:tibor.girschele@gmail.com",
+        output_format="json",
+        telegram_operator_streams="media",
+    )
+
+    assert report["status"] == "waiting_for_code"
+    assert report["otp_channel"] == "sms"
+    assert report["pairing_resume_ready"] is True
+    assert report["source"] == "mymedia_setup.saved_session"
+
+
+def test_send_mymedia_amazon_pairing_telegram_dry_run_reports_delivery_readiness(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    pairing_dir = tmp_path / "mymedia-pairing"
+    pairing_dir.mkdir(parents=True, exist_ok=True)
+    (pairing_dir / "storage_state.json").write_text("{}", encoding="utf-8")
+    (pairing_dir / "session.json").write_text(
+        json.dumps(
+            {
+                "resume_url": "https://na.account.amazon.com/ap/cvf",
+                "otp_channel": "whatsapp",
+                "phone_suffix": "419",
+                "surface_kind": "waiting_for_code",
+                "site": "na.account.amazon.com",
+                "current_path": "/ap/mfa",
+                "captured_at": "2026-07-04T13:35:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_DIR", str(pairing_dir))
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_SESSION_MAX_AGE_SECONDS", "1800")
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T13:40:00Z")
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "pairing_ready": False,
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+        },
+    )
+
+    def _fake_send_telegram(*, principal_id: str, text: str, dry_run: bool, timeout_seconds: float) -> dict[str, object]:
+        assert principal_id == "cf-email:tibor.girschele@gmail.com"
+        assert dry_run is True
+        assert "6-digit code" in text
+        return {
+            "sent": False,
+            "reason": "dry_run",
+            "ready": True,
+            "principal_id": principal_id,
+            "chat_ref_present": True,
+            "chat_ref_sha256": "chatsha",
+            "bot_key": "default",
+            "bot_handle": "ea_concierge_bot",
+            "delivery_transport": "telegram_bot",
+            "runtime_container": "ea-api",
+        }
+
+    monkeypatch.setattr(module, "send_telegram", _fake_send_telegram)
+
+    report = module.send_mymedia_amazon_pairing_telegram(
+        web_base_url="http://127.0.0.1:52051",
+        telegram_principal_id="cf-email:tibor.girschele@gmail.com",
+        dry_run=True,
+        output_format="json",
+        telegram_operator_streams="media",
+    )
+
+    assert report["status"] == "waiting_for_code"
+    assert report["source"] == "mymedia_setup.saved_session"
+    assert report["telegram_sent"] is False
+    assert report["telegram_reason"] == "dry_run"
+    assert report["telegram_delivery"]["ready"] is True
+    assert report["telegram_delivery"]["delivery_transport"] == "telegram_bot"
+
+
+def test_send_mymedia_amazon_pairing_telegram_suppresses_media_handoff_by_default(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    pairing_dir = tmp_path / "mymedia-pairing"
+    pairing_dir.mkdir(parents=True, exist_ok=True)
+    (pairing_dir / "storage_state.json").write_text("{}", encoding="utf-8")
+    (pairing_dir / "session.json").write_text(
+        json.dumps(
+            {
+                "resume_url": "https://na.account.amazon.com/ap/cvf",
+                "otp_channel": "whatsapp",
+                "phone_suffix": "419",
+                "surface_kind": "waiting_for_code",
+                "site": "na.account.amazon.com",
+                "current_path": "/ap/mfa",
+                "captured_at": "2026-07-04T13:35:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_DIR", str(pairing_dir))
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_SESSION_MAX_AGE_SECONDS", "1800")
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T13:40:00Z")
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "pairing_ready": False,
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "send_telegram",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("telegram send should stay suppressed")),
+    )
+
+    report = module.send_mymedia_amazon_pairing_telegram(
+        web_base_url="http://127.0.0.1:52051",
+        telegram_principal_id="cf-email:tibor.girschele@gmail.com",
+        dry_run=True,
+        output_format="json",
+    )
+
+    assert report["status"] == "waiting_for_code"
+    assert report["telegram_sent"] is False
+    assert report["telegram_reason"] == "operator_stream_not_allowed"
+    assert report["telegram_delivery"]["readiness_status"] == "suppressed_by_stream_policy"
+    assert report["telegram_delivery"]["delivery_transport"] == "telegram_bot"
+    assert report["allowed_operator_streams"] == ["office_loop", "office_setup", "recovery"]
+
+
+def test_probe_mymedia_pairing_telegram_readiness_reports_ready_dry_run_without_live_send(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T14:10:00Z")
+
+    def _fake_send_mymedia_amazon_pairing_telegram(
+        *,
+        telegram_principal_id: str,
+        dry_run: bool,
+        timeout_seconds: float,
+        output_format: str,
+        output_dir: str = "",
+        **_kwargs,
+    ) -> dict[str, object]:
+        assert telegram_principal_id == "principal-1"
+        assert dry_run is True
+        assert timeout_seconds == 7.0
+        assert output_format == "json"
+        assert output_dir == ""
+        return {
+            "probe_ok": True,
+            "ready": False,
+            "status": "waiting_for_code",
+            "reason": "mfa_code_requested",
+            "surface_kind": "waiting_for_code",
+            "site": "na.account.amazon.com",
+            "otp_channel": "whatsapp",
+            "phone_suffix": "419",
+            "pairing_resume_ready": True,
+            "pairing_session_pending": True,
+            "pairing_session_stale": False,
+            "pairing_session_age_seconds": 95,
+            "observed_at": "2026-07-04T14:09:30Z",
+            "telegram_delivery": {
+                "sent": False,
+                "reason": "dry_run",
+                "ready": True,
+                "readiness_probe_ok": True,
+                "readiness_status": "ready",
+                "readiness_reason": "",
+                "principal_id": "principal-1",
+                "chat_ref_present": True,
+                "chat_ref_sha256": "h" * 64,
+                "bot_handle": "tibor_concierge_bot",
+                "delivery_transport": "telegram_bot",
+            },
+        }
+
+    monkeypatch.setattr(module, "send_mymedia_amazon_pairing_telegram", _fake_send_mymedia_amazon_pairing_telegram)
+
+    report = module.probe_mymedia_pairing_telegram_readiness(
+        principal_id="principal-1",
+        timeout_seconds=7.0,
+        output_format="json",
+        telegram_operator_streams="media",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["ready"] is True
+    assert report["status"] == "ready"
+    assert report["reason"] == ""
+    assert report["next_action"] == ""
+    assert report["surface_kind"] == "waiting_for_code"
+    assert report["telegram_delivery_ready"] is True
+    assert report["chat_ref_sha256"] == "h" * 64
+    assert report["source"] == "mymedia_pairing.telegram_dry_run"
+
+
+def test_probe_mymedia_pairing_telegram_readiness_surfaces_transport_repair_action(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T14:10:00Z")
+
+    def _fake_send_mymedia_amazon_pairing_telegram(
+        *,
+        telegram_principal_id: str,
+        dry_run: bool,
+        timeout_seconds: float,
+        output_format: str,
+        output_dir: str = "",
+        **_kwargs,
+    ) -> dict[str, object]:
+        assert telegram_principal_id == "principal-1"
+        assert dry_run is True
+        assert timeout_seconds == 7.0
+        assert output_format == "json"
+        assert output_dir == ""
+        return {
+            "probe_ok": True,
+            "ready": False,
+            "status": "waiting_for_code",
+            "reason": "mfa_code_requested",
+            "surface_kind": "waiting_for_code",
+            "site": "na.account.amazon.com",
+            "otp_channel": "whatsapp",
+            "phone_suffix": "419",
+            "pairing_resume_ready": True,
+            "pairing_session_pending": True,
+            "observed_at": "2026-07-04T14:09:30Z",
+            "telegram_delivery": {
+                "sent": False,
+                "reason": "dry_run",
+                "ready": False,
+                "readiness_probe_ok": True,
+                "readiness_status": "blocked",
+                "readiness_reason": "telegram_binding_not_found",
+                "next_action": "connect_telegram_identity_binding",
+                "next_action_href": "/integrations/telegram",
+                "next_action_label": "Connect Telegram",
+                "next_action_method": "get",
+                "principal_id": "principal-1",
+                "chat_ref_present": False,
+                "chat_ref_sha256": "",
+                "bot_handle": "tibor_concierge_bot",
+                "delivery_transport": "telegram_bot",
+            },
+        }
+
+    monkeypatch.setattr(module, "send_mymedia_amazon_pairing_telegram", _fake_send_mymedia_amazon_pairing_telegram)
+
+    report = module.probe_mymedia_pairing_telegram_readiness(
+        principal_id="principal-1",
+        timeout_seconds=7.0,
+        output_format="json",
+        telegram_operator_streams="media",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["ready"] is False
+    assert report["status"] == "blocked"
+    assert report["reason"] == "telegram_binding_not_found"
+    assert report["next_action"] == "connect_telegram_identity_binding"
+    assert report["next_action_href"] == "/integrations/telegram"
+    assert report["next_action_label"] == "Connect Telegram"
+    assert report["next_action_method"] == "get"
+    assert report["telegram_delivery_ready"] is False
+    assert report["chat_ref_present"] is False
+
+
+def test_send_mymedia_amazon_pairing_telegram_reuses_saved_consent_session(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    pairing_dir = tmp_path / "mymedia-pairing"
+    pairing_dir.mkdir(parents=True, exist_ok=True)
+    (pairing_dir / "storage_state.json").write_text("{}", encoding="utf-8")
+    (pairing_dir / "session.json").write_text(
+        json.dumps(
+            {
+                "resume_url": "https://www.amazon.com/ap/oa",
+                "otp_channel": "sms",
+                "phone_suffix": "419",
+                "surface_kind": "consent_required",
+                "site": "www.amazon.com",
+                "current_path": "/ap/oa",
+                "captured_at": "2026-07-04T13:35:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_DIR", str(pairing_dir))
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_SESSION_MAX_AGE_SECONDS", "1800")
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T13:40:00Z")
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "pairing_ready": False,
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+        },
+    )
+    sent: dict[str, object] = {}
+
+    def _fake_send_telegram(*, principal_id: str, text: str, dry_run: bool, timeout_seconds: float) -> dict[str, object]:
+        sent.update({"principal_id": principal_id, "text": text})
+        return {
+            "sent": True,
+            "reason": "sent",
+            "principal_id": principal_id,
+            "message_count": 1,
+            "chat_ref_present": True,
+            "chat_ref_sha256": "def456",
+        }
+
+    monkeypatch.setattr(module, "send_telegram", _fake_send_telegram)
+    monkeypatch.setattr(
+        module,
+        "trigger_mymedia_amazon_pairing",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("should reuse saved consent handoff")),
+    )
+
+    report = module.send_mymedia_amazon_pairing_telegram(
+        web_base_url="http://127.0.0.1:52051",
+        otp_channel="sms",
+        phone_suffix="419",
+        telegram_principal_id="cf-email:tibor.girschele@gmail.com",
+        output_format="json",
+        telegram_operator_streams="media",
+    )
+
+    assert report["status"] == "consent_required"
+    assert report["next_action"] == "approve_mymedia_amazon_consent"
+    assert report["telegram_sent"] is True
+    assert "waiting for Amazon consent" in str(sent["text"])
+
+
+def test_send_mymedia_amazon_pairing_telegram_falls_back_to_fresh_trigger(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T13:41:00Z")
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "pairing_ready": False,
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_mymedia_pairing_session_status",
+        lambda output_dir="", now=None: {
+            "resume_ready": False,
+            "pending_surface": False,
+            "otp_channel": "",
+            "phone_suffix": "",
+        },
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_trigger(**kwargs) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "probe_ok": True,
+            "ready": False,
+            "status": "waiting_for_code",
+            "reason": "mfa_code_requested",
+            "next_action": "enter_mymedia_amazon_pairing_code",
+            "surface_kind": "waiting_for_code",
+            "site": "na.account.amazon.com",
+            "otp_channel": "sms",
+            "phone_suffix": "419",
+            "code_entry_ready": True,
+            "state_written": True,
+            "telegram_sent": True,
+            "observed_at": "2026-07-04T13:41:00Z",
+            "source": "mymedia_setup.playwright",
+        }
+
+    monkeypatch.setattr(module, "trigger_mymedia_amazon_pairing", _fake_trigger)
+
+    report = module.send_mymedia_amazon_pairing_telegram(
+        web_base_url="http://127.0.0.1:52051",
+        otp_channel="sms",
+        phone_suffix="419",
+        telegram_principal_id="cf-email:tibor.girschele@gmail.com",
+        output_format="json",
+        telegram_operator_streams="media",
+    )
+
+    assert captured["send_telegram_to_principal"] == "cf-email:tibor.girschele@gmail.com"
+    assert captured["otp_channel"] == "sms"
+    assert captured["phone_suffix"] == "419"
+    assert report["status"] == "waiting_for_code"
+    assert report["telegram_sent"] is True
+
+
+def test_probe_mymedia_alexa_promotes_pending_pairing_session_to_code_entry_action(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-04T12:40:00Z")
+    data_dir = tmp_path / "mymedia-data"
+    data_dir.mkdir()
+    (data_dir / "Preferences.xml").write_text(
+        """
+<Preferences>
+  <AllowExternalAccess>2</AllowExternalAccess>
+  <PublicIpAddress>203.0.113.20</PublicIpAddress>
+</Preferences>
+""".strip(),
+        encoding="utf-8",
+    )
+    (data_dir / "Messages.xml").write_text("<Messages />", encoding="utf-8")
+    pairing_dir = tmp_path / "mymedia-pairing"
+    pairing_dir.mkdir()
+    (pairing_dir / "storage_state.json").write_text("{}", encoding="utf-8")
+    (pairing_dir / "session.json").write_text(
+        json.dumps(
+            {
+                "resume_url": "https://na.account.amazon.com/ap/cvf",
+                "otp_channel": "whatsapp",
+                "phone_suffix": "419",
+                "surface_kind": "waiting_for_code",
+                "captured_at": "2026-07-04T12:35:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_DIR", str(pairing_dir))
+    monkeypatch.setenv("EA_MYMEDIA_ALEXA_PAIRING_SESSION_MAX_AGE_SECONDS", "86400")
+    monkeypatch.setattr(
+        module,
+        "_docker_inspect_container_json",
+        lambda *_args, **_kwargs: {
+            "State": {"Running": True, "Status": "running"},
+            "Mounts": [{"Destination": "/datadir", "Source": str(data_dir)}],
+        },
+    )
+
+    def _fake_api(url: str, **_kwargs):
+        if url.endswith("/api/Summary"):
+            return True, {"GetSummaryInfoResult": {"Tracks": 0, "Albums": 0, "Artists": 0, "Genres": 0, "ConnectionStatus": 0}}, 200, ""
+        if url.endswith("/api/WatchFolders"):
+            return True, {"GetWatchFoldersResult": [{"Status": 0}]}, 200, ""
+        if url.endswith("/api/Login"):
+            return False, {}, 401, "HTTPError:401"
+        raise AssertionError(url)
+
+    monkeypatch.setattr(module, "_mymedia_api_json", _fake_api)
+
+    report = module.probe_mymedia_alexa(
+        container_name="mymediaalexa",
+        web_base_url="http://127.0.0.1:52051",
+        timeout_seconds=5.0,
+        output_format="json",
+    )
+
+    assert report["status"] == "blocked_pairing_required"
+    assert report["next_action"] == "enter_mymedia_amazon_pairing_code"
+    assert report["pairing_session_pending"] is True
+    assert report["pairing_resume_ready"] is True
+    assert report["pairing_session_surface_kind"] == "waiting_for_code"
+    assert report["privacy"]["raw_pairing_resume_url_exposed"] is False
+
+
+def test_rescan_mymedia_library_requests_console_api_and_returns_wait_state(monkeypatch) -> None:
+    module = _module()
+    reports = [
+        {
+            "probe_ok": True,
+            "ready": False,
+            "status": "blocked_library_scan_pending",
+            "reason": "mymedia_library_scan_pending",
+            "next_action": "rescan_mymedia_library",
+            "next_action_href": "http://127.0.0.1:52051/index.html#!/tables",
+            "next_action_label": "Open Watch Folders",
+            "next_action_method": "get",
+            "container_name": "mymediaalexa",
+            "container_running": True,
+            "api_reachable": True,
+            "pairing_ready": True,
+            "watch_folder_count": 1,
+            "watch_folder_states": ["queued"],
+            "tracks": 0,
+            "library_scan_pending": True,
+            "library_scan_blocked_by_pairing": False,
+        },
+        {
+            "probe_ok": True,
+            "ready": False,
+            "status": "blocked_library_scan_pending",
+            "reason": "mymedia_library_scan_pending",
+            "next_action": "rescan_mymedia_library",
+            "next_action_href": "http://127.0.0.1:52051/index.html#!/tables",
+            "next_action_label": "Open Watch Folders",
+            "next_action_method": "get",
+            "container_name": "mymediaalexa",
+            "container_running": True,
+            "api_reachable": True,
+            "pairing_ready": True,
+            "watch_folder_count": 1,
+            "watch_folder_states": ["queued"],
+            "tracks": 0,
+            "library_scan_pending": True,
+            "library_scan_blocked_by_pairing": False,
+        },
+    ]
+    monkeypatch.setattr(module, "probe_mymedia_alexa", lambda **_kwargs: reports.pop(0))
+
+    def _fake_api(url: str, **kwargs):
+        assert url == "http://127.0.0.1:52051/api/Rescan"
+        assert kwargs["method"] == "POST"
+        assert kwargs["body"] == {"clearHistory": False}
+        return True, {}, 200, ""
+
+    monkeypatch.setattr(module, "_mymedia_api_json", _fake_api)
+
+    report = module.rescan_mymedia_library(
+        web_base_url="http://127.0.0.1:52051",
+        clear_history=False,
+        timeout_seconds=5.0,
+        output_format="operator",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["ready"] is False
+    assert report["status"] == "scan_requested"
+    assert report["reason"] == "mymedia_library_scan_requested"
+    assert report["next_action"] == "wait_for_mymedia_library_scan"
+    assert report["request_accepted"] is True
+    assert report["http_status_code"] == 200
+    assert report["watch_folder_count"] == 1
+    assert report["tracks"] == 0
+    assert report["library_scan_pending"] is True
+    assert report["pre_probe_status"] == "blocked_library_scan_pending"
+    assert report["post_probe_status"] == "blocked_library_scan_pending"
+    assert "mymedia_rescan status=scan_requested" in str(report["operator_text"])
+
+
+def test_rescan_mymedia_library_refuses_when_pairing_is_missing(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+            "next_action": "complete_amazon_pairing_for_mymedia",
+            "next_action_href": "http://127.0.0.1:52051/index.html#!/setup",
+            "next_action_label": "Open My Media setup",
+            "next_action_method": "get",
+            "container_name": "mymediaalexa",
+            "container_running": True,
+            "api_reachable": True,
+            "pairing_ready": False,
+            "watch_folder_count": 1,
+            "watch_folder_states": ["queued"],
+            "tracks": 0,
+            "library_scan_pending": True,
+            "library_scan_blocked_by_pairing": True,
+        },
+    )
+
+    def _unexpected_api(*_args, **_kwargs):
+        raise AssertionError("rescan API should not be called when pairing is missing")
+
+    monkeypatch.setattr(module, "_mymedia_api_json", _unexpected_api)
+
+    report = module.rescan_mymedia_library(
+        web_base_url="http://127.0.0.1:52051",
+        timeout_seconds=5.0,
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is False
+    assert report["request_accepted"] is False
+    assert report["status"] == "blocked_pairing_required"
+    assert report["reason"] == "amazon_account_not_paired"
+    assert report["next_action"] == "complete_amazon_pairing_for_mymedia"
+
+
 def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monkeypatch) -> None:
     module = _module()
     monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T15:00:00Z")
@@ -1379,6 +4544,56 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
             "raw_bot_token": "telegram-token",
             "observed_at": "2026-06-29T14:55:00Z",
             "source": "telegram_probe",
+        },
+    )
+    monkeypatch.setattr(module, "_default_google_workspace_expected_email", lambda: "work.tibor.girschele@gmail.com")
+    monkeypatch.setattr(
+        module,
+        "probe_google_workspace_oauth",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "status": "ready_retry_required",
+            "reason": "oauth_retry_or_account_selection_required",
+            "scope_bundle": "full_workspace",
+            "expected_google_email_present": True,
+            "expected_google_domain": "gmail.com",
+            "observed_google_email_present": True,
+            "observed_google_domain": "gmail.com",
+            "observed_google_account_matches_expected": True,
+            "next_action": "retry_full_workspace_auth_with_approved_account",
+            "next_action_href": "/integrations/google",
+            "next_action_label": "Retry Google auth",
+            "next_action_method": "get",
+            "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+            "missing_setup": ["oauth_access_retry_or_account_selection_required"],
+            "observed_at": "2026-06-29T14:55:00Z",
+            "source": "google_oauth_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_pushbullet_delivery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "status": "blocked_setup_required",
+            "reason": "pushbullet_client_missing:default,pushbullet_token_missing:elisabeth",
+            "account_label": "default->elisabeth",
+            "account_label_basis": "default_client_ref",
+            "required_client_keys": ["default", "elisabeth"],
+            "configured_required_client_count": 1,
+            "token_present_required_client_count": 0,
+            "missing_client_keys": ["default"],
+            "missing_token_keys": ["elisabeth"],
+            "next_action": "create_missing_pushbullet_access_tokens",
+            "next_action_href": "https://www.pushbullet.com/#settings/account",
+            "next_action_label": "Open Pushbullet account settings",
+            "next_action_method": "get",
+            "observed_at": "2026-06-29T14:55:00Z",
+            "source": "pushbullet_probe",
+            "raw_email_exposed": False,
+            "raw_token_exposed": False,
         },
     )
     monkeypatch.setattr(
@@ -1417,8 +4632,12 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
             "qr_required": True,
             "qr_age_seconds": 40,
             "qr_fresh": True,
+            "next_action_href": "http://127.0.0.1:8098/sessions/tibor-wa-web/pair",
+            "next_action_label": "Open WhatsApp pairing",
+            "next_action_method": "get",
             "pair_url": "https://wa-web.test/sessions/tibor-wa-web/pair",
             "qr_svg_url": "https://wa-web.test/sessions/tibor-wa-web/qr.svg",
+            "qr_svg_path": "/docker/EA/.runtime/whatsapp-pairing/tibor-wa-web.svg",
             "pair_url_scope": "host_local",
             "observed_at": "2026-06-29T14:55:02Z",
             "source": "whatsapp_pairing_probe",
@@ -1444,6 +4663,32 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
             "referenced_file_restore_count": 6,
             "observed_at": "2026-06-29T14:55:03Z",
             "source": "teable_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+            "next_action": "complete_amazon_pairing_then_rescan_library",
+            "container_name": "mymediaalexa",
+            "container_running": True,
+            "api_reachable": True,
+            "pairing_ready": False,
+            "connection_status": "not_connected",
+            "remote_access_mode": "push",
+            "public_ip_present": True,
+            "watch_folder_count": 1,
+            "watch_folder_states": ["queued"],
+            "tracks": 0,
+            "library_scan_pending": True,
+            "library_scan_blocked_by_pairing": True,
+            "message_error_count": 1,
+            "observed_at": "2026-06-29T14:55:03Z",
+            "source": "mymedia_probe",
         },
     )
     monkeypatch.setattr(
@@ -1506,30 +4751,578 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
     assert report["probe_ok"] is True
     assert report["ready"] is False
     assert report["status"] == "ready_with_actions"
-    assert report["component_count"] == 6
+    assert report["component_count"] == 9
     assert [item["key"] for item in report["components"]] == [
         "telegram",
+        "google_workspace_oauth",
+        "pushbullet",
         "whatsapp",
         "whatsapp_pairing",
         "teable_recovery",
+        "mymedia_alexa",
         "proactive_route",
         "proactive_artifacts",
     ]
     assert report["blocked_count"] == 2
     assert report["attention_required_count"] == 3
-    assert {"component_key": "whatsapp_pairing", "component_label": "WhatsApp Web pairing recovery", "action": "scan_whatsapp_web_qr", "reason": ""} in report["next_actions"]
+    telegram_component = next(item for item in report["components"] if item["key"] == "telegram")
+    assert telegram_component["details"]["principal_id_present"] is True
+    assert telegram_component["details"]["binding_id_present"] is True
+    pushbullet_component = next(item for item in report["components"] if item["key"] == "pushbullet")
+    assert pushbullet_component["details"]["account_label_present"] is True
+    assert pushbullet_component["details"]["account_label_basis"] == "default_client_ref"
+    assert pushbullet_component["details"]["required_client_count"] == 2
+    assert pushbullet_component["details"]["missing_client_count"] == 1
+    assert pushbullet_component["details"]["missing_token_count"] == 1
+    whatsapp_component = next(item for item in report["components"] if item["key"] == "whatsapp")
+    assert whatsapp_component["details"]["effective_session_ref_present"] is True
+    whatsapp_pairing_component = next(item for item in report["components"] if item["key"] == "whatsapp_pairing")
+    assert whatsapp_pairing_component["details"]["session_ref_present"] is True
+    assert str(whatsapp_pairing_component["details"]["next_action_href"]).endswith("/integrations/whatsapp")
+    assert whatsapp_pairing_component["details"]["qr_svg_path"] == "host-local-file:redacted"
+    assert any(
+        item["component_key"] == "google_workspace_oauth"
+        and item["component_label"] == "Google Workspace OAuth"
+        and item["action"] == "retry_full_workspace_auth_with_approved_account"
+        and item["reason"] == "oauth_retry_or_account_selection_required"
+        for item in report["next_actions"]
+    )
+    assert any(
+        item["component_key"] == "pushbullet"
+        and item["component_label"] == "Pushbullet operator delivery"
+        and item["action"] == "create_missing_pushbullet_access_tokens"
+        and item["reason"] == "pushbullet_client_missing,pushbullet_token_missing"
+        for item in report["supplemental_next_actions"]
+    )
+    assert any(
+        item["component_key"] == "whatsapp_pairing"
+        and item["component_label"] == "WhatsApp Web pairing recovery"
+        and item["action"] == "scan_whatsapp_web_qr"
+        and item["reason"] == ""
+        and str(item["href"]).endswith("/integrations/whatsapp")
+        for item in report["supplemental_next_actions"]
+    )
+    assert any(
+        item["component_key"] == "mymedia_alexa"
+        and item["component_label"] == "My Media for Alexa"
+        and item["action"] == "complete_amazon_pairing_then_rescan_library"
+        and item["reason"] == "amazon_account_not_paired"
+        for item in report["next_actions"]
+    )
     assert not any(
         item["component_key"] == "whatsapp" and item["action"] == "scan_whatsapp_web_qr"
         for item in report["next_actions"]
     )
     assert "operator_readiness status=ready_with_actions" in str(report["operator_text"])
-    assert "next=whatsapp_pairing:scan_whatsapp_web_qr" in str(report["operator_text"])
+    assert (
+        "states=telegram:ready,google_workspace_oauth:ready_retry_required,"
+        "mymedia_alexa:blocked_pairing_required,proactive_route:ready,proactive_artifacts:ok"
+        in str(report["operator_text"])
+    )
+    assert "supplemental_states=pushbullet:blocked_setup_required,whatsapp_pairing:available" in str(report["operator_text"])
+    assert "next=google_workspace_oauth:retry_full_workspace_auth_with_approved_account" in str(report["operator_text"])
     assert "raw-secret-qr" not in serialized
     assert "123456789" not in serialized
     assert "telegram-token" not in serialized
     assert "tbl-secret-id" not in serialized
+    assert "principal-1" not in serialized
+    assert "binding-1" not in serialized
+    assert "elisabeth" not in serialized
+    assert "tibor-wa-web" not in serialized
+    assert "http://127.0.0.1:8098/sessions/tibor-wa-web/pair" not in serialized
+    assert "/docker/EA/.runtime/whatsapp-pairing/tibor-wa-web.svg" not in serialized
     assert "https://wa-web.test/sessions/tibor-wa-web/pair" not in serialized
     assert "large-private-payload" not in serialized
+
+
+def test_probe_operator_readiness_includes_optional_sonarr_target(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T15:07:30Z")
+    monkeypatch.setattr(
+        module,
+        "probe_telegram_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-05T15:07:20Z",
+            "source": "telegram_probe",
+        },
+    )
+    monkeypatch.setattr(module, "_default_google_workspace_expected_email", lambda: "work.tibor.girschele@gmail.com")
+    monkeypatch.setattr(
+        module,
+        "probe_google_workspace_oauth",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "pass",
+            "observed_at": "2026-07-05T15:07:20Z",
+            "source": "google_oauth_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_pushbullet_delivery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready_live_verified",
+            "observed_at": "2026-07-05T15:07:20Z",
+            "source": "pushbullet_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_whatsapp_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-05T15:07:21Z",
+            "source": "whatsapp_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_teable_recovery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-05T15:07:21Z",
+            "source": "teable_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-05T15:07:21Z",
+            "source": "mymedia_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_sonarr_tv_season",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "status": "blocked_staging_import_available",
+            "reason": "sonarr_missing_episodes_have_staging_candidate",
+            "next_action": "repair_sonarr_tv_season",
+            "series_id": 36,
+            "series_title": "LEGO Ninjago: Dragons Rising",
+            "series_monitored": True,
+            "season_number": 2,
+            "season_monitored": True,
+            "season_episode_count": 20,
+            "season_episode_file_count": 15,
+            "missing_episode_numbers": [3, 4, 5, 6, 8],
+            "metadata_queue_count": 0,
+            "metadata_queue_episode_numbers": [],
+            "stale_metadata_queue_count": 0,
+            "staging_candidate_count": 1,
+            "selected_staging_candidate_name": "LEGO.Ninjago.Dragons.Rising.S02.1080p.NF.WEB-DL.DDP5.1.H.264-STRiKES",
+            "selected_staging_candidate_cover_count": 5,
+            "observed_at": "2026-07-05T15:07:22Z",
+            "source": "sonarr.api+filesystem",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-05T15:07:23Z",
+            "source": "proactive_route_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ok",
+            "observed_at": "2026-07-05T15:07:23Z",
+            "source": "proactive_artifacts_probe",
+        },
+    )
+
+    report = module.probe_operator_readiness(
+        args=_args(session_ref="tibor-wa-web"),
+        telegram_principal_id="principal-1",
+        proactive_principal_id="principal-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        receipt_path="/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+        timeout_seconds=7.0,
+        include_pairing=False,
+        sonarr_series_id=36,
+        sonarr_season_number=2,
+        output_format="json",
+    )
+
+    keys = [item["key"] for item in report["components"]]
+    assert keys == [
+        "telegram",
+        "google_workspace_oauth",
+        "pushbullet",
+        "whatsapp",
+        "teable_recovery",
+        "mymedia_alexa",
+        "sonarr_tv_season",
+        "proactive_route",
+        "proactive_artifacts",
+    ]
+    assert report["sonarr_target_enabled"] is True
+    assert report["sonarr_target_series_id"] == 36
+    assert report["sonarr_target_series_title"] == ""
+    assert report["sonarr_target_season_number"] == 2
+    sonarr_component = next(item for item in report["components"] if item["key"] == "sonarr_tv_season")
+    assert sonarr_component["ready"] is False
+    assert sonarr_component["status"] == "blocked_staging_import_available"
+    assert sonarr_component["details"]["missing_episode_numbers"] == [3, 4, 5, 6, 8]
+    assert sonarr_component["details"]["selected_staging_candidate_cover_count"] == 5
+    assert any(
+        item["component_key"] == "sonarr_tv_season"
+        and item["action"] == "repair_sonarr_tv_season"
+        and item["reason"] == "sonarr_missing_episodes_have_staging_candidate"
+        for item in report["next_actions"]
+    )
+    assert report["status"] == "ready_with_actions"
+    assert report["blocked_count"] == 1
+
+
+def test_probe_operator_readiness_includes_mymedia_pairing_telegram_component_when_resume_is_waiting(
+    monkeypatch,
+) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "probe_telegram_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-04T14:12:00Z",
+            "source": "telegram_probe",
+        },
+    )
+    monkeypatch.setattr(module, "_default_google_workspace_expected_email", lambda: "work.tibor.girschele@gmail.com")
+    monkeypatch.setattr(
+        module,
+        "probe_google_workspace_oauth",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "pass",
+            "observed_at": "2026-07-04T14:12:01Z",
+            "source": "google_oauth_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_pushbullet_delivery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready_live_verified",
+            "observed_at": "2026-07-04T14:12:01Z",
+            "source": "pushbullet_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_whatsapp_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-04T14:12:02Z",
+            "source": "whatsapp_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_teable_recovery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-04T14:12:03Z",
+            "source": "teable_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+            "next_action": "enter_mymedia_amazon_pairing_code",
+            "pairing_resume_ready": True,
+            "pairing_session_pending": True,
+            "pairing_session_surface_kind": "waiting_for_code",
+            "container_name": "mymediaalexa",
+            "container_running": True,
+            "api_reachable": True,
+            "pairing_ready": False,
+            "connection_status": "not_connected",
+            "remote_access_mode": "push",
+            "public_ip_present": True,
+            "watch_folder_count": 1,
+            "watch_folder_states": ["queued"],
+            "tracks": 0,
+            "library_scan_pending": True,
+            "library_scan_blocked_by_pairing": True,
+            "observed_at": "2026-07-04T14:12:03Z",
+            "source": "mymedia_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_pairing_telegram_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "principal_id": "principal-1",
+            "surface_kind": "waiting_for_code",
+            "site": "na.account.amazon.com",
+            "otp_channel": "whatsapp",
+            "phone_suffix": "419",
+            "pairing_resume_ready": True,
+            "pairing_session_pending": True,
+            "delivery_transport": "telegram_bot",
+            "telegram_delivery_ready": True,
+            "bot_handle": "tibor_concierge_bot",
+            "chat_ref_present": True,
+            "chat_ref_sha256": "z" * 64,
+            "observed_at": "2026-07-04T14:12:04Z",
+            "source": "mymedia_pairing.telegram_dry_run",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-04T14:12:05Z",
+            "source": "proactive_route_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ok",
+            "observed_at": "2026-07-04T14:12:06Z",
+            "source": "proactive_artifacts_probe",
+        },
+    )
+
+    report = module.probe_operator_readiness(
+        args=_args(session_ref="tibor-wa-web"),
+        telegram_principal_id="principal-1",
+        proactive_principal_id="principal-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        receipt_path="/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+        timeout_seconds=7.0,
+        include_pairing=True,
+        output_format="json",
+    )
+
+    keys = [item["key"] for item in report["components"]]
+    assert keys == [
+        "telegram",
+        "google_workspace_oauth",
+        "pushbullet",
+        "whatsapp",
+        "teable_recovery",
+        "mymedia_alexa",
+        "mymedia_pairing_telegram",
+        "proactive_route",
+        "proactive_artifacts",
+    ]
+    pairing_component = next(item for item in report["components"] if item["key"] == "mymedia_pairing_telegram")
+    assert pairing_component["ready"] is True
+    assert pairing_component["status"] == "ready"
+    assert pairing_component["reason"] == ""
+    assert pairing_component["details"]["delivery_transport"] == "telegram_bot"
+    assert pairing_component["details"]["chat_ref_sha256"] == "z" * 64
+    assert not any(item["component_key"] == "mymedia_pairing_telegram" for item in report["next_actions"])
+    assert any(item["component_key"] == "mymedia_alexa" for item in report["next_actions"])
+
+
+def test_operator_readiness_component_counts_stream_suppressed_mymedia_handoff_as_non_blocking() -> None:
+    module = _module()
+
+    assert (
+        module._operator_readiness_component_counts_as_blocked(
+            {
+                "key": "mymedia_pairing_telegram",
+                "probe_ok": True,
+                "ready": False,
+                "status": "suppressed_by_stream_policy",
+            }
+        )
+        is False
+    )
+
+
+def test_probe_operator_readiness_skips_mymedia_pairing_telegram_when_pairing_disabled(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "probe_telegram_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-04T14:12:00Z",
+            "source": "telegram_probe",
+        },
+    )
+    monkeypatch.setattr(module, "_default_google_workspace_expected_email", lambda: "work.tibor.girschele@gmail.com")
+    monkeypatch.setattr(
+        module,
+        "probe_google_workspace_oauth",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "pass",
+            "observed_at": "2026-07-04T14:12:01Z",
+            "source": "google_oauth_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_pushbullet_delivery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready_live_verified",
+            "observed_at": "2026-07-04T14:12:01Z",
+            "source": "pushbullet_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_whatsapp_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-04T14:12:02Z",
+            "source": "whatsapp_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_teable_recovery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-04T14:12:03Z",
+            "source": "teable_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+            "next_action": "enter_mymedia_amazon_pairing_code",
+            "pairing_resume_ready": True,
+            "pairing_session_pending": True,
+            "pairing_session_surface_kind": "waiting_for_code",
+            "container_name": "mymediaalexa",
+            "container_running": True,
+            "api_reachable": True,
+            "pairing_ready": False,
+            "connection_status": "not_connected",
+            "remote_access_mode": "push",
+            "public_ip_present": True,
+            "watch_folder_count": 1,
+            "watch_folder_states": ["queued"],
+            "tracks": 0,
+            "library_scan_pending": True,
+            "library_scan_blocked_by_pairing": True,
+            "observed_at": "2026-07-04T14:12:03Z",
+            "source": "mymedia_probe",
+        },
+    )
+
+    def _unexpected_pairing_probe(**_kwargs):
+        raise AssertionError("mymedia pairing telegram probe should be skipped when include_pairing is false")
+
+    monkeypatch.setattr(module, "probe_mymedia_pairing_telegram_readiness", _unexpected_pairing_probe)
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-04T14:12:05Z",
+            "source": "proactive_route_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ok",
+            "observed_at": "2026-07-04T14:12:06Z",
+            "source": "proactive_artifacts_probe",
+        },
+    )
+
+    report = module.probe_operator_readiness(
+        args=_args(session_ref="tibor-wa-web"),
+        telegram_principal_id="principal-1",
+        proactive_principal_id="principal-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        receipt_path="/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+        timeout_seconds=7.0,
+        include_pairing=False,
+        output_format="json",
+    )
+
+    keys = [item["key"] for item in report["components"]]
+    assert keys == [
+        "telegram",
+        "google_workspace_oauth",
+        "pushbullet",
+        "whatsapp",
+        "teable_recovery",
+        "mymedia_alexa",
+        "proactive_route",
+        "proactive_artifacts",
+    ]
+    assert not any(item["component_key"] == "mymedia_pairing_telegram" for item in report["next_actions"])
+    assert any(item["component_key"] == "mymedia_alexa" for item in report["next_actions"])
 
 
 def test_probe_operator_readiness_suppresses_next_action_noise_from_ready_proactive_route(monkeypatch) -> None:
@@ -1556,6 +5349,29 @@ def test_probe_operator_readiness_suppresses_next_action_noise_from_ready_proact
             "source": "whatsapp_probe",
         },
     )
+    monkeypatch.setattr(module, "_default_google_workspace_expected_email", lambda: "work.tibor.girschele@gmail.com")
+    monkeypatch.setattr(
+        module,
+        "probe_google_workspace_oauth",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "pass",
+            "observed_at": "2026-07-01T21:40:01Z",
+            "source": "google_oauth_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_pushbullet_delivery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready_live_verified",
+            "observed_at": "2026-07-01T21:40:01Z",
+            "source": "pushbullet_probe",
+        },
+    )
     monkeypatch.setattr(
         module,
         "probe_teable_recovery",
@@ -1565,6 +5381,17 @@ def test_probe_operator_readiness_suppresses_next_action_noise_from_ready_proact
             "status": "ready",
             "observed_at": "2026-07-01T21:40:02Z",
             "source": "teable_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-01T21:40:02Z",
+            "source": "mymedia_probe",
         },
     )
     monkeypatch.setattr(
@@ -1628,6 +5455,280 @@ def test_probe_operator_readiness_suppresses_next_action_noise_from_ready_proact
     assert "next=" not in str(report["operator_text"])
 
 
+def test_probe_operator_readiness_suppresses_next_action_noise_from_ready_mymedia_background_scan(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "probe_telegram_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-01T21:40:00Z",
+            "source": "telegram_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_whatsapp_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-01T21:40:01Z",
+            "source": "whatsapp_probe",
+        },
+    )
+    monkeypatch.setattr(module, "_default_google_workspace_expected_email", lambda: "work.tibor.girschele@gmail.com")
+    monkeypatch.setattr(
+        module,
+        "probe_google_workspace_oauth",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "pass",
+            "observed_at": "2026-07-01T21:40:01Z",
+            "source": "google_oauth_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_pushbullet_delivery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready_live_verified",
+            "observed_at": "2026-07-01T21:40:01Z",
+            "source": "pushbullet_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_teable_recovery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-01T21:40:02Z",
+            "source": "teable_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready_library_scan_in_progress",
+            "reason": "mymedia_library_scan_in_progress",
+            "next_action": "wait_for_mymedia_library_scan",
+            "next_action_href": "http://127.0.0.1:52051/index.html#!/tables",
+            "next_action_label": "Open Watch Folders",
+            "next_action_method": "get",
+            "tracks": 42,
+            "watch_folder_count": 1,
+            "watch_folder_states": ["indexing"],
+            "library_scan_pending": True,
+            "observed_at": "2026-07-01T21:40:02Z",
+            "source": "mymedia_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "principal_id": "principal-1",
+            "runtime_service": "ea-proactive-ooda",
+            "delivery_route_ready": True,
+            "selected_channel": "telegram",
+            "selected_transport": "telegram",
+            "selected_by": "tool_runtime_binding",
+            "available_channels": ["telegram"],
+            "approval_capture_surface_ready": True,
+            "approval_capture_surface_pending_count": 0,
+            "observed_at": "2026-07-01T21:40:03Z",
+            "source": "proactive_route_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ok",
+            "runtime_service": "ea-proactive-ooda",
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 1,
+            "approval_callback_live_pending_count": 0,
+            "approval_callback_stale_pending_count": 0,
+            "current_packet_live_pending_count": 0,
+            "current_packet_callback_latest_status": "approved",
+            "approval_outcome_matches_current_packet": True,
+            "observed_at": "2026-07-01T21:40:03Z",
+            "source": "proactive_artifacts_probe",
+        },
+    )
+
+    report = module.probe_operator_readiness(
+        args=_args(session_ref="tibor-wa-web"),
+        telegram_principal_id="principal-1",
+        proactive_principal_id="principal-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        receipt_path="/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+        timeout_seconds=7.0,
+        include_pairing=False,
+        output_format="json",
+    )
+
+    mymedia_component = next(item for item in report["components"] if item["key"] == "mymedia_alexa")
+    assert mymedia_component["ready"] is True
+    assert mymedia_component["status"] == "ready_library_scan_in_progress"
+    assert mymedia_component["details"]["tracks"] == 42
+    assert report["blocked_count"] == 0
+    assert report["attention_required_count"] == 0
+    assert report["status"] == "ready"
+    assert not any(item["component_key"] == "mymedia_alexa" for item in report["next_actions"])
+
+
+def test_probe_operator_readiness_reports_google_runtime_config_gap_without_replaying_stale_receipt(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-02T21:00:00Z")
+    monkeypatch.setattr(module, "_default_google_workspace_expected_email", lambda: "")
+    monkeypatch.setattr(
+        module,
+        "probe_telegram_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-02T20:59:00Z",
+            "source": "telegram_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_google_workspace_oauth_receipt",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "status": "ready_retry_required",
+            "reason": "oauth_retry_or_account_selection_required",
+            "scope_bundle": "full_workspace",
+            "expected_google_email_present": True,
+            "expected_google_domain": "gmail.com",
+            "observed_google_email_present": True,
+            "observed_google_domain": "gmail.com",
+            "observed_google_account_matches_expected": True,
+            "missing_setup": ["oauth_access_retry_or_account_selection_required"],
+            "user_action_required": True,
+            "next_action": "retry_full_workspace_auth_with_approved_account",
+            "next_action_href": "/integrations/google",
+            "next_action_label": "Retry Google auth",
+            "next_action_method": "get",
+            "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+            "observed_at": "2026-07-02T18:30:00Z",
+            "source": "published_receipt:/docker/EA/.codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_pushbullet_delivery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready_live_verified",
+            "observed_at": "2026-07-02T20:58:01Z",
+            "source": "pushbullet_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_whatsapp_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-02T20:58:02Z",
+            "source": "whatsapp_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_teable_recovery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-02T20:58:03Z",
+            "source": "teable_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-02T20:58:03Z",
+            "source": "mymedia_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-02T20:58:04Z",
+            "source": "proactive_route_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ok",
+            "observed_at": "2026-07-02T20:58:05Z",
+            "source": "proactive_artifacts_probe",
+        },
+    )
+
+    report = module.probe_operator_readiness(
+        args=_args(session_ref="tibor-wa-web"),
+        telegram_principal_id="principal-1",
+        proactive_principal_id="principal-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        receipt_path="/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+        timeout_seconds=7.0,
+        include_pairing=False,
+        output_format="json",
+    )
+
+    google_component = next(item for item in report["components"] if item["key"] == "google_workspace_oauth")
+    assert google_component["status"] == "blocked_setup_required"
+    assert google_component["reason"] == "expected_google_email_missing"
+    assert google_component["source"] == "ea_live_ops.aggregate"
+    assert google_component["details"]["runtime_expected_google_email_present"] is False
+    assert google_component["details"]["last_receipt_status"] == "ready_retry_required"
+    assert google_component["details"]["last_receipt_source"].startswith("published_receipt:")
+    assert google_component["details"]["last_receipt_fresh"] is False
+    assert int(google_component["details"]["last_receipt_age_seconds"]) > 7200
+    assert report["next_actions"][0]["component_key"] == "google_workspace_oauth"
+    assert report["next_actions"][0]["action"] == "set_google_workspace_expected_email_and_refresh_receipt"
+
+
 def test_main_probe_operator_readiness_operator_prints_plain_text(monkeypatch, capsys) -> None:
     module = _module()
     monkeypatch.setattr(
@@ -1643,6 +5744,9 @@ def test_main_probe_operator_readiness_operator_prints_plain_text(monkeypatch, c
             receipt_path="",
             include_proactive=True,
             include_pairing=True,
+            sonarr_series_id=36,
+            sonarr_series_title="",
+            sonarr_season_number=2,
             timeout_seconds=5.0,
         ),
     )
@@ -1650,6 +5754,9 @@ def test_main_probe_operator_readiness_operator_prints_plain_text(monkeypatch, c
     def _fake_probe_operator_readiness(**kwargs):
         assert kwargs["telegram_principal_id"] == "principal-1"
         assert kwargs["proactive_principal_id"] == "principal-1"
+        assert kwargs["sonarr_series_id"] == 36
+        assert kwargs["sonarr_series_title"] == ""
+        assert kwargs["sonarr_season_number"] == 2
         assert kwargs["timeout_seconds"] == 5.0
         assert kwargs["output_format"] == "operator"
         return {"probe_ok": True, "operator_text": "operator readiness ok"}
@@ -1658,6 +5765,218 @@ def test_main_probe_operator_readiness_operator_prints_plain_text(monkeypatch, c
 
     assert module.main() == 0
     assert capsys.readouterr().out.strip() == "operator readiness ok"
+
+
+def test_main_probe_mymedia_alexa_operator_prints_plain_text(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="probe-mymedia-alexa",
+            format="operator",
+            container_name="mymediaalexa",
+            web_base_url="http://127.0.0.1:52051",
+            timeout_seconds=5.0,
+        ),
+    )
+
+    def _fake_probe_mymedia_alexa(**kwargs):
+        assert kwargs["container_name"] == "mymediaalexa"
+        assert kwargs["web_base_url"] == "http://127.0.0.1:52051"
+        assert kwargs["timeout_seconds"] == 5.0
+        assert kwargs["output_format"] == "operator"
+        return {"probe_ok": True, "operator_text": "mymedia ok"}
+
+    monkeypatch.setattr(module, "probe_mymedia_alexa", _fake_probe_mymedia_alexa)
+
+    assert module.main() == 0
+    assert capsys.readouterr().out.strip() == "mymedia ok"
+
+
+def test_main_rescan_mymedia_library_operator_prints_plain_text(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="rescan-mymedia-library",
+            format="operator",
+            web_base_url="http://127.0.0.1:52051",
+            clear_history=False,
+            timeout_seconds=5.0,
+        ),
+    )
+
+    def _fake_rescan(**kwargs):
+        assert kwargs["web_base_url"] == "http://127.0.0.1:52051"
+        assert kwargs["clear_history"] is False
+        assert kwargs["timeout_seconds"] == 5.0
+        assert kwargs["output_format"] == "operator"
+        return {"probe_ok": True, "operator_text": "mymedia rescan ok"}
+
+    monkeypatch.setattr(module, "rescan_mymedia_library", _fake_rescan)
+
+    assert module.main() == 0
+    assert capsys.readouterr().out.strip() == "mymedia rescan ok"
+
+
+def test_main_repair_mymedia_public_surface_operator_prints_plain_text(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="repair-mymedia-public-surface",
+            format="operator",
+            web_base_url="http://127.0.0.1:52051",
+            public_web_base_url="https://mymedia.girschele.com",
+            public_tunnel_origin_url="",
+            timeout_seconds=5.0,
+        ),
+    )
+
+    def _fake_repair(**kwargs):
+        assert kwargs["web_base_url"] == "http://127.0.0.1:52051"
+        assert kwargs["public_web_base_url"] == "https://mymedia.girschele.com"
+        assert kwargs["public_tunnel_origin_url"] == ""
+        assert kwargs["timeout_seconds"] == 5.0
+        assert kwargs["output_format"] == "operator"
+        return {"ready": True, "operator_text": "mymedia public surface repaired"}
+
+    monkeypatch.setattr(module, "repair_mymedia_public_surface", _fake_repair)
+
+    assert module.main() == 0
+    assert capsys.readouterr().out.strip() == "mymedia public surface repaired"
+
+
+def test_main_repair_mymedia_console_api_operator_prints_plain_text(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="repair-mymedia-console-api",
+            format="operator",
+            container_name="mymediaalexa",
+            web_base_url="http://127.0.0.1:52051",
+            timeout_seconds=5.0,
+        ),
+    )
+
+    def _fake_repair(**kwargs):
+        assert kwargs["container_name"] == "mymediaalexa"
+        assert kwargs["web_base_url"] == "http://127.0.0.1:52051"
+        assert kwargs["timeout_seconds"] == 5.0
+        assert kwargs["output_format"] == "operator"
+        return {"status": "repaired", "operator_text": "mymedia console api repaired"}
+
+    monkeypatch.setattr(module, "repair_mymedia_console_api", _fake_repair)
+
+    assert module.main() == 0
+    assert capsys.readouterr().out.strip() == "mymedia console api repaired"
+
+
+def test_main_repair_sonarr_tv_season_operator_prints_plain_text(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="repair-sonarr-tv-season",
+            format="operator",
+            series_id=36,
+            series_title="",
+            season_number=2,
+            sonarr_base_url="http://127.0.0.1:8989",
+            sonarr_config_path="/docker/arr-v2/sonarr/config.xml",
+            staging_root="/mnt/pcloud/staging/downloads",
+            timeout_seconds=5.0,
+        ),
+    )
+
+    def _fake_repair(**kwargs):
+        assert kwargs["series_id"] == 36
+        assert kwargs["series_title"] == ""
+        assert kwargs["season_number"] == 2
+        assert kwargs["sonarr_base_url"] == "http://127.0.0.1:8989"
+        assert kwargs["sonarr_config_path"] == "/docker/arr-v2/sonarr/config.xml"
+        assert kwargs["staging_root"] == "/mnt/pcloud/staging/downloads"
+        assert kwargs["timeout_seconds"] == 5.0
+        assert kwargs["output_format"] == "operator"
+        return {"status": "repaired", "operator_text": "sonarr tv season repaired"}
+
+    monkeypatch.setattr(module, "repair_sonarr_tv_season", _fake_repair)
+
+    assert module.main() == 0
+    assert capsys.readouterr().out.strip() == "sonarr tv season repaired"
+
+
+def test_main_trigger_mymedia_amazon_pairing_operator_prints_plain_text(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="trigger-mymedia-amazon-pairing",
+            format="operator",
+            web_base_url="http://127.0.0.1:52051",
+            setup_url="",
+            otp_channel="whatsapp",
+            phone_suffix="419",
+            telegram_principal_id="principal-1",
+            send_telegram=False,
+            dry_run=True,
+            timeout_seconds=5.0,
+            output_dir="",
+        ),
+    )
+
+    def _fake_trigger(**kwargs):
+        assert kwargs["web_base_url"] == "http://127.0.0.1:52051"
+        assert kwargs["otp_channel"] == "whatsapp"
+        assert kwargs["phone_suffix"] == "419"
+        assert kwargs["dry_run"] is True
+        assert kwargs["timeout_seconds"] == 5.0
+        assert kwargs["output_format"] == "operator"
+        return {"probe_ok": True, "operator_text": "mymedia pairing waiting"}
+
+    monkeypatch.setattr(module, "trigger_mymedia_amazon_pairing", _fake_trigger)
+
+    assert module.main() == 0
+    assert capsys.readouterr().out.strip() == "mymedia pairing waiting"
+
+
+def test_main_submit_mymedia_amazon_pairing_code_emits_json(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="submit-mymedia-amazon-pairing-code",
+            otp_code="123456",
+            format="json",
+            web_base_url="http://127.0.0.1:52051",
+            timeout_seconds=8.0,
+            output_dir="",
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "submit_mymedia_amazon_pairing_code",
+        lambda **kwargs: {
+            "probe_ok": True,
+            "status": "paired_library_pending",
+            "next_action": "rescan_mymedia_library",
+            "otp_code_used": kwargs["otp_code"],
+        },
+    )
+
+    assert module.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "paired_library_pending"
+    assert payload["next_action"] == "rescan_mymedia_library"
+    assert payload["otp_code_used"] == "123456"
 
 
 def test_repair_whatsapp_action_processor_starts_existing_container_without_recreating_sidecar(monkeypatch) -> None:
@@ -1774,6 +6093,7 @@ def test_repair_whatsapp_action_processor_falls_back_to_no_deps_up_when_start_fa
 
 def test_probe_proactive_route_normalizes_live_runtime_route_status(monkeypatch) -> None:
     module = _module()
+    monkeypatch.setenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", "1")
     receipt_paths: list[str] = []
     route_commands: list[list[str]] = []
 
@@ -1810,7 +6130,8 @@ def test_probe_proactive_route_normalizes_live_runtime_route_status(monkeypatch)
                 "",
             )
         if "/app/scripts/verify_proactive_ooda_live_receipt.py" in command:
-            receipt_paths.extend(command[command.index("--receipt-path") + 1 : command.index("--receipt-path") + 2])
+            if "--receipt-path" in command:
+                receipt_paths.extend(command[command.index("--receipt-path") + 1 : command.index("--receipt-path") + 2])
             return (
                 0,
                 {
@@ -1856,13 +6177,15 @@ def test_probe_proactive_route_normalizes_live_runtime_route_status(monkeypatch)
     assert report["next_action_method"] == "get"
     assert report["live_receipt_checked"] is True
     assert report["live_receipt"]["ok"] is True
-    assert receipt_paths == ["/data/provider-ledger/proactive_ooda_run_receipts/20260626T180300Z-sent-abc123.json"]
+    assert receipt_paths == []
+    assert report["live_receipt"]["receipt_path"] == "/data/provider-ledger/proactive_ooda_run_receipts/20260626T180300Z-sent-abc123.json"
     assert "--delivery-route-mode" in route_commands[0]
     assert route_commands[0][route_commands[0].index("--delivery-route-mode") + 1] == "lightweight"
 
 
 def test_probe_proactive_route_reports_unarmed_deferred_runtime(monkeypatch) -> None:
     module = _module()
+    monkeypatch.setenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", "1")
 
     def _fake_exec_json(*, command: list[str], **_kwargs):
         if command[:2] == ["python", "-c"]:
@@ -1938,6 +6261,7 @@ def test_probe_proactive_route_reports_unarmed_deferred_runtime(monkeypatch) -> 
 
 def test_probe_proactive_route_prefers_approval_followthrough_when_surface_is_live(monkeypatch) -> None:
     module = _module()
+    monkeypatch.setenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", "1")
 
     def _fake_exec_json(*, command: list[str], **_kwargs):
         if command[:2] == ["python", "-c"]:
@@ -2006,12 +6330,13 @@ def test_probe_proactive_route_prefers_approval_followthrough_when_surface_is_li
     assert report["approval_capture_surface_pending_count"] == 1
     assert report["next_action"] == "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
     assert report["next_action_href"] == "https://myexternalbrain.com/admin/proactive-ooda/approval"
-    assert report["next_action_label"] == "Open approval capture"
+    assert report["next_action_label"] == "Record packet verdict"
     assert report["next_action_method"] == "get"
 
 
 def test_probe_proactive_route_skips_workspace_source_for_route_readiness(monkeypatch) -> None:
     module = _module()
+    monkeypatch.setenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", "1")
     seen_verify_command: list[str] = []
 
     def _fake_exec_json(*, command: list[str], **_kwargs):
@@ -2109,8 +6434,379 @@ def test_probe_proactive_route_skips_workspace_source_for_route_readiness(monkey
     assert "--skip-workspace-source" in seen_verify_command
 
 
+def test_probe_proactive_route_can_explicitly_prefer_host_python_exec(monkeypatch) -> None:
+    module = _module()
+    seen: list[list[str]] = []
+
+    def _fake_host_exec_json(*, command: list[str], **_kwargs):
+        seen.append(list(command))
+        if command[1].endswith("verify_proactive_ooda.py"):
+            return (
+                0,
+                {
+                    "ok": True,
+                    "delivery_route": {
+                        "ready": True,
+                        "route_error": "",
+                        "recovery_hint": "",
+                        "next_action": "",
+                        "selected_channel": "telegram",
+                        "selected_transport": "telegram",
+                        "selected_by": "tool_runtime_binding",
+                        "available_channels": ["telegram"],
+                    },
+                    "delivery_guard": {"delivery_state": "eligible"},
+                },
+                '{"ok":true}',
+                "",
+            )
+        if command[1].endswith("verify_proactive_ooda_live_receipt.py"):
+            return (
+                0,
+                {
+                    "ok": True,
+                    "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                    "notification_status": "sent",
+                    "delivery_channel": "telegram",
+                    "delivery_next_action": "",
+                    "delivery_route_error": "",
+                    "delivery_recovery_hint": "",
+                    "errors": [],
+                },
+                '{"ok":true}',
+                "",
+            )
+        raise AssertionError(command)
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://ea:test@localhost/ea")
+    monkeypatch.setenv("EA_LIVE_OPS_PREFER_HOST_RUNTIME_PROACTIVE_PROBE", "1")
+    monkeypatch.delenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", raising=False)
+    monkeypatch.setattr(module, "_docker_cli_available", lambda: True)
+    monkeypatch.setattr(module, "_host_python_exec_json", _fake_host_exec_json)
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "current_packet_live_pending_count": 1,
+        },
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T11:04:00Z")
+
+    report = module.probe_proactive_route(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "ready"
+    assert report["source"] == "host_python_exec"
+    assert report["approval_capture_surface_ready"] is True
+    assert any(command[1].endswith("verify_proactive_ooda.py") for command in seen)
+    assert any(command[1].endswith("verify_proactive_ooda_live_receipt.py") for command in seen)
+
+
+def test_probe_proactive_route_downgrades_live_receipt_timeout_to_recovery_action_when_route_is_ready(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", "1")
+
+    def _fake_exec_json(*, command: list[str], **_kwargs):
+        if command[:2] == ["python", "-c"]:
+            return (
+                0,
+                {
+                    "probe_ok": True,
+                    "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                    "current_packet_live_pending_count": 1,
+                },
+                '{"probe_ok":true}',
+                "",
+            )
+        if "/app/scripts/verify_proactive_ooda.py" in command:
+            return (
+                0,
+                {
+                    "ok": True,
+                    "delivery_route": {
+                        "ready": True,
+                        "route_error": "",
+                        "recovery_hint": "",
+                        "next_action": "",
+                        "selected_channel": "telegram",
+                        "selected_transport": "telegram",
+                        "selected_by": "tool_runtime_binding",
+                        "available_channels": ["telegram"],
+                    },
+                    "delivery_guard": {"delivery_state": "eligible"},
+                },
+                '{"ok":true}',
+                "",
+            )
+        if "/app/scripts/verify_proactive_ooda_live_receipt.py" in command:
+            return (
+                124,
+                {
+                    "ok": False,
+                    "timed_out": True,
+                    "reason": "TimeoutExpired:7s",
+                    "timeout_seconds": 7.0,
+                },
+                "",
+                "timed out",
+            )
+        raise AssertionError(command)
+
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T15:20:00Z")
+
+    report = module.probe_proactive_route(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        timeout_seconds=7.0,
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "ready_with_recovery_action"
+    assert report["delivery_route_ready"] is True
+    assert report["blocking_reason"] == "live_receipt_probe_timed_out"
+    assert report["next_action"] == "repair_proactive_runtime_inputs"
+    assert report["live_receipt_checked"] is True
+    assert report["live_receipt"]["timed_out"] is True
+
+
+def test_probe_proactive_route_checks_live_receipt_before_artifact_probe(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", "1")
+    call_order: list[str] = []
+
+    def _fake_exec_json(*, command: list[str], **_kwargs):
+        if "/app/scripts/verify_proactive_ooda.py" in command:
+            call_order.append("route")
+            return (
+                0,
+                {
+                    "ok": True,
+                    "delivery_route": {
+                        "ready": True,
+                        "route_error": "",
+                        "recovery_hint": "",
+                        "next_action": "",
+                        "selected_channel": "telegram",
+                        "selected_transport": "telegram",
+                        "selected_by": "tool_runtime_binding",
+                        "available_channels": ["telegram"],
+                    },
+                    "delivery_guard": {"delivery_state": "eligible"},
+                },
+                '{"ok":true}',
+                "",
+            )
+        if "/app/scripts/verify_proactive_ooda_live_receipt.py" in command:
+            call_order.append("live_receipt")
+            return (
+                0,
+                {
+                    "ok": True,
+                    "errors": [],
+                    "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                    "notification_status": "skipped_no_items",
+                    "delivery_channel": "",
+                    "delivery_message_count": 0,
+                    "telegram_message_count": 0,
+                    "delivery_route_error": "",
+                    "delivery_recovery_hint": "",
+                    "delivery_next_action": "",
+                    "generated_at": "2026-07-06T03:47:00Z",
+                },
+                '{"ok":true}',
+                "",
+            )
+        if command[:2] == ["python", "-c"]:
+            call_order.append("artifact")
+            return (
+                124,
+                {
+                    "ok": False,
+                    "timed_out": True,
+                    "reason": "TimeoutExpired:7s",
+                    "timeout_seconds": 7.0,
+                },
+                "",
+                "artifact probe timed out",
+            )
+        raise AssertionError(command)
+
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-06T03:47:00Z")
+
+    report = module.probe_proactive_route(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        timeout_seconds=7.0,
+        output_format="json",
+    )
+
+    assert call_order == ["route", "live_receipt", "artifact"]
+    assert report["probe_ok"] is True
+    assert report["status"] == "ready"
+    assert report["delivery_route_ready"] is True
+    assert report["live_receipt_checked"] is True
+    assert report["live_receipt"]["ok"] is True
+    assert report["artifact_probe"]["probe_ok"] is False
+    assert report["artifact_probe"]["blocking_reason"] == "runtime_artifact_probe_timed_out:TimeoutExpired:7s"
+
+
+def test_probe_proactive_route_can_skip_artifact_probe(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", "1")
+    call_order: list[str] = []
+
+    def _fake_exec_json(*, command: list[str], **_kwargs):
+        if "/app/scripts/verify_proactive_ooda.py" in command:
+            call_order.append("route")
+            return (
+                0,
+                {
+                    "ok": True,
+                    "delivery_route": {
+                        "ready": True,
+                        "route_error": "",
+                        "recovery_hint": "",
+                        "next_action": "",
+                        "selected_channel": "telegram",
+                        "selected_transport": "telegram",
+                        "selected_by": "tool_runtime_binding",
+                        "available_channels": ["telegram"],
+                    },
+                    "delivery_guard": {"delivery_state": "eligible"},
+                },
+                '{"ok":true}',
+                "",
+            )
+        if "/app/scripts/verify_proactive_ooda_live_receipt.py" in command:
+            call_order.append("live_receipt")
+            return (
+                0,
+                {
+                    "ok": True,
+                    "errors": [],
+                    "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                    "notification_status": "skipped_no_items",
+                    "delivery_channel": "",
+                    "delivery_message_count": 0,
+                    "telegram_message_count": 0,
+                    "delivery_route_error": "",
+                    "delivery_recovery_hint": "",
+                    "delivery_next_action": "",
+                    "generated_at": "2026-07-06T03:47:00Z",
+                },
+                '{"ok":true}',
+                "",
+            )
+        if command[:2] == ["python", "-c"]:
+            call_order.append("artifact")
+            raise AssertionError("artifact probe should be skipped")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-06T03:47:00Z")
+
+    report = module.probe_proactive_route(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        timeout_seconds=7.0,
+        include_artifact_probe=False,
+        output_format="json",
+    )
+
+    assert call_order == ["route", "live_receipt"]
+    assert report["probe_ok"] is True
+    assert report["status"] == "ready"
+    assert report["delivery_route_ready"] is True
+    assert report["live_receipt_checked"] is True
+    assert report["artifact_probe"] == {}
+
+
+def test_probe_proactive_route_surfaces_followthrough_recovery_when_live_receipt_chain_failed(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", "1")
+
+    def _fake_exec_json(*, command: list[str], **_kwargs):
+        if command[:2] == ["python", "-c"]:
+            return (
+                0,
+                {
+                    "probe_ok": True,
+                    "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                },
+                '{"probe_ok":true}',
+                "",
+            )
+        if "/app/scripts/verify_proactive_ooda.py" in command:
+            return (
+                0,
+                {
+                    "ok": True,
+                    "delivery_route": {
+                        "ready": True,
+                        "route_error": "",
+                        "recovery_hint": "",
+                        "next_action": "",
+                        "selected_channel": "telegram",
+                        "selected_transport": "telegram",
+                        "selected_by": "tool_runtime_binding",
+                        "available_channels": ["telegram"],
+                    },
+                    "delivery_guard": {"delivery_state": "eligible"},
+                },
+                '{"ok":true}',
+                "",
+            )
+        if "/app/scripts/verify_proactive_ooda_live_receipt.py" in command:
+            return (
+                0,
+                {
+                    "ok": False,
+                    "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                    "notification_status": "sent",
+                    "delivery_channel": "telegram",
+                    "delivery_next_action": "repair_proactive_operator_runtime_posture",
+                    "delivery_route_error": "",
+                    "delivery_recovery_hint": "",
+                    "errors": ["followthrough_status_not_ok"],
+                },
+                '{"ok":false}',
+                "",
+            )
+        raise AssertionError(command)
+
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-06T10:22:00Z")
+
+    report = module.probe_proactive_route(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "ready_with_recovery_action"
+    assert report["blocking_reason"] == "followthrough_status_not_ok"
+    assert report["next_action"] == "repair_proactive_operator_runtime_posture"
+    assert report["next_action_href"] == "https://myexternalbrain.com/admin/goals"
+
+
 def test_probe_proactive_artifacts_reads_runtime_bundle(monkeypatch) -> None:
     module = _module()
+    monkeypatch.setenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", "1")
 
     def _fake_exec_json(*, command: list[str], **_kwargs):
         assert command[:2] == ["python", "-c"]
@@ -2219,6 +6915,7 @@ def test_probe_proactive_artifacts_reads_runtime_bundle(monkeypatch) -> None:
 
 def test_probe_proactive_artifacts_reports_timed_out_payload(monkeypatch) -> None:
     module = _module()
+    monkeypatch.setenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", "1")
 
     monkeypatch.setattr(
         module,
@@ -2319,6 +7016,172 @@ def test_probe_proactive_artifacts_uses_in_process_fallback_without_docker_cli(m
     assert report["probe_ok"] is True
     assert report["source"] == "in_process_runtime"
     assert report["observed_at"] == "2026-06-30T08:10:00Z"
+    assert report["current_packet_live_pending_count"] == 1
+
+
+def test_probe_proactive_artifacts_uses_docker_exec_even_when_database_url_is_present(monkeypatch) -> None:
+    module = _module()
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://ea:test@localhost/ea")
+    monkeypatch.delenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", raising=False)
+    monkeypatch.delenv("EA_LIVE_OPS_PREFER_HOST_RUNTIME_PROACTIVE_PROBE", raising=False)
+    monkeypatch.setattr(module, "_docker_cli_available", lambda: True)
+    observed: dict[str, object] = {}
+
+    def _fake_exec_json(**_kwargs):
+        observed["called"] = True
+        return (
+            0,
+            {
+                "probe_ok": True,
+                "state_path": "/data/provider-ledger/proactive_ooda_notified.json",
+                "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                "action_required_only_quiet_receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/quiet.json",
+                "stage_packet_dir": "/data/provider-ledger/proactive_ooda_stage_packets",
+                "safe_work_result_dir": "/data/provider-ledger/proactive_ooda_safe_work_results",
+                "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
+                "approval_callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+                "approval_callback_dir_exists": True,
+                "approval_callback_dir_writable": True,
+                "approval_callback_record_count": 1,
+                "approval_callback_pending_count": 1,
+                "approval_callback_raw_pending_count": 1,
+                "approval_callback_live_pending_count": 1,
+                "approval_callback_unexpired_pending_count": 1,
+                "approval_callback_noncurrent_pending_count": 0,
+                "approval_callback_expired_pending_count": 0,
+                "approval_callback_stale_pending_count": 0,
+                "approval_callback_recorded_count": 0,
+                "approval_callback_expired_count": 0,
+                "approval_callback_superseded_count": 0,
+                "approval_callback_terminal_count": 0,
+                "current_packet_callback_record_count": 1,
+                "current_packet_callback_pending_count": 1,
+                "current_packet_callback_raw_pending_count": 1,
+                "current_packet_callback_expired_pending_count": 0,
+                "current_packet_callback_stale_pending_count": 0,
+                "current_packet_callback_recorded_count": 0,
+                "current_packet_callback_expired_count": 0,
+                "current_packet_callback_superseded_count": 0,
+                "current_packet_live_callback_record_count": 1,
+                "current_packet_live_pending_count": 1,
+                "current_packet_callback_latest_status": "pending",
+                "current_packet_callback_latest_expired": False,
+                "current_packet_callback_latest_created_at": "2026-07-05T11:03:00Z",
+                "current_packet_callback_latest_expires_at": "2099-01-01T00:00:00Z",
+                "current_packet_callback_latest_age_seconds": 60,
+                "current_packet_callback_latest_seconds_until_expiry": 999999,
+                "current_packet_callback_outcome": {},
+                "stage_packet_path": "/data/provider-ledger/proactive_ooda_stage_packets/pkt-live.json",
+                "safe_work_result_path": "/data/provider-ledger/proactive_ooda_safe_work_results/res-live.json",
+                "artifact_filter_reason": "",
+                "flat_search_enabled": False,
+                "run_receipt": {"notification_status": "sent"},
+                "action_required_only_quiet_receipt": {"notification_status": "deferred"},
+                "stage_packet": {"packet_ref": "stage_packet:pkt-live"},
+                "safe_work_result": {"result_ref": "safe_work_result:res-live"},
+                "approval_outcome": {},
+            },
+            "{\"probe_ok\": true}",
+            "",
+        )
+
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(
+        module,
+        "_probe_proactive_artifacts_in_process_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("in-process payload should not be used here")),
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T11:04:00Z")
+
+    report = module.probe_proactive_artifacts(
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is True
+    assert observed["called"] is True
+    assert report["source"] == "docker_compose_exec"
+    assert report["current_packet_live_pending_count"] == 1
+    assert report["action_required_only_quiet_receipt_path"].endswith("quiet.json")
+
+
+def test_probe_proactive_artifacts_can_explicitly_prefer_host_runtime(monkeypatch) -> None:
+    module = _module()
+
+    def _unexpected_exec_json(**_kwargs):
+        raise AssertionError("docker compose exec should not run when host runtime probing is explicitly requested")
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://ea:test@localhost/ea")
+    monkeypatch.setenv("EA_LIVE_OPS_PREFER_HOST_RUNTIME_PROACTIVE_PROBE", "1")
+    monkeypatch.delenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", raising=False)
+    monkeypatch.setattr(module, "_docker_cli_available", lambda: True)
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _unexpected_exec_json)
+    monkeypatch.setattr(
+        module,
+        "_probe_proactive_artifacts_in_process_payload",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "state_path": "/data/provider-ledger/proactive_ooda_notified.json",
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "action_required_only_quiet_receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/quiet.json",
+            "stage_packet_dir": "/data/provider-ledger/proactive_ooda_stage_packets",
+            "safe_work_result_dir": "/data/provider-ledger/proactive_ooda_safe_work_results",
+            "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
+            "approval_callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 1,
+            "approval_callback_pending_count": 1,
+            "approval_callback_raw_pending_count": 1,
+            "approval_callback_live_pending_count": 1,
+            "approval_callback_unexpired_pending_count": 1,
+            "approval_callback_noncurrent_pending_count": 0,
+            "approval_callback_expired_pending_count": 0,
+            "approval_callback_stale_pending_count": 0,
+            "approval_callback_recorded_count": 0,
+            "approval_callback_expired_count": 0,
+            "approval_callback_superseded_count": 0,
+            "approval_callback_terminal_count": 0,
+            "current_packet_callback_record_count": 1,
+            "current_packet_callback_pending_count": 1,
+            "current_packet_callback_raw_pending_count": 1,
+            "current_packet_callback_expired_pending_count": 0,
+            "current_packet_callback_stale_pending_count": 0,
+            "current_packet_callback_recorded_count": 0,
+            "current_packet_callback_expired_count": 0,
+            "current_packet_callback_superseded_count": 0,
+            "current_packet_live_callback_record_count": 1,
+            "current_packet_live_pending_count": 1,
+            "current_packet_callback_latest_status": "pending",
+            "current_packet_callback_latest_expired": False,
+            "current_packet_callback_latest_created_at": "2026-07-05T11:03:00Z",
+            "current_packet_callback_latest_expires_at": "2099-01-01T00:00:00Z",
+            "current_packet_callback_latest_age_seconds": 60,
+            "current_packet_callback_latest_seconds_until_expiry": 999999,
+            "current_packet_callback_outcome": {},
+            "stage_packet_path": "/data/provider-ledger/proactive_ooda_stage_packets/pkt-live.json",
+            "safe_work_result_path": "/data/provider-ledger/proactive_ooda_safe_work_results/res-live.json",
+            "artifact_filter_reason": "",
+            "flat_search_enabled": False,
+            "run_receipt": {"notification_status": "sent"},
+            "action_required_only_quiet_receipt": {"notification_status": "deferred"},
+            "stage_packet": {"packet_ref": "stage_packet:pkt-live"},
+            "safe_work_result": {"result_ref": "safe_work_result:res-live"},
+            "approval_outcome": {},
+        },
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T11:04:00Z")
+
+    report = module.probe_proactive_artifacts(
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["source"] == "in_process_runtime"
     assert report["current_packet_live_pending_count"] == 1
 
 
@@ -2465,6 +7328,7 @@ def test_current_packet_summary_applies_matching_approval_outcome() -> None:
 
 def test_probe_proactive_artifacts_operator_format_reports_approval_outcome_presence(monkeypatch) -> None:
     module = _module()
+    monkeypatch.setenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", "1")
 
     def _fake_exec_json(*, command: list[str], **_kwargs):
         assert command[:2] == ["python", "-c"]
@@ -2676,6 +7540,79 @@ def test_probe_proactive_approval_capture_maps_missing_telegram_token(monkeypatc
     assert report["ready"] is False
     assert report["blocking_reason"] == "telegram_bot_token_missing"
     assert report["next_action"] == "configure_telegram_bot_token"
+
+
+def test_probe_proactive_approval_capture_infers_current_refs_from_unique_live_pending_callback(
+    monkeypatch, tmp_path: Path
+) -> None:
+    module = _module()
+    callback_dir = tmp_path / "approval-callbacks"
+    callback_dir.mkdir(parents=True, exist_ok=True)
+    live_packet_ref = "stage_packet:live-pkt-1"
+    live_artifact_ref = "safe_work_result:live-res-1"
+    principal_id = "cf-email:tibor.girschele@example.test"
+    principal_hash = module._hash_text(principal_id)  # noqa: SLF001
+    (callback_dir / "pending.json").write_text(
+        json.dumps(
+            {
+                "packet_ref": live_packet_ref,
+                "staged_artifact_ref": live_artifact_ref,
+                "status": "pending",
+                "created_at": "2026-07-05T08:47:17Z",
+                "expires_at": "2099-01-01T00:00:00Z",
+                "principal_id_hash": principal_hash,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        module,
+        "_proactive_runtime_bundle_snapshot",
+        lambda: (
+            {},
+            {
+                "stage_packet": {"packet_ref": "stage_packet:historical-browse-proof"},
+                "safe_work_result": {"result_ref": "safe_work_result:historical-browse-proof"},
+                "approval_callback_dir": callback_dir,
+            },
+        ),
+    )
+    monkeypatch.setattr(module, "build_container", lambda: SimpleNamespace(tool_runtime=object()))
+
+    from app.services import proactive_ooda_telegram_approval as approval_mod
+    from app.services import telegram_delivery as telegram_mod
+
+    monkeypatch.setattr(
+        approval_mod,
+        "_approval_callback_principal_candidates",
+        lambda **_kwargs: (principal_id,),
+    )
+    monkeypatch.setattr(
+        telegram_mod,
+        "resolve_primary_telegram_binding",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            auth_metadata_json={"default_chat_ref": "123456789", "bot_key": "default"},
+            external_account_ref="123456789",
+        ),
+    )
+    monkeypatch.setattr(telegram_mod, "_telegram_bot_registry", lambda: {"default": {"token": "telegram-token"}})
+
+    payload = module._probe_proactive_approval_capture_in_process_payload(principal_id=principal_id)  # noqa: SLF001
+
+    assert payload["ok"] is True
+    assert payload["current_packet_refs_present"] is True
+    assert payload["current_packet_ref_sha256"] == module._hash_text(live_packet_ref)  # noqa: SLF001
+    assert payload["current_staged_artifact_ref_sha256"] == module._hash_text(live_artifact_ref)  # noqa: SLF001
+    assert payload["current_packet_callback_record_count"] == 1
+    assert payload["current_packet_live_pending_count"] == 1
+    assert payload["current_packet_callback_latest_status"] == "pending"
+    assert payload["callback_principal_hash_present"] is True
+    assert payload["candidate_principal_hash_count"] == 1
+    assert payload["principal_match_ready"] is True
+    assert payload["telegram_binding_ready"] is True
+    assert payload["telegram_chat_ref_present"] is True
+    assert payload["telegram_bot_token_present"] is True
 
 
 def test_probe_proactive_approval_capture_uses_in_process_fallback_without_docker_cli(monkeypatch) -> None:
@@ -3639,6 +8576,59 @@ def test_probe_google_workspace_oauth_send_telegram_uses_direct_auth_link(monkey
     assert "openclaw-concierge" in str(captured["text"])
 
 
+def test_probe_google_workspace_oauth_suppresses_telegram_when_office_setup_stream_is_excluded(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-01T19:41:00Z")
+    monkeypatch.setattr(
+        module.google_workspace_oauth_readiness,
+        "build_receipt",
+        lambda **_kwargs: {
+            "status": "blocked_setup_required",
+            "blocker_kind": "oauth_test_user_or_verification_required",
+            "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+            "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect",
+            "missing_setup": ["oauth_test_user_missing_or_app_unverified"],
+            "expected_google_account": {"present": True, "domain": "gmail.com", "email_sha256": "abc"},
+            "oauth_client": {"client_project_id": "propertyquarry-498318", "client_project_number": "95627800296"},
+            "gcloud_probe": {
+                "active_project": "openclaw-concierge",
+                "active_project_matches_oauth_project": False,
+                "active_account_present": True,
+                "oauth_project_id": "propertyquarry-498318",
+            },
+            "operator_action": {
+                "user_action_required": True,
+                "next_action": "add_google_oauth_test_user_and_retry_full_workspace_auth",
+                "next_action_href": "/integrations/google",
+                "next_action_label": "Open Google setup",
+                "next_action_method": "get",
+                "delivery_policy": "action_required_only",
+                "instruction": "Open the Google Auth Platform Audience page for the OAuth project.",
+                "telegram_message": "Action needed",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "send_telegram",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("telegram send should stay suppressed")),
+    )
+
+    report = module.probe_google_workspace_oauth(
+        expected_google_email="work.tibor.girschele@gmail.com",
+        observed_error="access_denied",
+        probe_gcloud=True,
+        send_telegram_to_principal="cf-email:tibor.girschele@gmail.com",
+        timeout_seconds=45.0,
+        telegram_operator_streams="recovery",
+    )
+
+    assert report["telegram_delivery"]["sent"] is False
+    assert report["telegram_delivery"]["reason"] == "operator_stream_not_allowed"
+    assert report["telegram_delivery"]["readiness_status"] == "suppressed_by_stream_policy"
+    assert report["allowed_operator_streams"] == ["recovery"]
+
+
 def test_main_probe_proactive_source_coverage_accepts_subcommand_timeout(monkeypatch, capsys) -> None:
     module = _module()
     captured: dict[str, object] = {}
@@ -3724,6 +8714,9 @@ def test_probe_proactive_source_coverage_reports_required_lanes_without_raw_payl
     probe_code = str(list(captured["command"])[2])
     assert "EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH" not in probe_code
     assert "property_scout_sync_completed" in probe_code
+    assert "assistant_property_task_auto_closed" in probe_code
+    assert "property_" in probe_code
+    assert "assistant_property_" in probe_code
     assert "excluded_event_types" not in probe_code
     assert "pocket_ai_audio_transcripts" not in report["missing_lane_keys"]
     assert report["privacy"]["raw_payload_exposed"] is False
@@ -3744,6 +8737,33 @@ def test_probe_proactive_source_coverage_omits_property_exclusion_noise(monkeypa
                 "probe_ok": True,
                 "observation_repository": "PostgresObservationEventRepository",
                 "rows": [
+                    {
+                        "channel": "product",
+                        "event_type": "assistant_property_task_auto_closed",
+                        "created_at": "2026-06-29T07:57:00Z",
+                        "payload_keys": ["reason"],
+                        "hints": ["property", "cleanup"],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                    {
+                        "channel": "product",
+                        "event_type": "property_scout_sync_completed",
+                        "created_at": "2026-06-29T07:57:30Z",
+                        "payload_keys": ["run_id"],
+                        "hints": ["property_scout"],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                    {
+                        "channel": "product",
+                        "event_type": "property_alert_review_created",
+                        "created_at": "2026-06-29T07:57:45Z",
+                        "payload_keys": ["listing_id", "wife_note"],
+                        "hints": ["relationship_and_occasion_signals", "wife"],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
                     {
                         "channel": "product",
                         "event_type": "pocket_recording_archive_indexed",
@@ -3792,7 +8812,9 @@ def test_probe_proactive_source_coverage_omits_property_exclusion_noise(monkeypa
     assert "excluded_event_types" not in report
     assert "excluded_event_type_counts" not in report
     for lane in report["lanes"]:
+        assert "assistant_property_task_auto_closed" not in lane["evidence_event_types"]
         assert "property_scout_sync_completed" not in lane["evidence_event_types"]
+        assert "property_alert_review_created" not in lane["evidence_event_types"]
 
 
 def test_probe_proactive_source_coverage_accepts_pocket_archive_evidence_when_event_rows_are_missing(monkeypatch) -> None:
@@ -3910,6 +8932,286 @@ def test_probe_proactive_source_coverage_treats_runtime_failure_as_probe_failed(
     assert report["blocking_reason"] == "TimeoutExpired:15s"
     assert report["next_action"] == "inspect_proactive_runtime_container"
     assert report["missing_lane_keys"] == list(module.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS)
+
+
+def test_probe_proactive_source_coverage_prefers_in_process_when_database_url_present(monkeypatch) -> None:
+    module = _module()
+
+    def _unexpected_exec_json(**_kwargs):
+        raise AssertionError("docker compose exec should not run when DATABASE_URL enables in-process coverage")
+
+    class PostgresObservationEventRepository:
+        pass
+
+    class _FakeRuntime:
+        def __init__(self) -> None:
+            self._observations = PostgresObservationEventRepository()
+
+        def list_recent_observations(self, limit: int, principal_id: str):
+            assert limit == 400
+            assert principal_id == "exec-1"
+            return [
+                SimpleNamespace(
+                    channel="product",
+                    event_type="pocket_recording_archive_indexed",
+                    created_at="2026-06-29T07:58:00Z",
+                    payload={"recording_id": "rec-1", "transcript_text": "spiderman shortlist", "location_name": "1200 Wien"},
+                    source_id="src-pocket-1",
+                    external_id="ext-pocket-1",
+                ),
+                SimpleNamespace(
+                    channel="gmail",
+                    event_type="gmail.message",
+                    created_at="2026-06-29T07:59:00Z",
+                    payload={"subject_sha256": "a" * 64, "sender_sha256": "b" * 64, "followup_due": "today"},
+                    source_id="src-gmail-1",
+                    external_id="ext-gmail-1",
+                ),
+                SimpleNamespace(
+                    channel="calendar",
+                    event_type="calendar.event",
+                    created_at="2026-06-29T08:00:00Z",
+                    payload={"event_id_sha256": "c" * 64},
+                    source_id="src-calendar-1",
+                    external_id="ext-calendar-1",
+                ),
+                SimpleNamespace(
+                    channel="telegram",
+                    event_type="office_signal_ooda_evaluated",
+                    created_at="2026-06-29T08:01:00Z",
+                    payload={"context": {"relationship": "wife", "address": "1200 Wien", "vendor": "pagro"}},
+                    source_id="src-telegram-1",
+                    external_id="ext-telegram-1",
+                ),
+            ]
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://ea:test@localhost/ea")
+    monkeypatch.delenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", raising=False)
+    monkeypatch.setattr(module, "_docker_cli_available", lambda: True)
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _unexpected_exec_json)
+    monkeypatch.setattr(module, "build_container", lambda: SimpleNamespace(channel_runtime=_FakeRuntime()))
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T08:02:00Z")
+
+    report = module.probe_proactive_source_coverage(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "ready"
+    assert report["source"] == "in_process_runtime:proactive_source_coverage"
+    assert report["observation_repository"] == "PostgresObservationEventRepository"
+    assert report["missing_lane_keys"] == []
+
+
+def test_probe_proactive_source_coverage_falls_back_to_docker_when_in_process_errors(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_exec_json(**_kwargs: object) -> tuple[int, dict[str, object], str, str]:
+        return (
+            0,
+            {
+                "probe_ok": True,
+                "observation_repository": "PostgresObservationEventRepository",
+                "rows": [
+                    {
+                        "channel": "product",
+                        "event_type": "pocket_recording_archive_indexed",
+                        "created_at": "2026-06-29T07:58:00Z",
+                        "payload_keys": ["recording_id", "transcript_text", "location_name"],
+                        "hints": [
+                            "pocket_ai_audio_transcripts",
+                            "shopping_and_vendor_signals",
+                            "durable_profile_and_location_context",
+                        ],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                    {
+                        "channel": "gmail",
+                        "event_type": "gmail.message",
+                        "created_at": "2026-06-29T07:59:00Z",
+                        "payload_keys": ["subject_sha256", "sender_sha256"],
+                        "hints": ["google_workspace", "commitment_and_deadline_signals"],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                    {
+                        "channel": "calendar",
+                        "event_type": "calendar.event",
+                        "created_at": "2026-06-29T08:00:00Z",
+                        "payload_keys": ["event_id_sha256"],
+                        "hints": ["calendar_and_renewal_signals"],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                    {
+                        "channel": "telegram",
+                        "event_type": "office_signal_ooda_evaluated",
+                        "created_at": "2026-06-29T08:01:00Z",
+                        "payload_keys": ["signal_id_sha256"],
+                        "hints": [
+                            "relationship_and_occasion_signals",
+                            "shopping_and_vendor_signals",
+                            "durable_profile_and_location_context",
+                        ],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                ],
+            },
+            "",
+            "",
+        )
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://ea:test@localhost/ea")
+    monkeypatch.delenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", raising=False)
+    monkeypatch.setattr(module, "_docker_cli_available", lambda: True)
+    monkeypatch.setattr(module, "build_container", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T08:02:00Z")
+
+    report = module.probe_proactive_source_coverage(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["source"] == "docker_compose_exec"
+    assert report["status"] == "ready"
+
+
+def test_probe_proactive_source_coverage_suppresses_container_fallback_warning_when_docker_fallback_succeeds(
+    monkeypatch,
+    caplog,
+) -> None:
+    module = _module()
+
+    def _fake_exec_json(**_kwargs: object) -> tuple[int, dict[str, object], str, str]:
+        return (
+            0,
+            {
+                "probe_ok": True,
+                "observation_repository": "PostgresObservationEventRepository",
+                "rows": [],
+            },
+            "",
+            "",
+        )
+
+    def _fake_build_container():
+        logging.getLogger("ea.container").warning(
+            "postgres runtime profile unavailable, switching whole container to memory: failed to resolve host 'ea-db'"
+        )
+        return SimpleNamespace(channel_runtime=SimpleNamespace(_observations=object()))
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://ea:test@localhost/ea")
+    monkeypatch.delenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", raising=False)
+    monkeypatch.setattr(module, "_docker_cli_available", lambda: True)
+    monkeypatch.setattr(module, "build_container", _fake_build_container)
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T08:02:00Z")
+
+    caplog.set_level(logging.WARNING, logger="ea.container")
+    report = module.probe_proactive_source_coverage(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["source"] == "docker_compose_exec"
+    assert "postgres runtime profile unavailable, switching whole container to memory" not in caplog.text
+
+
+def test_probe_proactive_source_coverage_expands_window_when_initial_limit_is_truncated(monkeypatch) -> None:
+    module = _module()
+    calls: list[dict[str, object]] = []
+
+    def _fake_exec_json(**kwargs: object) -> tuple[int, dict[str, object], str, str]:
+        calls.append(dict(kwargs))
+        if len(calls) == 1:
+            return (
+                0,
+                {
+                    "probe_ok": True,
+                    "observation_repository": "PostgresObservationEventRepository",
+                    "rows": [
+                        {
+                            "channel": "gmail",
+                            "event_type": "gmail.message",
+                            "created_at": "2026-06-29T07:59:00Z",
+                            "payload_keys": ["subject_sha256", "sender_sha256"],
+                            "hints": ["google_workspace", "commitment_and_deadline_signals"],
+                            "source_id_sha256_present": True,
+                            "raw_payload_exposed": False,
+                        }
+                    ]
+                    * 400,
+                },
+                "",
+                "",
+            )
+        return (
+            0,
+            {
+                "probe_ok": True,
+                "observation_repository": "PostgresObservationEventRepository",
+                "rows": [
+                    {
+                        "channel": "product",
+                        "event_type": "pocket_recording_archive_indexed",
+                        "created_at": "2026-06-29T07:58:00Z",
+                        "payload_keys": ["recording_id", "transcript_text", "location_name"],
+                        "hints": [
+                            "pocket_ai_audio_transcripts",
+                            "relationship_and_occasion_signals",
+                            "shopping_and_vendor_signals",
+                            "durable_profile_and_location_context",
+                        ],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                    {
+                        "channel": "gmail",
+                        "event_type": "gmail.message",
+                        "created_at": "2026-06-29T07:59:00Z",
+                        "payload_keys": ["subject_sha256", "sender_sha256"],
+                        "hints": ["google_workspace", "commitment_and_deadline_signals"],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                    {
+                        "channel": "calendar",
+                        "event_type": "calendar.event",
+                        "created_at": "2026-06-29T08:00:00Z",
+                        "payload_keys": ["event_id_sha256"],
+                        "hints": ["calendar_and_renewal_signals"],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                ],
+            },
+            "",
+            "",
+        )
+
+    monkeypatch.setenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", "1")
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T08:01:00Z")
+
+    report = module.probe_proactive_source_coverage(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+    )
+
+    assert len(calls) == 2
+    assert report["observation_limit"] == 4000
+    assert report["observation_row_count"] == 3
+    assert "pocket_ai_audio_transcripts" not in report["missing_lane_keys"]
 
 
 def test_parse_args_sync_pocket_transcripts_uses_proactive_principal_default(monkeypatch) -> None:
@@ -4858,6 +10160,10 @@ def test_send_telegram_dry_run_reuses_readiness_probe_without_sending(monkeypatc
             "reason": "",
             "principal_id": "principal-1",
             "binding_id": "binding-1",
+            "next_action": "",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
             "chat_ref_present": True,
             "chat_ref_sha256": "c" * 64,
             "bot_key": "default",
@@ -4877,11 +10183,51 @@ def test_send_telegram_dry_run_reuses_readiness_probe_without_sending(monkeypatc
     assert report["readiness_probe_ok"] is True
     assert report["delivery_transport"] == "telegram_bot"
     assert report["chat_ref_sha256"] == "c" * 64
+    assert report["next_action"] == ""
+    assert report["next_action_href"] == ""
+    assert report["next_action_label"] == ""
+    assert report["next_action_method"] == ""
     assert report["bot_token_present"] is True
     assert report["timeout_seconds"] == 30.0
     assert report["observed_at"] == "2026-06-29T14:00:00Z"
     assert "123456789" not in serialized
     assert "telegram-token" not in serialized
+
+
+def test_send_telegram_dry_run_enforces_minimum_readiness_timeout(monkeypatch) -> None:
+    module = _module()
+    observed: dict[str, object] = {}
+
+    def _fake_probe_telegram_readiness(*, principal_id: str, timeout_seconds: float, output_format: str):
+        observed["principal_id"] = principal_id
+        observed["timeout_seconds"] = timeout_seconds
+        observed["output_format"] = output_format
+        return {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "reason": "",
+            "principal_id": principal_id,
+            "binding_id": "binding-1",
+            "chat_ref_present": True,
+            "chat_ref_sha256": "d" * 64,
+            "bot_key": "default",
+            "bot_handle": "ea_concierge_bot",
+            "bot_token_present": True,
+            "runtime_container": "ea-api",
+        }
+
+    monkeypatch.setattr(module, "probe_telegram_readiness", _fake_probe_telegram_readiness)
+
+    report = module.send_telegram(principal_id="principal-1", text="status update", dry_run=True, timeout_seconds=15.0)
+
+    assert observed == {
+        "principal_id": "principal-1",
+        "timeout_seconds": 30.0,
+        "output_format": "json",
+    }
+    assert report["readiness_probe_ok"] is True
+    assert report["timeout_seconds"] == 15.0
 
 
 def test_send_telegram_executes_runtime_without_exposing_chat_secret(monkeypatch) -> None:
@@ -4930,6 +10276,53 @@ def test_send_telegram_executes_runtime_without_exposing_chat_secret(monkeypatch
     assert "telegram-token" not in serialized
 
 
+def test_send_telegram_falls_back_to_in_process_delivery_when_runtime_exec_is_unavailable(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T14:01:30Z")
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_exec_json",
+        lambda **_kwargs: (127, {"ok": False, "reason": "FileNotFoundError"}, "ea-api"),
+    )
+
+    class _Receipt:
+        principal_id = "principal-1"
+        chat_id = "1354554303"
+        bot_key = "default"
+        bot_handle = "ea_concierge_bot"
+        message_ids = ("1002",)
+
+    settings_calls: list[str] = []
+    monkeypatch.setattr(module, "get_settings", lambda: settings_calls.append("get_settings") or object())
+    monkeypatch.setattr(module, "build_tool_runtime", lambda _settings: "tool-runtime")
+    monkeypatch.setattr(
+        module,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text, disable_web_page_preview: (
+            _Receipt()
+            if tool_runtime == "tool-runtime"
+            and principal_id == "principal-1"
+            and text == "status update"
+            and disable_web_page_preview is True
+            else None
+        ),
+    )
+
+    report = module.send_telegram(principal_id="principal-1", text="status update", dry_run=False, timeout_seconds=45.0)
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert settings_calls == ["get_settings"]
+    assert report["sent"] is True
+    assert report["reason"] == "sent"
+    assert report["source"] == "in_process:telegram_delivery.send_telegram_message_for_principal"
+    assert report["runtime_container"] == ""
+    assert report["message_ids"] == ["1002"]
+    assert report["message_count"] == 1
+    assert report["chat_ref_sha256"] == module._hash_text("1354554303")  # noqa: SLF001
+    assert report["observed_at"] == "2026-06-29T14:01:30Z"
+    assert "1354554303" not in serialized
+
+
 def test_send_telegram_document_dry_run_reuses_readiness_without_exposing_document(monkeypatch) -> None:
     module = _module()
     monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T14:02:00Z")
@@ -4965,7 +10358,56 @@ def test_send_telegram_document_dry_run_reuses_readiness_without_exposing_docume
     assert report["readiness_probe_ok"] is True
     assert report["document_ref_present"] is True
     assert report["caption_present"] is True
-    assert report["observed_at"] == "2026-06-29T14:02:00Z"
+
+
+def test_send_telegram_document_dry_run_enforces_minimum_readiness_timeout(monkeypatch) -> None:
+    module = _module()
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T14:03:00Z")
+    monkeypatch.setattr(
+        module,
+        "probe_telegram_readiness",
+        lambda principal_id, timeout_seconds=None, output_format="json": (
+            observed.update(
+                {
+                    "principal_id": principal_id,
+                    "timeout_seconds": timeout_seconds,
+                    "output_format": output_format,
+                }
+            )
+            or {
+                "probe_ok": True,
+                "ready": True,
+                "status": "ready",
+                "reason": "",
+                "principal_id": principal_id,
+                "binding_id": "binding-1",
+                "chat_ref_present": True,
+                "chat_ref_sha256": "a" * 64,
+                "bot_key": "default",
+                "bot_handle": "ea_concierge_bot",
+                "bot_token_present": True,
+                "runtime_container": "ea-api",
+            }
+        ),
+    )
+
+    report = module.send_telegram_document(
+        principal_id="principal-1",
+        document_ref="/tmp/proof.svg",
+        caption="pairing",
+        dry_run=True,
+        timeout_seconds=15.0,
+    )
+
+    assert observed == {
+        "principal_id": "principal-1",
+        "timeout_seconds": 30.0,
+        "output_format": "json",
+    }
+    assert report["readiness_probe_ok"] is True
+    assert report["timeout_seconds"] == 15.0
+    assert report["observed_at"] == "2026-06-29T14:03:00Z"
     assert "/tmp/secret-qr.svg" not in json.dumps(report, sort_keys=True)
 
 
@@ -5089,6 +10531,54 @@ def test_main_probe_google_workspace_oauth_operator_prints_plain_text(monkeypatc
     assert capsys.readouterr().out.strip() == "google oauth ok"
 
 
+def test_main_probe_google_workspace_oauth_uses_receipt_context_when_runtime_context_omitted(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="probe-google-workspace-oauth",
+            expected_google_email="work.tibor.girschele@gmail.com",
+            scope_bundle="",
+            observed_error="",
+            error_description="",
+            observed_google_email="",
+            test_user_confirmed=False,
+            probe_gcloud=True,
+            telegram_principal_id="principal-1",
+            send_telegram=False,
+            dry_run=False,
+            timeout_seconds=20.0,
+            format="json",
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "_google_workspace_oauth_probe_context_from_receipt",
+        lambda receipt_path="": {
+            "scope_bundle": "full_workspace",
+            "observed_error": "access_denied",
+            "observed_google_email": "__expected__",
+            "test_user_confirmed": True,
+        },
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_probe_google_workspace_oauth(**kwargs):
+        captured.update(kwargs)
+        return {"probe_ok": True, "status": "ready_retry_required", "next_action": "retry_full_workspace_auth_with_approved_account"}
+
+    monkeypatch.setattr(module, "probe_google_workspace_oauth", _fake_probe_google_workspace_oauth)
+
+    assert module.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ready_retry_required"
+    assert captured["scope_bundle"] == "full_workspace"
+    assert captured["observed_error"] == "access_denied"
+    assert captured["observed_google_email"] == "__expected__"
+    assert captured["test_user_confirmed"] is True
+
+
 def test_main_probe_google_workspace_oauth_send_telegram_dry_run_fails_closed_when_not_ready(monkeypatch, capsys) -> None:
     module = _module()
     monkeypatch.setattr(
@@ -5157,10 +10647,18 @@ def test_main_send_telegram_dry_run_fails_closed_when_not_ready(monkeypatch, cap
 
 def test_main_probe_provider_operator_prints_plain_text(monkeypatch, capsys) -> None:
     module = _module()
-    monkeypatch.setattr(module, "parse_args", lambda: Namespace(command="probe-provider", provider="unmixr", format="operator"))
-    monkeypatch.setattr(module, "probe_provider", lambda provider, output_format="json": {"operator_text": f"{provider}:{output_format}"})
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(command="probe-provider", provider="unmixr", format="operator", timeout_seconds=9.0),
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_provider",
+        lambda provider, output_format="json", timeout_seconds=20.0: {"operator_text": f"{provider}:{output_format}:{timeout_seconds}"},
+    )
 
     exit_code = module.main()
 
     assert exit_code == 0
-    assert capsys.readouterr().out.strip() == "unmixr:operator"
+    assert capsys.readouterr().out.strip() == "unmixr:operator:9.0"

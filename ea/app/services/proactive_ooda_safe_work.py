@@ -31,6 +31,19 @@ from app.services.proactive_ooda_stage_packets import (
 
 SAFE_WORK_RESULT_SCHEMA = "proactive_ooda.safe_work_result.v1"
 _EMAIL_PATTERN = re.compile(r"(?i)(?:mailto:)?([a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,})")
+_CONTACT_PAGE_DISCOVERY_MARKERS = (
+    "contact",
+    "kontakt",
+    "email",
+    "e-mail",
+    "impressum",
+    "office",
+    "auskunft",
+    "organisation",
+    "organization",
+)
+_CONTACT_PAGE_DISCOVERY_MAX_DEPTH = 2
+_CONTACT_PAGE_DISCOVERY_MAX_PAGES = 4
 _PROVIDER_PAGE_MARKERS = (
     "contact",
     "kontakt",
@@ -307,6 +320,41 @@ class _TitleExtractor(HTMLParser):
 
     def title(self) -> str:
         return " ".join(self._parts).strip()
+
+
+class _AnchorLinkExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self._current_href = ""
+        self._current_text: list[str] = []
+        self._links: list[tuple[str, str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        attributes = {str(key).lower(): str(value or "") for key, value in attrs}
+        self._current_href = attributes.get("href", "").strip()
+        self._current_text = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() != "a":
+            return
+        href = str(self._current_href or "").strip()
+        if href:
+            text = " ".join(part for part in self._current_text if part).strip()
+            self._links.append((href, text))
+        self._current_href = ""
+        self._current_text = []
+
+    def handle_data(self, data: str) -> None:
+        if not self._current_href:
+            return
+        text = str(data or "").strip()
+        if text:
+            self._current_text.append(text)
+
+    def links(self) -> tuple[tuple[str, str], ...]:
+        return tuple(self._links)
 
 
 class _SearchResultExtractor(HTMLParser):
@@ -876,13 +924,14 @@ def _audit_receipt(
         for issue in list(audit.get("issues") or [])
         if isinstance(issue, Mapping) and str(issue.get("code") or "").strip()
     ]
+    review_required = _audit_review_required(issues)
     return {
-        "status": "pass" if str(audit.get("status") or "").strip().lower() == "pass" and not str(status or "").startswith("blocked") else "review",
+        "status": "pass" if not review_required and not str(status or "").startswith("blocked") else "review",
         "source": "safe_work_pre_user_audit",
         "pre_user_audit_required": bool(quality_gate.get("pre_user_audit_required")),
         "issue_count": len(issues),
         "issues": issues,
-        "fail_closed": bool(issues or str(status or "").startswith("blocked")),
+        "fail_closed": bool(review_required or str(status or "").startswith("blocked")),
     }
 
 
@@ -890,7 +939,11 @@ def _quality_gate_failure_reason(*, audit: Mapping[str, Any], status: str) -> st
     if str(status or "").startswith("blocked"):
         return str(status or "").strip()
     for issue in list(audit.get("issues") or []):
-        if isinstance(issue, Mapping) and str(issue.get("code") or "").strip():
+        if (
+            isinstance(issue, Mapping)
+            and str(issue.get("code") or "").strip()
+            and _issue_requires_review(issue)
+        ):
             return str(issue.get("code") or "").strip()
     return ""
 
@@ -2039,8 +2092,7 @@ def _outreach_request_text_has_actionable_content(text: str) -> bool:
 
 def _draft_request_text(*, input_contract: Mapping[str, Any], stage_payload: Mapping[str, Any]) -> str:
     explicit_source_indexes = {0, 1, 2, 3, 4, 7, 8, 9, 10, 11}
-    explicit_candidates: list[tuple[int, int, str]] = []
-    derived_candidates: list[tuple[int, int, str]] = []
+    candidates: list[tuple[int, int, int, str]] = []
     for index, value in enumerate(
         (
             stage_payload.get("draft_request_text"),
@@ -2063,15 +2115,9 @@ def _draft_request_text(*, input_contract: Mapping[str, Any], stage_payload: Map
         if text:
             score = _draft_request_text_score(text, source_index=index)
             if score > 0:
-                candidate = (score, -index, text)
-                if index in explicit_source_indexes:
-                    explicit_candidates.append(candidate)
-                else:
-                    derived_candidates.append(candidate)
-    if explicit_candidates:
-        return max(explicit_candidates, key=lambda item: (item[0], item[1]))[2]
-    if derived_candidates:
-        return max(derived_candidates, key=lambda item: (item[0], item[1]))[2]
+                candidates.append((score, 1 if index in explicit_source_indexes else 0, -index, text))
+    if candidates:
+        return max(candidates, key=lambda item: (item[0], item[1], item[2]))[3]
     return ""
 
 
@@ -2095,6 +2141,10 @@ def _draft_request_text_score(text: str, *, source_index: int) -> int:
         score += 4
     elif len(normalized) > 320:
         score -= 8
+    if source_index in {0, 7}:
+        score += 20
+    elif source_index in {1, 2, 3, 4, 8, 9, 10, 11}:
+        score += 6
     if source_index in {5, 12}:
         score += 8
     elif source_index in {6, 13}:
@@ -2132,12 +2182,16 @@ def _browser_action_summary(receipt: Mapping[str, Any]) -> str:
         return ""
     target = receipt.get("target") if isinstance(receipt.get("target"), Mapping) else {}
     handoff = receipt.get("handoff") if isinstance(receipt.get("handoff"), Mapping) else {}
+    challenge = handoff.get("challenge") if isinstance(handoff.get("challenge"), Mapping) else {}
     host = str(target.get("site_host") or "").strip()
     reason = str(handoff.get("reason") or "").strip()
+    instruction = str(challenge.get("operator_instruction") or "").strip()
     if host and reason:
-        return f"Browser task for {host} needs a human handoff before EA can continue."
+        detail = f" {instruction}" if instruction else ""
+        return f"Browser task for {host} needs a human handoff before EA can continue.{detail}"
     if reason:
-        return "Browser task needs a human handoff before EA can continue."
+        detail = f" {instruction}" if instruction else ""
+        return f"Browser task needs a human handoff before EA can continue.{detail}"
     return ""
 
 
@@ -3005,9 +3059,18 @@ def _safe_work_audit(
                 }
             )
     return {
-        "status": "review" if issues else "pass",
+        "status": "review" if _audit_review_required(issues) else "pass",
         "issues": issues,
     }
+
+
+def _audit_review_required(issues: Iterable[Mapping[str, Any]]) -> bool:
+    return any(_issue_requires_review(issue) for issue in issues)
+
+
+def _issue_requires_review(issue: Mapping[str, Any]) -> bool:
+    severity = str(issue.get("severity") or "warn").strip().lower()
+    return severity not in {"", "info"}
 
 
 def _single_official_info_link_not_decision_ready(
@@ -3376,6 +3439,10 @@ def _enrich_candidate_items(
                 candidate["page_title"] = str(check.get("page_title") or "").strip()
             if check.get("final_url"):
                 candidate["final_url"] = str(check.get("final_url") or "").strip()
+            if check.get("contact_page_title"):
+                candidate["contact_page_title"] = str(check.get("contact_page_title") or "").strip()
+            if check.get("contact_page_url"):
+                candidate["contact_page_url"] = str(check.get("contact_page_url") or "").strip()
             contact_email = str(check.get("contact_email") or "").strip()
             if contact_email:
                 candidate["contact_email"] = contact_email
@@ -3437,6 +3504,32 @@ def _candidate_urls(item: Mapping[str, Any]) -> tuple[str, ...]:
 
 
 def _fetch_page_check(url: str, *, timeout_seconds: int) -> dict[str, Any]:
+    check = _fetch_page_snapshot(url, timeout_seconds=timeout_seconds)
+    page_text = str(check.pop("page_text", "") or "")
+    if (
+        check.get("reachable") is True
+        and not str(check.get("contact_email") or "").strip()
+        and page_text
+        and _page_content_looks_html(page_text=page_text, content_type=str(check.get("content_type") or ""))
+    ):
+        linked_contact = _linked_contact_page_discovery(
+            page_url=str(check.get("final_url") or url).strip(),
+            page_text=page_text,
+            timeout_seconds=timeout_seconds,
+        )
+        if linked_contact:
+            check["contact_email"] = str(linked_contact.get("contact_email") or "").strip()
+            check["contact_emails"] = list(linked_contact.get("contact_emails") or [])
+            contact_page_url = str(linked_contact.get("contact_page_url") or "").strip()
+            if contact_page_url:
+                check["contact_page_url"] = contact_page_url
+            contact_page_title = str(linked_contact.get("contact_page_title") or "").strip()
+            if contact_page_title:
+                check["contact_page_title"] = contact_page_title
+    return check
+
+
+def _fetch_page_snapshot(url: str, *, timeout_seconds: int) -> dict[str, Any]:
     fetched_at = datetime.now(timezone.utc).isoformat()
     check = {
         "url": url,
@@ -3450,6 +3543,7 @@ def _fetch_page_check(url: str, *, timeout_seconds: int) -> dict[str, Any]:
         "error_code": "",
         "contact_email": "",
         "contact_emails": [],
+        "page_text": "",
     }
     if not re.match(r"^https?://", url, flags=re.IGNORECASE):
         check["error_code"] = "unsupported_url_scheme"
@@ -3481,6 +3575,7 @@ def _fetch_page_check(url: str, *, timeout_seconds: int) -> dict[str, Any]:
                 "status_code": status_code,
                 "contact_email": emails[0] if emails else "",
                 "contact_emails": list(emails),
+                "page_text": page_text,
             }
         )
         return check
@@ -3500,12 +3595,111 @@ def _fetch_page_check(url: str, *, timeout_seconds: int) -> dict[str, Any]:
                 "error_code": f"http_{int(exc.code or 0)}",
                 "contact_email": emails[0] if emails else "",
                 "contact_emails": list(emails),
+                "page_text": page_text,
             }
         )
         return check
     except Exception as exc:
         check["error_code"] = exc.__class__.__name__
         return check
+
+
+def _linked_contact_page_discovery(
+    *,
+    page_url: str,
+    page_text: str,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    source_host = _url_host(page_url)
+    if not source_host:
+        return {}
+    queue: list[tuple[str, int]] = [
+        (candidate_url, 1)
+        for candidate_url in _extract_contact_page_links(page_text=page_text, base_url=page_url, source_host=source_host)
+    ]
+    visited = {str(page_url or "").strip()}
+    pages_checked = 0
+    while queue and pages_checked < _CONTACT_PAGE_DISCOVERY_MAX_PAGES:
+        contact_url, depth = queue.pop(0)
+        normalized_url = str(contact_url or "").strip()
+        if not normalized_url or normalized_url in visited:
+            continue
+        visited.add(normalized_url)
+        snapshot = _fetch_page_snapshot(normalized_url, timeout_seconds=timeout_seconds)
+        pages_checked += 1
+        page_body = str(snapshot.pop("page_text", "") or "")
+        emails = tuple(snapshot.get("contact_emails") or ())
+        if emails:
+            return {
+                "contact_email": emails[0],
+                "contact_emails": list(emails),
+                "contact_page_url": str(snapshot.get("final_url") or normalized_url).strip(),
+                "contact_page_title": str(snapshot.get("page_title") or "").strip(),
+            }
+        if depth >= _CONTACT_PAGE_DISCOVERY_MAX_DEPTH:
+            continue
+        if not _page_content_looks_html(page_text=page_body, content_type=str(snapshot.get("content_type") or "")):
+            continue
+        next_base_url = str(snapshot.get("final_url") or normalized_url).strip()
+        for next_url in _extract_contact_page_links(page_text=page_body, base_url=next_base_url, source_host=source_host):
+            if next_url not in visited:
+                queue.append((next_url, depth + 1))
+    return {}
+
+
+def _extract_contact_page_links(*, page_text: str, base_url: str, source_host: str) -> tuple[str, ...]:
+    parser = _AnchorLinkExtractor()
+    try:
+        parser.feed(str(page_text or ""))
+        parser.close()
+    except Exception:
+        return ()
+    ranked: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+    for index, (href, text) in enumerate(parser.links()):
+        normalized_url = _normalize_contact_page_url(href=href, base_url=base_url, source_host=source_host)
+        if not normalized_url or normalized_url in seen:
+            continue
+        score = _contact_page_link_score(href=normalized_url, text=text)
+        if score is None:
+            continue
+        seen.add(normalized_url)
+        ranked.append((score, index, normalized_url))
+    ranked.sort()
+    return tuple(item[2] for item in ranked)
+
+
+def _normalize_contact_page_url(*, href: str, base_url: str, source_host: str) -> str:
+    raw_href = html.unescape(str(href or "").strip())
+    if not raw_href or raw_href.startswith(("#", "javascript:", "mailto:", "tel:")):
+        return ""
+    absolute_url = urllib.parse.urljoin(base_url, raw_href)
+    parsed = urllib.parse.urlparse(absolute_url)
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return ""
+    normalized_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
+    candidate_host = _url_host(normalized_url)
+    if not candidate_host:
+        return ""
+    if not (_host_matches(candidate_host, source_host) or _host_matches(source_host, candidate_host)):
+        return ""
+    return normalized_url
+
+
+def _contact_page_link_score(*, href: str, text: str) -> int | None:
+    haystack = _ascii_fold_text(f"{href} {text}").lower()
+    for index, marker in enumerate(_CONTACT_PAGE_DISCOVERY_MARKERS):
+        if marker in haystack:
+            return index
+    return None
+
+
+def _page_content_looks_html(*, page_text: str, content_type: str) -> bool:
+    normalized_type = str(content_type or "").strip().lower()
+    if "html" in normalized_type or "xhtml" in normalized_type:
+        return True
+    normalized_text = str(page_text or "").strip().lower()
+    return normalized_text.startswith("<!doctype html") or "<html" in normalized_text
 
 
 def _extract_html_title(text: str) -> str:

@@ -33,6 +33,7 @@ _SCHEDULER_GOOGLE_SIGNAL_SYNC_INTERVAL_SECONDS = 900.0
 _SCHEDULER_POCKET_SIGNAL_SYNC_INTERVAL_SECONDS = 900.0
 _SCHEDULER_ALEXA_HISTORY_SYNC_INTERVAL_SECONDS = 900.0
 _SCHEDULER_MORNING_MEMO_INTERVAL_SECONDS = 300.0
+_SCHEDULER_PUSHBULLET_RELAY_INTERVAL_SECONDS = 15.0
 _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_INTERVAL_SECONDS = 5.0
 _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MIN_AGE_SECONDS = 0.0
 _SCHEDULER_WHATSAPP_ASYNC_RECOVERY_INTERVAL_SECONDS = 6.0
@@ -167,6 +168,23 @@ def _scheduler_morning_memo_interval_seconds() -> float:
 
 def _scheduler_morning_memo_enabled() -> bool:
     return _env_bool("EA_SCHEDULER_MORNING_MEMO_ENABLED", True)
+
+
+def _scheduler_pushbullet_relay_interval_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_PUSHBULLET_RELAY_INTERVAL_SECONDS",
+        _env_float(
+            "EA_PUSHBULLET_RELAY_INTERVAL_SECONDS",
+            _SCHEDULER_PUSHBULLET_RELAY_INTERVAL_SECONDS,
+        ),
+    )
+
+
+def _scheduler_pushbullet_relay_enabled() -> bool:
+    return _env_bool(
+        "EA_SCHEDULER_PUSHBULLET_RELAY_ENABLED",
+        _env_bool("EA_PUSHBULLET_RELAY_ENABLED", False),
+    )
 
 
 def _scheduler_telegram_async_recovery_interval_seconds() -> float:
@@ -1119,6 +1137,26 @@ def _run_scheduler_alexa_history_sync(container, log: logging.Logger) -> dict[st
         return {"ran": True, "attempted": 1, "synced": 0, "errors": 1, "principal_id": principal_id}
 
 
+def _run_scheduler_pushbullet_relay(container, log: logging.Logger) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    from app.services.pushbullet_relay import run_pushbullet_relay_once
+
+    try:
+        return run_pushbullet_relay_once(timeout=20.0)
+    except Exception:
+        log.exception("scheduler pushbullet relay failed")
+        return {
+            "ran": True,
+            "forwarded_total": 0,
+            "inspected_total": 0,
+            "matched_total": 0,
+            "skipped_total": 0,
+            "blocked_rule_count": 0,
+            "primed_rule_count": 0,
+            "errors": 1,
+            "rules": [],
+        }
+
+
 def _run_scheduler_morning_memo_delivery(
     container,
     log: logging.Logger,
@@ -1655,6 +1693,7 @@ def _run_execution_worker(role: str) -> None:
     last_pocket_signal_sync_at = 0.0
     last_alexa_history_sync_at = 0.0
     last_morning_memo_at = 0.0
+    last_pushbullet_relay_at = 0.0
     last_telegram_async_recovery_at = 0.0
     last_whatsapp_async_recovery_at = 0.0
     property_only_scheduler = role == "scheduler" and _scheduler_property_only_profile_enabled()
@@ -1850,6 +1889,35 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s scheduler morning memo delivery failed", role)
                     last_morning_memo_at = now
+            if not property_only_scheduler and _scheduler_pushbullet_relay_enabled() and (
+                now - last_pushbullet_relay_at >= _scheduler_pushbullet_relay_interval_seconds()
+            ):
+                relay_summary = _run_scheduler_pushbullet_relay(container, log)
+                last_pushbullet_relay_at = now
+                if (
+                    int(relay_summary.get("forwarded_total") or 0) > 0
+                    or int(relay_summary.get("blocked_rule_count") or 0) > 0
+                    or int(relay_summary.get("errors") or 0) > 0
+                    or int(relay_summary.get("primed_rule_count") or 0) > 0
+                ):
+                    log.info(
+                        "role=%s scheduler pushbullet relay forwarded=%s inspected=%s matched=%s skipped=%s primed=%s blocked=%s errors=%s",
+                        role,
+                        relay_summary.get("forwarded_total"),
+                        relay_summary.get("inspected_total"),
+                        relay_summary.get("matched_total"),
+                        relay_summary.get("skipped_total"),
+                        relay_summary.get("primed_rule_count"),
+                        relay_summary.get("blocked_rule_count"),
+                        relay_summary.get("errors"),
+                    )
+                else:
+                    log.debug(
+                        "role=%s scheduler pushbullet relay idle inspected=%s skipped=%s",
+                        role,
+                        relay_summary.get("inspected_total"),
+                        relay_summary.get("skipped_total"),
+                    )
             if not property_only_scheduler and _scheduler_telegram_async_recovery_enabled() and (
                 now - last_telegram_async_recovery_at >= _scheduler_telegram_async_recovery_interval_seconds()
             ):

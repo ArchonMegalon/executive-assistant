@@ -1,31 +1,28 @@
 {
   "contract_name": "ea.operator_action_required_dedupe_proof.v1",
   "counts": {
-    "included_count": 6,
-    "input_count": 8,
-    "suppressed_policy_blocked_count": 0,
+    "included_count": 1,
+    "input_count": 6,
+    "suppressed_out_of_scope_count": 3,
+    "suppressed_policy_blocked_count": 1,
     "suppressed_privacy_blocked_count": 0,
-    "suppressed_queue_only_count": 2
+    "suppressed_queue_only_count": 1
   },
   "current_actions_covered_by_prior_state": true,
-  "current_digest_sha256": "2ddf8c90fe31c1e913a47829bdc7c8e08caf7f2fcd4f189951fb320fdc58c3d3",
+  "current_digest_sha256": "68ac9bd2649870c9b22d9db99514730e0802e9f483d86dafd5b906cac04e8258",
   "dedupe_checked": true,
   "delivery_policy": "action_required_only",
   "force_required_to_resend": true,
-  "generated_at": "2026-07-02T09:38:50Z",
+  "generated_at": "2026-07-07T12:26:28Z",
   "generated_by": "scripts/materialize_operator_action_required_dedupe_proof.py",
   "head_semantics": "source_state",
   "included_action_keys": [
-    "weekly_signal_to_decision_review_acceptance",
-    "google_workspace_oauth_setup",
-    "pushbullet_delivery_setup",
-    "telegram_audiobook_live_delivery",
-    "manfred_stt_tts_realtime_conversation",
-    "whatsapp_audiobook_live_delivery"
+    "google_workspace_oauth_setup"
   ],
-  "item_count": 6,
+  "item_count": 1,
+  "notification_action_keys_without_force": [],
   "notification_item_count_without_force": 0,
-  "notification_mode_without_force": "duplicate_suppressed",
+  "notification_mode_without_force": "covered_by_previous_send",
   "output_path": ".codex-studio/published/ea_operator_action_required_dedupe_proof.generated.json",
   "privacy": {
     "callback_tokens_exposed": false,
@@ -44,6 +41,7 @@
     "raw_voice_ids_exposed": false,
     "raw_whatsapp_session_ref_exposed": false
   },
+  "proof_outcome": "duplicate_suppression_valid",
   "rules": [
     "This receipt proves duplicate suppression from local digest state without attempting a Telegram send.",
     "A matching digest may be resent only with an explicit force path or after the action set changes.",
@@ -51,30 +49,37 @@
   ],
   "send_attempted": false,
   "send_requested": false,
-  "source_git_head": "0a03967ed9176273de840655280c20c2960cd0be",
+  "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
   "source_receipts": {
     "posture": {
       "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
       "present": true,
-      "sha256": "30d4b81937fcd4d87c72a4db03b45fcc45989194eef2a5bd57888f8f983d6719"
+      "sha256": "10848ab1c7791ffeb01d1f871834e2291975c309aa0fa5c6e63de6629911df4f"
     },
     "sent_digest": {
       "digest_match": true,
-      "message_count": 1,
-      "notification_item_count": 1,
-      "notification_status": "sent",
+      "message_count": 0,
+      "notification_action_keys": [],
+      "notification_item_count": 0,
+      "notification_status": "suppressed_duplicate",
       "path": ".codex-studio/published/ea_operator_action_required_digest.generated.json",
       "present": true,
-      "status": "sent"
+      "status": "suppressed_duplicate"
     }
   },
-  "source_state_fingerprint": "b55703a9c0f496f8f63b47a0dabd0bbf07b3a8f002cccc085bcae83872f59a83",
+  "source_state_fingerprint": "f48911bae286969986d3ca5a1d05174f054610c0415736476b8a9f99799672af",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "state": {
     "last_digest_match": true,
+    "last_item_hashes_cover_current": true,
     "last_item_keys_match": true,
+    "last_notification_item_hashes_present": true,
+    "last_notification_item_keys": [
+      "google_workspace_oauth_setup"
+    ],
     "last_sent_at_present": true,
     "message_id_count": 1,
+    "notification_suppressed_by_policy": true,
     "path": ".runtime/ea_operator_action_required_digest_state.json",
     "present": true,
     "raw_chat_ref_stored": false,

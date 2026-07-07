@@ -48,6 +48,7 @@ ACTION_STATUSES = {
     "blocked_telegram_not_ready",
     "blocked_telegram_send_failed",
 }
+KNOWN_OPERATOR_STREAMS = {"office_loop", "office_setup", "recovery", "media_memorial", "*"}
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -90,6 +91,9 @@ def _issues_for_item(row: Mapping[str, Any], index: int) -> list[str]:
         issues.append(f"item non_action_progress_push_allowed must be false: {key}")
     if row.get("irreversible_actions_consent_gated") is not True:
         issues.append(f"item irreversible_actions_consent_gated must be true: {key}")
+    operator_stream = str(row.get("operator_stream") or "").strip()
+    if operator_stream and operator_stream not in KNOWN_OPERATOR_STREAMS:
+        issues.append(f"item operator_stream uses unknown value: {key}:{operator_stream}")
     for flag in PRIVATE_EXPOSURE_FLAGS:
         if flag in row and row.get(flag) is not False:
             issues.append(f"item must not expose {flag}: {key}")
@@ -129,6 +133,17 @@ def verify_receipt(receipt: Mapping[str, Any]) -> list[str]:
     counts = dict(receipt.get("counts") or {})
     if int(counts.get("included_count") or 0) != item_count:
         issues.append("counts.included_count must match item_count")
+    if int(counts.get("suppressed_out_of_scope_count") or 0) < 0:
+        issues.append("counts.suppressed_out_of_scope_count must be non-negative")
+    allowed_streams = [
+        str(item or "").strip()
+        for item in list(receipt.get("allowed_operator_streams") or [])
+        if str(item or "").strip()
+    ]
+    if not allowed_streams:
+        issues.append("allowed_operator_streams must be present")
+    elif any(item not in KNOWN_OPERATOR_STREAMS for item in allowed_streams):
+        issues.append("allowed_operator_streams contains unknown value")
     if status in ACTION_STATUSES and item_count <= 0:
         issues.append("action status requires at least one item")
     if status == "no_user_action_required" and item_count != 0:
@@ -200,6 +215,9 @@ def verify_receipt(receipt: Mapping[str, Any]) -> list[str]:
         issues.append("action digest without notification items must not include telegram_text")
     for index, item in enumerate(items):
         issues.extend(_issues_for_item(item, index))
+        operator_stream = str(item.get("operator_stream") or "").strip()
+        if operator_stream and "*" not in allowed_streams and operator_stream not in allowed_streams:
+            issues.append(f"item operator_stream must be allowed by allowed_operator_streams: {operator_stream}")
     for index, item in enumerate(notification_items):
         issues.extend(_issues_for_item(item, index))
     if not str(dict(receipt.get("source_receipt") or {}).get("path") or "").strip():

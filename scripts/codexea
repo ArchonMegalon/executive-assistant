@@ -575,7 +575,7 @@ CODEXEA_CONTRACT_MAX_RETRY_LOOPS="${CODEXEA_CONTRACT_MAX_RETRY_LOOPS:-2}"
 CODEXEA_ONEMIN_DISPLAY_MODEL="${CODEXEA_ONEMIN_DISPLAY_MODEL:-ChatGPT 5.5 (1min.ai)}"
 CODEXEA_IMPLEMENT_MODEL="${CODEXEA_IMPLEMENT_MODEL:-${CODEXEA_ONEMIN_DISPLAY_MODEL}}"
 CODEXEA_REVIEW_MODEL="${CODEXEA_REVIEW_MODEL:-claude-opus-4.8}"
-CODEXEA_CONTROLLER_MODEL="${CODEXEA_CONTROLLER_MODEL:-gpt-5.5}"
+CODEXEA_CONTROLLER_MODEL="${CODEXEA_CONTROLLER_MODEL:-${CODEXEA_ONEMIN_DISPLAY_MODEL}}"
 CODEXEA_CONTROLLER_REASONING_EFFORT="${CODEXEA_CONTROLLER_REASONING_EFFORT:-medium}"
 CODEXEA_WORKER_REASONING_EFFORT="${CODEXEA_WORKER_REASONING_EFFORT:-high}"
 CODEXEA_DEBUG_REASONING_EFFORT="${CODEXEA_DEBUG_REASONING_EFFORT:-high}"
@@ -1388,22 +1388,25 @@ codexea_default_submode_for_mode() {
 codexea_default_responses_model_for_lane() {
   case "${1:-}" in
     worker|live_safe)
-      printf '%s' "${CODEXEA_IMPLEMENT_MODEL:-gpt-5.5}"
+      printf '%s' "${CODEXEA_IMPLEMENT_MODEL:-${CODEXEA_ONEMIN_DISPLAY_MODEL}}"
       ;;
-    controller|debug_hard|jury)
+    controller)
+      printf '%s' "${CODEXEA_CONTROLLER_MODEL:-${CODEXEA_ONEMIN_DISPLAY_MODEL}}"
+      ;;
+    debug_hard|jury)
       printf '%s' "${CODEXEA_JURY_MODEL:-ea-audit-jury}"
       ;;
     review_light)
       printf '%s' "${CODEXEA_REVIEW_LIGHT_MODEL:-ea-review-light}"
       ;;
     easy)
-      printf '%s' "${CODEXEA_EASY_MODEL:-ea-gemini-flash}"
+      printf '%s' "${CODEXEA_EASY_MODEL:-ea-coder-fast}"
       ;;
     repair)
       printf '%s' "${CODEXEA_REPAIR_MODEL:-ea-coder-fast}"
       ;;
     groundwork)
-      printf '%s' "${CODEXEA_GROUNDWORK_MODEL:-ea-groundwork-gemini}"
+      printf '%s' "${CODEXEA_GROUNDWORK_MODEL:-ea-groundwork}"
       ;;
     core)
       printf '%s' "${CODEXEA_CORE_MODEL:-ea-coder-hard}"
@@ -1412,7 +1415,7 @@ codexea_default_responses_model_for_lane() {
       printf '%s' "${CODEXEA_SURVIVAL_MODEL:-ea-coder-survival}"
       ;;
     *)
-      printf '%s' "${CODEXEA_IMPLEMENT_MODEL:-gpt-5.5}"
+      printf '%s' "${CODEXEA_IMPLEMENT_MODEL:-${CODEXEA_ONEMIN_DISPLAY_MODEL}}"
       ;;
   esac
 }
@@ -1549,20 +1552,23 @@ codexea_route_models_for_launch() {
     ea-onemin-coder)
       printf '1min.ai:%s' "${onemin_fast_models}"
       ;;
-    ea-coder-hard|ea-coder-hard-batch|ea-audit-jury|ea-audit)
-      printf '1min.ai:%s' "${onemin_hard_models}"
+    ea-coder-hard|ea-coder-hard-batch)
+      printf '1min.ai:%s; magicx:%s; gemini_vortex:%s' "${onemin_hard_models}" "${magicx_models}" "${gemini_models}"
+      ;;
+    ea-audit-jury|ea-audit)
+      printf '1min.ai:%s; chatplayground; gemini_vortex:%s' "${onemin_review_models}" "${gemini_models}"
       ;;
     ea-coder-hard-rescue)
-      printf '1min.ai:%s' "${onemin_rescue_models}"
+      printf '1min.ai:%s; magicx:%s; gemini_vortex:%s' "${onemin_rescue_models}" "${magicx_models}" "${gemini_models}"
       ;;
     ea-review-light|ea-review|ea-critic)
-      printf '1min.ai:%s; gemini_vortex:%s' "${onemin_review_models}" "${gemini_models}"
+      printf '1min.ai:%s; chatplayground; gemini_vortex:%s' "${onemin_review_models}" "${gemini_models}"
       ;;
     ea-groundwork|ea-groundwork-gemini)
-      printf 'gemini_vortex:%s' "${gemini_models}"
+      printf '1min.ai:%s; magicx:%s; gemini_vortex:%s' "${onemin_fast_models}" "${magicx_models}" "${gemini_models}"
       ;;
     ea-coder-survival)
-      printf '1min.ai:%s; gemini_vortex:%s; chatplayground' "${onemin_hard_models}" "${gemini_models}"
+      printf '1min.ai:%s; chatplayground; gemini_vortex:%s' "${onemin_hard_models}" "${gemini_models}"
       ;;
     *)
       case "${lane}" in
@@ -1570,10 +1576,14 @@ codexea_route_models_for_launch() {
           printf '1min.ai:%s; magicx:%s; gemini_vortex:%s' "${onemin_fast_models}" "${magicx_models}" "${gemini_models}"
           ;;
         core|controller|debug_hard|jury)
-          printf '1min.ai:%s' "${onemin_hard_models}"
+          if [ "${lane}" = "jury" ]; then
+            printf '1min.ai:%s; chatplayground; gemini_vortex:%s' "${onemin_review_models}" "${gemini_models}"
+          else
+            printf '1min.ai:%s; magicx:%s; gemini_vortex:%s' "${onemin_hard_models}" "${magicx_models}" "${gemini_models}"
+          fi
           ;;
         review_light)
-          printf '1min.ai:%s; gemini_vortex:%s' "${onemin_review_models}" "${gemini_models}"
+          printf '1min.ai:%s; chatplayground; gemini_vortex:%s' "${onemin_review_models}" "${gemini_models}"
           ;;
       esac
       ;;
@@ -2092,21 +2102,17 @@ def derive_fast_lane_route(payload):
     configured = ["onemin", "magixai", "gemini_vortex"]
     pressure = str(((payload.get("onemin_aggregate") or {}).get("attempt_throttle_pressure_15m")) or "").strip().lower()
     providers = dict(((payload.get("provider_health") or {}).get("providers") or {}))
-    effective = list(configured)
-    if pressure in {"medium", "high"}:
-        preferred = []
-        if provider_ready_from_payload(payload, "gemini_vortex"):
-            preferred.append("gemini_vortex")
-        if provider_ready_from_payload(payload, "magixai"):
-            preferred.append("magixai")
-        if preferred:
-            merged = []
-            for item in [*preferred, *configured]:
-                if item not in merged:
-                    merged.append(item)
-            effective = merged
-    posture = "pressure_spillover" if effective != configured else "configured_order"
-    reason = f"onemin_pressure_{pressure}" if posture == "pressure_spillover" and pressure else "configured_order"
+    effective = []
+    if provider_ready_from_payload(payload, "onemin"):
+        effective.append("onemin")
+    if provider_ready_from_payload(payload, "magixai"):
+        effective.append("magixai")
+    if provider_ready_from_payload(payload, "gemini_vortex"):
+        effective.append("gemini_vortex")
+    if not effective:
+        effective = list(configured)
+    posture = "onemin_primary" if effective and effective[0] == "onemin" else "onemin_unavailable"
+    reason = f"onemin_pressure_{pressure}" if pressure else "configured_order"
     return {
         "configured_order": configured,
         "effective_order": effective,
@@ -3091,18 +3097,18 @@ EFFECTIVE_SUBMODE=""
 POST_AUDIT_THIS_RUN=0
 if [ "${EFFECTIVE_LANE}" = "auto" ] || [ "${EFFECTIVE_LANE}" = "easy" ]; then
   EFFECTIVE_LANE="easy"
-  EFFECTIVE_SUBMODE="mcp"
+  EFFECTIVE_SUBMODE="responses_fast"
   POST_AUDIT_THIS_RUN=1
 fi
 
 if [ "${EFFECTIVE_LANE}" = "easy" ] && has_explicit_runtime_override "$@"; then
-  echo "codexea easy is locked to MCP easy; remove model/provider/profile overrides or use an explicit lane wrapper" >&2
+  echo "codexea easy is locked to the EA fast lane; remove model/provider/profile overrides or use an explicit lane wrapper" >&2
   exit 2
 fi
 
 if [ "${EFFECTIVE_LANE}" = "easy" ] && [ -n "${CODEXEA_MODE_OVERRIDE}" ]; then
   if ! env_truthy "${CODEXEA_ALLOW_EASY_MODE_OVERRIDE}"; then
-    echo "codexea easy is locked to MCP; CODEXEA_MODE override is disabled unless CODEXEA_ALLOW_EASY_MODE_OVERRIDE=1 for debugging" >&2
+    echo "codexea easy is locked to EA responses fast; CODEXEA_MODE override is disabled unless CODEXEA_ALLOW_EASY_MODE_OVERRIDE=1 for debugging" >&2
     exit 2
   fi
   case "${CODEXEA_MODE_OVERRIDE}" in
@@ -3150,18 +3156,18 @@ case "${EFFECTIVE_LANE}" in
     export CODEXEA_CONTRACT_ROLE="${CODEXEA_CONTRACT_ROLE:-worker}"
     ;;
   easy)
-    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-${CODEXEA_EASY_SUBMODE:-mcp}}"
+    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-${CODEXEA_EASY_SUBMODE:-responses_fast}}"
     case "${EFFECTIVE_SUBMODE}" in
       responses_easy|responses_fast|responses)
         MODE="responses"
-        MODEL="${CODEXEA_MODEL:-${CODEXEA_EASY_MODEL:-ea-gemini-flash}}"
+        MODEL="${CODEXEA_MODEL:-${CODEXEA_EASY_MODEL:-ea-coder-fast}}"
         REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_EASY_REASONING_EFFORT:-low}}"
         ;;
       mcp)
         MODE="mcp"
-        MODEL="${CODEXEA_MODEL:-${CODEXEA_EASY_MODEL:-}}"
+        MODEL="${CODEXEA_MODEL:-${CODEXEA_EASY_MCP_MODEL:-${CODEXEA_IMPLEMENT_MODEL}}}"
         REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_EASY_REASONING_EFFORT:-low}}"
-        export EA_MCP_MODEL="${EA_MCP_MODEL:-${CODEXEA_EASY_MCP_MODEL:-gemini-3.5-flash}}"
+        export EA_MCP_MODEL="${EA_MCP_MODEL:-${MODEL}}"
         ;;
       *)
         echo "Unsupported CODEXEA easy submode: ${EFFECTIVE_SUBMODE} (expected: responses_easy, responses_fast, responses, or mcp)" >&2
@@ -3177,7 +3183,7 @@ case "${EFFECTIVE_LANE}" in
     ;;
   groundwork)
     MODE="${CODEXEA_MODE_OVERRIDE:-${CODEXEA_GROUNDWORK_MODE:-responses}}"
-    MODEL="${CODEXEA_MODEL:-${CODEXEA_GROUNDWORK_MODEL:-ea-groundwork-gemini}}"
+    MODEL="${CODEXEA_MODEL:-${CODEXEA_GROUNDWORK_MODEL:-ea-groundwork}}"
     REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_GROUNDWORK_REASONING_EFFORT:-medium}}"
     EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-responses_groundwork}"
     ;;

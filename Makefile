@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-ea-prod deploy-ea-ooda-runtime deploy-ea-memorial deploy-property deploy-legacy-ea-stack deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-principal smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-all test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune documentation-ai-public-openapi verify-documentation-ai-public-docs materialize-documentation-ai-deployment-readiness verify-documentation-ai-deployment-readiness endpoints version-info release-authority-probe materialize-deploy-context refresh-deploy-context materialize-release-manifest refresh-release-manifest materialize-release-authority-status verify-release-authority-runtime verify-release-authority-runtime-authoritative proactive-ooda verify-proactive-ooda verify-proactive-ooda-live-receipt materialize-proactive-ooda-operator-status verify-proactive-ooda-operator-status materialize-proactive-ooda-gold-acceptance verify-proactive-ooda-gold-acceptance operator-summary operator-help provider-readiness overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets materialize-continuous-improvement-goal-posture verify-continuous-improvement-goal-posture materialize-telegram-business-signal-readiness verify-telegram-business-signal-readiness materialize-teable-env-recovery-readiness verify-teable-env-recovery-readiness materialize-teable-env-recovery-proof verify-teable-env-recovery-proof send-audiobook-public-share-followups materialize-office-loop-goal-receipt verify-office-loop-goal-receipt materialize-executive-assistant-acceptance-evidence verify-executive-assistant-acceptance-evidence materialize-executive-assistant-quality-readiness verify-executive-assistant-quality-readiness materialize-whole-project-signal-to-decision-receipt verify-whole-project-signal-to-decision-receipt materialize-whole-project-scope-gap-audit verify-whole-project-scope-gap-audit materialize-active-media-ltd-goal-bundle verify-active-media-ltd-goal-bundle materialize-memorial-chatlab-external-evidence materialize-manfred-realtime-conversation-readiness verify-manfred-realtime-conversation-readiness materialize-telegram-audiobook-live-readiness verify-telegram-audiobook-live-readiness verify-telegram-audiobook-deployed-runtime materialize-telegram-audiobook-live-delivery-receipt verify-telegram-audiobook-live-delivery-receipt materialize-whatsapp-audiobook-local-intake-proof verify-whatsapp-audiobook-local-intake-proof materialize-whatsapp-audiobook-operator-proof-bundle verify-whatsapp-audiobook-operator-proof-bundle materialize-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-public-share-playback materialize-whatsapp-audiobook-live-voice-selection-shadow verify-whatsapp-audiobook-live-voice-selection-shadow materialize-telegram-video-delivery-operator-receipt materialize-telegram-video-delivery-live-receipt materialize-telegram-video-delivery-receipts verify-telegram-video-delivery-live-receipt materialize-memorial-public-voice-gold materialize-memorial-public-browser-gold materialize-memorial-public-browser-meaningful-gold materialize-memorial-public-auto-receipts-clean materialize-memorial-room-audio-attestation-packet materialize-memorial-room-audio-gold materialize-memorial-room-audio-gold-clean materialize-memorial-public-gold materialize-memorial-phrase-bank materialize-memorial-operator-status inspect-source-dirty-groups materialize-memorial-stt-provider-benchmark verify-memorial-stt-provider-benchmark verify-memorial-runtime-overlay verify-memorial-deploy-readiness sync-memorial-public-sources-teable env-backup-teable env-bootstrap-teable env-check-teable env-disable-extra-teable env-drill-teable env-ensure-local-teable env-fresh-host-teable env-local-status-teable env-probe-teable probe-teable-recovery env-recover-teable env-restore-teable env-restore-teable-local env-restore-teable-service verify-env-teable-recovery verify-generated-release-artifacts-clean verify-runtime-supply-chain materialize-runtime-dependency-evidence verify-runtime-dependency-evidence verify-local-quality-gates verify-release-authority verify-codexea-e2e-exit-gate verify-codexea-fleet-shim-parity ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy property-release-gates hard-exit-gates runtime-hard-exit-gates ltd-release-gates memorial-gold-gates verify-release-assets verify-flagship-release-readiness verify-project-mode-runtime verify-whole-project-gold-map verify-memorial-voice-stability verify-memorial-gold-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-ltd-provider-lanes verify-poppy-draft-workflow verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle repair-design_mirror-bundle docs-verify all-local
+.PHONY: deploy deploy-ea-prod deploy-ea-ooda-runtime deploy-ea-memorial deploy-property deploy-legacy-ea-stack deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-principal smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-all test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune documentation-ai-public-openapi verify-documentation-ai-public-docs materialize-documentation-ai-deployment-readiness verify-documentation-ai-deployment-readiness endpoints version-info release-authority-probe materialize-deploy-context refresh-deploy-context materialize-release-manifest refresh-release-manifest materialize-release-authority-status verify-release-authority-runtime verify-release-authority-runtime-authoritative proactive-ooda verify-proactive-ooda verify-proactive-ooda-live-receipt materialize-proactive-ooda-operator-status verify-proactive-ooda-operator-status materialize-proactive-ooda-gold-acceptance verify-proactive-ooda-gold-acceptance operator-summary operator-help provider-readiness probe-live-provider probe-live-provider-cost-pressure overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets materialize-continuous-improvement-goal-posture verify-continuous-improvement-goal-posture materialize-telegram-business-signal-readiness verify-telegram-business-signal-readiness materialize-teable-env-recovery-readiness verify-teable-env-recovery-readiness materialize-teable-env-recovery-proof verify-teable-env-recovery-proof send-audiobook-public-share-followups materialize-office-loop-goal-receipt verify-office-loop-goal-receipt materialize-executive-assistant-acceptance-evidence verify-executive-assistant-acceptance-evidence materialize-executive-assistant-quality-readiness verify-executive-assistant-quality-readiness materialize-whole-project-signal-to-decision-receipt verify-whole-project-signal-to-decision-receipt materialize-whole-project-scope-gap-audit verify-whole-project-scope-gap-audit materialize-active-media-ltd-goal-bundle verify-active-media-ltd-goal-bundle materialize-memorial-chatlab-external-evidence materialize-manfred-realtime-conversation-readiness verify-manfred-realtime-conversation-readiness materialize-telegram-audiobook-live-readiness verify-telegram-audiobook-live-readiness verify-telegram-audiobook-deployed-runtime materialize-telegram-audiobook-live-delivery-receipt verify-telegram-audiobook-live-delivery-receipt materialize-whatsapp-audiobook-local-intake-proof verify-whatsapp-audiobook-local-intake-proof materialize-whatsapp-audiobook-operator-proof-bundle verify-whatsapp-audiobook-operator-proof-bundle materialize-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-public-share-playback materialize-whatsapp-audiobook-live-voice-selection-shadow verify-whatsapp-audiobook-live-voice-selection-shadow materialize-telegram-video-delivery-operator-receipt materialize-telegram-video-delivery-live-receipt materialize-telegram-video-delivery-receipts verify-telegram-video-delivery-live-receipt materialize-memorial-public-voice-gold materialize-memorial-public-browser-gold materialize-memorial-public-browser-meaningful-gold materialize-memorial-public-auto-receipts-clean materialize-memorial-room-audio-attestation-packet materialize-memorial-room-audio-gold materialize-memorial-room-audio-gold-clean materialize-memorial-public-gold materialize-memorial-phrase-bank materialize-memorial-operator-status inspect-source-dirty-groups materialize-memorial-stt-provider-benchmark verify-memorial-stt-provider-benchmark verify-memorial-runtime-overlay verify-memorial-deploy-readiness sync-memorial-public-sources-teable env-backup-teable env-bootstrap-teable env-check-teable env-disable-extra-teable env-drill-teable env-ensure-local-teable env-fresh-host-teable env-local-status-teable env-probe-teable probe-teable-recovery probe-mymedia-alexa rescan-mymedia-library repair-mymedia-public-surface materialize-mymedia-alexa-readiness verify-mymedia-alexa-readiness trigger-mymedia-amazon-pairing submit-mymedia-amazon-pairing-code send-mymedia-amazon-pairing-telegram env-recover-teable env-restore-teable env-restore-teable-local env-restore-teable-service verify-env-teable-recovery verify-generated-release-artifacts-clean verify-runtime-supply-chain materialize-runtime-dependency-evidence verify-runtime-dependency-evidence verify-local-quality-gates verify-release-authority verify-codexea-e2e-exit-gate verify-codexea-fleet-shim-parity ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy property-release-gates hard-exit-gates runtime-hard-exit-gates ltd-release-gates memorial-gold-gates verify-release-assets verify-flagship-release-readiness verify-project-mode-runtime verify-whole-project-gold-map verify-memorial-voice-stability verify-memorial-gold-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-ltd-provider-lanes verify-poppy-draft-workflow verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle repair-design_mirror-bundle docs-verify all-local
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 TEST_API_PYTEST_IGNORE ?= --ignore-glob=tests/test_chummer*.py --ignore-glob=tests/test_next90*.py --ignore=tests/test_design_mirror_bundle_contracts.py
@@ -236,8 +236,15 @@ operator-summary:
 provider-readiness:
 	$(PYTHON_BIN) scripts/chummer6_provider_readiness.py
 
+probe-live-provider:
+	@ : "$${PROVIDER:?set PROVIDER=<provider_key>}"
+	$(PYTHON_BIN) scripts/ea_live_ops.py probe-provider --provider "$${PROVIDER}" --format operator
+
+probe-live-provider-cost-pressure:
+	$(PYTHON_BIN) scripts/ea_live_ops.py probe-provider-cost-pressure --window "$${WINDOW:-24h}" --principal-id "$${PRINCIPAL_ID:-}" --format operator
+
 operator-help:
-	@for s in scripts/deploy.sh scripts/deploy_proactive_ooda_runtime.sh scripts/db_bootstrap.sh scripts/db_status.sh scripts/db_size.sh scripts/db_retention.sh scripts/smoke_api.sh scripts/smoke_api_runtime.sh scripts/smoke_help.sh scripts/smoke_postgres.sh scripts/test_postgres_contracts.sh scripts/hard_exit_gates.sh scripts/runtime_hard_exit_gates.sh scripts/verify_codexea_e2e_exit_gate.sh scripts/verify_codexea_fleet_shim_parity.py scripts/verify_local_quality_gates.py scripts/verify_ltd_critical_entries.py scripts/verify_ltd_flagship_subset.py scripts/verify_ltd_provider_lanes.py scripts/bootstrap_from_teable.sh scripts/sync_env_to_teable.py scripts/materialize_teable_env_recovery_proof.py scripts/verify_teable_env_recovery_proof.py scripts/ea_live_ops.py scripts/verify_proactive_ooda.py scripts/verify_proactive_ooda_live_receipt.py scripts/materialize_proactive_ooda_operator_status.py scripts/verify_proactive_ooda_operator_status.py scripts/materialize_proactive_ooda_gold_acceptance.py scripts/verify_proactive_ooda_gold_acceptance.py scripts/materialize_continuous_improvement_goal_posture.py scripts/verify_continuous_improvement_goal_posture.py scripts/materialize_poppy_draft_packet.py scripts/materialize_memorial_voice_roundtrip_exit_gate.py scripts/materialize_memorial_room_audio_receipt.py scripts/materialize_deploy_context.py scripts/verify_memorial_voice_stability_gate.py scripts/verify_memorial_gold_readiness.py scripts/materialize_project_mode_manifests.py scripts/verify_project_mode_manifests.py scripts/verify_project_mode_runtime.py scripts/materialize_whole_project_gold_map.py scripts/verify_whole_project_gold_map.py scripts/materialize_whatsapp_web_action_processor_readiness.py scripts/verify_whatsapp_web_action_processor_readiness.py ea/scripts/materialize_office_loop_goal_receipt.py ea/scripts/verify_office_loop_goal_receipt.py ea/scripts/materialize_executive_assistant_acceptance_evidence.py ea/scripts/verify_executive_assistant_acceptance_evidence.py ea/scripts/materialize_executive_assistant_quality_readiness.py ea/scripts/verify_executive_assistant_quality_readiness.py ea/scripts/materialize_whole_project_signal_to_decision_receipt.py ea/scripts/verify_whole_project_signal_to_decision_receipt.py ea/scripts/materialize_whole_project_scope_gap_audit.py ea/scripts/verify_whole_project_scope_gap_audit.py ea/scripts/materialize_active_media_ltd_goal_bundle.py ea/scripts/verify_active_media_ltd_goal_bundle.py ea/scripts/materialize_telegram_audiobook_live_readiness.py ea/scripts/verify_telegram_audiobook_live_readiness.py ea/scripts/verify_whatsapp_audiobook_live_delivery_receipt.py ea/scripts/verify_whatsapp_audiobook_operator_proof_bundle.py ea/scripts/verify_whatsapp_audiobook_public_share_playback.py scripts/list_endpoints.sh scripts/version_info.sh scripts/release_authority_probe.sh scripts/export_openapi.sh scripts/diff_openapi.sh scripts/prune_openapi.sh scripts/operator_summary.sh scripts/support_bundle.sh scripts/archive_tasks.sh scripts/bootstrap_payfunnels_propertyquarry.py scripts/bootstrap_emailit_propertyquarry.py scripts/verify_release_assets.sh scripts/chummer6_overlay_vision_readiness.py; do \
+	@for s in scripts/deploy.sh scripts/deploy_proactive_ooda_runtime.sh scripts/db_bootstrap.sh scripts/db_status.sh scripts/db_size.sh scripts/db_retention.sh scripts/smoke_api.sh scripts/smoke_api_runtime.sh scripts/smoke_help.sh scripts/smoke_postgres.sh scripts/test_postgres_contracts.sh scripts/hard_exit_gates.sh scripts/runtime_hard_exit_gates.sh scripts/verify_codexea_e2e_exit_gate.sh scripts/verify_codexea_fleet_shim_parity.py scripts/verify_local_quality_gates.py scripts/verify_ltd_critical_entries.py scripts/verify_ltd_flagship_subset.py scripts/verify_ltd_provider_lanes.py scripts/bootstrap_from_teable.sh scripts/sync_env_to_teable.py scripts/materialize_teable_env_recovery_proof.py scripts/verify_teable_env_recovery_proof.py scripts/ea_live_ops.py scripts/verify_proactive_ooda.py scripts/verify_proactive_ooda_live_receipt.py scripts/materialize_proactive_ooda_operator_status.py scripts/verify_proactive_ooda_operator_status.py scripts/materialize_proactive_ooda_gold_acceptance.py scripts/verify_proactive_ooda_gold_acceptance.py scripts/materialize_continuous_improvement_goal_posture.py scripts/verify_continuous_improvement_goal_posture.py scripts/materialize_poppy_draft_packet.py scripts/materialize_memorial_voice_roundtrip_exit_gate.py scripts/materialize_memorial_room_audio_receipt.py scripts/materialize_deploy_context.py scripts/verify_memorial_voice_stability_gate.py scripts/verify_memorial_gold_readiness.py scripts/materialize_project_mode_manifests.py scripts/verify_project_mode_manifests.py scripts/verify_project_mode_runtime.py scripts/materialize_whole_project_gold_map.py scripts/verify_whole_project_gold_map.py scripts/materialize_whatsapp_web_action_processor_readiness.py scripts/verify_whatsapp_web_action_processor_readiness.py scripts/materialize_mymedia_alexa_readiness.py scripts/verify_mymedia_alexa_readiness.py ea/scripts/materialize_office_loop_goal_receipt.py ea/scripts/verify_office_loop_goal_receipt.py ea/scripts/materialize_executive_assistant_acceptance_evidence.py ea/scripts/verify_executive_assistant_acceptance_evidence.py ea/scripts/materialize_executive_assistant_quality_readiness.py ea/scripts/verify_executive_assistant_quality_readiness.py ea/scripts/materialize_whole_project_signal_to_decision_receipt.py ea/scripts/verify_whole_project_signal_to_decision_receipt.py ea/scripts/materialize_whole_project_scope_gap_audit.py ea/scripts/verify_whole_project_scope_gap_audit.py ea/scripts/materialize_active_media_ltd_goal_bundle.py ea/scripts/verify_active_media_ltd_goal_bundle.py ea/scripts/materialize_telegram_audiobook_live_readiness.py ea/scripts/verify_telegram_audiobook_live_readiness.py ea/scripts/verify_whatsapp_audiobook_live_delivery_receipt.py ea/scripts/verify_whatsapp_audiobook_operator_proof_bundle.py ea/scripts/verify_whatsapp_audiobook_public_share_playback.py scripts/list_endpoints.sh scripts/version_info.sh scripts/release_authority_probe.sh scripts/export_openapi.sh scripts/diff_openapi.sh scripts/prune_openapi.sh scripts/operator_summary.sh scripts/support_bundle.sh scripts/archive_tasks.sh scripts/bootstrap_payfunnels_propertyquarry.py scripts/bootstrap_emailit_propertyquarry.py scripts/verify_release_assets.sh scripts/chummer6_overlay_vision_readiness.py; do \
 	  echo "===== $$s --help ====="; \
 	  case "$$s" in \
 	    *.py) $(PYTHON_BIN) $$s --help ;; \
@@ -680,9 +687,89 @@ env-local-status-teable:
 probe-teable-recovery:
 	$(PYTHON_BIN) scripts/ea_live_ops.py probe-teable-recovery --format operator
 
+.PHONY: probe-mymedia-alexa
+probe-mymedia-alexa:
+	$(PYTHON_BIN) scripts/ea_live_ops.py probe-mymedia-alexa --format operator
+
+.PHONY: rescan-mymedia-library
+rescan-mymedia-library:
+	$(PYTHON_BIN) scripts/ea_live_ops.py rescan-mymedia-library --format operator
+
+.PHONY: repair-mymedia-console-api
+repair-mymedia-console-api:
+	$(PYTHON_BIN) scripts/ea_live_ops.py repair-mymedia-console-api --format operator
+
+.PHONY: repair-mymedia-public-surface
+repair-mymedia-public-surface:
+	$(PYTHON_BIN) scripts/ea_live_ops.py repair-mymedia-public-surface --format operator
+
+.PHONY: materialize-mymedia-alexa-readiness
+materialize-mymedia-alexa-readiness:
+	$(PYTHON_BIN) scripts/materialize_mymedia_alexa_readiness.py
+
+.PHONY: verify-mymedia-alexa-readiness
+verify-mymedia-alexa-readiness:
+	$(PYTHON_BIN) scripts/materialize_mymedia_alexa_readiness.py
+	$(PYTHON_BIN) scripts/verify_mymedia_alexa_readiness.py
+
+.PHONY: probe-sonarr-tv-season
+probe-sonarr-tv-season:
+	@test -n "$(SONARR_SEASON_NUMBER)" || (echo "SONARR_SEASON_NUMBER is required" >&2; exit 2)
+	@test -n "$(SONARR_SERIES_ID)$(SONARR_SERIES_TITLE)" || (echo "SONARR_SERIES_ID or SONARR_SERIES_TITLE is required" >&2; exit 2)
+	$(PYTHON_BIN) scripts/ea_live_ops.py probe-sonarr-tv-season \
+		--season-number "$(SONARR_SEASON_NUMBER)" \
+		$(if $(SONARR_SERIES_ID),--series-id "$(SONARR_SERIES_ID)") \
+		$(if $(SONARR_SERIES_TITLE),--series-title "$(SONARR_SERIES_TITLE)") \
+		--format operator
+
+.PHONY: repair-sonarr-tv-season
+repair-sonarr-tv-season:
+	@test -n "$(SONARR_SEASON_NUMBER)" || (echo "SONARR_SEASON_NUMBER is required" >&2; exit 2)
+	@test -n "$(SONARR_SERIES_ID)$(SONARR_SERIES_TITLE)" || (echo "SONARR_SERIES_ID or SONARR_SERIES_TITLE is required" >&2; exit 2)
+	$(PYTHON_BIN) scripts/ea_live_ops.py repair-sonarr-tv-season \
+		--season-number "$(SONARR_SEASON_NUMBER)" \
+		$(if $(SONARR_SERIES_ID),--series-id "$(SONARR_SERIES_ID)") \
+		$(if $(SONARR_SERIES_TITLE),--series-title "$(SONARR_SERIES_TITLE)") \
+		--format operator
+
+.PHONY: trigger-mymedia-amazon-pairing
+trigger-mymedia-amazon-pairing:
+	$(PYTHON_BIN) scripts/ea_live_ops.py trigger-mymedia-amazon-pairing --format operator
+
+.PHONY: submit-mymedia-amazon-pairing-code
+submit-mymedia-amazon-pairing-code:
+	@test -n "$(OTP_CODE)" || (echo "OTP_CODE is required" >&2; exit 2)
+	$(PYTHON_BIN) scripts/ea_live_ops.py submit-mymedia-amazon-pairing-code --otp-code "$(OTP_CODE)" --format operator
+
+.PHONY: send-mymedia-amazon-pairing-telegram
+send-mymedia-amazon-pairing-telegram:
+	$(PYTHON_BIN) scripts/ea_live_ops.py send-mymedia-amazon-pairing-telegram --format operator
+
 .PHONY: probe-operator-readiness
 probe-operator-readiness:
-	$(PYTHON_BIN) scripts/ea_live_ops.py probe-operator-readiness --format operator
+	$(PYTHON_BIN) scripts/ea_live_ops.py probe-operator-readiness \
+		$(if $(SONARR_SERIES_ID),--sonarr-series-id "$(SONARR_SERIES_ID)") \
+		$(if $(SONARR_SERIES_TITLE),--sonarr-series-title "$(SONARR_SERIES_TITLE)") \
+		$(if $(SONARR_SEASON_NUMBER),--sonarr-season-number "$(SONARR_SEASON_NUMBER)") \
+		--format operator
+
+.PHONY: materialize-ea-operator-readiness
+materialize-ea-operator-readiness:
+	$(PYTHON_BIN) scripts/materialize_ea_operator_readiness.py \
+		$(if $(SONARR_SERIES_ID),--sonarr-series-id "$(SONARR_SERIES_ID)") \
+		$(if $(SONARR_SERIES_TITLE),--sonarr-series-title "$(SONARR_SERIES_TITLE)") \
+		$(if $(SONARR_SEASON_NUMBER),--sonarr-season-number "$(SONARR_SEASON_NUMBER)") \
+		--pretty
+
+.PHONY: verify-ea-operator-readiness
+verify-ea-operator-readiness:
+	$(PYTHON_BIN) scripts/verify_ea_operator_readiness.py --pretty
+
+.PHONY: probe-google-workspace-oauth
+probe-google-workspace-oauth:
+	@EXPECTED_GOOGLE_EMAIL="$${EXPECTED_GOOGLE_EMAIL:-$${EA_GOOGLE_WORKSPACE_EXPECTED_EMAIL:-$${EA_GOOGLE_OAUTH_EXPECTED_EMAIL:-}}}"; \
+	test -n "$$EXPECTED_GOOGLE_EMAIL" || { echo "EXPECTED_GOOGLE_EMAIL or EA_GOOGLE_WORKSPACE_EXPECTED_EMAIL is required" >&2; exit 2; }; \
+	$(PYTHON_BIN) scripts/ea_live_ops.py probe-google-workspace-oauth --expected-google-email "$$EXPECTED_GOOGLE_EMAIL" --format operator
 
 env-probe-teable:
 	@scripts/bootstrap_from_teable.sh --probe

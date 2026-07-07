@@ -60,13 +60,21 @@ CONFIGURED_SOURCE_EXCLUSION_REASONS = {
     "flat_search_disabled_property_scout",
     "flat_search_disabled",
 }
+ASSISTANT_GRADE_BLOCKING_WORK_TYPES = {
+    "record_internal_action",
+    "internal_action",
+    "operator_action",
+}
 
 
 def _is_google_workspace_recovery(receipt: dict[str, Any]) -> bool:
     reason = str(receipt.get("reason") or "").strip()
-    if reason.startswith("google_workspace_signal_source_unhealthy:"):
-        return True
-    return False
+    return reason.startswith(
+        (
+            "google_workspace_signal_source_unhealthy:",
+            "source_health_google_workspace:",
+        )
+    )
 
 
 def _is_suppressed_projection_recovery(receipt: dict[str, Any]) -> bool:
@@ -98,6 +106,17 @@ def _is_source_coverage_recovery(receipt: dict[str, Any]) -> bool:
     return str(receipt.get("reason") or "").strip().startswith("source_coverage_")
 
 
+def _is_followthrough_recovery(receipt: dict[str, Any]) -> bool:
+    reason = str(receipt.get("reason") or "").strip()
+    if reason.startswith("followthrough_"):
+        return True
+    live_receipt = dict(receipt.get("live_receipt") or {})
+    return any(
+        str(item or "").strip().startswith("followthrough_")
+        for item in list(live_receipt.get("errors") or [])
+    )
+
+
 def _provider_cost_pressure_requires_recovery(receipt: dict[str, Any]) -> bool:
     provider_cost = dict(receipt.get("provider_cost_pressure") or {})
     if not provider_cost:
@@ -105,6 +124,28 @@ def _provider_cost_pressure_requires_recovery(receipt: dict[str, Any]) -> bool:
     if str(provider_cost.get("blocking_reason") or "").strip():
         return True
     return bool(provider_cost.get("requires_recovery"))
+
+
+def _browser_handoff_requires_recovery(receipt: dict[str, Any]) -> bool:
+    browser_handoff = dict(receipt.get("browser_handoff") or {})
+    return bool(browser_handoff.get("required"))
+
+
+def _is_browser_handoff_recovery(receipt: dict[str, Any]) -> bool:
+    if _browser_handoff_requires_recovery(receipt):
+        return True
+    return str(receipt.get("reason") or "").strip() == "browser_handoff_required"
+
+
+def _assistant_grade_packet_requires_recovery(receipt: dict[str, Any]) -> bool:
+    assistant_grade_packet = dict(receipt.get("assistant_grade_packet") or {})
+    if assistant_grade_packet:
+        return bool(assistant_grade_packet.get("requires_recovery"))
+    return str(receipt.get("reason") or "").strip() == "internal_action_not_assistant_grade"
+
+
+def _is_assistant_grade_packet_recovery(receipt: dict[str, Any]) -> bool:
+    return str(receipt.get("reason") or "").strip() == "internal_action_not_assistant_grade"
 
 
 def _higher_priority_recovery_present(receipt: dict[str, Any]) -> bool:
@@ -122,6 +163,8 @@ def _higher_priority_recovery_present(receipt: dict[str, Any]) -> bool:
         or not bool(stage_packets.get("ready"))
         or not bool(safe_work_results.get("ready"))
         or bool(safe_work_audit.get("blocks_operator_followthrough"))
+        or _browser_handoff_requires_recovery(receipt)
+        or _assistant_grade_packet_requires_recovery(receipt)
         or bool(current_artifact_filter.get("requires_recovery"))
         or _is_suppressed_projection_recovery(receipt)
         or _is_google_workspace_recovery(receipt)
@@ -131,7 +174,13 @@ def _higher_priority_recovery_present(receipt: dict[str, Any]) -> bool:
 
 def _verify_next_action_surface(receipt: dict[str, Any], issues: list[str]) -> None:
     next_action = str(receipt.get("next_action") or "").strip()
-    if next_action in {"maintain_proactive_ooda_runtime", "repair_proactive_safe_work_audit", "sync_pocket_ai_audio_transcripts"}:
+    if next_action in {
+        "maintain_proactive_ooda_runtime",
+        "repair_proactive_safe_work_audit",
+        "stage_fresh_assistant_grade_proactive_packet",
+        "complete_browser_handoff_then_resume_ooda_task",
+        "sync_pocket_ai_audio_transcripts",
+    }:
         if _is_google_workspace_recovery(receipt):
             return
         href = str(receipt.get("next_action_href") or "").strip()
@@ -141,8 +190,12 @@ def _verify_next_action_surface(receipt: dict[str, Any], issues: list[str]) -> N
             issues.append(f"{next_action} requires next_action_href")
         elif next_action == "maintain_proactive_ooda_runtime" and "/app/today" not in href:
             issues.append("maintain_proactive_ooda_runtime next_action_href must target Today")
-        elif next_action == "repair_proactive_safe_work_audit" and "/app/queue" not in href:
-            issues.append("repair_proactive_safe_work_audit next_action_href must target Queue")
+        elif next_action in {
+            "repair_proactive_safe_work_audit",
+            "stage_fresh_assistant_grade_proactive_packet",
+            "complete_browser_handoff_then_resume_ooda_task",
+        } and "/app/queue" not in href:
+            issues.append(f"{next_action} next_action_href must target Queue")
         elif next_action == "sync_pocket_ai_audio_transcripts" and "/app/api/signals/pocket/sync" not in href:
             issues.append("sync_pocket_ai_audio_transcripts next_action_href must target the Pocket transcript sync action")
         if not label:
@@ -263,6 +316,74 @@ def _verify_source_coverage(receipt: dict[str, Any], issues: list[str]) -> None:
             issues.append("degraded source_coverage without a higher-priority blocker requires receipt.next_action to match source_coverage.next_action")
 
 
+def _verify_assistant_grade_packet(receipt: dict[str, Any], issues: list[str]) -> None:
+    assistant_grade_packet = dict(receipt.get("assistant_grade_packet") or {})
+    if not assistant_grade_packet:
+        issues.append("assistant_grade_packet missing")
+        return
+    if "present" not in assistant_grade_packet:
+        issues.append("assistant_grade_packet.present missing")
+    privacy = dict(assistant_grade_packet.get("privacy") or {})
+    for key in (
+        "raw_packet_text_exposed",
+        "raw_candidate_exposed",
+        "raw_draft_text_exposed",
+        "raw_private_link_exposed",
+    ):
+        if privacy.get(key) is not False:
+            issues.append(f"assistant_grade_packet.privacy.{key} must remain false")
+    requires_recovery = bool(assistant_grade_packet.get("requires_recovery"))
+    if requires_recovery:
+        if str(assistant_grade_packet.get("blocking_reason") or "").strip() != "internal_action_not_assistant_grade":
+            issues.append("assistant_grade_packet recovery requires blocking_reason=internal_action_not_assistant_grade")
+        if str(assistant_grade_packet.get("next_action") or "").strip() != "stage_fresh_assistant_grade_proactive_packet":
+            issues.append("assistant_grade_packet recovery requires next_action=stage_fresh_assistant_grade_proactive_packet")
+        stage_kind = str(assistant_grade_packet.get("stage_kind") or "").strip().lower()
+        work_type = str(assistant_grade_packet.get("work_type") or "").strip().lower()
+        if stage_kind not in ASSISTANT_GRADE_BLOCKING_WORK_TYPES and work_type not in ASSISTANT_GRADE_BLOCKING_WORK_TYPES:
+            issues.append("assistant_grade_packet recovery requires an internal-action stage_kind or work_type")
+        if str(receipt.get("status") or "").strip() != "ready_with_recovery_action":
+            issues.append("assistant_grade_packet recovery requires status=ready_with_recovery_action")
+        if str(receipt.get("reason") or "").strip() != "internal_action_not_assistant_grade":
+            issues.append("assistant_grade_packet recovery requires reason=internal_action_not_assistant_grade")
+        if str(receipt.get("next_action") or "").strip() != "stage_fresh_assistant_grade_proactive_packet":
+            issues.append("assistant_grade_packet recovery requires receipt.next_action=stage_fresh_assistant_grade_proactive_packet")
+        if str(receipt.get("operator_action_state") or "").strip() != "recovery_required":
+            issues.append("assistant_grade_packet recovery requires operator_action_state=recovery_required")
+        if bool(dict(receipt.get("approval_capture_surface") or {}).get("ready")):
+            issues.append("assistant_grade_packet recovery must not keep approval_capture_surface.ready=true")
+        return
+    if bool(assistant_grade_packet.get("present")):
+        bundle_source = str(assistant_grade_packet.get("bundle_source") or "").strip()
+        if bundle_source == "historical_browse_backed_proof_bundle":
+            stage_packets = dict(receipt.get("stage_packets") or {})
+            safe_work_results = dict(receipt.get("safe_work_results") or {})
+            if bool(stage_packets.get("selected_packet_present")) is not True:
+                issues.append(
+                    "historical assistant_grade_packet requires stage_packets.selected_packet_present=true"
+                )
+            if str(stage_packets.get("selected_bundle_source") or "").strip() != bundle_source:
+                issues.append(
+                    "historical assistant_grade_packet requires stage_packets.selected_bundle_source=historical_browse_backed_proof_bundle"
+                )
+            if int(stage_packets.get("packet_count") or 0) <= 0:
+                issues.append("historical assistant_grade_packet requires stage_packets.packet_count>0")
+            if bool(safe_work_results.get("selected_result_present")) is not True:
+                issues.append(
+                    "historical assistant_grade_packet requires safe_work_results.selected_result_present=true"
+                )
+            if str(safe_work_results.get("selected_bundle_source") or "").strip() != bundle_source:
+                issues.append(
+                    "historical assistant_grade_packet requires safe_work_results.selected_bundle_source=historical_browse_backed_proof_bundle"
+                )
+            if int(safe_work_results.get("result_count") or 0) <= 0:
+                issues.append("historical assistant_grade_packet requires safe_work_results.result_count>0")
+    if str(assistant_grade_packet.get("next_action") or "").strip():
+        issues.append("assistant_grade_packet without recovery must not request next_action")
+    if str(assistant_grade_packet.get("blocking_reason") or "").strip():
+        issues.append("assistant_grade_packet without recovery must not set blocking_reason")
+
+
 def _verify_provider_cost_pressure(receipt: dict[str, Any], issues: list[str]) -> None:
     provider_cost = dict(receipt.get("provider_cost_pressure") or {})
     if not provider_cost:
@@ -291,6 +412,16 @@ def _verify_provider_cost_pressure(receipt: dict[str, Any], issues: list[str]) -
     gemini = dict(provider_cost.get("gemini_token_tracking") or {})
     if provider_cost.get("gemini_provider_key") not in {"", "gemini_vortex"}:
         issues.append("provider_cost_pressure gemini_provider_key must remain gemini_vortex")
+    if bool(provider_cost.get("checked")) and status in {"active_cost_control", "ready"}:
+        cheap_expected_order = ["onemin", "magixai", "gemini_vortex"]
+        hard_expected_order = ["onemin", "magixai", "gemini_vortex"]
+        for key in ("provider_order", "fast_provider_order", "cheap_provider_order", "groundwork_provider_order"):
+            if list(provider_cost.get(key) or [])[:3] != cheap_expected_order:
+                issues.append(f"provider_cost_pressure {key} drifted")
+        if list(provider_cost.get("hard_provider_order") or [])[:3] != hard_expected_order:
+            issues.append("provider_cost_pressure hard_provider_order drifted")
+        if provider_cost.get("onemin_preferred_whenever_usable") is not True:
+            issues.append("provider_cost_pressure onemin_preferred_whenever_usable must remain true")
     if gemini:
         boundary = str(gemini.get("billing_truth_boundary") or "").strip()
         if bool(provider_cost.get("checked")) and boundary != "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth":
@@ -434,6 +565,65 @@ def _verify_safe_work_audit(receipt: dict[str, Any], issues: list[str]) -> None:
         issues.append("non-deliverable safe_work_audit requires operator_action_state=recovery_required")
     if not str(safe_work_audit.get("blocking_reason") or "").strip():
         issues.append("non-deliverable safe_work_audit requires blocking_reason")
+
+
+def _verify_browser_handoff(receipt: dict[str, Any], issues: list[str]) -> None:
+    browser_handoff = dict(receipt.get("browser_handoff") or {})
+    if not browser_handoff:
+        issues.append("browser_handoff missing")
+        return
+    if "present" not in browser_handoff:
+        issues.append("browser_handoff.present missing")
+    privacy = dict(browser_handoff.get("privacy") or {})
+    for key in ("raw_credentials_stored", "raw_cookie_or_session_stored", "raw_browser_artifact_stored"):
+        if privacy.get(key) is not False:
+            issues.append(f"browser_handoff.privacy.{key} must remain false")
+    if not bool(browser_handoff.get("present")):
+        if bool(browser_handoff.get("required")):
+            issues.append("browser_handoff.required must be false when browser_handoff.present=false")
+        return
+    if not str(browser_handoff.get("blocker_code") or "").strip():
+        issues.append("present browser_handoff requires blocker_code")
+    challenge = dict(browser_handoff.get("challenge") or {})
+    if not challenge:
+        issues.append("present browser_handoff requires challenge")
+        challenge = {}
+    if challenge.get("raw_destination_stored") is not False:
+        issues.append("browser_handoff.challenge.raw_destination_stored must remain false")
+    safe_work_audit = dict(receipt.get("safe_work_audit") or {})
+    if bool(safe_work_audit.get("browser_handoff_user_action_required")) and not bool(browser_handoff.get("required")):
+        issues.append("safe_work_audit browser_handoff_user_action_required requires browser_handoff.required=true")
+    if not bool(browser_handoff.get("required")):
+        return
+    if str(receipt.get("status") or "").strip() != "ready_with_recovery_action":
+        issues.append("required browser_handoff requires status=ready_with_recovery_action")
+    if str(receipt.get("reason") or "").strip() != "browser_handoff_required":
+        issues.append("required browser_handoff requires reason=browser_handoff_required")
+    expected_next_action = str(browser_handoff.get("next_action") or "").strip()
+    if expected_next_action != "complete_browser_handoff_then_resume_ooda_task":
+        issues.append("required browser_handoff requires next_action=complete_browser_handoff_then_resume_ooda_task")
+    if str(receipt.get("next_action") or "").strip() != expected_next_action:
+        issues.append("required browser_handoff requires receipt.next_action to match browser_handoff.next_action")
+    if str(receipt.get("operator_action_state") or "").strip() != "recovery_required":
+        issues.append("required browser_handoff requires operator_action_state=recovery_required")
+    delivery_guard = dict(receipt.get("delivery_guard") or {})
+    if str(delivery_guard.get("delivery_state") or "").strip() != "browser_handoff_pending":
+        issues.append("required browser_handoff requires delivery_guard.delivery_state=browser_handoff_pending")
+    if delivery_guard.get("user_action_required") is not True:
+        issues.append("required browser_handoff requires delivery_guard.user_action_required=true")
+    if not str(browser_handoff.get("resume_instruction") or "").strip():
+        issues.append("required browser_handoff requires resume_instruction")
+    blocker_code = str(browser_handoff.get("blocker_code") or "").strip()
+    available_channels = [
+        str(item).strip()
+        for item in list(challenge.get("available_channels") or [])
+        if str(item).strip()
+    ]
+    if blocker_code in {"mfa_code_required", "otp_required"}:
+        if not available_channels:
+            issues.append("OTP browser_handoff requires challenge.available_channels")
+        if not str(challenge.get("operator_instruction") or "").strip():
+            issues.append("OTP browser_handoff requires challenge.operator_instruction")
 
 
 def _verify_suppressed_projection(receipt: dict[str, Any], issues: list[str]) -> None:
@@ -624,7 +814,9 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     if "ready" not in safe_work_results:
         issues.append("safe_work_results.ready missing")
     _verify_safe_work_audit(receipt, issues)
+    _verify_browser_handoff(receipt, issues)
     _verify_current_artifact_filter(receipt, issues)
+    _verify_assistant_grade_packet(receipt, issues)
     _verify_suppressed_projection(receipt, issues)
     _verify_provider_cost_pressure(receipt, issues)
 
@@ -664,7 +856,10 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         status == "ready_with_recovery_action"
         and not str(receipt.get("delivery_route_error") or "").strip()
         and not _is_google_workspace_recovery(receipt)
+        and not _is_browser_handoff_recovery(receipt)
+        and not _is_assistant_grade_packet_recovery(receipt)
         and not _is_source_coverage_recovery(receipt)
+        and not _is_followthrough_recovery(receipt)
         and not _is_suppressed_projection_recovery(receipt)
         and not _provider_cost_pressure_requires_recovery(receipt)
     ):
@@ -677,6 +872,29 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     approval_capture_surface = dict(receipt.get("approval_capture_surface") or {})
     approval_capture = dict(receipt.get("approval_capture") or {})
     if approval_capture_surface:
+        callback_hygiene_ready = bool(approval_capture_surface.get("callback_hygiene_ready", True))
+        callback_hygiene_blocking_reason = str(
+            approval_capture_surface.get("callback_hygiene_blocking_reason") or ""
+        ).strip()
+        callback_hygiene_next_action = str(
+            approval_capture_surface.get("callback_hygiene_next_action") or ""
+        ).strip()
+        if callback_hygiene_ready:
+            if int(approval_capture_surface.get("callback_noncurrent_pending_count") or 0) != 0:
+                issues.append("ready approval_capture_surface requires callback_noncurrent_pending_count=0")
+            if int(approval_capture_surface.get("callback_stale_pending_count") or 0) != 0:
+                issues.append("ready approval_capture_surface requires callback_stale_pending_count=0")
+            if int(approval_capture_surface.get("current_packet_callback_stale_pending_count") or 0) != 0:
+                issues.append("ready approval_capture_surface requires current_packet_callback_stale_pending_count=0")
+            if int(approval_capture_surface.get("current_packet_duplicate_live_pending_count") or 0) != 0:
+                issues.append("ready approval_capture_surface requires current_packet_duplicate_live_pending_count=0")
+        else:
+            if not callback_hygiene_blocking_reason:
+                issues.append("approval_capture_surface callback_hygiene_ready=false requires callback_hygiene_blocking_reason")
+            if not callback_hygiene_next_action:
+                issues.append("approval_capture_surface callback_hygiene_ready=false requires callback_hygiene_next_action")
+            if status != "blocked_local_runtime":
+                issues.append("approval_capture_surface callback_hygiene_ready=false requires status=blocked_local_runtime")
         approval_capture_ready = bool(approval_capture.get("ready"))
         live_pending_count = int(approval_capture_surface.get("current_packet_live_pending_count") or 0)
         telegram_capture_ready = bool(approval_capture_surface.get("telegram_approval_surface_ready"))

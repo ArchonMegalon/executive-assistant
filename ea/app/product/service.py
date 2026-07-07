@@ -64,6 +64,11 @@ from app.services.assistant_property_lane import (
     assistant_property_signal_present,
     assistant_property_task_hidden_from_ea,
 )
+from app.services.operator_access import (
+    OPERATOR_ACCESS_ROLES,
+    first_operator_access_profile,
+    operator_access_profile_count,
+)
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
     BriefItem,
@@ -31788,19 +31793,40 @@ class ProductService:
         session = self.preview_workspace_access_session(token=token)
         if session is None:
             return None
-        if str(session.get("role") or "principal").strip().lower() == "operator":
-            try:
-                resolved_operator_id = self._ensure_workspace_access_operator_profile(
+        try:
+            operator_context = self.resolve_workspace_access_operator_context(
+                principal_id=str(session.get("principal_id") or "").strip(),
+                email=str(session.get("email") or "").strip().lower(),
+                role=str(session.get("role") or "principal").strip().lower() or "principal",
+                display_name=str(session.get("display_name") or "").strip(),
+                operator_id=str(session.get("operator_id") or "").strip(),
+                source_kind=str(session.get("source_kind") or "workspace_access").strip() or "workspace_access",
+            )
+        except ValueError:
+            operator_context = {}
+        if operator_context:
+            session_role = str(session.get("role") or "principal").strip().lower() or "principal"
+            session_operator_id = str(session.get("operator_id") or "").strip()
+            if session_role != "operator" or session_operator_id != str(operator_context.get("operator_id") or "").strip():
+                default_target = str(session.get("default_target") or "").strip()
+                if session_role != "operator" and default_target in {"", "/app/today"}:
+                    default_target = "/admin/office"
+                session = self.issue_workspace_access_session(
                     principal_id=str(session.get("principal_id") or "").strip(),
                     email=str(session.get("email") or "").strip().lower(),
-                    operator_id=str(session.get("operator_id") or "").strip(),
-                    display_name=str(session.get("display_name") or "").strip(),
-                    source_kind=str(session.get("source_kind") or "workspace_access").strip() or "workspace_access",
+                    role="operator",
+                    display_name=str(operator_context.get("display_name") or session.get("display_name") or "").strip(),
+                    operator_id=str(operator_context.get("operator_id") or "").strip(),
+                    source_kind=str(session.get("source_kind") or "workspace_access_session_upgrade").strip() or "workspace_access_session_upgrade",
+                    default_target=default_target,
                 )
-            except ValueError:
-                resolved_operator_id = str(session.get("operator_id") or "").strip()
-            if resolved_operator_id:
-                session = {**dict(session), "operator_id": resolved_operator_id}
+            else:
+                session = {
+                    **dict(session),
+                    "role": "operator",
+                    "operator_id": str(operator_context.get("operator_id") or "").strip(),
+                    "display_name": str(operator_context.get("display_name") or session.get("display_name") or "").strip(),
+                }
         principal_id = str(session.get("principal_id") or "").strip()
         session_id = str(session.get("session_id") or "").strip()
         if principal_id and session_id:
@@ -31855,7 +31881,7 @@ class ProductService:
                 status="active",
                 limit=500,
             )
-            if len(active) >= plan.entitlements.operator_seats:
+            if operator_access_profile_count(active) >= plan.entitlements.operator_seats:
                 raise ValueError("operator_seat_limit_reached")
         resolved_display_name = (
             str(display_name or "").strip()
@@ -31877,6 +31903,42 @@ class ProductService:
             notes=notes,
         )
         return resolved_operator_id
+
+    def resolve_workspace_access_operator_context(
+        self,
+        *,
+        principal_id: str,
+        email: str,
+        role: str = "principal",
+        display_name: str = "",
+        operator_id: str = "",
+        source_kind: str = "workspace_access",
+    ) -> dict[str, str]:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_email = str(email or "").strip().lower()
+        if not normalized_principal or not normalized_email:
+            return {}
+        access_grant = self.resolve_workspace_access_grant(
+            principal_id=normalized_principal,
+            email=normalized_email,
+            default_role=str(role or "principal").strip().lower() or "principal",
+            display_name=str(display_name or "").strip(),
+            operator_id=str(operator_id or "").strip(),
+        )
+        if str(access_grant.get("role") or "").strip().lower() != "operator":
+            return {}
+        resolved_operator_id = self._ensure_workspace_access_operator_profile(
+            principal_id=normalized_principal,
+            email=normalized_email,
+            operator_id=str(access_grant.get("operator_id") or "").strip(),
+            display_name=str(access_grant.get("display_name") or display_name or "").strip(),
+            source_kind=str(source_kind or "workspace_access").strip() or "workspace_access",
+        )
+        return {
+            "role": "operator",
+            "operator_id": resolved_operator_id,
+            "display_name": str(access_grant.get("display_name") or display_name or "").strip(),
+        }
 
     def revoke_workspace_access_session(
         self,
@@ -31935,7 +31997,7 @@ class ProductService:
                 workspace = dict(status.get("workspace") or {})
                 plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
                 active = self._container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=500)
-                if len(active) >= plan.entitlements.operator_seats:
+                if operator_access_profile_count(active) >= plan.entitlements.operator_seats:
                     raise ValueError("operator_seat_limit_reached")
             self._container.orchestrator.upsert_operator_profile(
                 principal_id=principal_id,
@@ -32031,6 +32093,12 @@ class ProductService:
             status = self._container.onboarding.status(principal_id=principal_id)
             workspace = dict(status.get("workspace") or {})
             workspace_name = str(workspace.get("name") or "Executive Workspace").strip() or "Executive Workspace"
+            preferred_grant = self.resolve_workspace_access_grant(
+                principal_id=principal_id,
+                email=normalized_email,
+                default_role="principal",
+                display_name=workspace_name,
+            )
             access_matches = [
                 dict(row)
                 for row in self.list_workspace_access_sessions(
@@ -32049,15 +32117,37 @@ class ProductService:
             )
             if access_matches:
                 selected = access_matches[0]
+                role = str(selected.get("role") or "principal").strip().lower() or "principal"
+                display_name = str(selected.get("display_name") or workspace_name).strip() or workspace_name
+                operator_id = str(selected.get("operator_id") or "").strip()
+                if role == "principal" and str(preferred_grant.get("role") or "").strip().lower() == "operator":
+                    role = "operator"
+                    operator_id = str(preferred_grant.get("operator_id") or "").strip()
+                    preferred_display_name = str(preferred_grant.get("display_name") or "").strip()
+                    if preferred_display_name:
+                        display_name = preferred_display_name
                 candidates.append(
                     {
                         "kind": "access",
                         "principal_id": principal_id,
                         "workspace_name": workspace_name,
                         "email": normalized_email,
-                        "role": str(selected.get("role") or "principal").strip().lower() or "principal",
-                        "display_name": str(selected.get("display_name") or workspace_name).strip() or workspace_name,
-                        "operator_id": str(selected.get("operator_id") or "").strip(),
+                        "role": role,
+                        "display_name": display_name,
+                        "operator_id": operator_id,
+                    }
+                )
+                continue
+            if str(preferred_grant.get("role") or "").strip().lower() == "operator":
+                candidates.append(
+                    {
+                        "kind": "access",
+                        "principal_id": principal_id,
+                        "workspace_name": workspace_name,
+                        "email": normalized_email,
+                        "role": "operator",
+                        "display_name": str(preferred_grant.get("display_name") or workspace_name).strip() or workspace_name,
+                        "operator_id": str(preferred_grant.get("operator_id") or "").strip(),
                     }
                 )
                 continue
@@ -32124,6 +32214,110 @@ class ProductService:
                     }
                 )
         return tuple(candidates)
+
+    def _preferred_workspace_access_operator_profile(
+        self,
+        *,
+        principal_id: str,
+        email: str,
+    ) -> dict[str, str]:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_email = str(email or "").strip().lower()
+        if not normalized_principal or not normalized_email:
+            return {}
+        expected_operator_id = _operator_id_from_email(normalized_email)
+        expected_display_name = _display_name_from_email(normalized_email).strip().lower()
+        principal_email_hint = _principal_email_hint(normalized_principal)
+        best_score = -10**9
+        best: dict[str, str] = {}
+        for row in self._container.orchestrator.list_operator_profiles(
+            principal_id=normalized_principal,
+            status="active",
+            limit=100,
+        ):
+            operator_id = str(getattr(row, "operator_id", "") or "").strip()
+            display_name = str(getattr(row, "display_name", "") or "").strip()
+            if not operator_id:
+                continue
+            roles = {
+                str(role or "").strip().lower()
+                for role in tuple(getattr(row, "roles", ()) or ())
+                if str(role or "").strip()
+            }
+            if not roles.intersection(OPERATOR_ACCESS_ROLES):
+                continue
+            score = 0
+            if operator_id == expected_operator_id:
+                score += 100
+            if operator_id == normalized_principal:
+                score += 80
+            normalized_display_name = display_name.lower()
+            if expected_display_name:
+                if normalized_display_name == expected_display_name:
+                    score += 60
+                elif expected_display_name in normalized_display_name or normalized_display_name in expected_display_name:
+                    score += 20
+            if principal_email_hint and principal_email_hint == normalized_email:
+                score += 40
+            if "reviewer" in roles:
+                score += 20
+            if "cloudflare_access" in roles:
+                score += 15
+            if "automation" in roles:
+                score -= 40
+            if score <= best_score:
+                continue
+            best_score = score
+            best = {
+                "operator_id": operator_id,
+                "display_name": display_name,
+            }
+        if best_score <= 0:
+            return {}
+        return best
+
+    def resolve_workspace_access_grant(
+        self,
+        *,
+        principal_id: str,
+        email: str,
+        default_role: str = "principal",
+        display_name: str = "",
+        operator_id: str = "",
+    ) -> dict[str, str]:
+        normalized_email = str(email or "").strip().lower()
+        resolved_display_name = str(display_name or "").strip() or _display_name_from_email(normalized_email)
+        resolved_role = str(default_role or "principal").strip().lower() or "principal"
+        resolved_operator_id = str(operator_id or "").strip()
+        preferred_operator = self._preferred_workspace_access_operator_profile(
+            principal_id=principal_id,
+            email=normalized_email,
+        )
+        active_profiles = self._container.orchestrator.list_operator_profiles(
+            principal_id=principal_id,
+            status="active",
+            limit=100,
+        )
+        operator_access_exists = first_operator_access_profile(active_profiles) is not None
+        if resolved_role == "principal" and preferred_operator:
+            resolved_role = "operator"
+            resolved_operator_id = str(preferred_operator.get("operator_id") or "").strip()
+            preferred_display_name = str(preferred_operator.get("display_name") or "").strip()
+            if preferred_display_name:
+                resolved_display_name = preferred_display_name
+        elif resolved_role == "principal" and not operator_access_exists and normalized_email:
+            resolved_role = "operator"
+            resolved_operator_id = resolved_operator_id or _operator_id_from_email(normalized_email)
+        elif resolved_role == "operator" and not resolved_operator_id:
+            resolved_operator_id = str(preferred_operator.get("operator_id") or "").strip() or _operator_id_from_email(normalized_email)
+            preferred_display_name = str(preferred_operator.get("display_name") or "").strip()
+            if preferred_display_name and not str(display_name or "").strip():
+                resolved_display_name = preferred_display_name
+        return {
+            "role": resolved_role,
+            "operator_id": resolved_operator_id,
+            "display_name": resolved_display_name,
+        }
 
     def request_workspace_sign_in_email_links(
         self,
@@ -32340,11 +32534,18 @@ class ProductService:
             ),
             accounts[0] if accounts else None,
         )
+        access_grant = self.resolve_workspace_access_grant(
+            principal_id=principal_id,
+            email=normalized_email,
+            default_role="principal",
+            display_name=workspace_name,
+        )
         access_session = self.issue_workspace_access_session(
             principal_id=principal_id,
             email=normalized_email,
-            role="principal",
-            display_name=workspace_name,
+            role=str(access_grant.get("role") or "principal").strip().lower() or "principal",
+            display_name=str(access_grant.get("display_name") or workspace_name).strip() or workspace_name,
+            operator_id=str(access_grant.get("operator_id") or "").strip(),
             source_kind="google_connect_email",
             expires_in_hours=expires_in_hours,
         )
@@ -34111,7 +34312,7 @@ class ProductService:
         selected_channels = tuple(str(value) for value in (status.get("selected_channels") or []) if str(value).strip())
         plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
         operators = self._container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=25)
-        seats_used = len(operators)
+        seats_used = operator_access_profile_count(operators)
         seat_limit = int(plan.entitlements.operator_seats or 0)
         seat_overage = max(seats_used - seat_limit, 0)
         commercial_snapshot = workspace_commercial_snapshot(plan, seats_used=seats_used, selected_channels=selected_channels)
@@ -35170,7 +35371,7 @@ class ProductService:
         )
         pending_commitment_candidates = max(len(pending_candidate_rows) - covered_signal_candidates, 0)
         usage_stats = dict(snapshot.stats_json or {})
-        seats_used = len(operators)
+        seats_used = operator_access_profile_count(operators)
         seat_limit = int(plan.entitlements.operator_seats or 0)
         seats_remaining = max(seat_limit - seats_used, 0)
         seat_overage = max(seats_used - seat_limit, 0)
@@ -37455,7 +37656,8 @@ class ProductService:
         elif object_kind == "handoff":
             if not operator_id:
                 active = self._container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=1)
-                operator_id = str(active[0].operator_id or "").strip() if active else ""
+                selected = first_operator_access_profile(active)
+                operator_id = str(getattr(selected, "operator_id", "") or "").strip() if selected is not None else ""
             if not operator_id:
                 return None
             if action in {"assign", "claim"}:

@@ -47,6 +47,27 @@ def _error_payload(
     )
 
 
+def _log_scope_denial(request: Request, *, code: str, status_code: int, detail: Any) -> None:
+    normalized_code = str(code or "").strip()
+    if normalized_code not in {"operator_scope_required", "principal_scope_mismatch"}:
+        return
+    context = getattr(request.state, "ea_request_context", None)
+    _LOG.warning(
+        "request_scope_denied correlation_id=%s code=%s status_code=%s method=%s path=%s principal_id=%s operator_id=%s operator_authorized=%s auth_source=%s user_agent=%s detail=%s",
+        _correlation_id(request),
+        normalized_code,
+        int(status_code or 0),
+        str(request.method or "").upper(),
+        str(request.url.path or "").strip(),
+        str(getattr(context, "principal_id", "") or "").strip(),
+        str(getattr(context, "operator_id", "") or "").strip(),
+        bool(getattr(context, "operator_authorized", False)),
+        str(getattr(context, "auth_source", "") or "").strip(),
+        str(request.headers.get("user-agent") or "").strip(),
+        str(detail or "").strip(),
+    )
+
+
 def _code_from_http(status_code: int, detail: Any) -> str:
     if isinstance(detail, str) and detail.strip():
         return detail.strip()
@@ -68,23 +89,62 @@ def _code_from_http(status_code: int, detail: Any) -> str:
 def _browser_auth_redirect(request: Request, *, code: str) -> Response | None:
     if str(code or "").strip() != "auth_required":
         return None
-    method = str(request.method or "").upper()
-    if method not in {"GET", "HEAD"}:
-        return None
-    path = str(request.url.path or "").strip()
-    if not path.startswith("/app") and not path.startswith("/admin"):
-        return None
-    if path.startswith("/app/api") or path.startswith("/admin/api"):
-        return None
-    accept = str(request.headers.get("accept") or "").lower()
-    sec_fetch_dest = str(request.headers.get("sec-fetch-dest") or "").lower()
-    wants_html = "text/html" in accept or sec_fetch_dest == "document"
-    if not wants_html:
+    if not _browser_admin_document_request(request):
         return None
     boundary = property_surface_boundary_response(request)
     if boundary is not None:
         return boundary
-    target = "/sign-in?" + urllib.parse.urlencode({"return_to": path})
+    target = "/sign-in?" + urllib.parse.urlencode({"return_to": _request_relative_uri(request)})
+    response = RedirectResponse(target, status_code=303)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
+
+
+def _request_relative_uri(request: Request) -> str:
+    path = str(request.url.path or "").strip() or "/"
+    query = str(request.url.query or "").strip()
+    return f"{path}?{query}" if query else path
+
+
+def _browser_admin_document_request(request: Request) -> bool:
+    method = str(request.method or "").upper()
+    if method not in {"GET", "HEAD"}:
+        return False
+    path = str(request.url.path or "").strip()
+    if not path.startswith("/app") and not path.startswith("/admin"):
+        return False
+    if path.startswith("/app/api") or path.startswith("/admin/api"):
+        return False
+    accept = str(request.headers.get("accept") or "").lower()
+    sec_fetch_dest = str(request.headers.get("sec-fetch-dest") or "").lower()
+    return "text/html" in accept or sec_fetch_dest == "document"
+
+
+def _browser_operator_scope_redirect(request: Request, *, code: str) -> Response | None:
+    if str(code or "").strip() != "operator_scope_required":
+        return None
+    if not _browser_admin_document_request(request):
+        return None
+    boundary = property_surface_boundary_response(request)
+    if boundary is not None:
+        return boundary
+    return_to = _request_relative_uri(request)
+    context = getattr(request.state, "ea_request_context", None)
+    authenticated = bool(getattr(context, "authenticated", False))
+    principal_id = str(getattr(context, "principal_id", "") or "").strip()
+    container = getattr(getattr(request.app, "state", None), "container", None)
+    if authenticated and principal_id and container is not None:
+        try:
+            from app.api.routes.landing_shared_support import operator_bootstrap_needed
+
+            if operator_bootstrap_needed(container, principal_id=principal_id):
+                target = "/admin/bootstrap-operator?" + urllib.parse.urlencode({"return_to": return_to})
+                response = RedirectResponse(target, status_code=303)
+                response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+                return response
+        except Exception:
+            pass
+    target = "/sign-in?" + urllib.parse.urlencode({"return_to": return_to})
     response = RedirectResponse(target, status_code=303)
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
@@ -101,7 +161,10 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):  # type: ignore[no-untyped-def]
         code = _code_from_http(exc.status_code, exc.detail)
+        _log_scope_denial(request, code=code, status_code=exc.status_code, detail=exc.detail)
         redirect = _browser_auth_redirect(request, code=code)
+        if redirect is None:
+            redirect = _browser_operator_scope_redirect(request, code=code)
         if redirect is not None:
             return redirect
         message = str(exc.detail or code)

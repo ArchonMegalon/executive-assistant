@@ -30,7 +30,27 @@ def test_proactive_next_action_surface_maps_approval_capture() -> None:
 
     assert surface == {
         "href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-        "label": "Open approval capture",
+        "label": "Record packet verdict",
+        "method": "get",
+    }
+
+
+def test_proactive_next_action_surface_maps_approval_reissue() -> None:
+    surface = proactive_next_action_surface("reissue_proactive_approval")
+
+    assert surface == {
+        "href": "https://myexternalbrain.com/admin/actions/proactive-ooda-reissue",
+        "label": "Reissue approval prompt",
+        "method": "post",
+    }
+
+
+def test_proactive_next_action_surface_maps_approval_capture_repair_to_goals() -> None:
+    surface = proactive_next_action_surface("repair_proactive_approval_capture")
+
+    assert surface == {
+        "href": "https://myexternalbrain.com/admin/goals",
+        "label": "Open goals",
         "method": "get",
     }
 

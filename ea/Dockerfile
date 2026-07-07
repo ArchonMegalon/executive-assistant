@@ -88,7 +88,11 @@ RUN set -eu; \
     if [ "$APP_SRC" != "/tmp/src" ] && [ -d "$APP_SRC/scripts" ]; then \
       for script in "$APP_SRC"/scripts/*; do \
         [ -f "$script" ] || continue; \
-        cp "$script" /app/scripts/; \
+        target="/app/scripts/$(basename "$script")"; \
+        if [ -f "$target" ]; then \
+          continue; \
+        fi; \
+        cp "$script" "$target"; \
       done; \
     fi; \
     chown -R ea:ea /app /usr/local/bin/docker-entrypoint.sh; \

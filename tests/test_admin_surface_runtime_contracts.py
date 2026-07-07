@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -257,6 +258,33 @@ def _seed_proactive_followthrough_receipt_paths(
         "proactive_gold": proactive_gold_receipt,
         "approval_outcome": approval_outcome_receipt,
     }
+
+
+def test_admin_proactive_ooda_operator_status_refresh_keeps_live_probe_enabled(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.routes import landing_actions
+    from scripts import materialize_proactive_ooda_operator_status as operator_status_materializer
+
+    calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        operator_status_materializer,
+        "build_proactive_ooda_operator_status",
+        lambda **kwargs: calls.append(dict(kwargs)) or {},
+    )
+
+    output_path = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
+    live_receipt_path = tmp_path / "proactive_ooda_latest_run.generated.json"
+    landing_actions._materialize_admin_proactive_ooda_operator_status(
+        output_path=output_path,
+        live_receipt_path=live_receipt_path,
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["output_path"] == output_path
+    assert calls[0]["live_receipt_path"] == live_receipt_path
+    assert calls[0]["allow_live_route_probe"] is True
 
 
 def test_admin_surfaces_render_live_runtime_state() -> None:
@@ -668,6 +696,18 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
     monkeypatch.setattr(admin_view_models, "WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT", scope_audit_receipt)
     monkeypatch.setattr(admin_view_models, "PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT", proactive_receipt)
     monkeypatch.setattr(admin_view_models, "PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT", proactive_gold_receipt)
+    monkeypatch.setattr(
+        admin_view_models,
+        "_load_current_proactive_ooda_runtime_bundle",
+        lambda: {
+            "artifact_filter_reason": "",
+            "current_packet_live_pending_count": 1,
+            "approval_callback_noncurrent_pending_count": 0,
+            "approval_callback_stale_pending_count": 1,
+            "current_packet_callback_stale_pending_count": 1,
+            "run_receipt": {"schema": "proactive_ooda.run_receipt.v1", "status": "ready"},
+        },
+    )
 
     goals = client.get("/admin/goals")
 
@@ -688,22 +728,17 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
         "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals"
         "&proof_key=real_daily_morning_brief_accepted"
     ) in goals_text
-    assert "Signal review and follow-through" in goals.text
-    assert (
-        "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals"
-        "&evidence_part=review"
-    ) in goals_text
+    assert "Signal review and follow-through" not in goals.text
+    assert "Signal-loop proof capture" in goals.text
     assert "Proactive delivery recovery" in goals.text
     assert "Proactive OODA approval outcome" in goals.text
     assert "Weekly operator review" in goals.text
     assert "Closed-loop follow-through" in goals.text
-    assert "evidence_part=followthrough" in goals_text
     assert "scan_whatsapp_web_qr" in goals.text
     assert "preferred delivery path needs recovery" in goals.text
-    assert "Record a signal-loop outcome" in goals.text
-    assert "/admin/actions/signal-to-decision-evidence" in goals.text
-    assert "Open approval capture" in goals.text
-    assert "/admin/proactive-ooda/approval" in goals.text
+    assert "Record a signal-loop outcome" not in goals.text
+    assert "Record packet verdict" not in goals.text
+    assert "/admin/proactive-ooda/approval" not in goals.text
     assert "Acceptance evidence receipt" in goals.text
     assert "Morning brief accepted" in goals.text
     assert "Real decision cleared" in goals.text
@@ -794,7 +829,7 @@ def test_admin_goal_evidence_surface_exposes_proactive_google_reauth_links(
     assert goals.status_code == 200
     assert "Reconnect Google workspace" in goals.text
     assert reconnect_href in html.unescape(goals.text)
-    assert "/admin/proactive-ooda/approval" in goals.text
+    assert "/admin/proactive-ooda/approval" not in goals.text
 
 
 def test_admin_acceptance_capture_records_redacted_goal_evidence(
@@ -902,12 +937,36 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     monkeypatch.setattr(admin_view_models, "WHOLE_PROJECT_SIGNAL_TO_DECISION_RECEIPT", signal_receipt)
     monkeypatch.setattr(admin_view_models, "WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT", scope_audit_receipt)
     monkeypatch.setattr(admin_view_models, "PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT", proactive_receipt)
+    monkeypatch.setattr(
+        admin_view_models,
+        "_load_current_proactive_ooda_runtime_bundle",
+        lambda: {
+            "artifact_filter_reason": "",
+            "current_packet_live_pending_count": 1,
+            "approval_callback_noncurrent_pending_count": 0,
+            "approval_callback_stale_pending_count": 1,
+            "current_packet_callback_stale_pending_count": 1,
+            "run_receipt": {"schema": "proactive_ooda.run_receipt.v1", "status": "ready"},
+        },
+    )
     monkeypatch.setattr(landing_actions, "EA_OFFICE_LOOP_GOAL_RECEIPT", office_receipt)
     monkeypatch.setattr(landing_actions, "EA_ACCEPTANCE_EVIDENCE_RECEIPT", acceptance_receipt)
     monkeypatch.setattr(landing_actions, "EA_QUALITY_READINESS_RECEIPT", quality_receipt)
     monkeypatch.setattr(landing_actions, "EA_ACTIVE_MEDIA_LTD_GOAL_RECEIPT", active_media_receipt)
     monkeypatch.setattr(landing_actions, "EA_SIGNAL_TO_DECISION_RECEIPT", signal_receipt)
     monkeypatch.setattr(landing_actions, "EA_SCOPE_GAP_AUDIT_RECEIPT", scope_audit_receipt)
+    monkeypatch.setattr(
+        landing_actions,
+        "_load_current_proactive_ooda_runtime_bundle",
+        lambda: {
+            "artifact_filter_reason": "",
+            "current_packet_live_pending_count": 1,
+            "approval_callback_noncurrent_pending_count": 0,
+            "approval_callback_stale_pending_count": 1,
+            "current_packet_callback_stale_pending_count": 1,
+            "run_receipt": {"schema": "proactive_ooda.run_receipt.v1", "status": "ready"},
+        },
+    )
 
     goals_before = client.get("/admin/goals")
     assert goals_before.status_code == 200
@@ -915,9 +974,8 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     goals_before_text = html.unescape(goals_before.text)
     assert "/admin/actions/acceptance-evidence" in goals_before_text
     assert "proof_key=real_daily_morning_brief_accepted" in goals_before_text
-    assert "Record a signal-loop outcome" in goals_before.text
-    assert "/admin/actions/signal-to-decision-evidence" in goals_before_text
-    assert "evidence_part=review" in goals_before_text
+    assert "Record a signal-loop outcome" not in goals_before.text
+    assert "Signal-loop proof capture" in goals_before.text
     assert "Proactive delivery recovery" in goals_before.text
 
     capture_form = client.get(
@@ -1092,6 +1150,101 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     assert "private-safe signal" in goals_after.text
 
 
+def test_admin_signal_evidence_form_blocks_property_scoped_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    principal_id = "exec-admin-signal-property-block"
+    client = _operator_client(principal_id=principal_id)
+    from app.api.routes import landing_actions
+
+    proactive_gold_receipt = tmp_path / "ea_proactive_ooda_gold_acceptance.generated.json"
+    _seed_proactive_followthrough_receipt_paths(
+        monkeypatch,
+        tmp_path,
+        proactive_gold_receipt=proactive_gold_receipt,
+    )
+    monkeypatch.setattr(
+        landing_actions,
+        "_load_current_proactive_ooda_runtime_bundle",
+        lambda: {
+            "artifact_filter_reason": "flat_search_disabled_property_scout",
+            "current_packet_live_pending_count": 1,
+            "approval_callback_noncurrent_pending_count": 0,
+            "approval_callback_stale_pending_count": 1,
+            "current_packet_callback_stale_pending_count": 1,
+        },
+    )
+
+    response = client.get(
+        "/admin/actions/signal-to-decision-evidence?"
+        "evidence_part=review&return_to=%2Fadmin%2Fgoals"
+    )
+
+    assert response.status_code == 200
+    assert "Signal Evidence Blocked" in response.text
+    assert "apartment-search work is disabled for EA" in response.text
+    assert 'action="/admin/actions/signal-to-decision-evidence"' not in response.text
+
+
+def test_admin_signal_evidence_post_rejects_property_scoped_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    principal_id = "exec-admin-signal-property-block-post"
+    client = _operator_client(principal_id=principal_id)
+    client.headers.update({"X-EA-Operator-ID": "operator-admin-1"})
+    from app.api.routes import landing_actions
+
+    proactive_gold_receipt = tmp_path / "ea_proactive_ooda_gold_acceptance.generated.json"
+    _seed_proactive_followthrough_receipt_paths(
+        monkeypatch,
+        tmp_path,
+        proactive_gold_receipt=proactive_gold_receipt,
+    )
+    monkeypatch.setattr(
+        landing_actions,
+        "_load_current_proactive_ooda_runtime_bundle",
+        lambda: {
+            "approval_callback_property_scoped_pending_count": 1,
+            "current_packet_live_pending_count": 1,
+            "approval_callback_noncurrent_pending_count": 0,
+            "approval_callback_stale_pending_count": 1,
+            "current_packet_callback_stale_pending_count": 1,
+        },
+    )
+
+    response = client.post(
+        "/admin/actions/signal-to-decision-evidence",
+        data={
+            "evidence_part": "review",
+            "source_kind": "operator",
+            "evidence": "Redacted note",
+            "packet_ref": "packet:redacted",
+        },
+    )
+
+    assert response.status_code == 409
+    payload = response.json()
+    assert payload["error"]["code"] == "signal_evidence_property_scope_blocked"
+    assert payload["error"]["details"] == "signal_evidence_property_scope_blocked"
+
+
+def test_admin_signal_evidence_runtime_bundle_uses_repo_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import landing_actions
+
+    observed: dict[str, object] = {}
+
+    def _fake_load_runtime_artifact_bundle(**kwargs: object) -> dict[str, object]:
+        observed.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(landing_actions, "load_runtime_artifact_bundle", _fake_load_runtime_artifact_bundle)
+
+    assert landing_actions._load_current_proactive_ooda_runtime_bundle() == {}
+    assert observed["root"] == Path("/docker/EA")
+
+
 def test_admin_proactive_ooda_capture_records_redacted_gold_evidence(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
@@ -1109,6 +1262,15 @@ def test_admin_proactive_ooda_capture_records_redacted_gold_evidence(
         proactive_gold_receipt=proactive_gold_receipt,
     )
     monkeypatch.setattr(
+        landing_actions,
+        "record_live_proactive_ooda_approval_outcome",
+        lambda **_kwargs: {
+            "status": "probe_failed",
+            "recorded": False,
+            "error": "runtime_artifact_probe_failed:exit_1",
+        },
+    )
+    monkeypatch.setattr(
         proactive_gold_materializer,
         "load_runtime_artifact_bundle",
         lambda **_kwargs: {
@@ -1116,6 +1278,27 @@ def test_admin_proactive_ooda_capture_records_redacted_gold_evidence(
             "stage_packet": {"packet_ref": "stage_packet:private-packet-123"},
             "safe_work_result": {"result_ref": "safe_work_result:private-artifact-456"},
             "approval_outcome": {},
+        },
+    )
+    monkeypatch.setattr(
+        proactive_gold_materializer,
+        "resolve_proactive_ooda_capture_bundle",
+        lambda **_kwargs: {
+            "bundle": {
+                "run_receipt": {"notification_status": "sent"},
+                "stage_packet": {"packet_ref": "stage_packet:private-packet-123"},
+                "safe_work_result": {"result_ref": "safe_work_result:private-artifact-456"},
+                "approval_outcome": {},
+            },
+            "bundle_source": "local_filesystem",
+            "host_fallback_used": False,
+            "fallback_reason": "",
+            "live_report": {"status": "probe_disabled"},
+            "approval_selection": {
+                "approval_outcome": {},
+                "stale_saved_approval_outcome_present": False,
+                "source": "",
+            },
         },
     )
 
@@ -1170,7 +1353,165 @@ def test_admin_proactive_ooda_capture_records_redacted_gold_evidence(
     assert raw_note not in receipt_paths["scope"].read_text(encoding="utf-8")
 
 
-def test_admin_proactive_ooda_capture_writes_runtime_approval_artifact_and_syncs_teable(
+def test_admin_proactive_ooda_capture_prefers_live_runtime_recording_before_host_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    principal_id = "exec-admin-proactive-ooda-live-first"
+    client = _operator_client(principal_id=principal_id)
+    client.headers.update({"X-EA-Operator-ID": "operator-admin-1"})
+    from app.api.routes import landing_actions
+
+    approval_outcome_receipt = tmp_path / "state" / "proactive_ooda_latest_approval_outcome.generated.json"
+    live_calls: list[dict[str, object]] = []
+    proactive_gold_receipt = tmp_path / "ea_proactive_ooda_gold_acceptance.generated.json"
+    _seed_proactive_followthrough_receipt_paths(
+        monkeypatch,
+        tmp_path,
+        proactive_gold_receipt=proactive_gold_receipt,
+    )
+    monkeypatch.setattr(landing_actions, "EA_PROACTIVE_OODA_APPROVAL_OUTCOME_RECEIPT", approval_outcome_receipt)
+    monkeypatch.setattr(
+        landing_actions,
+        "record_live_proactive_ooda_approval_outcome",
+        lambda **kwargs: live_calls.append(dict(kwargs))
+        or {
+            "status": "recorded",
+            "recorded": True,
+            "error": "",
+            "approval_outcome": {
+                "outcome_id": "approval-live-1",
+                "status": "accepted_redacted",
+                "approval_outcome_recorded": True,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        landing_actions,
+        "finalize_proactive_ooda_approval_outcome",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("host fallback should not run when live recording works")),
+    )
+    monkeypatch.setattr(
+        landing_actions,
+        "_refresh_admin_proactive_ooda_followthrough_receipts",
+        lambda: {"office_loop": {"status": "materialized"}},
+    )
+
+    raw_note = "Approved the staged shortlist after reviewing the live comparison."
+    raw_packet_ref = "stage_packet:private-packet-123"
+    raw_artifact_ref = "safe_work_result:private-artifact-456"
+    recorded = client.post(
+        "/admin/actions/proactive-ooda-evidence",
+        data={
+            "outcome": "approved",
+            "source_kind": "operator",
+            "evidence": raw_note,
+            "packet_ref": raw_packet_ref,
+            "staged_artifact_ref": raw_artifact_ref,
+        },
+        follow_redirects=False,
+    )
+
+    assert recorded.status_code == 303
+    assert recorded.headers["location"] == "/admin/goals?proactive_ooda_status=recorded"
+    assert not approval_outcome_receipt.exists()
+    assert len(live_calls) == 1
+    assert live_calls[0]["principal_id"] == principal_id
+    assert live_calls[0]["packet_ref"] == raw_packet_ref
+    assert live_calls[0]["staged_artifact_ref"] == raw_artifact_ref
+    assert live_calls[0]["source_kind"] == "operator"
+
+
+def test_admin_proactive_ooda_reissue_prefers_live_runtime_action_and_refreshes_receipts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-admin-proactive-ooda-reissue"
+    client = _operator_client(principal_id=principal_id)
+    client.headers.update({"X-EA-Operator-ID": "operator-admin-1"})
+    from app.api.routes import landing_actions
+
+    live_calls: list[dict[str, object]] = []
+    refresh_calls: list[str] = []
+    monkeypatch.setattr(
+        landing_actions,
+        "reissue_live_proactive_ooda_approval",
+        lambda **kwargs: live_calls.append(dict(kwargs))
+        or {
+            "status": "sent",
+            "sent": True,
+            "message_count": 1,
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(
+        landing_actions,
+        "_refresh_admin_proactive_ooda_runtime_receipts",
+        lambda: refresh_calls.append("refreshed") or {"operator_status": {"status": "materialized"}},
+    )
+
+    response = client.post(
+        "/admin/actions/proactive-ooda-reissue",
+        data={
+            "return_to": "/admin/proactive-ooda/approval",
+            "force": "true",
+            "reissue_after_seconds": "60",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/proactive-ooda/approval?proactive_ooda_reissue_status=sent"
+    assert len(live_calls) == 1
+    assert live_calls[0]["principal_id"] == principal_id
+    assert live_calls[0]["force"] is True
+    assert live_calls[0]["reissue_after_seconds"] == 60
+    assert refresh_calls == ["refreshed"]
+    assert live_calls[0]["dry_run"] is False
+
+
+def test_admin_proactive_ooda_capture_respects_live_runtime_block_without_host_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import landing_actions
+
+    monkeypatch.setattr(
+        landing_actions,
+        "record_live_proactive_ooda_approval_outcome",
+        lambda **_kwargs: {
+            "status": "blocked",
+            "recorded": False,
+            "error": "current_packet_ref_mismatch",
+        },
+    )
+    monkeypatch.setattr(
+        landing_actions,
+        "finalize_proactive_ooda_approval_outcome",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("host fallback should not run for live runtime block states")),
+    )
+    monkeypatch.setattr(
+        landing_actions,
+        "_refresh_admin_proactive_ooda_followthrough_receipts",
+        lambda: (_ for _ in ()).throw(AssertionError("followthrough refresh should not run for blocked results")),
+    )
+
+    result = landing_actions._record_admin_proactive_ooda_approval_outcome(
+        principal_id="exec-admin-proactive-ooda-blocked",
+        outcome="approved",
+        evidence="Approved after review.",
+        actor="operator-admin-1",
+        source_kind="operator",
+        packet_ref="stage_packet:expected",
+        staged_artifact_ref="safe_work_result:expected",
+        dry_run=False,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["recorded"] is False
+    assert result["error"] == "current_packet_ref_mismatch"
+    assert result["followthrough_refresh"] == {}
+
+
+def test_admin_proactive_ooda_capture_writes_runtime_approval_artifact_and_syncs_teable_when_live_recording_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -1188,6 +1529,15 @@ def test_admin_proactive_ooda_capture_writes_runtime_approval_artifact_and_syncs
         proactive_gold_receipt=proactive_gold_receipt,
     )
     monkeypatch.setattr(landing_actions, "EA_PROACTIVE_OODA_APPROVAL_OUTCOME_RECEIPT", approval_outcome_receipt)
+    monkeypatch.setattr(
+        landing_actions,
+        "record_live_proactive_ooda_approval_outcome",
+        lambda **_kwargs: {
+            "status": "probe_failed",
+            "recorded": False,
+            "error": "runtime_artifact_probe_failed:exit_1",
+        },
+    )
     monkeypatch.setattr(landing_actions, "teable_sync_enabled", lambda: True)
     monkeypatch.setattr(
         landing_actions,
@@ -1195,6 +1545,29 @@ def test_admin_proactive_ooda_capture_writes_runtime_approval_artifact_and_syncs
         lambda **_kwargs: {
             "run_receipt": {"notification_status": "sent"},
             "safe_work_result": {"result_ref": "safe_work_result:private-artifact-456", "status": "staged_for_user_decision"},
+        },
+    )
+    from scripts import materialize_proactive_ooda_gold_acceptance as proactive_gold_materializer
+
+    monkeypatch.setattr(
+        proactive_gold_materializer,
+        "resolve_proactive_ooda_capture_bundle",
+        lambda **_kwargs: {
+            "bundle": {
+                "run_receipt": {"notification_status": "sent"},
+                "stage_packet": {"packet_ref": "stage_packet:private-packet-123"},
+                "safe_work_result": {"result_ref": "safe_work_result:private-artifact-456", "status": "staged_for_user_decision"},
+                "approval_outcome": {},
+            },
+            "bundle_source": "local_filesystem",
+            "host_fallback_used": False,
+            "fallback_reason": "",
+            "live_report": {"status": "probe_disabled"},
+            "approval_selection": {
+                "approval_outcome": {},
+                "stale_saved_approval_outcome_present": False,
+                "source": "",
+            },
         },
     )
     monkeypatch.setattr(
@@ -1323,6 +1696,90 @@ def test_admin_loopback_surface_requires_operator_profile_for_operator_access(mo
     assert "Create operator profile" in bootstrap.text
 
 
+def test_admin_surface_treats_specialized_profiles_as_needing_operator_bootstrap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-admin-specialized-bootstrap"
+    monkeypatch.setenv("EA_ALLOW_LOOPBACK_NO_AUTH", "1")
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", principal_id)
+
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="executive_ops")
+    container = client.app.state.container
+    container.orchestrator.upsert_operator_profile(
+        principal_id=principal_id,
+        operator_id="briefing-reviewer",
+        display_name="Briefing Reviewer",
+        roles=("briefing_reviewer",),
+        trust_tier="standard",
+        status="active",
+        notes="Specialized reviewer profile should not satisfy operator bootstrap.",
+    )
+
+    response = client.get("/admin/providers", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/bootstrap-operator?return_to=%2Fadmin%2Fproviders"
+
+    created = client.post(
+        "/admin/actions/bootstrap-operator",
+        data={
+            "display_name": "Tibor Ops",
+            "operator_id": "operator-tibor",
+            "return_to": "/admin/providers",
+        },
+        follow_redirects=False,
+    )
+
+    assert created.status_code == 303
+    assert created.headers["location"] == "/admin/providers?operator_bootstrap=ready"
+
+
+def test_admin_surface_redirects_principal_session_to_sign_in_when_operator_scope_is_missing() -> None:
+    principal_id = "exec-admin-principal-signin"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="executive_ops")
+    seed_product_state(client, principal_id=principal_id)
+
+    response = client.get("/admin/goals", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/sign-in?return_to=%2Fadmin%2Fgoals"
+
+
+def test_admin_action_get_redirects_to_bootstrap_when_no_operator_profile_exists() -> None:
+    principal_id = "exec-admin-action-bootstrap"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="executive_ops")
+
+    response = client.get(
+        "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert (
+        response.headers["location"]
+        == "/admin/bootstrap-operator?return_to=%2Fadmin%2Factions%2Fsignal-to-decision-evidence%3Freturn_to%3D%252Fadmin%252Fgoals%26evidence_part%3Dreview"
+    )
+
+
+def test_admin_action_post_redirects_principal_session_to_sign_in_when_operator_scope_is_missing() -> None:
+    principal_id = "exec-admin-action-signin"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="executive_ops")
+    seed_product_state(client, principal_id=principal_id)
+
+    response = client.post(
+        "/admin/actions/proactive-ooda-reissue",
+        data={"return_to": "/admin/proactive-ooda/approval"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/sign-in?return_to=%2Fadmin%2Fproactive-ooda%2Fapproval"
+
+
 def test_admin_bootstrap_operator_creates_first_profile_and_unblocks_admin(monkeypatch: pytest.MonkeyPatch) -> None:
     principal_id = "exec-admin-bootstrap"
     monkeypatch.setenv("EA_ALLOW_LOOPBACK_NO_AUTH", "1")
@@ -1439,7 +1896,7 @@ def test_workspace_access_operator_link_auto_provisions_profile_and_opens_proact
 
     approval = client.get("/admin/proactive-ooda/approval", follow_redirects=False)
     assert approval.status_code == 200
-    assert "Record proactive OODA outcome" in approval.text
+    assert "Record proactive packet verdict" in approval.text
     assert "Create the first operator profile" not in approval.text
 
 
@@ -1493,11 +1950,12 @@ def test_admin_proactive_ooda_approval_page_prefills_runtime_artifact_refs(monke
         },
     )
     monkeypatch.setattr(landing_console_support, "_load_proactive_ooda_control_receipts", lambda: ({}, {}))
+    monkeypatch.setattr(landing_console_support, "_load_continuous_improvement_goal_posture", lambda: {})
 
     response = client.get("/admin/proactive-ooda/approval")
 
     assert response.status_code == 200
-    assert "Record proactive OODA outcome" in response.text
+    assert "Record proactive packet verdict" in response.text
     assert 'action="/admin/actions/proactive-ooda-evidence"' in response.text
     assert 'name="packet_ref"' in response.text
     assert "stage_packet:private-packet-123" in response.text
@@ -1505,7 +1963,7 @@ def test_admin_proactive_ooda_approval_page_prefills_runtime_artifact_refs(monke
     assert "safe_work_result:private-artifact-456" in response.text
     assert "https://example.test/approve" in response.text
     assert 'name="return_to" value="/admin/proactive-ooda/approval"' in response.text
-    assert 'name="dry_run"' in response.text
+    assert 'name="source_kind"' in response.text
 
 
 def test_admin_proactive_ooda_approval_page_marks_mismatched_saved_approval_as_stale(
@@ -1557,13 +2015,328 @@ def test_admin_proactive_ooda_approval_page_marks_mismatched_saved_approval_as_s
         },
     )
     monkeypatch.setattr(landing_console_support, "_load_proactive_ooda_control_receipts", lambda: ({}, {}))
+    monkeypatch.setattr(landing_console_support, "_load_continuous_improvement_goal_posture", lambda: {})
 
     response = client.get("/admin/proactive-ooda/approval")
 
     assert response.status_code == 200
-    assert "stale_not_current" in response.text
+    assert "No approval pending" in response.text
+    assert "No proactive packet needs approval right now." in response.text
+    assert "Saved only for an older packet" not in response.text
     assert "accepted_redacted" not in response.text
-    assert "saved approval artifacts only count when their hashes match the current packet" in response.text
+
+
+def test_admin_proactive_ooda_approval_page_hides_stale_saved_verdict_for_internal_action_packet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-admin-proactive-approval-hide-stale-internal-action"
+    client = _operator_client(principal_id=principal_id)
+    from app.api.routes import landing_console_support
+
+    monkeypatch.setattr(
+        landing_console_support,
+        "resolve_proactive_ooda_capture_bundle",
+        lambda **_kwargs: {
+            "bundle": {
+                "run_receipt": {"notification_status": "sent"},
+                "run_receipt_path": "state/proactive_ooda_latest_run.generated.json",
+                "stage_packet_path": "state/proactive_ooda_stage_packets/current.json",
+                "safe_work_result_path": "state/proactive_ooda_safe_work_results/current.json",
+                "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
+                "stage_packet": {
+                    "packet_ref": "stage_packet:current",
+                    "stage": {
+                        "kind": "internal_action",
+                        "payload": {
+                            "work_type": "record_internal_action",
+                            "request_text": "Open Google setup and finish the work-account test-user check.",
+                        },
+                    },
+                    "approval": {"required": True},
+                },
+                "safe_work_result": {
+                    "result_ref": "safe_work_result:current",
+                    "status": "staged_for_user_decision",
+                    "work_type": "record_internal_action",
+                    "approval": {"required": True},
+                    "approval_prompt": "Open Google setup and finish the work-account test-user check.",
+                    "staged_action_url": "https://myexternalbrain.com/integrations/google",
+                },
+                "approval_outcome": {
+                    "approval_outcome_recorded": True,
+                    "status": "accepted_redacted",
+                    "outcome": "approved",
+                    "packet_ref_sha256": "a" * 64,
+                    "staged_artifact_sha256": "b" * 64,
+                },
+                "current_packet_live_pending_count": 0,
+            },
+            "bundle_source": "live_runtime",
+            "host_fallback_used": False,
+            "fallback_reason": "",
+            "live_report": {"status": "ok"},
+            "approval_selection": {
+                "approval_outcome": {},
+                "stale_saved_approval_outcome_present": True,
+                "source": "",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        landing_console_support,
+        "_load_continuous_improvement_goal_posture",
+        lambda: {
+            "operator_action_queue": [
+                {
+                    "key": "google_workspace_oauth_setup",
+                    "title": "Google Workspace OAuth test-user setup",
+                    "instruction": "Open Google Auth Platform, confirm the requested work account is allowed there, add it if missing, save, then retry the Full Workspace auth link.",
+                    "next_action_label": "Open Google setup",
+                    "next_action_href": "/integrations/google",
+                    "user_action_required": True,
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(landing_console_support, "_load_operator_action_required_digest", lambda: {})
+
+    response = client.get("/admin/proactive-ooda/approval")
+
+    assert response.status_code == 200
+    assert "No approval pending" in response.text
+    assert "Saved only for an older packet" not in response.text
+    assert "Open Google setup" in response.text
+    assert "/integrations/google" in html.unescape(response.text)
+
+
+def test_admin_proactive_ooda_approval_page_points_to_current_operator_action_when_lane_is_clear(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-admin-proactive-approval-fallback-action"
+    client = _operator_client(principal_id=principal_id)
+    from app.api.routes import landing_console_support
+
+    monkeypatch.setattr(
+        landing_console_support,
+        "resolve_proactive_ooda_capture_bundle",
+        lambda **_kwargs: {
+            "bundle": {
+                "run_receipt": {"notification_status": "sent"},
+                "run_receipt_path": "state/proactive_ooda_latest_run.generated.json",
+                "stage_packet_path": "state/proactive_ooda_stage_packets/current.json",
+                "safe_work_result_path": "state/proactive_ooda_safe_work_results/current.json",
+                "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
+                "stage_packet": {"packet_ref": "stage_packet:current"},
+                "safe_work_result": {
+                    "result_ref": "safe_work_result:current",
+                    "status": "staged_for_user_decision",
+                    "approval": {"required": True},
+                },
+                "approval_outcome": {},
+                "current_packet_live_pending_count": 0,
+            },
+            "bundle_source": "live_runtime",
+            "host_fallback_used": False,
+            "fallback_reason": "",
+            "live_report": {"status": "ok"},
+            "approval_selection": {
+                "approval_outcome": {},
+                "stale_saved_approval_outcome_present": False,
+                "source": "",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        landing_console_support,
+        "_load_continuous_improvement_goal_posture",
+        lambda: {
+            "operator_action_queue": [
+                {
+                    "key": "google_workspace_oauth_setup",
+                    "title": "Google Workspace OAuth test-user setup",
+                    "instruction": "Open Google Auth Platform, confirm the requested work account is allowed there, add it if missing, save, then retry the Full Workspace auth link.",
+                    "next_action_label": "Open Google setup",
+                    "next_action_href": "/integrations/google",
+                    "user_action_required": True,
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(landing_console_support, "_load_operator_action_required_digest", lambda: {})
+
+    response = client.get("/admin/proactive-ooda/approval")
+
+    assert response.status_code == 200
+    assert "No approval pending" in response.text
+    assert "This page does not record or accept an approval." in response.text
+    assert "Current action: Open Google setup" in response.text
+    assert "Open Google setup" in response.text
+    assert "/integrations/google" in html.unescape(response.text)
+    assert "confirm the requested work account is allowed there" in response.text
+
+
+def test_admin_proactive_ooda_approval_page_skips_internal_proof_rows_for_fallback_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-admin-proactive-approval-fallback-skips-noise"
+    client = _operator_client(principal_id=principal_id)
+    from app.api.routes import landing_console_support
+
+    monkeypatch.setattr(
+        landing_console_support,
+        "resolve_proactive_ooda_capture_bundle",
+        lambda **_kwargs: {
+            "bundle": {
+                "run_receipt": {"notification_status": "sent"},
+                "run_receipt_path": "state/proactive_ooda_latest_run.generated.json",
+                "stage_packet_path": "state/proactive_ooda_stage_packets/current.json",
+                "safe_work_result_path": "state/proactive_ooda_safe_work_results/current.json",
+                "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
+                "stage_packet": {"packet_ref": "stage_packet:current"},
+                "safe_work_result": {
+                    "result_ref": "safe_work_result:current",
+                    "status": "staged_for_user_decision",
+                    "approval": {"required": True},
+                },
+                "approval_outcome": {},
+                "current_packet_live_pending_count": 0,
+            },
+            "bundle_source": "live_runtime",
+            "host_fallback_used": False,
+            "fallback_reason": "",
+            "live_report": {"status": "ok"},
+            "approval_selection": {
+                "approval_outcome": {},
+                "stale_saved_approval_outcome_present": False,
+                "source": "",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        landing_console_support,
+        "_load_continuous_improvement_goal_posture",
+        lambda: {
+            "operator_delivery_policy": {
+                "default_action_digest_streams": ["office_loop", "office_setup", "recovery"],
+            },
+            "operator_action_queue": [
+                {
+                    "key": "weekly_signal_to_decision_review_acceptance",
+                    "title": "Weekly signal-to-decision review acceptance",
+                    "instruction": "Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",
+                    "next_action": "record_weekly_signal_to_decision_review_acceptance",
+                    "next_action_label": "Record signal-loop proof",
+                    "next_action_href": "/admin/actions/signal-to-decision-evidence",
+                    "operator_stream": "office_loop",
+                    "user_action_required": True,
+                    "delivery_policy": "action_required_only",
+                    "telegram_push_allowed": False,
+                    "action_digest_eligible": False,
+                    "default_action_digest_suppressed_reason": "telegram_push_not_allowed",
+                },
+                {
+                    "key": "google_workspace_oauth_setup",
+                    "title": "Google Workspace OAuth test-user setup",
+                    "instruction": "Open Google Auth Platform, confirm the requested work account is allowed there, add it if missing, save, then retry the Full Workspace auth link.",
+                    "next_action_label": "Open Google setup",
+                    "next_action_href": "/integrations/google",
+                    "operator_stream": "office_setup",
+                    "user_action_required": True,
+                    "delivery_policy": "action_required_only",
+                    "telegram_push_allowed": True,
+                    "action_digest_eligible": True,
+                },
+            ],
+        },
+    )
+    monkeypatch.setattr(landing_console_support, "_load_operator_action_required_digest", lambda: {})
+
+    response = client.get("/admin/proactive-ooda/approval")
+
+    assert response.status_code == 200
+    assert "No approval pending" in response.text
+    assert "Open Google setup" in response.text
+    assert "/integrations/google" in html.unescape(response.text)
+    assert "Record signal-loop proof" not in response.text
+    assert "weekly signal-to-decision review was actually reviewed" not in response.text
+
+
+def test_admin_proactive_ooda_approval_page_prefers_digest_notification_action_over_queue_head(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-admin-proactive-approval-digest-priority"
+    client = _operator_client(principal_id=principal_id)
+    from app.api.routes import landing_console_support
+
+    monkeypatch.setattr(
+        landing_console_support,
+        "resolve_proactive_ooda_capture_bundle",
+        lambda **_kwargs: {
+            "bundle": {
+                "run_receipt": {"notification_status": "sent"},
+                "run_receipt_path": "state/proactive_ooda_latest_run.generated.json",
+                "stage_packet_path": "state/proactive_ooda_stage_packets/current.json",
+                "safe_work_result_path": "state/proactive_ooda_safe_work_results/current.json",
+                "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
+                "stage_packet": {"packet_ref": "stage_packet:current"},
+                "safe_work_result": {
+                    "result_ref": "safe_work_result:current",
+                    "status": "staged_for_user_decision",
+                    "approval": {"required": True},
+                },
+                "approval_outcome": {},
+                "current_packet_live_pending_count": 0,
+            },
+            "bundle_source": "live_runtime",
+            "host_fallback_used": False,
+            "fallback_reason": "",
+            "live_report": {"status": "ok"},
+            "approval_selection": {
+                "approval_outcome": {},
+                "stale_saved_approval_outcome_present": False,
+                "source": "",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        landing_console_support,
+        "_load_continuous_improvement_goal_posture",
+        lambda: {
+            "operator_action_queue": [
+                {
+                    "key": "google_workspace_oauth_setup",
+                    "title": "Google Workspace OAuth test-user setup",
+                    "instruction": "Open Google Auth Platform, confirm the requested work account is allowed there, add it if missing, save, then retry the Full Workspace auth link.",
+                    "next_action_label": "Open Google setup",
+                    "next_action_href": "/integrations/google",
+                    "user_action_required": True,
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        landing_console_support,
+        "_load_operator_action_required_digest",
+        lambda: {
+            "notification_items": [
+                {
+                    "key": "pushbullet_delivery_setup",
+                    "title": "Pushbullet delivery setup",
+                    "instruction": "Create missing Pushbullet access tokens for configured delivery clients, then rerun readiness.",
+                    "next_action_form_label": "Open Pushbullet account settings",
+                    "next_action_form_href": "https://www.pushbullet.com/#settings/account",
+                }
+            ]
+        },
+    )
+    response = client.get("/admin/proactive-ooda/approval")
+
+    assert response.status_code == 200
+    assert "No approval pending" in response.text
+    assert "Open Pushbullet account settings" in response.text
+    assert "https://www.pushbullet.com/#settings/account" in html.unescape(response.text)
+    assert "Create missing Pushbullet access tokens for configured delivery clients, then rerun readiness." in response.text
+    assert "Open Google setup" not in response.text
 
 
 def test_admin_proactive_ooda_approval_page_shows_runtime_recovery_controls(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1643,10 +2416,10 @@ def test_admin_proactive_ooda_approval_page_shows_runtime_recovery_controls(monk
     response = client.get("/admin/proactive-ooda/approval")
 
     assert response.status_code == 200
-    assert "Runtime and approval controls" in response.text
-    assert "Operator runtime posture" in response.text
-    assert "Gold proof posture" in response.text
-    assert "Telegram approval surface" in response.text
-    assert "Reconnect Google workspace" in response.text
-    assert reconnect_href in html.unescape(response.text)
-    assert "pending 1" in response.text
+    assert "Runtime and approval controls" not in response.text
+    assert "Operator runtime posture" not in response.text
+    assert "Gold proof posture" not in response.text
+    assert "Telegram approval surface" not in response.text
+    assert "Reconnect Google workspace" not in response.text
+    assert reconnect_href not in html.unescape(response.text)
+    assert "pending 1" not in response.text

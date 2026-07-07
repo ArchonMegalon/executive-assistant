@@ -51,6 +51,8 @@ def register_builtin_amazon_login(
                     "provider_backend": {"type": "string"},
                     "render_status": {"type": "string"},
                     "login_state": {"type": "string"},
+                    "user_action_required": {"type": "boolean"},
+                    "blocker_code": {"type": "string"},
                     "requested_url": {"type": "string"},
                     "editor_url": {"type": ["string", "null"]},
                     "title": {"type": ["string", "null"]},

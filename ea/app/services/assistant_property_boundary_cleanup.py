@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,17 +31,18 @@ def cleanup_hidden_property_runtime_state(
     stage_packet_total = 0
     safe_work_result_total = 0
     approval_callback_total = 0
+    run_receipt_total = 0
     archived_total = 0
     archive_dirs: list[str] = []
     archived_stage_packets: list[str] = []
     archived_safe_work_results: list[str] = []
     archived_approval_callbacks: list[str] = []
+    archived_run_receipts: list[str] = []
 
     for root in roots:
         paths = resolve_runtime_artifact_paths(root=root, state_path=state_path)
         archive_root = _archive_root_for_paths(paths=paths, root=root, archive_label=normalized_archive_label)
-        stage_packet_refs: set[str] = set()
-        safe_work_result_refs: set[str] = set()
+        stage_packet_refs, safe_work_result_refs = _archived_hidden_property_refs(paths=paths, root=root)
 
         for path in sorted(paths["stage_packet_dir"].glob("*.json")):
             payload = _read_json(path)
@@ -87,6 +89,29 @@ def cleanup_hidden_property_runtime_state(
             archived_total += 1
             approval_callback_total += 1
 
+        hidden_stage_packet_hashes = {_ref_sha256(ref) for ref in stage_packet_refs}
+        hidden_safe_work_result_hashes = {_ref_sha256(ref) for ref in safe_work_result_refs}
+        seen_run_receipt_paths: set[str] = set()
+        run_receipt_candidates = [paths["run_receipt_path"], *sorted(paths["run_receipt_dir"].glob("*.json"))]
+        for path in run_receipt_candidates:
+            key = str(path.resolve())
+            if key in seen_run_receipt_paths or not path.exists():
+                continue
+            seen_run_receipt_paths.add(key)
+            payload = _read_json(path)
+            if not _run_receipt_references_hidden_property(
+                payload,
+                stage_packet_hashes=hidden_stage_packet_hashes,
+                safe_work_result_hashes=hidden_safe_work_result_hashes,
+            ):
+                continue
+            destination = archive_root / "run_receipts" / path.name
+            _archive_file(path, destination)
+            archive_dirs.append(str(destination.parent))
+            archived_run_receipts.append(str(destination))
+            archived_total += 1
+            run_receipt_total += 1
+
     return {
         "status": "ok",
         "roots": [str(root) for root in roots],
@@ -99,6 +124,8 @@ def cleanup_hidden_property_runtime_state(
         "archived_stage_packets": archived_stage_packets,
         "archived_safe_work_results": archived_safe_work_results,
         "archived_approval_callbacks": archived_approval_callbacks,
+        "archived_run_receipts": archived_run_receipts,
+        "run_receipt_total": run_receipt_total,
     }
 
 
@@ -106,6 +133,32 @@ def _payload_mentions_hidden_property(payload: dict[str, Any]) -> bool:
     if not payload:
         return False
     return material_mentions_flat_property_search(payload)
+
+
+def _archived_hidden_property_refs(*, paths: dict[str, Path], root: Path) -> tuple[set[str], set[str]]:
+    archive_parent = _archive_root_for_paths(paths=paths, root=root, archive_label="_probe").parent
+    stage_packet_refs: set[str] = set()
+    safe_work_result_refs: set[str] = set()
+    if not archive_parent.is_dir():
+        return stage_packet_refs, safe_work_result_refs
+
+    for path in sorted(archive_parent.glob("*/stage_packets/*.json")):
+        payload = _read_json(path)
+        if not _payload_mentions_hidden_property(payload):
+            continue
+        packet_ref = str(payload.get("packet_ref") or "").strip()
+        if packet_ref:
+            stage_packet_refs.add(packet_ref)
+
+    for path in sorted(archive_parent.glob("*/safe_work_results/*.json")):
+        payload = _read_json(path)
+        if not _payload_mentions_hidden_property(payload):
+            continue
+        result_ref = str(payload.get("result_ref") or "").strip()
+        if result_ref:
+            safe_work_result_refs.add(result_ref)
+
+    return stage_packet_refs, safe_work_result_refs
 
 
 def _archive_root_for_paths(*, paths: dict[str, Path], root: Path, archive_label: str) -> Path:
@@ -151,3 +204,29 @@ def _unique_destination(path: Path) -> Path:
 
 def _archive_label() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _ref_sha256(value: str) -> str:
+    normalized = str(value or "").strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest() if normalized else ""
+
+
+def _run_receipt_references_hidden_property(
+    payload: dict[str, Any],
+    *,
+    stage_packet_hashes: set[str],
+    safe_work_result_hashes: set[str],
+) -> bool:
+    if not payload:
+        return False
+    receipt_stage_hashes = {
+        str(item or "").strip()
+        for item in list(payload.get("stage_packet_ref_hashes") or [])
+        if str(item or "").strip()
+    }
+    receipt_safe_hashes = {
+        str(item or "").strip()
+        for item in list(payload.get("safe_work_result_ref_hashes") or [])
+        if str(item or "").strip()
+    }
+    return bool(receipt_stage_hashes & stage_packet_hashes or receipt_safe_hashes & safe_work_result_hashes)

@@ -236,6 +236,41 @@ def test_runner_load_signals_aggregates_configured_sources_and_observations(tmp_
     assert [signal["source_ref"] for signal in signals] == ["static:1", "discovery:1", "observation:1"]
 
 
+def test_runner_load_signals_filters_property_scoped_static_rows(tmp_path, monkeypatch) -> None:
+    _stub_empty_workspace(monkeypatch)
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "static:property",
+                    "title": "Apartment shortlist",
+                    "summary": "Compare the best apartments in Vienna.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    signals = runner._load_signals(
+        Namespace(
+            principal_id="exec",
+            signals_json=str(signal_file),
+            discovery_json="",
+            opportunity_rules_json="",
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            skip_workspace_source=True,
+            email_limit=8,
+            calendar_limit=8,
+            gmail_query="",
+        )
+    )
+
+    assert signals == []
+
+
 def test_runner_notification_approval_request_builds_record_only_prompt_for_auto_executed_gmail_draft(
     tmp_path,
 ) -> None:
@@ -297,6 +332,9 @@ def test_runner_notification_approval_request_builds_record_only_prompt_for_auto
         "staged_action_url": "https://example.test/vendor-a",
         "approved_execution_mode": "record_outcome_only",
         "approved_action": "save_gmail_draft",
+        "work_type": "",
+        "notification_policy": "",
+        "operator_action_required": False,
     }
 
 
@@ -346,7 +384,73 @@ def test_runner_notification_approval_request_builds_prompt_for_staged_research_
         "staged_artifact_ref": "safe_work_result:res-research-1",
         "approval_prompt": "Approve whether EA should keep this staged shortlist candidate.",
         "staged_action_url": "https://example.test/research-a",
+        "work_type": "",
+        "notification_policy": "",
+        "operator_action_required": False,
     }
+
+
+def test_runner_notification_approval_request_marks_approval_gated_shortlist_as_actionable(
+    tmp_path,
+) -> None:
+    stage_path = tmp_path / "packet-approval.json"
+    safe_path = tmp_path / "result-approval.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema": "proactive_ooda.stage_packet.v1",
+                "packet_ref": "stage_packet:pkt-approval-1",
+                "item_index": 1,
+                "approval": {"required": True},
+                "stage": {
+                    "payload": {
+                        "kind": "approval_packet",
+                        "work_type": "compare_options",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    safe_path.write_text(
+        json.dumps(
+            {
+                "schema": "proactive_ooda.safe_work_result.v1",
+                "result_ref": "safe_work_result:res-approval-1",
+                "source_packet_ref_hash": runner._hash_value("stage_packet:pkt-approval-1"),
+                "status": "staged_for_user_decision",
+                "approval_prompt": (
+                    "Approve whether EA should proceed with this staged shortlist candidate. "
+                    "Research, compare, or draft only; require explicit approval before purchase, booking, "
+                    "cancellation, sending, posting, or commitment."
+                ),
+                "staged_action_url": "https://example.test/research-a",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    approval_request = runner._notification_approval_request(
+        stage_packet_paths=(stage_path,),
+        safe_work_result_paths=(safe_path,),
+        auto_execute_results=(),
+    )
+
+    assert approval_request == {
+        "packet_ref": "stage_packet:pkt-approval-1",
+        "staged_artifact_ref": "safe_work_result:res-approval-1",
+        "approval_prompt": (
+            "Approve whether EA should proceed with this staged shortlist candidate. "
+            "Research, compare, or draft only; require explicit approval before purchase, booking, "
+            "cancellation, sending, posting, or commitment."
+        ),
+        "staged_action_url": "https://example.test/research-a",
+        "approved_action": "keep_staged",
+        "work_type": "compare_options",
+        "notification_policy": "",
+        "operator_action_required": False,
+    }
+    assert runner._notification_requires_user_action(approval_request) is True
 
 
 def test_runner_notification_requires_user_action_rejects_internal_proof_packets() -> None:

@@ -309,6 +309,144 @@ def test_build_safe_work_result_enriches_live_page_checks_and_prefers_reachable_
     assert result["comparison_table"][0]["recommended"] is True
 
 
+def test_build_safe_work_result_recovers_same_host_contact_email_for_local_provider_draft(monkeypatch) -> None:
+    packet = _packet_with_cart_work()
+    request_text = (
+        "Suche mir einen Rauchfangkehrer in 1200 Wien fuer ein Gutachten, ob ich meinen "
+        "Zimmerkamin als Abluftrohr eines Klimageraets verwenden kann. "
+        "Wenn du einen gefunden hast, formuliere eine kurze Emailanfrage und speichere sie als Draft in meiner Inbox."
+    )
+    recipient_context = {
+        "location": {
+            "phrases": ["1200 Wien"],
+            "city_terms": ["Wien"],
+            "postal_codes": ["1200"],
+            "country_codes": ["AT"],
+        }
+    }
+    packet["stage"]["payload"] = {  # type: ignore[index]
+        "kind": "research_packet",
+        "summary": "One researched inquiry draft saved to Gmail for review.",
+        "work_type": "draft",
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr 1200 Wien",
+        "search_queries": ["Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr 1200 Wien"],
+        "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+        "recipient_context": recipient_context,
+        "locale": "de",
+        "auto_execute_action": "save_gmail_draft",
+        "post_approval_action": "save_gmail_draft",
+        "candidate_items": [
+            {
+                "label": "Befunderstellung - Wiener Rauchfangkehrer",
+                "url": "https://rauchfangkehrer-wien.example.at/befund",
+                "snippet": "Rauchfangkehrer in Wien fuer Befundung und Gutachten.",
+                "reachable": True,
+            },
+            {
+                "label": "Rauchfangkehrermeister Salzburg Kontakt",
+                "url": "https://rauchfangkehrer-salzburg.example.at/kontakt",
+                "snippet": "Rauchfangkehrer in Salzburg fuer Befundung und Gutachten.",
+                "reachable": True,
+                "contact_email": "office@rauchfangkehrer-salzburg.example.at",
+            },
+        ],
+    }
+    packet["safe_work_order"]["work_type"] = "draft"  # type: ignore[index]
+    packet["safe_work_order"]["input_contract"] = {  # type: ignore[index]
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr 1200 Wien",
+        "search_queries": ["Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr 1200 Wien"],
+        "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+        "recipient_context": recipient_context,
+        "auto_execute_action": "save_gmail_draft",
+        "post_approval_action": "save_gmail_draft",
+        "expected_artifacts": ["shortlist", "draft_text"],
+        "private_payload_available": True,
+    }
+
+    class Response:
+        def __init__(self, url: str, html: str, status: int = 200):
+            self._url = url
+            self.status = status
+            self.headers = type(
+                "Headers",
+                (),
+                {
+                    "get": lambda self, key, default=None: "text/html; charset=utf-8" if key == "Content-Type" else default,
+                    "get_content_charset": lambda self: "utf-8",
+                },
+            )()
+            self._body = html.encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, *_args):
+            return self._body
+
+        def geturl(self):
+            return self._url
+
+    def fake_urlopen(request, timeout):
+        if request.full_url == "https://rauchfangkehrer-wien.example.at/befund":
+            return Response(
+                request.full_url,
+                (
+                    "<html><head><title>Befunderstellung | Wiener Rauchfangkehrer</title></head>"
+                    "<body><a href=\"/organisation\">Organisation</a></body></html>"
+                ),
+            )
+        if request.full_url == "https://rauchfangkehrer-wien.example.at/organisation":
+            return Response(
+                request.full_url,
+                (
+                    "<html><head><title>Organisation | Wiener Rauchfangkehrer</title></head>"
+                    "<body><a href=\"/meta/kontakt\">Kontakt</a></body></html>"
+                ),
+            )
+        if request.full_url == "https://rauchfangkehrer-wien.example.at/meta/kontakt":
+            return Response(
+                request.full_url,
+                "<html><head><title>Kontakt | Wiener Rauchfangkehrer</title></head><body>Kontakt: rauchfangkehrer@wkw.at</body></html>",
+            )
+        if request.full_url == "https://rauchfangkehrer-salzburg.example.at/kontakt":
+            return Response(
+                request.full_url,
+                "<html><head><title>Rauchfangkehrer Salzburg</title></head><body>office@rauchfangkehrer-salzburg.example.at</body></html>",
+            )
+        raise RuntimeError(f"unexpected_url:{request.full_url}")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    result = build_safe_work_result(packet, network_fetch_enabled=True, network_fetch_limit=4, network_fetch_timeout_seconds=3)
+
+    assert result["status"] == "staged_for_user_decision"
+    assert result["audit"]["status"] == "pass"
+    assert result["audit_receipt"]["status"] == "pass"
+    assert result["quality_gate"]["status"] == "pass"
+    assert result["recommended_option_or_draft"]["kind"] == "draft_text"
+    assert result["recommended_option_or_draft"]["source"] == "candidate_synthesis"
+    assert result["recommended_option_or_draft"]["recipient_email"] == "rauchfangkehrer@wkw.at"
+    assert result["shortlist"][0]["url"] == "https://rauchfangkehrer-wien.example.at/befund"
+    assert result["shortlist"][0]["contact_email"] == "rauchfangkehrer@wkw.at"
+    assert result["shortlist"][0]["contact_page_url"] == "https://rauchfangkehrer-wien.example.at/meta/kontakt"
+    assert result["comparison_table"][0]["recommended"] is True
+    assert "contact details visible" in result["comparison_table"][0]["matched_criteria"]
+    assert "missing stored locality context" in result["comparison_table"][1]["constraint_violations"]
+    assert "operator_meta_removed_from_outreach_request" in {
+        issue["code"] for issue in result["audit"]["issues"]
+    }
+    assert result["execution_receipt"]["network_fetch_count"] == 2
+    assert result["execution_receipt"]["network_fetch_success_count"] == 2
+    assert result["execution_receipt"]["stop_condition"] == "draft_ready_for_user_review"
+
+
 def test_build_safe_work_result_prefers_direct_provider_page_over_reference_noise() -> None:
     digest = ProactiveOodaService().build_digest(
         principal_id="exec",

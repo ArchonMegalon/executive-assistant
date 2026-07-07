@@ -22,7 +22,7 @@ def _base_payload() -> dict[str, object]:
         "summary": "A proactive OODA packet has local gold-proof runtime evidence; capture the redacted approval outcome next.",
         "next_action": "record_proactive_ooda_approval_outcome",
         "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-        "next_action_label": "Open approval capture",
+        "next_action_label": "Record packet verdict",
         "next_action_method": "get",
         "goal_completion_claim_allowed": False,
         "gold_claim_allowed": False,
@@ -49,14 +49,25 @@ def _base_payload() -> dict[str, object]:
             "approval_capture_readiness": {
                 "present": True,
                 "status": "pass",
-                "required": False,
-                "checked": False,
-                "ready": False,
+                "required": True,
+                "checked": True,
+                "ready": True,
                 "raw_callback_token_exposed": False,
                 "raw_principal_id_exposed": False,
                 "raw_chat_ref_exposed": False,
                 "raw_packet_ref_exposed": False,
                 "raw_staged_artifact_ref_exposed": False,
+            },
+            "approval_followthrough_notification": {
+                "present": True,
+                "status": "pass",
+                "required_for_current_status": False,
+                "approval_followthrough_prompt_sent": False,
+                "notification_status": "",
+                "message_count": 0,
+                "raw_chat_ids_exposed": False,
+                "raw_private_context_exposed": False,
+                "raw_token_exposed": False,
             },
             "approval_outcome": {
                 "present": False,
@@ -84,7 +95,7 @@ def _base_payload() -> dict[str, object]:
             "make verify-proactive-ooda-gold-acceptance",
         ],
         "rules": [
-            "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
+            "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, and, when the selected packet depends on website research or browser work, live browse evidence are present alongside a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome.",
             "Irreversible purchases, bookings, cancellations, sent messages, posts, and commitments remain consent-gated even when proactive staging is automated.",
             "Website browser work must produce a redacted browser-action receipt; CAPTCHA, Cloudflare, MFA, passkey, or credential blockers require a human handoff and must not be counted as completed work.",
             "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
@@ -194,6 +205,21 @@ def test_proactive_ooda_gold_acceptance_verifier_rejects_pass_without_accepted_o
     assert "pass requires approval_outcome.accepted=true" in issues
 
 
+def test_proactive_ooda_gold_acceptance_verifier_rejects_ready_status_without_live_capture_readiness(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    payload = _base_payload()
+    payload["proofs"]["approval_capture_readiness"]["ready"] = False
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert "ready_for_approval_outcome_capture requires approval_capture_readiness.ready=true" in issues
+
+
 def test_proactive_ooda_gold_acceptance_verifier_rejects_pass_with_suppressed_projection_recovery(
     tmp_path: Path,
     monkeypatch,
@@ -247,6 +273,41 @@ def test_proactive_ooda_gold_acceptance_verifier_rejects_pass_with_filtered_curr
     assert "pass requires operator_runtime_posture.current_artifact_filter_ready=true" in issues
 
 
+def test_proactive_ooda_gold_acceptance_verifier_rejects_callback_hygiene_drift(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    payload = _base_payload()
+    payload["evidence_receipts"] = {
+        "approval_capture_surface": {
+            "present": True,
+            "ready": False,
+            "selected_channel": "telegram",
+            "callback_dir_writable": True,
+            "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
+            "callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+            "callback_hygiene_ready": False,
+            "callback_hygiene_blocking_reason": "approval_callback_noncurrent_pending",
+            "callback_hygiene_next_action": "cleanup_proactive_approval_callbacks",
+            "callback_noncurrent_pending_count": 2,
+            "callback_stale_pending_count": 2,
+            "current_packet_callback_stale_pending_count": 0,
+            "current_packet_duplicate_live_pending_count": 0,
+        }
+    }
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+    payload["evidence_receipts"]["approval_capture_surface"]["callback_hygiene_ready"] = True
+    _write_receipt(receipt, **payload)
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert "ready approval_capture_surface requires callback_noncurrent_pending_count=0" in issues
+
+
 def test_proactive_ooda_gold_acceptance_verifier_allows_ready_state_before_action_required_proof(
     tmp_path: Path,
     monkeypatch,
@@ -264,7 +325,7 @@ def test_proactive_ooda_gold_acceptance_verifier_allows_ready_state_before_actio
     assert verifier.verify(receipt, root=tmp_path) == []
 
 
-def test_proactive_ooda_gold_acceptance_verifier_rejects_linked_operator_status_drift(
+def test_proactive_ooda_gold_acceptance_verifier_accepts_newer_linked_operator_status_snapshot_same_source_revision(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -293,10 +354,7 @@ def test_proactive_ooda_gold_acceptance_verifier_rejects_linked_operator_status_
     _write_receipt(receipt, **payload)
     monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
 
-    issues = verifier.verify(receipt, root=tmp_path)
-
-    assert "linked operator_status status drifted" in issues
-    assert "linked operator_status generated_at drifted" in issues
+    assert verifier.verify(receipt, root=tmp_path) == []
 
 
 def test_proactive_ooda_gold_acceptance_verifier_rejects_ready_approval_surface_without_live_pending_callback(
@@ -363,6 +421,7 @@ def test_proactive_ooda_gold_acceptance_verifier_accepts_ready_manual_approval_s
             "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
             "callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
             "current_packet_live_pending_count": 0,
+            "current_packet_matches_packet_artifacts": True,
             "telegram_approval_surface_ready": False,
             "manual_outcome_capture_ready": True,
             "current_packet_approval_request_recordable": True,
@@ -425,6 +484,7 @@ def test_proactive_ooda_gold_acceptance_verifier_accepts_manual_approval_surface
             "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
             "callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
             "current_packet_live_pending_count": 1,
+            "current_packet_matches_packet_artifacts": True,
             "telegram_approval_surface_ready": False,
             "manual_outcome_capture_ready": True,
             "current_packet_approval_request_recordable": True,
@@ -592,3 +652,96 @@ def test_proactive_ooda_gold_acceptance_verifier_requires_source_coverage_surfac
     assert "verify_postgres_observation_source requires next_action_label" in issues
     assert "verify_postgres_observation_source requires next_action_method=get" in issues
     assert "operator_runtime_posture verify_postgres_observation_source requires next_action_href" in issues
+
+
+def test_proactive_ooda_gold_acceptance_verifier_accepts_dedupe_covered_approval_followthrough_prompt(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    operator_status = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    _write_receipt(
+        operator_status,
+        contract_name="ea.proactive_ooda_operator_status.v1",
+        generated_by="scripts/materialize_proactive_ooda_operator_status.py",
+        head_semantics="source_state",
+        status="ready_with_recovery_action",
+        generated_at="2026-07-06T05:23:27Z",
+        source_git_head="source-head-123",
+        source_state_fingerprint="source-fingerprint-123",
+    )
+    payload = _base_payload()
+    payload["summary"] = (
+        "A proactive OODA packet has local gold-proof runtime evidence, the approval-needed Telegram prompt has been "
+        "sent, and a live Telegram approval capture surface is ready; capture the redacted approval outcome next."
+    )
+    payload["next_action"] = "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+    payload["proofs"]["approval_followthrough_notification"] = {
+        "present": True,
+        "status": "pass",
+        "required_for_current_status": True,
+        "approval_followthrough_prompt_sent": True,
+        "approval_followthrough_prompt_covered_by_prior_send": True,
+        "notification_status": "suppressed_duplicate",
+        "message_count": 0,
+        "dedupe_proof_status": "pass",
+        "current_actions_covered_by_prior_state": True,
+        "dedupe_state_message_id_count": 1,
+        "raw_chat_ids_exposed": False,
+        "raw_private_context_exposed": False,
+        "raw_token_exposed": False,
+    }
+    payload["evidence_receipts"] = {
+        "operator_status": {
+            "present": True,
+            "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
+            "contract_name": "ea.proactive_ooda_operator_status.v1",
+            "status": "ready_with_recovery_action",
+            "generated_at": "2026-07-06T05:23:27Z",
+            "source_git_head": "source-head-123",
+            "source_state_fingerprint": "source-fingerprint-123",
+        },
+        "operator_action_required_digest": {
+            "present": True,
+            "path": ".codex-studio/published/ea_operator_action_required_digest.generated.json",
+            "status": "suppressed_duplicate",
+            "notification_status": "suppressed_duplicate",
+            "notification_item_count": 0,
+            "included_action_keys": ["proactive_ooda_packet_acceptance"],
+            "notification_action_keys": [],
+            "send_attempted": False,
+            "send_requested": True,
+            "message_count": 0,
+            "targeted_action_present": True,
+            "approval_followthrough_prompt_sent": True,
+            "approval_followthrough_prompt_covered_by_prior_send": True,
+            "dedupe_proof_present": True,
+            "dedupe_proof_status": "pass",
+            "current_actions_covered_by_prior_state": True,
+            "dedupe_state_message_id_count": 1,
+            "quiet_hours_respected": True,
+            "telegram_push_allowed": True,
+            "raw_chat_ids_exposed": False,
+            "raw_private_context_exposed": False,
+            "raw_token_exposed": False,
+        },
+        "operator_action_required_dedupe_proof": {
+            "present": True,
+            "path": ".codex-studio/published/ea_operator_action_required_dedupe_proof.generated.json",
+            "status": "pass",
+            "included_action_keys": ["proactive_ooda_packet_acceptance"],
+            "targeted_action_present": True,
+            "suppressed_duplicate_expected": True,
+            "current_actions_covered_by_prior_state": True,
+            "notification_mode_without_force": "covered_by_previous_send",
+            "state_message_id_count": 1,
+            "sent_digest_status": "suppressed_duplicate",
+            "sent_digest_notification_status": "suppressed_duplicate",
+            "sent_digest_message_count": 0,
+            "approval_followthrough_prompt_previously_sent": True,
+        },
+    }
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    assert verifier.verify(receipt, root=tmp_path) == []

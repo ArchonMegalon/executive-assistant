@@ -1529,6 +1529,7 @@ class ProviderRegistryService:
                 )
             )
         effective_state = str(health_payload.get("state") or state.state or "unknown").strip().lower() or "unknown"
+        detail = str(health_payload.get("detail") or "").strip() or str((state.health_details_json or {}).get("detail") or "").strip()
         ready_slots = int(slot_pool_summary.get("ready_slots") or 0)
         degraded_slots = int(slot_pool_summary.get("degraded_slots") or 0)
         configured_slots = int(slot_pool_summary.get("configured_slots") or 0)
@@ -1538,10 +1539,9 @@ class ProviderRegistryService:
             elif degraded_slots > 0:
                 effective_state = "degraded"
             elif configured_slots > 0:
-                effective_state = "unavailable"
+                effective_state = "unknown" if detail == "unknown_unprobed" else "unavailable"
         elif effective_state == "ready" and configured_slots > 0 and ready_slots <= 0:
             effective_state = "degraded" if degraded_slots > 0 else "unavailable"
-        detail = str(health_payload.get("detail") or "").strip() or str((state.health_details_json or {}).get("detail") or "").strip()
         capacity = {
             "state": effective_state,
             "remaining_percent_of_max": health_payload.get("remaining_percent_of_max"),
@@ -1655,6 +1655,27 @@ class ProviderRegistryService:
             if bool(provider.enabled) and bool(provider.executable):
                 return provider
         return lane_providers[0]
+
+    @staticmethod
+    def _prefer_onemin_probe_pending_primary(
+        profile_name: str,
+        providers: Sequence[ProviderRegistryProviderView],
+    ) -> ProviderRegistryProviderView | None:
+        if str(profile_name or "").strip() not in {"core", "core_batch", "core_rescue", "easy", "repair", "groundwork"}:
+            return None
+        for provider in providers:
+            if provider is None:
+                continue
+            if not bool(provider.enabled) or not bool(provider.executable):
+                continue
+            if str(provider.provider_key or "").strip() != "onemin":
+                continue
+            if str(provider.detail or "").strip().lower() != "unknown_unprobed":
+                continue
+            configured_slots = int((dict(provider.slot_pool or {})).get("configured_slots") or 0)
+            if configured_slots > 0:
+                return provider
+        return None
 
     @staticmethod
     def _effective_lane_provider_hint_order(
@@ -1858,7 +1879,9 @@ class ProviderRegistryService:
                 for provider_key in lane_provider_keys
                 if provider_key in provider_views
             )
-            primary = self._preferred_lane_primary(lane_providers)
+            primary = self._prefer_onemin_probe_pending_primary(profile_name, lane_providers)
+            if primary is None:
+                primary = self._preferred_lane_primary(lane_providers)
             if route_primary_provider_key and route_primary_provider_key in provider_views:
                 primary = provider_views[route_primary_provider_key]
             effective_hint_order = self._effective_lane_provider_hint_order(provider_hint_order, primary)

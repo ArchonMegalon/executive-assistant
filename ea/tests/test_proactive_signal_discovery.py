@@ -1,6 +1,9 @@
 from __future__ import annotations
+
+import json
+from pathlib import Path
 from app.services import proactive_signal_discovery
-from app.services.proactive_signal_discovery import observation_row_to_signal
+from app.services.proactive_signal_discovery import SignalSource, observation_row_to_signal
 
 
 def _telegram_message_signal(*, text: str, created_at: str = "2026-06-30T12:00:00+00:00") -> object | None:
@@ -151,3 +154,89 @@ def test_office_signal_property_scout_ooda_is_ignored_from_ea_loop() -> None:
     )
 
     assert signal is None
+
+
+def test_office_signal_with_flat_property_summary_without_explicit_markers_is_ignored() -> None:
+    signal = observation_row_to_signal(
+        observation_id="obs-property-ooda-wohnung",
+        principal_id="principal-1",
+        channel="product",
+        event_type="office_signal_ooda_evaluated",
+        payload={
+            "summary": "2 Zimmer Wohnung in 1200 Wien vergleichen und entscheiden.",
+            "counterparty": "Wohnungssuche",
+            "signal_type": "office_signal",
+            "ooda_loop": {
+                "summary": "Ziel: Wohnung in 1200 Wien",
+                "observe": {
+                    "summary": "2 Zimmer Wohnung in 1200 Wien",
+                    "counterparty": "Wohnungssuche",
+                    "signal_type": "research_task",
+                },
+            },
+        },
+        created_at="2026-07-02T12:00:00+00:00",
+        source_id="office-signal:1",
+        external_id="office-signal-wohnung",
+        dedupe_key="office-signal-wohnung",
+    )
+
+    assert signal is None
+
+
+def test_signal_from_row_is_ignored_when_row_mentions_flat_property() -> None:
+    source = SignalSource(source_type="json", ref="/tmp/test.json")
+    signal = proactive_signal_discovery._signal_from_row(
+        {
+            "title": "Wohnung suchen",
+            "summary": "2 Zimmer Wohnung in 1200 Wien vergleichen.",
+            "counterparty": "PropertyScout",
+        },
+        source=source,
+        index=0,
+    )
+
+    assert signal is None
+
+
+def test_signal_from_teable_record_is_ignored_when_record_mentions_flat_property() -> None:
+    source = SignalSource(source_type="teable", ref="table-123")
+    signal = proactive_signal_discovery._signal_from_teable_record(
+        {
+            "title": "Wohnungssuche",
+            "summary": "Apartment in 1200 Wien gefunden.",
+            "counterparty": "PropertyScout",
+        },
+        record_id="row-1",
+        source=source,
+    )
+
+    assert signal is None
+
+
+def test_load_json_source_filters_property_rows_before_signal_materialization(tmp_path: Path) -> None:
+    source_path = tmp_path / "signals.json"
+    source_path.write_text(
+        json.dumps(
+            {
+                "signals": [
+                    {
+                        "title": "Wohnung in 1200 Wien",
+                        "summary": "Apartment candidate found.",
+                        "counterparty": "PropertyScout",
+                    },
+                    {
+                        "title": "Rauchfangkehrer Termin",
+                        "summary": "Vergleichsmailing to electrician?",
+                        "counterparty": "Support",
+                    },
+                ]
+            }
+        )
+    )
+    source = SignalSource(source_type="json", ref=str(source_path))
+
+    signals = proactive_signal_discovery._load_json_source(source, base_dir=Path("/"), timeout_seconds=20)
+
+    assert len(signals) == 1
+    assert signals[0].title == "Rauchfangkehrer Termin"

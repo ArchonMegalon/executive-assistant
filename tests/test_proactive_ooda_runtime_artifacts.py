@@ -200,6 +200,88 @@ def test_load_runtime_artifact_bundle_keeps_sent_packet_when_primary_is_newer_no
     assert bundle["safe_work_result"]["result_ref"] == "safe_work_result:res-actionable"
 
 
+def test_load_runtime_artifact_bundle_ignores_property_scoped_quiet_receipt(tmp_path: Path) -> None:
+    state_path = "state/proactive_ooda_notified.json"
+    primary_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    quiet_receipt_path = tmp_path / "state" / "proactive_ooda_run_receipts" / "20260705T101500Z-property-quiet.json"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+
+    property_stage = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-property",
+        "stage": {
+            "kind": "research_packet",
+            "payload": {
+                "research_query": "Compare apartment candidates in Vienna.",
+            },
+        },
+        "approval": {"required": True},
+    }
+    property_safe = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-property",
+        "source_packet_ref_hash": _sha256(property_stage["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "recommended_option_or_draft": {
+            "kind": "shortlist_candidate",
+            "value": {"label": "Apartment shortlist", "url": "https://example.test/apartment"},
+        },
+        "approval": {"required": True},
+        "execution_receipt": {
+            "network_fetch_count": 1,
+            "network_fetch_success_count": 1,
+            "page_checks": [{"url": "https://example.test/apartment", "reachable": True}],
+            "irreversible_actions_attempted": [],
+        },
+    }
+    _write_json(stage_dir / "pkt-property.json", property_stage)
+    _write_json(safe_dir / "res-property.json", property_safe)
+    _write_json(
+        primary_receipt_path,
+        {
+            "notification_status": "skipped_no_items",
+            "item_count": 0,
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "stage_packet_ref_hashes": [],
+            "safe_work_result_ref_hashes": [],
+            "telegram_message_ids": [],
+        },
+    )
+    _write_json(
+        quiet_receipt_path,
+        {
+            "notification_status": "deferred",
+            "error_code": "no_user_action_required",
+            "item_count": 1,
+            "stage_packet_ref_hashes": [_sha256(property_stage["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(property_safe["result_ref"])],
+            "telegram_message_ids": [],
+            "teable_sync": {
+                "status": "synced",
+                "sync_attempted": True,
+                "projection_summary": {
+                    "record_count": 1,
+                    "suppressed_item_count": 1,
+                    "suppressed_projection_reasons": ["flat_search_disabled"],
+                    "suppressed_safe_work_issue_codes": ["flat_search_disabled"],
+                    "tables": {
+                        "proactive_ooda_runs": {"record_count": 1},
+                        "proactive_ooda_items": {"record_count": 0},
+                        "proactive_ooda_safe_work": {"record_count": 0},
+                    },
+                },
+            },
+        },
+    )
+
+    bundle = load_runtime_artifact_bundle(root=tmp_path, state_path=state_path)
+
+    assert bundle["action_required_only_quiet_receipt_path"] is None
+    assert bundle["action_required_only_quiet_receipt"] == {}
+
+
 def test_load_runtime_artifact_bundle_prefers_current_operator_safe_mirror_over_old_sent_receipt(
     tmp_path: Path,
 ) -> None:

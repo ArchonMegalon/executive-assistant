@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 import urllib.parse
@@ -16,7 +17,18 @@ except Exception:  # pragma: no cover - compat path when the responses surface i
 from app.container import AppContainer
 from app.product.projections.handoffs import handoff_action_options, handoff_action_plan, handoff_from_human_task
 from app.product.service import build_product_service
+from app.services.assistant_property_lane import (
+    assistant_property_lane_enabled,
+    assistant_property_signal_present,
+    assistant_property_task_hidden_from_ea,
+)
 from app.services.ltd_provider_governance import build_ltd_provider_governance_receipt
+from app.services.proactive_ooda_live_ops_bridge import resolve_proactive_ooda_capture_bundle
+from app.services.proactive_ooda_runtime_artifacts import (
+    default_proactive_ooda_runtime_root,
+    current_packet_user_approval_surface,
+)
+from app.services.proactive_ooda_flat_search_policy import material_mentions_flat_property_search
 from app.services.provider_contract_status import build_provider_contract_status
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -63,6 +75,72 @@ def _load_receipt(path: Path) -> dict[str, object]:
     except (OSError, ValueError, json.JSONDecodeError):
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _assistant_property_admin_artifact_present(*values: object) -> bool:
+    if assistant_property_lane_enabled():
+        return False
+    if assistant_property_signal_present(*values):
+        return True
+    return material_mentions_flat_property_search(*values)
+
+
+def _assistant_visible_admin_human_task(task: object) -> bool:
+    if assistant_property_lane_enabled():
+        return True
+    task_type = str(getattr(task, "task_type", "") or "").strip()
+    if assistant_property_task_hidden_from_ea(task_type):
+        return False
+    return not _assistant_property_admin_artifact_present(
+        task_type,
+        getattr(task, "brief", ""),
+        getattr(task, "why_human", ""),
+        getattr(task, "resolution", ""),
+        getattr(task, "task_key", ""),
+        getattr(task, "deliverable_type", ""),
+        getattr(task, "input_json", {}),
+        getattr(task, "desired_output_json", {}),
+    )
+
+
+def _assistant_visible_admin_row(row: object) -> bool:
+    if assistant_property_lane_enabled():
+        return True
+    payload = row if isinstance(row, dict) else {}
+    return not _assistant_property_admin_artifact_present(
+        payload.get("title"),
+        payload.get("detail"),
+        payload.get("tag"),
+        payload.get("href"),
+        payload.get("action_href"),
+        payload.get("action_label"),
+        payload.get("action_value"),
+        payload.get("secondary_action_href"),
+        payload.get("secondary_action_label"),
+        payload.get("secondary_action_value"),
+        payload.get("tertiary_action_href"),
+        payload.get("tertiary_action_label"),
+        payload.get("tertiary_action_value"),
+        payload.get("quaternary_action_href"),
+        payload.get("quaternary_action_label"),
+        payload.get("quaternary_action_value"),
+    )
+
+
+def _filter_admin_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    if assistant_property_lane_enabled():
+        return rows
+    return [row for row in rows if _assistant_visible_admin_row(row)]
+
+
+def _summarize_visible_human_task_priorities(tasks: list[object]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for task in tasks:
+        priority = str(getattr(task, "priority", "") or "").strip().lower()
+        if not priority:
+            continue
+        counts[priority] = counts.get(priority, 0) + 1
+    return counts
 
 
 def _row(
@@ -189,8 +267,14 @@ def _first_missing_signal_evidence_part(signal_receipt: dict[str, object]) -> st
     return next(iter(_SIGNAL_EVIDENCE_LABELS), "")
 
 
-def _signal_evidence_row(evidence_part: str, signal_receipt: dict[str, object]) -> dict[str, str]:
+def _signal_evidence_row(
+    evidence_part: str,
+    signal_receipt: dict[str, object],
+    *,
+    actionable_override: bool | None = None,
+) -> dict[str, str]:
     accepted = _signal_evidence_accepted(signal_receipt, evidence_part)
+    actionable = actionable_override if actionable_override is not None else _signal_evidence_capture_actionable(signal_receipt)
     requirements = {
         str(item.get("evidence_part") or ""): dict(item)
         for item in list(signal_receipt.get("signal_evidence_capture_requirements") or [])
@@ -201,12 +285,137 @@ def _signal_evidence_row(evidence_part: str, signal_receipt: dict[str, object]) 
     return _row(
         _SIGNAL_EVIDENCE_TITLES[evidence_part],
         _SIGNAL_EVIDENCE_LABELS[evidence_part],
-        "Accepted" if accepted else "Missing",
-        action_href="" if accepted else _signal_evidence_capture_href(evidence_part),
-        action_label="" if accepted else "Record evidence",
-        action_method="" if accepted else "get",
-        href="" if not accepted else _signal_evidence_capture_href(evidence_part),
+        "Accepted" if accepted else "Missing" if actionable else "Local",
+        action_href="" if accepted or not actionable else _signal_evidence_capture_href(evidence_part),
+        action_label="" if accepted or not actionable else "Record evidence",
+        action_method="" if accepted or not actionable else "get",
+        href="" if not accepted or not actionable else _signal_evidence_capture_href(evidence_part),
     ) | {"detail": f"{_SIGNAL_EVIDENCE_LABELS[evidence_part]} · {status}"}
+
+
+def _signal_evidence_capture_actionable(signal_receipt: dict[str, object]) -> bool:
+    status = str(signal_receipt.get("status") or "").strip()
+    return status != "ready_local_packet_pending_operator_acceptance"
+
+
+def _load_current_proactive_ooda_runtime_bundle() -> dict[str, object]:
+    try:
+        resolution = resolve_proactive_ooda_capture_bundle(
+            root=default_proactive_ooda_runtime_root(),
+            state_path=str(os.getenv("EA_PROACTIVE_OODA_STATE_PATH") or "state/proactive_ooda_notified.json").strip()
+            or "state/proactive_ooda_notified.json",
+            receipt_path=str(os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH") or "").strip(),
+            stage_packet_dir=str(os.getenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR") or "").strip(),
+            safe_work_result_dir=str(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR") or "").strip(),
+        )
+        return dict(resolution.get("bundle") or {})
+    except Exception:
+        return {}
+
+
+def _proactive_goal_action_surface_visible(
+    bundle: dict[str, object],
+    *,
+    proactive_operator_receipt: dict[str, object] | None = None,
+    proactive_gold_receipt: dict[str, object] | None = None,
+) -> bool:
+    if _proactive_runtime_has_live_pending_surface(bundle):
+        return True
+    receipt = proactive_operator_receipt or {}
+    if not isinstance(receipt, dict) or not receipt:
+        return False
+    next_action = str(receipt.get("next_action") or "").strip()
+    next_action_href = str(receipt.get("next_action_href") or "").strip()
+    status = str(receipt.get("status") or "").strip().lower()
+    if _proactive_receipt_is_approval_capture_only(receipt):
+        return False
+    return bool(next_action and (next_action_href or status not in {"", "pass"}))
+
+
+def _proactive_runtime_has_live_pending_surface(bundle: dict[str, object]) -> bool:
+    if not isinstance(bundle, dict) or not bundle:
+        return False
+    if any(
+        int(bundle.get(key) or 0) > 0
+        for key in (
+            "current_packet_live_pending_count",
+            "approval_callback_noncurrent_pending_count",
+            "approval_callback_stale_pending_count",
+            "current_packet_callback_stale_pending_count",
+        )
+    ):
+        return True
+    return current_packet_user_approval_surface(
+        stage_packet=dict(bundle.get("stage_packet") or {}),
+        safe_work_result=dict(bundle.get("safe_work_result") or {}),
+    )
+
+
+def _proactive_receipt_is_approval_capture_only(receipt: dict[str, object]) -> bool:
+    next_action = str(receipt.get("next_action") or "").strip().lower()
+    next_action_href = str(receipt.get("next_action_href") or "").strip().lower()
+    next_action_label = str(receipt.get("next_action_label") or "").strip().lower()
+    status = str(receipt.get("status") or "").strip().lower()
+    operator_action_state = str(receipt.get("operator_action_state") or "").strip().lower()
+    gold_acceptance_state = str(receipt.get("gold_acceptance_state") or "").strip().lower()
+    if next_action in {
+        "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+        "record_proactive_ooda_approval_outcome",
+        "maintain_proactive_ooda_gold_acceptance_evidence",
+    }:
+        return True
+    if status == "ready_for_approval_outcome_capture":
+        return True
+    if operator_action_state == "approval_capture_pending":
+        return True
+    if gold_acceptance_state in {"flat_candidate_waiting", "approval_capture_pending"}:
+        return True
+    if next_action_href.endswith("/admin/proactive-ooda/approval"):
+        return True
+    return "record packet verdict" in next_action_label
+
+
+def _assistant_property_scoped_proactive_runtime(
+    bundle: dict[str, object],
+    *,
+    proactive_operator_receipt: dict[str, object],
+    proactive_gold_receipt: dict[str, object],
+) -> bool:
+    if assistant_property_lane_enabled():
+        return False
+    if not isinstance(bundle, dict):
+        return False
+    if int(bundle.get("approval_callback_property_scoped_pending_count") or 0) > 0:
+        return True
+    if str(bundle.get("artifact_filter_reason") or "").strip() == "flat_search_disabled_property_scout":
+        return True
+    return material_mentions_flat_property_search(
+        bundle,
+        proactive_operator_receipt,
+        proactive_gold_receipt,
+        bundle.get("run_receipt"),
+        bundle.get("stage_packet"),
+        bundle.get("safe_work_result"),
+        bundle.get("approval_outcome"),
+        bundle.get("action_required_only_quiet_receipt"),
+        bundle.get("current_packet_callback_latest_status"),
+        bundle.get("current_packet_callback_latest_expired"),
+        bundle.get("current_packet_callback_latest_created_at"),
+        bundle.get("current_packet_callback_latest_expires_at"),
+    )
+
+
+def _proactive_goal_action_surface_property_scoped(
+    bundle: dict[str, object],
+    *,
+    proactive_operator_receipt: dict[str, object],
+    proactive_gold_receipt: dict[str, object],
+) -> bool:
+    return _assistant_property_scoped_proactive_runtime(
+        bundle,
+        proactive_operator_receipt=proactive_operator_receipt,
+        proactive_gold_receipt=proactive_gold_receipt,
+    )
 
 
 def _humanize(value: str) -> str:
@@ -543,11 +752,45 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     office_snapshot_state = product.workspace_snapshot(principal_id=principal_id, operator_id=operator_id)
     approvals = container.orchestrator.list_pending_approvals_for_principal(principal_id=principal_id, limit=8)
     approval_history = container.orchestrator.list_approval_history_for_principal(principal_id=principal_id, limit=8)
-    human_tasks = container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=8)
-    returned_human_tasks = container.orchestrator.list_human_tasks(principal_id=principal_id, status="returned", limit=8)
+    pending_human_tasks = list(container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=64))
+    returned_human_task_rows = list(
+        container.orchestrator.list_human_tasks(principal_id=principal_id, status="returned", limit=64)
+    )
+    human_tasks = [row for row in pending_human_tasks if _assistant_visible_admin_human_task(row)][:8]
+    returned_human_tasks = [row for row in returned_human_task_rows if _assistant_visible_admin_human_task(row)][:8]
     task_summary = container.orchestrator.summarize_human_task_priorities(principal_id=principal_id, status="pending")
+    if not assistant_property_lane_enabled():
+        task_summary = dict(task_summary or {})
+        visible_pending_human_tasks = [row for row in pending_human_tasks if _assistant_visible_admin_human_task(row)]
+        visible_counts = _summarize_visible_human_task_priorities(visible_pending_human_tasks)
+        task_summary["counts_json"] = visible_counts
+        task_summary["total"] = sum(visible_counts.values())
+    approvals = [
+        row
+        for row in approvals
+        if not _assistant_property_admin_artifact_present(
+            getattr(row, "reason", ""),
+            getattr(row, "requested_action_json", {}),
+        )
+    ]
+    approval_history = [
+        row
+        for row in approval_history
+        if not _assistant_property_admin_artifact_present(
+            getattr(row, "reason", ""),
+            getattr(row, "decision", ""),
+        )
+    ]
     operators = container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=8)
-    pending_delivery = container.channel_runtime.list_pending_delivery(limit=8, principal_id=principal_id)
+    pending_delivery = [
+        row
+        for row in container.channel_runtime.list_pending_delivery(limit=8, principal_id=principal_id)
+        if not _assistant_property_admin_artifact_present(
+            getattr(row, "recipient", ""),
+            getattr(row, "channel", ""),
+            getattr(row, "last_error", ""),
+        )
+    ]
     registry = container.provider_registry.registry_read_model(principal_id=principal_id)
     providers = list(registry.get("providers") or [])
     lanes = list(registry.get("lanes") or [])
@@ -656,6 +899,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         )
         for row in approvals
     ]
+    approval_rows = _filter_admin_rows(approval_rows)
     approval_history_rows = [
         _row(
             f"{_humanize(getattr(row, 'decision', 'decision')).title()} approval",
@@ -672,7 +916,9 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         )
         for row in approval_history
     ]
+    approval_history_rows = _filter_admin_rows(approval_history_rows)
     task_rows = [_human_task_row(row, operator_id=operator_id, return_to="/admin/operators") for row in human_tasks]
+    task_rows = _filter_admin_rows(task_rows)
     returned_task_rows = [
         _row(
             str(getattr(row, "brief", "") or "Returned handoff"),
@@ -690,6 +936,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         )
         for row in returned_human_tasks
     ]
+    returned_task_rows = _filter_admin_rows(returned_task_rows)
     delivery_rows = [
         _row(
             str(getattr(row, "recipient", "") or getattr(row, "channel", "delivery")).strip() or "Delivery",
@@ -707,6 +954,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         )
         for row in pending_delivery
     ]
+    delivery_rows = _filter_admin_rows(delivery_rows)
     policy_rows = [
         _row("Draft approvals", "enabled" if privacy.get("allow_drafts") else "manual only", "Policy"),
         _row("Action suggestions", "enabled" if privacy.get("allow_action_suggestions") else "disabled", "Policy"),
@@ -1002,6 +1250,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Queue state", str(office_queue.get("state") or "healthy"), "Queue", href="/admin/office"),
         _row("Load score", str(office_queue.get("load_score") or 0), "Queue", href="/admin/office"),
     ]
+    office_snapshot_rows = _filter_admin_rows(office_snapshot_rows)
     office_runtime_rows = [
         _row(
             _humanize(str(item.get("event_type") or "event")).title(),
@@ -1018,6 +1267,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         )
         for item in list(office.get("recent_runtime") or [])[:10]
     ]
+    office_runtime_rows = _filter_admin_rows(office_runtime_rows)
     pending_invitations = [dict(item) for item in product.list_workspace_invitations(principal_id=principal_id, status="pending", limit=12)]
     accepted_invitations = [dict(item) for item in product.list_workspace_invitations(principal_id=principal_id, status="accepted", limit=8)]
     revoked_invitations = [dict(item) for item in product.list_workspace_invitations(principal_id=principal_id, status="revoked", limit=8)]
@@ -1199,9 +1449,34 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     proactive_gold_next_action_href = str(proactive_ooda_gold_receipt.get("next_action_href") or "").strip()
     proactive_gold_next_action_label = str(proactive_ooda_gold_receipt.get("next_action_label") or "").strip()
     proactive_gold_next_action_method = str(proactive_ooda_gold_receipt.get("next_action_method") or "").strip()
+    proactive_gold_evidence_receipts = dict(proactive_ooda_gold_receipt.get("evidence_receipts") or {})
+    proactive_gold_approval_capture_surface = dict(
+        proactive_gold_evidence_receipts.get("approval_capture_surface") or {}
+    )
+    proactive_gold_verdict_available = bool(
+        proactive_gold_approval_capture_surface.get("ready")
+        and proactive_gold_approval_capture_surface.get("current_packet_user_action_required")
+        and proactive_gold_approval_capture_surface.get("current_packet_matches_packet_artifacts")
+        and (
+            proactive_gold_approval_capture_surface.get("telegram_approval_surface_ready")
+            or proactive_gold_approval_capture_surface.get("manual_outcome_capture_ready")
+        )
+    )
     proactive_gold_action_state = _humanize(
         str(proactive_ooda_gold_receipt.get("status") or "watch")
     ).title()
+    proactive_runtime_bundle = _load_current_proactive_ooda_runtime_bundle()
+    proactive_goal_action_visible = _proactive_goal_action_surface_visible(
+        proactive_runtime_bundle,
+        proactive_operator_receipt=proactive_ooda_operator_receipt,
+        proactive_gold_receipt=proactive_ooda_gold_receipt,
+    )
+    proactive_gold_action_visible = proactive_gold_verdict_available
+    proactive_runtime_property_scoped = _assistant_property_scoped_proactive_runtime(
+        proactive_runtime_bundle,
+        proactive_operator_receipt=proactive_ooda_operator_receipt,
+        proactive_gold_receipt=proactive_ooda_gold_receipt,
+    )
     goal_local_rows = [
         _row("Office-loop receipt", str(office_goal_receipt.get("status") or "missing"), "Local"),
         _row("Active media/LTD bundle", str(active_media_receipt.get("status") or "missing"), "Local"),
@@ -1229,6 +1504,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             "Boundary",
         ),
     ]
+    goal_local_rows = _filter_admin_rows(goal_local_rows)
     goal_real_use_rows = [
         _row(
             "Real-use outcomes",
@@ -1238,37 +1514,6 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             action_label="Record a real-use outcome",
             action_method="get",
         ),
-        _row(
-            "Signal review and follow-through",
-            f"Capture redacted evidence for: {signal_next_label}.",
-            "Action",
-            action_href=_signal_evidence_capture_href(signal_next_evidence_part),
-            action_label="Record a signal-loop outcome",
-            action_method="get",
-        ),
-        _row(
-            "Proactive delivery recovery",
-            " · ".join(part for part in (proactive_operator_summary, proactive_operator_next_action) if part)
-            or "No proactive delivery recovery guidance is mirrored.",
-            proactive_operator_action_state,
-            action_href=proactive_operator_next_action_href,
-            action_label=proactive_operator_next_action_label,
-            action_method=proactive_operator_next_action_method,
-        ),
-        _row(
-            "Proactive OODA approval outcome",
-            " · ".join(part for part in (proactive_gold_summary, proactive_gold_next_action) if part)
-            or "No proactive OODA gold-acceptance guidance is mirrored.",
-            proactive_gold_action_state,
-            action_href=proactive_gold_next_action_href or "/admin/proactive-ooda/approval",
-            action_label=proactive_gold_next_action_label or "Open approval capture",
-            action_method=proactive_gold_next_action_method or "get",
-            secondary_action_href="/admin/proactive-ooda/approval" if proactive_gold_next_action_href else "",
-            secondary_action_label="Open approval capture" if proactive_gold_next_action_href else "",
-            secondary_action_method="get" if proactive_gold_next_action_href else "",
-        ),
-        _signal_evidence_row("review", signal_receipt),
-        _signal_evidence_row("followthrough", signal_receipt),
         _row(
             "Open ChatLab status",
             "ChatLab live runtime probe receipt",
@@ -1301,12 +1546,65 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Open Today", "Check the live office loop before making broader claims.", "Loop", href="/app/today"),
         _row("Open approvals", "Review the approval lane and audit trail.", "Loop", href="/app/channel-loop/approvals"),
     ]
+    if not proactive_runtime_property_scoped:
+        proactive_rows: list[dict[str, str]] = []
+        if proactive_goal_action_visible:
+            proactive_rows.append(
+                _row(
+                    "Proactive delivery recovery",
+                    " · ".join(part for part in (proactive_operator_summary, proactive_operator_next_action) if part)
+                    or "No proactive delivery recovery guidance is mirrored.",
+                    proactive_operator_action_state,
+                    action_href=proactive_operator_next_action_href,
+                    action_label=proactive_operator_next_action_label,
+                    action_method=proactive_operator_next_action_method,
+                )
+            )
+        if proactive_gold_action_visible:
+            proactive_rows.append(
+                _row(
+                    "Proactive OODA approval outcome",
+                    " · ".join(part for part in (proactive_gold_summary, proactive_gold_next_action) if part)
+                    or "No proactive OODA gold-acceptance guidance is mirrored.",
+                    proactive_gold_action_state,
+                    action_href=proactive_gold_next_action_href or ("/admin/proactive-ooda/approval" if proactive_gold_verdict_available else ""),
+                    action_label=proactive_gold_next_action_label or ("Record packet verdict" if proactive_gold_verdict_available else ""),
+                    action_method=proactive_gold_next_action_method or ("get" if proactive_gold_verdict_available else ""),
+                    secondary_action_href=(
+                        "/admin/proactive-ooda/approval"
+                        if proactive_gold_verdict_available
+                        and proactive_gold_next_action_href
+                        and proactive_gold_next_action_href != "/admin/proactive-ooda/approval"
+                        else ""
+                    ),
+                    secondary_action_label="Record packet verdict" if proactive_gold_verdict_available and proactive_gold_next_action_href and proactive_gold_next_action_href != "/admin/proactive-ooda/approval" else "",
+                    secondary_action_method="get" if proactive_gold_verdict_available and proactive_gold_next_action_href and proactive_gold_next_action_href != "/admin/proactive-ooda/approval" else "",
+                )
+            )
+        if proactive_rows:
+            goal_real_use_rows[1:1] = proactive_rows
+    goal_real_use_rows = _filter_admin_rows(goal_real_use_rows)
     acceptance_rows = [
         _acceptance_evidence_row("real_daily_morning_brief_accepted", acceptance_keys, accepted_keys),
         _acceptance_evidence_row("real_decision_cleared", acceptance_keys, accepted_keys),
         _acceptance_evidence_row("real_commitment_recovered_or_closed", acceptance_keys, accepted_keys),
         _acceptance_evidence_row("real_approved_action_audited", acceptance_keys, accepted_keys),
         _acceptance_evidence_row("real_provider_failure_recovered", acceptance_keys, accepted_keys),
+        _row(
+            "Signal-loop proof capture",
+            f"Keep weekly review and follow-through here as meta proof, not as assistant work. Next: {signal_next_label}.",
+            "Boundary",
+        ),
+        _signal_evidence_row(
+            "review",
+            signal_receipt,
+            actionable_override=False if proactive_runtime_property_scoped else None,
+        ),
+        _signal_evidence_row(
+            "followthrough",
+            signal_receipt,
+            actionable_override=False if proactive_runtime_property_scoped else None,
+        ),
         _row(
             "Redaction posture",
             "private-safe signal",

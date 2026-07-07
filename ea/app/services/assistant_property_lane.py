@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from app.services.proactive_ooda_flat_search_policy import text_mentions_flat_property_search
+
 _PROPERTY_RUNTIME_PROFILES = {"property_only", "property-only", "property"}
 _PROPERTY_DEPLOY_MODES = {"property", "propertyquarry"}
 ASSISTANT_HIDDEN_PROPERTY_TASK_TYPES = (
@@ -64,15 +66,9 @@ def _property_deploy_mode_enabled() -> bool:
 
 
 def assistant_property_lane_enabled() -> bool:
-    # Property work belongs to PropertyQuarry. Keep it out of the EA assistant
-    # unless a dedicated PropertyQuarry deployment opts into it explicitly.
-    if not _env_truthy("EA_ASSISTANT_PROPERTY_LANE_ENABLED"):
-        return False
-    if not _propertyquarry_default_brand_enabled():
-        return False
-    if not _property_deploy_mode_enabled():
-        return False
-    return _property_runtime_profile_enabled()
+    # Property discovery and apartment-search OODA no longer run inside the EA
+    # assistant. PropertyQuarry owns that lane end to end.
+    return False
 
 
 def assistant_property_task_hidden_from_ea(task_type: str) -> bool:
@@ -87,4 +83,6 @@ def assistant_property_signal_present(*values: Any) -> bool:
     )
     if not normalized:
         return False
-    return any(marker in normalized for marker in _ASSISTANT_PROPERTY_SIGNAL_MARKERS)
+    if any(marker in normalized for marker in _ASSISTANT_PROPERTY_SIGNAL_MARKERS):
+        return True
+    return text_mentions_flat_property_search(normalized)

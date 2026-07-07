@@ -117,7 +117,7 @@ def _clamp_text(text: str, *, limit: int) -> str:
 
 
 def _survival_route_order() -> tuple[str, ...]:
-    raw = _env("EA_SURVIVAL_ROUTE_ORDER", "onemin,gemini_vortex,gemini_web,chatplayground")
+    raw = _env("EA_SURVIVAL_ROUTE_ORDER", "onemin,chatplayground,gemini_vortex,gemini_web")
     ordered: list[str] = []
     seen: set[str] = set()
     aliases = {
@@ -139,7 +139,7 @@ def _survival_route_order() -> tuple[str, ...]:
             continue
         seen.add(normalized)
         ordered.append(normalized)
-    return tuple(ordered or ("onemin", "gemini_vortex", "gemini_web", "chatplayground"))
+    return tuple(ordered or ("onemin", "chatplayground", "gemini_vortex", "gemini_web"))
 
 
 def _survival_cache_ttl_seconds() -> int:

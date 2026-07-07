@@ -14,6 +14,10 @@ from app.api.routes.landing_object_support import _object_detail_row, _render_co
 from app.api.routes.landing_property_support import property_console_context
 from app.api.routes.property_surface_boundary import property_surface_boundary_response
 from app.api.routes.landing_public_support import _console_shell_context, _render_public_template, _today_activation_banner
+from app.api.routes.proactive_ooda_approval_support import (
+    approval_surface_fallback_operator_action,
+    build_proactive_ooda_approval_surface,
+)
 from app.api.routes.landing_shared_support import (
     _app_live_feed,
     _default_operator_id_for_browser,
@@ -35,6 +39,7 @@ from app.services.proactive_ooda_approval_capture import (
 from app.services.proactive_ooda_live_ops_bridge import (
     resolve_proactive_ooda_capture_bundle,
 )
+from app.services.proactive_ooda_runtime_artifacts import current_packet_user_approval_surface
 from app.services.public_branding import request_brand
 
 
@@ -56,6 +61,16 @@ def _load_proactive_ooda_control_receipts() -> tuple[dict[str, object], dict[str
         _load_json_receipt(default_proactive_ooda_operator_status_path(root=root)),
         _load_json_receipt(default_proactive_ooda_gold_acceptance_path(root=root)),
     )
+
+
+def _load_continuous_improvement_goal_posture() -> dict[str, object]:
+    root = _repo_root()
+    return _load_json_receipt(root / ".codex-studio" / "published" / "ea_continuous_improvement_goal_posture.generated.json")
+
+
+def _load_operator_action_required_digest() -> dict[str, object]:
+    root = _repo_root()
+    return _load_json_receipt(root / ".codex-studio" / "published" / "ea_operator_action_required_digest.generated.json")
 
 
 def _humanize_runtime_value(value: object) -> str:
@@ -444,16 +459,9 @@ def admin_proactive_ooda_approval_capture(
     safe_work_result = dict(bundle.get("safe_work_result") or {})
     approval_selection = dict(bundle_resolution.get("approval_selection") or {})
     approval_outcome = dict(approval_selection.get("approval_outcome") or {})
-    live_report = dict(bundle_resolution.get("live_report") or {})
-    bundle_source = str(bundle_resolution.get("bundle_source") or "").strip()
-    host_fallback_used = bool(bundle_resolution.get("host_fallback_used"))
-    fallback_reason = str(bundle_resolution.get("fallback_reason") or "").strip()
-    run_receipt = dict(bundle.get("run_receipt") or {})
-    operator_receipt, gold_receipt = _load_proactive_ooda_control_receipts()
     packet_ref = str(stage_packet.get("packet_ref") or "").strip()
     staged_artifact_ref = str(safe_work_result.get("result_ref") or "").strip()
     staged_action_url = str(safe_work_result.get("staged_action_url") or "").strip()
-    recommended = _admin_proactive_recommended_label(safe_work_result.get("recommended_option_or_draft"))
     approval_recorded = bool(approval_outcome.get("approval_outcome_recorded"))
     stale_approval_present = bool(approval_selection.get("stale_saved_approval_outcome_present"))
     approval_status = (
@@ -464,216 +472,65 @@ def admin_proactive_ooda_approval_capture(
         else "missing"
     )
     approval_source = str(approval_selection.get("source") or "").strip()
-    evidence_rows = _admin_proactive_evidence_rows(safe_work_result)
+    current_packet_requires_user_approval = current_packet_user_approval_surface(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    )
+    approval_surface_pending = (
+        int(bundle.get("current_packet_live_pending_count") or 0) > 0 and current_packet_requires_user_approval
+    )
+    if not approval_surface_pending and not current_packet_requires_user_approval:
+        approval_outcome = {}
+        stale_approval_present = False
+        approval_status = "missing"
+        approval_source = ""
+    goal_posture = _load_continuous_improvement_goal_posture() if not approval_surface_pending else {}
+    action_digest = _load_operator_action_required_digest() if not approval_surface_pending else {}
+    fallback_operator_action = approval_surface_fallback_operator_action(
+        safe_work_result=safe_work_result,
+        stage_packet=stage_packet,
+        staged_action_url=staged_action_url,
+        approval_surface_pending=approval_surface_pending,
+        goal_posture=goal_posture,
+        digest_receipt=action_digest,
+    )
     action_status = str(request.query_params.get("proactive_ooda_status") or "").strip()
     action_error = str(request.query_params.get("proactive_ooda_error") or "").strip()
-    operator_status = str(operator_receipt.get("status") or "").strip()
-    operator_summary = str(operator_receipt.get("summary") or "").strip()
-    operator_next_action_href = str(operator_receipt.get("next_action_href") or "").strip()
-    operator_next_action_label = str(operator_receipt.get("next_action_label") or "").strip()
-    operator_next_action_method = str(operator_receipt.get("next_action_method") or "").strip()
-    gold_status = str(gold_receipt.get("status") or "").strip()
-    gold_summary = str(gold_receipt.get("summary") or "").strip()
-    gold_next_action_href = str(gold_receipt.get("next_action_href") or "").strip()
-    gold_next_action_label = str(gold_receipt.get("next_action_label") or "").strip()
-    gold_next_action_method = str(gold_receipt.get("next_action_method") or "").strip()
-    approval_capture_surface = dict(operator_receipt.get("approval_capture_surface") or {})
-    control_rows: list[dict[str, str]] = []
-    if operator_receipt:
-        control_rows.append(
-            _object_detail_row(
-                "Operator runtime posture",
-                " · ".join(part for part in (operator_status, operator_summary) if part) or "No operator runtime posture mirrored.",
-                _humanize_runtime_value(operator_receipt.get("operator_action_state") or operator_status).title(),
-                action_href=operator_next_action_href,
-                action_label=operator_next_action_label,
-                action_method=operator_next_action_method,
-            )
-        )
-    if gold_receipt:
-        control_rows.append(
-            _object_detail_row(
-                "Gold proof posture",
-                " · ".join(part for part in (gold_status, gold_summary) if part) or "No gold-proof posture mirrored.",
-                _humanize_runtime_value(gold_status).title(),
-                action_href=gold_next_action_href,
-                action_label=gold_next_action_label,
-                action_method=gold_next_action_method,
-            )
-        )
-    if approval_capture_surface:
-        approval_surface_detail = " · ".join(
-            part
-            for part in (
-                str(approval_capture_surface.get("selected_channel") or "").strip(),
-                (
-                    f"pending {int(approval_capture_surface.get('current_packet_live_pending_count') or 0)}"
-                    if int(approval_capture_surface.get("current_packet_live_pending_count") or 0) > 0
-                    else ""
-                ),
-                str(approval_capture_surface.get("current_packet_callback_latest_status") or "").strip(),
-            )
-            if part
-        ) or "No approval capture surface detail is mirrored."
-        control_rows.append(
-            _object_detail_row(
-                "Telegram approval surface",
-                approval_surface_detail,
-                "Ready" if bool(approval_capture_surface.get("ready")) else "Pending",
-            )
-        )
+    surface = build_proactive_ooda_approval_surface(
+        safe_work_result=safe_work_result,
+        stage_packet=stage_packet,
+        approval_outcome=approval_outcome,
+        fallback_operator_action=fallback_operator_action,
+        approval_surface_pending=approval_surface_pending,
+        approval_status=approval_status,
+        approval_source=approval_source,
+        packet_ref=packet_ref,
+        staged_artifact_ref=staged_artifact_ref,
+        staged_action_url=staged_action_url,
+        action_status=action_status,
+        action_error=action_error,
+        operator_context=is_operator_context(context),
+    )
     return _render_console_object_detail(
         request=request,
         context=context,
         workspace_label="Operator Center",
         page_title=f"{request_brand(request)['name']} Proactive OODA Approval",
         current_nav="goals",
-        console_title="Record proactive OODA outcome",
-        console_summary=(
-            "Capture the redacted human approval outcome for the current staged packet."
-            + (
-                f" Last action: {action_status.replace('_', ' ')}"
-                f"{f' ({action_error.replace('_', ' ')})' if action_error else ''}."
-                if action_status
-                else ""
-            )
-        ),
-        object_kind="Proactive OODA",
-        object_title="Approval capture",
-        object_summary="Use this form after reviewing the staged packet and its safe-work result. The runtime stores only redacted hashes for the evidence note, actor, packet ref, and staged artifact ref.",
-        object_meta=[
-            {"label": "Notification status", "value": str(run_receipt.get("notification_status") or "unknown")},
-            {"label": "Artifact source", "value": bundle_source.replace("_", " ") or "unknown"},
-            {"label": "Packet ref", "value": packet_ref or "Missing"},
-            {"label": "Staged artifact", "value": staged_artifact_ref or "Missing"},
-            {"label": "Recorded outcome", "value": approval_status},
-            *(
-                [{"label": "Approval source", "value": approval_source}]
-                if approval_source
-                else []
-            ),
-            *(
-                [{"label": "Operator runtime", "value": operator_status}]
-                if operator_status
-                else []
-            ),
-            *(
-                [{"label": "Gold posture", "value": gold_status}]
-                if gold_status
-                else []
-            ),
-            *(
-                [{"label": "Live probe", "value": str(live_report.get("status") or "unknown")}]
-                if live_report
-                else []
-            ),
-        ],
-        object_ooda_title="Current staged decision",
-        object_ooda_copy="This surface is grounded in the latest runtime packet and safe-work result; saved approval artifacts only count when their hashes match the current packet.",
-        object_ooda_rows=[
-            _object_detail_row("Recommended result", recommended or "No recommended option is staged yet.", "Decision"),
-            _object_detail_row(
-                "Staged action URL",
-                staged_action_url or "No staged action URL is present for the current packet.",
-                "Link",
-                href=staged_action_url,
-            ),
-            _object_detail_row(
-                "Approval receipt",
-                str(bundle.get("approval_outcome_path") or "") or "No approval receipt path resolved.",
-                "Runtime",
-            ),
-            *(
-                [
-                    _object_detail_row(
-                        "Live runtime fallback",
-                        fallback_reason.replace("_", " ") or "Live runtime probe failed.",
-                        "Fallback",
-                    )
-                ]
-                if host_fallback_used
-                else []
-            ),
-        ],
-        object_sidebar_title="Capture form",
-        object_sidebar_copy="Record the decision outcome with a short redacted note. Do not paste secrets, full private packet text, or raw identifiers.",
-        object_sidebar_rows=[
-            _object_detail_row("Run receipt", str(bundle.get("run_receipt_path") or "") or "Missing", "Runtime"),
-            _object_detail_row("Stage packet", str(bundle.get("stage_packet_path") or "") or "Missing", "Runtime"),
-            _object_detail_row("Safe-work result", str(bundle.get("safe_work_result_path") or "") or "Missing", "Runtime"),
-            _object_detail_row(
-                "Current live pending",
-                str(int(bundle.get("current_packet_live_pending_count") or 0)),
-                "Runtime",
-            ),
-        ],
-        object_sections=[
-            *(
-                [
-                    {
-                        "eyebrow": "Controls",
-                        "title": "Runtime and approval controls",
-                        "items": control_rows,
-                    }
-                ]
-                if control_rows
-                else []
-            ),
-            {
-                "eyebrow": "Evidence",
-                "title": "Live packet evidence",
-                "items": evidence_rows
-                or [_object_detail_row("No live evidence rows", "The current safe-work result did not expose evidence refs.", "Waiting")],
-            }
-        ],
-        object_sidebar_form={
-            "eyebrow": "Approval",
-            "title": "Record outcome",
-            "copy": "This writes a redacted runtime artifact and rematerializes the proactive OODA gold receipt.",
-            "method": "post",
-            "action": "/admin/actions/proactive-ooda-evidence",
-            "submit_label": "Record proactive outcome",
-            "fields": [
-                {"type": "hidden", "name": "return_to", "value": "/admin/proactive-ooda/approval"},
-                {
-                    "type": "select",
-                    "name": "outcome",
-                    "label": "Outcome",
-                    "options": [
-                        {"value": "approved", "label": "Approved", "selected": not approval_recorded or str(approval_outcome.get("outcome") or "").strip() == "approved"},
-                        {"value": "rejected", "label": "Rejected", "selected": str(approval_outcome.get("outcome") or "").strip() == "rejected"},
-                        {"value": "deferred", "label": "Deferred", "selected": str(approval_outcome.get("outcome") or "").strip() == "deferred"},
-                        {"value": "dismissed", "label": "Dismissed", "selected": str(approval_outcome.get("outcome") or "").strip() == "dismissed"},
-                    ],
-                },
-                {
-                    "type": "select",
-                    "name": "source_kind",
-                    "label": "Source",
-                    "options": [
-                        {"value": "operator", "label": "Operator", "selected": str(approval_outcome.get("source_kind") or "operator").strip() in {"", "operator"}},
-                        {"value": "principal", "label": "Principal", "selected": str(approval_outcome.get("source_kind") or "").strip() == "principal"},
-                        {"value": "channel_link", "label": "Channel link", "selected": str(approval_outcome.get("source_kind") or "").strip() == "channel_link"},
-                    ],
-                },
-                {
-                    "type": "textarea",
-                    "name": "evidence",
-                    "label": "Redacted note",
-                    "value": "",
-                    "placeholder": "Short redacted reason, for example: Approved after reviewing the staged shortlist and live comparison.",
-                },
-                {
-                    "type": "checkbox",
-                    "name": "dry_run",
-                    "label": "Dry run only",
-                    "checked": False,
-                    "value": "1",
-                },
-                {"type": "text", "name": "packet_ref", "label": "Packet ref", "value": packet_ref},
-                {"type": "text", "name": "staged_artifact_ref", "label": "Staged artifact ref", "value": staged_artifact_ref},
-            ],
-        },
+        console_title=str(surface.get("console_title") or ""),
+        console_summary=str(surface.get("console_summary") or ""),
+        object_kind=str(surface.get("object_kind") or "Proactive OODA"),
+        object_title=str(surface.get("object_title") or ""),
+        object_summary=str(surface.get("object_summary") or ""),
+        object_meta=list(surface.get("object_meta") or []),
+        object_ooda_title=str(surface.get("object_ooda_title") or ""),
+        object_ooda_copy=str(surface.get("object_ooda_copy") or ""),
+        object_ooda_rows=list(surface.get("object_ooda_rows") or []),
+        object_sidebar_title=str(surface.get("object_sidebar_title") or ""),
+        object_sidebar_copy=str(surface.get("object_sidebar_copy") or ""),
+        object_sidebar_rows=list(surface.get("object_sidebar_rows") or []),
+        object_sections=list(surface.get("object_sections") or []),
+        object_sidebar_form=dict(surface.get("object_sidebar_form") or {}),
     )
 
 
@@ -760,7 +617,8 @@ def _admin_operator_bootstrap_redirect(
     if operator_bootstrap_needed(container, principal_id=context.principal_id):
         target = f"/admin/bootstrap-operator?return_to={urllib.parse.quote(return_to, safe='')}"
         return RedirectResponse(target, status_code=303)
-    raise HTTPException(status_code=403, detail="operator_scope_required")
+    sign_in_target = f"/sign-in?return_to={urllib.parse.quote(return_to, safe='')}"
+    return RedirectResponse(sign_in_target, status_code=303)
 
 
 def _admin_proactive_recommended_label(value: object) -> str:

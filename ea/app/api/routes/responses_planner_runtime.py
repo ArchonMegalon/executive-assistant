@@ -70,6 +70,7 @@ def _tool_shim_sanitize_planner_override(configured_model: str) -> str:
         or normalized in {
             "ea-coder-fast",
             "ea-gemini-flash",
+            "ea-groundwork",
             "ea-groundwork-gemini",
             "ea-repair-gemini",
         }

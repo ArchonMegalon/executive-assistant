@@ -5,7 +5,9 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
@@ -26,13 +28,28 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 import scripts.verify_proactive_ooda as proactive_verifier
 import scripts.verify_proactive_ooda_live_receipt as live_receipt_verifier
 import scripts.ea_live_ops as ea_live_ops
+from app.services.proactive_ooda_live_ops_bridge import resolve_proactive_ooda_capture_bundle
 from app.services.proactive_ooda_operator_actions import proactive_next_action_surface
+from app.services.proactive_ooda_telegram_policy import approval_request_needs_telegram_user_action
 from app.services.proactive_ooda_safe_work import safe_work_decision_materiality_issue
 from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
 
 
 DEFAULT_OUTPUT = ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
 CONTRACT_NAME = "ea.proactive_ooda_operator_status.v1"
+GOOGLE_WORKSPACE_REAUTH_USER_ACTION_ERROR_CODES = {
+    "disconnected_by_operator",
+    "google_oauth_access_denied",
+    "google_oauth_access_token_missing",
+    "google_oauth_account_mismatch",
+    "google_oauth_binding_not_found",
+    "google_oauth_invalid_grant",
+    "google_oauth_refresh_failed",
+    "google_oauth_unauthorized_client",
+}
+GOOGLE_WORKSPACE_REAUTH_USER_ACTIONS = {
+    "reauthorize_google_workspace_binding",
+}
 
 RULES = [
     "This receipt proves proactive OODA route, guard, and packet-runtime posture only; it does not prove a human accepted the packet.",
@@ -43,6 +60,11 @@ RULES = [
 REMAINING_EXTERNAL_PROOF = (
     "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome"
 )
+DEFAULT_PROACTIVE_OODA_RUNTIME_CONTAINER = str(
+    os.getenv("EA_PROACTIVE_OODA_RUNTIME_CONTAINER")
+    or ea_live_ops.DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE
+    or "ea-proactive-ooda"
+).strip() or "ea-proactive-ooda"
 SOURCE_COVERAGE_LANE_CONTRACTS = {
     str(row["key"]): {
         "next_action": str(row.get("next_action") or "").strip(),
@@ -70,6 +92,11 @@ NON_MATERIAL_SUPPRESSED_PROJECTION_REASONS = {
 CONFIGURED_SOURCE_EXCLUSION_REASONS = {
     "flat_search_disabled_property_scout",
     "flat_search_disabled",
+}
+ASSISTANT_GRADE_BLOCKING_WORK_TYPES = {
+    "record_internal_action",
+    "internal_action",
+    "operator_action",
 }
 
 
@@ -541,6 +568,20 @@ def _source_coverage_requires_recovery(source_coverage: Mapping[str, Any] | None
     return status not in {"", "not_checked"}
 
 
+def _source_coverage_probe_pending(source_coverage: Mapping[str, Any] | None) -> bool:
+    normalized = dict(source_coverage or {})
+    if bool(normalized.get("checked")):
+        return False
+    status = str(normalized.get("status") or "").strip()
+    if status not in {"", "not_checked"}:
+        return False
+    return bool(
+        _source_coverage_missing_lane_keys(normalized)
+        or list(normalized.get("lanes") or [])
+        or int(normalized.get("lane_count") or 0) > 0
+    )
+
+
 def _source_coverage_recovery_reason(source_coverage: Mapping[str, Any] | None) -> str:
     normalized = dict(source_coverage or {})
     blocking_reason = str(normalized.get("blocking_reason") or "").strip()
@@ -645,12 +686,18 @@ def _provider_cost_pressure_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
             "next_action": "",
             "primary_background_provider": "",
             "provider_order": [],
+            "fast_provider_order": [],
+            "cheap_provider_order": [],
             "groundwork_provider_order": [],
+            "hard_provider_order": [],
             "cost_sensitive_lanes": [],
             "onemin_preferred_when_speed_is_not_critical": False,
+            "onemin_preferred_whenever_usable": False,
             "onemin_usable": False,
+            "onemin_probe_pending": False,
             "onemin_ready_slots": 0,
             "onemin_configured_slots": 0,
+            "onemin_unknown_slots": 0,
             "gemini_provider_key": "gemini_vortex",
             "gemini_token_tracking": _empty_gemini_token_tracking(),
             "routing_decision": "",
@@ -673,12 +720,18 @@ def _provider_cost_pressure_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
         "next_action": "repair_provider_cost_routing" if requires_recovery else "",
         "primary_background_provider": str(probe.get("primary_background_provider") or "").strip(),
         "provider_order": _string_list(probe.get("provider_order"), limit=8),
+        "fast_provider_order": _string_list(probe.get("fast_provider_order"), limit=8),
+        "cheap_provider_order": _string_list(probe.get("cheap_provider_order"), limit=8),
         "groundwork_provider_order": _string_list(probe.get("groundwork_provider_order"), limit=8),
+        "hard_provider_order": _string_list(probe.get("hard_provider_order"), limit=8),
         "cost_sensitive_lanes": _string_list(probe.get("cost_sensitive_lanes"), limit=12),
         "onemin_preferred_when_speed_is_not_critical": bool(probe.get("onemin_preferred_when_speed_is_not_critical")),
+        "onemin_preferred_whenever_usable": bool(probe.get("onemin_preferred_whenever_usable")),
         "onemin_usable": bool(probe.get("onemin_usable")),
+        "onemin_probe_pending": bool(probe.get("onemin_probe_pending")),
         "onemin_ready_slots": int(probe.get("onemin_ready_slots") or 0),
         "onemin_configured_slots": int(probe.get("onemin_configured_slots") or 0),
+        "onemin_unknown_slots": int(probe.get("onemin_unknown_slots") or 0),
         "onemin_remaining_credits": _safe_float_or_none(probe.get("onemin_remaining_credits")),
         "onemin_remaining_percent_total": _safe_float_or_none(probe.get("onemin_remaining_percent_total")),
         "onemin_next_topup_at": str(probe.get("onemin_next_topup_at") or "").strip(),
@@ -778,6 +831,20 @@ def _string_list(value: Any, *, limit: int) -> list[str]:
     ][: max(int(limit or 1), 1)]
 
 
+def _runtime_source_health_issue_requires_user_action(issue: Mapping[str, Any]) -> bool:
+    if bool(issue.get("user_action_required")):
+        return True
+    source_key = str(issue.get("source_key") or "").strip()
+    source_type = str(issue.get("source_type") or "").strip()
+    error_code = str(issue.get("error_code") or "").strip()
+    next_action = str(issue.get("next_action") or "").strip()
+    if next_action in GOOGLE_WORKSPACE_REAUTH_USER_ACTIONS:
+        return True
+    if "google_workspace" in {source_key, source_type} and error_code in GOOGLE_WORKSPACE_REAUTH_USER_ACTION_ERROR_CODES:
+        return True
+    return False
+
+
 def _runtime_source_health_summary(artifact_probe: Mapping[str, Any] | None) -> dict[str, Any]:
     run_receipt = dict(dict(artifact_probe or {}).get("run_receipt") or {})
     source_health = dict(run_receipt.get("source_health") or {})
@@ -785,6 +852,7 @@ def _runtime_source_health_summary(artifact_probe: Mapping[str, Any] | None) -> 
     for issue in list(source_health.get("issues") or []):
         if not isinstance(issue, Mapping):
             continue
+        issue_user_action_required = _runtime_source_health_issue_requires_user_action(issue)
         normalized = {
             "source_key": str(issue.get("source_key") or "unknown").strip()[:80] or "unknown",
             "source_type": str(issue.get("source_type") or issue.get("source_key") or "unknown").strip()[:80]
@@ -793,7 +861,7 @@ def _runtime_source_health_summary(artifact_probe: Mapping[str, Any] | None) -> 
             "error_code": str(issue.get("error_code") or "source_error").strip()[:160] or "source_error",
             "error_ref_hash": str(issue.get("error_ref_hash") or "").strip()[:24],
             "operator_action_required": bool(issue.get("operator_action_required", True)),
-            "user_action_required": bool(issue.get("user_action_required")),
+            "user_action_required": issue_user_action_required,
             "next_action": str(issue.get("next_action") or "repair_proactive_signal_source").strip()[:120]
             or "repair_proactive_signal_source",
             "raw_source_ref_exposed": False,
@@ -849,6 +917,16 @@ def _runtime_source_health_recovery_next_action(source_health: Mapping[str, Any]
     return "repair_proactive_signal_source"
 
 
+def _source_health_recovery_candidate_status(status: str, reason: str) -> bool:
+    normalized_status = str(status or "").strip()
+    if normalized_status in {"ready_local_runtime", "ready_with_live_receipt"}:
+        return True
+    return bool(
+        normalized_status == "ready_with_recovery_action"
+        and str(reason or "").strip().startswith("followthrough_")
+    )
+
+
 def _runtime_source_health_recovery_summary(source_health: Mapping[str, Any] | None) -> str:
     normalized = dict(source_health or {})
     issues = [dict(issue or {}) for issue in list(normalized.get("issues") or []) if isinstance(issue, Mapping)]
@@ -877,6 +955,13 @@ def _runtime_error_next_action(report: Mapping[str, Any]) -> str:
     return "maintain_proactive_ooda_runtime"
 
 
+def _live_receipt_requires_runtime_recovery(live_receipt: Mapping[str, Any]) -> bool:
+    if bool(live_receipt.get("ok")):
+        return False
+    errors = [str(item).strip() for item in list(live_receipt.get("errors") or []) if str(item).strip()]
+    return any(item.startswith("followthrough_") for item in errors)
+
+
 def _next_action_surface_fields(action: str) -> dict[str, str]:
     surface = proactive_next_action_surface(action)
     return {
@@ -884,6 +969,24 @@ def _next_action_surface_fields(action: str) -> dict[str, str]:
         "next_action_label": str(surface.get("label") or "").strip(),
         "next_action_method": str(surface.get("method") or "").strip(),
     }
+
+
+def _approval_callback_hygiene(
+    *,
+    callback_noncurrent_pending_count: int,
+    callback_stale_pending_count: int,
+    current_packet_callback_stale_pending_count: int,
+    current_packet_duplicate_live_pending_count: int,
+) -> tuple[bool, str, str]:
+    if int(current_packet_duplicate_live_pending_count or 0) > 0:
+        return False, "approval_callback_duplicate_live_pending", "cleanup_proactive_approval_callbacks"
+    if int(current_packet_callback_stale_pending_count or 0) > 0:
+        return False, "approval_callback_current_packet_stale_pending", "cleanup_proactive_approval_callbacks"
+    if int(callback_noncurrent_pending_count or 0) > 0:
+        return False, "approval_callback_noncurrent_pending", "cleanup_proactive_approval_callbacks"
+    if int(callback_stale_pending_count or 0) > 0:
+        return False, "approval_callback_stale_pending", "cleanup_proactive_approval_callbacks"
+    return True, "", ""
 
 
 def _approval_capture_surface_ready(surface: Mapping[str, Any] | None) -> bool:
@@ -899,6 +1002,86 @@ def _approval_capture_probe_ready(probe: Mapping[str, Any] | None) -> bool:
     if not bool(normalized.get("checked")):
         return True
     return bool(normalized.get("ready"))
+
+
+def _approval_capture_surface_authoritative_fallback(
+    surface: Mapping[str, Any] | None,
+    approval_capture: Mapping[str, Any] | None,
+) -> bool:
+    normalized_surface = dict(surface or {})
+    normalized_probe = dict(approval_capture or {})
+    if not bool(normalized_surface.get("ready")):
+        return False
+    if not bool(normalized_surface.get("telegram_approval_surface_ready")):
+        return False
+    if not bool(normalized_surface.get("callback_hygiene_ready", True)):
+        return False
+    if int(normalized_surface.get("current_packet_live_pending_count") or 0) != 1:
+        return False
+    if str(normalized_surface.get("current_packet_callback_latest_status") or "").strip() != "pending":
+        return False
+    if int(normalized_surface.get("current_packet_callback_record_count") or 0) <= 0:
+        return False
+    if not bool(normalized_probe.get("checked")) or bool(normalized_probe.get("ready")):
+        return False
+    if str(normalized_probe.get("blocking_reason") or "").strip() != "current_packet_approval_callback_missing":
+        return False
+    if bool(normalized_probe.get("current_packet_refs_present")) is not True:
+        return False
+    if int(normalized_probe.get("current_packet_callback_record_count") or 0) <= 0:
+        return False
+    if bool(normalized_probe.get("callback_principal_hash_present")) is not True:
+        return False
+    if bool(normalized_probe.get("principal_match_ready")) is not True:
+        return False
+    if bool(normalized_probe.get("telegram_binding_ready")) is not True:
+        return False
+    if bool(normalized_probe.get("telegram_chat_ref_present")) is not True:
+        return False
+    if bool(normalized_probe.get("telegram_bot_token_present")) is not True:
+        return False
+    return True
+
+
+def _reconcile_approval_capture_surface_authority(
+    approval_capture: Mapping[str, Any] | None,
+    approval_capture_surface: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    normalized_probe = dict(approval_capture or {})
+    normalized_surface = dict(approval_capture_surface or {})
+    if not _approval_capture_surface_authoritative_fallback(normalized_surface, normalized_probe):
+        return normalized_probe
+    reconciled = dict(normalized_probe)
+    reconciled.update(
+        {
+            "ready": True,
+            "status": "ready",
+            "blocking_reason": "",
+            "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+            "current_packet_callback_record_count": max(
+                int(reconciled.get("current_packet_callback_record_count") or 0),
+                int(normalized_surface.get("current_packet_callback_record_count") or 0),
+            ),
+            "current_packet_live_pending_count": int(normalized_surface.get("current_packet_live_pending_count") or 0),
+            "current_packet_callback_latest_status": str(
+                normalized_surface.get("current_packet_callback_latest_status") or reconciled.get("current_packet_callback_latest_status") or ""
+            ).strip(),
+            "current_packet_callback_latest_expired": bool(normalized_surface.get("current_packet_callback_latest_expired")),
+            "current_packet_callback_latest_age_seconds": int(
+                normalized_surface.get("current_packet_callback_latest_age_seconds")
+                or reconciled.get("current_packet_callback_latest_age_seconds")
+                or 0
+            ),
+            "current_packet_callback_latest_seconds_until_expiry": int(
+                normalized_surface.get("current_packet_callback_latest_seconds_until_expiry")
+                or reconciled.get("current_packet_callback_latest_seconds_until_expiry")
+                or 0
+            ),
+            "surface_authoritative_fallback_used": True,
+            "surface_authoritative_fallback_reason": "current_packet_live_pending_surface_preferred",
+        }
+    )
+    return reconciled
 
 
 def _approval_capture_probe_blocks_followthrough(
@@ -938,6 +1121,45 @@ def _approval_followthrough_ready(
     )
 
 
+def _soft_followthrough_recovery_override(
+    *,
+    status: str,
+    report: Mapping[str, Any],
+    source_coverage: Mapping[str, Any] | None,
+    live_receipt: Mapping[str, Any],
+    live_receipt_checked: bool,
+    approval_capture_surface: Mapping[str, Any] | None,
+    approval_capture: Mapping[str, Any] | None,
+    safe_work_audit_blocks: bool,
+    current_artifact_filter_blocks: bool,
+    assistant_grade_recovery_active: bool,
+    suppressed_projection_blocks: bool,
+    browser_handoff_recovery_active: bool,
+    source_health_recovery_active: bool,
+    provider_cost_pressure_recovery_active: bool,
+    approval_callback_hygiene_blocks: bool,
+) -> bool:
+    if status != "ready_with_recovery_action":
+        return False
+    if (
+        safe_work_audit_blocks
+        or current_artifact_filter_blocks
+        or assistant_grade_recovery_active
+        or suppressed_projection_blocks
+        or browser_handoff_recovery_active
+        or provider_cost_pressure_recovery_active
+        or approval_callback_hygiene_blocks
+    ):
+        return False
+    if not live_receipt_checked or not bool(live_receipt.get("ok")):
+        return False
+    if not _approval_capture_surface_ready(approval_capture_surface):
+        return False
+    if not _approval_capture_probe_ready(approval_capture):
+        return False
+    return _has_only_workspace_health_errors(report) or _source_coverage_probe_pending(source_coverage)
+
+
 def _default_live_receipt_path() -> Path | None:
     explicit = str(
         os.getenv("EA_PROACTIVE_OODA_OPERATOR_RECEIPT_PATH")
@@ -958,6 +1180,197 @@ def _configured_live_receipt_path() -> Path | None:
         or ""
     ).strip()
     return Path(explicit) if explicit else None
+
+
+def _runtime_container_mounts(container_name: str) -> list[dict[str, Any]]:
+    normalized = str(container_name or "").strip()
+    if not normalized:
+        return []
+    try:
+        completed = subprocess.run(
+            ["docker", "inspect", normalized, "--format", "{{json .Mounts}}"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15.0,
+        )
+    except Exception:
+        return []
+    if int(completed.returncode or 0) != 0:
+        return []
+    try:
+        payload = json.loads(str(completed.stdout or "[]"))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [dict(row) for row in payload if isinstance(row, Mapping)]
+
+
+def _host_path_for_runtime_container_path(
+    container_path: str | Path,
+    *,
+    container_name: str = DEFAULT_PROACTIVE_OODA_RUNTIME_CONTAINER,
+) -> Path | None:
+    raw_path = str(container_path or "").strip()
+    if not raw_path:
+        return None
+    candidate = Path(raw_path)
+    if candidate.exists():
+        return candidate
+    best_match: tuple[str, str] | None = None
+    for row in _runtime_container_mounts(container_name):
+        destination = str(row.get("Destination") or "").strip().rstrip("/")
+        source = str(row.get("Source") or "").strip().rstrip("/")
+        if not destination or not source:
+            continue
+        if raw_path == destination or raw_path.startswith(f"{destination}/"):
+            if best_match is None or len(destination) > len(best_match[0]):
+                best_match = (destination, source)
+    if best_match is None:
+        return None
+    destination, source = best_match
+    suffix = raw_path[len(destination):].lstrip("/")
+    return Path(source) / suffix if suffix else Path(source)
+
+
+def _route_live_receipt_host_path(route_probe: Mapping[str, Any] | None) -> Path | None:
+    live_receipt = dict(dict(route_probe or {}).get("live_receipt") or {})
+    raw_path = str(live_receipt.get("receipt_path") or "").strip()
+    if not raw_path:
+        return None
+    return _host_path_for_runtime_container_path(raw_path)
+
+
+@contextmanager
+def _host_runtime_proactive_probe_override(enabled: bool):
+    if not enabled or _env_truthy("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", default=False):
+        yield
+        return
+    key = "EA_LIVE_OPS_PREFER_HOST_RUNTIME_PROACTIVE_PROBE"
+    previous = os.getenv(key)
+    os.environ[key] = "1"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = previous
+
+
+def _live_probe_bundle_score(
+    *,
+    route_probe: Mapping[str, Any],
+    artifact_probe: Mapping[str, Any],
+    gmail_draft_probe: Mapping[str, Any],
+    source_coverage_probe: Mapping[str, Any],
+    provider_cost_pressure_probe: Mapping[str, Any],
+) -> int:
+    score = 0
+    if bool(route_probe.get("probe_ok")):
+        score += 3
+        if str(route_probe.get("source") or "").strip() == "host_python_exec":
+            score += 1
+    score += _artifact_probe_evidence_score(artifact_probe)
+    if str(gmail_draft_probe.get("status") or "").strip():
+        score += 1
+    if bool(source_coverage_probe.get("probe_ok")) or str(source_coverage_probe.get("status") or "").strip():
+        score += 2
+    if bool(provider_cost_pressure_probe.get("probe_ok")) or str(provider_cost_pressure_probe.get("status") or "").strip():
+        score += 1
+    return score
+
+
+def _artifact_probe_evidence_score(artifact_probe: Mapping[str, Any] | None) -> int:
+    probe = dict(artifact_probe or {})
+    if not probe:
+        return 0
+    score = 1
+    if (
+        dict(probe.get("stage_packet") or {})
+        or dict(probe.get("safe_work_result") or {})
+        or _path_text(probe.get("stage_packet_path"))
+        or _path_text(probe.get("safe_work_result_path"))
+    ):
+        score += 3
+    if str(probe.get("artifact_filter_reason") or "").strip():
+        score += 3
+    if (
+        str(probe.get("approval_outcome_path") or "").strip()
+        or str(probe.get("approval_callback_dir") or "").strip()
+        or int(probe.get("current_packet_callback_record_count") or 0) > 0
+        or int(probe.get("current_packet_callback_pending_count") or 0) > 0
+        or int(probe.get("current_packet_live_pending_count") or 0) > 0
+    ):
+        score += 3
+    if dict(probe.get("run_receipt") or {}) or _path_text(probe.get("run_receipt_path")):
+        score += 1
+    return score
+
+
+def _route_probe_live_receipt_missing(
+    *,
+    route_probe: Mapping[str, Any],
+) -> bool:
+    if not bool(route_probe.get("probe_ok")):
+        return False
+    live_receipt = dict(route_probe.get("live_receipt") or {})
+    if bool(live_receipt.get("ok")):
+        return False
+    errors = [str(item).strip() for item in list(live_receipt.get("errors") or []) if str(item).strip()]
+    return "receipt_missing" in errors
+
+
+def _route_probe_live_receipt_score(
+    *,
+    route_probe: Mapping[str, Any],
+) -> int:
+    if not bool(route_probe.get("probe_ok")):
+        return 0
+    live_receipt = dict(route_probe.get("live_receipt") or {})
+    score = 1
+    if bool(live_receipt.get("ok")):
+        score += 4
+    if bool(live_receipt.get("archived_sent_receipt_used")):
+        score += 2
+    if str(live_receipt.get("notification_status") or "").strip() == "sent":
+        score += 1
+    if str(live_receipt.get("followthrough_status") or "").strip():
+        score += 1
+    return score
+
+
+def _should_retry_host_runtime_live_probe(
+    *,
+    allow_live_route_probe: bool,
+    live_receipt_path: Path | None,
+    report_args: argparse.Namespace,
+    route_probe: Mapping[str, Any],
+    artifact_probe: Mapping[str, Any],
+    source_coverage_probe: Mapping[str, Any],
+    provider_cost_pressure_probe: Mapping[str, Any],
+    skip_source_coverage_probe: bool,
+    skip_provider_cost_pressure_probe: bool,
+) -> bool:
+    if not allow_live_route_probe or live_receipt_path is not None:
+        return False
+    if _has_explicit_artifact_dirs(report_args):
+        return False
+    if _env_truthy("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", default=False):
+        return False
+    if _env_truthy("EA_LIVE_OPS_PREFER_HOST_RUNTIME_PROACTIVE_PROBE", default=False):
+        return False
+    if not bool(route_probe.get("probe_ok")):
+        return True
+    if not artifact_probe:
+        return True
+    if not skip_source_coverage_probe and not source_coverage_probe:
+        return True
+    if not skip_provider_cost_pressure_probe and not provider_cost_pressure_probe:
+        return True
+    return False
 
 
 def _normalized_delivery_route(report: Mapping[str, Any]) -> dict[str, Any]:
@@ -987,6 +1400,95 @@ def _normalized_safe_work_results(report: Mapping[str, Any]) -> dict[str, Any]:
     safe_work.setdefault("ready", False)
     safe_work.setdefault("errors", [])
     return safe_work
+
+
+def _path_text(value: Any) -> str:
+    if isinstance(value, Path):
+        return value.as_posix()
+    return str(value or "").strip()
+
+
+def _selected_artifact_probe(
+    *,
+    artifact_probe: Mapping[str, Any] | None,
+    assistant_grade_probe: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    for candidate in (assistant_grade_probe, artifact_probe):
+        probe = _mapping_value(candidate)
+        if (
+            _mapping_value(probe.get("stage_packet"))
+            or _mapping_value(probe.get("safe_work_result"))
+            or _path_text(probe.get("stage_packet_path"))
+            or _path_text(probe.get("safe_work_result_path"))
+        ):
+            return probe
+    return {}
+
+
+def _reconciled_stage_packets(
+    report: Mapping[str, Any],
+    *,
+    artifact_probe: Mapping[str, Any] | None = None,
+    assistant_grade_probe: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    stage_packets = _normalized_stage_packets(report)
+    selected_probe = _selected_artifact_probe(
+        artifact_probe=artifact_probe,
+        assistant_grade_probe=assistant_grade_probe,
+    )
+    selected_stage_packet = _mapping_value(selected_probe.get("stage_packet"))
+    selected_stage_packet_path = _path_text(selected_probe.get("stage_packet_path"))
+    if not selected_stage_packet and not selected_stage_packet_path:
+        return stage_packets
+
+    selected_bundle_source = str(
+        selected_probe.get("assistant_grade_bundle_source") or "current_runtime_bundle"
+    ).strip()
+    selected_safe_work_order = _mapping_value(selected_stage_packet.get("safe_work_order"))
+    stage_packets["selected_packet_present"] = True
+    stage_packets["selected_packet_path"] = selected_stage_packet_path
+    stage_packets["selected_bundle_source"] = selected_bundle_source
+    stage_packets["packet_count"] = max(int(stage_packets.get("packet_count") or 0), 1)
+    stage_packets["expected_packet_count"] = max(int(stage_packets.get("expected_packet_count") or 0), 1)
+    if selected_safe_work_order or "safe_work_order_count" in stage_packets:
+        stage_packets["safe_work_order_count"] = max(
+            int(stage_packets.get("safe_work_order_count") or 0),
+            1 if selected_safe_work_order else 0,
+        )
+    return stage_packets
+
+
+def _reconciled_safe_work_results(
+    report: Mapping[str, Any],
+    *,
+    artifact_probe: Mapping[str, Any] | None = None,
+    assistant_grade_probe: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    safe_work_results = _normalized_safe_work_results(report)
+    selected_probe = _selected_artifact_probe(
+        artifact_probe=artifact_probe,
+        assistant_grade_probe=assistant_grade_probe,
+    )
+    selected_safe_work_result = _mapping_value(selected_probe.get("safe_work_result"))
+    selected_safe_work_result_path = _path_text(selected_probe.get("safe_work_result_path"))
+    if not selected_safe_work_result and not selected_safe_work_result_path:
+        return safe_work_results
+
+    selected_bundle_source = str(
+        selected_probe.get("assistant_grade_bundle_source") or "current_runtime_bundle"
+    ).strip()
+    schema_valid = str(selected_safe_work_result.get("schema") or "").strip() == "proactive_ooda.safe_work_result.v1"
+    safe_work_results["selected_result_present"] = True
+    safe_work_results["selected_result_path"] = selected_safe_work_result_path
+    safe_work_results["selected_bundle_source"] = selected_bundle_source
+    safe_work_results["result_count"] = max(int(safe_work_results.get("result_count") or 0), 1)
+    safe_work_results["expected_result_count"] = max(int(safe_work_results.get("expected_result_count") or 0), 1)
+    if schema_valid or "schema_valid_count" in safe_work_results:
+        safe_work_results["schema_valid_count"] = max(
+            int(safe_work_results.get("schema_valid_count") or 0),
+            1 if schema_valid else 0,
+        )
+    return safe_work_results
 
 
 def _normalized_safe_work_audit(artifact_probe: Mapping[str, Any]) -> dict[str, Any]:
@@ -1045,6 +1547,87 @@ def _normalized_safe_work_audit(artifact_probe: Mapping[str, Any]) -> dict[str, 
             "raw_private_link_exposed": False,
         },
     }
+
+
+def _normalized_browser_handoff(artifact_probe: Mapping[str, Any]) -> dict[str, Any]:
+    stage_packet = dict(artifact_probe.get("stage_packet") or {})
+    stage_payload = dict(dict(stage_packet.get("stage") or {}).get("payload") or {})
+    safe_work_result = dict(artifact_probe.get("safe_work_result") or {})
+    browser_receipt = dict(safe_work_result.get("browser_action_receipt") or {})
+    handoff = dict(browser_receipt.get("handoff") or {})
+    challenge = dict(handoff.get("challenge") or {})
+    browser_privacy = dict(browser_receipt.get("privacy") or {})
+    result_status = str(safe_work_result.get("status") or "").strip()
+    required = bool(
+        browser_receipt
+        and browser_receipt.get("user_action_required")
+        and (handoff.get("required") or result_status == "blocked_human_handoff_required")
+    )
+    available_channels = [
+        str(item).strip()
+        for item in list(challenge.get("available_channels") or [])
+        if str(item).strip()
+    ]
+    return {
+        "present": bool(browser_receipt),
+        "required": required,
+        "source": str(artifact_probe.get("source") or "").strip(),
+        "site_host": str(browser_receipt.get("site") or stage_payload.get("site") or "").strip(),
+        "blocker_code": str(handoff.get("blocker_code") or "").strip(),
+        "reason": str(handoff.get("reason") or "").strip(),
+        "next_action": str(handoff.get("next_action") or "").strip(),
+        "resume_instruction": str(handoff.get("resume_instruction") or "").strip(),
+        "staged_artifact_present": bool(browser_receipt.get("staged_artifact_present")),
+        "challenge": {
+            "primary_channel": str(challenge.get("primary_channel") or "").strip(),
+            "available_channels": available_channels,
+            "destination_hint": str(challenge.get("destination_hint") or "").strip(),
+            "operator_instruction": str(challenge.get("operator_instruction") or "").strip(),
+            "raw_destination_stored": bool(challenge.get("raw_destination_stored")),
+        },
+        "privacy": {
+            "raw_credentials_stored": bool(browser_privacy.get("raw_credentials_stored")),
+            "raw_cookie_or_session_stored": bool(browser_privacy.get("raw_cookie_or_session_stored")),
+            "raw_browser_artifact_stored": False,
+        },
+    }
+
+
+def _browser_handoff_requires_recovery(browser_handoff: Mapping[str, Any] | None) -> bool:
+    return bool(dict(browser_handoff or {}).get("required"))
+
+
+def _browser_handoff_recovery_reason(browser_handoff: Mapping[str, Any] | None) -> str:
+    if not _browser_handoff_requires_recovery(browser_handoff):
+        return ""
+    return "browser_handoff_required"
+
+
+def _browser_handoff_recovery_next_action(browser_handoff: Mapping[str, Any] | None) -> str:
+    if not _browser_handoff_requires_recovery(browser_handoff):
+        return ""
+    return (
+        str(dict(browser_handoff or {}).get("next_action") or "complete_browser_handoff_then_resume_ooda_task").strip()
+        or "complete_browser_handoff_then_resume_ooda_task"
+    )
+
+
+def _browser_handoff_recovery_summary(browser_handoff: Mapping[str, Any] | None) -> str:
+    normalized = dict(browser_handoff or {})
+    site_host = str(normalized.get("site_host") or "").strip()
+    base = "Proactive OODA is waiting on a live browser handoff before the current packet can resume."
+    if site_host:
+        base = f"Proactive OODA is waiting on a live browser handoff for {site_host} before the current packet can resume."
+    challenge = dict(normalized.get("challenge") or {})
+    operator_instruction = str(challenge.get("operator_instruction") or "").strip()
+    resume_instruction = str(normalized.get("resume_instruction") or "").strip()
+    if operator_instruction and resume_instruction and resume_instruction not in operator_instruction:
+        return f"{base} {operator_instruction} {resume_instruction}".strip()
+    if operator_instruction:
+        return f"{base} {operator_instruction}".strip()
+    if resume_instruction:
+        return f"{base} {resume_instruction}".strip()
+    return base
 
 
 def _safe_work_materiality_issue(
@@ -1198,6 +1781,54 @@ def _normalized_current_artifact_filter(artifact_probe: Mapping[str, Any]) -> di
         "blocking_reason": f"filtered_current_artifact_{reason}" if requires_recovery else "",
         "next_action": "repair_proactive_safe_work_audit" if requires_recovery else "",
         "issue_codes": issue_codes,
+        "privacy": {
+            "raw_packet_text_exposed": False,
+            "raw_candidate_exposed": False,
+            "raw_draft_text_exposed": False,
+            "raw_private_link_exposed": False,
+        },
+    }
+
+
+def _assistant_grade_stage_kind_and_work_type(artifact_probe: Mapping[str, Any]) -> tuple[str, str]:
+    probe = _mapping_value(artifact_probe)
+    stage_packet = _mapping_value(probe.get("stage_packet"))
+    stage = _mapping_value(stage_packet.get("stage"))
+    stage_payload = _mapping_value(stage.get("payload"))
+    safe_work_order = _mapping_value(stage_packet.get("safe_work_order"))
+    safe_work_result = _mapping_value(probe.get("safe_work_result"))
+    stage_kind = str(stage.get("kind") or "").strip().lower()
+    work_type = str(
+        stage_payload.get("work_type")
+        or safe_work_order.get("work_type")
+        or safe_work_result.get("work_type")
+        or ""
+    ).strip().lower()
+    return stage_kind, work_type
+
+
+def _normalized_assistant_grade_packet(artifact_probe: Mapping[str, Any]) -> dict[str, Any]:
+    probe = _mapping_value(artifact_probe)
+    stage_packet = _mapping_value(probe.get("stage_packet"))
+    safe_work_result = _mapping_value(probe.get("safe_work_result"))
+    present = bool(stage_packet or safe_work_result)
+    stage_kind, work_type = _assistant_grade_stage_kind_and_work_type(probe)
+    requires_recovery = bool(
+        present
+        and (
+            stage_kind in ASSISTANT_GRADE_BLOCKING_WORK_TYPES
+            or work_type in ASSISTANT_GRADE_BLOCKING_WORK_TYPES
+        )
+    )
+    return {
+        "present": present,
+        "source": str(probe.get("source") or "").strip(),
+        "bundle_source": str(probe.get("assistant_grade_bundle_source") or "current_runtime_bundle").strip(),
+        "stage_kind": stage_kind,
+        "work_type": work_type,
+        "requires_recovery": requires_recovery,
+        "blocking_reason": "internal_action_not_assistant_grade" if requires_recovery else "",
+        "next_action": "stage_fresh_assistant_grade_proactive_packet" if requires_recovery else "",
         "privacy": {
             "raw_packet_text_exposed": False,
             "raw_candidate_exposed": False,
@@ -1366,6 +1997,8 @@ def _status(report: dict[str, Any], *, live_receipt: dict[str, Any], live_receip
         return "blocked_local_runtime"
     if not bool(report.get("ok")) and _has_only_workspace_health_errors(report):
         return "ready_with_recovery_action"
+    if live_receipt_checked and _live_receipt_requires_runtime_recovery(live_receipt):
+        return "ready_with_recovery_action"
     if live_receipt_checked and bool(live_receipt.get("ok")):
         return "ready_with_live_receipt"
     return "ready_local_runtime"
@@ -1421,6 +2054,11 @@ def _next_action(report: dict[str, Any], *, live_receipt: dict[str, Any], live_r
         return "repair_proactive_safe_work_runtime"
     if _report_errors(report):
         return _runtime_error_next_action(report)
+    if live_receipt_checked and _live_receipt_requires_runtime_recovery(live_receipt):
+        return (
+            str(live_receipt.get("delivery_next_action") or "repair_proactive_operator_runtime_posture").strip()
+            or "repair_proactive_operator_runtime_posture"
+        )
     if live_receipt_checked and not bool(live_receipt.get("ok")):
         return str(live_receipt.get("delivery_next_action") or "refresh_proactive_live_receipt").strip() or "refresh_proactive_live_receipt"
     if live_receipt_checked and bool(live_receipt.get("ok")):
@@ -1580,10 +2218,20 @@ def _operator_delivery_guard(
     *,
     live_receipt: Mapping[str, Any],
     live_receipt_checked: bool,
+    browser_handoff: Mapping[str, Any] | None,
     approval_capture_surface: Mapping[str, Any] | None,
     approval_capture: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     guard = _normalized_delivery_guard(report)
+    if _browser_handoff_requires_recovery(browser_handoff):
+        runtime_delivery_state = str(guard.get("delivery_state") or "").strip()
+        if runtime_delivery_state and runtime_delivery_state != "browser_handoff_pending":
+            guard["runtime_delivery_state"] = runtime_delivery_state
+        guard["delivery_state"] = "browser_handoff_pending"
+        guard["user_action_required"] = True
+        guard["browser_handoff_pending"] = True
+        guard["blocker_code"] = str(dict(browser_handoff or {}).get("blocker_code") or "").strip()
+        return guard
     if not _approval_followthrough_ready(
         status,
         live_receipt=live_receipt,
@@ -1591,7 +2239,11 @@ def _operator_delivery_guard(
         approval_capture_surface=approval_capture_surface,
         approval_capture=approval_capture,
     ):
-        return guard
+        return _clear_stale_approval_followthrough_guard(
+            report,
+            guard,
+            approval_capture_surface=approval_capture_surface,
+        )
     runtime_delivery_state = str(guard.get("delivery_state") or "").strip()
     if runtime_delivery_state and runtime_delivery_state != "approval_capture_pending":
         guard["runtime_delivery_state"] = runtime_delivery_state
@@ -1613,10 +2265,13 @@ def _operator_actionable_count(
     status: str,
     live_receipt: Mapping[str, Any],
     live_receipt_checked: bool,
+    browser_handoff: Mapping[str, Any] | None,
     approval_capture_surface: Mapping[str, Any] | None,
     approval_capture: Mapping[str, Any] | None,
 ) -> int:
     runtime_count = int(report.get("actionable_count") or 0)
+    if _browser_handoff_requires_recovery(browser_handoff):
+        return max(runtime_count, 1)
     if not _approval_followthrough_ready(
         status,
         live_receipt=live_receipt,
@@ -1670,6 +2325,8 @@ def _approval_outcome_matches_current_packet(artifact_probe: Mapping[str, Any]) 
 
 
 def _current_packet_approval_request_recordable(artifact_probe: Mapping[str, Any]) -> bool:
+    if _current_packet_internal_action(artifact_probe):
+        return False
     stage_packet = dict(artifact_probe.get("stage_packet") or {})
     safe_work_result = dict(artifact_probe.get("safe_work_result") or {})
     packet_ref = _stage_packet_ref(stage_packet)
@@ -1689,6 +2346,63 @@ def _current_packet_approval_request_recordable(artifact_probe: Mapping[str, Any
         and approval_required
         and approval_surface_present
     )
+
+
+def _current_packet_internal_action(artifact_probe: Mapping[str, Any]) -> bool:
+    stage_packet = dict(artifact_probe.get("stage_packet") or {})
+    stage = dict(stage_packet.get("stage") or {})
+    stage_payload = dict(stage.get("payload") or {})
+    safe_work_order = dict(stage_packet.get("safe_work_order") or {})
+    safe_work_result = dict(artifact_probe.get("safe_work_result") or {})
+    stage_kind = str(stage.get("kind") or "").strip().lower()
+    work_type = str(
+        stage_payload.get("work_type")
+        or safe_work_order.get("work_type")
+        or safe_work_result.get("work_type")
+        or ""
+    ).strip().lower()
+    return bool(
+        stage_kind in ASSISTANT_GRADE_BLOCKING_WORK_TYPES
+        or work_type in ASSISTANT_GRADE_BLOCKING_WORK_TYPES
+    )
+
+
+def _current_packet_user_action_required(artifact_probe: Mapping[str, Any]) -> bool:
+    if _current_packet_internal_action(artifact_probe):
+        return False
+    if not _current_packet_approval_request_recordable(artifact_probe):
+        return bool(
+            int(artifact_probe.get("current_packet_live_pending_count") or 0) > 0
+            or int(artifact_probe.get("current_packet_callback_pending_count") or 0) > 0
+            or int(artifact_probe.get("current_packet_callback_record_count") or 0) > 0
+        )
+    stage_packet = dict(artifact_probe.get("stage_packet") or {})
+    safe_work_result = dict(artifact_probe.get("safe_work_result") or {})
+    stage_payload = dict(dict(stage_packet.get("stage") or {}).get("payload") or {})
+    safe_work_order = dict(stage_packet.get("safe_work_order") or {})
+    approval_request = {
+        "packet_ref": _stage_packet_ref(stage_packet),
+        "staged_artifact_ref": _safe_work_result_ref(safe_work_result),
+        "approval_prompt": str(
+            safe_work_result.get("approval_prompt")
+            or stage_payload.get("approval_prompt")
+            or ""
+        ).strip(),
+        "staged_action_url": str(
+            safe_work_result.get("staged_action_url")
+            or stage_payload.get("approval_url")
+            or ""
+        ).strip(),
+        "approved_execution_mode": str(stage_payload.get("approved_execution_mode") or "").strip(),
+        "approved_action": str(stage_payload.get("approved_action") or "").strip(),
+        "work_type": str(
+            stage_payload.get("work_type")
+            or safe_work_order.get("work_type")
+            or safe_work_result.get("work_type")
+            or ""
+        ).strip().lower(),
+    }
+    return approval_request_needs_telegram_user_action(approval_request)
 
 
 def _approval_capture_surface(
@@ -1730,9 +2444,19 @@ def _approval_capture_surface(
     )
     current_packet = dict(artifact_probe.get("current_packet") or {})
     approval_outcome_matches_current_packet = _approval_outcome_matches_current_packet(artifact_probe)
+    current_packet_user_action_required = _current_packet_user_action_required(artifact_probe)
     manual_outcome_capture_ready = bool(
         _current_packet_approval_request_recordable(artifact_probe)
+        and current_packet_user_action_required
         and not approval_outcome_matches_current_packet
+    )
+    callback_noncurrent_pending_count = int(artifact_probe.get("approval_callback_noncurrent_pending_count") or 0)
+    callback_stale_pending_count = int(artifact_probe.get("approval_callback_stale_pending_count") or 0)
+    callback_hygiene_ready, callback_hygiene_blocking_reason, callback_hygiene_next_action = _approval_callback_hygiene(
+        callback_noncurrent_pending_count=callback_noncurrent_pending_count,
+        callback_stale_pending_count=callback_stale_pending_count,
+        current_packet_callback_stale_pending_count=current_packet_callback_stale_pending_count,
+        current_packet_duplicate_live_pending_count=current_packet_duplicate_live_pending_count,
     )
     ready = (
         bool(delivery_route.get("ready"))
@@ -1742,7 +2466,8 @@ def _approval_capture_surface(
         and bool(approval_outcome_path)
         and bool(callback_dir)
         and callback_dir_writable
-        and (current_packet_live_pending_count == 1 or manual_outcome_capture_ready)
+        and callback_hygiene_ready
+        and ((current_packet_live_pending_count == 1 and current_packet_user_action_required) or manual_outcome_capture_ready)
     )
     return {
         "present": bool(approval_outcome_path or callback_dir),
@@ -1764,8 +2489,8 @@ def _approval_capture_surface(
         "callback_raw_pending_count": int(artifact_probe.get("approval_callback_raw_pending_count") or artifact_probe.get("approval_callback_pending_count") or 0),
         "callback_live_pending_count": int(artifact_probe.get("approval_callback_live_pending_count") or artifact_probe.get("approval_callback_pending_count") or 0),
         "callback_unexpired_pending_count": int(artifact_probe.get("approval_callback_unexpired_pending_count") or 0),
-        "callback_noncurrent_pending_count": int(artifact_probe.get("approval_callback_noncurrent_pending_count") or 0),
-        "callback_stale_pending_count": int(artifact_probe.get("approval_callback_stale_pending_count") or 0),
+        "callback_noncurrent_pending_count": callback_noncurrent_pending_count,
+        "callback_stale_pending_count": callback_stale_pending_count,
         "callback_expired_pending_count": int(artifact_probe.get("approval_callback_expired_pending_count") or 0),
         "callback_recorded_count": int(artifact_probe.get("approval_callback_recorded_count") or 0),
         "callback_expired_count": int(artifact_probe.get("approval_callback_expired_count") or 0),
@@ -1793,10 +2518,19 @@ def _approval_capture_surface(
             artifact_probe.get("stage_packet") or artifact_probe.get("safe_work_result")
         ),
         "current_packet_approval_request_recordable": _current_packet_approval_request_recordable(artifact_probe),
+        "current_packet_user_action_required": current_packet_user_action_required,
+        "current_packet_ref_sha256": _hash_value(_stage_packet_ref(dict(artifact_probe.get("stage_packet") or {}))),
+        "current_staged_artifact_ref_sha256": _hash_value(
+            _safe_work_result_ref(dict(artifact_probe.get("safe_work_result") or {}))
+        ),
         "approval_outcome_matches_current_packet": approval_outcome_matches_current_packet,
-        "telegram_approval_surface_ready": current_packet_live_pending_count == 1,
+        "telegram_approval_surface_ready": current_packet_live_pending_count == 1 and current_packet_user_action_required,
         "duplicate_live_pending_callbacks_present": current_packet_duplicate_live_pending_count > 0,
         "manual_outcome_capture_ready": manual_outcome_capture_ready,
+        "callback_hygiene_ready": callback_hygiene_ready,
+        "callback_hygiene_blocking_reason": callback_hygiene_blocking_reason,
+        "callback_hygiene_next_action": callback_hygiene_next_action,
+        **_next_action_surface_fields(callback_hygiene_next_action),
         "source": str(artifact_probe.get("source") or "").strip() or "",
     }
 
@@ -1808,17 +2542,32 @@ def _normalize_approval_capture_surface(
     normalized = dict(surface or {})
     if not normalized:
         return {}
+    current_packet_user_action_required = bool(
+        normalized.get("current_packet_user_action_required")
+        if "current_packet_user_action_required" in normalized
+        else (
+            normalized.get("manual_outcome_capture_ready")
+            or normalized.get("telegram_approval_surface_ready")
+            or int(normalized.get("current_packet_live_pending_count") or 0) > 0
+        )
+    )
+    callback_hygiene_ready = bool(normalized.get("callback_hygiene_ready", True))
     manual_outcome_capture_ready = bool(
         normalized.get("manual_outcome_capture_ready")
         and normalized.get("current_packet_approval_request_recordable")
+        and current_packet_user_action_required
+        and callback_hygiene_ready
     )
     telegram_approval_surface_ready = bool(
         normalized.get("telegram_approval_surface_ready")
+        and current_packet_user_action_required
         and bool(dict(approval_capture or {}).get("checked"))
+        and callback_hygiene_ready
     )
+    normalized["current_packet_user_action_required"] = current_packet_user_action_required
     normalized["manual_outcome_capture_ready"] = manual_outcome_capture_ready
     normalized["telegram_approval_surface_ready"] = telegram_approval_surface_ready
-    normalized["ready"] = bool(normalized.get("ready")) and bool(
+    normalized["ready"] = callback_hygiene_ready and bool(normalized.get("ready")) and bool(
         telegram_approval_surface_ready or manual_outcome_capture_ready
     )
     normalized["mode"] = (
@@ -1831,20 +2580,118 @@ def _normalize_approval_capture_surface(
     return normalized
 
 
+def _clear_stale_approval_followthrough_guard(
+    report: Mapping[str, Any],
+    guard: Mapping[str, Any] | None,
+    *,
+    approval_capture_surface: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    normalized = dict(guard or {})
+    if str(normalized.get("delivery_state") or "").strip() != "approval_capture_pending":
+        return normalized
+    if bool(dict(approval_capture_surface or {}).get("ready")):
+        return normalized
+    runtime_count = int(report.get("actionable_count") or 0)
+    fallback_state = str(normalized.get("runtime_delivery_state") or "").strip()
+    if not fallback_state and runtime_count <= 0:
+        fallback_state = "no_actionable_items"
+    normalized["delivery_state"] = fallback_state
+    normalized["user_action_required"] = False
+    normalized["pending_approval_surface"] = False
+    normalized["manual_outcome_capture_ready"] = False
+    normalized["current_packet_live_pending_count"] = 0
+    return normalized
+
+
 def _local_artifact_probe(
     *,
     report_args: argparse.Namespace,
     live_receipt_path: Path | None,
+    allow_live_runtime_probe: bool = False,
+    live_probe_timeout_seconds: float | None = None,
+    prefer_browse_backed_delivery: bool = False,
 ) -> dict[str, Any]:
-    bundle = load_runtime_artifact_bundle(
+    effective_timeout = float(live_probe_timeout_seconds or _live_probe_timeout_seconds())
+    state_path = str(
+        getattr(report_args, "state_path", "state/proactive_ooda_notified.json") or "state/proactive_ooda_notified.json"
+    )
+    receipt_path = str(live_receipt_path or "")
+    stage_packet_dir = str(getattr(report_args, "stage_packet_dir", "") or "")
+    safe_work_result_dir = str(getattr(report_args, "safe_work_result_dir", "") or "")
+
+    def _live_probe(*, timeout_seconds: float | None = None) -> Mapping[str, Any]:
+        if not allow_live_runtime_probe:
+            return {
+                "probe_ok": False,
+                "status": "probe_disabled",
+                "blocking_reason": "live_runtime_probe_disabled",
+            }
+        try:
+            return dict(
+                ea_live_ops.probe_proactive_artifacts(
+                    timeout_seconds=float(timeout_seconds or effective_timeout),
+                    output_format="json",
+                    prefer_browse_backed_delivery=prefer_browse_backed_delivery,
+                )
+                or {}
+            )
+        except Exception as exc:
+            return {
+                "probe_ok": False,
+                "status": "probe_failed",
+                "blocking_reason": type(exc).__name__,
+                "reason": type(exc).__name__,
+            }
+
+    def _bundle_loader(
+        *,
+        root: Path,
+        state_path: str | Path,
+        receipt_path: str | Path = "",
+        stage_packet_dir: str | Path = "",
+        safe_work_result_dir: str | Path = "",
+    ) -> Mapping[str, Any]:
+        return load_runtime_artifact_bundle(
+            root=root,
+            state_path=state_path,
+            receipt_path=receipt_path,
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+            prefer_browse_backed_delivery=prefer_browse_backed_delivery,
+        )
+
+    resolution = resolve_proactive_ooda_capture_bundle(
         root=ROOT,
-        state_path=str(getattr(report_args, "state_path", "state/proactive_ooda_notified.json") or "state/proactive_ooda_notified.json"),
-        receipt_path=str(live_receipt_path or ""),
-        stage_packet_dir=str(getattr(report_args, "stage_packet_dir", "") or ""),
-        safe_work_result_dir=str(getattr(report_args, "safe_work_result_dir", "") or ""),
+        state_path=state_path,
+        receipt_path=receipt_path,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+        timeout_seconds=effective_timeout,
+        live_probe=_live_probe,
+        bundle_loader=_bundle_loader,
+    )
+    bundle = dict(resolution.get("bundle") or {})
+    resolution_source = str(resolution.get("bundle_source") or "").strip()
+    live_report = dict(resolution.get("live_report") or {})
+    probe_source = (
+        str(live_report.get("source") or "").strip() or "docker_compose_exec"
+        if resolution_source == "live_runtime"
+        else "local_filesystem"
     )
     return {
-        "source": "local_filesystem",
+        "source": probe_source,
+        "artifact_resolution_source": resolution_source or "host_runtime_fallback",
+        "artifact_resolution_host_fallback_used": bool(resolution.get("host_fallback_used")),
+        "artifact_resolution_fallback_reason": str(resolution.get("fallback_reason") or "").strip(),
+        "artifact_filter_reason": str(bundle.get("artifact_filter_reason") or "").strip(),
+        "assistant_grade_bundle_source": (
+            "historical_browse_backed_proof_bundle" if prefer_browse_backed_delivery else "current_runtime_bundle"
+        ),
+        "state_path": bundle.get("state_path"),
+        "run_receipt_path": bundle.get("run_receipt_path"),
+        "stage_packet_path": bundle.get("stage_packet_path"),
+        "safe_work_result_path": bundle.get("safe_work_result_path"),
+        "action_required_only_quiet_receipt_path": bundle.get("action_required_only_quiet_receipt_path"),
         "approval_outcome_path": bundle.get("approval_outcome_path"),
         "approval_callback_dir": bundle.get("approval_callback_dir"),
         "approval_callback_dir_exists": bool(bundle.get("approval_callback_dir_exists")),
@@ -1889,6 +2736,45 @@ def _local_artifact_probe(
     }
 
 
+def _assistant_grade_artifact_probe(
+    *,
+    artifact_probe: Mapping[str, Any],
+    report_args: argparse.Namespace,
+    live_receipt_path: Path | None,
+    allow_live_route_probe: bool,
+    live_probe_timeout_seconds: float,
+) -> dict[str, Any]:
+    current_probe = dict(artifact_probe or {})
+    if not bool(_normalized_assistant_grade_packet(current_probe).get("requires_recovery")):
+        return current_probe
+    if not _assistant_grade_historical_fallback_allowed(current_probe):
+        return current_probe
+
+    candidate_probe = _local_artifact_probe(
+        report_args=report_args,
+        live_receipt_path=live_receipt_path,
+        allow_live_runtime_probe=False,
+        live_probe_timeout_seconds=live_probe_timeout_seconds,
+        prefer_browse_backed_delivery=True,
+    )
+
+    if bool(_normalized_assistant_grade_packet(candidate_probe).get("requires_recovery")):
+        return current_probe
+    if not (dict(candidate_probe.get("stage_packet") or {}) or dict(candidate_probe.get("safe_work_result") or {})):
+        return current_probe
+    return candidate_probe
+
+
+def _assistant_grade_historical_fallback_allowed(artifact_probe: Mapping[str, Any] | None) -> bool:
+    probe = dict(artifact_probe or {})
+    if bool(probe.get("assistant_grade_allow_historical_fallback")):
+        return True
+    return bool(
+        dict(probe.get("run_receipt") or {})
+        or _path_text(probe.get("run_receipt_path"))
+    )
+
+
 def build_proactive_ooda_operator_status(
     *,
     output_path: Path = DEFAULT_OUTPUT,
@@ -1911,39 +2797,133 @@ def build_proactive_ooda_operator_status(
     live_probe_timeout_seconds = _live_probe_timeout_seconds()
     configured_live_receipt_path = live_receipt_path if live_receipt_path is not None else _configured_live_receipt_path()
     effective_live_receipt_path = live_receipt_path if live_receipt_path is not None else _default_live_receipt_path()
+    allow_live_artifact_probe = bool(
+        allow_live_route_probe
+        and live_receipt_path is None
+        and not _has_explicit_artifact_dirs(effective_report_args)
+    )
     if effective_live_receipt_path is not None:
         effective_report_args.receipt_path = str(effective_live_receipt_path)
     elif not hasattr(effective_report_args, "receipt_path"):
         effective_report_args.receipt_path = ""
-    if allow_live_route_probe:
-        try:
-            route_probe = ea_live_ops.probe_proactive_route(
-                principal_id=principal_id,
-                receipt_path=str(configured_live_receipt_path or ""),
-                timeout_seconds=live_probe_timeout_seconds,
-            )
-        except Exception:
-            route_probe = {}
-        if isinstance(route_probe.get("artifact_probe"), dict):
-            artifact_probe = dict(route_probe.get("artifact_probe") or {})
-        if live_receipt_path is None:
-            if not artifact_probe:
+
+    def _run_live_probe_bundle(*, prefer_host_runtime: bool) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+        bundle_route_probe: dict[str, Any] = {}
+        bundle_artifact_probe: dict[str, Any] = {}
+        bundle_gmail_draft_probe: dict[str, Any] = {}
+        bundle_source_coverage_probe: dict[str, Any] = {}
+        bundle_provider_cost_pressure_probe: dict[str, Any] = {}
+        with _host_runtime_proactive_probe_override(prefer_host_runtime):
+            if allow_live_route_probe:
                 try:
-                    artifact_probe = ea_live_ops.probe_proactive_artifacts(
+                    bundle_route_probe = ea_live_ops.probe_proactive_route(
+                        principal_id=principal_id,
+                        receipt_path=str(configured_live_receipt_path or ""),
                         timeout_seconds=live_probe_timeout_seconds,
-                        output_format="json",
+                        include_artifact_probe=False,
                     )
                 except Exception:
-                    artifact_probe = {}
-            if not skip_gmail_draft_followthrough_probe:
-                gmail_draft_probe = _gmail_draft_followthrough_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
-        if not skip_source_coverage_probe:
-            source_coverage_probe = _source_coverage_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
-        if not skip_provider_cost_pressure_probe:
-            provider_cost_pressure_probe = _provider_cost_pressure_probe(
-                principal_id,
-                timeout_seconds=live_probe_timeout_seconds,
-            )
+                    bundle_route_probe = {}
+                if isinstance(bundle_route_probe.get("artifact_probe"), dict):
+                    bundle_artifact_probe = dict(bundle_route_probe.get("artifact_probe") or {})
+                if live_receipt_path is None:
+                    route_live_receipt_path = _route_live_receipt_host_path(bundle_route_probe)
+                    if not bundle_artifact_probe:
+                        bundle_artifact_probe = _local_artifact_probe(
+                            report_args=effective_report_args,
+                            live_receipt_path=route_live_receipt_path or effective_live_receipt_path,
+                            allow_live_runtime_probe=allow_live_artifact_probe,
+                            live_probe_timeout_seconds=live_probe_timeout_seconds,
+                        )
+                    if not skip_gmail_draft_followthrough_probe:
+                        bundle_gmail_draft_probe = _gmail_draft_followthrough_probe(
+                            principal_id,
+                            timeout_seconds=live_probe_timeout_seconds,
+                        )
+            if not skip_source_coverage_probe:
+                bundle_source_coverage_probe = _source_coverage_probe(
+                    principal_id,
+                    timeout_seconds=live_probe_timeout_seconds,
+                )
+            if not skip_provider_cost_pressure_probe:
+                bundle_provider_cost_pressure_probe = _provider_cost_pressure_probe(
+                    principal_id,
+                    timeout_seconds=live_probe_timeout_seconds,
+                )
+        return (
+            bundle_route_probe,
+            bundle_artifact_probe,
+            bundle_gmail_draft_probe,
+            bundle_source_coverage_probe,
+            bundle_provider_cost_pressure_probe,
+        )
+
+    route_probe, artifact_probe, gmail_draft_probe, source_coverage_probe, provider_cost_pressure_probe = _run_live_probe_bundle(
+        prefer_host_runtime=False
+    )
+    if _should_retry_host_runtime_live_probe(
+        allow_live_route_probe=allow_live_route_probe,
+        live_receipt_path=live_receipt_path,
+        report_args=effective_report_args,
+        route_probe=route_probe,
+        artifact_probe=artifact_probe,
+        source_coverage_probe=source_coverage_probe,
+        provider_cost_pressure_probe=provider_cost_pressure_probe,
+        skip_source_coverage_probe=skip_source_coverage_probe,
+        skip_provider_cost_pressure_probe=skip_provider_cost_pressure_probe,
+    ):
+        retry_route_probe, retry_artifact_probe, retry_gmail_draft_probe, retry_source_coverage_probe, retry_provider_cost_pressure_probe = _run_live_probe_bundle(
+            prefer_host_runtime=True
+        )
+        retry_score = _live_probe_bundle_score(
+            route_probe=retry_route_probe,
+            artifact_probe=retry_artifact_probe,
+            gmail_draft_probe=retry_gmail_draft_probe,
+            source_coverage_probe=retry_source_coverage_probe,
+            provider_cost_pressure_probe=retry_provider_cost_pressure_probe,
+        )
+        current_score = _live_probe_bundle_score(
+            route_probe=route_probe,
+            artifact_probe=artifact_probe,
+            gmail_draft_probe=gmail_draft_probe,
+            source_coverage_probe=source_coverage_probe,
+            provider_cost_pressure_probe=provider_cost_pressure_probe,
+        )
+        if retry_score > current_score:
+            route_probe = retry_route_probe
+            artifact_probe = retry_artifact_probe
+            gmail_draft_probe = retry_gmail_draft_probe
+            source_coverage_probe = retry_source_coverage_probe
+            provider_cost_pressure_probe = retry_provider_cost_pressure_probe
+
+    if (
+        allow_live_route_probe
+        and configured_live_receipt_path is not None
+        and _route_probe_live_receipt_missing(route_probe=route_probe)
+    ):
+        unpinned_route_probe: dict[str, Any] = {}
+        with _host_runtime_proactive_probe_override(str(route_probe.get("source") or "").strip() == "host_python_exec"):
+            try:
+                unpinned_route_probe = ea_live_ops.probe_proactive_route(
+                    principal_id=principal_id,
+                    receipt_path="",
+                    timeout_seconds=live_probe_timeout_seconds,
+                    include_artifact_probe=False,
+                )
+            except Exception:
+                unpinned_route_probe = {}
+        if _route_probe_live_receipt_score(route_probe=unpinned_route_probe) > _route_probe_live_receipt_score(
+            route_probe=route_probe
+        ):
+            route_probe = unpinned_route_probe
+
+    # Provider-cost posture remains relevant even when the caller pins an explicit
+    # live receipt path. Backfill it directly if the bundled probe path left it empty.
+    if allow_live_route_probe and not skip_provider_cost_pressure_probe and not provider_cost_pressure_probe:
+        provider_cost_pressure_probe = _provider_cost_pressure_probe(
+            principal_id,
+            timeout_seconds=live_probe_timeout_seconds,
+        )
 
     if bool(route_probe.get("probe_ok")) and isinstance(route_probe.get("route_report"), dict):
         report = dict(route_probe.get("route_report") or {})
@@ -1978,11 +2958,15 @@ def build_proactive_ooda_operator_status(
         artifact_probe = _local_artifact_probe(
             report_args=effective_report_args,
             live_receipt_path=effective_live_receipt_path,
+            allow_live_runtime_probe=allow_live_artifact_probe,
+            live_probe_timeout_seconds=live_probe_timeout_seconds,
         )
     if not artifact_probe:
         artifact_probe = _local_artifact_probe(
             report_args=effective_report_args,
             live_receipt_path=effective_live_receipt_path,
+            allow_live_runtime_probe=False,
+            live_probe_timeout_seconds=live_probe_timeout_seconds,
         )
     safe_work_audit_probe: Mapping[str, Any] = artifact_probe
     if (
@@ -1993,8 +2977,18 @@ def build_proactive_ooda_operator_status(
         safe_work_audit_probe = {}
     safe_work_audit = _normalized_safe_work_audit(safe_work_audit_probe)
     safe_work_audit_blocks = _safe_work_audit_blocks_operator(safe_work_audit)
+    browser_handoff = _normalized_browser_handoff(safe_work_audit_probe)
     current_artifact_filter = _normalized_current_artifact_filter(artifact_probe)
     current_artifact_filter_blocks = bool(current_artifact_filter.get("requires_recovery"))
+    assistant_grade_probe = _assistant_grade_artifact_probe(
+        artifact_probe=safe_work_audit_probe,
+        report_args=effective_report_args,
+        live_receipt_path=live_receipt_path,
+        allow_live_route_probe=allow_live_route_probe,
+        live_probe_timeout_seconds=live_probe_timeout_seconds,
+    )
+    assistant_grade_packet = _normalized_assistant_grade_packet(assistant_grade_probe)
+    assistant_grade_recovery_active = bool(assistant_grade_packet.get("requires_recovery"))
     suppressed_projection = _normalized_suppressed_projection(artifact_probe)
     suppressed_projection_blocks = bool(suppressed_projection.get("requires_recovery"))
     runtime_source_health = _runtime_source_health_summary(artifact_probe)
@@ -2008,14 +3002,30 @@ def build_proactive_ooda_operator_status(
     elif current_artifact_filter_blocks:
         status = "blocked_local_runtime"
         reason = str(current_artifact_filter.get("blocking_reason") or "filtered_current_artifact").strip()
+    elif assistant_grade_recovery_active:
+        status = "ready_with_recovery_action"
+        reason = str(assistant_grade_packet.get("blocking_reason") or "internal_action_not_assistant_grade").strip()
     elif suppressed_projection_blocks and status in {"ready_local_runtime", "ready_with_live_receipt", "ready_with_recovery_action"}:
         status = "ready_with_recovery_action"
         reason = str(suppressed_projection.get("blocking_reason") or "suppressed_safe_work_projection").strip()
+    browser_handoff_recovery_active = bool(
+        not safe_work_audit_blocks
+        and not current_artifact_filter_blocks
+        and not assistant_grade_recovery_active
+        and not suppressed_projection_blocks
+        and status in {"ready_local_runtime", "ready_with_live_receipt"}
+        and _browser_handoff_requires_recovery(browser_handoff)
+    )
+    if browser_handoff_recovery_active:
+        status = "ready_with_recovery_action"
+        reason = _browser_handoff_recovery_reason(browser_handoff)
     source_health_recovery_active = bool(
         not safe_work_audit_blocks
         and not current_artifact_filter_blocks
+        and not assistant_grade_recovery_active
         and not suppressed_projection_blocks
-        and status in {"ready_local_runtime", "ready_with_live_receipt"}
+        and not browser_handoff_recovery_active
+        and _source_health_recovery_candidate_status(status, reason)
         and _runtime_source_health_requires_recovery(runtime_source_health)
     )
     if source_health_recovery_active:
@@ -2024,7 +3034,9 @@ def build_proactive_ooda_operator_status(
     provider_cost_pressure_recovery_active = bool(
         not safe_work_audit_blocks
         and not current_artifact_filter_blocks
+        and not assistant_grade_recovery_active
         and not suppressed_projection_blocks
+        and not browser_handoff_recovery_active
         and not source_health_recovery_active
         and status in {"ready_local_runtime", "ready_with_live_receipt"}
         and bool(provider_cost_pressure.get("requires_recovery"))
@@ -2035,7 +3047,9 @@ def build_proactive_ooda_operator_status(
     source_coverage_recovery_active = bool(
         not safe_work_audit_blocks
         and not current_artifact_filter_blocks
+        and not assistant_grade_recovery_active
         and not suppressed_projection_blocks
+        and not browser_handoff_recovery_active
         and not source_health_recovery_active
         and not provider_cost_pressure_recovery_active
         and status in {"ready_local_runtime", "ready_with_live_receipt"}
@@ -2050,6 +3064,7 @@ def build_proactive_ooda_operator_status(
         and live_receipt_path is None
         and not safe_work_audit_blocks
         and not current_artifact_filter_blocks
+        and not assistant_grade_recovery_active
         and _approval_capture_surface_ready(approval_capture_surface)
         and int(approval_capture_surface.get("current_packet_live_pending_count") or 0) > 0
         and live_receipt_checked
@@ -2058,6 +3073,17 @@ def build_proactive_ooda_operator_status(
         approval_capture_probe = _approval_capture_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
     approval_capture = _approval_capture_summary(approval_capture_probe)
     approval_capture_surface = _normalize_approval_capture_surface(approval_capture_surface, approval_capture)
+    approval_capture = _reconcile_approval_capture_surface_authority(approval_capture, approval_capture_surface)
+    if assistant_grade_recovery_active:
+        approval_capture_surface = {}
+        approval_capture = {}
+    approval_callback_hygiene_blocks = not bool(approval_capture_surface.get("callback_hygiene_ready", True))
+    if approval_callback_hygiene_blocks:
+        status = "blocked_local_runtime"
+        reason = str(
+            approval_capture_surface.get("callback_hygiene_blocking_reason")
+            or "approval_callback_hygiene_requires_cleanup"
+        ).strip()
     if _approval_capture_probe_blocks_followthrough(
         status=status,
         live_receipt=live_receipt,
@@ -2066,8 +3092,38 @@ def build_proactive_ooda_operator_status(
         approval_capture=approval_capture,
     ):
         reason = str(approval_capture.get("blocking_reason") or "approval_capture_not_ready").strip()
+    approval_followthrough_override_active = _soft_followthrough_recovery_override(
+        status=status,
+        report=report,
+        source_coverage=source_coverage,
+        live_receipt=live_receipt,
+        live_receipt_checked=live_receipt_checked,
+        approval_capture_surface=approval_capture_surface,
+        approval_capture=approval_capture,
+        safe_work_audit_blocks=safe_work_audit_blocks,
+        current_artifact_filter_blocks=current_artifact_filter_blocks,
+        assistant_grade_recovery_active=assistant_grade_recovery_active,
+        suppressed_projection_blocks=suppressed_projection_blocks,
+        browser_handoff_recovery_active=browser_handoff_recovery_active,
+        source_health_recovery_active=source_health_recovery_active,
+        provider_cost_pressure_recovery_active=provider_cost_pressure_recovery_active,
+        approval_callback_hygiene_blocks=approval_callback_hygiene_blocks,
+    )
+    if approval_followthrough_override_active:
+        status = "ready_with_live_receipt"
+        source_health_recovery_active = False
+        source_coverage_recovery_active = False
     if safe_work_audit_blocks or current_artifact_filter_blocks or suppressed_projection_blocks:
         next_action = "repair_proactive_safe_work_audit"
+    elif assistant_grade_recovery_active:
+        next_action = "stage_fresh_assistant_grade_proactive_packet"
+    elif browser_handoff_recovery_active:
+        next_action = _browser_handoff_recovery_next_action(browser_handoff)
+    elif approval_callback_hygiene_blocks:
+        next_action = str(
+            approval_capture_surface.get("callback_hygiene_next_action")
+            or "cleanup_proactive_approval_callbacks"
+        ).strip()
     elif source_health_recovery_active:
         next_action = _runtime_source_health_recovery_next_action(runtime_source_health)
     elif provider_cost_pressure_recovery_active:
@@ -2094,11 +3150,22 @@ def build_proactive_ooda_operator_status(
         )
     elif current_artifact_filter_blocks:
         summary = "Proactive OODA filtered the current packet before follow-through because it is not decision-ready."
+    elif assistant_grade_recovery_active:
+        summary = (
+            "The proactive OODA mechanics have evidence, but the selected packet is not assistant-grade enough "
+            "to prove production readiness."
+        )
     elif suppressed_projection_blocks:
         summary = (
             "Proactive OODA runtime is healthy, but the latest quiet run suppressed "
             f"{int(suppressed_projection.get('suppressed_item_count') or 0)} non-deliverable safe-work "
             "item(s) from user and Teable packet projection."
+        )
+    elif browser_handoff_recovery_active:
+        summary = _browser_handoff_recovery_summary(browser_handoff)
+    elif approval_callback_hygiene_blocks:
+        summary = (
+            "Proactive OODA approval-callback hygiene needs cleanup before operator follow-through can resume."
         )
     elif source_health_recovery_active:
         summary = _runtime_source_health_recovery_summary(runtime_source_health)
@@ -2120,6 +3187,7 @@ def build_proactive_ooda_operator_status(
         report,
         live_receipt=live_receipt,
         live_receipt_checked=live_receipt_checked,
+        browser_handoff=browser_handoff,
         approval_capture_surface=approval_capture_surface,
         approval_capture=approval_capture,
     )
@@ -2142,7 +3210,9 @@ def build_proactive_ooda_operator_status(
             "recovery_required"
             if safe_work_audit_blocks
             or current_artifact_filter_blocks
+            or assistant_grade_recovery_active
             or suppressed_projection_blocks
+            or browser_handoff_recovery_active
             or source_health_recovery_active
             or provider_cost_pressure_recovery_active
             else _operator_followthrough_action_state(
@@ -2168,10 +3238,20 @@ def build_proactive_ooda_operator_status(
         "delivery_route": _normalized_delivery_route(report),
         "delivery_guard": operator_delivery_guard,
         "context_grounding": _normalized_context_grounding(report, artifact_probe=artifact_probe),
-        "stage_packets": _normalized_stage_packets(report),
-        "safe_work_results": _normalized_safe_work_results(report),
+        "stage_packets": _reconciled_stage_packets(
+            report,
+            artifact_probe=artifact_probe,
+            assistant_grade_probe=assistant_grade_probe,
+        ),
+        "safe_work_results": _reconciled_safe_work_results(
+            report,
+            artifact_probe=artifact_probe,
+            assistant_grade_probe=assistant_grade_probe,
+        ),
         "safe_work_audit": safe_work_audit,
+        "browser_handoff": browser_handoff,
         "current_artifact_filter": current_artifact_filter,
+        "assistant_grade_packet": assistant_grade_packet,
         "suppressed_projection": suppressed_projection,
         "source_health": runtime_source_health,
         "provider_cost_pressure": provider_cost_pressure,
@@ -2182,6 +3262,7 @@ def build_proactive_ooda_operator_status(
             status=status,
             live_receipt=live_receipt,
             live_receipt_checked=live_receipt_checked,
+            browser_handoff=browser_handoff,
             approval_capture_surface=approval_capture_surface,
             approval_capture=approval_capture,
         ),

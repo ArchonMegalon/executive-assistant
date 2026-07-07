@@ -66,6 +66,15 @@ def build_operator_action_required_dedupe_proof(
     last_sent_at_present = bool(str(state.get("last_sent_at") or "").strip())
     message_id_count = int(state.get("message_id_count") or 0)
     state_matches_current_digest = bool(current_digest_sha256 and state_digest == current_digest_sha256)
+    current_item_hashes = digest._item_hashes_by_key(items)
+    state_item_hashes = {
+        str(key or "").strip(): str(value or "").strip()
+        for key, value in dict(state.get("last_item_hashes") or {}).items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+    state_item_hashes_cover_current = bool(current_item_hashes) and all(
+        state_item_hashes.get(key) == value for key, value in current_item_hashes.items()
+    )
     state_item_keys_match = state_item_keys == included_keys
     notification_items, notification_mode = digest._notification_items(
         items=items,
@@ -73,7 +82,8 @@ def build_operator_action_required_dedupe_proof(
         digest_sha256=current_digest_sha256,
         force=False,
     )
-    current_actions_covered_by_prior_state = bool(
+    prior_state_matches_current = state_matches_current_digest or state_item_hashes_cover_current
+    notification_suppressed_by_policy = bool(
         items
         and not notification_items
         and notification_mode in {"duplicate_suppressed", "covered_by_previous_send"}
@@ -81,21 +91,60 @@ def build_operator_action_required_dedupe_proof(
         and last_sent_at_present
         and message_id_count > 0
     )
+    current_actions_covered_by_prior_state = bool(
+        notification_suppressed_by_policy
+        and (
+            prior_state_matches_current
+            or (notification_mode == "covered_by_previous_send" and bool(state_item_hashes))
+        )
+    )
+    notification_action_keys = [
+        str(item.get("key") or "").strip()
+        for item in notification_items
+        if str(item.get("key") or "").strip()
+    ]
+    sent_receipt_status = str(sent_receipt.get("status") or "").strip()
+    sent_receipt_notification_status = str(sent_receipt.get("notification_status") or "").strip()
     sent_receipt_digest_match = (
         str(sent_receipt.get("digest_sha256") or "").strip() == current_digest_sha256
+    )
+    suppressed_duplicate_expected = current_actions_covered_by_prior_state
+    sent_receipt_matches_suppression = bool(
+        sent_receipt_digest_match
         and (
             (
-                str(sent_receipt.get("status") or "").strip() == "sent"
-                and str(sent_receipt.get("notification_status") or "").strip() == "sent"
+                sent_receipt_status == "sent"
+                and sent_receipt_notification_status == "sent"
             )
             or (
-                str(sent_receipt.get("status") or "").strip() == "suppressed_duplicate"
-                and str(sent_receipt.get("notification_status") or "").strip() == "suppressed_duplicate"
+                sent_receipt_status == "suppressed_duplicate"
+                and sent_receipt_notification_status == "suppressed_duplicate"
             )
         )
     )
-    suppressed_duplicate_expected = current_actions_covered_by_prior_state
-    status = "pass" if suppressed_duplicate_expected and sent_receipt_digest_match else "blocked"
+    sent_receipt_matches_notification_required = bool(
+        sent_receipt_digest_match
+        and sent_receipt_status == "ready_to_send"
+        and sent_receipt_notification_status == "ready_to_send"
+        and int(sent_receipt.get("notification_item_count") or 0) == len(notification_items)
+        and [
+            str(item or "").strip()
+            for item in list(sent_receipt.get("notification_action_keys") or [])
+            if str(item or "").strip()
+        ] == notification_action_keys
+    )
+    notification_required = bool(items and notification_items and not suppressed_duplicate_expected)
+    proof_outcome = (
+        "duplicate_suppression_valid"
+        if suppressed_duplicate_expected
+        else "notification_required"
+        if notification_required
+        else "blocked"
+    )
+    status = "pass" if (
+        (suppressed_duplicate_expected and sent_receipt_matches_suppression)
+        or (notification_required and sent_receipt_matches_notification_required)
+    ) else "blocked"
 
     receipt = {
         "contract_name": "ea.operator_action_required_dedupe_proof.v1",
@@ -114,8 +163,10 @@ def build_operator_action_required_dedupe_proof(
         "would_send_without_force": False if suppressed_duplicate_expected else True,
         "suppressed_duplicate_expected": suppressed_duplicate_expected,
         "force_required_to_resend": suppressed_duplicate_expected,
+        "proof_outcome": proof_outcome,
         "notification_mode_without_force": notification_mode,
         "notification_item_count_without_force": len(notification_items),
+        "notification_action_keys_without_force": notification_action_keys,
         "current_actions_covered_by_prior_state": current_actions_covered_by_prior_state,
         "current_digest_sha256": current_digest_sha256,
         "item_count": len(items),
@@ -125,7 +176,11 @@ def build_operator_action_required_dedupe_proof(
             "path": _display_path(state_path, root),
             "present": state_present,
             "last_digest_match": state_matches_current_digest,
+            "last_item_hashes_cover_current": state_item_hashes_cover_current,
             "last_item_keys_match": state_item_keys_match,
+            "last_notification_item_keys": digest._state_keys(state, "last_notification_item_keys"),
+            "last_notification_item_hashes_present": bool(digest._state_hashes(state, "last_notification_item_hashes")),
+            "notification_suppressed_by_policy": notification_suppressed_by_policy,
             "last_sent_at_present": last_sent_at_present,
             "message_id_count": message_id_count,
             "raw_chat_ref_stored": False,
@@ -142,11 +197,16 @@ def build_operator_action_required_dedupe_proof(
             "sent_digest": {
                 "path": _display_path(sent_receipt_path, root),
                 "present": bool(sent_receipt),
-                "status": str(sent_receipt.get("status") or "").strip(),
-                "notification_status": str(sent_receipt.get("notification_status") or "").strip(),
+                "status": sent_receipt_status,
+                "notification_status": sent_receipt_notification_status,
                 "digest_match": sent_receipt_digest_match,
                 "message_count": int(dict(sent_receipt.get("send_result") or {}).get("message_count") or 0),
                 "notification_item_count": int(sent_receipt.get("notification_item_count") or 0),
+                "notification_action_keys": [
+                    str(item or "").strip()
+                    for item in list(sent_receipt.get("notification_action_keys") or [])
+                    if str(item or "").strip()
+                ],
             },
         },
         "privacy": {

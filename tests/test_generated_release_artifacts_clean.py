@@ -114,3 +114,10 @@ def test_generated_release_artifact_normalizer_preserves_semantic_status_drift()
     module = _load_module()
 
     assert module._normalize({"status": "pass"}) != module._normalize({"status": "blocked"})
+
+
+def test_generated_release_artifact_clean_tracks_mymedia_readiness_materializer_and_receipt() -> None:
+    module = _load_module()
+
+    assert Path(".codex-studio/published/mymedia_alexa_readiness.generated.json") in module.GENERATED_ARTIFACTS
+    assert ("scripts/materialize_mymedia_alexa_readiness.py",) in module.MATERIALIZER_COMMANDS

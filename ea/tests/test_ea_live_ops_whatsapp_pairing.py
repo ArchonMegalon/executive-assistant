@@ -127,9 +127,15 @@ def test_probe_operator_readiness_preserves_whatsapp_pairing_action_surface(monk
 
     assert captured["write_qr_svg"] is True
     assert report["status"] == "ready_with_actions"
-    assert report["next_action_href"] == "http://127.0.0.1:8098/sessions/tibor-wa-web/pair"
-    assert report["next_action_label"] == "Open WhatsApp pairing"
-    assert report["next_action_method"] == "get"
     pairing = next(item for item in report["components"] if item["key"] == "whatsapp_pairing")
+    assert str(pairing["next_action_href"]).endswith("/integrations/whatsapp")
+    assert pairing["next_action_label"] == "Open WhatsApp pairing"
+    assert pairing["next_action_method"] == "get"
     assert pairing["details"]["qr_svg_written"] is True
-    assert pairing["details"]["qr_svg_path"] == "/docker/EA/.runtime/whatsapp-pairing/tibor-wa-web.svg"
+    assert pairing["details"]["qr_svg_path"] == "host-local-file:redacted"
+    assert any(
+        item["component_key"] == "whatsapp_pairing"
+        and item["action"] == "scan_whatsapp_web_qr"
+        and str(item["href"]).endswith("/integrations/whatsapp")
+        for item in report["next_actions"] + report["supplemental_next_actions"]
+    )

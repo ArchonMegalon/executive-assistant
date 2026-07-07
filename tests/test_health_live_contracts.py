@@ -122,7 +122,7 @@ def test_whatsapp_runtime_status_reports_readiness_receipt_without_secrets(monke
                 "sidecar_qr_present": True,
                 "sidecar_qr_required": True,
                 "state_age_seconds": 17,
-                "next_action": "restore_whatsapp_web_session_sidecar_readiness",
+                "next_action": "scan_whatsapp_web_qr",
                 "secret": "must-not-leak",
             }
         ),
@@ -149,7 +149,7 @@ def test_whatsapp_runtime_status_reports_readiness_receipt_without_secrets(monke
     assert isinstance(payload["receipt_age_seconds"], int)
     assert payload["receipt_fresh_seconds"] == 900
     assert payload["next_action"] == "refresh_whatsapp_web_action_processor_readiness_receipt"
-    assert payload["receipt_next_action"] == "restore_whatsapp_web_session_sidecar_readiness"
+    assert payload["receipt_next_action"] == "scan_whatsapp_web_qr"
     assert payload["operator_action_state"] == "refresh_recommended"
     assert payload["operator_recheck_after_seconds"] == 30
     assert payload["contract_name"] == "ea.whatsapp_web_action_processor_readiness.v1"
@@ -241,7 +241,7 @@ def test_whatsapp_runtime_status_reports_pairing_required_for_fresh_qr(monkeypat
                 "sidecar_qr_fresh": True,
                 "sidecar_qr_fresh_seconds": 120,
                 "sidecar_qr_age_seconds": 8,
-                "next_action": "restore_whatsapp_web_session_sidecar_readiness",
+                "next_action": "scan_whatsapp_web_qr",
             }
         ),
         encoding="utf-8",
@@ -254,7 +254,7 @@ def test_whatsapp_runtime_status_reports_pairing_required_for_fresh_qr(monkeypat
 
     assert payload["operator_action_state"] == "pairing_required"
     assert payload["operator_recheck_after_seconds"] == 15
-    assert payload["next_action"] == "restore_whatsapp_web_session_sidecar_readiness"
+    assert payload["next_action"] == "scan_whatsapp_web_qr"
 
 
 def test_whatsapp_runtime_status_reports_action_required_when_receipt_missing(monkeypatch, tmp_path) -> None:

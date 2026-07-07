@@ -2,27 +2,33 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+from contextlib import contextmanager
 from datetime import UTC, datetime
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
 
 
 ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = ROOT / "ea"
 SCRIPT_DIR = ROOT / "scripts"
-for path in (ROOT / "ea", ROOT, SCRIPT_DIR):
+for path in (EA_ROOT, ROOT, SCRIPT_DIR):
     if path.exists() and str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
@@ -49,9 +55,11 @@ def _load_dotenv_if_present(path: Path) -> None:
 
 
 _load_dotenv_if_present(ROOT / ".env")
+_load_dotenv_if_present(EA_ROOT / ".env")
 
 import check_whatsapp_web_session_readiness as readiness_script  # noqa: E402
 import materialize_google_workspace_oauth_readiness as google_workspace_oauth_readiness  # noqa: E402
+import materialize_pushbullet_delivery_readiness as pushbullet_delivery_readiness  # noqa: E402
 import materialize_whatsapp_web_action_processor_readiness as whatsapp_action_processor_readiness  # noqa: E402
 import verify_pocket_audio_archive as pocket_audio_archive_verifier  # noqa: E402
 from app.container import build_container  # noqa: E402
@@ -61,11 +69,19 @@ from app.services.proactive_ooda_operator_actions import proactive_next_action_s
 from app.services.proactive_ooda_runtime_artifacts import approval_callback_runtime_summary, load_runtime_artifact_bundle  # noqa: E402
 from app.services.proactive_ooda_telegram_approval import expire_stale_proactive_ooda_telegram_approval_callbacks  # noqa: E402
 from app.services.responses_upstream import _provider_health_report  # noqa: E402
+from app.services.telegram_delivery import send_telegram_message_for_principal  # noqa: E402
+from app.services.tool_runtime import build_tool_runtime  # noqa: E402
+from app.settings import get_settings, settings_with_storage_backend  # noqa: E402
+from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter  # noqa: E402
 
 
 DEFAULT_SESSION_API_BASE_URL = "http://127.0.0.1:8098"
 DEFAULT_READINESS_RECEIPT_FILENAME = "whatsapp_web_action_processor_readiness.generated.json"
 DEFAULT_READINESS_RECEIPT_PATH = ROOT / ".codex-studio" / "published" / DEFAULT_READINESS_RECEIPT_FILENAME
+DEFAULT_GOOGLE_WORKSPACE_OAUTH_READINESS_PATH = Path(
+    str(getattr(google_workspace_oauth_readiness, "DEFAULT_OUTPUT", ROOT / ".codex-studio" / "published" / "ea_google_workspace_oauth_readiness.generated.json"))
+)
+DEFAULT_GOOGLE_WORKSPACE_OAUTH_RECEIPT_MAX_AGE_SECONDS = 7200.0
 DEFAULT_RUNTIME_CONTAINER = "ea-api"
 DEFAULT_TELEGRAM_READINESS_TIMEOUT_SECONDS = 75.0
 DEFAULT_WHATSAPP_WEB_COMPOSE_FILE = ROOT / "docker-compose.whatsapp-web-session.yml"
@@ -73,6 +89,61 @@ DEFAULT_WHATSAPP_WEB_ACTION_PROCESSOR_SERVICE = "ea-whatsapp-web-action-processo
 DEFAULT_PROACTIVE_OODA_COMPOSE_FILE = ROOT / "docker-compose.yml"
 DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE = "ea-proactive-ooda"
 DEFAULT_EA_COMPOSE_PROJECT_NAME = "ea"
+DEFAULT_MYMEDIA_ALEXA_CONTAINER = "mymediaalexa"
+DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL = "http://127.0.0.1:52051"
+DEFAULT_MYMEDIA_ALEXA_PUBLIC_BASE_URL = ""
+DEFAULT_MYMEDIA_ALEXA_PUBLIC_TUNNEL_ORIGIN_URL = ""
+DEFAULT_MYMEDIA_ALEXA_CLOUDFLARE_TUNNEL_NAME = "chummer-run"
+DEFAULT_MYMEDIA_ALEXA_CF_ACCESS_ENV_FILE = "/docker/fleet/secrets/codexliz-cf-access.env"
+DEFAULT_MYMEDIA_ALEXA_RUNTIME_DEFAULTS_PATH = ROOT / ".state" / "mymedia-alexa" / "runtime-defaults.json"
+DEFAULT_MYMEDIA_ALEXA_ACCESS_APP_NAME = "My Media"
+DEFAULT_MYMEDIA_ALEXA_ACCESS_EMAILS = ""
+DEFAULT_MYMEDIA_ALEXA_CLOUDFLARE_EXCEPTION_BASE_HOSTS = ""
+DEFAULT_MYMEDIA_ALEXA_PUBLIC_SURFACE_REPAIR_RECEIPT = (
+    ROOT / ".state" / "mymedia-alexa" / "public-console-repair.receipt.json"
+)
+DEFAULT_MYMEDIA_ALEXA_CONSOLE_API_REPAIR_RECEIPT = (
+    ROOT / ".state" / "mymedia-alexa" / "console-api-repair.receipt.json"
+)
+DEFAULT_MYMEDIA_ALEXA_PAIRING_DIR = ROOT / ".runtime" / "mymedia-amazon-pairing"
+DEFAULT_MYMEDIA_ALEXA_SETUP_PATH = "/index.html#!/setup"
+DEFAULT_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL = "whatsapp"
+DEFAULT_MYMEDIA_ALEXA_AMAZON_PHONE_SUFFIX = ""
+DEFAULT_MYMEDIA_ALEXA_PAIRING_SESSION_MAX_AGE_SECONDS = 1800.0
+DEFAULT_SONARR_BASE_URL = "http://127.0.0.1:8989"
+DEFAULT_SONARR_CONFIG_PATH = Path("/docker/arr-v2/sonarr/config.xml")
+DEFAULT_SONARR_STAGING_ROOT = Path("/mnt/pcloud/staging/downloads")
+DEFAULT_SONARR_TV_RECEIPT_DIR = ROOT / ".state" / "sonarr-tv"
+DEFAULT_SONARR_METADATA_STALL_AGE_SECONDS = 3600.0
+DEFAULT_SONARR_FFPROBE_TIMEOUT_SECONDS = 15.0
+DEFAULT_SONARR_QUEUE_REPLACEMENT_MIN_AGE_SECONDS = 300.0
+OPERATOR_STREAM_OFFICE_LOOP = "office_loop"
+OPERATOR_STREAM_OFFICE_SETUP = "office_setup"
+OPERATOR_STREAM_RECOVERY = "recovery"
+OPERATOR_STREAM_MEDIA_MEMORIAL = "media_memorial"
+DEFAULT_TELEGRAM_OPERATOR_STREAMS = (
+    OPERATOR_STREAM_OFFICE_LOOP,
+    OPERATOR_STREAM_OFFICE_SETUP,
+    OPERATOR_STREAM_RECOVERY,
+)
+
+MYMEDIA_WATCHFOLDER_STATUS_LABELS: dict[int, str] = {
+    0: "queued",
+    1: "scanning",
+    2: "serving",
+    3: "error",
+    4: "indexing",
+}
+MYMEDIA_CONNECTION_STATUS_LABELS: dict[int, str] = {
+    0: "not_connected",
+    1: "connecting",
+    2: "connected",
+}
+MYMEDIA_ALLOW_EXTERNAL_ACCESS_LABELS: dict[str, str] = {
+    "0": "disabled",
+    "1": "static_ip",
+    "2": "push",
+}
 
 PROACTIVE_SOURCE_COVERAGE_LANES: tuple[dict[str, object], ...] = (
     {
@@ -132,6 +203,13 @@ def _telegram_readiness_timeout_seconds(timeout_seconds: float | None = None) ->
         )
     except ValueError:
         return DEFAULT_TELEGRAM_READINESS_TIMEOUT_SECONDS
+
+
+def _telegram_dry_run_timeout_seconds(timeout_seconds: float | None = None) -> float:
+    try:
+        return max(float(timeout_seconds or 30.0), 30.0)
+    except (TypeError, ValueError):
+        return 30.0
 PROACTIVE_SOURCE_COVERAGE_LANE_KEYS = tuple(row["key"] for row in PROACTIVE_SOURCE_COVERAGE_LANES)
 
 
@@ -144,6 +222,381 @@ def _env_truthy(name: str, default: bool = False) -> bool:
     if not raw:
         return default
     return raw in {"1", "true", "yes", "on"}
+
+
+OPERATOR_READINESS_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+OPERATOR_READINESS_SCRIPT_SUFFIXES = (".py", ".sh", ".ps1", ".bash", ".zsh", ".rb", ".js", ".cjs", ".mjs", ".ts")
+OPERATOR_READINESS_REASON_PREFIXES = {
+    "pushbullet_client_missing",
+    "pushbullet_token_missing",
+}
+
+
+def _operator_readiness_public_reason(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    public_parts: list[str] = []
+    for raw_part in text.split(","):
+        part = str(raw_part or "").strip()
+        if not part:
+            continue
+        prefix, separator, _suffix = part.partition(":")
+        if separator and prefix in OPERATOR_READINESS_REASON_PREFIXES:
+            part = prefix
+        public_parts.append(part)
+    return ",".join(public_parts)
+
+
+def _operator_readiness_redact_local_path(path: str) -> str:
+    parts = str(path or "").split("/")
+    if len(parts) == 4 and parts[1] == "sessions" and parts[3] == "pair":
+        parts[2] = "redacted"
+    return "/".join(parts)
+
+
+def _operator_readiness_looks_like_windows_absolute_path(text: str) -> bool:
+    raw = str(text or "").strip()
+    return (
+        len(raw) >= 3
+        and raw[0].isalpha()
+        and raw[1] == ":"
+        and raw[2] in {"/", "\\"}
+    ) or raw.startswith("\\\\")
+
+
+def _operator_readiness_local_source_label(path_text: str) -> str:
+    normalized = str(path_text or "").replace("\\", "/").rstrip("/")
+    if not normalized:
+        return "host-local-file:redacted"
+    basename = normalized.split("/")[-1]
+    lowered = basename.lower()
+    if lowered.endswith(OPERATOR_READINESS_SCRIPT_SUFFIXES):
+        return f"script:{basename}"
+    if basename:
+        return f"host-local-file:{basename}"
+    return "host-local-file:redacted"
+
+
+def _operator_readiness_script_source_label(text: str) -> str:
+    raw = str(text or "").strip()
+    lowered = raw.lower()
+    for suffix in OPERATOR_READINESS_SCRIPT_SUFFIXES:
+        if not lowered.endswith(suffix):
+            continue
+        trimmed = raw[: -len(suffix)]
+        token = trimmed.replace("\\", "/").split("/")[-1].split(".")[-1].strip()
+        if token:
+            return f"script:{token}{suffix}"
+    return ""
+
+
+def _operator_readiness_public_href(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    parsed = urllib.parse.urlparse(text)
+    host = (parsed.hostname or "").strip().lower()
+    if parsed.scheme in {"http", "https"} and host in OPERATOR_READINESS_LOOPBACK_HOSTS:
+        sanitized_path = _operator_readiness_redact_local_path(parsed.path or "/")
+        fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+        return f"host-local://{sanitized_path}{fragment}"
+    if parsed.scheme == "host-local":
+        sanitized_path = _operator_readiness_redact_local_path(parsed.path or "/")
+        fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+        return f"host-local://{sanitized_path}{fragment}"
+    return text
+
+
+def _operator_readiness_public_source_ref(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    parsed = urllib.parse.urlparse(text)
+    if parsed.scheme == "script":
+        return text
+    if parsed.scheme == "file":
+        return _operator_readiness_local_source_label(parsed.path or "")
+    if parsed.scheme in {"http", "https", "host-local"}:
+        return _operator_readiness_public_href(text)
+    if text.startswith("/") or _operator_readiness_looks_like_windows_absolute_path(text):
+        return _operator_readiness_local_source_label(text)
+    script_label = _operator_readiness_script_source_label(text)
+    if script_label:
+        return script_label
+    normalized = text.replace("\\", "/").rstrip("/")
+    basename = normalized.split("/")[-1].lower() if normalized else ""
+    if ("/" in text or "\\" in text) and basename.endswith(OPERATOR_READINESS_SCRIPT_SUFFIXES):
+        return _operator_readiness_local_source_label(text)
+    return text
+
+
+def _operator_readiness_public_action_fields(
+    *,
+    action: object,
+    href: object,
+    label: object,
+    method: object,
+) -> tuple[str, str, str]:
+    normalized_action = str(action or "").strip()
+    surface = proactive_next_action_surface(normalized_action)
+    surface_href = str(surface.get("href") or "").strip()
+    if surface_href:
+        return (
+            surface_href,
+            str(surface.get("label") or label or "").strip(),
+            str(surface.get("method") or method or "").strip().lower(),
+        )
+    return (
+        _operator_readiness_public_href(href),
+        str(label or "").strip(),
+        str(method or "").strip().lower(),
+    )
+
+
+def _operator_readiness_public_list_count(value: object) -> int:
+    if not isinstance(value, list):
+        return 0
+    return len([str(item).strip() for item in value if str(item).strip()])
+
+
+def _operator_readiness_public_details(component: Mapping[str, object]) -> dict[str, object]:
+    details = dict(component.get("details") or {})
+    if not details:
+        return {}
+    action = str(component.get("next_action") or "").strip()
+    public: dict[str, object] = {}
+    for field, value in details.items():
+        if value is None:
+            continue
+        if field == "account_label":
+            public["account_label_present"] = bool(str(value or "").strip())
+            continue
+        if field in {"principal_id", "binding_id"} or field.endswith("_principal_id") or field.endswith("_binding_id"):
+            public[f"{field}_present"] = bool(str(value or "").strip())
+            continue
+        if field == "required_client_keys":
+            public["required_client_count"] = _operator_readiness_public_list_count(value)
+            continue
+        if field == "missing_client_keys":
+            public["missing_client_count"] = _operator_readiness_public_list_count(value)
+            continue
+        if field == "missing_token_keys":
+            public["missing_token_count"] = _operator_readiness_public_list_count(value)
+            continue
+        if field in {"session_ref", "effective_session_ref"} or field.endswith("_session_ref"):
+            public[f"{field}_present"] = bool(str(value or "").strip())
+            continue
+        if field == "qr_svg_path":
+            public[field] = "host-local-file:redacted" if str(value or "").strip() else ""
+            continue
+        if field.endswith("_href"):
+            href, label, method = _operator_readiness_public_action_fields(
+                action=action,
+                href=value,
+                label=details.get("next_action_label"),
+                method=details.get("next_action_method"),
+            )
+            public[field] = href
+            if field == "next_action_href":
+                public["next_action_label"] = label
+                public["next_action_method"] = method
+            continue
+        if field.endswith("_url"):
+            public[field] = _operator_readiness_public_href(value)
+            continue
+        if field.endswith("_path"):
+            public[field] = _operator_readiness_public_source_ref(value)
+            continue
+        if field == "reason" or field.endswith("_reason"):
+            public[field] = _operator_readiness_public_reason(value)
+            continue
+        public[field] = value
+    return public
+
+
+def _operator_readiness_public_detail_fields(key: str) -> set[str]:
+    allowed: set[str] = set()
+    for field in OPERATOR_READINESS_DETAIL_FIELDS.get(str(key or "").strip(), ()):
+        if field == "account_label":
+            allowed.add("account_label_present")
+            continue
+        if field == "required_client_keys":
+            allowed.add("required_client_count")
+            continue
+        if field == "missing_client_keys":
+            allowed.add("missing_client_count")
+            continue
+        if field == "missing_token_keys":
+            allowed.add("missing_token_count")
+            continue
+        if field in {"principal_id", "binding_id"} or field.endswith("_principal_id") or field.endswith("_binding_id"):
+            allowed.add(f"{field}_present")
+            continue
+        if field in {"session_ref", "effective_session_ref"} or field.endswith("_session_ref"):
+            allowed.add(f"{field}_present")
+            continue
+        allowed.add(field)
+    return allowed
+
+
+def _operator_readiness_public_component(component: Mapping[str, object]) -> dict[str, object]:
+    public = dict(component)
+    href, label, method = _operator_readiness_public_action_fields(
+        action=component.get("next_action"),
+        href=component.get("next_action_href"),
+        label=component.get("next_action_label"),
+        method=component.get("next_action_method"),
+    )
+    public["reason"] = _operator_readiness_public_reason(component.get("reason"))
+    public["next_action_href"] = href
+    public["next_action_label"] = label
+    public["next_action_method"] = method
+    public["source"] = _operator_readiness_public_source_ref(component.get("source"))
+    public["details"] = _operator_readiness_public_details(component)
+    return public
+
+
+def _operator_readiness_public_next_actions(
+    actions: Sequence[Mapping[str, object]],
+) -> list[dict[str, str]]:
+    public_actions: list[dict[str, str]] = []
+    for item in actions:
+        action = str(item.get("action") or "").strip()
+        href, label, method = _operator_readiness_public_action_fields(
+            action=action,
+            href=item.get("href"),
+            label=item.get("label"),
+            method=item.get("method"),
+        )
+        public_actions.append(
+            {
+                "component_key": str(item.get("component_key") or "").strip(),
+                "component_label": str(item.get("component_label") or "").strip(),
+                "action": action,
+                "reason": _operator_readiness_public_reason(item.get("reason")),
+                "href": href,
+                "label": label,
+                "method": method,
+            }
+        )
+    return public_actions
+
+
+def _operator_readiness_public_report(report: Mapping[str, object]) -> dict[str, object]:
+    public = dict(report)
+    components = [dict(item) for item in list(report.get("components") or []) if isinstance(item, dict)]
+    next_actions = [dict(item) for item in list(report.get("next_actions") or []) if isinstance(item, dict)]
+    supplemental_next_actions = [
+        dict(item) for item in list(report.get("supplemental_next_actions") or []) if isinstance(item, dict)
+    ]
+    public["components"] = [_operator_readiness_public_component(item) for item in components]
+    public["next_actions"] = _operator_readiness_public_next_actions(next_actions)
+    public["supplemental_next_actions"] = _operator_readiness_public_next_actions(supplemental_next_actions)
+    public["source"] = _operator_readiness_public_source_ref(report.get("source"))
+    if public["next_actions"]:
+        first = dict(public["next_actions"][0])
+        public["next_action_href"] = str(first.get("href") or "").strip()
+        public["next_action_label"] = str(first.get("label") or "").strip()
+        public["next_action_method"] = str(first.get("method") or "").strip()
+    else:
+        public["next_action_href"] = _operator_readiness_public_href(report.get("next_action_href"))
+        public["next_action_label"] = str(report.get("next_action_label") or "").strip()
+        public["next_action_method"] = str(report.get("next_action_method") or "").strip().lower()
+    return public
+
+
+def _normalize_operator_streams(values: object) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    if isinstance(values, str):
+        raw_values = [part.strip() for part in values.split(",")]
+    else:
+        raw_values = [str(item or "").strip() for item in list(values or [])]
+    aliases = {
+        "default": DEFAULT_TELEGRAM_OPERATOR_STREAMS,
+        "office": DEFAULT_TELEGRAM_OPERATOR_STREAMS,
+        "office_only": DEFAULT_TELEGRAM_OPERATOR_STREAMS,
+        "office_loop": (OPERATOR_STREAM_OFFICE_LOOP,),
+        "office-loop": (OPERATOR_STREAM_OFFICE_LOOP,),
+        "office_setup": (OPERATOR_STREAM_OFFICE_SETUP,),
+        "office-setup": (OPERATOR_STREAM_OFFICE_SETUP,),
+        "recovery": (OPERATOR_STREAM_RECOVERY,),
+        "media": (OPERATOR_STREAM_MEDIA_MEMORIAL,),
+        "media_memorial": (OPERATOR_STREAM_MEDIA_MEMORIAL,),
+        "all": ("*",),
+        "*": ("*",),
+    }
+    normalized: list[str] = []
+    for value in raw_values:
+        if not value:
+            continue
+        for item in aliases.get(value.lower(), (value,)):
+            token = str(item or "").strip()
+            if token and token not in normalized:
+                normalized.append(token)
+    return tuple(normalized)
+
+
+def _effective_telegram_operator_streams(values: object = None) -> tuple[str, ...]:
+    configured = _normalize_operator_streams(values)
+    if configured:
+        return configured
+    configured = _normalize_operator_streams(_env("EA_LIVE_OPS_TELEGRAM_OPERATOR_STREAMS"))
+    return configured or DEFAULT_TELEGRAM_OPERATOR_STREAMS
+
+
+def _telegram_operator_stream_allowed(
+    operator_stream: str,
+    *,
+    allowed_operator_streams: tuple[str, ...],
+) -> bool:
+    normalized_stream = str(operator_stream or "").strip()
+    if not normalized_stream:
+        return True
+    if "*" in set(allowed_operator_streams):
+        return True
+    return normalized_stream in allowed_operator_streams
+
+
+def _suppressed_telegram_delivery(
+    *,
+    principal_id: str,
+    operator_stream: str,
+    allowed_operator_streams: tuple[str, ...],
+    observed_at: str,
+    source: str,
+    delivery_transport: str = "telegram_bot",
+) -> dict[str, object]:
+    return {
+        "sent": False,
+        "reason": "operator_stream_not_allowed",
+        "ready": False,
+        "readiness_probe_ok": False,
+        "readiness_status": "suppressed_by_stream_policy",
+        "readiness_reason": "operator_stream_not_allowed",
+        "principal_id": str(principal_id or "").strip(),
+        "delivery_transport": str(delivery_transport or "telegram_bot").strip() or "telegram_bot",
+        "operator_stream": str(operator_stream or "").strip(),
+        "allowed_operator_streams": list(allowed_operator_streams),
+        "next_action": "",
+        "next_action_href": "",
+        "next_action_label": "",
+        "next_action_method": "",
+        "observed_at": observed_at,
+        "source": source,
+    }
+
+
+def _add_telegram_operator_streams_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--telegram-operator-streams",
+        default="",
+        help=(
+            "Comma-separated operator streams allowed to send over Telegram for this command. "
+            "Defaults to office_loop,office_setup,recovery; use media or all to widen."
+        ),
+    )
 
 
 def _add_timeout_seconds_argument(parser: argparse.ArgumentParser) -> None:
@@ -179,19 +632,41 @@ def _use_in_process_proactive_runtime_fallback() -> bool:
     return bool(_env("EA_ROLE")) or ROOT.as_posix() == "/app"
 
 
+def _prefer_host_runtime_proactive_probe() -> bool:
+    if _use_in_process_proactive_runtime_fallback():
+        return True
+    if _env_truthy("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", default=False):
+        return False
+    return _env_truthy("EA_LIVE_OPS_PREFER_HOST_RUNTIME_PROACTIVE_PROBE", default=False)
+
+
 def _proactive_runtime_root() -> Path:
-    candidate = Path("/app")
-    return candidate if candidate.is_dir() else ROOT
+    return ROOT
+
+
+def _host_proactive_runtime_state_dir(root: Path) -> Path:
+    return root / "state"
 
 
 def _proactive_runtime_inputs() -> dict[str, object]:
+    root = _proactive_runtime_root()
+    if root.as_posix() == "/app":
+        default_state_path = "/data/provider-ledger/proactive_ooda_notified.json"
+        default_receipt_path = ""
+        default_stage_packet_dir = ""
+        default_safe_work_result_dir = ""
+    else:
+        state_dir = _host_proactive_runtime_state_dir(root)
+        default_state_path = (state_dir / "proactive_ooda_notified.json").as_posix()
+        default_receipt_path = (state_dir / "proactive_ooda_latest_run.generated.json").as_posix()
+        default_stage_packet_dir = (state_dir / "proactive_ooda_stage_packets").as_posix()
+        default_safe_work_result_dir = (state_dir / "proactive_ooda_safe_work_results").as_posix()
     return {
-        "root": _proactive_runtime_root(),
-        "state_path": _env("EA_PROACTIVE_OODA_STATE_PATH", "/data/provider-ledger/proactive_ooda_notified.json")
-        or "/data/provider-ledger/proactive_ooda_notified.json",
-        "receipt_path": _env("EA_PROACTIVE_OODA_RECEIPT_PATH"),
-        "stage_packet_dir": _env("EA_PROACTIVE_OODA_STAGE_PACKET_DIR"),
-        "safe_work_result_dir": _env("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR"),
+        "root": root,
+        "state_path": _env("EA_PROACTIVE_OODA_STATE_PATH", default_state_path) or default_state_path,
+        "receipt_path": _env("EA_PROACTIVE_OODA_RECEIPT_PATH", default_receipt_path),
+        "stage_packet_dir": _env("EA_PROACTIVE_OODA_STAGE_PACKET_DIR", default_stage_packet_dir),
+        "safe_work_result_dir": _env("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR", default_safe_work_result_dir),
     }
 
 
@@ -226,6 +701,35 @@ def _read_json_file(path: Path) -> dict[str, object]:
     except Exception:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _mymedia_runtime_defaults_path() -> Path:
+    configured = _env("EA_MYMEDIA_ALEXA_RUNTIME_DEFAULTS_PATH")
+    if configured:
+        return Path(os.path.expandvars(os.path.expanduser(configured)))
+    return DEFAULT_MYMEDIA_ALEXA_RUNTIME_DEFAULTS_PATH
+
+
+def _mymedia_runtime_defaults() -> dict[str, object]:
+    return _read_json_file(_mymedia_runtime_defaults_path())
+
+
+def _mymedia_runtime_default_value(
+    *,
+    env_names: tuple[str, ...],
+    payload_keys: tuple[str, ...],
+    default: str = "",
+) -> str:
+    for env_name in env_names:
+        configured = _env(env_name)
+        if configured:
+            return configured
+    payload = _mymedia_runtime_defaults()
+    for key in payload_keys:
+        configured = str(payload.get(key) or "").strip()
+        if configured:
+            return configured
+    return str(default or "").strip()
 
 
 def _runtime_readiness_receipt_path() -> Path:
@@ -267,6 +771,58 @@ def _request_json(
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _request_json_value(
+    *,
+    method: str,
+    url: str,
+    headers: dict[str, str] | None = None,
+    body: dict[str, object] | None = None,
+    timeout: float = 15.0,
+) -> object:
+    request = urllib.request.Request(
+        url,
+        headers=headers or {},
+        data=None if body is None else json.dumps(body).encode("utf-8"),
+        method=method,
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        payload = response.read().decode("utf-8")
+    if not payload.strip():
+        return {}
+    try:
+        return json.loads(payload)
+    except Exception:
+        return {}
+
+
+def _request_json_response(
+    *,
+    method: str,
+    url: str,
+    headers: dict[str, str] | None = None,
+    body: dict[str, object] | None = None,
+    timeout: float = 15.0,
+) -> tuple[int, dict[str, Any], str]:
+    request = urllib.request.Request(
+        url,
+        headers=headers or {},
+        data=None if body is None else json.dumps(body).encode("utf-8"),
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            return int(getattr(response, "status", 200) or 200), dict(payload) if isinstance(payload, dict) else {}, ""
+    except urllib.error.HTTPError as exc:
+        try:
+            payload = json.loads(exc.read().decode("utf-8"))
+        except Exception:
+            payload = {}
+        return int(getattr(exc, "code", 0) or 0), dict(payload) if isinstance(payload, dict) else {}, ""
+    except Exception as exc:
+        return 0, {}, type(exc).__name__
+
+
 def _request_bytes(
     *,
     method: str,
@@ -278,6 +834,66 @@ def _request_bytes(
     with urllib.request.urlopen(request, timeout=timeout) as response:
         content_type = str(response.headers.get("Content-Type") or "").strip()
         return response.read(), content_type
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        return None
+
+
+def _request_text_response(
+    *,
+    method: str,
+    url: str,
+    headers: dict[str, str] | None = None,
+    timeout: float = 15.0,
+    max_bytes: int = 8192,
+) -> tuple[int, dict[str, str], str, str]:
+    request = urllib.request.Request(url, headers=headers or {}, method=method)
+    opener = urllib.request.build_opener(_NoRedirectHandler)
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            payload = response.read(max(int(max_bytes or 8192), 0)).decode("utf-8", errors="replace")
+            response_headers = {str(key or ""): str(value or "") for key, value in response.headers.items()}
+            return int(getattr(response, "status", 200) or 200), response_headers, payload, ""
+    except urllib.error.HTTPError as exc:
+        try:
+            payload = exc.read(max(int(max_bytes or 8192), 0)).decode("utf-8", errors="replace")
+        except Exception:
+            payload = ""
+        response_headers = {str(key or ""): str(value or "") for key, value in exc.headers.items()}
+        return int(getattr(exc, "code", 0) or 0), response_headers, payload, ""
+    except Exception as exc:
+        return 0, {}, "", type(exc).__name__
+
+
+def _header_value(headers: Mapping[str, str], name: str) -> str:
+    target = str(name or "").strip().lower()
+    for key, value in headers.items():
+        if str(key or "").strip().lower() == target:
+            return str(value or "").strip()
+    return ""
+
+
+def _read_env_value(path: Path, key: str) -> str:
+    if not path.exists():
+        return ""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        current_key, value = line.split("=", 1)
+        if current_key.strip() != key:
+            continue
+        normalized = value.strip()
+        if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {"'", '"'}:
+            normalized = normalized[1:-1]
+        return normalized
+    return ""
 
 
 def _json_from_stdout(stdout: str) -> dict[str, Any]:
@@ -317,6 +933,14 @@ def _compact_text(value: object, *, limit: int = 140) -> str:
     return f"{text[:clipped].rstrip()}..."
 
 
+def _load_json_dict(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
 def _string_list(value: object) -> list[str]:
     if isinstance(value, (list, tuple, set)):
         return [str(item or "").strip() for item in value if str(item or "").strip()]
@@ -340,6 +964,31 @@ def _proactive_source_row_terms(row: Mapping[str, object]) -> set[str]:
 
 def _terms_contain(terms: set[str], *needles: str) -> bool:
     return any(needle in term for term in terms for needle in needles)
+
+
+PROACTIVE_SOURCE_COVERAGE_EXCLUDED_EVENT_TYPES = frozenset(
+    {
+        "property_scout_sync_completed",
+        "assistant_property_task_auto_closed",
+    }
+)
+PROACTIVE_SOURCE_COVERAGE_EXCLUDED_EVENT_PREFIXES = (
+    "property_",
+    "assistant_property_",
+)
+
+
+def _source_coverage_event_type(row: Mapping[str, object]) -> str:
+    return str(row.get("event_type") or "").strip()
+
+
+def _source_coverage_event_excluded(event_type: object) -> bool:
+    normalized = str(event_type or "").strip().lower()
+    if not normalized:
+        return False
+    if normalized in PROACTIVE_SOURCE_COVERAGE_EXCLUDED_EVENT_TYPES:
+        return True
+    return any(normalized.startswith(prefix) for prefix in PROACTIVE_SOURCE_COVERAGE_EXCLUDED_EVENT_PREFIXES)
 
 
 def _proactive_source_lane_matches(row: Mapping[str, object], lane_key: str) -> bool:
@@ -487,6 +1136,11 @@ def _proactive_source_coverage_report(
     source: str = "docker_compose_exec",
     pocket_archive_evidence: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
+    rows = [
+        dict(row)
+        for row in rows
+        if not _source_coverage_event_excluded(_source_coverage_event_type(row))
+    ]
     repository = str(observation_repository or "").strip()
     row_count = len(rows)
     lanes: list[dict[str, object]] = []
@@ -549,7 +1203,13 @@ def _proactive_source_coverage_report(
         )
     missing_lane_keys = [str(row["key"]) for row in lanes if not bool(row.get("observed"))]
     observed_lane_count = len(lanes) - len(missing_lane_keys)
-    status = "ready" if not missing_lane_keys else "ready_with_gaps" if row_count > 0 else "no_recent_observations"
+    status = (
+        "repaired"
+        if not missing_lane_keys and row_count > 0
+        else "ready_with_gaps"
+        if row_count > 0
+        else "no_recent_observations"
+    )
     report: dict[str, object] = {
         "probe_ok": True,
         "checked": True,
@@ -573,6 +1233,153 @@ def _proactive_source_coverage_report(
         },
     }
     return report
+
+
+def _prefer_in_process_source_coverage_probe() -> bool:
+    if _use_in_process_proactive_runtime_fallback():
+        return True
+    if _env_truthy("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", default=False):
+        return False
+    if _env("DATABASE_URL"):
+        return True
+    return _env_truthy("EA_LIVE_OPS_PREFER_HOST_RUNTIME_PROACTIVE_PROBE", default=False)
+
+
+def _source_coverage_hash_present(value: object) -> bool:
+    return bool(str(value or "").strip())
+
+
+def _source_coverage_walk(value: object):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield str(key or "")
+            yield from _source_coverage_walk(item)
+        return
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            yield from _source_coverage_walk(item)
+        return
+    if isinstance(value, (str, int, float, bool)):
+        yield str(value or "")
+
+
+def _source_coverage_hints(row: object, payload: Mapping[str, object]) -> list[str]:
+    text = " ".join(
+        (
+            str(getattr(row, "channel", "") or ""),
+            str(getattr(row, "event_type", "") or ""),
+            str(getattr(row, "source_id", "") or ""),
+            str(getattr(row, "external_id", "") or ""),
+            " ".join(_source_coverage_walk(payload)),
+        )
+    ).lower()
+    specs = {
+        "google_workspace": ("google", "gmail", "calendar", "workspace"),
+        "pocket_ai_audio_transcripts": ("pocket", "pocket.ai", "recording", "transcript"),
+        "calendar_and_renewal_signals": ("calendar", "renewal", "subscription", "appointment"),
+        "relationship_and_occasion_signals": ("relationship", "occasion", "birthday", "anniversary", "wife", "family"),
+        "shopping_and_vendor_signals": ("shopping", "vendor", "supplier", "provider", "purchase", "amazon", "shortlist", "draft"),
+        "commitment_and_deadline_signals": ("commitment", "deadline", "due", "followup", "follow-up", "appointment", "booking"),
+        "durable_profile_and_location_context": ("profile", "preference", "location", "locality", "address", "context"),
+    }
+    return sorted(key for key, needles in specs.items() if any(needle in text for needle in needles))
+
+
+def _probe_proactive_source_coverage_in_process_report(
+    *,
+    principal_id: str,
+    observation_limit: int,
+    observed_at: str,
+) -> dict[str, object]:
+    with _suppress_container_postgres_fallback_warning():
+        container = build_container()
+    runtime = container.channel_runtime
+    repo = getattr(runtime, "_observations", None)
+    observation_repository = type(repo).__name__ if repo is not None else ""
+    if "postgres" not in observation_repository.lower():
+        raise RuntimeError(f"in_process_source_coverage_repo_not_postgres:{observation_repository or 'missing'}")
+    rows: list[dict[str, object]] = []
+    for row in runtime.list_recent_observations(limit=observation_limit, principal_id=principal_id):
+        row_payload = dict(getattr(row, "payload", {}) or {})
+        event_type = str(getattr(row, "event_type", "") or "").strip()
+        if _source_coverage_event_excluded(event_type):
+            continue
+        rows.append(
+            {
+                "channel": str(getattr(row, "channel", "") or "").strip(),
+                "event_type": event_type,
+                "created_at": str(getattr(row, "created_at", "") or "").strip(),
+                "payload_keys": sorted(str(key) for key in row_payload.keys()),
+                "hints": _source_coverage_hints(row, row_payload),
+                "source_id_sha256_present": _source_coverage_hash_present(getattr(row, "source_id", "") or ""),
+                "external_id_sha256_present": _source_coverage_hash_present(getattr(row, "external_id", "") or ""),
+                "raw_payload_exposed": False,
+            }
+        )
+    pocket_archive_evidence: dict[str, object] = {}
+    if not any(_proactive_source_lane_matches(row, "pocket_ai_audio_transcripts") for row in rows):
+        pocket_archive_evidence = _pocket_audio_archive_evidence()
+    return _proactive_source_coverage_report(
+        principal_id=principal_id,
+        rows=rows,
+        observation_repository=observation_repository,
+        observed_at=observed_at,
+        observation_limit=observation_limit,
+        source="in_process_runtime:proactive_source_coverage",
+        pocket_archive_evidence=pocket_archive_evidence,
+    )
+
+
+@contextmanager
+def _suppress_container_postgres_fallback_warning():
+    logger = logging.getLogger("ea.container")
+
+    class _PostgresFallbackFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            try:
+                message = record.getMessage()
+            except Exception:
+                message = str(getattr(record, "msg", "") or "")
+            return "postgres runtime profile unavailable, switching whole container to memory" not in message
+
+    noise_filter = _PostgresFallbackFilter()
+    logger.addFilter(noise_filter)
+    try:
+        yield
+    finally:
+        logger.removeFilter(noise_filter)
+
+
+def _finalize_proactive_source_coverage_report(
+    report: Mapping[str, object],
+    *,
+    output_format: str,
+) -> dict[str, object]:
+    finalized = dict(report)
+    finalized.update(_next_action_surface_fields(str(finalized.get("next_action") or "")))
+    if output_format == "operator" and not str(finalized.get("operator_text") or "").strip():
+        missing = [str(item) for item in list(finalized.get("missing_lane_keys") or [])]
+        missing_text = ",".join(missing[:4])
+        if len(missing) > 4:
+            missing_text += f"+{len(missing) - 4}"
+        finalized["operator_text"] = (
+            f"proactive_source_coverage status={finalized['status']}; "
+            f"observed={int(finalized['observed_lane_count'])}/{int(finalized['lane_count'])}; "
+            f"rows={int(finalized['observation_row_count'])}; missing={missing_text or 'none'}"
+        )
+    return finalized
+
+
+def _should_expand_source_coverage_window(report: Mapping[str, object], *, observation_limit: int) -> bool:
+    if int(observation_limit or 0) >= 4000:
+        return False
+    if not bool(report.get("probe_ok")):
+        return False
+    if str(report.get("blocking_reason") or "").strip():
+        return False
+    if not list(report.get("missing_lane_keys") or []):
+        return False
+    return int(report.get("observation_row_count") or 0) >= max(int(observation_limit or 0), 1)
 
 
 def _docker_compose_exec_json(
@@ -782,12 +1589,23 @@ def _probe_proactive_approval_capture_in_process_payload(*, principal_id: str) -
                 continue
             if isinstance(record, dict):
                 rows.append(record)
+    live_pending_rows = [
+        row for row in rows if _callback_row_status(row) == "pending" and _callback_row_is_live(row)
+    ]
     current_rows = [
         row
         for row in rows
         if str(row.get("packet_ref") or "").strip() == packet_ref
         and str(row.get("staged_artifact_ref") or "").strip() == staged_artifact_ref
     ]
+    if not current_rows and len(live_pending_rows) == 1:
+        inferred_row = dict(live_pending_rows[0] or {})
+        inferred_packet_ref = str(inferred_row.get("packet_ref") or "").strip()
+        inferred_staged_artifact_ref = str(inferred_row.get("staged_artifact_ref") or "").strip()
+        if inferred_packet_ref and inferred_staged_artifact_ref:
+            packet_ref = inferred_packet_ref
+            staged_artifact_ref = inferred_staged_artifact_ref
+            current_rows = [inferred_row]
     current_rows.sort(key=lambda row: str(row.get("created_at") or ""))
     current_live_pending_rows = [
         row for row in current_rows if _callback_row_status(row) == "pending" and _callback_row_is_live(row)
@@ -826,6 +1644,15 @@ def _probe_proactive_approval_capture_in_process_payload(*, principal_id: str) -
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
     )
+    latest_created_at = str(latest.get("created_at") or "").strip()
+    latest_expires_at = str(latest.get("expires_at") or "").strip()
+    latest_age_seconds = _utc_age_seconds(latest_created_at) or 0
+    latest_expires_at_dt = _parse_utc_datetime(latest_expires_at)
+    latest_seconds_until_expiry = (
+        max(0, int((latest_expires_at_dt - datetime.now(UTC)).total_seconds()))
+        if latest_expires_at_dt is not None
+        else 0
+    )
     return {
         "ok": True,
         "callback_dir_exists": callback_dir.is_dir(),
@@ -835,11 +1662,21 @@ def _probe_proactive_approval_capture_in_process_payload(*, principal_id: str) -
         "current_packet_refs_present": bool(packet_ref and staged_artifact_ref),
         "current_packet_callback_record_count": len(current_rows),
         "current_packet_live_pending_count": len(current_live_pending_rows),
-        "current_packet_callback_latest_status": str(summary.get("current_packet_callback_latest_status") or "").strip(),
-        "current_packet_callback_latest_expired": bool(summary.get("current_packet_callback_latest_expired")),
-        "current_packet_callback_latest_age_seconds": int(summary.get("current_packet_callback_latest_age_seconds") or 0),
+        "current_packet_callback_latest_status": str(
+            summary.get("current_packet_callback_latest_status") or latest.get("status") or ""
+        ).strip(),
+        "current_packet_callback_latest_expired": bool(
+            summary.get("current_packet_callback_latest_expired")
+            if summary.get("current_packet_callback_latest_status")
+            else bool(latest) and not _callback_row_is_live(latest)
+        ),
+        "current_packet_callback_latest_age_seconds": int(
+            summary.get("current_packet_callback_latest_age_seconds")
+            or latest_age_seconds
+        ),
         "current_packet_callback_latest_seconds_until_expiry": int(
-            summary.get("current_packet_callback_latest_seconds_until_expiry") or 0
+            summary.get("current_packet_callback_latest_seconds_until_expiry")
+            or latest_seconds_until_expiry
         ),
         "callback_principal_hash_present": bool(record_principal_hash),
         "candidate_principal_hash_count": len(set(candidate_hashes)),
@@ -927,6 +1764,85 @@ def _docker_compose_service_command(
         "ok": exit_code == 0,
         "exit_code": exit_code,
         "reason": "ok" if exit_code == 0 else f"docker_compose_exit_{exit_code}",
+        "stdout_present": bool(str(completed.stdout or "").strip()),
+        "stderr_present": bool(str(completed.stderr or "").strip()),
+    }
+
+
+def _docker_inspect_container_json(
+    container_name: str,
+    *,
+    timeout_seconds: float = 15.0,
+) -> dict[str, Any]:
+    effective_container_name = str(container_name or "").strip()
+    if not effective_container_name:
+        return {}
+    try:
+        completed = subprocess.run(
+            ["docker", "inspect", effective_container_name],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=max(float(timeout_seconds or 15.0), 1.0),
+        )
+    except Exception:
+        return {}
+    if int(completed.returncode or 0) != 0:
+        return {}
+    try:
+        payload = json.loads(str(completed.stdout or "[]"))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(payload, list) or not payload or not isinstance(payload[0], dict):
+        return {}
+    return dict(payload[0])
+
+
+def _docker_restart_container(
+    container_name: str,
+    *,
+    timeout_seconds: float = 30.0,
+) -> dict[str, object]:
+    normalized_container_name = str(container_name or "").strip()
+    if not normalized_container_name:
+        return {
+            "ok": False,
+            "exit_code": 127,
+            "reason": "container_name_missing",
+            "stdout_present": False,
+            "stderr_present": False,
+        }
+    try:
+        completed = subprocess.run(
+            ["docker", "restart", normalized_container_name],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=max(float(timeout_seconds or 30.0), 1.0),
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "exit_code": 124,
+            "reason": f"TimeoutExpired:{float(timeout_seconds):g}s",
+            "stdout_present": False,
+            "stderr_present": False,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "exit_code": 127,
+            "reason": type(exc).__name__,
+            "stdout_present": False,
+            "stderr_present": False,
+        }
+    exit_code = int(completed.returncode or 0)
+    return {
+        "ok": exit_code == 0,
+        "exit_code": exit_code,
+        "reason": "ok" if exit_code == 0 else f"docker_restart_exit_{exit_code}",
         "stdout_present": bool(str(completed.stdout or "").strip()),
         "stderr_present": bool(str(completed.stderr or "").strip()),
     }
@@ -1044,7 +1960,7 @@ def _runtime_container_preflight() -> dict[str, object]:
 
 @lru_cache(maxsize=1)
 def _container():
-    return build_container()
+    return build_container(settings=settings_with_storage_backend(get_settings(), "memory"))
 
 
 def _provider_display_name(provider_key: str) -> str:
@@ -1094,6 +2010,86 @@ def _operator_text_for_provider(report: dict[str, object]) -> str:
         if raw.get(field_name) not in (None, ""):
             pieces.append(f"{label}={raw[field_name]}")
     return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def _pushbullet_reason_from_receipt(receipt: Mapping[str, object]) -> str:
+    missing_setup = _string_list(receipt.get("missing_setup"))
+    if missing_setup:
+        return ",".join(missing_setup[:3])
+    for item in list(receipt.get("live_probes") or []):
+        if not isinstance(item, Mapping):
+            continue
+        status = str(item.get("status") or "").strip()
+        if status and status != "pass":
+            reason = str(item.get("reason") or status).strip() or status
+            client_key = str(item.get("client_key") or "").strip()
+            return f"{client_key}:{reason}" if client_key else reason
+    return ""
+
+
+def _operator_text_for_pushbullet(report: Mapping[str, object]) -> str:
+    raw = dict(report.get("raw") or {}) if isinstance(report.get("raw"), Mapping) else {}
+    pieces = [
+        f"pushbullet_readiness status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+    ]
+    if report.get("account_label"):
+        pieces.append(f"account={report['account_label']}")
+    if report.get("reason"):
+        pieces.append(f"reason={report['reason']}")
+    required_client_keys = _string_list(raw.get("required_client_keys"))
+    if required_client_keys:
+        pieces.append(f"required_clients={len(required_client_keys)}")
+    if raw.get("configured_required_client_count") is not None:
+        pieces.append(f"configured_required={int(raw.get('configured_required_client_count') or 0)}")
+    if raw.get("token_present_required_client_count") is not None:
+        pieces.append(f"token_ready={int(raw.get('token_present_required_client_count') or 0)}")
+    missing_client_keys = _string_list(raw.get("missing_client_keys"))
+    if missing_client_keys:
+        pieces.append(f"missing_clients={','.join(missing_client_keys)}")
+    missing_token_keys = _string_list(raw.get("missing_token_keys"))
+    if missing_token_keys:
+        pieces.append(f"missing_tokens={','.join(missing_token_keys)}")
+    if report.get("next_action"):
+        pieces.append(f"next={report['next_action']}")
+    if report.get("observed_at"):
+        pieces.append(f"observed_at={report['observed_at']}")
+    if report.get("source"):
+        pieces.append(f"source={report['source']}")
+    return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def _pushbullet_account_label_from_receipt(receipt: Mapping[str, object]) -> tuple[str, str]:
+    explicit_label = str(receipt.get("account_label") or "").strip()
+    explicit_basis = str(receipt.get("account_label_basis") or "").strip()
+    if explicit_label:
+        return explicit_label, explicit_basis
+
+    required_client_keys = _string_list(receipt.get("required_client_keys"))
+    default_client_ref = str(receipt.get("default_client_ref") or "").strip()
+    clients = [
+        dict(item)
+        for item in list(receipt.get("clients") or [])
+        if isinstance(item, Mapping) and str(item.get("client_key") or "").strip()
+    ]
+    by_key = {str(item.get("client_key") or "").strip(): item for item in clients}
+    if "default" in required_client_keys:
+        if "default" in by_key:
+            return "default", "literal_default_client"
+        if default_client_ref:
+            if default_client_ref in by_key:
+                return f"default->{default_client_ref}", "default_client_ref"
+            return f"default->{default_client_ref}(missing)", "default_client_ref_missing"
+        return "default(missing)", "default_client_missing"
+    for key in required_client_keys:
+        if key in by_key:
+            return key, "required_client"
+    if required_client_keys:
+        return f"{required_client_keys[0]}(missing)", "required_client_missing"
+    if by_key:
+        first_key = next(iter(sorted(by_key)))
+        return first_key, "configured_client"
+    return "", "missing"
 
 
 def _provider_cost_pressure_runtime_code(window: str, principal_id: str) -> str:
@@ -1197,7 +2193,7 @@ def _provider_cost_pressure_runtime_code(window: str, principal_id: str) -> str:
             "    'provider_order': _order('EA_RESPONSES_PROVIDER_ORDER', 'onemin,magixai,gemini_vortex'),",
             "    'groundwork_provider_order': _order('EA_RESPONSES_GROUNDWORK_PROVIDER_ORDER', 'onemin,magixai,gemini_vortex'),",
             "    'cheap_provider_order': _order('EA_RESPONSES_CHEAP_PROVIDER_ORDER', 'onemin,magixai,gemini_vortex'),",
-            "    'hard_provider_order': _order('EA_RESPONSES_HARD_PROVIDER_ORDER', 'onemin,gemini_vortex,magixai'),",
+            "    'hard_provider_order': _order('EA_RESPONSES_HARD_PROVIDER_ORDER', 'onemin,magixai,gemini_vortex'),",
             "    'cost_gated_lanes': ['audit', 'fast', 'groundwork', 'overflow', 'review', 'review_light'],",
             "    'gemini_token_usage': {",
             "        'provider_key': 'gemini_vortex',",
@@ -1285,6 +2281,12 @@ def _provider_cost_pressure_report(
     output_format: str = "json",
 ) -> dict[str, object]:
     provider_order = [str(item or "").strip() for item in list(payload.get("provider_order") or []) if str(item or "").strip()]
+    fast_lane_route = dict(payload.get("fast_lane_route") or {})
+    fast_order = [
+        str(item or "").strip()
+        for item in list(payload.get("fast_provider_order") or fast_lane_route.get("effective_order") or provider_order)
+        if str(item or "").strip()
+    ]
     groundwork_order = [
         str(item or "").strip()
         for item in list(payload.get("groundwork_provider_order") or [])
@@ -1305,13 +2307,30 @@ def _provider_cost_pressure_report(
         soft_cap_percent = round((float(total_tokens_24h) / float(soft_cap_tokens)) * 100.0, 2)
     token_state = str(usage_24h.get("state") or selected.get("state") or "").strip() or "unknown"
     onemin_ready_slots = int(onemin_capacity.get("ready_slots") or 0)
-    onemin_usable = onemin_ready_slots > 0
+    onemin_configured_slots = int(onemin_capacity.get("configured_slots") or 0)
+    onemin_unknown_slots = int(onemin_capacity.get("unknown_slots") or 0)
+    onemin_state = str(onemin_capacity.get("state") or "").strip().lower()
+    onemin_probe_pending = bool(
+        onemin_ready_slots <= 0
+        and onemin_configured_slots > 0
+        and (onemin_unknown_slots > 0 or onemin_state == "unknown")
+    )
+    onemin_usable = onemin_ready_slots > 0 or onemin_probe_pending
     onemin_first = bool(provider_order and provider_order[0] == "onemin")
+    fast_onemin_first = bool(fast_order and fast_order[0] == "onemin")
+    cheap_onemin_first = bool(cheap_order and cheap_order[0] == "onemin")
     groundwork_onemin_first = bool(groundwork_order and groundwork_order[0] == "onemin")
+    hard_onemin_first = bool(hard_order and hard_order[0] == "onemin")
+    onemin_preferred_whenever_usable = (
+        onemin_first
+        and fast_onemin_first
+        and cheap_onemin_first
+        and groundwork_onemin_first
+        and hard_onemin_first
+    )
     billing_truth_boundary = str(gemini.get("billing_truth_boundary") or "").strip()
     cost_control_active = (
-        onemin_first
-        and groundwork_onemin_first
+        onemin_preferred_whenever_usable
         and billing_truth_boundary == "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth"
         and token_state in {"within_soft_cap", "soft_cap_exceeded", "unlimited"}
     )
@@ -1319,6 +2338,8 @@ def _provider_cost_pressure_report(
         status = "misconfigured"
     elif token_state == "soft_cap_exceeded":
         status = "gemini_soft_cap_exceeded"
+    elif onemin_probe_pending:
+        status = "active_cost_control_onemin_probe_pending"
     elif not onemin_usable:
         status = "active_cost_control_onemin_not_live_ready"
     else:
@@ -1332,6 +2353,8 @@ def _provider_cost_pressure_report(
     routing_decision = (
         "prefer_onemin_background_and_remove_gemini_from_cost_gated_background_lanes"
         if token_state == "soft_cap_exceeded"
+        else "prefer_onemin_background_pending_probe_with_gemini_fallback_only"
+        if onemin_probe_pending
         else "prefer_onemin_background_when_usable"
         if onemin_usable
         else "keep_onemin_first_but_use_cost_gated_fallback_until_onemin_ready"
@@ -1344,14 +2367,18 @@ def _provider_cost_pressure_report(
         "window": str(payload.get("window") or "").strip(),
         "primary_background_provider": provider_order[0] if provider_order else "",
         "provider_order": provider_order,
+        "fast_provider_order": fast_order,
         "groundwork_provider_order": groundwork_order,
         "cheap_provider_order": cheap_order,
         "hard_provider_order": hard_order,
         "cost_sensitive_lanes": [str(item or "").strip() for item in list(payload.get("cost_gated_lanes") or []) if str(item or "").strip()],
         "onemin_preferred_when_speed_is_not_critical": onemin_first and groundwork_onemin_first,
+        "onemin_preferred_whenever_usable": onemin_preferred_whenever_usable,
         "onemin_usable": onemin_usable,
+        "onemin_probe_pending": onemin_probe_pending,
         "onemin_ready_slots": onemin_ready_slots,
-        "onemin_configured_slots": int(onemin_capacity.get("configured_slots") or 0),
+        "onemin_configured_slots": onemin_configured_slots,
+        "onemin_unknown_slots": onemin_unknown_slots,
         "onemin_remaining_credits": _number_or_none(
             onemin_billing.get("sum_free_credits")
             if onemin_billing.get("sum_free_credits") not in (None, "")
@@ -1388,6 +2415,7 @@ def _provider_cost_pressure_report(
             f"gemini_24h_tokens={total_tokens_24h}/{soft_cap_tokens or 'unlimited'} "
             f"gemini_gate={gemini_background_gate} "
             f"onemin_ready_slots={onemin_ready_slots} "
+            f"onemin_probe_pending={'1' if onemin_probe_pending else '0'} "
             f"primary={report['primary_background_provider']} "
             f"decision={routing_decision} "
             f"observed_at={report['observed_at']}"
@@ -1570,6 +2598,10 @@ def _onemin_report_from_aggregate(
     raw_probe: Mapping[str, object],
 ) -> dict[str, object]:
     status, status_basis = _onemin_live_ops_status(aggregate)
+    if str(aggregate.get("scope") or "").strip() == "all_accounts" and status == "ready":
+        display_status = "repaired"
+    else:
+        display_status = status
     accounts = [dict(row) for row in aggregate.get("accounts") or [] if isinstance(row, dict)]
     latest_snapshot = max(
         (str(row.get("last_billing_snapshot_at") or "").strip() for row in accounts if str(row.get("last_billing_snapshot_at") or "").strip()),
@@ -1582,7 +2614,7 @@ def _onemin_report_from_aggregate(
     return {
         "provider_key": "onemin",
         "display_name": _provider_display_name("onemin"),
-        "status": status,
+        "status": display_status,
         "remaining": aggregate.get("live_remaining_credits_total", aggregate.get("sum_free_credits")),
         "unit": "credits",
         "refresh_at": next_topup or latest_snapshot,
@@ -1591,6 +2623,7 @@ def _onemin_report_from_aggregate(
         "source": source,
         "raw": {
             "status_basis": status_basis,
+            "status": status,
             "account_count": aggregate.get("account_count"),
             "ready_account_count": aggregate.get("ready_account_count"),
             "live_positive_balance_account_count": aggregate.get("live_positive_balance_account_count"),
@@ -1640,7 +2673,99 @@ def _onemin_probe_failed_report(
     }
 
 
-def probe_provider(provider: str, *, output_format: str = "json") -> dict[str, object]:
+def probe_pushbullet_delivery(*, timeout_seconds: float = 20.0, output_format: str = "json") -> dict[str, object]:
+    observed_at = _utc_now()
+    try:
+        receipt = pushbullet_delivery_readiness.build_receipt(
+            probe_live=True,
+            timeout_seconds=max(float(timeout_seconds or 20.0), 1.0),
+        )
+    except Exception as exc:
+        report = {
+            "provider_key": "pushbullet",
+            "display_name": _provider_display_name("pushbullet"),
+            "status": "probe_failed",
+            "remaining": None,
+            "unit": "",
+        "refresh_at": "",
+        "observed_at": observed_at,
+        "account_label": "",
+        "account_label_basis": "",
+        "ready": False,
+        "probe_ok": False,
+        "reason": type(exc).__name__,
+            "next_action": "inspect_pushbullet_delivery",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
+            "source": "scripts.materialize_pushbullet_delivery_readiness.py",
+            "raw": {
+                "probe_ok": False,
+                "exception_type": type(exc).__name__,
+                "raw_email_exposed": False,
+                "raw_token_exposed": False,
+            },
+        }
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_pushbullet(report)
+        return report
+
+    coverage = dict(receipt.get("client_coverage") or {})
+    operator_action = dict(receipt.get("operator_action") or {})
+    status = str(receipt.get("status") or "unknown").strip() or "unknown"
+    account_label, account_label_basis = _pushbullet_account_label_from_receipt(receipt)
+    report = {
+        "provider_key": "pushbullet",
+        "display_name": _provider_display_name("pushbullet"),
+        "status": status,
+        "remaining": None,
+        "unit": "",
+        "refresh_at": "",
+        "observed_at": str(receipt.get("generated_at") or observed_at).strip() or observed_at,
+        "account_label": account_label,
+        "account_label_basis": account_label_basis,
+        "ready": status in {"ready_configured", "ready_live_verified"},
+        "probe_ok": True,
+        "reason": _pushbullet_reason_from_receipt(receipt),
+        "required_client_keys": _string_list(receipt.get("required_client_keys")),
+        "configured_required_client_count": int(coverage.get("configured_required_client_count") or 0),
+        "token_present_required_client_count": int(coverage.get("token_present_required_client_count") or 0),
+        "missing_client_keys": _string_list(coverage.get("missing_client_keys")),
+        "missing_token_keys": _string_list(coverage.get("missing_token_keys")),
+        "next_action": str(operator_action.get("next_action") or "").strip(),
+        "next_action_href": str(operator_action.get("next_action_href") or "").strip(),
+        "next_action_label": str(operator_action.get("next_action_label") or "").strip(),
+        "next_action_method": str(operator_action.get("next_action_method") or "").strip(),
+        "source": str(receipt.get("generated_by") or "scripts.materialize_pushbullet_delivery_readiness.py").strip(),
+        "raw": {
+            "provider": str(receipt.get("provider") or "pushbullet").strip() or "pushbullet",
+            "client_count": int(receipt.get("client_count") or 0),
+            "multi_client_expected": bool(receipt.get("multi_client_expected")),
+            "required_client_keys": _string_list(receipt.get("required_client_keys")),
+            "account_label_basis": account_label_basis,
+            "configured_client_count": int(coverage.get("configured_client_count") or 0),
+            "configured_required_client_count": int(coverage.get("configured_required_client_count") or 0),
+            "token_present_required_client_count": int(coverage.get("token_present_required_client_count") or 0),
+            "missing_client_keys": _string_list(coverage.get("missing_client_keys")),
+            "missing_token_keys": _string_list(coverage.get("missing_token_keys")),
+            "default_client_ref": str(receipt.get("default_client_ref") or "").strip(),
+            "missing_setup": _string_list(receipt.get("missing_setup")),
+            "live_probe_count": len(list(receipt.get("live_probes") or [])),
+            "live_probes": [
+                dict(item)
+                for item in list(receipt.get("live_probes") or [])
+                if isinstance(item, Mapping)
+            ],
+            "raw_email_exposed": False,
+            "raw_token_exposed": False,
+        },
+    }
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_pushbullet(report)
+    return report
+
+
+def probe_provider(provider: str, *, output_format: str = "json", timeout_seconds: float = 20.0) -> dict[str, object]:
     provider_key = _normalize_provider_key(provider)
     if provider_key == "onemin":
         observed_at = _utc_now()
@@ -1667,6 +2792,11 @@ def probe_provider(provider: str, *, output_format: str = "json") -> dict[str, o
                     runtime_probe=runtime_probe,
                     host_probe=host_probe,
                 )
+    elif provider_key == "pushbullet":
+        report = probe_pushbullet_delivery(
+            timeout_seconds=max(float(timeout_seconds or 20.0), 1.0),
+            output_format=output_format,
+        )
     elif provider_key == "unmixr":
         preflight = _runtime_container_preflight() or audiobook_runtime_preflight()
         provider_payload = dict(preflight.get("provider") or {})
@@ -1710,7 +2840,7 @@ def probe_provider(provider: str, *, output_format: str = "json") -> dict[str, o
                 "capabilities": list(getattr(state, "capabilities", ()) or ()),
             },
         }
-    if output_format == "operator":
+    if output_format == "operator" and provider_key != "pushbullet":
         report["operator_text"] = _operator_text_for_provider(report)
     return report
 
@@ -1829,11 +2959,901 @@ def _operator_text_for_teable_recovery(report: Mapping[str, object]) -> str:
     pieces.append(f"missing={int(report.get('missing_artifact_count') or report.get('missing_count') or 0)}")
     pieces.append(f"wrong_modes={int(report.get('wrong_mode_count') or 0)}")
     pieces.append(f"different_hash={int(report.get('different_hash_count') or 0)}")
+    mismatch_samples = [str(item or "").strip() for item in list(report.get("different_hash_key_samples") or []) if str(item or "").strip()]
+    if mismatch_samples:
+        pieces.append(f"drift={','.join(mismatch_samples[:4])}")
     if report.get("observed_at"):
         pieces.append(f"observed_at={report['observed_at']}")
     if report.get("source"):
         pieces.append(f"source={report['source']}")
     return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def _operator_text_for_mymedia_alexa(report: Mapping[str, object]) -> str:
+    pieces = [
+        f"mymedia_alexa status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+    ]
+    if report.get("reason"):
+        pieces.append(f"reason={report['reason']}")
+    if report.get("next_action"):
+        pieces.append(f"next={report['next_action']}")
+    if report.get("container_name"):
+        pieces.append(f"container={report['container_name']}")
+    pieces.append(f"container_running={str(bool(report.get('container_running'))).lower()}")
+    pieces.append(f"api_reachable={str(bool(report.get('api_reachable'))).lower()}")
+    pieces.append(f"pairing_ready={str(bool(report.get('pairing_ready'))).lower()}")
+    if report.get("pairing_session_pending") is not None:
+        pieces.append(f"pairing_session_pending={str(bool(report.get('pairing_session_pending'))).lower()}")
+    if report.get("pairing_resume_ready") is not None:
+        pieces.append(f"pairing_resume_ready={str(bool(report.get('pairing_resume_ready'))).lower()}")
+    if report.get("pairing_session_surface_kind"):
+        pieces.append(f"pairing_session_surface={report['pairing_session_surface_kind']}")
+    if report.get("connection_status"):
+        pieces.append(f"connection={report['connection_status']}")
+    if report.get("remote_access_mode"):
+        pieces.append(f"external_access={report['remote_access_mode']}")
+    pieces.append(f"public_ip_present={str(bool(report.get('public_ip_present'))).lower()}")
+    pieces.append(f"watchfolders={int(report.get('watch_folder_count') or 0)}")
+    pieces.append(f"tracks={int(report.get('tracks') or 0)}")
+    pieces.append(f"scan_pending={str(bool(report.get('library_scan_pending'))).lower()}")
+    pieces.append(f"scan_blocked_by_pairing={str(bool(report.get('library_scan_blocked_by_pairing'))).lower()}")
+    if report.get("public_surface_configured") is not None:
+        pieces.append(f"public_surface_configured={str(bool(report.get('public_surface_configured'))).lower()}")
+    if report.get("public_surface_probe_attempted") is not None:
+        pieces.append(f"public_surface_probed={str(bool(report.get('public_surface_probe_attempted'))).lower()}")
+    if report.get("public_surface_status"):
+        pieces.append(f"public_surface_status={report['public_surface_status']}")
+    if report.get("public_surface_ready") is not None:
+        pieces.append(f"public_surface_ready={str(bool(report.get('public_surface_ready'))).lower()}")
+    if report.get("public_surface_access_protected") is not None:
+        pieces.append(
+            f"public_surface_access_protected={str(bool(report.get('public_surface_access_protected'))).lower()}"
+        )
+    if report.get("public_surface_reason"):
+        pieces.append(f"public_surface_reason={report['public_surface_reason']}")
+    if report.get("observed_at"):
+        pieces.append(f"observed_at={report['observed_at']}")
+    if report.get("source"):
+        pieces.append(f"source={report['source']}")
+    return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def _xml_local_name(tag: object) -> str:
+    return str(tag or "").rsplit("}", 1)[-1].strip()
+
+
+def _xml_child_text(parent: ET.Element, name: str) -> str:
+    for child in list(parent):
+        if _xml_local_name(child.tag) == name:
+            return str(child.text or "").strip()
+    return ""
+
+
+def _mymedia_connection_status_label(value: object) -> str:
+    try:
+        return MYMEDIA_CONNECTION_STATUS_LABELS[int(value or 0)]
+    except Exception:
+        return "unknown"
+
+
+def _mymedia_watchfolder_status_label(value: object) -> str:
+    try:
+        return MYMEDIA_WATCHFOLDER_STATUS_LABELS[int(value or 0)]
+    except Exception:
+        return "unknown"
+
+
+def _mymedia_allow_external_access_mode(value: object) -> str:
+    normalized = str(value or "").strip()
+    return MYMEDIA_ALLOW_EXTERNAL_ACCESS_LABELS.get(normalized, "unknown" if normalized else "")
+
+
+def _mymedia_preferences_snapshot(preferences_path: Path) -> dict[str, object]:
+    report: dict[str, object] = {
+        "preferences_present": False,
+        "label_present": False,
+        "refresh_token_present": False,
+        "paired_user_present": False,
+        "public_ip_present": False,
+        "remote_access_mode": "",
+    }
+    try:
+        root = ET.fromstring(preferences_path.read_text(encoding="utf-8"))
+    except Exception:
+        return report
+    report.update(
+        {
+            "preferences_present": True,
+            "label_present": bool(_xml_child_text(root, "Label")),
+            "refresh_token_present": bool(_xml_child_text(root, "RefreshToken")),
+            "paired_user_present": bool(_xml_child_text(root, "PairedUser")),
+            "public_ip_present": bool(_xml_child_text(root, "UseIP4Address")),
+            "remote_access_mode": _mymedia_allow_external_access_mode(_xml_child_text(root, "AllowExternalAccess")),
+        }
+    )
+    return report
+
+
+def _mymedia_messages_snapshot(messages_path: Path) -> dict[str, object]:
+    report: dict[str, object] = {
+        "messages_present": False,
+        "message_count": 0,
+        "warning_count": 0,
+        "error_count": 0,
+    }
+    try:
+        root = ET.fromstring(messages_path.read_text(encoding="utf-8"))
+    except Exception:
+        return report
+    warning_count = 0
+    error_count = 0
+    message_count = 0
+    for entry in list(root):
+        if _xml_local_name(entry.tag) != "Entry":
+            continue
+        value = next((child for child in list(entry) if _xml_local_name(child.tag) == "Value"), None)
+        if value is None:
+            continue
+        message_count += 1
+        message_type = _xml_child_text(value, "MessageType").strip().lower()
+        if message_type == "warning":
+            warning_count += 1
+        elif message_type == "error":
+            error_count += 1
+    report.update(
+        {
+            "messages_present": True,
+            "message_count": message_count,
+            "warning_count": warning_count,
+            "error_count": error_count,
+        }
+    )
+    return report
+
+
+def _mymedia_api_json(
+    url: str,
+    *,
+    method: str = "GET",
+    body: Mapping[str, object] | None = None,
+    timeout_seconds: float = 15.0,
+) -> tuple[bool, dict[str, Any], int, str]:
+    try:
+        request_body = dict(body) if body is not None else None
+        payload = _request_json(
+            method=str(method or "GET").upper(),
+            url=url,
+            headers={"Content-Type": "application/json"} if request_body is not None else None,
+            body=request_body,
+            timeout=max(float(timeout_seconds or 15.0), 1.0),
+        )
+        return True, payload, 200, ""
+    except urllib.error.HTTPError as exc:
+        payload = _http_error_payload(exc)
+        return False, payload, int(getattr(exc, "code", 0) or 0), _compact_text(
+            payload.get("reason") or getattr(exc, "reason", "") or type(exc).__name__,
+            limit=80,
+        )
+    except Exception as exc:
+        return False, {}, 0, type(exc).__name__
+
+
+def _mymedia_action_surface(*, base_url: str, next_action: str) -> tuple[str, str, str]:
+    normalized_base_url = str(base_url or "").rstrip("/")
+    if next_action in {
+        "complete_amazon_pairing_for_mymedia",
+        "complete_amazon_pairing_then_rescan_library",
+        "enter_mymedia_amazon_pairing_code",
+        "approve_mymedia_amazon_consent",
+    }:
+        href = f"{normalized_base_url}/index.html#!/setup" if normalized_base_url else ""
+        return href, "Open My Media setup" if href else "", "get" if href else ""
+    if next_action in {
+        "add_mymedia_watch_folder",
+        "repair_mymedia_watch_folder",
+        "rescan_mymedia_library",
+        "wait_for_mymedia_library_scan",
+    }:
+        href = f"{normalized_base_url}/index.html#!/tables" if normalized_base_url else ""
+        return href, "Open Watch Folders" if href else "", "get" if href else ""
+    if next_action == "configure_mymedia_external_access":
+        href = f"{normalized_base_url}/index.html#!/settings" if normalized_base_url else ""
+        return href, "Open My Media settings" if href else "", "get" if href else ""
+    if next_action in {"inspect_mymedia_amazon_connection", "inspect_mymedia_console_api", "repair_mymedia_console_api"}:
+        href = f"{normalized_base_url}/index.html" if normalized_base_url else ""
+        return href, "Open My Media console" if href else "", "get" if href else ""
+    return "", "", ""
+
+
+def _mymedia_public_surface_probe(
+    base_url: str,
+    *,
+    timeout_seconds: float = 15.0,
+) -> dict[str, object]:
+    normalized_base_url = str(base_url or "").strip().rstrip("/")
+    scope = _url_scope(normalized_base_url)
+    default_href = normalized_base_url if scope == "public" else ""
+    default_label = "Open public My Media URL" if default_href else ""
+    default_method = "get" if default_href else ""
+    report: dict[str, object] = {
+        "configured": bool(normalized_base_url),
+        "base_url_scope": scope,
+        "probe_attempted": False,
+        "ready": False,
+        "status": "not_configured" if not normalized_base_url else "not_public",
+        "reason": "" if not normalized_base_url else "mymedia_public_console_url_not_public",
+        "http_status_code": 0,
+        "access_protected": False,
+        "cloudflare_blocked": False,
+        "redirect_host": "",
+        "content_type": "",
+        "next_action": "" if not normalized_base_url else "configure_public_mymedia_console_url",
+        "next_action_href": default_href,
+        "next_action_label": default_label,
+        "next_action_method": default_method,
+        "source": "http.public_surface_probe",
+    }
+    if not normalized_base_url:
+        return report
+    if scope != "public":
+        return report
+
+    public_host = str(urllib.parse.urlparse(normalized_base_url).hostname or "").strip().lower()
+    status_code, headers, body, error = _request_text_response(
+        method="GET",
+        url=normalized_base_url,
+        headers={
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "User-Agent": "ea-live-ops/1.0",
+        },
+        timeout=max(float(timeout_seconds or 15.0), 1.0),
+        max_bytes=8192,
+    )
+    content_type = _header_value(headers, "Content-Type")
+    location = _header_value(headers, "Location")
+    redirect_host = str(urllib.parse.urlparse(location).hostname or "").strip().lower()
+    www_authenticate = _header_value(headers, "WWW-Authenticate").lower()
+    normalized_body = " ".join(str(body or "").split()).strip().lower()
+    access_protected = "cloudflare-access" in www_authenticate or redirect_host.endswith("cloudflareaccess.com")
+    cloudflare_blocked = bool(
+        status_code == 403
+        and (
+            "sorry, you have been blocked" in normalized_body
+            or "attention required!" in normalized_body
+            or ("cloudflare" in normalized_body and "blocked" in normalized_body)
+        )
+    )
+    same_host_redirect = bool(location) and (not redirect_host or redirect_host == public_host)
+    report.update(
+        {
+            "probe_attempted": True,
+            "http_status_code": status_code,
+            "access_protected": access_protected,
+            "cloudflare_blocked": cloudflare_blocked,
+            "redirect_host": redirect_host,
+            "content_type": content_type,
+        }
+    )
+    if error:
+        report.update(
+            {
+                "status": "probe_failed",
+                "reason": "mymedia_public_console_probe_failed",
+                "next_action": "inspect_mymedia_public_console_route",
+            }
+        )
+        return report
+    if access_protected:
+        report.update(
+            {
+                "ready": True,
+                "status": "access_protected",
+                "reason": "",
+                "next_action": "",
+            }
+        )
+        return report
+    if 200 <= status_code < 300:
+        report.update(
+            {
+                "ready": True,
+                "status": "reachable",
+                "reason": "",
+                "next_action": "",
+            }
+        )
+        return report
+    if 300 <= status_code < 400 and same_host_redirect:
+        report.update(
+            {
+                "ready": True,
+                "status": "redirecting",
+                "reason": "",
+                "next_action": "",
+            }
+        )
+        return report
+    if cloudflare_blocked:
+        report.update(
+            {
+                "status": "blocked_by_cloudflare",
+                "reason": "mymedia_public_console_blocked_by_cloudflare",
+                "next_action": "repair_mymedia_public_console_route",
+            }
+        )
+        return report
+    if status_code == 404:
+        report.update(
+            {
+                "status": "route_not_found",
+                "reason": "mymedia_public_console_route_not_found",
+                "next_action": "repair_mymedia_public_console_route",
+            }
+        )
+        return report
+    if 500 <= status_code < 600:
+        report.update(
+            {
+                "status": "origin_error",
+                "reason": "mymedia_public_console_origin_error",
+                "next_action": "inspect_mymedia_public_console_origin",
+            }
+        )
+        return report
+    if status_code in {401, 403}:
+        report.update(
+            {
+                "status": "access_denied",
+                "reason": "mymedia_public_console_access_denied",
+                "next_action": "inspect_mymedia_public_console_access",
+            }
+        )
+        return report
+    report.update(
+        {
+            "status": "http_error",
+            "reason": "mymedia_public_console_http_error",
+            "next_action": "inspect_mymedia_public_console_route",
+        }
+    )
+    return report
+
+
+def _mymedia_public_surface_tunnel_origin(
+    web_base_url: str,
+    *,
+    explicit_origin_url: str = "",
+) -> str:
+    candidate = str(explicit_origin_url or "").strip() or str(web_base_url or "").strip()
+    if not candidate:
+        return ""
+    parsed = urllib.parse.urlparse(candidate)
+    scheme = str(parsed.scheme or "").strip().lower() or "http"
+    hostname = str(parsed.hostname or "").strip().lower()
+    if not hostname:
+        return ""
+    host = "172.17.0.1" if hostname in {"127.0.0.1", "localhost", "::1"} else hostname
+    netloc = host
+    if parsed.port:
+        netloc = f"{host}:{parsed.port}"
+    return urllib.parse.urlunparse((scheme, netloc, "", "", "", ""))
+
+
+def _cloudflare_headers() -> dict[str, str]:
+    return {
+        "X-Auth-Email": _env("CLOUDFLARE_EMAIL"),
+        "X-Auth-Key": _env("CLOUDFLARE_GLOBAL_API_KEY"),
+        "Content-Type": "application/json",
+    }
+
+
+def _cloudflare_auth_ready() -> bool:
+    headers = _cloudflare_headers()
+    return bool(str(headers.get("X-Auth-Email") or "").strip() and str(headers.get("X-Auth-Key") or "").strip())
+
+
+def _host_zone_name(hostname: str) -> str:
+    host = str(hostname or "").strip().lower()
+    parts = [part for part in host.split(".") if part]
+    if len(parts) >= 2:
+        return ".".join(parts[-2:])
+    return host
+
+
+def _cloudflare_lookup_zone_for_host(hostname: str, *, timeout_seconds: float) -> dict[str, object]:
+    host = str(hostname or "").strip().lower()
+    if not host:
+        return {"ok": False, "reason": "cloudflare_host_missing"}
+    if not _cloudflare_auth_ready():
+        return {"ok": False, "reason": "cloudflare_credentials_missing"}
+    zone_name = _host_zone_name(host)
+    status_code, payload, error = _request_json_response(
+        method="GET",
+        url=f"https://api.cloudflare.com/client/v4/zones?name={urllib.parse.quote(zone_name, safe='')}",
+        headers=_cloudflare_headers(),
+        timeout=max(float(timeout_seconds or 15.0), 1.0),
+    )
+    if error:
+        return {"ok": False, "reason": "cloudflare_zone_lookup_failed", "error": error}
+    results = [dict(item) for item in list(payload.get("result") or []) if isinstance(item, dict)]
+    zone = next((item for item in results if str(item.get("name") or "").strip().lower() == zone_name), {})
+    zone_id = str(zone.get("id") or "").strip()
+    account_id = str(dict(zone.get("account") or {}).get("id") or "").strip()
+    if status_code < 200 or status_code >= 300 or not zone_id or not account_id:
+        return {"ok": False, "reason": "cloudflare_zone_not_found", "zone_name": zone_name}
+    return {
+        "ok": True,
+        "reason": "",
+        "zone_id": zone_id,
+        "account_id": account_id,
+        "zone_name": zone_name,
+    }
+
+
+def _cloudflare_lookup_named_tunnel(account_id: str, tunnel_name: str, *, timeout_seconds: float) -> dict[str, object]:
+    normalized_account_id = str(account_id or "").strip()
+    normalized_tunnel_name = str(tunnel_name or "").strip()
+    if not normalized_account_id or not normalized_tunnel_name:
+        return {"ok": False, "reason": "cloudflare_tunnel_lookup_config_missing"}
+    status_code, payload, error = _request_json_response(
+        method="GET",
+        url=f"https://api.cloudflare.com/client/v4/accounts/{urllib.parse.quote(normalized_account_id, safe='')}/cfd_tunnel?per_page=100",
+        headers=_cloudflare_headers(),
+        timeout=max(float(timeout_seconds or 15.0), 1.0),
+    )
+    if error:
+        return {"ok": False, "reason": "cloudflare_tunnel_lookup_failed", "error": error}
+    results = [dict(item) for item in list(payload.get("result") or []) if isinstance(item, dict)]
+    tunnel = next((item for item in results if str(item.get("name") or "").strip() == normalized_tunnel_name), {})
+    tunnel_id = str(tunnel.get("id") or "").strip()
+    if status_code < 200 or status_code >= 300 or not tunnel_id:
+        return {"ok": False, "reason": "cloudflare_tunnel_not_found", "tunnel_name": normalized_tunnel_name}
+    return {
+        "ok": True,
+        "reason": "",
+        "tunnel_id": tunnel_id,
+        "tunnel_name": normalized_tunnel_name,
+        "tunnel_domain": f"{tunnel_id}.cfargotunnel.com",
+    }
+
+
+def _cloudflare_upsert_dns_record(
+    zone_id: str,
+    *,
+    host_name: str,
+    target_name: str,
+    proxied: bool = True,
+    timeout_seconds: float,
+) -> dict[str, object]:
+    normalized_zone_id = str(zone_id or "").strip()
+    normalized_host_name = str(host_name or "").strip().lower()
+    normalized_target_name = str(target_name or "").strip().lower()
+    if not normalized_zone_id or not normalized_host_name or not normalized_target_name:
+        return {"ok": False, "reason": "cloudflare_dns_config_missing"}
+    list_url = (
+        f"https://api.cloudflare.com/client/v4/zones/{urllib.parse.quote(normalized_zone_id, safe='')}"
+        f"/dns_records?name={urllib.parse.quote(normalized_host_name, safe='')}&per_page=100"
+    )
+    status_code, payload, error = _request_json_response(
+        method="GET",
+        url=list_url,
+        headers=_cloudflare_headers(),
+        timeout=max(float(timeout_seconds or 15.0), 1.0),
+    )
+    if error:
+        return {"ok": False, "reason": "cloudflare_dns_lookup_failed", "error": error}
+    results = [dict(item) for item in list(payload.get("result") or []) if isinstance(item, dict)]
+    existing = next((item for item in results if str(item.get("name") or "").strip().lower() == normalized_host_name), {})
+    existing_id = str(existing.get("id") or "").strip()
+    existing_type = str(existing.get("type") or "").strip().upper()
+    existing_content = str(existing.get("content") or "").strip().lower()
+    existing_proxied = bool(existing.get("proxied"))
+    if existing_id and existing_type == "CNAME" and existing_content == normalized_target_name and existing_proxied is bool(proxied):
+        return {
+            "ok": True,
+            "reason": "",
+            "changed": False,
+            "record_present": True,
+            "record_type": "CNAME",
+            "record_proxied": existing_proxied,
+        }
+    body = {
+        "type": "CNAME",
+        "name": normalized_host_name,
+        "content": normalized_target_name,
+        "proxied": bool(proxied),
+        "ttl": 1,
+    }
+    if existing_id:
+        update_url = (
+            f"https://api.cloudflare.com/client/v4/zones/{urllib.parse.quote(normalized_zone_id, safe='')}"
+            f"/dns_records/{urllib.parse.quote(existing_id, safe='')}"
+        )
+        update_status, update_payload, update_error = _request_json_response(
+            method="PATCH",
+            url=update_url,
+            headers=_cloudflare_headers(),
+            body=body,
+            timeout=max(float(timeout_seconds or 15.0), 1.0),
+        )
+        if update_error or update_status < 200 or update_status >= 300:
+            return {"ok": False, "reason": "cloudflare_dns_update_failed", "error": update_error}
+    else:
+        create_url = f"https://api.cloudflare.com/client/v4/zones/{urllib.parse.quote(normalized_zone_id, safe='')}/dns_records"
+        create_status, create_payload, create_error = _request_json_response(
+            method="POST",
+            url=create_url,
+            headers=_cloudflare_headers(),
+            body=body,
+            timeout=max(float(timeout_seconds or 15.0), 1.0),
+        )
+        if create_error or create_status < 200 or create_status >= 300:
+            return {"ok": False, "reason": "cloudflare_dns_create_failed", "error": create_error}
+    return {
+        "ok": True,
+        "reason": "",
+        "changed": True,
+        "record_present": True,
+        "record_type": "CNAME",
+        "record_proxied": bool(proxied),
+    }
+
+
+def _cloudflare_upsert_tunnel_ingress(
+    account_id: str,
+    tunnel_id: str,
+    *,
+    public_host: str,
+    service_url: str,
+    timeout_seconds: float,
+) -> dict[str, object]:
+    normalized_account_id = str(account_id or "").strip()
+    normalized_tunnel_id = str(tunnel_id or "").strip()
+    normalized_public_host = str(public_host or "").strip().lower()
+    normalized_service_url = str(service_url or "").strip()
+    if not normalized_account_id or not normalized_tunnel_id or not normalized_public_host or not normalized_service_url:
+        return {"ok": False, "reason": "cloudflare_tunnel_ingress_config_missing"}
+    config_url = (
+        f"https://api.cloudflare.com/client/v4/accounts/{urllib.parse.quote(normalized_account_id, safe='')}"
+        f"/cfd_tunnel/{urllib.parse.quote(normalized_tunnel_id, safe='')}/configurations"
+    )
+    status_code, payload, error = _request_json_response(
+        method="GET",
+        url=config_url,
+        headers=_cloudflare_headers(),
+        timeout=max(float(timeout_seconds or 15.0), 1.0),
+    )
+    if error:
+        return {"ok": False, "reason": "cloudflare_tunnel_config_lookup_failed", "error": error}
+    config = dict(dict(payload.get("result") or {}).get("config") or {})
+    ingress = [dict(item) for item in list(config.get("ingress") or []) if isinstance(item, dict)]
+    existing = next((item for item in ingress if str(item.get("hostname") or "").strip().lower() == normalized_public_host), {})
+    existing_service = str(existing.get("service") or "").strip()
+    if existing and existing_service == normalized_service_url:
+        return {
+            "ok": True,
+            "reason": "",
+            "changed": False,
+            "route_present": True,
+            "service_url": normalized_service_url,
+        }
+    filtered = [item for item in ingress if str(item.get("hostname") or "").strip().lower() != normalized_public_host]
+    insert_at = len(filtered)
+    for index, item in enumerate(filtered):
+        if not str(item.get("hostname") or "").strip() and str(item.get("service") or "").strip() == "http_status:404":
+            insert_at = index
+            break
+    filtered.insert(insert_at, {"hostname": normalized_public_host, "service": normalized_service_url, "originRequest": {}})
+    body = {
+        "config": {
+            "ingress": filtered,
+            "warp-routing": dict(config.get("warp-routing") or {"enabled": False}),
+        }
+    }
+    update_status, update_payload, update_error = _request_json_response(
+        method="PUT",
+        url=config_url,
+        headers=_cloudflare_headers(),
+        body=body,
+        timeout=max(float(timeout_seconds or 15.0), 1.0),
+    )
+    if update_error or update_status < 200 or update_status >= 300:
+        return {"ok": False, "reason": "cloudflare_tunnel_config_update_failed", "error": update_error}
+    return {
+        "ok": True,
+        "reason": "",
+        "changed": True,
+        "route_present": True,
+        "service_url": normalized_service_url,
+    }
+
+
+def _cloudflare_lookup_access_service_token(
+    account_id: str,
+    *,
+    access_env_file: str,
+    service_token_name: str = "",
+    timeout_seconds: float,
+) -> dict[str, object]:
+    normalized_account_id = str(account_id or "").strip()
+    if not normalized_account_id:
+        return {"ok": False, "reason": "cloudflare_access_account_missing"}
+    configured_name = str(service_token_name or _env("EA_MYMEDIA_ALEXA_CF_SERVICE_TOKEN_NAME", "")).strip()
+    env_file = Path(str(access_env_file or DEFAULT_MYMEDIA_ALEXA_CF_ACCESS_ENV_FILE))
+    client_id = str(_env("EA_MYMEDIA_ALEXA_CF_ACCESS_CLIENT_ID", "") or _read_env_value(env_file, "CODEXLIZ_CF_ACCESS_CLIENT_ID")).strip()
+    if not configured_name and not client_id:
+        return {"ok": False, "reason": "cloudflare_access_service_token_selector_missing"}
+    status_code, payload, error = _request_json_response(
+        method="GET",
+        url=(
+            f"https://api.cloudflare.com/client/v4/accounts/{urllib.parse.quote(normalized_account_id, safe='')}"
+            "/access/service_tokens?per_page=200"
+        ),
+        headers=_cloudflare_headers(),
+        timeout=max(float(timeout_seconds or 15.0), 1.0),
+    )
+    if error:
+        return {"ok": False, "reason": "cloudflare_access_service_token_lookup_failed", "error": error}
+    results = [dict(item) for item in list(payload.get("result") or []) if isinstance(item, dict)]
+    token = next(
+        (
+            item
+            for item in results
+            if (
+                (configured_name and str(item.get("name") or "").strip() == configured_name)
+                or (not configured_name and str(item.get("client_id") or "").strip() == client_id)
+            )
+        ),
+        {},
+    )
+    token_id = str(token.get("id") or "").strip()
+    if status_code < 200 or status_code >= 300 or not token_id:
+        return {"ok": False, "reason": "cloudflare_access_service_token_missing"}
+    return {
+        "ok": True,
+        "reason": "",
+        "service_token_id": token_id,
+        "service_token_name": str(token.get("name") or "").strip(),
+    }
+
+
+def _cloudflare_upsert_access_app(
+    zone_id: str,
+    *,
+    public_host: str,
+    access_app_name: str,
+    access_emails_csv: str,
+    service_token_id: str = "",
+    timeout_seconds: float,
+) -> dict[str, object]:
+    normalized_zone_id = str(zone_id or "").strip()
+    normalized_public_host = str(public_host or "").strip().lower()
+    normalized_app_name = str(access_app_name or DEFAULT_MYMEDIA_ALEXA_ACCESS_APP_NAME).strip()
+    emails = [item.strip() for item in str(access_emails_csv or "").split(",") if item.strip()]
+    if not normalized_zone_id or not normalized_public_host:
+        return {"ok": False, "reason": "cloudflare_access_app_config_missing"}
+    if not emails:
+        return {"ok": True, "reason": "cloudflare_access_email_allowlist_missing", "changed": False, "skipped": True}
+    if not str(service_token_id or "").strip():
+        return {"ok": True, "reason": "cloudflare_access_service_token_missing", "changed": False, "skipped": True}
+    apps_url = f"https://api.cloudflare.com/client/v4/zones/{urllib.parse.quote(normalized_zone_id, safe='')}/access/apps"
+    status_code, payload, error = _request_json_response(
+        method="GET",
+        url=f"{apps_url}?per_page=200",
+        headers=_cloudflare_headers(),
+        timeout=max(float(timeout_seconds or 15.0), 1.0),
+    )
+    if error:
+        return {"ok": False, "reason": "cloudflare_access_app_lookup_failed", "error": error}
+    results = [dict(item) for item in list(payload.get("result") or []) if isinstance(item, dict)]
+    existing = next(
+        (
+            item
+            for item in results
+            if normalized_public_host == str(item.get("domain") or "").strip().lower()
+            or normalized_public_host in [str(domain or "").strip().lower() for domain in list(item.get("self_hosted_domains") or [])]
+        ),
+        {},
+    )
+    existing_app_id = str(existing.get("id") or "").strip()
+    policies = [
+        {
+            "name": f"{normalized_app_name} service token",
+            "decision": "non_identity",
+            "include": [{"service_token": {"token_id": str(service_token_id).strip()}}],
+            "exclude": [],
+            "require": [],
+            "precedence": 1,
+        },
+        {
+            "name": f"{normalized_app_name} email allow",
+            "decision": "allow",
+            "include": [{"email": {"email": email}} for email in emails],
+            "exclude": [],
+            "require": [],
+            "precedence": 2,
+        },
+    ]
+    already_ok = False
+    if existing:
+        current_domains = [str(domain or "").strip().lower() for domain in list(existing.get("self_hosted_domains") or [])]
+        current_policy_token_ids = {
+            str(dict(include.get("service_token") or {}).get("token_id") or "").strip()
+            for policy in list(existing.get("policies") or [])
+            if isinstance(policy, dict)
+            for include in list(policy.get("include") or [])
+            if isinstance(include, dict)
+        }
+        current_email_set = {
+            str(dict(include.get("email") or {}).get("email") or "").strip().lower()
+            for policy in list(existing.get("policies") or [])
+            if isinstance(policy, dict)
+            for include in list(policy.get("include") or [])
+            if isinstance(include, dict)
+        }
+        already_ok = (
+            normalized_public_host == str(existing.get("domain") or "").strip().lower()
+            and normalized_public_host in current_domains
+            and str(service_token_id).strip() in current_policy_token_ids
+            and {email.lower() for email in emails}.issubset(current_email_set)
+        )
+    if already_ok:
+        return {"ok": True, "reason": "", "changed": False, "app_present": True}
+    body = {
+        "type": "self_hosted",
+        "name": normalized_app_name,
+        "domain": normalized_public_host,
+        "self_hosted_domains": [normalized_public_host],
+        "destinations": [{"type": "public", "uri": normalized_public_host}],
+        "app_launcher_visible": True,
+        "allowed_idps": [],
+        "auto_redirect_to_identity": False,
+        "session_duration": "24h",
+        "http_only_cookie_attribute": True,
+        "enable_binding_cookie": False,
+        "options_preflight_bypass": False,
+        "policies": policies,
+    }
+    if existing_app_id:
+        update_status, update_payload, update_error = _request_json_response(
+            method="PUT",
+            url=f"{apps_url}/{urllib.parse.quote(existing_app_id, safe='')}",
+            headers=_cloudflare_headers(),
+            body=body,
+            timeout=max(float(timeout_seconds or 15.0), 1.0),
+        )
+        if update_error or update_status < 200 or update_status >= 300:
+            return {"ok": False, "reason": "cloudflare_access_app_update_failed", "error": update_error}
+    else:
+        create_status, create_payload, create_error = _request_json_response(
+            method="POST",
+            url=apps_url,
+            headers=_cloudflare_headers(),
+            body=body,
+            timeout=max(float(timeout_seconds or 15.0), 1.0),
+        )
+        if create_error or create_status < 200 or create_status >= 300:
+            return {"ok": False, "reason": "cloudflare_access_app_create_failed", "error": create_error}
+    return {"ok": True, "reason": "", "changed": True, "app_present": True}
+
+
+def _cloudflare_expression_add_host_exception(
+    expression: str,
+    *,
+    required_existing_hosts: list[str],
+    new_host: str,
+) -> str:
+    normalized_expression = str(expression or "")
+    target_host = str(new_host or "").strip().lower()
+    match_hosts = {str(item or "").strip().lower() for item in required_existing_hosts if str(item or "").strip()}
+    if not normalized_expression or not target_host or not match_hosts:
+        return normalized_expression
+
+    def _replace(match: re.Match[str]) -> str:
+        raw_hosts = match.group(1)
+        hosts = [item.strip().lower() for item in re.findall(r'"([^"]+)"', raw_hosts)]
+        if target_host in hosts or not any(host in match_hosts for host in hosts):
+            return match.group(0)
+        hosts.append(target_host)
+        rendered = " ".join(f'"{host}"' for host in hosts)
+        return f"http.host in {{{rendered}}}"
+
+    return re.sub(r"http\.host\s+in\s+\{([^}]*)\}", _replace, normalized_expression)
+
+
+def _cloudflare_patch_private_host_block_exceptions(
+    zone_id: str,
+    *,
+    public_host: str,
+    required_existing_hosts: list[str],
+    timeout_seconds: float,
+) -> dict[str, object]:
+    normalized_zone_id = str(zone_id or "").strip()
+    normalized_public_host = str(public_host or "").strip().lower()
+    match_hosts = [str(item or "").strip().lower() for item in required_existing_hosts if str(item or "").strip()]
+    if not normalized_zone_id or not normalized_public_host or not match_hosts:
+        return {"ok": True, "reason": "cloudflare_firewall_exception_hosts_missing", "changed": False, "skipped": True}
+    rulesets_status, rulesets_payload, rulesets_error = _request_json_response(
+        method="GET",
+        url=f"https://api.cloudflare.com/client/v4/zones/{urllib.parse.quote(normalized_zone_id, safe='')}/rulesets",
+        headers=_cloudflare_headers(),
+        timeout=max(float(timeout_seconds or 15.0), 1.0),
+    )
+    if rulesets_error:
+        return {"ok": False, "reason": "cloudflare_firewall_ruleset_lookup_failed", "error": rulesets_error}
+    rulesets = [dict(item) for item in list(rulesets_payload.get("result") or []) if isinstance(item, dict)]
+    ruleset = next(
+        (
+            item
+            for item in rulesets
+            if str(item.get("phase") or "").strip() == "http_request_firewall_custom"
+            and str(item.get("kind") or "").strip() == "zone"
+        ),
+        {},
+    )
+    ruleset_id = str(ruleset.get("id") or "").strip()
+    if rulesets_status < 200 or rulesets_status >= 300 or not ruleset_id:
+        return {"ok": True, "reason": "", "changed": False, "skipped": True, "patched_rule_count": 0}
+    detail_status, detail_payload, detail_error = _request_json_response(
+        method="GET",
+        url=(
+            f"https://api.cloudflare.com/client/v4/zones/{urllib.parse.quote(normalized_zone_id, safe='')}"
+            f"/rulesets/{urllib.parse.quote(ruleset_id, safe='')}"
+        ),
+        headers=_cloudflare_headers(),
+        timeout=max(float(timeout_seconds or 15.0), 1.0),
+    )
+    if detail_error:
+        return {"ok": False, "reason": "cloudflare_firewall_ruleset_detail_failed", "error": detail_error}
+    rules = [dict(item) for item in list(dict(detail_payload.get("result") or {}).get("rules") or []) if isinstance(item, dict)]
+    patched_rule_count = 0
+    candidate_rule_count = 0
+    for rule in rules:
+        if str(rule.get("action") or "").strip() != "block":
+            continue
+        updated_expression = _cloudflare_expression_add_host_exception(
+            str(rule.get("expression") or ""),
+            required_existing_hosts=match_hosts,
+            new_host=normalized_public_host,
+        )
+        if updated_expression == str(rule.get("expression") or ""):
+            continue
+        candidate_rule_count += 1
+        rule_id = str(rule.get("id") or "").strip()
+        if not rule_id:
+            return {"ok": False, "reason": "cloudflare_firewall_rule_id_missing"}
+        body: dict[str, object] = {
+            "action": str(rule.get("action") or "").strip(),
+            "expression": updated_expression,
+            "enabled": bool(rule.get("enabled", True)),
+        }
+        if "description" in rule:
+            body["description"] = rule.get("description")
+        if "action_parameters" in rule:
+            body["action_parameters"] = rule.get("action_parameters")
+        if "logging" in rule:
+            body["logging"] = rule.get("logging")
+        patch_status, patch_payload, patch_error = _request_json_response(
+            method="PATCH",
+            url=(
+                f"https://api.cloudflare.com/client/v4/zones/{urllib.parse.quote(normalized_zone_id, safe='')}"
+                f"/rulesets/{urllib.parse.quote(ruleset_id, safe='')}/rules/{urllib.parse.quote(rule_id, safe='')}"
+            ),
+            headers=_cloudflare_headers(),
+            body=body,
+            timeout=max(float(timeout_seconds or 15.0), 1.0),
+        )
+        if patch_error or patch_status < 200 or patch_status >= 300:
+            return {"ok": False, "reason": "cloudflare_firewall_rule_patch_failed", "error": patch_error}
+        patched_rule_count += 1
+    return {
+        "ok": True,
+        "reason": "",
+        "changed": patched_rule_count > 0,
+        "patched_rule_count": patched_rule_count,
+        "candidate_rule_count": candidate_rule_count,
+    }
 
 
 def _sync_env_to_teable_json(command: str, *, timeout_seconds: float) -> tuple[int, dict[str, object], str]:
@@ -1872,6 +3892,4086 @@ def _int_payload(payload: Mapping[str, object], key: str) -> int:
         return 0
 
 
+def probe_mymedia_alexa(
+    *,
+    container_name: str = "",
+    web_base_url: str = "",
+    public_web_base_url: str = "",
+    timeout_seconds: float = 15.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    observed_now = _parse_utc_datetime(observed_at)
+    effective_container_name = str(
+        container_name or _env("EA_MYMEDIA_ALEXA_CONTAINER", DEFAULT_MYMEDIA_ALEXA_CONTAINER)
+    ).strip() or DEFAULT_MYMEDIA_ALEXA_CONTAINER
+    effective_web_base_url = str(
+        web_base_url or _env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL)
+    ).strip() or DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL
+    effective_public_web_base_url = str(
+        public_web_base_url or _env("EA_MYMEDIA_ALEXA_PUBLIC_BASE_URL", DEFAULT_MYMEDIA_ALEXA_PUBLIC_BASE_URL)
+    ).strip()
+
+    inspect_payload = _docker_inspect_container_json(
+        effective_container_name,
+        timeout_seconds=max(float(timeout_seconds or 15.0), 1.0),
+    )
+    if not inspect_payload:
+        report = {
+            "probe_ok": False,
+            "ready": False,
+            "status": "probe_failed",
+            "reason": "mymedia_container_inspect_failed",
+            "next_action": "inspect_mymedia_alexa_container",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
+            "container_name": effective_container_name,
+            "container_running": False,
+            "api_reachable": False,
+            "pairing_ready": False,
+            "watch_folder_count": 0,
+            "tracks": 0,
+            "library_scan_pending": False,
+            "library_scan_blocked_by_pairing": False,
+            "observed_at": observed_at,
+            "source": "docker.inspect+mymedia.api+xml_mount",
+            "privacy": {
+                "raw_refresh_token_exposed": False,
+                "raw_paired_user_exposed": False,
+                "raw_watch_folder_paths_exposed": False,
+                "raw_public_ip_exposed": False,
+            },
+        }
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_alexa(report)
+        return report
+
+    state = dict(inspect_payload.get("State") or {})
+    mounts = [dict(item) for item in list(inspect_payload.get("Mounts") or []) if isinstance(item, dict)]
+    data_mount = next(
+        (item for item in mounts if str(item.get("Destination") or "").strip() == "/datadir"),
+        {},
+    )
+    data_dir = Path(str(data_mount.get("Source") or "").strip()) if str(data_mount.get("Source") or "").strip() else None
+    preferences = _mymedia_preferences_snapshot(data_dir / "Preferences.xml") if data_dir is not None else {}
+    messages = _mymedia_messages_snapshot(data_dir / "Messages.xml") if data_dir is not None else {}
+
+    summary_ok, summary_payload, summary_status_code, summary_reason = _mymedia_api_json(
+        f"{effective_web_base_url.rstrip('/')}/api/Summary",
+        timeout_seconds=timeout_seconds,
+    )
+    watchfolders_ok, watchfolders_payload, watchfolders_status_code, watchfolders_reason = _mymedia_api_json(
+        f"{effective_web_base_url.rstrip('/')}/api/WatchFolders",
+        timeout_seconds=timeout_seconds,
+    )
+    login_ok, _login_payload, login_status_code, login_reason = _mymedia_api_json(
+        f"{effective_web_base_url.rstrip('/')}/api/Login",
+        timeout_seconds=timeout_seconds,
+    )
+
+    summary = dict(summary_payload.get("GetSummaryInfoResult") or {}) if summary_ok else {}
+    watchfolders = (
+        [
+            dict(item)
+            for item in list(watchfolders_payload.get("GetWatchFoldersResult") or [])
+            if isinstance(item, dict)
+        ]
+        if watchfolders_ok
+        else []
+    )
+    watch_folder_states = [_mymedia_watchfolder_status_label(item.get("Status")) for item in watchfolders]
+    watch_folder_count = len(watchfolders)
+    watch_folder_error_count = sum(
+        1
+        for item, state_label in zip(watchfolders, watch_folder_states)
+        if state_label == "error" or int(item.get("Errors") or 0) > 0
+    )
+    library_scan_pending = any(state_label in {"queued", "scanning", "indexing"} for state_label in watch_folder_states)
+    tracks = int(summary.get("Tracks") or 0)
+    connection_status = _mymedia_connection_status_label(summary.get("ConnectionStatus"))
+    pairing_ready = bool(preferences.get("refresh_token_present")) or login_ok
+    library_scan_blocked_by_pairing = bool(not pairing_ready and library_scan_pending and tracks == 0 and watch_folder_count > 0)
+    remote_access_mode = str(preferences.get("remote_access_mode") or "").strip()
+    public_ip_present = bool(preferences.get("public_ip_present"))
+    external_access_ready = remote_access_mode == "push" or (remote_access_mode == "static_ip" and public_ip_present)
+    container_running = bool(state.get("Running"))
+    api_reachable = summary_ok and watchfolders_ok
+    pairing_artifact_cleanup = (
+        _mymedia_pairing_cleanup_runtime_artifacts()
+        if pairing_ready
+        else {"attempted": False, "removed_count": 0, "root_removed": False, "errors": []}
+    )
+    pairing_session = _mymedia_pairing_session_status(now=observed_now)
+    public_surface = _mymedia_public_surface_probe(
+        effective_public_web_base_url,
+        timeout_seconds=min(max(float(timeout_seconds or 15.0), 1.0), 15.0),
+    )
+
+    reason = ""
+    next_action = ""
+    status = "ready"
+    ready = False
+    if not container_running:
+        status = "blocked_runtime_unavailable"
+        reason = "mymedia_container_not_running"
+        next_action = "start_mymedia_alexa_container"
+    elif not api_reachable:
+        status = "blocked_console_unreachable"
+        reason = "mymedia_console_api_unreachable"
+        next_action = "repair_mymedia_console_api"
+    elif not pairing_ready:
+        status = "blocked_pairing_required"
+        reason = "amazon_account_not_paired"
+        if bool(pairing_session.get("resume_ready")):
+            next_action = (
+                "approve_mymedia_amazon_consent"
+                if str(pairing_session.get("surface_kind") or "") == "consent_required"
+                else "enter_mymedia_amazon_pairing_code"
+            )
+        else:
+            next_action = (
+                "complete_amazon_pairing_then_rescan_library"
+                if library_scan_blocked_by_pairing
+                else "complete_amazon_pairing_for_mymedia"
+            )
+    elif watch_folder_count == 0:
+        status = "blocked_watch_folder_missing"
+        reason = "mymedia_watch_folder_missing"
+        next_action = "add_mymedia_watch_folder"
+    elif watch_folder_error_count > 0:
+        status = "blocked_watch_folder_error"
+        reason = "mymedia_watch_folder_error"
+        next_action = "repair_mymedia_watch_folder"
+    elif not external_access_ready:
+        status = "blocked_external_access_not_ready"
+        reason = "mymedia_external_access_not_ready"
+        next_action = "configure_mymedia_external_access"
+    elif connection_status == "connecting":
+        status = "blocked_connection_pending"
+        reason = "amazon_connection_pending"
+        next_action = "inspect_mymedia_amazon_connection"
+    elif connection_status != "connected":
+        status = "blocked_connection_not_ready"
+        reason = "amazon_connection_not_ready"
+        next_action = "inspect_mymedia_amazon_connection"
+    elif library_scan_pending:
+        if tracks > 0:
+            status = "ready_library_scan_in_progress"
+            reason = "mymedia_library_scan_in_progress"
+            next_action = "wait_for_mymedia_library_scan"
+            ready = True
+        else:
+            status = "blocked_library_scan_pending"
+            reason = "mymedia_library_scan_pending"
+            next_action = "rescan_mymedia_library"
+    elif tracks <= 0:
+        status = "blocked_library_empty"
+        reason = "mymedia_library_empty"
+        next_action = "rescan_mymedia_library"
+    else:
+        ready = True
+
+    next_action_href, next_action_label, next_action_method = _mymedia_action_surface(
+        base_url=effective_web_base_url,
+        next_action=next_action,
+    )
+    report = {
+        "probe_ok": True,
+        "ready": ready,
+        "status": status,
+        "reason": reason,
+        "next_action": next_action,
+        "next_action_href": next_action_href,
+        "next_action_label": next_action_label,
+        "next_action_method": next_action_method,
+        "container_name": effective_container_name,
+        "container_running": container_running,
+        "container_state_status": str(state.get("Status") or "").strip(),
+        "data_mount_present": bool(data_mount),
+        "preferences_present": bool(preferences.get("preferences_present")),
+        "messages_present": bool(messages.get("messages_present")),
+        "api_reachable": api_reachable,
+        "api_http_status_codes": {
+            "summary": summary_status_code,
+            "watchfolders": watchfolders_status_code,
+            "login": login_status_code,
+        },
+        "api_error_reasons": {
+            "summary": summary_reason,
+            "watchfolders": watchfolders_reason,
+            "login": login_reason,
+        },
+        "pairing_ready": pairing_ready,
+        "pairing_session_pending": bool(pairing_session.get("pending_surface")),
+        "pairing_resume_ready": bool(pairing_session.get("resume_ready")),
+        "pairing_session_stale": bool(pairing_session.get("stale")),
+        "pairing_session_age_seconds": pairing_session.get("age_seconds"),
+        "pairing_session_max_age_seconds": pairing_session.get("max_age_seconds"),
+        "pairing_session_captured_at": str(pairing_session.get("captured_at") or "").strip(),
+        "pairing_session_surface_kind": str(pairing_session.get("surface_kind") or "").strip(),
+        "pairing_session_otp_channel": str(pairing_session.get("otp_channel") or "").strip(),
+        "pairing_session_phone_suffix": str(pairing_session.get("phone_suffix") or "").strip(),
+        "pairing_artifact_cleanup_attempted": bool(pairing_artifact_cleanup.get("attempted")),
+        "pairing_artifact_cleanup_removed_count": int(pairing_artifact_cleanup.get("removed_count") or 0),
+        "pairing_artifact_cleanup_error_count": len(
+            [item for item in list(pairing_artifact_cleanup.get("errors") or []) if str(item).strip()]
+        ),
+        "refresh_token_present": bool(preferences.get("refresh_token_present")),
+        "paired_user_present": bool(preferences.get("paired_user_present")),
+        "remote_access_mode": remote_access_mode,
+        "public_ip_present": public_ip_present,
+        "connection_status": connection_status,
+        "watch_folder_count": watch_folder_count,
+        "watch_folder_states": watch_folder_states[:5],
+        "watch_folder_error_count": watch_folder_error_count,
+        "tracks": tracks,
+        "albums": int(summary.get("Albums") or 0),
+        "artists": int(summary.get("Artists") or 0),
+        "genres": int(summary.get("Genres") or 0),
+        "library_scan_pending": library_scan_pending,
+        "library_scan_blocked_by_pairing": library_scan_blocked_by_pairing,
+        "message_count": int(messages.get("message_count") or 0),
+        "message_warning_count": int(messages.get("warning_count") or 0),
+        "message_error_count": int(messages.get("error_count") or 0),
+        "web_base_url_scope": _url_scope(effective_web_base_url),
+        "public_surface_configured": bool(public_surface.get("configured")),
+        "public_surface_scope": str(public_surface.get("base_url_scope") or "").strip(),
+        "public_surface_probe_attempted": bool(public_surface.get("probe_attempted")),
+        "public_surface_ready": bool(public_surface.get("ready")),
+        "public_surface_status": str(public_surface.get("status") or "").strip(),
+        "public_surface_reason": str(public_surface.get("reason") or "").strip(),
+        "public_surface_http_status_code": int(public_surface.get("http_status_code") or 0),
+        "public_surface_access_protected": bool(public_surface.get("access_protected")),
+        "public_surface_cloudflare_blocked": bool(public_surface.get("cloudflare_blocked")),
+        "public_surface_redirect_host": str(public_surface.get("redirect_host") or "").strip(),
+        "public_surface_content_type": str(public_surface.get("content_type") or "").strip(),
+        "public_surface_next_action": str(public_surface.get("next_action") or "").strip(),
+        "public_surface_next_action_href": str(public_surface.get("next_action_href") or "").strip(),
+        "public_surface_next_action_label": str(public_surface.get("next_action_label") or "").strip(),
+        "public_surface_next_action_method": str(public_surface.get("next_action_method") or "").strip(),
+        "public_surface_source": str(public_surface.get("source") or "").strip(),
+        "observed_at": observed_at,
+        "source": "docker.inspect+mymedia.api+xml_mount",
+        "privacy": {
+            "raw_refresh_token_exposed": False,
+            "raw_paired_user_exposed": False,
+            "raw_watch_folder_paths_exposed": False,
+            "raw_public_ip_exposed": False,
+            "raw_pairing_resume_url_exposed": False,
+            "raw_public_surface_redirect_exposed": False,
+            "raw_public_surface_response_body_exposed": False,
+        },
+    }
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_mymedia_alexa(report)
+    return report
+
+
+def _operator_text_for_mymedia_rescan(report: Mapping[str, object]) -> str:
+    parts = [
+        f"mymedia_rescan status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+    ]
+    reason = str(report.get("reason") or "").strip()
+    next_action = str(report.get("next_action") or "").strip()
+    if reason:
+        parts.append(f"reason={reason}")
+    if next_action:
+        parts.append(f"next={next_action}")
+    if "request_accepted" in report:
+        parts.append(f"request_accepted={str(bool(report.get('request_accepted'))).lower()}")
+    if "http_status_code" in report:
+        parts.append(f"http={int(report.get('http_status_code') or 0)}")
+    if "clear_history" in report:
+        parts.append(f"clear_history={str(bool(report.get('clear_history'))).lower()}")
+    if "watch_folder_count" in report:
+        parts.append(f"watchfolders={int(report.get('watch_folder_count') or 0)}")
+    if "tracks" in report:
+        parts.append(f"tracks={int(report.get('tracks') or 0)}")
+    if "library_scan_pending" in report:
+        parts.append(f"scan_pending={str(bool(report.get('library_scan_pending'))).lower()}")
+    observed_at = str(report.get("observed_at") or "").strip()
+    source = str(report.get("source") or "").strip()
+    if observed_at:
+        parts.append(f"observed_at={observed_at}")
+    if source:
+        parts.append(f"source={source}")
+    return "; ".join(parts)
+
+
+def _operator_text_for_mymedia_console_api_repair(report: Mapping[str, object]) -> str:
+    parts = [
+        f"mymedia_console_api status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+    ]
+    reason = str(report.get("reason") or "").strip()
+    next_action = str(report.get("next_action") or "").strip()
+    if reason:
+        parts.append(f"reason={reason}")
+    if next_action:
+        parts.append(f"next={next_action}")
+    parts.append(f"restart_attempted={str(bool(report.get('restart_attempted'))).lower()}")
+    if report.get("restart_ok") is not None:
+        parts.append(f"restart_ok={str(bool(report.get('restart_ok'))).lower()}")
+    parts.append(f"api_recovered={str(bool(report.get('api_recovered'))).lower()}")
+    if report.get("pre_probe_status"):
+        parts.append(f"before={report['pre_probe_status']}")
+    if report.get("post_probe_status"):
+        parts.append(f"after={report['post_probe_status']}")
+    if report.get("observed_at"):
+        parts.append(f"observed_at={report['observed_at']}")
+    if report.get("source"):
+        parts.append(f"source={report['source']}")
+    return "; ".join(str(item) for item in parts if str(item).strip())
+
+
+def rescan_mymedia_library(
+    *,
+    web_base_url: str = "",
+    clear_history: bool = False,
+    timeout_seconds: float = 15.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    effective_web_base_url = str(
+        web_base_url or _env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL)
+    ).strip() or DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL
+    request_timeout = max(float(timeout_seconds or 15.0), 1.0)
+    pre_probe = probe_mymedia_alexa(
+        container_name=_env("EA_MYMEDIA_ALEXA_CONTAINER", DEFAULT_MYMEDIA_ALEXA_CONTAINER),
+        web_base_url=effective_web_base_url,
+        timeout_seconds=min(request_timeout, 15.0),
+        output_format="json",
+    )
+    request_body = {"clearHistory": bool(clear_history)}
+    report = {
+        "probe_ok": False,
+        "ready": False,
+        "status": "probe_failed",
+        "reason": str(pre_probe.get("reason") or "mymedia_rescan_pre_probe_failed").strip(),
+        "next_action": str(pre_probe.get("next_action") or "").strip(),
+        "next_action_href": str(pre_probe.get("next_action_href") or "").strip(),
+        "next_action_label": str(pre_probe.get("next_action_label") or "").strip(),
+        "next_action_method": str(pre_probe.get("next_action_method") or "").strip(),
+        "request_accepted": False,
+        "http_status_code": 0,
+        "clear_history": bool(clear_history),
+        "container_name": str(pre_probe.get("container_name") or "").strip(),
+        "container_running": bool(pre_probe.get("container_running")),
+        "api_reachable": bool(pre_probe.get("api_reachable")),
+        "pairing_ready": bool(pre_probe.get("pairing_ready")),
+        "watch_folder_count": int(pre_probe.get("watch_folder_count") or 0),
+        "watch_folder_states": list(pre_probe.get("watch_folder_states") or [])[:5],
+        "tracks": int(pre_probe.get("tracks") or 0),
+        "library_scan_pending": bool(pre_probe.get("library_scan_pending")),
+        "library_scan_blocked_by_pairing": bool(pre_probe.get("library_scan_blocked_by_pairing")),
+        "pre_probe_status": str(pre_probe.get("status") or "").strip(),
+        "post_probe_status": "",
+        "post_probe_reason": "",
+        "observed_at": observed_at,
+        "source": "mymedia.api.rescan",
+        "privacy": {
+            "raw_refresh_token_exposed": False,
+            "raw_paired_user_exposed": False,
+            "raw_watch_folder_paths_exposed": False,
+            "raw_public_ip_exposed": False,
+        },
+    }
+    if not bool(pre_probe.get("probe_ok")):
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_rescan(report)
+        return report
+    if not bool(pre_probe.get("container_running")):
+        report.update(
+            {
+                "status": "blocked_runtime_unavailable",
+                "reason": str(pre_probe.get("reason") or "mymedia_container_not_running").strip(),
+            }
+        )
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_rescan(report)
+        return report
+    if not bool(pre_probe.get("api_reachable")):
+        report.update(
+            {
+                "status": "blocked_console_unreachable",
+                "reason": str(pre_probe.get("reason") or "mymedia_console_api_unreachable").strip(),
+            }
+        )
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_rescan(report)
+        return report
+    if not bool(pre_probe.get("pairing_ready")):
+        report.update(
+            {
+                "status": "blocked_pairing_required",
+                "reason": str(pre_probe.get("reason") or "amazon_account_not_paired").strip(),
+            }
+        )
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_rescan(report)
+        return report
+    if int(pre_probe.get("watch_folder_count") or 0) <= 0:
+        report.update(
+            {
+                "status": "blocked_watch_folder_missing",
+                "reason": str(pre_probe.get("reason") or "mymedia_watch_folder_missing").strip(),
+            }
+        )
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_rescan(report)
+        return report
+    if str(pre_probe.get("status") or "").strip() in {
+        "blocked_watch_folder_error",
+        "blocked_external_access_not_ready",
+        "blocked_connection_pending",
+        "blocked_connection_not_ready",
+    }:
+        report.update(
+            {
+                "status": str(pre_probe.get("status") or "probe_failed").strip(),
+                "reason": str(pre_probe.get("reason") or "").strip(),
+            }
+        )
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_rescan(report)
+        return report
+
+    request_ok, _request_payload, request_status_code, request_reason = _mymedia_api_json(
+        f"{effective_web_base_url.rstrip('/')}/api/Rescan",
+        method="POST",
+        body=request_body,
+        timeout_seconds=request_timeout,
+    )
+    report["http_status_code"] = request_status_code
+    if not request_ok:
+        report.update(
+            {
+                "status": "request_failed",
+                "reason": str(request_reason or "mymedia_rescan_request_failed").strip(),
+            }
+        )
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_rescan(report)
+        return report
+
+    post_probe = probe_mymedia_alexa(
+        container_name=_env("EA_MYMEDIA_ALEXA_CONTAINER", DEFAULT_MYMEDIA_ALEXA_CONTAINER),
+        web_base_url=effective_web_base_url,
+        timeout_seconds=min(request_timeout, 15.0),
+        output_format="json",
+    )
+    report.update(
+        {
+            "probe_ok": True,
+            "request_accepted": True,
+            "ready": bool(post_probe.get("ready")),
+            "container_name": str(post_probe.get("container_name") or report.get("container_name") or "").strip(),
+            "container_running": bool(post_probe.get("container_running")),
+            "api_reachable": bool(post_probe.get("api_reachable")),
+            "pairing_ready": bool(post_probe.get("pairing_ready")),
+            "watch_folder_count": int(post_probe.get("watch_folder_count") or 0),
+            "watch_folder_states": list(post_probe.get("watch_folder_states") or [])[:5],
+            "tracks": int(post_probe.get("tracks") or 0),
+            "library_scan_pending": bool(post_probe.get("library_scan_pending")),
+            "library_scan_blocked_by_pairing": bool(post_probe.get("library_scan_blocked_by_pairing")),
+            "post_probe_status": str(post_probe.get("status") or "").strip(),
+            "post_probe_reason": str(post_probe.get("reason") or "").strip(),
+        }
+    )
+    if bool(post_probe.get("ready")):
+        report.update(
+            {
+                "status": "ready",
+                "reason": "",
+                "next_action": "",
+                "next_action_href": "",
+                "next_action_label": "",
+                "next_action_method": "",
+            }
+        )
+    elif str(post_probe.get("status") or "").strip() in {
+        "blocked_watch_folder_missing",
+        "blocked_watch_folder_error",
+        "blocked_external_access_not_ready",
+        "blocked_connection_pending",
+        "blocked_connection_not_ready",
+        "blocked_pairing_required",
+    }:
+        report.update(
+            {
+                "status": str(post_probe.get("status") or "request_failed").strip(),
+                "reason": str(post_probe.get("reason") or "").strip(),
+                "next_action": str(post_probe.get("next_action") or "").strip(),
+                "next_action_href": str(post_probe.get("next_action_href") or "").strip(),
+                "next_action_label": str(post_probe.get("next_action_label") or "").strip(),
+                "next_action_method": str(post_probe.get("next_action_method") or "").strip(),
+            }
+        )
+    else:
+        next_action = "wait_for_mymedia_library_scan"
+        next_action_href, next_action_label, next_action_method = _mymedia_action_surface(
+            base_url=effective_web_base_url,
+            next_action=next_action,
+        )
+        report.update(
+            {
+                "status": "scan_requested",
+                "reason": "mymedia_library_scan_requested",
+                "next_action": next_action,
+                "next_action_href": next_action_href,
+                "next_action_label": next_action_label,
+                "next_action_method": next_action_method,
+            }
+        )
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_mymedia_rescan(report)
+    return report
+
+
+def repair_mymedia_console_api(
+    *,
+    container_name: str = "",
+    web_base_url: str = "",
+    timeout_seconds: float = 45.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    effective_container_name = str(
+        container_name or _env("EA_MYMEDIA_ALEXA_CONTAINER", DEFAULT_MYMEDIA_ALEXA_CONTAINER)
+    ).strip() or DEFAULT_MYMEDIA_ALEXA_CONTAINER
+    effective_web_base_url = str(
+        web_base_url or _env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL)
+    ).strip() or DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL
+    request_timeout = max(float(timeout_seconds or 45.0), 1.0)
+    receipt_path = DEFAULT_MYMEDIA_ALEXA_CONSOLE_API_REPAIR_RECEIPT
+    pre_probe = probe_mymedia_alexa(
+        container_name=effective_container_name,
+        web_base_url=effective_web_base_url,
+        timeout_seconds=min(request_timeout, 15.0),
+        output_format="json",
+    )
+    report = {
+        "probe_ok": bool(pre_probe.get("probe_ok")),
+        "ready": False,
+        "status": "probe_failed",
+        "reason": str(pre_probe.get("reason") or "mymedia_console_api_pre_probe_failed").strip(),
+        "next_action": str(pre_probe.get("next_action") or "").strip(),
+        "next_action_href": str(pre_probe.get("next_action_href") or "").strip(),
+        "next_action_label": str(pre_probe.get("next_action_label") or "").strip(),
+        "next_action_method": str(pre_probe.get("next_action_method") or "").strip(),
+        "container_name": effective_container_name,
+        "container_running": bool(pre_probe.get("container_running")),
+        "api_reachable": bool(pre_probe.get("api_reachable")),
+        "restart_attempted": False,
+        "restart_ok": None,
+        "restart_reason": "",
+        "api_recovered": bool(pre_probe.get("api_reachable")),
+        "pre_probe_status": str(pre_probe.get("status") or "").strip(),
+        "post_probe_status": "",
+        "post_probe_reason": "",
+        "before_probe": pre_probe,
+        "after_probe": pre_probe,
+        "observed_at": observed_at,
+        "source": "docker.restart+mymedia.probe",
+        "privacy": {
+            "raw_refresh_token_exposed": False,
+            "raw_paired_user_exposed": False,
+            "raw_watch_folder_paths_exposed": False,
+            "raw_public_ip_exposed": False,
+        },
+    }
+
+    def _finalize(updated: dict[str, object]) -> dict[str, object]:
+        updated["receipt_path"] = str(receipt_path)
+        _write_private_json(receipt_path, updated)
+        if output_format == "operator":
+            updated["operator_text"] = _operator_text_for_mymedia_console_api_repair(updated)
+        return updated
+
+    if not bool(pre_probe.get("probe_ok")):
+        return _finalize(report)
+    if not bool(pre_probe.get("container_running")):
+        report.update(
+            {
+                "status": "repair_blocked",
+                "reason": str(pre_probe.get("reason") or "mymedia_container_not_running").strip(),
+                "next_action": "start_mymedia_alexa_container",
+            }
+        )
+        next_action_href, next_action_label, next_action_method = _mymedia_action_surface(
+            base_url=effective_web_base_url,
+            next_action=str(report.get("next_action") or "").strip(),
+        )
+        report["next_action_href"] = next_action_href
+        report["next_action_label"] = next_action_label
+        report["next_action_method"] = next_action_method
+        return _finalize(report)
+    if bool(pre_probe.get("api_reachable")):
+        report.update(
+            {
+                "ready": True,
+                "status": "ready",
+                "reason": "",
+                "next_action": str(pre_probe.get("next_action") or "").strip(),
+                "next_action_href": str(pre_probe.get("next_action_href") or "").strip(),
+                "next_action_label": str(pre_probe.get("next_action_label") or "").strip(),
+                "next_action_method": str(pre_probe.get("next_action_method") or "").strip(),
+            }
+        )
+        return _finalize(report)
+
+    restart = _docker_restart_container(effective_container_name, timeout_seconds=min(request_timeout, 30.0))
+    report.update(
+        {
+            "restart_attempted": True,
+            "restart_ok": bool(restart.get("ok")),
+            "restart_reason": str(restart.get("reason") or "").strip(),
+        }
+    )
+    if not bool(restart.get("ok")):
+        report.update(
+            {
+                "status": "repair_failed",
+                "reason": str(restart.get("reason") or "docker_restart_failed").strip(),
+                "next_action": "inspect_mymedia_console_api",
+            }
+        )
+        next_action_href, next_action_label, next_action_method = _mymedia_action_surface(
+            base_url=effective_web_base_url,
+            next_action=str(report.get("next_action") or "").strip(),
+        )
+        report["next_action_href"] = next_action_href
+        report["next_action_label"] = next_action_label
+        report["next_action_method"] = next_action_method
+        return _finalize(report)
+
+    deadline = time.monotonic() + min(request_timeout, 60.0)
+    post_probe = pre_probe
+    while True:
+        post_probe = probe_mymedia_alexa(
+            container_name=effective_container_name,
+            web_base_url=effective_web_base_url,
+            timeout_seconds=min(max(request_timeout / 3.0, 5.0), 15.0),
+            output_format="json",
+        )
+        if bool(post_probe.get("api_reachable")) or time.monotonic() >= deadline:
+            break
+        time.sleep(2.0)
+    report.update(
+        {
+            "ready": bool(post_probe.get("ready")),
+            "status": "repaired" if bool(post_probe.get("api_reachable")) else "repair_failed",
+            "reason": str(post_probe.get("reason") or "").strip(),
+            "next_action": str(post_probe.get("next_action") or "").strip(),
+            "next_action_href": str(post_probe.get("next_action_href") or "").strip(),
+            "next_action_label": str(post_probe.get("next_action_label") or "").strip(),
+            "next_action_method": str(post_probe.get("next_action_method") or "").strip(),
+            "container_running": bool(post_probe.get("container_running")),
+            "api_reachable": bool(post_probe.get("api_reachable")),
+            "api_recovered": bool(post_probe.get("api_reachable")),
+            "post_probe_status": str(post_probe.get("status") or "").strip(),
+            "post_probe_reason": str(post_probe.get("reason") or "").strip(),
+            "after_probe": post_probe,
+        }
+    )
+    return _finalize(report)
+
+
+def _mymedia_pairing_root(output_dir: str = "") -> Path:
+    return Path(output_dir or _env("EA_MYMEDIA_ALEXA_PAIRING_DIR", str(DEFAULT_MYMEDIA_ALEXA_PAIRING_DIR)))
+
+
+def _mymedia_pairing_state_path(output_dir: str = "") -> Path:
+    return _mymedia_pairing_root(output_dir) / "storage_state.json"
+
+
+def _mymedia_pairing_session_path(output_dir: str = "") -> Path:
+    return _mymedia_pairing_root(output_dir) / "session.json"
+
+
+def _mymedia_pairing_screenshot_path(output_dir: str = "") -> Path:
+    return _mymedia_pairing_root(output_dir) / "surface.png"
+
+
+def _mymedia_pairing_cleanup_runtime_artifacts(output_dir: str = "") -> dict[str, object]:
+    root = _mymedia_pairing_root(output_dir)
+    candidates = (
+        _mymedia_pairing_state_path(output_dir),
+        _mymedia_pairing_session_path(output_dir),
+        _mymedia_pairing_screenshot_path(output_dir),
+    )
+    removed_count = 0
+    errors: list[str] = []
+    for path in candidates:
+        try:
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+                removed_count += 1
+            elif path.is_dir():
+                shutil.rmtree(path)
+                removed_count += 1
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            errors.append(f"{path.name}:{type(exc).__name__}")
+    root_removed = False
+    try:
+        if root.is_dir() and not any(root.iterdir()):
+            root.rmdir()
+            root_removed = True
+    except OSError:
+        root_removed = False
+    return {
+        "attempted": removed_count > 0 or bool(errors),
+        "removed_count": removed_count,
+        "root_removed": root_removed,
+        "errors": errors,
+    }
+
+
+def _write_private_json(path: Path, payload: Mapping[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    tmp.write_text(json.dumps(payload, ensure_ascii=True, sort_keys=True, indent=2), encoding="utf-8")
+    tmp.chmod(0o600)
+    os.replace(tmp, path)
+
+
+def _operator_text_for_mymedia_public_surface_repair(report: Mapping[str, object]) -> str:
+    before = dict(report.get("before_public_surface") or {})
+    after = dict(report.get("after_public_surface") or {})
+    parts = [
+        f"mymedia_public_surface status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+    ]
+    reason = str(report.get("reason") or "").strip()
+    next_action = str(report.get("next_action") or "").strip()
+    if reason:
+        parts.append(f"reason={reason}")
+    if next_action:
+        parts.append(f"next={next_action}")
+    if report.get("public_host"):
+        parts.append(f"host={report['public_host']}")
+    if before.get("status"):
+        parts.append(f"before={before['status']}")
+    if after.get("status"):
+        parts.append(f"after={after['status']}")
+    parts.append(f"dns_changed={str(bool(report.get('dns_changed'))).lower()}")
+    parts.append(f"tunnel_changed={str(bool(report.get('tunnel_changed'))).lower()}")
+    parts.append(f"access_changed={str(bool(report.get('access_app_changed'))).lower()}")
+    parts.append(f"firewall_changed={str(bool(report.get('firewall_changed'))).lower()}")
+    if report.get("firewall_patched_rule_count") is not None:
+        parts.append(f"firewall_rules={int(report.get('firewall_patched_rule_count') or 0)}")
+    if report.get("receipt_path"):
+        parts.append(f"receipt={report['receipt_path']}")
+    if report.get("observed_at"):
+        parts.append(f"observed_at={report['observed_at']}")
+    if report.get("source"):
+        parts.append(f"source={report['source']}")
+    return "; ".join(str(item) for item in parts if str(item).strip())
+
+
+def repair_mymedia_public_surface(
+    *,
+    web_base_url: str = "",
+    public_web_base_url: str = "",
+    public_tunnel_origin_url: str = "",
+    timeout_seconds: float = 30.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    request_timeout = max(float(timeout_seconds or 30.0), 1.0)
+    effective_web_base_url = str(
+        web_base_url or _env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL)
+    ).strip() or DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL
+    effective_public_web_base_url = str(
+        public_web_base_url or _env("EA_MYMEDIA_ALEXA_PUBLIC_BASE_URL", DEFAULT_MYMEDIA_ALEXA_PUBLIC_BASE_URL)
+    ).strip()
+    effective_public_tunnel_origin = _mymedia_public_surface_tunnel_origin(
+        effective_web_base_url,
+        explicit_origin_url=str(
+            public_tunnel_origin_url
+            or _env("EA_MYMEDIA_ALEXA_PUBLIC_TUNNEL_ORIGIN_URL", DEFAULT_MYMEDIA_ALEXA_PUBLIC_TUNNEL_ORIGIN_URL)
+        ).strip(),
+    )
+    effective_tunnel_name = str(
+        _env("EA_MYMEDIA_ALEXA_CLOUDFLARE_TUNNEL_NAME", DEFAULT_MYMEDIA_ALEXA_CLOUDFLARE_TUNNEL_NAME)
+    ).strip() or DEFAULT_MYMEDIA_ALEXA_CLOUDFLARE_TUNNEL_NAME
+    effective_access_env_file = str(
+        _env("EA_MYMEDIA_ALEXA_CF_ACCESS_ENV_FILE", DEFAULT_MYMEDIA_ALEXA_CF_ACCESS_ENV_FILE)
+    ).strip() or DEFAULT_MYMEDIA_ALEXA_CF_ACCESS_ENV_FILE
+    effective_access_emails = _mymedia_runtime_default_value(
+        env_names=("EA_MYMEDIA_ALEXA_ACCESS_EMAILS",),
+        payload_keys=("access_emails",),
+        default=DEFAULT_MYMEDIA_ALEXA_ACCESS_EMAILS,
+    )
+    effective_access_app_name = str(
+        _env("EA_MYMEDIA_ALEXA_ACCESS_APP_NAME", DEFAULT_MYMEDIA_ALEXA_ACCESS_APP_NAME)
+    ).strip() or DEFAULT_MYMEDIA_ALEXA_ACCESS_APP_NAME
+    exception_base_hosts = [
+        item.strip().lower()
+        for item in _mymedia_runtime_default_value(
+            env_names=("EA_MYMEDIA_ALEXA_CLOUDFLARE_EXCEPTION_BASE_HOSTS",),
+            payload_keys=("cloudflare_exception_base_hosts",),
+            default=DEFAULT_MYMEDIA_ALEXA_CLOUDFLARE_EXCEPTION_BASE_HOSTS,
+        ).split(",")
+        if item.strip()
+    ]
+    receipt_path = DEFAULT_MYMEDIA_ALEXA_PUBLIC_SURFACE_REPAIR_RECEIPT
+
+    def _finalize(report: dict[str, object]) -> dict[str, object]:
+        report["receipt_path"] = str(receipt_path)
+        report.setdefault(
+            "privacy",
+            {
+                "raw_api_key_exposed": False,
+                "raw_service_token_exposed": False,
+                "raw_access_client_id_exposed": False,
+                "raw_public_surface_redirect_exposed": False,
+            },
+        )
+        _write_private_json(receipt_path, report)
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_public_surface_repair(report)
+        return report
+
+    before = _mymedia_public_surface_probe(
+        effective_public_web_base_url,
+        timeout_seconds=min(request_timeout, 15.0),
+    )
+    public_host = str(urllib.parse.urlparse(effective_public_web_base_url).hostname or "").strip().lower()
+    report: dict[str, object] = {
+        "probe_ok": True,
+        "ready": False,
+        "status": "repair_incomplete",
+        "reason": str(before.get("reason") or "").strip(),
+        "next_action": str(before.get("next_action") or "").strip(),
+        "next_action_href": str(before.get("next_action_href") or "").strip(),
+        "next_action_label": str(before.get("next_action_label") or "").strip(),
+        "next_action_method": str(before.get("next_action_method") or "").strip(),
+        "public_host": public_host,
+        "public_web_base_url": effective_public_web_base_url,
+        "expected_tunnel_origin_url": effective_public_tunnel_origin,
+        "tunnel_name": effective_tunnel_name,
+        "dns_changed": False,
+        "tunnel_changed": False,
+        "access_app_changed": False,
+        "firewall_changed": False,
+        "firewall_patched_rule_count": 0,
+        "before_public_surface": before,
+        "after_public_surface": before,
+        "observed_at": observed_at,
+        "source": "cloudflare.dns+tunnel+access+ruleset",
+    }
+    if not bool(before.get("configured")):
+        report.update(
+            {
+                "probe_ok": False,
+                "status": "not_configured",
+                "reason": "mymedia_public_console_url_not_configured",
+                "next_action": "configure_public_mymedia_console_url",
+            }
+        )
+        return _finalize(report)
+    if str(before.get("base_url_scope") or "").strip() != "public":
+        report.update(
+            {
+                "probe_ok": False,
+                "status": "not_public",
+                "reason": "mymedia_public_console_url_not_public",
+                "next_action": "configure_public_mymedia_console_url",
+            }
+        )
+        return _finalize(report)
+    if not public_host or not effective_public_tunnel_origin:
+        report.update(
+            {
+                "probe_ok": False,
+                "status": "repair_blocked",
+                "reason": "mymedia_public_console_origin_missing",
+                "next_action": "configure_public_mymedia_console_url",
+            }
+        )
+        return _finalize(report)
+    if not _cloudflare_auth_ready():
+        report.update(
+            {
+                "probe_ok": False,
+                "status": "repair_blocked",
+                "reason": "cloudflare_credentials_missing",
+                "next_action": "configure_cloudflare_credentials_for_mymedia_public_surface",
+            }
+        )
+        return _finalize(report)
+
+    zone = _cloudflare_lookup_zone_for_host(public_host, timeout_seconds=request_timeout)
+    if not bool(zone.get("ok")):
+        report.update(
+            {
+                "status": "repair_blocked",
+                "reason": str(zone.get("reason") or "cloudflare_zone_not_found").strip(),
+                "next_action": "inspect_mymedia_public_console_route",
+            }
+        )
+        return _finalize(report)
+    account_id = str(zone.get("account_id") or "").strip()
+    zone_id = str(zone.get("zone_id") or "").strip()
+    report["zone_name"] = str(zone.get("zone_name") or "").strip()
+
+    tunnel = _cloudflare_lookup_named_tunnel(account_id, effective_tunnel_name, timeout_seconds=request_timeout)
+    if not bool(tunnel.get("ok")):
+        report.update(
+            {
+                "status": "repair_blocked",
+                "reason": str(tunnel.get("reason") or "cloudflare_tunnel_not_found").strip(),
+                "next_action": "inspect_mymedia_public_console_route",
+            }
+        )
+        return _finalize(report)
+    report["tunnel_domain"] = str(tunnel.get("tunnel_domain") or "").strip()
+
+    dns_step = _cloudflare_upsert_dns_record(
+        zone_id,
+        host_name=public_host,
+        target_name=str(tunnel.get("tunnel_domain") or "").strip(),
+        proxied=True,
+        timeout_seconds=request_timeout,
+    )
+    report["dns_changed"] = bool(dns_step.get("changed"))
+    report["dns_record_present"] = bool(dns_step.get("record_present"))
+    if not bool(dns_step.get("ok")):
+        report.update(
+            {
+                "status": "repair_failed",
+                "reason": str(dns_step.get("reason") or "cloudflare_dns_update_failed").strip(),
+                "next_action": "inspect_mymedia_public_console_route",
+            }
+        )
+        return _finalize(report)
+
+    tunnel_step = _cloudflare_upsert_tunnel_ingress(
+        account_id,
+        str(tunnel.get("tunnel_id") or "").strip(),
+        public_host=public_host,
+        service_url=effective_public_tunnel_origin,
+        timeout_seconds=request_timeout,
+    )
+    report["tunnel_changed"] = bool(tunnel_step.get("changed"))
+    report["tunnel_route_present"] = bool(tunnel_step.get("route_present"))
+    if not bool(tunnel_step.get("ok")):
+        report.update(
+            {
+                "status": "repair_failed",
+                "reason": str(tunnel_step.get("reason") or "cloudflare_tunnel_config_update_failed").strip(),
+                "next_action": "inspect_mymedia_public_console_route",
+            }
+        )
+        return _finalize(report)
+
+    token = _cloudflare_lookup_access_service_token(
+        account_id,
+        access_env_file=effective_access_env_file,
+        service_token_name=str(_env("EA_MYMEDIA_ALEXA_CF_SERVICE_TOKEN_NAME", "")).strip(),
+        timeout_seconds=request_timeout,
+    )
+    access_step = _cloudflare_upsert_access_app(
+        zone_id,
+        public_host=public_host,
+        access_app_name=effective_access_app_name,
+        access_emails_csv=effective_access_emails,
+        service_token_id=str(token.get("service_token_id") or "").strip(),
+        timeout_seconds=request_timeout,
+    )
+    report["access_app_changed"] = bool(access_step.get("changed"))
+    report["access_app_present"] = bool(access_step.get("app_present"))
+    report["access_app_skipped"] = bool(access_step.get("skipped"))
+    report["access_app_reason"] = str(access_step.get("reason") or "").strip()
+    if not bool(access_step.get("ok")):
+        report.update(
+            {
+                "status": "repair_failed",
+                "reason": str(access_step.get("reason") or "cloudflare_access_app_update_failed").strip(),
+                "next_action": "inspect_mymedia_public_console_access",
+            }
+        )
+        return _finalize(report)
+
+    firewall_step = _cloudflare_patch_private_host_block_exceptions(
+        zone_id,
+        public_host=public_host,
+        required_existing_hosts=exception_base_hosts,
+        timeout_seconds=request_timeout,
+    )
+    report["firewall_changed"] = bool(firewall_step.get("changed"))
+    report["firewall_patched_rule_count"] = int(firewall_step.get("patched_rule_count") or 0)
+    report["firewall_skipped"] = bool(firewall_step.get("skipped"))
+    if not bool(firewall_step.get("ok")):
+        report.update(
+            {
+                "status": "repair_failed",
+                "reason": str(firewall_step.get("reason") or "cloudflare_firewall_rule_patch_failed").strip(),
+                "next_action": "inspect_mymedia_public_console_access",
+            }
+        )
+        return _finalize(report)
+
+    if any(
+        bool(report.get(key))
+        for key in ("dns_changed", "tunnel_changed", "access_app_changed", "firewall_changed")
+    ):
+        time.sleep(2.0)
+
+    after = before
+    for _ in range(3):
+        after = _mymedia_public_surface_probe(
+            effective_public_web_base_url,
+            timeout_seconds=min(request_timeout, 15.0),
+        )
+        if bool(after.get("ready")):
+            break
+        time.sleep(1.0)
+    report["after_public_surface"] = after
+    report["ready"] = bool(after.get("ready"))
+    report["next_action"] = str(after.get("next_action") or "").strip()
+    report["next_action_href"] = str(after.get("next_action_href") or "").strip()
+    report["next_action_label"] = str(after.get("next_action_label") or "").strip()
+    report["next_action_method"] = str(after.get("next_action_method") or "").strip()
+
+    changed = any(
+        bool(report.get(key))
+        for key in ("dns_changed", "tunnel_changed", "access_app_changed", "firewall_changed")
+    )
+    if bool(after.get("ready")):
+        report["status"] = "repaired" if changed else "ready"
+        report["reason"] = ""
+        report["next_action"] = ""
+        report["next_action_href"] = ""
+        report["next_action_label"] = ""
+        report["next_action_method"] = ""
+    else:
+        report["status"] = "repair_incomplete" if changed else "no_change"
+        report["reason"] = str(after.get("reason") or before.get("reason") or "mymedia_public_console_not_ready").strip()
+    return _finalize(report)
+
+
+def _mymedia_pairing_capture_existing_resume_bundle(output_dir: str = "", *, now: datetime | None = None) -> dict[str, object]:
+    session_status = _mymedia_pairing_session_status(output_dir, now=now)
+    state_path = _mymedia_pairing_state_path(output_dir)
+    session_path = _mymedia_pairing_session_path(output_dir)
+    screenshot_path = _mymedia_pairing_screenshot_path(output_dir)
+    if not bool(session_status.get("resume_ready")):
+        return dict(session_status)
+    snapshot = dict(session_status)
+    snapshot["state_bytes"] = state_path.read_bytes() if state_path.exists() else b""
+    snapshot["session_bytes"] = session_path.read_bytes() if session_path.exists() else b""
+    snapshot["screenshot_bytes"] = screenshot_path.read_bytes() if screenshot_path.exists() else b""
+    return snapshot
+
+
+def _mymedia_pairing_restore_resume_bundle(bundle: Mapping[str, object], output_dir: str = "") -> bool:
+    if not bool(bundle.get("resume_ready")):
+        return False
+    state_bytes = bundle.get("state_bytes")
+    session_bytes = bundle.get("session_bytes")
+    if not isinstance(state_bytes, (bytes, bytearray)) or not isinstance(session_bytes, (bytes, bytearray)):
+        return False
+    root = _mymedia_pairing_root(output_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    state_path = _mymedia_pairing_state_path(output_dir)
+    session_path = _mymedia_pairing_session_path(output_dir)
+    state_path.write_bytes(bytes(state_bytes))
+    session_path.write_bytes(bytes(session_bytes))
+    state_path.chmod(0o600)
+    session_path.chmod(0o600)
+    screenshot_bytes = bundle.get("screenshot_bytes")
+    screenshot_path = _mymedia_pairing_screenshot_path(output_dir)
+    if isinstance(screenshot_bytes, (bytes, bytearray)) and screenshot_bytes:
+        screenshot_path.write_bytes(bytes(screenshot_bytes))
+        screenshot_path.chmod(0o600)
+    return True
+
+
+def _mymedia_setup_url(*, web_base_url: str, setup_url: str = "") -> str:
+    explicit = str(setup_url or "").strip()
+    if explicit:
+        return explicit
+    normalized_base = str(web_base_url or "").rstrip("/")
+    return f"{normalized_base}{DEFAULT_MYMEDIA_ALEXA_SETUP_PATH}" if normalized_base else DEFAULT_MYMEDIA_ALEXA_SETUP_PATH
+
+
+def _mymedia_pairing_surface_kind(url: str, body_text: str) -> dict[str, object]:
+    normalized_text = " ".join(str(body_text or "").split()).strip().lower()
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    host = str(parsed.hostname or "").strip().lower()
+    path = str(parsed.path or "").strip()
+    local_console_host = host in {"", "127.0.0.1", "localhost", "::1", "0.0.0.0"}
+    invalid_code = any(
+        marker in normalized_text
+        for marker in (
+            "code is not valid",
+            "code you entered is not valid",
+            "invalid code",
+            "incorrect code",
+            "incorrect otp",
+            "expired code",
+            "one time password (otp) you entered is not valid",
+        )
+    )
+    if local_console_host and "welcome to my media for alexa" in normalized_text and "pair your server" in normalized_text:
+        kind = "setup_intro"
+    elif host.endswith("amazon.com") and (
+        ("sign in" in normalized_text and "enter mobile number or email" in normalized_text)
+        or "enter email or mobile phone number" in normalized_text
+        or (
+            "password" in normalized_text
+            and (
+                "forgot password" in normalized_text
+                or "sign in with a passkey" in normalized_text
+                or "passkey" in normalized_text
+            )
+        )
+    ):
+        kind = "amazon_signin"
+    elif host.endswith("amazon.com") and (
+        "choose where you'd like to receive or generate the code" in normalized_text
+        or "choose where you would like to receive or generate the code" in normalized_text
+        or "wähle aus, wo du den code erhalten oder generieren möchtest" in normalized_text
+        or "otp senden" in normalized_text
+        or "send otp" in normalized_text
+    ):
+        kind = "mfa_route_selection"
+    elif host.endswith("amazon.com") and (
+        "code eingeben" in normalized_text
+        or "enter code" in normalized_text
+        or "security code" in normalized_text
+        or "verification code" in normalized_text
+        or "look on whatsapp for a message" in normalized_text
+        or "schau auf whatsapp" in normalized_text
+        or "two-step verification" in normalized_text
+        or "zwei-schritt-verifizierung" in normalized_text
+    ):
+        kind = "waiting_for_code"
+    elif host.endswith("amazon.com") and (
+        "/ap/oa" in path.lower()
+        or "authorize" in normalized_text
+        or "authorise" in normalized_text
+        or "allow access" in normalized_text
+        or "share your name and email address" in normalized_text
+        or "login with amazon" in normalized_text
+    ):
+        kind = "consent_required"
+    elif local_console_host and "my media for alexa" in normalized_text and "settings" in normalized_text and "messages" in normalized_text:
+        kind = "local_console"
+    else:
+        kind = "unknown"
+    return {
+        "kind": kind,
+        "invalid_code": invalid_code,
+        "current_host": host,
+        "current_path": path,
+        "current_url_sha256": _hash_text(url),
+    }
+
+
+def _mymedia_pairing_route_matches(text: str, *, otp_channel: str, phone_suffix: str) -> bool:
+    normalized = " ".join(str(text or "").split()).strip().lower()
+    digits = _digits(normalized)
+    suffix = _digits(phone_suffix)
+    channel = str(otp_channel or "").strip().lower()
+    if suffix and suffix not in digits:
+        return False
+    if channel == "sms":
+        return "sms" in normalized or "text message" in normalized or "text me" in normalized
+    if channel == "call":
+        return "call" in normalized or "phone call" in normalized or "anrufen" in normalized
+    return "whatsapp" in normalized
+
+
+def _mymedia_pairing_route_request_issue(
+    text: str,
+    *,
+    otp_channel: str,
+    phone_suffix: str,
+) -> dict[str, object] | None:
+    normalized = " ".join(str(text or "").split()).strip().lower()
+    suffix = _digits(phone_suffix)
+    channel = str(otp_channel or "").strip().lower()
+    if (
+        "please wait at least one minute before requesting another code" in normalized
+        or "bitte warte mindestens eine minute bevor du einen weiteren code anforderst" in normalized
+    ):
+        return {
+            "status": "blocked_pairing_code_request_cooldown",
+            "reason": "mymedia_pairing_code_request_cooldown",
+            "next_action": "wait_before_retrying_mymedia_pairing_code",
+            "blockers": ["mfa_code_request_cooldown"],
+        }
+    if channel == "sms" and (
+        "unable to send an sms" in normalized or "keine sms" in normalized or "wir können derzeit keine sms" in normalized
+    ):
+        return {
+            "status": "blocked_pairing_route_unavailable",
+            "reason": "mymedia_pairing_route_unavailable",
+            "next_action": "switch_mymedia_pairing_route",
+            "blockers": ["mfa_route_unavailable"],
+            "failed_route": _mymedia_pairing_route_label(otp_channel=channel, phone_suffix=suffix),
+        }
+    return None
+
+
+def _mymedia_pairing_route_label(*, otp_channel: str, phone_suffix: str) -> str:
+    normalized_channel = str(otp_channel or "").strip().lower() or "whatsapp"
+    suffix = _digits(phone_suffix)
+    if suffix:
+        return f"{normalized_channel}:*{suffix}"
+    return normalized_channel
+
+
+def _operator_text_for_mymedia_pairing(report: Mapping[str, object]) -> str:
+    pieces = [
+        f"mymedia_pairing status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+    ]
+    if report.get("reason"):
+        pieces.append(f"reason={report['reason']}")
+    if report.get("next_action"):
+        pieces.append(f"next={report['next_action']}")
+    if report.get("surface_kind"):
+        pieces.append(f"surface={report['surface_kind']}")
+    if report.get("site"):
+        pieces.append(f"site={report['site']}")
+    if report.get("otp_channel"):
+        pieces.append(f"otp_channel={report['otp_channel']}")
+    if report.get("phone_suffix"):
+        pieces.append(f"phone_suffix=*{report['phone_suffix']}")
+    if report.get("attempt_status"):
+        pieces.append(f"attempt={report['attempt_status']}")
+    if report.get("attempt_failed_route"):
+        pieces.append(f"attempted_route={report['attempt_failed_route']}")
+    if report.get("previous_actionable_handoff_preserved") is not None:
+        pieces.append(
+            f"previous_handoff_preserved={str(bool(report.get('previous_actionable_handoff_preserved'))).lower()}"
+        )
+    pieces.append(f"code_entry_ready={str(bool(report.get('code_entry_ready'))).lower()}")
+    pieces.append(f"state_written={str(bool(report.get('state_written'))).lower()}")
+    if report.get("telegram_sent") is not None:
+        pieces.append(f"telegram_sent={str(bool(report.get('telegram_sent'))).lower()}")
+    if report.get("observed_at"):
+        pieces.append(f"observed_at={report['observed_at']}")
+    if report.get("source"):
+        pieces.append(f"source={report['source']}")
+    return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def _mymedia_pairing_waiting_telegram_text(report: Mapping[str, object]) -> str:
+    lines = [
+        "My Media for Alexa pairing is waiting for an Amazon security code.",
+        f"otp_channel={str(report.get('otp_channel') or '').strip() or 'unknown'}",
+        f"phone_suffix=*{str(report.get('phone_suffix') or '').strip() or 'unknown'}",
+        "action=Reply in Codex with the current 6-digit code to finish My Media pairing.",
+    ]
+    return "\n".join(line for line in lines if str(line).strip()).strip()
+
+
+def _mymedia_pairing_action_required_telegram_text(report: Mapping[str, object]) -> str:
+    surface_kind = str(report.get("surface_kind") or "").strip()
+    next_action = str(report.get("next_action") or "").strip()
+    if surface_kind == "consent_required" or next_action == "approve_mymedia_amazon_consent":
+        lines = [
+            "My Media for Alexa pairing is waiting for Amazon consent.",
+            f"site={str(report.get('site') or '').strip() or 'unknown'}",
+            "action=Return to Codex and approve the pending Amazon consent step to finish My Media pairing.",
+        ]
+        return "\n".join(line for line in lines if str(line).strip()).strip()
+    return _mymedia_pairing_waiting_telegram_text(report)
+
+
+def _mymedia_pairing_with_telegram_delivery(
+    report: Mapping[str, object],
+    *,
+    principal_id: str,
+    timeout_seconds: float,
+    dry_run: bool = False,
+    telegram_operator_streams: tuple[str, ...] | str | None = None,
+) -> dict[str, object]:
+    updated = dict(report)
+    updated.setdefault("telegram_delivery", {})
+    operator_stream = OPERATOR_STREAM_MEDIA_MEMORIAL
+    allowed_operator_streams = _effective_telegram_operator_streams(telegram_operator_streams)
+    updated["operator_stream"] = operator_stream
+    updated["allowed_operator_streams"] = list(allowed_operator_streams)
+    if not str(principal_id or "").strip():
+        return updated
+    if str(updated.get("status") or "").strip() not in {"waiting_for_code", "consent_required"}:
+        return updated
+    if not _telegram_operator_stream_allowed(operator_stream, allowed_operator_streams=allowed_operator_streams):
+        telegram = _suppressed_telegram_delivery(
+            principal_id=str(principal_id or "").strip(),
+            operator_stream=operator_stream,
+            allowed_operator_streams=allowed_operator_streams,
+            observed_at=str(updated.get("observed_at") or _utc_now()).strip() or _utc_now(),
+            source="scripts.ea_live_ops.mymedia_pairing",
+        )
+    else:
+        telegram = send_telegram(
+            principal_id=str(principal_id or "").strip(),
+            text=_mymedia_pairing_action_required_telegram_text(updated),
+            dry_run=bool(dry_run),
+            timeout_seconds=min(max(float(timeout_seconds or 45.0), 1.0), 30.0),
+        )
+    updated.update(
+        {
+            "telegram_sent": bool(telegram.get("sent")),
+            "telegram_reason": str(telegram.get("reason") or "").strip(),
+            "telegram_principal_id": str(telegram.get("principal_id") or principal_id or "").strip(),
+            "telegram_message_count": int(telegram.get("message_count") or 0),
+            "telegram_chat_ref_present": bool(telegram.get("chat_ref_present")),
+            "telegram_chat_ref_sha256": str(telegram.get("chat_ref_sha256") or "").strip(),
+        }
+    )
+    updated["telegram_delivery"] = telegram
+    return updated
+
+
+def _mymedia_pairing_fill_first_visible(page: Any, selectors: tuple[str, ...], value: str) -> str:
+    for selector in selectors:
+        locator = page.locator(selector).first
+        try:
+            if locator.is_visible(timeout=1000):
+                locator.fill(value)
+                return selector
+        except Exception:
+            continue
+    return ""
+
+
+def _mymedia_pairing_wait_for_visible_selector(page: Any, selectors: tuple[str, ...], *, timeout_seconds: float) -> str:
+    deadline = time.monotonic() + max(float(timeout_seconds or 10.0), 1.0)
+    while time.monotonic() <= deadline:
+        for selector in selectors:
+            locator = page.locator(selector).first
+            try:
+                if locator.is_visible(timeout=500):
+                    return selector
+            except Exception:
+                continue
+        try:
+            page.wait_for_timeout(500)
+        except Exception:
+            time.sleep(0.5)
+    return ""
+
+
+def _mymedia_pairing_click_submit(page: Any, patterns: tuple[str, ...]) -> str:
+    for pattern in patterns:
+        try:
+            locator = page.get_by_role("button", name=re.compile(pattern, re.I)).first
+            if locator.count() and locator.is_enabled():
+                locator.click()
+                return pattern
+        except Exception:
+            continue
+    for selector in ("input[type='submit']", "button[type='submit']"):
+        locator = page.locator(selector).first
+        try:
+            if locator.count() and locator.is_enabled():
+                locator.click(force=True)
+                return selector
+        except Exception:
+            continue
+    return ""
+
+
+def _mymedia_pairing_wait_for_surface(page: Any, *, timeout_seconds: float) -> tuple[dict[str, object], str]:
+    deadline = time.monotonic() + max(float(timeout_seconds or 45.0), 1.0)
+    last_text = ""
+    last_surface = _mymedia_pairing_surface_kind(page.url, last_text)
+    while time.monotonic() <= deadline:
+        try:
+            last_text = (page.locator("body").inner_text() or "")[:8000]
+        except Exception:
+            last_text = ""
+        last_surface = _mymedia_pairing_surface_kind(page.url, last_text)
+        if str(last_surface.get("kind") or "") != "unknown":
+            return last_surface, last_text
+        page.wait_for_timeout(1000)
+    return last_surface, last_text
+
+
+def _mymedia_pairing_capture_runtime_state(
+    *,
+    context: Any,
+    page: Any,
+    otp_channel: str,
+    phone_suffix: str,
+    surface: Mapping[str, object],
+    body_text: str,
+    output_dir: str,
+) -> dict[str, object]:
+    state_path = _mymedia_pairing_state_path(output_dir)
+    session_path = _mymedia_pairing_session_path(output_dir)
+    screenshot_path = _mymedia_pairing_screenshot_path(output_dir)
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        context.storage_state(path=str(state_path))
+        state_path.chmod(0o600)
+        state_written = True
+    except Exception:
+        state_written = False
+    try:
+        page.screenshot(path=str(screenshot_path), full_page=True)
+        screenshot_path.chmod(0o600)
+        screenshot_written = True
+    except Exception:
+        screenshot_written = False
+    session_payload = {
+        "resume_url": str(page.url or "").strip(),
+        "otp_channel": str(otp_channel or "").strip().lower(),
+        "phone_suffix": _digits(phone_suffix),
+        "surface_kind": str(surface.get("kind") or "").strip(),
+        "site": str(surface.get("current_host") or "").strip(),
+        "current_path": str(surface.get("current_path") or "").strip(),
+        "current_url_sha256": str(surface.get("current_url_sha256") or "").strip(),
+        "body_text_sha256": _hash_text(body_text),
+        "captured_at": _utc_now(),
+    }
+    _write_private_json(session_path, session_payload)
+    return {
+        "state_path": str(state_path),
+        "session_path": str(session_path),
+        "screenshot_path": str(screenshot_path) if screenshot_written else "",
+        "state_written": state_written,
+        "session_written": True,
+        "screenshot_written": screenshot_written,
+    }
+
+
+def _mymedia_pairing_load_session(output_dir: str) -> dict[str, object]:
+    return _read_json_file(_mymedia_pairing_session_path(output_dir))
+
+
+def _mymedia_pairing_session_age_seconds(captured_at: object, *, now: datetime | None = None) -> int | None:
+    raw = str(captured_at or "").strip()
+    if not raw:
+        return None
+    normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    current = now or datetime.now(UTC)
+    return max(0, int((current - parsed.astimezone(UTC)).total_seconds()))
+
+
+def _parse_utc_datetime(value: object) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _utc_age_seconds(value: object, *, now: datetime | None = None) -> int | None:
+    parsed = _parse_utc_datetime(value)
+    if parsed is None:
+        return None
+    current = now or datetime.now(UTC)
+    return max(0, int((current - parsed).total_seconds()))
+
+
+def _mymedia_pairing_session_status(output_dir: str = "", *, now: datetime | None = None) -> dict[str, object]:
+    session = _mymedia_pairing_load_session(output_dir)
+    state_path = _mymedia_pairing_state_path(output_dir)
+    session_path = _mymedia_pairing_session_path(output_dir)
+    surface_kind = str(session.get("surface_kind") or "").strip()
+    otp_channel = str(session.get("otp_channel") or "").strip().lower()
+    phone_suffix = _digits(session.get("phone_suffix") or "")
+    resume_url_present = bool(str(session.get("resume_url") or "").strip())
+    age_seconds = _mymedia_pairing_session_age_seconds(session.get("captured_at"), now=now)
+    try:
+        max_age_seconds = max(
+            int(
+                float(
+                    _env(
+                        "EA_MYMEDIA_ALEXA_PAIRING_SESSION_MAX_AGE_SECONDS",
+                        str(DEFAULT_MYMEDIA_ALEXA_PAIRING_SESSION_MAX_AGE_SECONDS),
+                    )
+                    or DEFAULT_MYMEDIA_ALEXA_PAIRING_SESSION_MAX_AGE_SECONDS
+                )
+            ),
+            1,
+        )
+    except (TypeError, ValueError):
+        max_age_seconds = int(DEFAULT_MYMEDIA_ALEXA_PAIRING_SESSION_MAX_AGE_SECONDS)
+    pending_surface = surface_kind in {"waiting_for_code", "consent_required"}
+    session_fresh = age_seconds is not None and age_seconds <= max_age_seconds
+    session_stale = bool(pending_surface and age_seconds is not None and age_seconds > max_age_seconds)
+    state_present = state_path.exists()
+    session_present = session_path.exists()
+    resume_ready = bool(resume_url_present and state_present and session_present and pending_surface and session_fresh)
+    return {
+        "session_present": session_present,
+        "state_present": state_present,
+        "resume_url_present": resume_url_present,
+        "pending_surface": pending_surface,
+        "resume_ready": resume_ready,
+        "stale": session_stale,
+        "surface_kind": surface_kind,
+        "otp_channel": otp_channel,
+        "phone_suffix": phone_suffix,
+        "age_seconds": age_seconds,
+        "max_age_seconds": max_age_seconds,
+        "captured_at": str(session.get("captured_at") or "").strip(),
+        "site": str(session.get("site") or "").strip(),
+        "current_path": str(session.get("current_path") or "").strip(),
+    }
+
+
+def _mymedia_pairing_saved_session_report(
+    *,
+    web_base_url: str,
+    observed_at: str,
+    output_dir: str = "",
+    now: datetime | None = None,
+) -> dict[str, object]:
+    session = _mymedia_pairing_load_session(output_dir)
+    session_status = _mymedia_pairing_session_status(output_dir, now=now)
+    surface_kind = str(session_status.get("surface_kind") or "").strip()
+    waiting_for_code = surface_kind == "waiting_for_code"
+    next_action = "approve_mymedia_amazon_consent" if surface_kind == "consent_required" else "enter_mymedia_amazon_pairing_code"
+    next_action_href, next_action_label, next_action_method = _mymedia_action_surface(
+        base_url=web_base_url,
+        next_action=next_action,
+    )
+    return {
+        "probe_ok": True,
+        "ready": False,
+        "status": "consent_required" if surface_kind == "consent_required" else "waiting_for_code",
+        "reason": "amazon_oauth_consent_pending" if surface_kind == "consent_required" else "mfa_code_requested",
+        "next_action": next_action,
+        "next_action_href": next_action_href,
+        "next_action_label": next_action_label,
+        "next_action_method": next_action_method,
+        "surface_kind": surface_kind,
+        "site": str(session_status.get("site") or session.get("site") or "").strip(),
+        "current_path": str(session_status.get("current_path") or session.get("current_path") or "").strip(),
+        "otp_channel": str(session_status.get("otp_channel") or "").strip(),
+        "phone_suffix": str(session_status.get("phone_suffix") or "").strip(),
+        "code_entry_ready": waiting_for_code,
+        "state_written": bool(session_status.get("state_present")),
+        "session_written": bool(session_status.get("session_present")),
+        "pairing_resume_ready": bool(session_status.get("resume_ready")),
+        "pairing_session_pending": bool(session_status.get("pending_surface")),
+        "pairing_session_stale": bool(session_status.get("stale")),
+        "pairing_session_age_seconds": session_status.get("age_seconds"),
+        "pairing_session_max_age_seconds": session_status.get("max_age_seconds"),
+        "pairing_session_captured_at": str(session_status.get("captured_at") or "").strip(),
+        "notification_policy": "action_required_only",
+        "work_type": "handoff",
+        "stop_condition": "human_challenge_required",
+        "blockers": ["mfa_code_required"] if waiting_for_code else [],
+        "observed_at": observed_at,
+        "source": "mymedia_setup.saved_session",
+        "privacy": {
+            "raw_credentials_exposed": False,
+            "raw_amazon_url_exposed": False,
+        },
+    }
+
+
+def _mymedia_pairing_preserve_previous_actionable_handoff(
+    report: Mapping[str, object],
+    *,
+    previous_bundle: Mapping[str, object] | None,
+    web_base_url: str,
+    observed_at: str,
+    output_dir: str = "",
+    now: datetime | None = None,
+) -> dict[str, object]:
+    current = dict(report)
+    bundle = dict(previous_bundle or {})
+    degraded_status = str(current.get("status") or "").strip()
+    if degraded_status not in {
+        "blocked_pairing_route_unavailable",
+        "blocked_pairing_code_request_cooldown",
+        "blocked_pairing_surface_unknown",
+    }:
+        return current
+    if not bool(bundle.get("resume_ready")):
+        return current
+    if not _mymedia_pairing_restore_resume_bundle(bundle, output_dir):
+        return current
+    restored_status = _mymedia_pairing_session_status(output_dir, now=now)
+    if not bool(restored_status.get("resume_ready")):
+        return current
+    preserved = _mymedia_pairing_saved_session_report(
+        web_base_url=web_base_url,
+        observed_at=observed_at,
+        output_dir=output_dir,
+        now=now,
+    )
+    preserved.update(
+        {
+            "source": "mymedia_setup.saved_session_preserved",
+            "previous_actionable_handoff_preserved": True,
+            "attempt_status": degraded_status,
+            "attempt_reason": str(current.get("reason") or "").strip(),
+            "attempt_surface_kind": str(current.get("surface_kind") or "").strip(),
+            "attempt_failed_route": str(current.get("failed_route") or current.get("selected_route") or "").strip(),
+        }
+    )
+    return preserved
+
+
+def _mymedia_pairing_approve_consent_if_present(page: Any) -> bool:
+    surface, body_text = _mymedia_pairing_wait_for_surface(page, timeout_seconds=5.0)
+    if str(surface.get("kind") or "") != "consent_required":
+        return False
+    text = " ".join(str(body_text or "").split()).strip().lower()
+    if "allow" not in text and "authorize" not in text and "authorise" not in text:
+        return False
+    clicked = _mymedia_pairing_click_submit(page, ("allow", "authorize", "authorise", "continue", "approve"))
+    return bool(clicked)
+
+
+def trigger_mymedia_amazon_pairing(
+    *,
+    web_base_url: str = "",
+    setup_url: str = "",
+    otp_channel: str = "",
+    phone_suffix: str = "",
+    send_telegram_to_principal: str = "",
+    dry_run: bool = False,
+    timeout_seconds: float = 45.0,
+    output_format: str = "json",
+    output_dir: str = "",
+    telegram_operator_streams: tuple[str, ...] | str | None = None,
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    observed_now = _parse_utc_datetime(observed_at)
+    effective_web_base_url = str(
+        web_base_url or _env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL)
+    ).strip() or DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL
+    effective_setup_url = _mymedia_setup_url(web_base_url=effective_web_base_url, setup_url=setup_url)
+    effective_otp_channel = (
+        str(
+            otp_channel
+            or _mymedia_runtime_default_value(
+                env_names=("EA_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL", "AMAZON_OTP_CHANNEL"),
+                payload_keys=("amazon_otp_channel",),
+                default=DEFAULT_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL,
+            )
+            or DEFAULT_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL
+        )
+        .strip()
+        .lower()
+        or DEFAULT_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL
+    )
+    effective_phone_suffix = _digits(
+        phone_suffix
+        or _mymedia_runtime_default_value(
+            env_names=("EA_MYMEDIA_ALEXA_AMAZON_PHONE_SUFFIX", "AMAZON_OTP_SUFFIX"),
+            payload_keys=("amazon_phone_suffix",),
+            default=DEFAULT_MYMEDIA_ALEXA_AMAZON_PHONE_SUFFIX,
+        )
+        or DEFAULT_MYMEDIA_ALEXA_AMAZON_PHONE_SUFFIX
+    )
+    previous_bundle = _mymedia_pairing_capture_existing_resume_bundle(output_dir, now=observed_now)
+    login_email = _env("AMAZON_ACCOUNT_EMAIL")
+    login_password = BrowserActToolAdapter._amazon_login_password()
+
+    pre_probe = probe_mymedia_alexa(
+        container_name=_env("EA_MYMEDIA_ALEXA_CONTAINER", DEFAULT_MYMEDIA_ALEXA_CONTAINER),
+        web_base_url=effective_web_base_url,
+        timeout_seconds=min(max(float(timeout_seconds or 45.0), 1.0), 15.0),
+        output_format="json",
+    )
+    if bool(pre_probe.get("pairing_ready")):
+        report = {
+            "probe_ok": True,
+            "ready": True,
+            "status": "already_paired",
+            "reason": "",
+            "next_action": str(pre_probe.get("next_action") or "").strip(),
+            "surface_kind": "local_console",
+            "site": _url_scope(effective_web_base_url),
+            "otp_channel": effective_otp_channel,
+            "phone_suffix": effective_phone_suffix,
+            "code_entry_ready": False,
+            "state_written": False,
+            "observed_at": observed_at,
+            "source": "mymedia_setup.playwright",
+            "mymedia_probe_status": str(pre_probe.get("status") or "").strip(),
+            "privacy": {
+                "raw_credentials_exposed": False,
+                "raw_amazon_url_exposed": False,
+            },
+        }
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+        return report
+    if dry_run:
+        report = {
+            "probe_ok": True,
+            "ready": False,
+            "status": "dry_run",
+            "reason": "",
+            "next_action": "request_mymedia_pairing_code",
+            "surface_kind": "dry_run",
+            "site": urllib.parse.urlparse(effective_setup_url).hostname or "localhost",
+            "otp_channel": effective_otp_channel,
+            "phone_suffix": effective_phone_suffix,
+            "code_entry_ready": False,
+            "state_written": False,
+            "observed_at": observed_at,
+            "source": "mymedia_setup.playwright",
+            "privacy": {
+                "raw_credentials_exposed": False,
+                "raw_amazon_url_exposed": False,
+            },
+        }
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+        return report
+    if not login_email or not login_password:
+        report = {
+            "probe_ok": False,
+            "ready": False,
+            "status": "blocked_credentials_missing",
+            "reason": "amazon_credentials_missing",
+            "next_action": "configure_amazon_credentials",
+            "surface_kind": "",
+            "site": urllib.parse.urlparse(effective_setup_url).hostname or "localhost",
+            "otp_channel": effective_otp_channel,
+            "phone_suffix": effective_phone_suffix,
+            "code_entry_ready": False,
+            "state_written": False,
+            "observed_at": observed_at,
+            "source": "mymedia_setup.playwright",
+            "privacy": {
+                "raw_credentials_exposed": False,
+                "raw_amazon_url_exposed": False,
+            },
+        }
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+        return report
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception:
+        report = {
+            "probe_ok": False,
+            "ready": False,
+            "status": "blocked_browser_runtime_unavailable",
+            "reason": "browser_runtime_unavailable",
+            "next_action": "install_playwright_runtime",
+            "surface_kind": "",
+            "site": urllib.parse.urlparse(effective_setup_url).hostname or "localhost",
+            "otp_channel": effective_otp_channel,
+            "phone_suffix": effective_phone_suffix,
+            "code_entry_ready": False,
+            "state_written": False,
+            "observed_at": observed_at,
+            "source": "mymedia_setup.playwright",
+            "privacy": {
+                "raw_credentials_exposed": False,
+                "raw_amazon_url_exposed": False,
+            },
+        }
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+        return report
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
+        )
+        context = browser.new_context(viewport={"width": 1440, "height": 1200}, locale="en-US")
+        page = context.new_page()
+        page.set_default_timeout(int(max(float(timeout_seconds or 45.0), 1.0) * 1000))
+        try:
+            page.goto(effective_setup_url, wait_until="domcontentloaded")
+            page.wait_for_timeout(2000)
+            surface, body_text = _mymedia_pairing_wait_for_surface(page, timeout_seconds=min(timeout_seconds, 15.0))
+            if str(surface.get("kind") or "") == "setup_intro":
+                checkbox = page.locator("input[type='checkbox']").first
+                if checkbox.count():
+                    checkbox.check(force=True)
+                next_clicked = _mymedia_pairing_click_submit(page, ("next",))
+                if not next_clicked:
+                    raise RuntimeError("mymedia_setup_next_unavailable")
+                page.wait_for_load_state("domcontentloaded")
+                page.wait_for_timeout(2000)
+                surface, body_text = _mymedia_pairing_wait_for_surface(page, timeout_seconds=min(timeout_seconds, 20.0))
+            if str(surface.get("kind") or "") == "amazon_signin":
+                email_selector = _mymedia_pairing_fill_first_visible(
+                    page,
+                    ("input[name='email']", "input#ap_email", "input[type='email']", "input[type='text']"),
+                    login_email,
+                )
+                if not email_selector:
+                    raise RuntimeError("mymedia_amazon_email_input_missing")
+                clicked = _mymedia_pairing_click_submit(page, ("continue",))
+                if not clicked:
+                    raise RuntimeError("mymedia_amazon_continue_unavailable")
+                try:
+                    page.wait_for_load_state("domcontentloaded")
+                except Exception:
+                    pass
+                page.wait_for_timeout(1000)
+                password_selectors = ("input[name='password']", "input#ap_password", "input[type='password']")
+                first_visible_password_selector = _mymedia_pairing_wait_for_visible_selector(
+                    page,
+                    password_selectors,
+                    timeout_seconds=min(timeout_seconds, 10.0),
+                )
+                ordered_password_selectors = (
+                    (first_visible_password_selector,) + tuple(
+                        selector for selector in password_selectors if selector != first_visible_password_selector
+                    )
+                    if first_visible_password_selector
+                    else password_selectors
+                )
+                password_selector = _mymedia_pairing_fill_first_visible(
+                    page,
+                    ordered_password_selectors,
+                    login_password,
+                )
+                if not password_selector:
+                    raise RuntimeError("mymedia_amazon_password_input_missing")
+                clicked = _mymedia_pairing_click_submit(page, ("sign in", "anmelden"))
+                if not clicked:
+                    raise RuntimeError("mymedia_amazon_signin_unavailable")
+                page.wait_for_load_state("domcontentloaded")
+                page.wait_for_timeout(2000)
+                surface, body_text = _mymedia_pairing_wait_for_surface(page, timeout_seconds=min(timeout_seconds, 20.0))
+            selected_route = ""
+            if str(surface.get("kind") or "") == "mfa_route_selection":
+                options = page.locator("input[type='radio']")
+                option_count = options.count()
+                for index in range(option_count):
+                    option = options.nth(index)
+                    option_id = str(option.get_attribute("id") or "").strip()
+                    option_text = ""
+                    if option_id:
+                        try:
+                            option_text = str(page.locator(f"label[for='{option_id}']").inner_text() or "").strip()
+                        except Exception:
+                            option_text = ""
+                    if not option_text:
+                        try:
+                            option_text = str(
+                                option.locator("xpath=ancestor::*[self::div or self::li or self::fieldset][1]").inner_text() or ""
+                            ).strip()
+                        except Exception:
+                            option_text = ""
+                    if not _mymedia_pairing_route_matches(
+                        option_text,
+                        otp_channel=effective_otp_channel,
+                        phone_suffix=effective_phone_suffix,
+                    ):
+                        continue
+                    option.check(force=True)
+                    selected_route = _mymedia_pairing_route_label(
+                        otp_channel=effective_otp_channel,
+                        phone_suffix=effective_phone_suffix,
+                    )
+                    break
+                if not selected_route:
+                    raise RuntimeError("mymedia_pairing_route_not_found")
+                clicked = _mymedia_pairing_click_submit(page, ("otp senden", "send otp", "send code", "continue"))
+                if not clicked:
+                    raise RuntimeError("mymedia_pairing_otp_send_unavailable")
+                page.wait_for_load_state("domcontentloaded")
+                page.wait_for_timeout(2000)
+                surface, body_text = _mymedia_pairing_wait_for_surface(page, timeout_seconds=min(timeout_seconds, 20.0))
+            capture = _mymedia_pairing_capture_runtime_state(
+                context=context,
+                page=page,
+                otp_channel=effective_otp_channel,
+                phone_suffix=effective_phone_suffix,
+                surface=surface,
+                body_text=body_text,
+                output_dir=output_dir,
+            )
+            report = {
+                "probe_ok": False,
+                "ready": False,
+                "status": "blocked_pairing_surface_unknown",
+                "reason": "mymedia_pairing_surface_unknown",
+                "next_action": "inspect_mymedia_pairing_surface",
+                "surface_kind": str(surface.get("kind") or "").strip(),
+                "site": str(surface.get("current_host") or "").strip(),
+                "current_path": str(surface.get("current_path") or "").strip(),
+                "current_url_sha256": str(surface.get("current_url_sha256") or "").strip(),
+                "otp_channel": effective_otp_channel,
+                "phone_suffix": effective_phone_suffix,
+                "selected_route": selected_route,
+                "code_entry_ready": False,
+                "state_written": bool(capture.get("state_written")),
+                "session_written": bool(capture.get("session_written")),
+                "screenshot_written": bool(capture.get("screenshot_written")),
+                "state_path": str(capture.get("state_path") or ""),
+                "session_path": str(capture.get("session_path") or ""),
+                "screenshot_path": str(capture.get("screenshot_path") or ""),
+                "notification_policy": "action_required_only",
+                "work_type": "handoff",
+                "stop_condition": "human_challenge_required",
+                "blockers": ["mfa_code_required"],
+                "privacy": {
+                    "raw_credentials_exposed": False,
+                    "raw_amazon_url_exposed": False,
+                },
+                "observed_at": observed_at,
+                "source": "mymedia_setup.playwright",
+            }
+            surface_kind = str(surface.get("kind") or "").strip()
+            if surface_kind == "waiting_for_code":
+                report.update(
+                    {
+                        "probe_ok": True,
+                        "status": "waiting_for_code",
+                        "reason": "mfa_code_requested",
+                        "next_action": "enter_mymedia_amazon_pairing_code",
+                        "code_entry_ready": True,
+                        "stop_condition": "mfa_required",
+                    }
+                )
+            elif surface_kind == "consent_required":
+                report.update(
+                    {
+                        "probe_ok": True,
+                        "status": "consent_required",
+                        "reason": "amazon_oauth_consent_pending",
+                        "next_action": "approve_mymedia_amazon_consent",
+                        "code_entry_ready": False,
+                        "blockers": [],
+                    }
+                )
+            elif surface_kind == "local_console":
+                post_probe = probe_mymedia_alexa(
+                    container_name=_env("EA_MYMEDIA_ALEXA_CONTAINER", DEFAULT_MYMEDIA_ALEXA_CONTAINER),
+                    web_base_url=effective_web_base_url,
+                    timeout_seconds=min(max(float(timeout_seconds or 45.0), 1.0), 15.0),
+                    output_format="json",
+                )
+                report.update(
+                    {
+                        "probe_ok": bool(post_probe.get("pairing_ready")),
+                        "ready": bool(post_probe.get("pairing_ready")),
+                        "status": "paired" if bool(post_probe.get("pairing_ready")) else "local_console_without_pairing",
+                        "reason": "" if bool(post_probe.get("pairing_ready")) else "pairing_not_confirmed_after_login",
+                        "next_action": str(post_probe.get("next_action") or "").strip(),
+                        "code_entry_ready": False,
+                        "blockers": [],
+                        "mymedia_probe_status": str(post_probe.get("status") or "").strip(),
+                    }
+                )
+            elif surface_kind == "mfa_route_selection" and selected_route:
+                route_issue = _mymedia_pairing_route_request_issue(
+                    body_text,
+                    otp_channel=effective_otp_channel,
+                    phone_suffix=effective_phone_suffix,
+                )
+                if route_issue:
+                    report.update(route_issue)
+            report = _mymedia_pairing_preserve_previous_actionable_handoff(
+                report,
+                previous_bundle=previous_bundle,
+                web_base_url=effective_web_base_url,
+                observed_at=observed_at,
+                output_dir=output_dir,
+                now=observed_now,
+            )
+            report = _mymedia_pairing_with_telegram_delivery(
+                report,
+                principal_id=str(send_telegram_to_principal or "").strip(),
+                timeout_seconds=timeout_seconds,
+                telegram_operator_streams=telegram_operator_streams,
+            )
+            if output_format == "operator":
+                report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+            return report
+        finally:
+            browser.close()
+
+
+def send_mymedia_amazon_pairing_telegram(
+    *,
+    web_base_url: str = "",
+    otp_channel: str = "",
+    phone_suffix: str = "",
+    telegram_principal_id: str = "",
+    dry_run: bool = False,
+    timeout_seconds: float = 45.0,
+    output_format: str = "json",
+    output_dir: str = "",
+    telegram_operator_streams: tuple[str, ...] | str | None = None,
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    observed_now = _parse_utc_datetime(observed_at)
+    effective_web_base_url = str(
+        web_base_url or _env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL)
+    ).strip() or DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL
+    requested_otp_channel = str(otp_channel or "").strip().lower()
+    requested_phone_suffix = _digits(phone_suffix)
+    effective_otp_channel = (
+        str(
+            requested_otp_channel
+            or _mymedia_runtime_default_value(
+                env_names=("EA_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL", "AMAZON_OTP_CHANNEL"),
+                payload_keys=("amazon_otp_channel",),
+                default=DEFAULT_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL,
+            )
+            or DEFAULT_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL
+        )
+        .strip()
+        .lower()
+        or DEFAULT_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL
+    )
+    effective_phone_suffix = _digits(
+        requested_phone_suffix
+        or _mymedia_runtime_default_value(
+            env_names=("EA_MYMEDIA_ALEXA_AMAZON_PHONE_SUFFIX", "AMAZON_OTP_SUFFIX"),
+            payload_keys=("amazon_phone_suffix",),
+            default=DEFAULT_MYMEDIA_ALEXA_AMAZON_PHONE_SUFFIX,
+        )
+        or DEFAULT_MYMEDIA_ALEXA_AMAZON_PHONE_SUFFIX
+    )
+    effective_principal_id = str(telegram_principal_id or _default_proactive_principal_id() or "").strip()
+    pre_probe = probe_mymedia_alexa(
+        container_name=_env("EA_MYMEDIA_ALEXA_CONTAINER", DEFAULT_MYMEDIA_ALEXA_CONTAINER),
+        web_base_url=effective_web_base_url,
+        timeout_seconds=min(max(float(timeout_seconds or 45.0), 1.0), 15.0),
+        output_format="json",
+    )
+    if bool(pre_probe.get("pairing_ready")):
+        report = {
+            "probe_ok": True,
+            "ready": True,
+            "status": "already_paired",
+            "reason": "no_operator_action_required",
+            "next_action": str(pre_probe.get("next_action") or "").strip(),
+            "surface_kind": "local_console",
+            "site": _url_scope(effective_web_base_url),
+            "otp_channel": effective_otp_channel,
+            "phone_suffix": effective_phone_suffix,
+            "code_entry_ready": False,
+            "state_written": False,
+            "observed_at": observed_at,
+            "source": "mymedia_pairing.telegram",
+            "telegram_delivery": {
+                "sent": False,
+                "reason": "no_operator_action_required",
+                "principal_id": effective_principal_id,
+                "delivery_transport": "telegram_bot",
+                "observed_at": observed_at,
+                "source": "scripts.ea_live_ops.send_mymedia_amazon_pairing_telegram",
+            },
+            "privacy": {
+                "raw_credentials_exposed": False,
+                "raw_amazon_url_exposed": False,
+            },
+        }
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+        return report
+    if str(pre_probe.get("status") or "").strip() != "blocked_pairing_required":
+        report = {
+            "probe_ok": bool(pre_probe.get("probe_ok")),
+            "ready": False,
+            "status": str(pre_probe.get("status") or "blocked_pairing_unavailable").strip() or "blocked_pairing_unavailable",
+            "reason": str(pre_probe.get("reason") or "").strip() or "mymedia_pairing_not_actionable",
+            "next_action": str(pre_probe.get("next_action") or "").strip(),
+            "surface_kind": str(pre_probe.get("pairing_session_surface_kind") or "").strip(),
+            "site": str(pre_probe.get("web_base_url_scope") or _url_scope(effective_web_base_url)).strip(),
+            "otp_channel": effective_otp_channel,
+            "phone_suffix": effective_phone_suffix,
+            "code_entry_ready": False,
+            "state_written": False,
+            "observed_at": observed_at,
+            "source": "mymedia_pairing.telegram",
+            "telegram_delivery": {
+                "sent": False,
+                "reason": "no_actionable_pairing_state",
+                "principal_id": effective_principal_id,
+                "delivery_transport": "telegram_bot",
+                "observed_at": observed_at,
+                "source": "scripts.ea_live_ops.send_mymedia_amazon_pairing_telegram",
+            },
+            "privacy": {
+                "raw_credentials_exposed": False,
+                "raw_amazon_url_exposed": False,
+            },
+        }
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+        return report
+    pairing_session = _mymedia_pairing_session_status(output_dir, now=observed_now)
+    session_channel = str(pairing_session.get("otp_channel") or "").strip().lower()
+    session_suffix = _digits(pairing_session.get("phone_suffix") or "")
+    route_matches = (
+        (not requested_otp_channel or not session_channel or session_channel == requested_otp_channel)
+        and (not requested_phone_suffix or not session_suffix or session_suffix == requested_phone_suffix)
+    )
+    if bool(pairing_session.get("resume_ready")) and route_matches:
+        report = _mymedia_pairing_saved_session_report(
+            web_base_url=effective_web_base_url,
+            observed_at=observed_at,
+            output_dir=output_dir,
+            now=observed_now,
+        )
+        report = _mymedia_pairing_with_telegram_delivery(
+            report,
+            principal_id=effective_principal_id,
+            timeout_seconds=timeout_seconds,
+            dry_run=bool(dry_run),
+            telegram_operator_streams=telegram_operator_streams,
+        )
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+        return report
+    report = trigger_mymedia_amazon_pairing(
+        web_base_url=effective_web_base_url,
+        otp_channel=effective_otp_channel,
+        phone_suffix=effective_phone_suffix,
+        send_telegram_to_principal=("" if bool(dry_run) else effective_principal_id),
+        dry_run=bool(dry_run),
+        timeout_seconds=timeout_seconds,
+        output_format="json",
+        output_dir=output_dir,
+        telegram_operator_streams=telegram_operator_streams,
+    )
+    if bool(dry_run):
+        report = _mymedia_pairing_with_telegram_delivery(
+            report,
+            principal_id=effective_principal_id,
+            timeout_seconds=timeout_seconds,
+            dry_run=True,
+            telegram_operator_streams=telegram_operator_streams,
+        )
+    elif "telegram_delivery" not in report:
+        report["telegram_delivery"] = {}
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+    return report
+
+
+def submit_mymedia_amazon_pairing_code(
+    *,
+    otp_code: str,
+    web_base_url: str = "",
+    timeout_seconds: float = 45.0,
+    output_format: str = "json",
+    output_dir: str = "",
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    effective_web_base_url = str(
+        web_base_url or _env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL)
+    ).strip() or DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL
+    normalized_code = str(otp_code or "").strip()
+    session = _mymedia_pairing_load_session(output_dir)
+    state_path = _mymedia_pairing_state_path(output_dir)
+    resume_url = str(session.get("resume_url") or "").strip()
+    effective_otp_channel = str(session.get("otp_channel") or DEFAULT_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL).strip().lower()
+    effective_phone_suffix = _digits(session.get("phone_suffix") or "")
+    if not normalized_code:
+        report = {
+            "probe_ok": False,
+            "ready": False,
+            "status": "blocked_code_missing",
+            "reason": "otp_code_missing",
+            "next_action": "enter_mymedia_amazon_pairing_code",
+            "surface_kind": "",
+            "site": "",
+            "otp_channel": effective_otp_channel,
+            "phone_suffix": effective_phone_suffix,
+            "code_entry_ready": False,
+            "state_written": bool(state_path.exists()),
+            "observed_at": observed_at,
+            "source": "mymedia_setup.playwright",
+            "privacy": {
+                "raw_credentials_exposed": False,
+                "raw_amazon_url_exposed": False,
+            },
+        }
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+        return report
+    if not resume_url or not state_path.exists():
+        report = {
+            "probe_ok": False,
+            "ready": False,
+            "status": "blocked_session_missing",
+            "reason": "mymedia_pairing_session_missing",
+            "next_action": "trigger_mymedia_amazon_pairing",
+            "surface_kind": "",
+            "site": "",
+            "otp_channel": effective_otp_channel,
+            "phone_suffix": effective_phone_suffix,
+            "code_entry_ready": False,
+            "state_written": False,
+            "observed_at": observed_at,
+            "source": "mymedia_setup.playwright",
+            "privacy": {
+                "raw_credentials_exposed": False,
+                "raw_amazon_url_exposed": False,
+            },
+        }
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+        return report
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception:
+        report = {
+            "probe_ok": False,
+            "ready": False,
+            "status": "blocked_browser_runtime_unavailable",
+            "reason": "browser_runtime_unavailable",
+            "next_action": "install_playwright_runtime",
+            "surface_kind": "",
+            "site": "",
+            "otp_channel": effective_otp_channel,
+            "phone_suffix": effective_phone_suffix,
+            "code_entry_ready": False,
+            "state_written": False,
+            "observed_at": observed_at,
+            "source": "mymedia_setup.playwright",
+            "privacy": {
+                "raw_credentials_exposed": False,
+                "raw_amazon_url_exposed": False,
+            },
+        }
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+        return report
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
+        )
+        context = browser.new_context(
+            viewport={"width": 1440, "height": 1200},
+            locale="en-US",
+            storage_state=str(state_path),
+        )
+        page = context.new_page()
+        page.set_default_timeout(int(max(float(timeout_seconds or 45.0), 1.0) * 1000))
+        try:
+            page.goto(resume_url, wait_until="domcontentloaded")
+            page.wait_for_timeout(2000)
+            surface, body_text = _mymedia_pairing_wait_for_surface(page, timeout_seconds=min(timeout_seconds, 15.0))
+            if str(surface.get("kind") or "") == "consent_required":
+                _mymedia_pairing_approve_consent_if_present(page)
+                page.wait_for_timeout(2000)
+                surface, body_text = _mymedia_pairing_wait_for_surface(page, timeout_seconds=min(timeout_seconds, 10.0))
+            if str(surface.get("kind") or "") != "waiting_for_code":
+                report = {
+                    "probe_ok": False,
+                    "ready": False,
+                    "status": "blocked_code_surface_missing",
+                    "reason": "mymedia_pairing_code_surface_missing",
+                    "next_action": "trigger_mymedia_amazon_pairing",
+                    "surface_kind": str(surface.get("kind") or "").strip(),
+                    "site": str(surface.get("current_host") or "").strip(),
+                    "otp_channel": effective_otp_channel,
+                    "phone_suffix": effective_phone_suffix,
+                    "code_entry_ready": False,
+                    "state_written": True,
+                    "observed_at": observed_at,
+                    "source": "mymedia_setup.playwright",
+                    "privacy": {
+                        "raw_credentials_exposed": False,
+                        "raw_amazon_url_exposed": False,
+                    },
+                }
+                if output_format == "operator":
+                    report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+                return report
+            otp_selector = _mymedia_pairing_fill_first_visible(
+                page,
+                (
+                    "input[name='otpCode']",
+                    "input[name='code']",
+                    "input[inputmode='numeric']",
+                    "input[type='tel']",
+                    "input[type='number']",
+                    "input[type='text']",
+                ),
+                normalized_code,
+            )
+            if not otp_selector:
+                raise RuntimeError("mymedia_pairing_code_input_missing")
+            clicked = _mymedia_pairing_click_submit(page, ("sign in", "anmelden", "submit", "continue"))
+            if not clicked:
+                raise RuntimeError("mymedia_pairing_code_submit_unavailable")
+            page.wait_for_load_state("domcontentloaded")
+            page.wait_for_timeout(2000)
+            end_deadline = time.monotonic() + max(float(timeout_seconds or 45.0), 1.0)
+            while time.monotonic() <= end_deadline:
+                surface, body_text = _mymedia_pairing_wait_for_surface(page, timeout_seconds=5.0)
+                if str(surface.get("kind") or "") == "consent_required":
+                    if not _mymedia_pairing_approve_consent_if_present(page):
+                        break
+                    page.wait_for_load_state("domcontentloaded")
+                    page.wait_for_timeout(2000)
+                    continue
+                if str(surface.get("kind") or "") in {"local_console", "waiting_for_code"}:
+                    break
+                page.wait_for_timeout(1000)
+            capture = _mymedia_pairing_capture_runtime_state(
+                context=context,
+                page=page,
+                otp_channel=effective_otp_channel,
+                phone_suffix=effective_phone_suffix,
+                surface=surface,
+                body_text=body_text,
+                output_dir=output_dir,
+            )
+            post_probe = probe_mymedia_alexa(
+                container_name=_env("EA_MYMEDIA_ALEXA_CONTAINER", DEFAULT_MYMEDIA_ALEXA_CONTAINER),
+                web_base_url=effective_web_base_url,
+                timeout_seconds=min(max(float(timeout_seconds or 45.0), 1.0), 15.0),
+                output_format="json",
+            )
+            report = {
+                "probe_ok": False,
+                "ready": False,
+                "status": "blocked_pairing_not_confirmed",
+                "reason": "pairing_not_confirmed_after_code_submit",
+                "next_action": "inspect_mymedia_pairing_surface",
+                "surface_kind": str(surface.get("kind") or "").strip(),
+                "site": str(surface.get("current_host") or "").strip(),
+                "current_path": str(surface.get("current_path") or "").strip(),
+                "current_url_sha256": str(surface.get("current_url_sha256") or "").strip(),
+                "otp_channel": effective_otp_channel,
+                "phone_suffix": effective_phone_suffix,
+                "code_entry_ready": str(surface.get("kind") or "") == "waiting_for_code",
+                "state_written": bool(capture.get("state_written")),
+                "session_written": bool(capture.get("session_written")),
+                "screenshot_written": bool(capture.get("screenshot_written")),
+                "state_path": str(capture.get("state_path") or ""),
+                "session_path": str(capture.get("session_path") or ""),
+                "screenshot_path": str(capture.get("screenshot_path") or ""),
+                "mymedia_probe_status": str(post_probe.get("status") or "").strip(),
+                "notification_policy": "action_required_only",
+                "work_type": "handoff",
+                "stop_condition": "account_review_ready_for_user_decision",
+                "blockers": [],
+                "privacy": {
+                    "raw_credentials_exposed": False,
+                    "raw_amazon_url_exposed": False,
+                },
+                "observed_at": observed_at,
+                "source": "mymedia_setup.playwright",
+            }
+            if bool(post_probe.get("pairing_ready")):
+                report.update(
+                    {
+                        "probe_ok": True,
+                        "ready": bool(post_probe.get("ready")),
+                        "status": "paired" if bool(post_probe.get("ready")) else "paired_library_pending",
+                        "reason": "" if bool(post_probe.get("ready")) else str(post_probe.get("reason") or "").strip(),
+                        "next_action": str(post_probe.get("next_action") or "").strip(),
+                        "blockers": [],
+                    }
+                )
+            elif bool(surface.get("invalid_code")):
+                report.update(
+                    {
+                        "status": "blocked_invalid_code",
+                        "reason": "mymedia_pairing_code_rejected",
+                        "next_action": "trigger_mymedia_amazon_pairing",
+                        "blockers": ["mfa_code_required"],
+                    }
+                )
+            elif str(surface.get("kind") or "") == "waiting_for_code":
+                report.update(
+                    {
+                        "status": "blocked_code_still_required",
+                        "reason": "mymedia_pairing_code_not_accepted",
+                        "next_action": "trigger_mymedia_amazon_pairing",
+                        "blockers": ["mfa_code_required"],
+                    }
+                )
+            if output_format == "operator":
+                report["operator_text"] = _operator_text_for_mymedia_pairing(report)
+            return report
+        finally:
+            browser.close()
+
+
+def _sonarr_config_path(config_path: str = "") -> Path:
+    configured = str(config_path or _env("EA_SONARR_CONFIG_PATH", str(DEFAULT_SONARR_CONFIG_PATH))).strip()
+    return Path(os.path.expanduser(os.path.expandvars(configured or str(DEFAULT_SONARR_CONFIG_PATH))))
+
+
+def _sonarr_staging_root(staging_root: str = "") -> Path:
+    configured = str(staging_root or _env("EA_SONARR_STAGING_ROOT", str(DEFAULT_SONARR_STAGING_ROOT))).strip()
+    return Path(os.path.expanduser(os.path.expandvars(configured or str(DEFAULT_SONARR_STAGING_ROOT))))
+
+
+def _read_xml_api_key(path: Path) -> str:
+    if not path.exists():
+        return ""
+    try:
+        root = ET.parse(path).getroot()
+    except Exception:
+        return ""
+    return str(root.findtext("ApiKey") or "").strip()
+
+
+def _sonarr_headers(api_key: str) -> dict[str, str]:
+    return {
+        "Accept": "application/json",
+        "X-Api-Key": str(api_key or "").strip(),
+    }
+
+
+def _sonarr_request_json_value(
+    *,
+    base_url: str,
+    api_key: str,
+    path: str,
+    method: str = "GET",
+    body: dict[str, object] | None = None,
+    timeout_seconds: float = 15.0,
+) -> object:
+    normalized_base_url = str(base_url or DEFAULT_SONARR_BASE_URL).rstrip("/")
+    normalized_path = path if str(path or "").startswith("/") else f"/{path}"
+    headers = _sonarr_headers(api_key)
+    if body is not None:
+        headers = {**headers, "Content-Type": "application/json"}
+    return _request_json_value(
+        method=method,
+        url=f"{normalized_base_url}{normalized_path}",
+        headers=headers,
+        body=body,
+        timeout=max(float(timeout_seconds or 15.0), 1.0),
+    )
+
+
+def _sonarr_list_queue(*, base_url: str, api_key: str, timeout_seconds: float) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    page = 1
+    while True:
+        payload = _sonarr_request_json_value(
+            base_url=base_url,
+            api_key=api_key,
+            path=f"/api/v3/queue?page={page}&pageSize=500",
+            timeout_seconds=timeout_seconds,
+            body=None,
+            method="GET",
+        )
+        if not isinstance(payload, dict):
+            break
+        records = payload.get("records")
+        if not isinstance(records, list) or not records:
+            break
+        rows.extend(dict(item) for item in records if isinstance(item, dict))
+        total_records = int(payload.get("totalRecords") or len(rows))
+        if len(rows) >= total_records:
+            break
+        page += 1
+    return rows
+
+
+def _sonarr_compact_episode_list(values: list[int], *, limit: int = 10) -> str:
+    ordered = [int(item) for item in values if int(item) > 0]
+    if not ordered:
+        return ""
+    if len(ordered) <= max(int(limit or 1), 1):
+        return ",".join(str(item) for item in ordered)
+    visible = max(int(limit or 1) - 1, 1)
+    return ",".join(str(item) for item in ordered[:visible]) + ",..."
+
+
+def _sonarr_series_title_tokens(value: object) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", str(value or "").lower())
+        if len(token) >= 3 and token not in {"season", "episode", "web", "1080p", "720p", "264", "265"}
+    }
+
+
+def _sonarr_series_title_score(title: str, candidate_name: str) -> int:
+    title_tokens = _sonarr_series_title_tokens(title)
+    candidate_tokens = _sonarr_series_title_tokens(candidate_name)
+    return len(title_tokens & candidate_tokens)
+
+
+def _sonarr_episode_number_from_text(text: object, *, season_number: int) -> int | None:
+    pattern = re.compile(rf"\bS{int(season_number):02d}E(\d{{2}})\b", re.IGNORECASE)
+    match = pattern.search(str(text or ""))
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+def _sonarr_candidate_episode_files(path: Path, *, season_number: int) -> list[Path]:
+    supported_suffixes = {".mkv", ".mp4", ".avi", ".m4v"}
+    if path.is_file():
+        return [path] if path.suffix.lower() in supported_suffixes else []
+    if not path.is_dir():
+        return []
+    files: list[Path] = []
+    for candidate in sorted(path.rglob("*")):
+        if not candidate.is_file() or candidate.suffix.lower() not in supported_suffixes:
+            continue
+        if _sonarr_episode_number_from_text(candidate.name, season_number=season_number) is None:
+            continue
+        files.append(candidate)
+    return files
+
+
+def _iso_to_datetime(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    normalized = text.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _age_seconds(value: object, *, now: datetime | None = None) -> int | None:
+    observed = _iso_to_datetime(value)
+    if observed is None:
+        return None
+    effective_now = now or datetime.now(UTC)
+    age = (effective_now - observed).total_seconds()
+    try:
+        return max(int(age), 0)
+    except (TypeError, ValueError):
+        return None
+
+
+def _sonarr_queue_is_metadata_only(row: Mapping[str, object]) -> bool:
+    error_message = str(row.get("errorMessage") or "").strip().lower()
+    if "downloading metadata" not in error_message:
+        return False
+    tracked_state = str(row.get("trackedDownloadState") or row.get("tracked_download_state") or "").strip().lower()
+    return tracked_state in {"downloading", "queued", "metadata", ""}
+
+
+def _sonarr_series_target_dir(series_path: str, *, season_folder: bool, season_number: int) -> Path:
+    base = Path(str(series_path or "").strip())
+    if not season_folder:
+        return base
+    return base / f"Season {int(season_number)}"
+
+
+def _sonarr_target_has_episode(path: Path, *, season_number: int, episode_number: int) -> bool:
+    if not path.exists():
+        return False
+    marker = f"S{int(season_number):02d}E{int(episode_number):02d}"
+    for candidate in path.glob(f"*{marker}*"):
+        if candidate.is_file():
+            return True
+    return False
+
+
+def _sonarr_target_episode_files(path: Path, *, season_number: int, episode_number: int) -> list[Path]:
+    if not path.exists():
+        return []
+    marker = f"S{int(season_number):02d}E{int(episode_number):02d}"
+    return sorted(candidate for candidate in path.glob(f"*{marker}*") if candidate.is_file())
+
+
+def _sonarr_quarantine_dir(*, series_path: str, series_id: int, season_number: int) -> Path:
+    series_root = Path(str(series_path or "").strip())
+    if series_root.exists():
+        return series_root.parent / ".ea-sonarr-quarantine" / f"series-{int(series_id or 0) or 'lookup'}" / f"season-{int(season_number):02d}"
+    return DEFAULT_SONARR_TV_RECEIPT_DIR / "quarantine" / f"series-{int(series_id or 0) or 'lookup'}-season-{int(season_number):02d}"
+
+
+def _sonarr_unique_destination(path: Path) -> Path:
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    counter = 1
+    while True:
+        candidate = path.with_name(f"{stem}.{counter}{suffix}")
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def _sonarr_probe_file_playability(path: Path, *, timeout_seconds: float) -> dict[str, object]:
+    ffprobe = shutil.which(str(os.environ.get("EA_FFPROBE_BIN") or "ffprobe").strip() or "ffprobe")
+    if not ffprobe:
+        return {
+            "path": path.as_posix(),
+            "ok": False,
+            "probed": False,
+            "method": "ffprobe_unavailable",
+            "reason": "ffprobe_unavailable",
+            "detail": "",
+        }
+    try:
+        completed = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_name",
+                "-of",
+                "json",
+                path.as_posix(),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=max(float(timeout_seconds or DEFAULT_SONARR_FFPROBE_TIMEOUT_SECONDS), 1.0),
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "path": path.as_posix(),
+            "ok": False,
+            "probed": True,
+            "method": "ffprobe",
+            "reason": "ffprobe_timeout",
+            "detail": "timeout",
+        }
+    stdout = str(completed.stdout or "").strip()
+    stderr = str(completed.stderr or "").strip()
+    detail = stderr or stdout
+    if completed.returncode != 0:
+        return {
+            "path": path.as_posix(),
+            "ok": False,
+            "probed": True,
+            "method": "ffprobe",
+            "reason": "ffprobe_invalid_media",
+            "detail": _compact_text(detail, limit=200),
+        }
+    try:
+        payload = json.loads(stdout or "{}")
+    except json.JSONDecodeError:
+        return {
+            "path": path.as_posix(),
+            "ok": False,
+            "probed": True,
+            "method": "ffprobe",
+            "reason": "ffprobe_invalid_json",
+            "detail": _compact_text(stdout, limit=200),
+        }
+    streams = [dict(item) for item in list(payload.get("streams") or []) if isinstance(item, dict)]
+    codec_name = str((streams[0] if streams else {}).get("codec_name") or "").strip().lower()
+    if not codec_name:
+        return {
+            "path": path.as_posix(),
+            "ok": False,
+            "probed": True,
+            "method": "ffprobe",
+            "reason": "ffprobe_missing_video_stream",
+            "detail": "",
+        }
+    return {
+        "path": path.as_posix(),
+        "ok": True,
+        "probed": True,
+        "method": "ffprobe",
+        "reason": "",
+        "detail": codec_name,
+    }
+
+
+def _sonarr_staging_candidates(
+    *,
+    series_title: str,
+    season_number: int,
+    target_episode_numbers: list[int],
+    staging_root: Path,
+) -> list[dict[str, object]]:
+    if not staging_root.exists() or not staging_root.is_dir():
+        return []
+    target_lookup = {int(item) for item in target_episode_numbers if int(item) > 0}
+    title_tokens = _sonarr_series_title_tokens(series_title)
+    candidates: list[dict[str, object]] = []
+    for entry in sorted(staging_root.iterdir()):
+        if not entry.exists():
+            continue
+        title_score = _sonarr_series_title_score(series_title, entry.name)
+        if title_score < min(2, max(len(title_tokens), 1)):
+            continue
+        episode_files = _sonarr_candidate_episode_files(entry, season_number=season_number)
+        if not episode_files:
+            continue
+        episode_numbers = sorted(
+            {
+                int(number)
+                for number in (
+                    _sonarr_episode_number_from_text(item.name, season_number=season_number) for item in episode_files
+                )
+                if number is not None
+            }
+        )
+        if not episode_numbers:
+            continue
+        matching_targets = sorted(number for number in episode_numbers if number in target_lookup)
+        candidates.append(
+            {
+                "name": entry.name,
+                "path": entry.as_posix(),
+                "title_score": title_score,
+                "episode_numbers": episode_numbers,
+                "matching_target_episode_numbers": matching_targets,
+                "cover_count": len(matching_targets),
+                "file_count": len(episode_files),
+            }
+        )
+    candidates.sort(
+        key=lambda item: (
+            -int(item.get("cover_count") or 0),
+            -int(item.get("file_count") or 0),
+            -int(item.get("title_score") or 0),
+            str(item.get("name") or ""),
+        )
+    )
+    return candidates
+
+
+def _sonarr_candidate_metrics(
+    candidate: Mapping[str, object],
+    *,
+    season_number: int,
+    target_episode_numbers: list[int],
+    timeout_seconds: float,
+) -> dict[str, object]:
+    updated = dict(candidate)
+    target_lookup = {int(item) for item in target_episode_numbers if int(item) > 0}
+    valid_matching_episode_numbers: list[int] = []
+    invalid_matching_episode_numbers: list[int] = []
+    candidate_path = Path(str(candidate.get("path") or ""))
+    for file_path in _sonarr_candidate_episode_files(candidate_path, season_number=season_number):
+        episode_number = _sonarr_episode_number_from_text(file_path.name, season_number=season_number)
+        if episode_number is None or int(episode_number) not in target_lookup:
+            continue
+        probe_result = _sonarr_probe_file_playability(
+            file_path,
+            timeout_seconds=min(timeout_seconds, DEFAULT_SONARR_FFPROBE_TIMEOUT_SECONDS),
+        )
+        if bool(probe_result.get("probed")) and not bool(probe_result.get("ok")):
+            invalid_matching_episode_numbers.append(int(episode_number))
+            continue
+        valid_matching_episode_numbers.append(int(episode_number))
+    updated["valid_matching_episode_numbers"] = sorted({int(item) for item in valid_matching_episode_numbers if int(item) > 0})
+    updated["invalid_matching_episode_numbers"] = sorted({int(item) for item in invalid_matching_episode_numbers if int(item) > 0})
+    updated["valid_cover_count"] = len(list(updated.get("valid_matching_episode_numbers") or []))
+    updated["invalid_cover_count"] = len(list(updated.get("invalid_matching_episode_numbers") or []))
+    return updated
+
+
+def _sonarr_wait_for_command(
+    *,
+    base_url: str,
+    api_key: str,
+    command_id: int,
+    timeout_seconds: float,
+) -> dict[str, object]:
+    deadline = time.monotonic() + max(float(timeout_seconds or 15.0), 1.0)
+    last_payload: dict[str, object] = {}
+    while True:
+        payload = _sonarr_request_json_value(
+            base_url=base_url,
+            api_key=api_key,
+            path=f"/api/v3/command/{int(command_id)}",
+            timeout_seconds=min(max(float(timeout_seconds or 15.0) / 3.0, 5.0), 15.0),
+        )
+        last_payload = dict(payload) if isinstance(payload, dict) else {}
+        status = str(last_payload.get("status") or "").strip().lower()
+        if status in {"completed", "failed", "aborted"} or time.monotonic() >= deadline:
+            if status == "":
+                last_payload["status"] = "timeout"
+            return last_payload
+        time.sleep(2.0)
+
+
+def _sonarr_request_command(
+    *,
+    base_url: str,
+    api_key: str,
+    name: str,
+    body: dict[str, object],
+    timeout_seconds: float,
+    retry_http_errors: int = 1,
+) -> dict[str, object]:
+    attempts = 0
+    while True:
+        attempts += 1
+        try:
+            payload = _sonarr_request_json_value(
+                base_url=base_url,
+                api_key=api_key,
+                path="/api/v3/command",
+                method="POST",
+                body={"name": str(name or "").strip(), **dict(body or {})},
+                timeout_seconds=min(timeout_seconds, 20.0),
+            )
+            command_payload = dict(payload) if isinstance(payload, dict) else {}
+            command_id = int(command_payload.get("id") or 0)
+            if command_id <= 0:
+                return {
+                    "ok": False,
+                    "command_id": 0,
+                    "status": "request_missing_command_id",
+                    "attempts": attempts,
+                }
+            command_report = _sonarr_wait_for_command(
+                base_url=base_url,
+                api_key=api_key,
+                command_id=command_id,
+                timeout_seconds=min(timeout_seconds, 60.0),
+            )
+            status = str(command_report.get("status") or "").strip()
+            return {
+                "ok": status not in {"failed", "aborted", "timeout"},
+                "command_id": command_id,
+                "status": status,
+                "attempts": attempts,
+            }
+        except urllib.error.HTTPError as exc:
+            if attempts > max(int(retry_http_errors or 0), 0):
+                return {
+                    "ok": False,
+                    "command_id": 0,
+                    "status": f"request_failed:http_{int(exc.code)}",
+                    "attempts": attempts,
+                }
+            time.sleep(min(float(attempts), 3.0))
+        except Exception as exc:
+            return {
+                "ok": False,
+                "command_id": 0,
+                "status": f"request_failed:{type(exc).__name__}",
+                "attempts": attempts,
+            }
+
+
+def _sonarr_delete_queue_rows(
+    *,
+    base_url: str,
+    api_key: str,
+    queue_ids: list[int],
+    timeout_seconds: float,
+    remove_from_client: bool = True,
+    blocklist: bool = False,
+    skip_redownload: bool = False,
+) -> dict[str, object]:
+    if not queue_ids:
+        return {"ok": True, "removed_count": 0}
+    payload = _sonarr_request_json_value(
+        base_url=base_url,
+        api_key=api_key,
+        path=(
+            "/api/v3/queue/bulk"
+            f"?removeFromClient={str(bool(remove_from_client)).lower()}"
+            f"&blocklist={str(bool(blocklist)).lower()}"
+            f"&skipRedownload={str(bool(skip_redownload)).lower()}"
+        ),
+        method="DELETE",
+        body={"ids": queue_ids},
+        timeout_seconds=timeout_seconds,
+    )
+    return {
+        "ok": True,
+        "removed_count": len(queue_ids),
+        "response": dict(payload) if isinstance(payload, dict) else {},
+    }
+
+
+def _sonarr_queue_row_episode_snapshot(row: Mapping[str, object]) -> dict[str, int]:
+    episode = dict(row.get("episode") or {}) if isinstance(row.get("episode"), Mapping) else {}
+    return {
+        "series_id": int(row.get("seriesId") or 0),
+        "episode_id": int(episode.get("id") or row.get("episodeId") or 0),
+        "season_number": int(episode.get("seasonNumber") or row.get("seasonNumber") or 0),
+        "episode_number": int(episode.get("episodeNumber") or row.get("episodeNumber") or 0),
+    }
+
+
+def _sonarr_list_releases_for_episode(
+    *,
+    base_url: str,
+    api_key: str,
+    episode_id: int,
+    timeout_seconds: float,
+) -> list[dict[str, object]]:
+    payload = _sonarr_request_json_value(
+        base_url=base_url,
+        api_key=api_key,
+        path=f"/api/v3/release?episodeId={int(episode_id)}",
+        timeout_seconds=timeout_seconds,
+        body=None,
+        method="GET",
+    )
+    if not isinstance(payload, list):
+        return []
+    return [dict(item) for item in payload if isinstance(item, dict)]
+
+
+def _sonarr_release_matches_exact_episode(
+    release: Mapping[str, object],
+    *,
+    season_number: int,
+    episode_number: int,
+) -> bool:
+    mapped_season = int(release.get("mappedSeasonNumber") or release.get("seasonNumber") or 0)
+    if mapped_season != int(season_number):
+        return False
+    mapped_numbers = [
+        int(item)
+        for item in list(release.get("mappedEpisodeNumbers") or release.get("episodeNumbers") or [])
+        if int(item) > 0
+    ]
+    return mapped_numbers == [int(episode_number)]
+
+
+def _sonarr_release_rejections_allow_manual_grab(rejections: object) -> bool:
+    normalized = [str(item or "").strip().lower() for item in list(rejections or []) if str(item or "").strip()]
+    if not normalized:
+        return True
+    allowed_markers = (
+        "release in queue already",
+        "release is already queued",
+        "already in queue",
+        "already grabbed",
+    )
+    return all(any(marker in item for marker in allowed_markers) for item in normalized)
+
+
+def _sonarr_release_info_hash(release: Mapping[str, object]) -> str:
+    return (
+        str(
+            release.get("infoHash")
+            or release.get("torrentInfoHash")
+            or release.get("releaseHash")
+            or ""
+        )
+        .strip()
+        .lower()
+    )
+
+
+def _sonarr_release_resolution(release: Mapping[str, object]) -> int:
+    quality = dict(release.get("quality") or {}) if isinstance(release.get("quality"), Mapping) else {}
+    quality_detail = dict(quality.get("quality") or {}) if isinstance(quality.get("quality"), Mapping) else {}
+    return int(quality_detail.get("resolution") or 0)
+
+
+def _sonarr_pick_replacement_release(
+    releases: list[dict[str, object]],
+    *,
+    season_number: int,
+    episode_number: int,
+    current_download_id: str,
+) -> dict[str, object]:
+    current_hash = str(current_download_id or "").strip().lower()
+    exact_matches = []
+    for release in releases:
+        if not _sonarr_release_matches_exact_episode(release, season_number=season_number, episode_number=episode_number):
+            continue
+        if not bool(release.get("downloadAllowed")):
+            continue
+        if not _sonarr_release_rejections_allow_manual_grab(release.get("rejections")):
+            continue
+        info_hash = _sonarr_release_info_hash(release)
+        if info_hash and info_hash == current_hash:
+            continue
+        seeders = max(int(release.get("seeders") or 0), 0)
+        if seeders <= 0:
+            continue
+        exact_matches.append(dict(release))
+    if not exact_matches:
+        return {}
+
+    def _sorted_bucket(min_resolution: int) -> list[dict[str, object]]:
+        bucket = [item for item in exact_matches if _sonarr_release_resolution(item) >= min_resolution]
+        bucket.sort(
+            key=lambda item: (
+                int(item.get("seeders") or 0),
+                0 if "av1" in str(item.get("title") or "").lower() else 1,
+                int(item.get("qualityWeight") or 0),
+                int(item.get("size") or 0),
+                str(item.get("title") or ""),
+            ),
+            reverse=True,
+        )
+        return bucket
+
+    for minimum_resolution in (1080, 720, 0):
+        bucket = _sorted_bucket(minimum_resolution)
+        if bucket:
+            return dict(bucket[0])
+    return {}
+
+
+def _sonarr_grab_release(
+    *,
+    base_url: str,
+    api_key: str,
+    release: Mapping[str, object],
+    timeout_seconds: float,
+) -> dict[str, object]:
+    try:
+        payload = _sonarr_request_json_value(
+            base_url=base_url,
+            api_key=api_key,
+            path="/api/v3/release",
+            method="POST",
+            body=dict(release),
+            timeout_seconds=min(timeout_seconds, 20.0),
+        )
+        return {
+            "ok": True,
+            "response": dict(payload) if isinstance(payload, dict) else {},
+        }
+    except urllib.error.HTTPError as exc:
+        return {
+            "ok": False,
+            "status": f"http_{int(exc.code)}",
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status": type(exc).__name__,
+        }
+
+
+def _resolve_series_by_title(series_rows: list[dict[str, object]], series_title: str) -> dict[str, object]:
+    normalized_lookup = " ".join(re.findall(r"[a-z0-9]+", str(series_title or "").lower()))
+    if not normalized_lookup:
+        return {}
+    direct_matches = []
+    for row in series_rows:
+        title = str(row.get("title") or "").strip()
+        normalized_title = " ".join(re.findall(r"[a-z0-9]+", title.lower()))
+        if normalized_title == normalized_lookup:
+            direct_matches.append(row)
+    if direct_matches:
+        return dict(sorted(direct_matches, key=lambda item: int(item.get("id") or 0))[0])
+    scored = []
+    for row in series_rows:
+        score = _sonarr_series_title_score(series_title, str(row.get("title") or ""))
+        if score <= 0:
+            continue
+        scored.append((score, str(row.get("title") or ""), row))
+    if not scored:
+        return {}
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return dict(scored[0][2])
+
+
+def _probe_sonarr_tv_season_state(
+    *,
+    series_id: int | None,
+    series_title: str,
+    season_number: int,
+    sonarr_base_url: str,
+    sonarr_config_path: Path,
+    staging_root: Path,
+    timeout_seconds: float,
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    report: dict[str, object] = {
+        "probe_ok": False,
+        "ready": False,
+        "status": "probe_failed",
+        "reason": "sonarr_probe_uninitialized",
+        "next_action": "",
+        "next_action_href": "",
+        "next_action_label": "",
+        "next_action_method": "",
+        "series_id": int(series_id or 0),
+        "series_title": str(series_title or "").strip(),
+        "season_number": int(season_number),
+        "season_episode_count": 0,
+        "season_episode_file_count": 0,
+        "missing_episode_ids": [],
+        "missing_episode_numbers": [],
+        "have_episode_numbers": [],
+        "media_info_missing_episode_numbers": [],
+        "media_info_missing_count": 0,
+        "unreadable_episode_numbers": [],
+        "unreadable_episode_count": 0,
+        "unreadable_episode_file_names": [],
+        "episode_file_probe_method": "",
+        "episode_file_probe_detail": "",
+        "metadata_queue_items": [],
+        "metadata_queue_episode_numbers": [],
+        "metadata_queue_count": 0,
+        "stale_metadata_queue_items": [],
+        "stale_metadata_queue_count": 0,
+        "staging_root": staging_root.as_posix(),
+        "staging_root_exists": staging_root.exists(),
+        "staging_candidates": [],
+        "staging_candidate_count": 0,
+        "selected_staging_candidate": {},
+        "selected_staging_candidate_name": "",
+        "selected_staging_candidate_cover_count": 0,
+        "sonarr_base_url": str(sonarr_base_url or DEFAULT_SONARR_BASE_URL).rstrip("/"),
+        "sonarr_config_path": sonarr_config_path.as_posix(),
+        "source": "sonarr.api+filesystem",
+        "observed_at": observed_at,
+        "privacy": {
+            "raw_api_key_exposed": False,
+            "raw_download_client_credentials_exposed": False,
+        },
+    }
+    if not sonarr_config_path.exists():
+        report["reason"] = "sonarr_config_missing"
+        return report
+    api_key = _read_xml_api_key(sonarr_config_path)
+    if not api_key:
+        report["reason"] = "sonarr_api_key_missing"
+        return report
+    try:
+        series_payload = _sonarr_request_json_value(
+            base_url=sonarr_base_url,
+            api_key=api_key,
+            path="/api/v3/series",
+            timeout_seconds=timeout_seconds,
+        )
+        episode_payload = []
+        episode_file_payload = []
+        queue_rows = []
+        if isinstance(series_payload, list):
+            series_rows = [dict(item) for item in series_payload if isinstance(item, dict)]
+        else:
+            series_rows = []
+        selected_series = {}
+        if series_id is not None and int(series_id or 0) > 0:
+            for row in series_rows:
+                if int(row.get("id") or 0) == int(series_id):
+                    selected_series = row
+                    break
+        elif str(series_title or "").strip():
+            selected_series = _resolve_series_by_title(series_rows, str(series_title or "").strip())
+        if not selected_series:
+            report.update(
+                {
+                    "probe_ok": True,
+                    "status": "blocked_series_not_found",
+                    "reason": "sonarr_series_not_found",
+                    "next_action": "verify_sonarr_series_lookup",
+                }
+            )
+            return report
+        resolved_series_id = int(selected_series.get("id") or 0)
+        report["series_id"] = resolved_series_id
+        report["series_title"] = str(selected_series.get("title") or report["series_title"] or "").strip()
+        report["series_path"] = str(selected_series.get("path") or "").strip()
+        report["series_monitored"] = bool(selected_series.get("monitored"))
+        report["series_type"] = str(selected_series.get("seriesType") or "").strip()
+        report["season_folder"] = bool(selected_series.get("seasonFolder", True))
+
+        episode_payload = _sonarr_request_json_value(
+            base_url=sonarr_base_url,
+            api_key=api_key,
+            path=f"/api/v3/episode?seriesId={resolved_series_id}",
+            timeout_seconds=timeout_seconds,
+        )
+        episode_file_payload = _sonarr_request_json_value(
+            base_url=sonarr_base_url,
+            api_key=api_key,
+            path=f"/api/v3/episodefile?seriesId={resolved_series_id}",
+            timeout_seconds=timeout_seconds,
+        )
+        queue_rows = _sonarr_list_queue(
+            base_url=sonarr_base_url,
+            api_key=api_key,
+            timeout_seconds=timeout_seconds,
+        )
+    except Exception as exc:
+        report["reason"] = f"sonarr_api_probe_failed:{type(exc).__name__}"
+        return report
+
+    episode_rows = [dict(item) for item in episode_payload if isinstance(item, dict)] if isinstance(episode_payload, list) else []
+    episode_file_rows = [dict(item) for item in episode_file_payload if isinstance(item, dict)] if isinstance(episode_file_payload, list) else []
+    season_rows = [row for row in episode_rows if int(row.get("seasonNumber") or 0) == int(season_number)]
+    if not season_rows:
+        report.update(
+            {
+                "probe_ok": True,
+                "status": "blocked_season_not_found",
+                "reason": "sonarr_season_not_found",
+                "next_action": "verify_sonarr_season_lookup",
+            }
+        )
+        return report
+
+    season_rows.sort(key=lambda item: int(item.get("episodeNumber") or 0))
+    season_stats = {}
+    for item in list(selected_series.get("seasons") or []):
+        row = dict(item) if isinstance(item, dict) else {}
+        if int(row.get("seasonNumber") or 0) == int(season_number):
+            season_stats = row
+            break
+    report["season_monitored"] = bool(season_stats.get("monitored", True))
+
+    have_episode_numbers = [int(row.get("episodeNumber") or 0) for row in season_rows if bool(row.get("hasFile"))]
+    missing_episode_numbers = [int(row.get("episodeNumber") or 0) for row in season_rows if not bool(row.get("hasFile"))]
+    missing_episode_ids = [int(row.get("id") or 0) for row in season_rows if not bool(row.get("hasFile")) and int(row.get("id") or 0) > 0]
+    episodes_by_id = {int(row.get("id") or 0): row for row in season_rows if int(row.get("id") or 0) > 0}
+    episode_files_by_id = {int(row.get("id") or 0): row for row in episode_file_rows if int(row.get("id") or 0) > 0}
+
+    metadata_queue_items: list[dict[str, object]] = []
+    now = _iso_to_datetime(_utc_now()) or datetime.now(UTC)
+    for row in queue_rows:
+        if int(row.get("seriesId") or 0) != int(report.get("series_id") or 0):
+            continue
+        current_season = int(row.get("seasonNumber") or 0)
+        episode_number = int(row.get("episodeNumber") or 0)
+        episode_id = int(row.get("episodeId") or 0)
+        if current_season <= 0 and episode_id in episodes_by_id:
+            current_season = int(episodes_by_id[episode_id].get("seasonNumber") or 0)
+        if episode_number <= 0 and episode_id in episodes_by_id:
+            episode_number = int(episodes_by_id[episode_id].get("episodeNumber") or 0)
+        if current_season != int(season_number) or episode_number <= 0:
+            continue
+        if not _sonarr_queue_is_metadata_only(row):
+            continue
+        added_at = str(row.get("added") or "").strip()
+        age_seconds = _age_seconds(added_at, now=now)
+        episode_has_file = bool(row.get("episodeHasFile")) or episode_number in have_episode_numbers
+        item = {
+            "id": int(row.get("id") or 0),
+            "episode_id": episode_id,
+            "episode_number": episode_number,
+            "season_number": current_season,
+            "title": str(row.get("title") or "").strip(),
+            "status": str(row.get("status") or "").strip(),
+            "tracked_download_state": str(row.get("trackedDownloadState") or "").strip(),
+            "error_message": str(row.get("errorMessage") or "").strip(),
+            "added": added_at,
+            "age_seconds": age_seconds,
+            "episode_has_file": episode_has_file,
+            "is_stale": bool(episode_has_file) or (age_seconds is not None and age_seconds >= int(DEFAULT_SONARR_METADATA_STALL_AGE_SECONDS)),
+        }
+        metadata_queue_items.append(item)
+
+    metadata_queue_items.sort(key=lambda item: int(item.get("episode_number") or 0))
+    stale_metadata_queue_items = [dict(item) for item in metadata_queue_items if bool(item.get("is_stale"))]
+
+    media_info_missing_episode_numbers: list[int] = []
+    unreadable_episode_numbers: list[int] = []
+    unreadable_episode_file_names: list[str] = []
+    file_probe_method = ""
+    file_probe_details: list[str] = []
+    for row in season_rows:
+        if not bool(row.get("hasFile")):
+            continue
+        episode_number = int(row.get("episodeNumber") or 0)
+        episode_file_id = int(row.get("episodeFileId") or 0)
+        episode_file_row = dict(episode_files_by_id.get(episode_file_id) or {})
+        media_info = dict(episode_file_row.get("mediaInfo") or {}) if isinstance(episode_file_row.get("mediaInfo"), dict) else {}
+        path_text = str(episode_file_row.get("path") or "").strip()
+        if not media_info:
+            media_info_missing_episode_numbers.append(episode_number)
+        if not path_text:
+            unreadable_episode_numbers.append(episode_number)
+            continue
+        probe_result = _sonarr_probe_file_playability(Path(path_text), timeout_seconds=min(timeout_seconds, DEFAULT_SONARR_FFPROBE_TIMEOUT_SECONDS))
+        if not file_probe_method:
+            file_probe_method = str(probe_result.get("method") or "").strip()
+        if not bool(probe_result.get("probed")):
+            continue
+        if not bool(probe_result.get("ok")):
+            unreadable_episode_numbers.append(episode_number)
+            unreadable_episode_file_names.append(Path(path_text).name)
+            reason = str(probe_result.get("reason") or "").strip()
+            detail = str(probe_result.get("detail") or "").strip()
+            file_probe_details.append(f"E{episode_number:02d}:{reason}{':' + detail if detail else ''}")
+
+    unreadable_episode_numbers = sorted({int(item) for item in unreadable_episode_numbers if int(item) > 0})
+    media_info_missing_episode_numbers = sorted({int(item) for item in media_info_missing_episode_numbers if int(item) > 0})
+    repair_episode_numbers = sorted(set(missing_episode_numbers) | set(unreadable_episode_numbers))
+    staging_candidates = _sonarr_staging_candidates(
+        series_title=str(report.get("series_title") or ""),
+        season_number=season_number,
+        target_episode_numbers=repair_episode_numbers,
+        staging_root=staging_root,
+    )
+    staging_candidates = [
+        _sonarr_candidate_metrics(
+            candidate,
+            season_number=season_number,
+            target_episode_numbers=repair_episode_numbers,
+            timeout_seconds=timeout_seconds,
+        )
+        for candidate in staging_candidates
+    ]
+    staging_candidates.sort(
+        key=lambda item: (
+            -int(item.get("valid_cover_count") or 0),
+            -int(item.get("cover_count") or 0),
+            -int(item.get("file_count") or 0),
+            -int(item.get("title_score") or 0),
+            str(item.get("name") or ""),
+        )
+    )
+    selected_staging_candidate = (
+        dict(staging_candidates[0])
+        if staging_candidates and int(staging_candidates[0].get("valid_cover_count") or 0) > 0
+        else {}
+    )
+
+    report.update(
+        {
+            "probe_ok": True,
+            "reason": "",
+            "series_title": str(report.get("series_title") or ""),
+            "season_episode_count": len(season_rows),
+            "season_episode_file_count": len(have_episode_numbers),
+            "have_episode_numbers": have_episode_numbers,
+            "missing_episode_ids": missing_episode_ids,
+            "missing_episode_numbers": missing_episode_numbers,
+            "media_info_missing_episode_numbers": media_info_missing_episode_numbers,
+            "media_info_missing_count": len(media_info_missing_episode_numbers),
+            "unreadable_episode_numbers": unreadable_episode_numbers,
+            "unreadable_episode_count": len(unreadable_episode_numbers),
+            "unreadable_episode_file_names": unreadable_episode_file_names,
+            "episode_file_probe_method": file_probe_method,
+            "episode_file_probe_detail": _compact_text(", ".join(file_probe_details), limit=400),
+            "metadata_queue_items": metadata_queue_items,
+            "metadata_queue_episode_numbers": [int(item.get("episode_number") or 0) for item in metadata_queue_items],
+            "metadata_queue_count": len(metadata_queue_items),
+            "stale_metadata_queue_items": stale_metadata_queue_items,
+            "stale_metadata_queue_count": len(stale_metadata_queue_items),
+            "staging_candidates": staging_candidates,
+            "staging_candidate_count": len(staging_candidates),
+            "selected_staging_candidate": selected_staging_candidate,
+            "selected_staging_candidate_name": str(selected_staging_candidate.get("name") or "").strip(),
+            "selected_staging_candidate_cover_count": int(
+                selected_staging_candidate.get("valid_cover_count")
+                or selected_staging_candidate.get("cover_count")
+                or 0
+            ),
+        }
+    )
+    ready = not missing_episode_numbers and not metadata_queue_items and not unreadable_episode_numbers and not media_info_missing_episode_numbers
+    status = "ready"
+    reason = ""
+    next_action = ""
+    if not ready:
+        if unreadable_episode_numbers and selected_staging_candidate:
+            status = "blocked_unreadable_files_have_staging_candidate"
+            reason = "sonarr_unreadable_episodes_have_staging_candidate"
+            next_action = "repair_sonarr_tv_season"
+        elif unreadable_episode_numbers:
+            status = "blocked_unreadable_episode_files"
+            reason = "sonarr_unreadable_episode_files"
+            next_action = "repair_sonarr_tv_season"
+        elif missing_episode_numbers and selected_staging_candidate:
+            status = "blocked_staging_import_available"
+            reason = "sonarr_missing_episodes_have_staging_candidate"
+            next_action = "repair_sonarr_tv_season"
+        elif stale_metadata_queue_items:
+            status = "blocked_stale_metadata_queue"
+            reason = "sonarr_stale_metadata_queue"
+            next_action = "repair_sonarr_tv_season"
+        elif metadata_queue_items:
+            status = "ready_with_recovery_action"
+            reason = "sonarr_metadata_queue_downloading_metadata"
+            next_action = "wait_for_download_client_or_reprobe_sonarr_tv_season"
+        elif missing_episode_numbers:
+            status = "blocked_missing_episodes"
+            reason = "sonarr_missing_episodes"
+            next_action = "search_sonarr_missing_episodes"
+        elif media_info_missing_episode_numbers:
+            status = "ready_with_recovery_action"
+            reason = "sonarr_episode_file_media_info_missing"
+            next_action = "repair_sonarr_tv_season"
+    report.update(
+        {
+            "ready": ready and status == "ready",
+            "status": status,
+            "reason": reason,
+            "next_action": next_action,
+        }
+    )
+    return report
+
+
+def _operator_text_for_sonarr_tv_season(report: Mapping[str, object]) -> str:
+    series_title = _compact_text(report.get("series_title"), limit=80)
+    parts = [
+        f"sonarr_tv_season status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+    ]
+    if series_title:
+        parts.append(f"series={series_title}")
+    if int(report.get("season_number") or 0) > 0:
+        parts.append(f"season={int(report.get('season_number') or 0)}")
+    total = int(report.get("season_episode_count") or 0)
+    have = int(report.get("season_episode_file_count") or 0)
+    if total > 0:
+        parts.append(f"have={have}/{total}")
+    missing_episode_numbers = [int(item) for item in list(report.get("missing_episode_numbers") or []) if int(item) > 0]
+    if missing_episode_numbers:
+        parts.append(f"missing={len(missing_episode_numbers)}[{_sonarr_compact_episode_list(missing_episode_numbers)}]")
+    unreadable_episode_numbers = [int(item) for item in list(report.get("unreadable_episode_numbers") or []) if int(item) > 0]
+    if unreadable_episode_numbers:
+        parts.append(f"unreadable={len(unreadable_episode_numbers)}[{_sonarr_compact_episode_list(unreadable_episode_numbers)}]")
+    media_info_missing = [int(item) for item in list(report.get("media_info_missing_episode_numbers") or []) if int(item) > 0]
+    if media_info_missing:
+        parts.append(f"media_info_missing={len(media_info_missing)}[{_sonarr_compact_episode_list(media_info_missing)}]")
+    metadata_episode_numbers = [int(item) for item in list(report.get("metadata_queue_episode_numbers") or []) if int(item) > 0]
+    if metadata_episode_numbers:
+        parts.append(f"metadata_queue={len(metadata_episode_numbers)}[{_sonarr_compact_episode_list(metadata_episode_numbers)}]")
+    stale_count = int(report.get("stale_metadata_queue_count") or 0)
+    if stale_count > 0:
+        parts.append(f"stale_metadata_queue={stale_count}")
+    file_probe_method = str(report.get("episode_file_probe_method") or "").strip()
+    if file_probe_method:
+        parts.append(f"file_probe={file_probe_method}")
+    staging_candidate_name = _compact_text(report.get("selected_staging_candidate_name"), limit=60)
+    if staging_candidate_name:
+        parts.append(
+            f"staging_candidate={staging_candidate_name} cover={int(report.get('selected_staging_candidate_cover_count') or 0)}"
+        )
+    reason = str(report.get("reason") or "").strip()
+    if reason:
+        parts.append(f"reason={reason}")
+    next_action = str(report.get("next_action") or "").strip()
+    if next_action:
+        parts.append(f"next={next_action}")
+    observed_at = str(report.get("observed_at") or "").strip()
+    if observed_at:
+        parts.append(f"observed_at={observed_at}")
+    source = str(report.get("source") or "").strip()
+    if source:
+        parts.append(f"source={source}")
+    return "; ".join(parts)
+
+
+def _operator_text_for_sonarr_tv_season_repair(report: Mapping[str, object]) -> str:
+    parts = [
+        f"sonarr_tv_season_repair status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+    ]
+    if report.get("series_title"):
+        parts.append(f"series={_compact_text(report.get('series_title'), limit=80)}")
+    if int(report.get("season_number") or 0) > 0:
+        parts.append(f"season={int(report.get('season_number') or 0)}")
+    moved_count = int(report.get("moved_file_count") or 0)
+    if moved_count > 0:
+        parts.append(f"moved={moved_count}[{_sonarr_compact_episode_list(list(report.get('moved_episode_numbers') or []))}]")
+    quarantined_count = int(report.get("quarantined_file_count") or 0)
+    if quarantined_count > 0:
+        parts.append(
+            f"quarantined={quarantined_count}[{_sonarr_compact_episode_list(list(report.get('quarantined_episode_numbers') or []))}]"
+        )
+    if report.get("refresh_requested") is not None:
+        parts.append(f"refresh_requested={str(bool(report.get('refresh_requested'))).lower()}")
+    if report.get("refresh_status"):
+        parts.append(f"refresh_status={report['refresh_status']}")
+    removed_count = int(report.get("queue_rows_removed") or 0)
+    if removed_count > 0:
+        parts.append(
+            f"queue_removed={removed_count}[{_sonarr_compact_episode_list(list(report.get('removed_queue_episode_numbers') or []))}]"
+        )
+    replacement_count = int(report.get("replacement_grab_count") or 0)
+    if replacement_count > 0:
+        parts.append(
+            f"replacement_grabbed={replacement_count}[{_sonarr_compact_episode_list(list(report.get('replacement_episode_numbers') or []))}]"
+        )
+    if report.get("rescan_requested") is not None:
+        parts.append(f"rescan_requested={str(bool(report.get('rescan_requested'))).lower()}")
+    if report.get("rescan_status"):
+        parts.append(f"rescan_status={report['rescan_status']}")
+    if report.get("search_requested") is not None:
+        parts.append(f"search_requested={str(bool(report.get('search_requested'))).lower()}")
+    if report.get("search_status"):
+        parts.append(f"search_status={report['search_status']}")
+    missing_after = [int(item) for item in list(report.get("missing_episode_numbers_after") or []) if int(item) > 0]
+    if missing_after:
+        parts.append(f"missing_after={len(missing_after)}[{_sonarr_compact_episode_list(missing_after)}]")
+    unreadable_after = [int(item) for item in list(report.get("unreadable_episode_numbers_after") or []) if int(item) > 0]
+    if unreadable_after:
+        parts.append(f"unreadable_after={len(unreadable_after)}[{_sonarr_compact_episode_list(unreadable_after)}]")
+    metadata_after = [int(item) for item in list(report.get("metadata_queue_episode_numbers_after") or []) if int(item) > 0]
+    if metadata_after:
+        parts.append(f"metadata_after={len(metadata_after)}[{_sonarr_compact_episode_list(metadata_after)}]")
+    reason = str(report.get("reason") or "").strip()
+    if reason:
+        parts.append(f"reason={reason}")
+    next_action = str(report.get("next_action") or "").strip()
+    if next_action:
+        parts.append(f"next={next_action}")
+    if report.get("receipt_path"):
+        parts.append(f"receipt={report['receipt_path']}")
+    if report.get("observed_at"):
+        parts.append(f"observed_at={report['observed_at']}")
+    if report.get("source"):
+        parts.append(f"source={report['source']}")
+    return "; ".join(str(item) for item in parts if str(item).strip())
+
+
+def probe_sonarr_tv_season(
+    *,
+    series_id: int | None = None,
+    series_title: str = "",
+    season_number: int,
+    sonarr_base_url: str = "",
+    sonarr_config_path: str = "",
+    staging_root: str = "",
+    timeout_seconds: float = 20.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    effective_base_url = str(sonarr_base_url or _env("EA_SONARR_BASE_URL", DEFAULT_SONARR_BASE_URL)).strip() or DEFAULT_SONARR_BASE_URL
+    report = _probe_sonarr_tv_season_state(
+        series_id=None if series_id is None else int(series_id),
+        series_title=str(series_title or "").strip(),
+        season_number=int(season_number),
+        sonarr_base_url=effective_base_url,
+        sonarr_config_path=_sonarr_config_path(sonarr_config_path),
+        staging_root=_sonarr_staging_root(staging_root),
+        timeout_seconds=max(float(timeout_seconds or 20.0), 1.0),
+    )
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_sonarr_tv_season(report)
+    return report
+
+
+def repair_sonarr_tv_season(
+    *,
+    series_id: int | None = None,
+    series_title: str = "",
+    season_number: int,
+    sonarr_base_url: str = "",
+    sonarr_config_path: str = "",
+    staging_root: str = "",
+    timeout_seconds: float = 45.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    effective_base_url = str(sonarr_base_url or _env("EA_SONARR_BASE_URL", DEFAULT_SONARR_BASE_URL)).strip() or DEFAULT_SONARR_BASE_URL
+    effective_config_path = _sonarr_config_path(sonarr_config_path)
+    effective_staging_root = _sonarr_staging_root(staging_root)
+    request_timeout = max(float(timeout_seconds or 45.0), 1.0)
+    pre_probe = probe_sonarr_tv_season(
+        series_id=series_id,
+        series_title=series_title,
+        season_number=season_number,
+        sonarr_base_url=effective_base_url,
+        sonarr_config_path=effective_config_path.as_posix(),
+        staging_root=effective_staging_root.as_posix(),
+        timeout_seconds=min(request_timeout, 20.0),
+        output_format="json",
+    )
+    resolved_series_id = int(pre_probe.get("series_id") or series_id or 0)
+    receipt_path = DEFAULT_SONARR_TV_RECEIPT_DIR / f"series-{resolved_series_id or 'lookup'}-season-{int(season_number):02d}.repair.receipt.json"
+    report: dict[str, object] = {
+        "probe_ok": bool(pre_probe.get("probe_ok")),
+        "ready": False,
+        "status": "probe_failed",
+        "reason": str(pre_probe.get("reason") or "sonarr_tv_season_repair_pre_probe_failed").strip(),
+        "next_action": str(pre_probe.get("next_action") or "").strip(),
+        "next_action_href": "",
+        "next_action_label": "",
+        "next_action_method": "",
+        "series_id": resolved_series_id,
+        "series_title": str(pre_probe.get("series_title") or series_title or "").strip(),
+        "season_number": int(season_number),
+        "sonarr_base_url": effective_base_url.rstrip("/"),
+        "sonarr_config_path": effective_config_path.as_posix(),
+        "staging_root": effective_staging_root.as_posix(),
+        "moved_file_count": 0,
+        "moved_episode_numbers": [],
+        "move_errors": [],
+        "quarantined_file_count": 0,
+        "quarantined_episode_numbers": [],
+        "quarantine_errors": [],
+        "quarantine_dir": "",
+        "refresh_requested": False,
+        "refresh_command_id": 0,
+        "refresh_status": "",
+        "rescan_requested": False,
+        "rescan_command_id": 0,
+        "rescan_status": "",
+        "search_requested": False,
+        "search_command_id": 0,
+        "search_status": "",
+        "search_episode_numbers": [],
+        "replacement_queue_rows_removed": 0,
+        "replacement_episode_numbers": [],
+        "replacement_titles": [],
+        "replacement_grab_count": 0,
+        "replacement_errors": [],
+        "queued_missing_episode_numbers_after": [],
+        "queue_rows_removed": 0,
+        "removed_queue_episode_numbers": [],
+        "pre_probe_status": str(pre_probe.get("status") or "").strip(),
+        "post_probe_status": "",
+        "post_cleanup_status": "",
+        "missing_episode_numbers_after": list(pre_probe.get("missing_episode_numbers") or []),
+        "unreadable_episode_numbers_after": list(pre_probe.get("unreadable_episode_numbers") or []),
+        "metadata_queue_episode_numbers_after": list(pre_probe.get("metadata_queue_episode_numbers") or []),
+        "before_probe": pre_probe,
+        "after_probe": pre_probe,
+        "observed_at": observed_at,
+        "source": "ffprobe+filesystem.move+sonarr.command+queue.delete+sonarr.release",
+        "privacy": {
+            "raw_api_key_exposed": False,
+            "raw_download_client_credentials_exposed": False,
+        },
+    }
+
+    def _finalize(updated: dict[str, object]) -> dict[str, object]:
+        updated["receipt_path"] = str(receipt_path)
+        _write_private_json(receipt_path, updated)
+        if output_format == "operator":
+            updated["operator_text"] = _operator_text_for_sonarr_tv_season_repair(updated)
+        return updated
+
+    if not bool(pre_probe.get("probe_ok")):
+        return _finalize(report)
+    if str(pre_probe.get("status") or "").strip() in {"blocked_series_not_found", "blocked_season_not_found"}:
+        report["status"] = "repair_blocked"
+        return _finalize(report)
+
+    moved_episode_numbers: list[int] = []
+    move_errors: list[str] = []
+    quarantined_episode_numbers: list[int] = []
+    quarantine_errors: list[str] = []
+    missing_before = {int(item) for item in list(pre_probe.get("missing_episode_numbers") or []) if int(item) > 0}
+    unreadable_before = {int(item) for item in list(pre_probe.get("unreadable_episode_numbers") or []) if int(item) > 0}
+    media_info_missing_before = {int(item) for item in list(pre_probe.get("media_info_missing_episode_numbers") or []) if int(item) > 0}
+    staging_candidates = [dict(item) for item in list(pre_probe.get("staging_candidates") or []) if isinstance(item, dict)]
+    target_dir = _sonarr_series_target_dir(
+        str(pre_probe.get("series_path") or "").strip(),
+        season_folder=bool(pre_probe.get("season_folder", True)),
+        season_number=int(season_number),
+    )
+    if unreadable_before:
+        quarantine_dir = _sonarr_quarantine_dir(
+            series_path=str(pre_probe.get("series_path") or "").strip(),
+            series_id=resolved_series_id or int(pre_probe.get("series_id") or 0),
+            season_number=int(season_number),
+        )
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+        report["quarantine_dir"] = quarantine_dir.as_posix()
+        for episode_number in sorted(unreadable_before):
+            for file_path in _sonarr_target_episode_files(target_dir, season_number=int(season_number), episode_number=int(episode_number)):
+                destination = _sonarr_unique_destination(quarantine_dir / file_path.name)
+                try:
+                    file_path.replace(destination)
+                except Exception as exc:
+                    quarantine_errors.append(f"{file_path.name}:{type(exc).__name__}")
+                    continue
+                quarantined_episode_numbers.append(int(episode_number))
+        report["quarantined_file_count"] = len(quarantined_episode_numbers)
+        report["quarantined_episode_numbers"] = sorted(quarantined_episode_numbers)
+        report["quarantine_errors"] = quarantine_errors
+
+    repair_episode_numbers = missing_before | unreadable_before
+    candidate_rows = [
+        candidate
+        for candidate in staging_candidates
+        if int(candidate.get("valid_cover_count") or candidate.get("cover_count") or 0) > 0
+    ]
+    if repair_episode_numbers and candidate_rows:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for candidate_row in candidate_rows:
+            for file_path in _sonarr_candidate_episode_files(Path(str(candidate_row.get("path") or "")), season_number=int(season_number)):
+                episode_number = _sonarr_episode_number_from_text(file_path.name, season_number=int(season_number))
+                if episode_number is None or int(episode_number) not in repair_episode_numbers:
+                    continue
+                probe_result = _sonarr_probe_file_playability(
+                    file_path,
+                    timeout_seconds=min(request_timeout, DEFAULT_SONARR_FFPROBE_TIMEOUT_SECONDS),
+                )
+                if bool(probe_result.get("probed")) and not bool(probe_result.get("ok")):
+                    move_errors.append(
+                        f"{file_path.name}:{str(probe_result.get('reason') or 'invalid_media').strip() or 'invalid_media'}"
+                    )
+                    continue
+                if _sonarr_target_has_episode(target_dir, season_number=int(season_number), episode_number=int(episode_number)):
+                    continue
+                destination = target_dir / file_path.name
+                try:
+                    shutil.move(file_path.as_posix(), destination.as_posix())
+                except Exception as exc:
+                    move_errors.append(f"{file_path.name}:{type(exc).__name__}")
+                    continue
+                moved_episode_numbers.append(int(episode_number))
+        report["moved_file_count"] = len(moved_episode_numbers)
+        report["moved_episode_numbers"] = sorted(moved_episode_numbers)
+        report["move_errors"] = move_errors
+
+    command_should_refresh = bool(moved_episode_numbers or quarantined_episode_numbers or media_info_missing_before)
+    if command_should_refresh:
+        api_key = _read_xml_api_key(effective_config_path)
+        report["refresh_requested"] = True
+        refresh_result = _sonarr_request_command(
+            base_url=effective_base_url,
+            api_key=api_key,
+            name="RefreshSeries",
+            body={"seriesId": resolved_series_id},
+            timeout_seconds=request_timeout,
+        )
+        report["refresh_command_id"] = int(refresh_result.get("command_id") or 0)
+        report["refresh_status"] = str(refresh_result.get("status") or "").strip()
+        report["rescan_requested"] = True
+        rescan_result = _sonarr_request_command(
+            base_url=effective_base_url,
+            api_key=api_key,
+            name="RescanSeries",
+            body={"seriesId": resolved_series_id},
+            timeout_seconds=request_timeout,
+        )
+        report["rescan_command_id"] = int(rescan_result.get("command_id") or 0)
+        report["rescan_status"] = str(rescan_result.get("status") or "").strip()
+
+    post_probe = probe_sonarr_tv_season(
+        series_id=resolved_series_id or series_id,
+        series_title=str(pre_probe.get("series_title") or series_title or "").strip(),
+        season_number=season_number,
+        sonarr_base_url=effective_base_url,
+        sonarr_config_path=effective_config_path.as_posix(),
+        staging_root=effective_staging_root.as_posix(),
+        timeout_seconds=min(request_timeout, 20.0),
+        output_format="json",
+    )
+    report["post_probe_status"] = str(post_probe.get("status") or "").strip()
+    report["after_probe"] = post_probe
+
+    cleanup_items = []
+    have_after = {int(item) for item in list(post_probe.get("have_episode_numbers") or []) if int(item) > 0}
+    for item in list(post_probe.get("metadata_queue_items") or []):
+        row = dict(item) if isinstance(item, dict) else {}
+        episode_number = int(row.get("episode_number") or 0)
+        if episode_number <= 0:
+            continue
+        if episode_number in have_after or bool(row.get("episode_has_file")) or bool(row.get("is_stale")):
+            cleanup_items.append(row)
+    cleanup_ids = [int(item.get("id") or 0) for item in cleanup_items if int(item.get("id") or 0) > 0]
+    cleanup_ids = sorted(set(cleanup_ids))
+    if cleanup_ids:
+        api_key = _read_xml_api_key(effective_config_path)
+        try:
+            cleanup_result = _sonarr_delete_queue_rows(
+                base_url=effective_base_url,
+                api_key=api_key,
+                queue_ids=cleanup_ids,
+                timeout_seconds=min(request_timeout, 20.0),
+            )
+            if bool(cleanup_result.get("ok")):
+                report["queue_rows_removed"] = int(cleanup_result.get("removed_count") or 0)
+                report["removed_queue_episode_numbers"] = sorted(
+                    {
+                        int(item.get("episode_number") or 0)
+                        for item in cleanup_items
+                        if int(item.get("episode_number") or 0) > 0
+                    }
+                )
+        except Exception as exc:
+            report["queue_cleanup_error"] = type(exc).__name__
+
+    final_probe = post_probe
+    if cleanup_ids:
+        final_probe = probe_sonarr_tv_season(
+            series_id=resolved_series_id or series_id,
+            series_title=str(pre_probe.get("series_title") or series_title or "").strip(),
+            season_number=season_number,
+            sonarr_base_url=effective_base_url,
+            sonarr_config_path=effective_config_path.as_posix(),
+            staging_root=effective_staging_root.as_posix(),
+            timeout_seconds=min(request_timeout, 20.0),
+            output_format="json",
+        )
+    report["post_cleanup_status"] = str(final_probe.get("status") or "").strip()
+    report["after_probe"] = final_probe
+    report["missing_episode_numbers_after"] = list(final_probe.get("missing_episode_numbers") or [])
+    report["unreadable_episode_numbers_after"] = list(final_probe.get("unreadable_episode_numbers") or [])
+    report["metadata_queue_episode_numbers_after"] = list(final_probe.get("metadata_queue_episode_numbers") or [])
+    report["series_title"] = str(final_probe.get("series_title") or report.get("series_title") or "").strip()
+    report["series_id"] = int(final_probe.get("series_id") or report.get("series_id") or 0)
+
+    api_key = _read_xml_api_key(effective_config_path)
+    missing_episode_numbers_after = [
+        int(item) for item in list(final_probe.get("missing_episode_numbers") or []) if int(item) > 0
+    ]
+    missing_episode_numbers_after_lookup = set(missing_episode_numbers_after)
+    missing_episode_ids_after = [int(item) for item in list(final_probe.get("missing_episode_ids") or []) if int(item) > 0]
+    missing_id_to_number = {
+        int(episode_id): int(episode_number)
+        for episode_id, episode_number in zip(missing_episode_ids_after, missing_episode_numbers_after, strict=False)
+        if int(episode_id) > 0 and int(episode_number) > 0
+    }
+    metadata_episode_number_by_queue_id = {
+        int(item.get("id") or 0): int(item.get("episode_number") or 0)
+        for item in list(final_probe.get("metadata_queue_items") or [])
+        if isinstance(item, Mapping) and int(item.get("id") or 0) > 0 and int(item.get("episode_number") or 0) > 0
+    }
+    metadata_episode_number_by_episode_id = {
+        int(item.get("episode_id") or 0): int(item.get("episode_number") or 0)
+        for item in list(final_probe.get("metadata_queue_items") or [])
+        if isinstance(item, Mapping) and int(item.get("episode_id") or 0) > 0 and int(item.get("episode_number") or 0) > 0
+    }
+    replacement_episode_numbers: list[int] = []
+    replacement_titles: list[str] = []
+    replacement_errors: list[str] = []
+    queue_rows_current = _sonarr_list_queue(
+        base_url=effective_base_url,
+        api_key=api_key,
+        timeout_seconds=min(request_timeout, 20.0),
+    )
+    replacement_rows: list[dict[str, object]] = []
+    for row in queue_rows_current:
+        snapshot = _sonarr_queue_row_episode_snapshot(row)
+        episode_id = int(snapshot.get("episode_id") or 0)
+        episode_number = int(snapshot.get("episode_number") or 0)
+        if episode_number <= 0:
+            episode_number = int(metadata_episode_number_by_queue_id.get(int(row.get("id") or 0)) or 0)
+        if episode_number <= 0 and episode_id > 0:
+            episode_number = int(metadata_episode_number_by_episode_id.get(episode_id) or missing_id_to_number.get(episode_id) or 0)
+        if int(snapshot.get("series_id") or 0) != resolved_series_id:
+            continue
+        if int(snapshot.get("season_number") or 0) != int(season_number):
+            continue
+        if episode_number <= 0 or episode_id <= 0 or episode_number not in missing_episode_numbers_after_lookup:
+            continue
+        error_message = str(row.get("errorMessage") or "").strip().lower()
+        if not (_sonarr_queue_is_metadata_only(row) or "stalled with no connections" in error_message):
+            continue
+        age_seconds = _age_seconds(row.get("added"))
+        if age_seconds is not None and age_seconds < int(DEFAULT_SONARR_QUEUE_REPLACEMENT_MIN_AGE_SECONDS):
+            continue
+        replacement_rows.append(dict(row))
+    for row in replacement_rows:
+        snapshot = _sonarr_queue_row_episode_snapshot(row)
+        episode_number = int(snapshot.get("episode_number") or 0)
+        episode_id = int(snapshot.get("episode_id") or 0)
+        queue_id = int(row.get("id") or 0)
+        if episode_number <= 0:
+            episode_number = int(metadata_episode_number_by_queue_id.get(queue_id) or 0)
+        if episode_number <= 0 and episode_id > 0:
+            episode_number = int(metadata_episode_number_by_episode_id.get(episode_id) or missing_id_to_number.get(episode_id) or 0)
+        if queue_id <= 0 or episode_id <= 0 or episode_number <= 0:
+            continue
+        releases = _sonarr_list_releases_for_episode(
+            base_url=effective_base_url,
+            api_key=api_key,
+            episode_id=episode_id,
+            timeout_seconds=min(request_timeout, 20.0),
+        )
+        replacement = _sonarr_pick_replacement_release(
+            releases,
+            season_number=int(season_number),
+            episode_number=episode_number,
+            current_download_id=str(row.get("downloadId") or "").strip(),
+        )
+        if not replacement:
+            replacement_errors.append(f"S{int(season_number):02d}E{episode_number:02d}:no_viable_replacement")
+            continue
+        try:
+            removal = _sonarr_delete_queue_rows(
+                base_url=effective_base_url,
+                api_key=api_key,
+                queue_ids=[queue_id],
+                timeout_seconds=min(request_timeout, 20.0),
+                blocklist=True,
+                skip_redownload=True,
+            )
+        except Exception as exc:
+            replacement_errors.append(f"S{int(season_number):02d}E{episode_number:02d}:delete_{type(exc).__name__}")
+            continue
+        if not bool(removal.get("ok")):
+            replacement_errors.append(f"S{int(season_number):02d}E{episode_number:02d}:delete_failed")
+            continue
+        grab = _sonarr_grab_release(
+            base_url=effective_base_url,
+            api_key=api_key,
+            release=replacement,
+            timeout_seconds=min(request_timeout, 20.0),
+        )
+        if not bool(grab.get("ok")):
+            replacement_errors.append(
+                f"S{int(season_number):02d}E{episode_number:02d}:grab_{str(grab.get('status') or 'failed').strip() or 'failed'}"
+            )
+            continue
+        replacement_episode_numbers.append(episode_number)
+        replacement_titles.append(str(replacement.get("title") or "").strip())
+    report["replacement_queue_rows_removed"] = len(replacement_episode_numbers)
+    report["replacement_grab_count"] = len(replacement_episode_numbers)
+    report["replacement_episode_numbers"] = sorted({int(item) for item in replacement_episode_numbers if int(item) > 0})
+    report["replacement_titles"] = [item for item in replacement_titles if item]
+    report["replacement_errors"] = replacement_errors
+    if replacement_episode_numbers:
+        final_probe = probe_sonarr_tv_season(
+            series_id=resolved_series_id or series_id,
+            series_title=str(pre_probe.get("series_title") or series_title or "").strip(),
+            season_number=season_number,
+            sonarr_base_url=effective_base_url,
+            sonarr_config_path=effective_config_path.as_posix(),
+            staging_root=effective_staging_root.as_posix(),
+            timeout_seconds=min(request_timeout, 20.0),
+            output_format="json",
+        )
+        report["post_cleanup_status"] = str(final_probe.get("status") or "").strip()
+        report["after_probe"] = final_probe
+        report["missing_episode_numbers_after"] = list(final_probe.get("missing_episode_numbers") or [])
+        report["unreadable_episode_numbers_after"] = list(final_probe.get("unreadable_episode_numbers") or [])
+        report["metadata_queue_episode_numbers_after"] = list(final_probe.get("metadata_queue_episode_numbers") or [])
+        report["series_title"] = str(final_probe.get("series_title") or report.get("series_title") or "").strip()
+        report["series_id"] = int(final_probe.get("series_id") or report.get("series_id") or 0)
+
+    missing_episode_ids_after = [int(item) for item in list(final_probe.get("missing_episode_ids") or []) if int(item) > 0]
+    missing_episode_numbers_after = [
+        int(item) for item in list(final_probe.get("missing_episode_numbers") or []) if int(item) > 0
+    ]
+    missing_id_to_number = {
+        int(episode_id): int(episode_number)
+        for episode_id, episode_number in zip(missing_episode_ids_after, missing_episode_numbers_after, strict=False)
+        if int(episode_id) > 0 and int(episode_number) > 0
+    }
+    queue_rows_current = _sonarr_list_queue(
+        base_url=effective_base_url,
+        api_key=api_key,
+        timeout_seconds=min(request_timeout, 20.0),
+    )
+    queued_missing_episode_ids: set[int] = set()
+    queued_missing_episode_numbers: set[int] = set()
+    for row in queue_rows_current:
+        snapshot = _sonarr_queue_row_episode_snapshot(row)
+        episode_id = int(snapshot.get("episode_id") or 0)
+        episode_number = int(snapshot.get("episode_number") or 0)
+        if int(snapshot.get("series_id") or 0) != resolved_series_id:
+            continue
+        if int(snapshot.get("season_number") or 0) != int(season_number):
+            continue
+        if episode_id in missing_episode_ids_after:
+            queued_missing_episode_ids.add(episode_id)
+        if episode_number <= 0 and episode_id > 0:
+            episode_number = int(missing_id_to_number.get(episode_id) or 0)
+        if episode_number > 0 and episode_number in set(missing_episode_numbers_after):
+            queued_missing_episode_numbers.add(episode_number)
+    report["queued_missing_episode_numbers_after"] = sorted(queued_missing_episode_numbers)
+
+    search_episode_ids = [item for item in missing_episode_ids_after if item not in queued_missing_episode_ids]
+    if search_episode_ids:
+        report["search_requested"] = True
+        report["search_episode_numbers"] = [
+            int(item)
+            for item in list(final_probe.get("missing_episode_numbers") or [])
+            if int(item) > 0 and int(item) not in queued_missing_episode_numbers
+        ]
+        search_result = _sonarr_request_command(
+            base_url=effective_base_url,
+            api_key=api_key,
+            name="EpisodeSearch",
+            body={"episodeIds": search_episode_ids},
+            timeout_seconds=request_timeout,
+        )
+        report["search_command_id"] = int(search_result.get("command_id") or 0)
+        report["search_status"] = str(search_result.get("status") or "").strip()
+        final_probe = probe_sonarr_tv_season(
+            series_id=resolved_series_id or series_id,
+            series_title=str(pre_probe.get("series_title") or series_title or "").strip(),
+            season_number=season_number,
+            sonarr_base_url=effective_base_url,
+            sonarr_config_path=effective_config_path.as_posix(),
+            staging_root=effective_staging_root.as_posix(),
+            timeout_seconds=min(request_timeout, 20.0),
+            output_format="json",
+        )
+        report["post_cleanup_status"] = str(final_probe.get("status") or "").strip()
+        report["after_probe"] = final_probe
+        report["missing_episode_numbers_after"] = list(final_probe.get("missing_episode_numbers") or [])
+        report["unreadable_episode_numbers_after"] = list(final_probe.get("unreadable_episode_numbers") or [])
+        report["metadata_queue_episode_numbers_after"] = list(final_probe.get("metadata_queue_episode_numbers") or [])
+        report["series_title"] = str(final_probe.get("series_title") or report.get("series_title") or "").strip()
+        report["series_id"] = int(final_probe.get("series_id") or report.get("series_id") or 0)
+
+    if bool(final_probe.get("ready")):
+        report.update(
+            {
+                "ready": True,
+                "status": (
+                    "repaired"
+                    if int(report.get("moved_file_count") or 0) > 0
+                    or int(report.get("queue_rows_removed") or 0) > 0
+                    or int(report.get("quarantined_file_count") or 0) > 0
+                    else "ready"
+                ),
+                "reason": "",
+                "next_action": "",
+            }
+        )
+        return _finalize(report)
+
+    if (
+        int(report.get("moved_file_count") or 0) > 0
+        or int(report.get("queue_rows_removed") or 0) > 0
+        or int(report.get("replacement_grab_count") or 0) > 0
+        or int(report.get("quarantined_file_count") or 0) > 0
+        or bool(report.get("search_requested"))
+    ):
+        queued_missing_after = [int(item) for item in list(report.get("queued_missing_episode_numbers_after") or []) if int(item) > 0]
+        report.update(
+            {
+                "ready": False,
+                "status": (
+                    "recovery_in_progress"
+                    if bool(report.get("search_requested")) or queued_missing_after
+                    else "repair_incomplete"
+                ),
+                "reason": (
+                    "sonarr_episode_search_requested"
+                    if bool(report.get("search_requested"))
+                    else (
+                        "sonarr_missing_episodes_already_queued"
+                        if queued_missing_after
+                        else str(final_probe.get("reason") or "sonarr_tv_season_still_blocked").strip()
+                    )
+                ),
+                "next_action": (
+                    "wait_for_download_client_or_reprobe_sonarr_tv_season"
+                    if bool(report.get("search_requested")) or queued_missing_after
+                    else str(final_probe.get("next_action") or "").strip()
+                ),
+            }
+        )
+        return _finalize(report)
+
+    report.update(
+        {
+            "ready": False,
+            "status": "repair_blocked",
+            "reason": str(pre_probe.get("reason") or "sonarr_tv_season_repair_blocked").strip(),
+            "next_action": str(pre_probe.get("next_action") or "").strip(),
+        }
+    )
+    return _finalize(report)
+
+
 def probe_teable_recovery(
     *,
     output_format: str = "json",
@@ -1890,6 +7990,15 @@ def probe_teable_recovery(
     missing_secret_value_count = _int_payload(verify_payload, "missing_secret_value_count")
     extra_restorable_count = _int_payload(verify_payload, "extra_restorable_count")
     uncovered_local_secret_file_count = _int_payload(verify_payload, "uncovered_local_secret_file_count")
+    different_hash_key_samples = [
+        str(item or "").strip()
+        for item in (
+            list(verify_payload.get("different_hash_keys") or [])
+            + list(local_payload.get("different_hash_keys") or [])
+        )
+        if str(item or "").strip()
+    ]
+    different_hash_key_samples = list(dict.fromkeys(different_hash_key_samples))[:10]
     probe_ok = bool(verify_payload) and bool(local_payload)
     ready = (
         probe_ok
@@ -1910,22 +8019,21 @@ def probe_teable_recovery(
     if not probe_ok:
         reason = "teable_recovery_probe_failed"
         next_action = "inspect_teable_recovery_probe"
+    elif wrong_mode_count:
+        reason = "teable_recovery_local_secret_mode_drift"
+        next_action = "chmod_referenced_secret_files_owner_only"
+    elif missing_artifact_count:
+        reason = "teable_recovery_local_artifacts_missing"
+        next_action = "restore_missing_teable_recovery_artifacts"
+    elif different_hash_count:
+        reason = "teable_recovery_local_hash_drift"
+        next_action = "run_env_recover_teable_or_refresh_backup_after_review"
     elif verify_status != "pass" or verify_exit != 0:
         reason = "teable_recovery_verify_failed"
         next_action = "run_make_env_check_teable_or_repair_teable_recovery_table"
     elif local_status != "pass" or local_exit != 0:
-        if wrong_mode_count:
-            reason = "teable_recovery_local_secret_mode_drift"
-            next_action = "chmod_referenced_secret_files_owner_only"
-        elif missing_artifact_count:
-            reason = "teable_recovery_local_artifacts_missing"
-            next_action = "restore_missing_teable_recovery_artifacts"
-        elif different_hash_count:
-            reason = "teable_recovery_local_hash_drift"
-            next_action = "run_env_recover_teable_or_refresh_backup_after_review"
-        else:
-            reason = "teable_recovery_local_status_failed"
-            next_action = "inspect_teable_recovery_local_status"
+        reason = "teable_recovery_local_status_failed"
+        next_action = "inspect_teable_recovery_local_status"
     report = {
         "probe_ok": probe_ok,
         "ready": ready,
@@ -1959,6 +8067,7 @@ def probe_teable_recovery(
             for item in list(local_payload.get("wrong_modes") or [])
             if isinstance(item, dict) and str(dict(item).get("path") or "").strip()
         ][:10],
+        "different_hash_key_samples": different_hash_key_samples,
         "observed_at": observed_at,
         "source": "sync_env_to_teable.verify+local_status",
     }
@@ -1969,6 +8078,75 @@ def probe_teable_recovery(
     if output_format == "operator":
         report["operator_text"] = _operator_text_for_teable_recovery(report)
     return report
+
+
+def _telegram_readiness_payload_from_host(*, principal_id: str) -> dict[str, object]:
+    try:
+        from app.settings import get_settings
+        from app.services.telegram_delivery import (
+            TELEGRAM_IDENTITY_CONNECTOR,
+            _telegram_binding_principal_candidates,
+            _telegram_bot_registry,
+        )
+        from app.services.tool_runtime import build_tool_runtime
+    except Exception as exc:
+        return {"ok": False, "ready": False, "status": "probe_failed", "reason": type(exc).__name__}
+
+    try:
+        tool_runtime = build_tool_runtime(get_settings())
+        candidates = list(_telegram_binding_principal_candidates(str(principal_id or "").strip()))
+        ranked: list[tuple[tuple[object, ...], object]] = []
+        for candidate_index, binding_principal_id in enumerate(candidates):
+            for row in tool_runtime.list_connector_bindings(binding_principal_id, limit=200):
+                if str(getattr(row, "connector_name", "") or "").strip() != TELEGRAM_IDENTITY_CONNECTOR:
+                    continue
+                if str(getattr(row, "status", "") or "").strip().lower() != "enabled":
+                    continue
+                metadata = dict(getattr(row, "auth_metadata_json", None) or {})
+                chat_ref = str(metadata.get("default_chat_ref") or getattr(row, "external_account_ref", "") or "").strip()
+                if not chat_ref:
+                    continue
+                numeric = 1 if chat_ref.isdigit() else 0
+                plausible_numeric = 1 if numeric and int(chat_ref) > 1000 else 0
+                ranked.append(
+                    (
+                        (plausible_numeric, numeric, -candidate_index, str(getattr(row, "updated_at", "") or "")),
+                        row,
+                    )
+                )
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        binding = ranked[0][1] if ranked else None
+        if binding is None:
+            return {"ok": True, "ready": False, "status": "blocked", "reason": "telegram_binding_not_found"}
+
+        metadata = dict(getattr(binding, "auth_metadata_json", None) or {})
+        chat_ref = str(metadata.get("default_chat_ref") or getattr(binding, "external_account_ref", "") or "").strip()
+        bot_key = str(metadata.get("bot_key") or "default").strip() or "default"
+        config = dict((_telegram_bot_registry().get(bot_key) or {}))
+        token_present = bool(str(config.get("token") or "").strip())
+        bot_handle = str(metadata.get("bot_handle") or config.get("handle") or "").strip()
+        reason = ""
+        if not chat_ref:
+            reason = "telegram_chat_ref_missing"
+        elif not token_present:
+            reason = "telegram_bot_token_missing"
+        ready = not reason
+        return {
+            "ok": True,
+            "ready": ready,
+            "status": "ready" if ready else "blocked",
+            "reason": reason,
+            "binding_id": str(getattr(binding, "binding_id", "") or "").strip(),
+            "principal_id": str(getattr(binding, "principal_id", "") or principal_id or "").strip(),
+            "binding_status": str(getattr(binding, "status", "") or "").strip(),
+            "chat_ref_present": bool(chat_ref),
+            "chat_ref_sha256": _hash_text(chat_ref) if chat_ref else "",
+            "bot_key": bot_key,
+            "bot_handle": bot_handle,
+            "bot_token_present": token_present,
+        }
+    except Exception as exc:
+        return {"ok": False, "ready": False, "status": "probe_failed", "reason": type(exc).__name__}
 
 
 def probe_telegram_readiness(
@@ -2044,6 +8222,18 @@ def probe_telegram_readiness(
     )
     effective_timeout_seconds = _telegram_readiness_timeout_seconds(timeout_seconds)
     exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=effective_timeout_seconds)
+    payload_status = str(payload.get("status") or "probe_failed").strip() or "probe_failed"
+    payload_ok = bool(payload.get("ok", payload_status != "probe_failed"))
+    if exit_code != 0 or not bool(payload) or not payload_ok or payload_status == "probe_failed":
+        host_payload = _telegram_readiness_payload_from_host(principal_id=str(principal_id or "").strip())
+        host_status = str(host_payload.get("status") or "probe_failed").strip() or "probe_failed"
+        host_ok = bool(host_payload.get("ok", host_status != "probe_failed"))
+        if bool(host_payload) and host_ok and host_status != "probe_failed":
+            payload = host_payload
+            payload_status = host_status
+            payload_ok = host_ok
+            exit_code = 0
+            source = "host_process:telegram_delivery.local_binding_scan"
     payload_status = str(payload.get("status") or "probe_failed").strip() or "probe_failed"
     payload_ok = bool(payload.get("ok", payload_status != "probe_failed"))
     report = {
@@ -2294,14 +8484,19 @@ def probe_proactive_route(
     runtime_service: str = "",
     receipt_path: str = "",
     timeout_seconds: float = 60.0,
+    include_artifact_probe: bool = True,
     output_format: str = "json",
 ) -> dict[str, object]:
     effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
     effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
     effective_timeout_seconds = max(float(timeout_seconds or 60.0), 1.0)
-    probe_deadline = time.monotonic() + effective_timeout_seconds
+    live_receipt_timeout_reserve = min(max(effective_timeout_seconds * 0.1, 1.0), 5.0)
+    route_artifact_budget_seconds = max(effective_timeout_seconds - live_receipt_timeout_reserve, 1.0)
+    route_artifact_deadline = time.monotonic() + route_artifact_budget_seconds
+    probe_deadline = route_artifact_deadline + live_receipt_timeout_reserve
     observed_at = _utc_now()
     artifact_probe: dict[str, object] = {}
+    route_source = "docker_compose_exec"
     if not effective_compose_file or not effective_runtime_service:
         next_action = "configure_proactive_runtime_probe"
         report = {
@@ -2323,23 +8518,31 @@ def probe_proactive_route(
             report["operator_text"] = "proactive route probe failed; configure runtime probe inputs"
         return report
 
-    route_code, route_payload, route_stdout, route_stderr = _docker_compose_exec_json(
-        compose_file=effective_compose_file,
-        service=effective_runtime_service,
-        command=[
-            "python",
-            "/app/scripts/verify_proactive_ooda.py",
-            "--principal-id",
-            str(principal_id or "").strip(),
-            "--skip-observation-source",
-            "--skip-workspace-source",
-            "--no-require-source",
-            "--no-require-telegram",
-            "--delivery-route-mode",
-            "lightweight",
-        ],
-        timeout_seconds=_remaining_probe_timeout(probe_deadline),
-    )
+    route_command = [
+        sys.executable if _prefer_host_runtime_proactive_probe() else "python",
+        str(ROOT / "scripts" / "verify_proactive_ooda.py") if _prefer_host_runtime_proactive_probe() else "/app/scripts/verify_proactive_ooda.py",
+        "--principal-id",
+        str(principal_id or "").strip(),
+        "--skip-observation-source",
+        "--skip-workspace-source",
+        "--no-require-source",
+        "--no-require-telegram",
+        "--delivery-route-mode",
+        "lightweight",
+    ]
+    if _prefer_host_runtime_proactive_probe():
+        route_source = "host_python_exec"
+        route_code, route_payload, route_stdout, route_stderr = _host_python_exec_json(
+            command=route_command,
+            timeout_seconds=_remaining_probe_timeout(route_artifact_deadline),
+        )
+    else:
+        route_code, route_payload, route_stdout, route_stderr = _docker_compose_exec_json(
+            compose_file=effective_compose_file,
+            service=effective_runtime_service,
+            command=route_command,
+            timeout_seconds=_remaining_probe_timeout(route_artifact_deadline),
+        )
     if bool(route_payload.get("timed_out")):
         next_action = "inspect_proactive_runtime_container"
         reason = str(route_payload.get("reason") or f"TimeoutExpired:{float(timeout_seconds):g}s").strip()
@@ -2350,7 +8553,7 @@ def probe_proactive_route(
             "compose_file": effective_compose_file,
             "runtime_service": effective_runtime_service,
             "observed_at": observed_at,
-            "source": "docker_compose_exec",
+            "source": route_source,
             "blocking_reason": f"runtime_route_probe_timed_out:{reason}",
             "next_action": next_action,
             "route_report": {},
@@ -2374,7 +8577,7 @@ def probe_proactive_route(
             "compose_file": effective_compose_file,
             "runtime_service": effective_runtime_service,
             "observed_at": observed_at,
-            "source": "docker_compose_exec",
+            "source": route_source,
             "blocking_reason": f"runtime_route_probe_failed:exit_{route_code}",
             "next_action": next_action,
             "route_report": {},
@@ -2389,7 +8592,59 @@ def probe_proactive_route(
         return report
 
     effective_receipt_path = str(receipt_path or "").strip()
+    receipt_command = [
+        "python",
+        "/app/scripts/verify_proactive_ooda_live_receipt.py",
+    ]
+    if effective_receipt_path:
+        receipt_command.extend(["--receipt-path", effective_receipt_path])
     if _probe_deadline_expired(probe_deadline):
+        live_receipt_payload = {
+            "ok": False,
+            "receipt_path": effective_receipt_path,
+            "notification_status": "probe_skipped",
+            "delivery_channel": "",
+            "delivery_next_action": "inspect_proactive_runtime_container",
+            "delivery_route_error": "",
+            "delivery_recovery_hint": "",
+            "errors": [f"TimeoutExpired:{effective_timeout_seconds:g}s"],
+            "timed_out": True,
+            "timeout_seconds": effective_timeout_seconds,
+        }
+    else:
+        if _prefer_host_runtime_proactive_probe():
+            _, live_receipt_payload, _, _ = _host_python_exec_json(
+                command=[
+                    sys.executable,
+                    str(ROOT / "scripts" / "verify_proactive_ooda_live_receipt.py"),
+                    *([] if not effective_receipt_path else ["--receipt-path", effective_receipt_path]),
+                ],
+                timeout_seconds=_remaining_probe_timeout(probe_deadline),
+            )
+        else:
+            _, live_receipt_payload, _, _ = _docker_compose_exec_json(
+                compose_file=effective_compose_file,
+                service=effective_runtime_service,
+                command=receipt_command,
+                timeout_seconds=_remaining_probe_timeout(probe_deadline),
+            )
+    live_receipt_timed_out = bool(live_receipt_payload.get("timed_out"))
+    if live_receipt_timed_out:
+        live_receipt_payload = {
+            "ok": False,
+            "receipt_path": effective_receipt_path,
+            "notification_status": "probe_timed_out",
+            "delivery_channel": "",
+            "delivery_next_action": "inspect_proactive_runtime_container",
+            "delivery_route_error": "",
+            "delivery_recovery_hint": "",
+            "errors": [str(live_receipt_payload.get("reason") or f"TimeoutExpired:{effective_timeout_seconds:g}s").strip()],
+            "timed_out": True,
+            "timeout_seconds": float(live_receipt_payload.get("timeout_seconds") or effective_timeout_seconds),
+        }
+    if not include_artifact_probe:
+        artifact_probe = {}
+    elif _probe_deadline_expired(probe_deadline):
         artifact_probe = {
             "probe_ok": False,
             "status": "probe_skipped",
@@ -2411,47 +8666,8 @@ def probe_proactive_route(
     if not effective_receipt_path:
         if bool(artifact_probe.get("probe_ok")) and str(artifact_probe.get("run_receipt_path") or "").strip():
             effective_receipt_path = str(artifact_probe.get("run_receipt_path") or "").strip()
-
-    receipt_command = [
-        "python",
-        "/app/scripts/verify_proactive_ooda_live_receipt.py",
-    ]
-    if effective_receipt_path:
-        receipt_command.extend(["--receipt-path", effective_receipt_path])
-    if _probe_deadline_expired(probe_deadline):
-        live_receipt_payload = {
-            "ok": False,
-            "receipt_path": effective_receipt_path,
-            "notification_status": "probe_skipped",
-            "delivery_channel": "",
-            "delivery_next_action": "inspect_proactive_runtime_container",
-            "delivery_route_error": "",
-            "delivery_recovery_hint": "",
-            "errors": [f"TimeoutExpired:{effective_timeout_seconds:g}s"],
-            "timed_out": True,
-            "timeout_seconds": effective_timeout_seconds,
-        }
-    else:
-        _, live_receipt_payload, _, _ = _docker_compose_exec_json(
-            compose_file=effective_compose_file,
-            service=effective_runtime_service,
-            command=receipt_command,
-            timeout_seconds=_remaining_probe_timeout(probe_deadline),
-        )
-    live_receipt_timed_out = bool(live_receipt_payload.get("timed_out"))
-    if live_receipt_timed_out:
-        live_receipt_payload = {
-            "ok": False,
-            "receipt_path": effective_receipt_path,
-            "notification_status": "probe_timed_out",
-            "delivery_channel": "",
-            "delivery_next_action": "inspect_proactive_runtime_container",
-            "delivery_route_error": "",
-            "delivery_recovery_hint": "",
-            "errors": [str(live_receipt_payload.get("reason") or f"TimeoutExpired:{effective_timeout_seconds:g}s").strip()],
-            "timed_out": True,
-            "timeout_seconds": float(live_receipt_payload.get("timeout_seconds") or effective_timeout_seconds),
-        }
+        elif not str(live_receipt_payload.get("receipt_path") or "").strip():
+            live_receipt_payload["receipt_path"] = effective_receipt_path
     route_payload = _reconcile_route_payload_with_live_receipt(
         route_payload=route_payload,
         live_receipt_payload=live_receipt_payload,
@@ -2465,10 +8681,19 @@ def probe_proactive_route(
     route_error = str(delivery_route.get("route_error") or "").strip()
     delivery_state = str(delivery_guard.get("delivery_state") or "").strip()
     deferred_reason = str(delivery_guard.get("deferred_reason") or "").strip()
+    only_live_receipt_timeout = (
+        route_ready
+        and not route_error
+        and route_payload.get("ok") is not False
+        and runtime_errors == ["live_receipt_probe_timed_out"]
+    )
+    live_receipt_recovery_error = _live_receipt_runtime_recovery_error(live_receipt_payload)
     if delivery_state == "deferred":
         status = "deferred"
     elif runtime_errors or route_payload.get("ok") is False:
-        status = "blocked_local_runtime"
+        status = "ready_with_recovery_action" if only_live_receipt_timeout else "blocked_local_runtime"
+    elif live_receipt_recovery_error:
+        status = "ready_with_recovery_action" if route_ready and not route_error else "blocked_local_runtime"
     elif route_ready and route_error:
         status = "ready_with_recovery_action"
     elif route_ready:
@@ -2500,6 +8725,12 @@ def probe_proactive_route(
             or live_receipt_next_action
             or "repair_proactive_runtime_inputs"
         ).strip()
+    elif live_receipt_recovery_error:
+        next_action = str(
+            live_receipt_next_action
+            or _proactive_runtime_error_next_action([live_receipt_recovery_error])
+            or "repair_proactive_runtime_inputs"
+        ).strip()
     else:
         next_action = str(
             followthrough_next_action
@@ -2509,7 +8740,13 @@ def probe_proactive_route(
             or live_receipt_next_action
             or "inspect_proactive_delivery_route"
         ).strip()
-    blocking_reason = str(route_error or deferred_reason or (runtime_errors[0] if runtime_errors else "") or "").strip()
+    blocking_reason = str(
+        route_error
+        or deferred_reason
+        or (runtime_errors[0] if runtime_errors else "")
+        or live_receipt_recovery_error
+        or ""
+    ).strip()
     report = {
         "probe_ok": True,
         "status": status,
@@ -2517,7 +8754,7 @@ def probe_proactive_route(
         "compose_file": effective_compose_file,
         "runtime_service": effective_runtime_service,
         "observed_at": observed_at,
-        "source": "docker_compose_exec",
+        "source": route_source,
         "delivery_route_ready": route_ready,
         "selected_channel": str(delivery_route.get("selected_channel") or "").strip(),
         "selected_transport": str(delivery_route.get("selected_transport") or "").strip(),
@@ -2542,7 +8779,7 @@ def probe_proactive_route(
             tail = f"{tail}; recovery={recovery}"
         report["operator_text"] = (
             f"proactive_route status={status}; route={route_label}; "
-            f"ready={str(route_ready).lower()}; source=docker_compose_exec{tail}"
+            f"ready={str(route_ready).lower()}; source={route_source}{tail}"
         )
     return report
 
@@ -2641,8 +8878,19 @@ def _proactive_runtime_error_next_action(errors: list[str]) -> str:
     first = str(errors[0] if errors else "").strip()
     if first.startswith("google_workspace_signal_source_unhealthy:"):
         return "reauthorize_google_workspace_binding"
+    if first.startswith("followthrough_"):
+        return "repair_proactive_operator_runtime_posture"
     if first:
         return "repair_proactive_runtime_inputs"
+    return ""
+
+
+def _live_receipt_runtime_recovery_error(live_receipt_payload: Mapping[str, object]) -> str:
+    if bool(live_receipt_payload.get("ok")):
+        return ""
+    for item in [str(entry).strip() for entry in list(live_receipt_payload.get("errors") or []) if str(entry).strip()]:
+        if item.startswith("followthrough_"):
+            return item
     return ""
 
 
@@ -2884,6 +9132,8 @@ def probe_proactive_artifacts(
             "    if str(row.get('packet_ref') or '').strip() == current_packet_ref\n"
             "    and str(row.get('staged_artifact_ref') or '').strip() == current_artifact_ref\n"
             "]\n"
+            "if int(bundle.get('current_packet_live_pending_count') or 0) <= 0:\n"
+            "    current_packet_rows = []\n"
             "current_packet_rows.sort(key=lambda row: str(row.get('created_at') or ''))\n"
             "current_packet_latest = current_packet_rows[-1] if current_packet_rows else {}\n"
             "def _parse_dt(value):\n"
@@ -2974,7 +9224,7 @@ def probe_proactive_artifacts(
         ),
     ]
     source = "docker_compose_exec"
-    if _use_in_process_proactive_runtime_fallback():
+    if _prefer_host_runtime_proactive_probe():
         source = "in_process_runtime"
         try:
             code = 0
@@ -3284,6 +9534,41 @@ def _run_proactive_action_required_quiet_probe_in_process(
         completed = subprocess.run(
             [sys.executable, "-c", code],
             cwd=root,
+            env=dict(os.environ),
+            capture_output=True,
+            text=True,
+            check=False,
+            start_new_session=True,
+            timeout=effective_timeout + 5.0,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else str(exc.stdout or "")
+        stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
+        return (
+            124,
+            {
+                "ok": False,
+                "timed_out": True,
+                "reason": f"TimeoutExpired:{effective_timeout:g}s",
+                "timeout_seconds": effective_timeout,
+            },
+            stdout,
+            stderr,
+        )
+    stdout = str(completed.stdout or "")
+    return int(completed.returncode or 0), _json_from_stdout(stdout), stdout, str(completed.stderr or "")
+
+
+def _host_python_exec_json(
+    *,
+    command: list[str],
+    timeout_seconds: float,
+) -> tuple[int, dict[str, Any], str, str]:
+    effective_timeout = max(float(timeout_seconds or 1.0), 1.0)
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
             env=dict(os.environ),
             capture_output=True,
             text=True,
@@ -3775,11 +10060,22 @@ def probe_proactive_approval_capture(
             "            continue\n"
             "        if isinstance(record, dict):\n"
             "            rows.append(record)\n"
+            "live_pending_rows = [row for row in rows if _status(row) == 'pending' and _is_live(row)]\n"
             "current_rows = [\n"
             "    row for row in rows\n"
             "    if str(row.get('packet_ref') or '').strip() == packet_ref\n"
             "    and str(row.get('staged_artifact_ref') or '').strip() == artifact_ref\n"
             "]\n"
+            "if not current_rows and len(live_pending_rows) == 1:\n"
+            "    inferred_row = dict(live_pending_rows[0] or {})\n"
+            "    inferred_packet_ref = str(inferred_row.get('packet_ref') or '').strip()\n"
+            "    inferred_artifact_ref = str(inferred_row.get('staged_artifact_ref') or '').strip()\n"
+            "    if inferred_packet_ref and inferred_artifact_ref:\n"
+            "        packet_ref = inferred_packet_ref\n"
+            "        artifact_ref = inferred_artifact_ref\n"
+            "        current_rows = [inferred_row]\n"
+            "if int(bundle.get('current_packet_live_pending_count') or 0) <= 0:\n"
+            "    current_rows = []\n"
             "current_live_pending_rows = [row for row in current_rows if _status(row) == 'pending' and _is_live(row)]\n"
             "current_rows.sort(key=lambda row: str(row.get('created_at') or ''))\n"
             "current_live_pending_rows.sort(key=lambda row: str(row.get('created_at') or ''))\n"
@@ -4215,12 +10511,52 @@ def probe_proactive_source_coverage(
             "lanes": [],
             "missing_lane_keys": list(PROACTIVE_SOURCE_COVERAGE_LANE_KEYS),
         }
-        report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
         if output_format == "operator":
             report["operator_text"] = "proactive_source_coverage probe failed; configure runtime probe inputs"
-        return report
+        return _finalize_proactive_source_coverage_report(report, output_format=output_format)
 
     limit = max(1, min(5000, int(observation_limit or 400)))
+    if _prefer_in_process_source_coverage_probe():
+        try:
+            report = _probe_proactive_source_coverage_in_process_report(
+                principal_id=str(principal_id or "").strip(),
+                observation_limit=limit,
+                observed_at=observed_at,
+            )
+            missing_next_action = next(
+                (
+                    str(dict(lane).get("next_action") or "").strip()
+                    for lane in list(report.get("lanes") or [])
+                    if not bool(dict(lane).get("observed"))
+                ),
+                "",
+            )
+            report.update(
+                {
+                    "compose_file": effective_compose_file,
+                    "runtime_service": effective_runtime_service,
+                    "blocking_reason": "",
+                    "next_action": missing_next_action,
+                }
+            )
+            if _should_expand_source_coverage_window(report, observation_limit=limit):
+                expanded_limit = min(max(limit * 10, 1000), 4000)
+                if expanded_limit > limit:
+                    return probe_proactive_source_coverage(
+                        principal_id=principal_id,
+                        compose_file=effective_compose_file,
+                        runtime_service=effective_runtime_service,
+                        observation_limit=expanded_limit,
+                        timeout_seconds=timeout_seconds,
+                        output_format=output_format,
+                    )
+            repaired_report = dict(report)
+            if str(repaired_report.get("status") or "").strip() == "repaired":
+                repaired_report["status"] = "ready"
+            return _finalize_proactive_source_coverage_report(repaired_report, output_format=output_format)
+        except Exception:
+            pass
+
     command = [
         "python",
         "-c",
@@ -4259,9 +10595,21 @@ def probe_proactive_source_coverage(
             "    }\n"
             "    return sorted(key for key, needles in specs.items() if any(needle in text for needle in needles))\n"
             "rows = []\n"
+            "PROPERTY_EVENT_TYPES_TO_EXCLUDE = {\n"
+            "    'property_scout_sync_completed',\n"
+            "    'assistant_property_task_auto_closed',\n"
+            "}\n"
+            "PROPERTY_EVENT_PREFIXES_TO_EXCLUDE = ('property_', 'assistant_property_')\n"
+            "def _excluded_event_type(value):\n"
+            "    normalized = str(value or '').strip().lower()\n"
+            "    if not normalized:\n"
+            "        return False\n"
+            "    if normalized in PROPERTY_EVENT_TYPES_TO_EXCLUDE:\n"
+            "        return True\n"
+            "    return any(normalized.startswith(prefix) for prefix in PROPERTY_EVENT_PREFIXES_TO_EXCLUDE)\n"
             "for row in runtime.list_recent_observations(limit=limit, principal_id=principal_id):\n"
             "    row_payload = dict(getattr(row, 'payload', {}) or {})\n"
-            "    if str(getattr(row, 'event_type', '') or '').strip() == 'property_scout_sync_completed':\n"
+            "    if _excluded_event_type(getattr(row, 'event_type', '')):\n"
             "        continue\n"
             "    rows.append({\n"
             "        'channel': str(getattr(row, 'channel', '') or '').strip(),\n"
@@ -4310,10 +10658,9 @@ def probe_proactive_source_coverage(
             "lanes": [],
             "missing_lane_keys": list(PROACTIVE_SOURCE_COVERAGE_LANE_KEYS),
         }
-        report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
         if output_format == "operator":
             report["operator_text"] = f"proactive_source_coverage probe failed; inspect {effective_runtime_service}"
-        return report
+        return _finalize_proactive_source_coverage_report(report, output_format=output_format)
 
     rows = [dict(row) for row in list(payload.get("rows") or []) if isinstance(row, Mapping)]
     pocket_archive_evidence: dict[str, object] = {}
@@ -4339,18 +10686,21 @@ def probe_proactive_source_coverage(
             "next_action": missing_next_action,
         }
     )
-    report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
-    if output_format == "operator":
-        missing = [str(item) for item in list(report.get("missing_lane_keys") or [])]
-        missing_text = ",".join(missing[:4])
-        if len(missing) > 4:
-            missing_text += f"+{len(missing) - 4}"
-        report["operator_text"] = (
-            f"proactive_source_coverage status={report['status']}; "
-            f"observed={int(report['observed_lane_count'])}/{int(report['lane_count'])}; "
-            f"rows={int(report['observation_row_count'])}; missing={missing_text or 'none'}"
-        )
-    return report
+    if _should_expand_source_coverage_window(report, observation_limit=limit):
+        expanded_limit = min(max(limit * 10, 1000), 4000)
+        if expanded_limit > limit:
+            return probe_proactive_source_coverage(
+                principal_id=principal_id,
+                compose_file=effective_compose_file,
+                runtime_service=effective_runtime_service,
+                observation_limit=expanded_limit,
+                    timeout_seconds=timeout_seconds,
+                    output_format=output_format,
+                )
+    finalized_report = dict(report)
+    if str(finalized_report.get("status") or "").strip() == "repaired":
+        finalized_report["status"] = "ready"
+    return _finalize_proactive_source_coverage_report(finalized_report, output_format=output_format)
 
 
 def _pocket_transcript_sync_next_action(reason: str) -> str:
@@ -5577,9 +11927,10 @@ def send_telegram_document(
             "source": "runtime_container_exec:telegram_delivery.send_telegram_document_for_principal",
         }
     if dry_run:
+        readiness_timeout_seconds = _telegram_dry_run_timeout_seconds(effective_timeout_seconds)
         readiness = probe_telegram_readiness(
             principal_id=normalized_principal_id,
-            timeout_seconds=effective_timeout_seconds,
+            timeout_seconds=readiness_timeout_seconds,
             output_format="json",
         )
         return {
@@ -5591,6 +11942,10 @@ def send_telegram_document(
             "readiness_reason": str(readiness.get("reason") or "").strip(),
             "principal_id": str(readiness.get("principal_id") or normalized_principal_id).strip(),
             "binding_id": str(readiness.get("binding_id") or "").strip(),
+            "next_action": str(readiness.get("next_action") or "").strip(),
+            "next_action_href": str(readiness.get("next_action_href") or "").strip(),
+            "next_action_label": str(readiness.get("next_action_label") or "").strip(),
+            "next_action_method": str(readiness.get("next_action_method") or "").strip(),
             "chat_ref_present": bool(readiness.get("chat_ref_present")),
             "chat_ref_sha256": str(readiness.get("chat_ref_sha256") or "").strip(),
             "bot_key": str(readiness.get("bot_key") or "").strip(),
@@ -5701,6 +12056,7 @@ def probe_whatsapp_pairing(
     dry_run: bool = False,
     write_qr_svg: bool = True,
     output_dir: str = "",
+    telegram_operator_streams: tuple[str, ...] | str | None = None,
 ) -> dict[str, object]:
     observed_at = _utc_now()
     binding, binding_lookup_error = _safe_load_whatsapp_binding(args)
@@ -5771,6 +12127,8 @@ def probe_whatsapp_pairing(
         "status": status,
         "ready": ready,
         "reason": reason,
+        "operator_stream": OPERATOR_STREAM_MEDIA_MEMORIAL,
+        "allowed_operator_streams": list(_effective_telegram_operator_streams(telegram_operator_streams)),
         "next_action": next_action,
         "session_ref": session_ref,
         **_binding_lookup_report_fields(
@@ -5811,6 +12169,7 @@ def probe_whatsapp_pairing(
         report["next_action_method"] = "get" if action_href else ""
 
     if send_telegram_to_principal:
+        allowed_operator_streams = _effective_telegram_operator_streams(telegram_operator_streams)
         pair_url_scope = str(report["pair_url_scope"])
         caption = _whatsapp_pairing_telegram_caption(
             session_ref=session_ref,
@@ -5819,7 +12178,19 @@ def probe_whatsapp_pairing(
             pair_url=pair_url,
             pair_url_scope=pair_url_scope,
         )
-        if not qr_svg_written:
+        if not _telegram_operator_stream_allowed(
+            OPERATOR_STREAM_MEDIA_MEMORIAL,
+            allowed_operator_streams=allowed_operator_streams,
+        ):
+            telegram = _suppressed_telegram_delivery(
+                principal_id=str(send_telegram_to_principal or "").strip(),
+                operator_stream=OPERATOR_STREAM_MEDIA_MEMORIAL,
+                allowed_operator_streams=allowed_operator_streams,
+                observed_at=observed_at,
+                source="whatsapp_web_session_sidecar.qr",
+                delivery_transport="telegram_bot_document",
+            )
+        elif not qr_svg_written:
             telegram = {
                 "sent": False,
                 "reason": qr_svg_error or "qr_svg_not_written",
@@ -5860,6 +12231,38 @@ OPERATOR_READINESS_DETAIL_FIELDS: dict[str, tuple[str, ...]] = {
         "bot_handle",
         "bot_token_present",
         "runtime_container",
+    ),
+    "google_workspace_oauth": (
+        "scope_bundle",
+        "expected_google_email_present",
+        "expected_google_domain",
+        "observed_google_email_present",
+        "observed_google_domain",
+        "observed_google_account_matches_expected",
+        "runtime_expected_google_email_present",
+        "console_deep_link",
+        "next_action_href",
+        "next_action_label",
+        "next_action_method",
+        "last_receipt_status",
+        "last_receipt_reason",
+        "last_receipt_observed_at",
+        "last_receipt_source",
+        "last_receipt_age_seconds",
+        "last_receipt_max_age_seconds",
+        "last_receipt_fresh",
+    ),
+    "pushbullet": (
+        "account_label",
+        "account_label_basis",
+        "required_client_keys",
+        "configured_required_client_count",
+        "token_present_required_client_count",
+        "missing_client_keys",
+        "missing_token_keys",
+        "next_action_href",
+        "next_action_label",
+        "next_action_method",
     ),
     "whatsapp": (
         "effective_session_ref",
@@ -5904,9 +12307,75 @@ OPERATOR_READINESS_DETAIL_FIELDS: dict[str, tuple[str, ...]] = {
         "missing_artifact_count",
         "wrong_mode_count",
         "different_hash_count",
+        "different_hash_key_samples",
         "missing_secret_value_count",
         "extra_restorable_count",
         "uncovered_local_secret_file_count",
+    ),
+    "mymedia_alexa": (
+        "container_name",
+        "container_running",
+        "container_state_status",
+        "data_mount_present",
+        "preferences_present",
+        "messages_present",
+        "api_reachable",
+        "pairing_ready",
+        "remote_access_mode",
+        "public_ip_present",
+        "connection_status",
+        "watch_folder_count",
+        "watch_folder_states",
+        "watch_folder_error_count",
+        "tracks",
+        "albums",
+        "artists",
+        "genres",
+        "library_scan_pending",
+        "library_scan_blocked_by_pairing",
+        "message_count",
+        "message_warning_count",
+        "message_error_count",
+        "web_base_url_scope",
+    ),
+    "mymedia_pairing_telegram": (
+        "principal_id",
+        "surface_kind",
+        "site",
+        "otp_channel",
+        "phone_suffix",
+        "pairing_resume_ready",
+        "pairing_session_pending",
+        "pairing_session_stale",
+        "pairing_session_age_seconds",
+        "delivery_transport",
+        "telegram_delivery_ready",
+        "delivery_status",
+        "delivery_reason",
+        "bot_handle",
+        "chat_ref_present",
+        "chat_ref_sha256",
+    ),
+    "sonarr_tv_season": (
+        "series_id",
+        "series_title",
+        "season_number",
+        "season_monitored",
+        "series_monitored",
+        "season_episode_count",
+        "season_episode_file_count",
+        "missing_episode_numbers",
+        "media_info_missing_count",
+        "media_info_missing_episode_numbers",
+        "unreadable_episode_count",
+        "unreadable_episode_numbers",
+        "episode_file_probe_method",
+        "metadata_queue_count",
+        "metadata_queue_episode_numbers",
+        "stale_metadata_queue_count",
+        "staging_candidate_count",
+        "selected_staging_candidate_name",
+        "selected_staging_candidate_cover_count",
     ),
     "proactive_route": (
         "principal_id",
@@ -5937,20 +12406,47 @@ OPERATOR_READINESS_DETAIL_FIELDS: dict[str, tuple[str, ...]] = {
 
 OPERATOR_READINESS_READY_STATUSES: dict[str, set[str]] = {
     "telegram": {"ready"},
+    "google_workspace_oauth": {"pass", "ready_manual_console_check"},
+    "pushbullet": {"ready_configured", "ready_live_verified"},
     "whatsapp": {"ready"},
     "whatsapp_pairing": {"ready"},
     "teable_recovery": {"ready"},
+    "mymedia_alexa": {"ready", "ready_library_scan_in_progress"},
+    "mymedia_pairing_telegram": {"ready"},
+    "sonarr_tv_season": {"ready", "ready_with_recovery_action"},
     "proactive_route": {"ready", "ready_with_recovery_action"},
     "proactive_artifacts": {"ok"},
 }
 
 OPERATOR_READINESS_STABLE_STATUSES: dict[str, set[str]] = {
     "telegram": {"ready"},
+    "google_workspace_oauth": {"pass", "ready_manual_console_check"},
+    "pushbullet": {"ready_configured", "ready_live_verified"},
     "whatsapp": {"ready"},
     "whatsapp_pairing": {"ready"},
     "teable_recovery": {"ready"},
+    "mymedia_alexa": {"ready", "ready_library_scan_in_progress"},
+    "mymedia_pairing_telegram": {"ready"},
+    "sonarr_tv_season": {"ready"},
     "proactive_route": {"ready"},
     "proactive_artifacts": {"ok"},
+}
+
+OPERATOR_READINESS_NON_BLOCKING_ATTENTION_STATUSES: dict[str, set[str]] = {
+    "pushbullet": {"blocked_setup_required"},
+    "mymedia_pairing_telegram": {"suppressed_by_stream_policy"},
+}
+
+OPERATOR_READINESS_ROUTE_SCOPED_COMPONENT_CHANNELS: dict[str, tuple[str, ...]] = {
+    "pushbullet": ("pushbullet",),
+    "whatsapp": ("whatsapp",),
+    "whatsapp_pairing": ("whatsapp",),
+}
+
+OPERATOR_READINESS_ROUTE_SCOPED_DEFAULT_STEERING: dict[str, bool] = {
+    "pushbullet": False,
+    "whatsapp": True,
+    "whatsapp_pairing": True,
 }
 
 
@@ -6012,6 +12508,99 @@ def _operator_readiness_failed_component(key: str, label: str, reason: str) -> d
     }
 
 
+def _operator_readiness_run_component(
+    key: str,
+    label: str,
+    callback: Any,
+) -> tuple[dict[str, object], dict[str, object]]:
+    try:
+        report = callback()
+        normalized_report = dict(report) if isinstance(report, Mapping) else {}
+        component = _operator_readiness_component(key=key, label=label, report=normalized_report)
+        return component, normalized_report
+    except Exception as exc:
+        return _operator_readiness_failed_component(key, label, type(exc).__name__), {}
+
+
+def _collect_operator_readiness_components(
+    component_specs: list[tuple[str, str, Any]],
+    *,
+    per_component_timeout_seconds: float | None = None,
+) -> tuple[list[dict[str, object]], dict[str, dict[str, object]]]:
+    if not component_specs:
+        return [], {}
+    normalized_timeout: float | None = None
+    if per_component_timeout_seconds is not None:
+        try:
+            normalized_timeout = max(float(per_component_timeout_seconds), 0.05)
+        except (TypeError, ValueError):
+            normalized_timeout = 0.05
+    if normalized_timeout is None and len(component_specs) == 1:
+        key, label, callback = component_specs[0]
+        component, report = _operator_readiness_run_component(key, label, callback)
+        return [component], {key: {"component": component, "report": report}}
+    if normalized_timeout is not None:
+        started_at = time.monotonic()
+        slots: dict[str, dict[str, object]] = {}
+        for key, label, callback in component_specs:
+            finished = threading.Event()
+            slot: dict[str, object] = {"finished": finished, "value": None}
+
+            def _runner(
+                target_key: str = key,
+                target_label: str = label,
+                target_callback: Any = callback,
+                target_slot: dict[str, object] = slot,
+                target_finished: threading.Event = finished,
+            ) -> None:
+                try:
+                    target_slot["value"] = _operator_readiness_run_component(target_key, target_label, target_callback)
+                finally:
+                    target_finished.set()
+
+            thread = threading.Thread(
+                target=_runner,
+                name=f"ea-operator-readiness-{key}",
+                daemon=True,
+            )
+            slot["thread"] = thread
+            slots[key] = slot
+            thread.start()
+
+        deadline = started_at + normalized_timeout
+        components: list[dict[str, object]] = []
+        results_by_key: dict[str, dict[str, object]] = {}
+        for key, label, _callback in component_specs:
+            slot = slots[key]
+            finished = slot["finished"]
+            assert isinstance(finished, threading.Event)
+            remaining = max(0.0, deadline - time.monotonic())
+            if finished.wait(remaining):
+                value = slot.get("value")
+                if isinstance(value, tuple) and len(value) == 2:
+                    component, report = value
+                else:
+                    component, report = _operator_readiness_failed_component(key, label, "probe_failed"), {}
+            else:
+                component, report = _operator_readiness_failed_component(key, label, "probe_timeout"), {}
+            components.append(component)
+            results_by_key[key] = {"component": component, "report": report}
+        return components, results_by_key
+
+    results_by_key: dict[str, dict[str, object]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(component_specs), 8)) as executor:
+        futures = {
+            key: executor.submit(_operator_readiness_run_component, key, label, callback)
+            for key, label, callback in component_specs
+        }
+        components: list[dict[str, object]] = []
+        for key, _label, _callback in component_specs:
+            component, report = futures[key].result()
+            components.append(component)
+            results_by_key[key] = {"component": component, "report": report}
+    return components, results_by_key
+
+
 def _operator_readiness_component_requires_attention(component: Mapping[str, object]) -> bool:
     if not bool(component.get("probe_ok")):
         return True
@@ -6023,124 +12612,159 @@ def _operator_readiness_component_requires_attention(component: Mapping[str, obj
     return status not in stable_statuses
 
 
-def _operator_text_for_operator_readiness(report: Mapping[str, object]) -> str:
-    components = [dict(item) for item in list(report.get("components") or []) if isinstance(item, dict)]
-    component_states = ",".join(
-        f"{item.get('key')}:{item.get('status')}" for item in components if str(item.get("key") or "").strip()
-    )
-    pieces = [
-        f"operator_readiness status={report.get('status') or 'unknown'}",
-        f"ready={str(bool(report.get('ready'))).lower()}",
-        f"components={len(components)}",
-        f"attention={int(report.get('attention_required_count') or 0)}",
-        f"blocked={int(report.get('blocked_count') or 0)}",
-        f"probe_failed={int(report.get('probe_failed_count') or 0)}",
-    ]
-    if component_states:
-        pieces.append(f"states={component_states}")
-    next_actions = [dict(item) for item in list(report.get("next_actions") or []) if isinstance(item, dict)]
-    if next_actions:
-        first = next_actions[0]
-        pieces.append(f"next={first.get('component_key')}:{first.get('action')}")
-    if report.get("observed_at"):
-        pieces.append(f"observed_at={report['observed_at']}")
-    if report.get("source"):
-        pieces.append(f"source={report['source']}")
-    return "; ".join(str(item) for item in pieces if str(item).strip())
-
-
-def probe_operator_readiness(
-    *,
-    args: argparse.Namespace,
-    telegram_principal_id: str,
-    proactive_principal_id: str,
-    compose_file: str = "",
-    runtime_service: str = "",
-    receipt_path: str = "",
-    timeout_seconds: float = 30.0,
-    include_proactive: bool = True,
-    include_pairing: bool = True,
-    output_format: str = "json",
-) -> dict[str, object]:
-    observed_at = _utc_now()
-    components: list[dict[str, object]] = []
-
-    def append_component(key: str, label: str, callback: Any) -> dict[str, object]:
-        try:
-            report = callback()
-            component = _operator_readiness_component(key=key, label=label, report=report if isinstance(report, Mapping) else {})
-        except Exception as exc:
-            component = _operator_readiness_failed_component(key, label, type(exc).__name__)
-        components.append(component)
-        return component
-
-    append_component(
-        "telegram",
-        "Telegram operator delivery",
-        lambda: probe_telegram_readiness(
-            principal_id=str(telegram_principal_id or "").strip(),
-            timeout_seconds=timeout_seconds,
-            output_format="json",
-        ),
-    )
-    whatsapp_component = append_component(
-        "whatsapp",
-        "WhatsApp Web action processor",
-        lambda: probe_whatsapp_readiness(refresh=True, output_format="json", volatile=True),
-    )
-    if include_pairing and (
-        not bool(whatsapp_component.get("ready"))
-        or bool(dict(whatsapp_component.get("details") or {}).get("sidecar_qr_required"))
-        or bool(dict(whatsapp_component.get("details") or {}).get("sidecar_qr_present"))
-    ):
-        append_component(
-            "whatsapp_pairing",
-            "WhatsApp Web pairing recovery",
-            lambda: probe_whatsapp_pairing(
-                args=args,
-                output_format="json",
-                write_qr_svg=True,
-            ),
-        )
-    append_component(
-        "teable_recovery",
-        "Teable env recovery",
-        lambda: probe_teable_recovery(output_format="json", timeout_seconds=timeout_seconds),
-    )
-    if include_proactive:
-        append_component(
-            "proactive_route",
-            "Proactive OODA delivery route",
-            lambda: probe_proactive_route(
-                principal_id=str(proactive_principal_id or "").strip(),
-                compose_file=str(compose_file or "").strip(),
-                runtime_service=str(runtime_service or "").strip(),
-                receipt_path=str(receipt_path or "").strip(),
-                timeout_seconds=timeout_seconds,
-                output_format="json",
-            ),
-        )
-        append_component(
-            "proactive_artifacts",
-            "Proactive OODA artifacts",
-            lambda: probe_proactive_artifacts(
-                compose_file=str(compose_file or "").strip(),
-                runtime_service=str(runtime_service or "").strip(),
-                timeout_seconds=timeout_seconds,
-                output_format="json",
-            ),
-        )
-
-    probe_failed_count = sum(1 for item in components if not bool(item.get("probe_ok")))
-    blocked_count = sum(1 for item in components if bool(item.get("probe_ok")) and not bool(item.get("ready")))
-    attention_required_count = sum(1 for item in components if _operator_readiness_component_requires_attention(item))
-    has_pairing_qr_action = any(
+def _operator_readiness_pairing_qr_recovery_present(components: Sequence[Mapping[str, object]]) -> bool:
+    return any(
         str(item.get("key") or "").strip() == "whatsapp_pairing"
         and str(item.get("next_action") or "").strip() == "scan_whatsapp_web_qr"
         for item in components
     )
-    next_actions = []
-    for item in components:
+
+
+def _operator_readiness_suppressed_keys(components: Sequence[Mapping[str, object]]) -> set[str]:
+    if not _operator_readiness_pairing_qr_recovery_present(components):
+        return set()
+    return {
+        str(item.get("key") or "").strip()
+        for item in components
+        if str(item.get("key") or "").strip() == "whatsapp"
+        and str(item.get("next_action") or "").strip() == "scan_whatsapp_web_qr"
+    }
+
+
+def _operator_readiness_effective_components(
+    components: Sequence[Mapping[str, object]],
+) -> list[Mapping[str, object]]:
+    hidden = _operator_readiness_suppressed_keys(components)
+    return [
+        item
+        for item in components
+        if str(item.get("key") or "").strip() and str(item.get("key") or "").strip() not in hidden
+    ]
+
+
+def _operator_readiness_selected_delivery_route(
+    components: Sequence[Mapping[str, object]],
+) -> tuple[str, str]:
+    for item in _operator_readiness_effective_components(components):
+        if str(item.get("key") or "").strip() != "proactive_route":
+            continue
+        details = dict(item.get("details") or {})
+        selected_channel = str(details.get("selected_channel") or "").strip().lower()
+        selected_transport = str(details.get("selected_transport") or "").strip().lower()
+        if selected_channel or selected_transport:
+            return selected_channel, selected_transport
+    return "", ""
+
+
+def _operator_readiness_component_can_steer(
+    component: Mapping[str, object],
+    components: Sequence[Mapping[str, object]],
+) -> bool:
+    key = str(component.get("key") or "").strip()
+    if not key:
+        return False
+    scoped_channels = OPERATOR_READINESS_ROUTE_SCOPED_COMPONENT_CHANNELS.get(key, ())
+    if not scoped_channels:
+        return True
+    selected_channel, selected_transport = _operator_readiness_selected_delivery_route(components)
+    if selected_channel or selected_transport:
+        return any(
+            selected_channel == scoped_channel or scoped_channel in selected_transport
+            for scoped_channel in scoped_channels
+        )
+    return OPERATOR_READINESS_ROUTE_SCOPED_DEFAULT_STEERING.get(key, True)
+
+
+def _operator_readiness_steering_components(
+    components: Sequence[Mapping[str, object]],
+) -> list[Mapping[str, object]]:
+    effective = _operator_readiness_effective_components(components)
+    return [item for item in effective if _operator_readiness_component_can_steer(item, effective)]
+
+
+def _operator_readiness_supplemental_components(
+    components: Sequence[Mapping[str, object]],
+) -> list[Mapping[str, object]]:
+    effective = _operator_readiness_effective_components(components)
+    return [item for item in effective if not _operator_readiness_component_can_steer(item, effective)]
+
+
+def _operator_readiness_component_counts_as_blocked(component: Mapping[str, object]) -> bool:
+    if not bool(component.get("probe_ok")) or bool(component.get("ready")):
+        return False
+    key = str(component.get("key") or "").strip()
+    status = str(component.get("status") or "").strip()
+    if status in OPERATOR_READINESS_NON_BLOCKING_ATTENTION_STATUSES.get(key, set()):
+        return False
+    return True
+
+
+def _operator_readiness_blocked_component_keys(
+    components: Sequence[Mapping[str, object]],
+) -> list[str]:
+    return [
+        str(item.get("key") or "").strip()
+        for item in _operator_readiness_steering_components(components)
+        if _operator_readiness_component_counts_as_blocked(item)
+    ]
+
+
+def _operator_readiness_attention_component_keys(
+    components: Sequence[Mapping[str, object]],
+) -> list[str]:
+    return [
+        str(item.get("key") or "").strip()
+        for item in _operator_readiness_steering_components(components)
+        if _operator_readiness_component_requires_attention(item)
+    ]
+
+
+def _operator_readiness_probe_failed_component_keys(
+    components: Sequence[Mapping[str, object]],
+) -> list[str]:
+    return [
+        str(item.get("key") or "").strip()
+        for item in _operator_readiness_steering_components(components)
+        if not bool(item.get("probe_ok"))
+    ]
+
+
+def _operator_readiness_supplemental_blocked_component_keys(
+    components: Sequence[Mapping[str, object]],
+) -> list[str]:
+    return [
+        str(item.get("key") or "").strip()
+        for item in _operator_readiness_supplemental_components(components)
+        if _operator_readiness_component_counts_as_blocked(item)
+    ]
+
+
+def _operator_readiness_supplemental_attention_component_keys(
+    components: Sequence[Mapping[str, object]],
+) -> list[str]:
+    return [
+        str(item.get("key") or "").strip()
+        for item in _operator_readiness_supplemental_components(components)
+        if _operator_readiness_component_requires_attention(item)
+    ]
+
+
+def _operator_readiness_supplemental_probe_failed_component_keys(
+    components: Sequence[Mapping[str, object]],
+) -> list[str]:
+    return [
+        str(item.get("key") or "").strip()
+        for item in _operator_readiness_supplemental_components(components)
+        if not bool(item.get("probe_ok"))
+    ]
+
+
+def _operator_readiness_next_actions(
+    components: Sequence[Mapping[str, object]],
+) -> list[dict[str, str]]:
+    has_pairing_qr_action = _operator_readiness_pairing_qr_recovery_present(components)
+    next_actions: list[dict[str, str]] = []
+    for item in _operator_readiness_steering_components(components):
         if not _operator_readiness_component_requires_attention(item):
             continue
         component_key = str(item.get("key") or "").strip()
@@ -6160,6 +12784,342 @@ def probe_operator_readiness(
                 "method": str(item.get("next_action_method") or "").strip(),
             }
         )
+    return next_actions
+
+
+def _operator_readiness_supplemental_next_actions(
+    components: Sequence[Mapping[str, object]],
+) -> list[dict[str, str]]:
+    has_pairing_qr_action = _operator_readiness_pairing_qr_recovery_present(components)
+    next_actions: list[dict[str, str]] = []
+    for item in _operator_readiness_supplemental_components(components):
+        if not _operator_readiness_component_requires_attention(item):
+            continue
+        component_key = str(item.get("key") or "").strip()
+        action = str(item.get("next_action") or "").strip()
+        if not action:
+            continue
+        if has_pairing_qr_action and component_key == "whatsapp" and action == "scan_whatsapp_web_qr":
+            continue
+        next_actions.append(
+            {
+                "component_key": component_key,
+                "component_label": str(item.get("label") or "").strip(),
+                "action": action,
+                "reason": str(item.get("reason") or "").strip(),
+                "href": str(item.get("next_action_href") or "").strip(),
+                "label": str(item.get("next_action_label") or "").strip(),
+                "method": str(item.get("next_action_method") or "").strip(),
+            }
+        )
+    return next_actions
+
+
+def _operator_text_for_operator_readiness(report: Mapping[str, object]) -> str:
+    components = [dict(item) for item in list(report.get("components") or []) if isinstance(item, dict)]
+    displayed_states = []
+    for item in _operator_readiness_steering_components(components):
+        key = str(item.get("key") or "").strip()
+        status = str(item.get("status") or "").strip()
+        if key == "proactive_route" and status == "ready_with_recovery_action":
+            status = "ready"
+        if key and key != "teable_recovery":
+            displayed_states.append(f"{key}:{status}")
+    displayed_supplemental_states = []
+    for item in _operator_readiness_supplemental_components(components):
+        key = str(item.get("key") or "").strip()
+        status = str(item.get("status") or "").strip()
+        if key == "proactive_route" and status == "ready_with_recovery_action":
+            status = "ready"
+        if key:
+            displayed_supplemental_states.append(f"{key}:{status}")
+    steering_states = ",".join(
+        displayed_states
+    )
+    supplemental_states = ",".join(
+        displayed_supplemental_states
+    )
+    pieces = [
+        f"operator_readiness status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+        f"components={len(components)}",
+        f"attention={int(report.get('attention_required_count') or 0)}",
+        f"blocked={int(report.get('blocked_count') or 0)}",
+        f"probe_failed={int(report.get('probe_failed_count') or 0)}",
+    ]
+    supplemental_attention_count = int(report.get("supplemental_attention_count") or 0)
+    supplemental_blocked_count = int(report.get("supplemental_blocked_count") or 0)
+    supplemental_probe_failed_count = int(report.get("supplemental_probe_failed_count") or 0)
+    if supplemental_attention_count or supplemental_blocked_count or supplemental_probe_failed_count:
+        pieces.extend(
+            [
+                f"supplemental_attention={supplemental_attention_count}",
+                f"supplemental_blocked={supplemental_blocked_count}",
+                f"supplemental_probe_failed={supplemental_probe_failed_count}",
+            ]
+        )
+    if steering_states:
+        pieces.append(f"states={steering_states}")
+    if supplemental_states:
+        pieces.append(f"supplemental_states={supplemental_states}")
+    next_actions = [dict(item) for item in list(report.get("next_actions") or []) if isinstance(item, dict)]
+    if next_actions:
+        first = next_actions[0]
+        pieces.append(f"next={first.get('component_key')}:{first.get('action')}")
+    supplemental_next_actions = [
+        dict(item) for item in list(report.get("supplemental_next_actions") or []) if isinstance(item, dict)
+    ]
+    if supplemental_next_actions:
+        first = supplemental_next_actions[0]
+        pieces.append(f"supplemental_next={first.get('component_key')}:{first.get('action')}")
+    if report.get("observed_at"):
+        pieces.append(f"observed_at={report['observed_at']}")
+    if report.get("source"):
+        pieces.append(f"source={report['source']}")
+    return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def _operator_readiness_int_value(value: object, *, default: int = 0) -> int:
+    text = str(value or "").strip()
+    if not text:
+        return int(default)
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _operator_readiness_sonarr_target(
+    *,
+    series_id: int | str | None = 0,
+    series_title: str = "",
+    season_number: int | str | None = 0,
+) -> dict[str, object]:
+    effective_series_id = _operator_readiness_int_value(
+        series_id if series_id not in (None, "") else _env("EA_OPERATOR_READINESS_SONARR_SERIES_ID", "0"),
+        default=0,
+    )
+    effective_series_title = str(
+        series_title if str(series_title or "").strip() else _env("EA_OPERATOR_READINESS_SONARR_SERIES_TITLE", "")
+    ).strip()
+    effective_season_number = _operator_readiness_int_value(
+        season_number if season_number not in (None, "") else _env("EA_OPERATOR_READINESS_SONARR_SEASON_NUMBER", "0"),
+        default=0,
+    )
+    enabled = effective_season_number > 0 and (effective_series_id > 0 or bool(effective_series_title))
+    return {
+        "enabled": enabled,
+        "series_id": effective_series_id,
+        "series_title": effective_series_title,
+        "season_number": effective_season_number,
+    }
+
+
+def probe_operator_readiness(
+    *,
+    args: argparse.Namespace,
+    telegram_principal_id: str,
+    proactive_principal_id: str,
+    compose_file: str = "",
+    runtime_service: str = "",
+    receipt_path: str = "",
+    timeout_seconds: float = 30.0,
+    include_proactive: bool = True,
+    include_pairing: bool = True,
+    sonarr_series_id: int | str | None = 0,
+    sonarr_series_title: str = "",
+    sonarr_season_number: int | str | None = 0,
+    output_format: str = "json",
+    telegram_operator_streams: tuple[str, ...] | str | None = None,
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    components: list[dict[str, object]] = []
+    sonarr_target = _operator_readiness_sonarr_target(
+        series_id=sonarr_series_id,
+        series_title=sonarr_series_title,
+        season_number=sonarr_season_number,
+    )
+    expected_google_email = _default_google_workspace_expected_email()
+    google_context = _google_workspace_oauth_probe_context_from_receipt()
+    base_component_specs: list[tuple[str, str, Any]] = [
+        (
+            "telegram",
+            "Telegram operator delivery",
+            lambda: probe_telegram_readiness(
+                principal_id=str(telegram_principal_id or "").strip(),
+                timeout_seconds=timeout_seconds,
+                output_format="json",
+            ),
+        ),
+        (
+            "google_workspace_oauth",
+            "Google Workspace OAuth",
+            lambda: (
+                probe_google_workspace_oauth(
+                    expected_google_email=expected_google_email,
+                    scope_bundle=str(google_context.get("scope_bundle") or google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE).strip()
+                    or google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE,
+                    observed_error=str(google_context.get("observed_error") or "").strip(),
+                    observed_google_email=(
+                        expected_google_email
+                        if str(google_context.get("observed_google_email") or "").strip() == "__expected__"
+                        else str(google_context.get("observed_google_email") or "").strip()
+                    ),
+                    test_user_confirmed=bool(google_context.get("test_user_confirmed")),
+                    probe_gcloud=True,
+                    timeout_seconds=timeout_seconds,
+                    output_format="json",
+                    telegram_operator_streams=telegram_operator_streams,
+                )
+                if "@" in expected_google_email
+                else _probe_google_workspace_oauth_without_runtime_expected_email(
+                    scope_bundle=str(google_context.get("scope_bundle") or google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE).strip()
+                    or google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE,
+                    observed_error=str(google_context.get("observed_error") or "").strip(),
+                    observed_google_email=str(google_context.get("observed_google_email") or "").strip(),
+                    test_user_confirmed=bool(google_context.get("test_user_confirmed")),
+                    timeout_seconds=timeout_seconds,
+                )
+            ),
+        ),
+        (
+            "pushbullet",
+            "Pushbullet operator delivery",
+            lambda: probe_pushbullet_delivery(
+                timeout_seconds=timeout_seconds,
+                output_format="json",
+            ),
+        ),
+        (
+            "whatsapp",
+            "WhatsApp Web action processor",
+            lambda: probe_whatsapp_readiness(refresh=True, output_format="json", volatile=True),
+        ),
+        (
+            "teable_recovery",
+            "Teable env recovery",
+            lambda: probe_teable_recovery(output_format="json", timeout_seconds=timeout_seconds),
+        ),
+        (
+            "mymedia_alexa",
+            "My Media for Alexa",
+            lambda: probe_mymedia_alexa(
+                timeout_seconds=timeout_seconds,
+                output_format="json",
+            ),
+        ),
+    ]
+    if bool(sonarr_target.get("enabled")):
+        base_component_specs.append(
+            (
+                "sonarr_tv_season",
+                "Sonarr TV season import",
+                lambda: probe_sonarr_tv_season(
+                    series_id=int(sonarr_target.get("series_id") or 0),
+                    series_title=str(sonarr_target.get("series_title") or "").strip(),
+                    season_number=int(sonarr_target.get("season_number") or 0),
+                    timeout_seconds=timeout_seconds,
+                    output_format="json",
+                ),
+            )
+        )
+    if include_proactive:
+        base_component_specs.extend(
+            [
+                (
+                    "proactive_route",
+                    "Proactive OODA delivery route",
+                    lambda: probe_proactive_route(
+                        principal_id=str(proactive_principal_id or "").strip(),
+                        compose_file=str(compose_file or "").strip(),
+                        runtime_service=str(runtime_service or "").strip(),
+                        receipt_path=str(receipt_path or "").strip(),
+                        timeout_seconds=timeout_seconds,
+                        output_format="json",
+                    ),
+                ),
+                (
+                    "proactive_artifacts",
+                    "Proactive OODA artifacts",
+                    lambda: probe_proactive_artifacts(
+                        compose_file=str(compose_file or "").strip(),
+                        runtime_service=str(runtime_service or "").strip(),
+                        timeout_seconds=timeout_seconds,
+                        output_format="json",
+                    ),
+                ),
+            ]
+        )
+    _base_components, component_results = _collect_operator_readiness_components(
+        base_component_specs,
+        per_component_timeout_seconds=max(float(timeout_seconds or 30.0), 1.0) + 2.0,
+    )
+
+    pairing_components: dict[str, dict[str, object]] = {}
+    whatsapp_component = dict(dict(component_results.get("whatsapp") or {}).get("component") or {})
+    if include_pairing and (
+        not bool(whatsapp_component.get("ready"))
+        or bool(dict(whatsapp_component.get("details") or {}).get("sidecar_qr_required"))
+        or bool(dict(whatsapp_component.get("details") or {}).get("sidecar_qr_present"))
+    ):
+        component, _report = _operator_readiness_run_component(
+            "whatsapp_pairing",
+            "WhatsApp Web pairing recovery",
+            lambda: probe_whatsapp_pairing(
+                args=args,
+                output_format="json",
+                write_qr_svg=True,
+                telegram_operator_streams=telegram_operator_streams,
+            ),
+        )
+        pairing_components["whatsapp_pairing"] = component
+    mymedia_report = dict(dict(component_results.get("mymedia_alexa") or {}).get("report") or {})
+    if include_pairing and _mymedia_pairing_requires_telegram_handoff(mymedia_report):
+        component, _report = _operator_readiness_run_component(
+            "mymedia_pairing_telegram",
+            "My Media pairing Telegram handoff",
+            lambda: probe_mymedia_pairing_telegram_readiness(
+                principal_id=str(telegram_principal_id or "").strip(),
+                timeout_seconds=timeout_seconds,
+                output_format="json",
+                telegram_operator_streams=telegram_operator_streams,
+            ),
+        )
+        pairing_components["mymedia_pairing_telegram"] = component
+
+    ordered_keys = [
+        "telegram",
+        "google_workspace_oauth",
+        "pushbullet",
+        "whatsapp",
+        "whatsapp_pairing",
+        "teable_recovery",
+        "mymedia_alexa",
+        "mymedia_pairing_telegram",
+        "sonarr_tv_season",
+        "proactive_route",
+        "proactive_artifacts",
+    ]
+    components = []
+    for key in ordered_keys:
+        if key in pairing_components:
+            components.append(pairing_components[key])
+            continue
+        component = dict(dict(component_results.get(key) or {}).get("component") or {})
+        if component:
+            components.append(component)
+
+    probe_failed_component_keys = _operator_readiness_probe_failed_component_keys(components)
+    blocked_component_keys = _operator_readiness_blocked_component_keys(components)
+    attention_component_keys = _operator_readiness_attention_component_keys(components)
+    supplemental_probe_failed_component_keys = _operator_readiness_supplemental_probe_failed_component_keys(components)
+    supplemental_blocked_component_keys = _operator_readiness_supplemental_blocked_component_keys(components)
+    supplemental_attention_component_keys = _operator_readiness_supplemental_attention_component_keys(components)
+    probe_failed_count = len(probe_failed_component_keys)
+    blocked_count = len(blocked_component_keys)
+    attention_required_count = len(attention_component_keys)
+    next_actions = _operator_readiness_next_actions(components)
+    supplemental_next_actions = _operator_readiness_supplemental_next_actions(components)
     if probe_failed_count:
         status = "probe_failed"
     elif attention_required_count:
@@ -6175,16 +13135,153 @@ def probe_operator_readiness(
         "attention_required_count": attention_required_count,
         "blocked_count": blocked_count,
         "probe_failed_count": probe_failed_count,
+        "supplemental_attention_count": len(supplemental_attention_component_keys),
+        "supplemental_blocked_count": len(supplemental_blocked_component_keys),
+        "supplemental_probe_failed_count": len(supplemental_probe_failed_component_keys),
+        "sonarr_target_enabled": bool(sonarr_target.get("enabled")),
+        "sonarr_target_series_id": int(sonarr_target.get("series_id") or 0),
+        "sonarr_target_series_title": str(sonarr_target.get("series_title") or "").strip(),
+        "sonarr_target_season_number": int(sonarr_target.get("season_number") or 0),
+        "allowed_operator_streams": list(_effective_telegram_operator_streams(telegram_operator_streams)),
         "components": components,
+        "steering_component_keys": [
+            str(item.get("key") or "").strip()
+            for item in _operator_readiness_steering_components(components)
+            if str(item.get("key") or "").strip()
+        ],
         "next_actions": next_actions,
         "next_action_href": str(next_actions[0].get("href") or "").strip() if next_actions else "",
         "next_action_label": str(next_actions[0].get("label") or "").strip() if next_actions else "",
         "next_action_method": str(next_actions[0].get("method") or "").strip() if next_actions else "",
+        "supplemental_attention_component_keys": supplemental_attention_component_keys,
+        "supplemental_blocked_component_keys": supplemental_blocked_component_keys,
+        "supplemental_probe_failed_component_keys": supplemental_probe_failed_component_keys,
+        "supplemental_next_actions": supplemental_next_actions,
         "observed_at": observed_at,
         "source": "ea_live_ops.aggregate",
     }
+    public_report = _operator_readiness_public_report(report)
     if output_format == "operator":
-        report["operator_text"] = _operator_text_for_operator_readiness(report)
+        public_report["operator_text"] = _operator_text_for_operator_readiness(public_report)
+    return public_report
+
+
+def _mymedia_pairing_requires_telegram_handoff(report: Mapping[str, object]) -> bool:
+    status = str(report.get("status") or "").strip()
+    next_action = str(report.get("next_action") or "").strip()
+    surface_kind = str(
+        report.get("pairing_session_surface_kind") or report.get("surface_kind") or ""
+    ).strip()
+    return bool(
+        status == "blocked_pairing_required"
+        and next_action in {"enter_mymedia_amazon_pairing_code", "approve_mymedia_amazon_consent"}
+        and bool(report.get("pairing_resume_ready"))
+        and (
+            bool(report.get("pairing_session_pending"))
+            or surface_kind in {"waiting_for_code", "consent_required"}
+        )
+    )
+
+
+def probe_mymedia_pairing_telegram_readiness(
+    *,
+    principal_id: str,
+    timeout_seconds: float = 30.0,
+    output_format: str = "json",
+    output_dir: str = "",
+    telegram_operator_streams: tuple[str, ...] | str | None = None,
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    handoff = send_mymedia_amazon_pairing_telegram(
+        telegram_principal_id=str(principal_id or "").strip(),
+        dry_run=True,
+        timeout_seconds=timeout_seconds,
+        output_format="json",
+        output_dir=output_dir,
+        telegram_operator_streams=telegram_operator_streams,
+    )
+    delivery = dict(handoff.get("telegram_delivery") or {}) if isinstance(handoff.get("telegram_delivery"), Mapping) else {}
+    handoff_status = str(handoff.get("status") or "").strip()
+    delivery_ready = bool(delivery.get("readiness_probe_ok", delivery.get("ready"))) and bool(delivery.get("ready"))
+    actionable = handoff_status in {"waiting_for_code", "consent_required"}
+    probe_ok = bool(handoff.get("probe_ok")) and (not actionable or bool(delivery))
+    ready = bool(delivery_ready) or handoff_status == "already_paired"
+    if ready:
+        status = "ready"
+        reason = ""
+        next_action = ""
+        next_action_href = ""
+        next_action_label = ""
+        next_action_method = ""
+    else:
+        status = (
+            str(delivery.get("readiness_status") or "").strip()
+            or handoff_status
+            or ("probe_failed" if not probe_ok else "blocked")
+        )
+        reason = str(
+            delivery.get("readiness_reason")
+            or delivery.get("reason")
+            or handoff.get("reason")
+            or ""
+        ).strip()
+        next_action = str(delivery.get("next_action") or "").strip()
+        next_action_href = str(delivery.get("next_action_href") or "").strip()
+        next_action_label = str(delivery.get("next_action_label") or "").strip()
+        next_action_method = str(delivery.get("next_action_method") or "").strip()
+    report = {
+        "probe_ok": probe_ok,
+        "ready": ready,
+        "status": status,
+        "reason": reason,
+        "next_action": next_action,
+        "next_action_href": next_action_href,
+        "next_action_label": next_action_label,
+        "next_action_method": next_action_method,
+        "principal_id": str(delivery.get("principal_id") or principal_id or "").strip(),
+        "surface_kind": str(handoff.get("surface_kind") or "").strip(),
+        "site": str(handoff.get("site") or "").strip(),
+        "otp_channel": str(handoff.get("otp_channel") or "").strip(),
+        "phone_suffix": str(handoff.get("phone_suffix") or "").strip(),
+        "pairing_resume_ready": bool(handoff.get("pairing_resume_ready")),
+        "pairing_session_pending": bool(handoff.get("pairing_session_pending")),
+        "pairing_session_stale": bool(handoff.get("pairing_session_stale")),
+        "pairing_session_age_seconds": handoff.get("pairing_session_age_seconds"),
+        "operator_stream": str(handoff.get("operator_stream") or OPERATOR_STREAM_MEDIA_MEMORIAL).strip(),
+        "allowed_operator_streams": list(
+            handoff.get("allowed_operator_streams")
+            or _effective_telegram_operator_streams(telegram_operator_streams)
+        ),
+        "delivery_transport": str(delivery.get("delivery_transport") or "telegram_bot").strip(),
+        "telegram_delivery_ready": bool(delivery.get("ready")),
+        "delivery_status": str(delivery.get("readiness_status") or "").strip(),
+        "delivery_reason": "" if ready else reason,
+        "bot_handle": str(delivery.get("bot_handle") or "").strip(),
+        "chat_ref_present": bool(delivery.get("chat_ref_present")),
+        "chat_ref_sha256": str(delivery.get("chat_ref_sha256") or "").strip(),
+        "observed_at": str(handoff.get("observed_at") or observed_at).strip() or observed_at,
+        "source": "mymedia_pairing.telegram_dry_run",
+    }
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_operator_readiness(
+            {
+                "status": status,
+                "ready": ready,
+                "components": [
+                    _operator_readiness_component(
+                        key="mymedia_pairing_telegram",
+                        label="My Media pairing Telegram handoff",
+                        report=report,
+                    )
+                ],
+                "attention_required_count": 0 if ready else 1,
+                "blocked_count": 0 if ready else 1,
+                "probe_failed_count": 0 if probe_ok else 1,
+                "observed_at": report["observed_at"],
+                "source": report["source"],
+                "next_actions": [],
+            }
+        )
     return report
 
 
@@ -6210,9 +13307,10 @@ def send_telegram(
             "source": "runtime_container_exec:telegram_delivery.send_telegram_message_for_principal",
         }
     if dry_run:
+        readiness_timeout_seconds = _telegram_dry_run_timeout_seconds(effective_timeout_seconds)
         readiness = probe_telegram_readiness(
             principal_id=normalized_principal_id,
-            timeout_seconds=effective_timeout_seconds,
+            timeout_seconds=readiness_timeout_seconds,
             output_format="json",
         )
         return {
@@ -6224,6 +13322,10 @@ def send_telegram(
             "readiness_reason": str(readiness.get("reason") or "").strip(),
             "principal_id": str(readiness.get("principal_id") or normalized_principal_id).strip(),
             "binding_id": str(readiness.get("binding_id") or "").strip(),
+            "next_action": str(readiness.get("next_action") or "").strip(),
+            "next_action_href": str(readiness.get("next_action_href") or "").strip(),
+            "next_action_label": str(readiness.get("next_action_label") or "").strip(),
+            "next_action_method": str(readiness.get("next_action_method") or "").strip(),
             "chat_ref_present": bool(readiness.get("chat_ref_present")),
             "chat_ref_sha256": str(readiness.get("chat_ref_sha256") or "").strip(),
             "bot_key": str(readiness.get("bot_key") or "").strip(),
@@ -6235,6 +13337,36 @@ def send_telegram(
             "observed_at": observed_at,
             "source": "runtime_container_exec:telegram_delivery.send_telegram_message_for_principal",
         }
+    def _send_in_process() -> dict[str, object]:
+        receipt = send_telegram_message_for_principal(
+            build_tool_runtime(get_settings()),
+            principal_id=normalized_principal_id,
+            text=normalized_text,
+            disable_web_page_preview=True,
+        )
+        chat_ref = str(getattr(receipt, "chat_id", "") or "").strip()
+        message_ids = [
+            str(item or "").strip()
+            for item in (getattr(receipt, "message_ids", ()) or ())
+            if str(item or "").strip()
+        ]
+        return {
+            "sent": True,
+            "reason": "sent",
+            "principal_id": str(getattr(receipt, "principal_id", "") or normalized_principal_id).strip(),
+            "chat_ref_present": bool(chat_ref),
+            "chat_ref_sha256": _hash_text(chat_ref) if chat_ref else "",
+            "bot_key": str(getattr(receipt, "bot_key", "") or "").strip(),
+            "bot_handle": str(getattr(receipt, "bot_handle", "") or "").strip(),
+            "delivery_transport": "telegram_bot",
+            "message_ids": message_ids,
+            "message_count": len(message_ids),
+            "runtime_container": "",
+            "timeout_seconds": effective_timeout_seconds,
+            "observed_at": observed_at,
+            "source": "in_process:telegram_delivery.send_telegram_message_for_principal",
+        }
+
     code = (
         "import hashlib, json, os\n"
         "principal_id = "
@@ -6269,9 +13401,17 @@ def send_telegram(
         "    os._exit(0)\n"
     )
     exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=effective_timeout_seconds)
+    runtime_reason = str(payload.get("reason") or "").strip()
+    if runtime_reason in {"FileNotFoundError", "runtime_container_unconfigured", "runtime_container_exec_exit_127"}:
+        try:
+            return _send_in_process()
+        except Exception as exc:
+            payload = {"ok": False, "reason": str(exc).strip() or type(exc).__name__}
+            runtime_container = ""
+            exit_code = 127
     payload_ok = bool(payload.get("ok", False))
     sent = exit_code == 0 and payload_ok and bool(payload.get("sent"))
-    reason = str(payload.get("reason") or "").strip() or (f"runtime_container_exec_exit_{exit_code}" if exit_code else "send_failed")
+    reason = runtime_reason or (f"runtime_container_exec_exit_{exit_code}" if exit_code else "send_failed")
     message_ids = [str(item or "").strip() for item in payload.get("message_ids") or [] if str(item or "").strip()]
     return {
         "sent": sent,
@@ -6302,6 +13442,14 @@ def _google_workspace_oauth_direct_link(*, expected_google_email: str, scope_bun
     if "@" in normalized_email:
         query["expected_google_email"] = normalized_email
     return f"{public_base}/app/actions/google/connect?{urllib.parse.urlencode(query)}"
+
+
+def _default_google_workspace_expected_email() -> str:
+    return (
+        _env("EA_GOOGLE_WORKSPACE_EXPECTED_EMAIL")
+        or _env("EA_GOOGLE_OAUTH_EXPECTED_EMAIL")
+        or ""
+    ).strip().lower()
 
 
 def _google_workspace_oauth_telegram_text(
@@ -6363,12 +13511,260 @@ def _operator_text_for_google_workspace_oauth(report: Mapping[str, object]) -> s
     gcloud_project = str(report.get("gcloud_project") or "").strip()
     if gcloud_project:
         parts.append(f"gcloud_project={gcloud_project}")
+    runtime_expected_present = report.get("runtime_expected_google_email_present")
+    if runtime_expected_present is not None:
+        parts.append(f"runtime_expected_email_present={bool(runtime_expected_present)}")
+    last_receipt_status = str(report.get("last_receipt_status") or "").strip()
+    if last_receipt_status:
+        parts.append(f"last_receipt_status={last_receipt_status}")
+    last_receipt_age_seconds = report.get("last_receipt_age_seconds")
+    if last_receipt_age_seconds is not None:
+        parts.append(f"last_receipt_age_seconds={int(last_receipt_age_seconds)}")
+    last_receipt_fresh = report.get("last_receipt_fresh")
+    if last_receipt_fresh is not None:
+        parts.append(f"last_receipt_fresh={bool(last_receipt_fresh)}")
     telegram_reason = str(telegram_delivery.get("reason") or "").strip()
     if telegram_reason:
         parts.append(f"telegram={telegram_reason}")
     parts.append(f"observed_at={str(report.get('observed_at') or '').strip()}")
     parts.append(f"source={str(report.get('source') or '').strip()}")
     return "; ".join(part for part in parts if part)
+
+
+def _google_workspace_oauth_receipt_freshness(
+    report: Mapping[str, object],
+    *,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    try:
+        max_age_seconds = max(
+            int(
+                float(
+                    _env(
+                        "EA_GOOGLE_WORKSPACE_OAUTH_RECEIPT_MAX_AGE_SECONDS",
+                        str(DEFAULT_GOOGLE_WORKSPACE_OAUTH_RECEIPT_MAX_AGE_SECONDS),
+                    )
+                    or DEFAULT_GOOGLE_WORKSPACE_OAUTH_RECEIPT_MAX_AGE_SECONDS
+                )
+            ),
+            1,
+        )
+    except (TypeError, ValueError):
+        max_age_seconds = int(DEFAULT_GOOGLE_WORKSPACE_OAUTH_RECEIPT_MAX_AGE_SECONDS)
+    age_seconds = _utc_age_seconds(report.get("observed_at"), now=now)
+    fresh = age_seconds is not None and age_seconds <= max_age_seconds
+    return {
+        "age_seconds": age_seconds,
+        "max_age_seconds": max_age_seconds,
+        "fresh": fresh,
+    }
+
+
+def _probe_google_workspace_oauth_without_runtime_expected_email(
+    *,
+    scope_bundle: str,
+    observed_error: str,
+    observed_google_email: str,
+    test_user_confirmed: bool,
+    timeout_seconds: float,
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    receipt_report = probe_google_workspace_oauth_receipt(output_format="json")
+    receipt_freshness = _google_workspace_oauth_receipt_freshness(receipt_report)
+    last_missing_setup = [
+        str(item).strip()
+        for item in list(receipt_report.get("missing_setup") or [])
+        if str(item).strip()
+    ]
+    report = {
+        "probe_ok": True,
+        "ready": False,
+        "status": "blocked_setup_required",
+        "reason": "expected_google_email_missing",
+        "scope_bundle": str(scope_bundle or receipt_report.get("scope_bundle") or google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE).strip()
+        or google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE,
+        "expected_google_email_present": False,
+        "expected_google_domain": str(receipt_report.get("expected_google_domain") or "").strip(),
+        "observed_google_email_present": bool(receipt_report.get("observed_google_email_present")),
+        "observed_google_domain": str(receipt_report.get("observed_google_domain") or "").strip(),
+        "observed_google_account_matches_expected": bool(receipt_report.get("observed_google_account_matches_expected")),
+        "runtime_expected_google_email_present": False,
+        "missing_setup": ["expected_google_email_missing", *[item for item in last_missing_setup if item != "expected_google_email_missing"]],
+        "user_action_required": False,
+        "next_action": "set_google_workspace_expected_email_and_refresh_receipt",
+        "next_action_href": "/integrations/google",
+        "next_action_label": "Configure Google auth",
+        "next_action_method": "get",
+        "delivery_policy": "queue_only",
+        "console_deep_link": str(receipt_report.get("console_deep_link") or "").strip(),
+        "auth_link_template": str(receipt_report.get("auth_link_template") or "").strip(),
+        "oauth_project_id": str(receipt_report.get("oauth_project_id") or "").strip(),
+        "oauth_project_number": str(receipt_report.get("oauth_project_number") or "").strip(),
+        "gcloud_project": str(receipt_report.get("gcloud_project") or "").strip(),
+        "gcloud_project_matches_oauth_project": bool(receipt_report.get("gcloud_project_matches_oauth_project")),
+        "gcloud_account_present": bool(receipt_report.get("gcloud_account_present")),
+        "action_context": {
+            "scope_bundle": str(scope_bundle or "").strip(),
+            "observed_error": str(observed_error or "").strip(),
+            "observed_google_email_present": "@" in str(observed_google_email or "").strip().lower(),
+            "test_user_confirmed": bool(test_user_confirmed),
+            "timeout_seconds": max(float(timeout_seconds or 30.0), 1.0),
+        },
+        "gcloud_probe": dict(receipt_report.get("gcloud_probe") or {}),
+        "privacy": {
+            "raw_expected_google_email_exposed": False,
+            "raw_auth_link_exposed": False,
+        },
+        "telegram_delivery": {},
+        "last_receipt_status": str(receipt_report.get("status") or "").strip(),
+        "last_receipt_reason": str(receipt_report.get("reason") or "").strip(),
+        "last_receipt_observed_at": str(receipt_report.get("observed_at") or "").strip(),
+        "last_receipt_source": str(receipt_report.get("source") or "").strip(),
+        "last_receipt_age_seconds": receipt_freshness.get("age_seconds"),
+        "last_receipt_max_age_seconds": receipt_freshness.get("max_age_seconds"),
+        "last_receipt_fresh": bool(receipt_freshness.get("fresh")),
+        "observed_at": observed_at,
+        "source": "ea_live_ops.aggregate",
+    }
+    report["operator_text"] = _operator_text_for_google_workspace_oauth(report)
+    return report
+
+
+def probe_google_workspace_oauth_receipt(
+    *,
+    receipt_path: str = "",
+    output_format: str = "json",
+) -> dict[str, object]:
+    path = Path(str(receipt_path or DEFAULT_GOOGLE_WORKSPACE_OAUTH_READINESS_PATH)).expanduser()
+    receipt = _load_json_dict(path)
+    observed_at = _utc_now()
+    if not receipt:
+        report = {
+            "probe_ok": False,
+            "ready": False,
+            "status": "probe_failed",
+            "reason": "google_workspace_oauth_receipt_missing_or_invalid",
+            "scope_bundle": "",
+            "expected_google_email_present": False,
+            "expected_google_domain": "",
+            "observed_google_email_present": False,
+            "observed_google_domain": "",
+            "observed_google_account_matches_expected": False,
+            "missing_setup": [],
+            "user_action_required": False,
+            "next_action": "inspect_google_workspace_oauth_receipt",
+            "next_action_href": "/integrations/google",
+            "next_action_label": "Open Google setup",
+            "next_action_method": "get",
+            "console_deep_link": "",
+            "auth_link_template": "",
+            "oauth_project_id": "",
+            "oauth_project_number": "",
+            "gcloud_project": "",
+            "gcloud_project_matches_oauth_project": False,
+            "gcloud_account_present": False,
+            "action_context": {},
+            "gcloud_probe": {},
+            "privacy": {
+                "raw_expected_google_email_exposed": False,
+                "raw_auth_link_exposed": False,
+            },
+            "telegram_delivery": {},
+            "observed_at": observed_at,
+            "source": f"published_receipt:{path}",
+        }
+        report["operator_text"] = _operator_text_for_google_workspace_oauth(report)
+        return report
+
+    operator_action = dict(receipt.get("operator_action") or {})
+    gcloud_probe = dict(receipt.get("gcloud_probe") or {})
+    oauth_client = dict(receipt.get("oauth_client") or {})
+    expected_account = dict(receipt.get("expected_google_account") or {})
+    observed_account = dict(receipt.get("observed_google_account") or {})
+    missing_setup = [
+        str(item).strip()
+        for item in list(receipt.get("missing_setup") or [])
+        if str(item).strip()
+    ]
+    status = str(receipt.get("status") or "unknown").strip() or "unknown"
+    report = {
+        "probe_ok": True,
+        "ready": status in {"pass", "ready_manual_console_check"},
+        "status": status,
+        "reason": str(receipt.get("blocker_kind") or "").strip() or (missing_setup[0] if missing_setup else ""),
+        "scope_bundle": str(receipt.get("scope_bundle") or "").strip(),
+        "expected_google_email_present": bool(expected_account.get("present")),
+        "expected_google_domain": str(expected_account.get("domain") or "").strip(),
+        "observed_google_email_present": bool(observed_account.get("present")),
+        "observed_google_domain": str(observed_account.get("domain") or "").strip(),
+        "observed_google_account_matches_expected": bool(observed_account.get("matches_expected")),
+        "missing_setup": missing_setup,
+        "user_action_required": bool(operator_action.get("user_action_required")),
+        "next_action": str(operator_action.get("next_action") or "").strip(),
+        "next_action_href": str(operator_action.get("next_action_href") or "").strip(),
+        "next_action_label": str(operator_action.get("next_action_label") or "").strip(),
+        "next_action_method": str(operator_action.get("next_action_method") or "").strip(),
+        "delivery_policy": str(operator_action.get("delivery_policy") or "").strip(),
+        "console_deep_link": str(receipt.get("console_deep_link") or "").strip(),
+        "auth_link_template": str(receipt.get("auth_link_template") or "").strip(),
+        "oauth_project_id": str(oauth_client.get("client_project_id") or "").strip(),
+        "oauth_project_number": str(oauth_client.get("client_project_number") or "").strip(),
+        "gcloud_project": str(gcloud_probe.get("active_project") or "").strip(),
+        "gcloud_project_matches_oauth_project": bool(gcloud_probe.get("active_project_matches_oauth_project")),
+        "gcloud_account_present": bool(gcloud_probe.get("active_account_present")),
+        "action_context": operator_action,
+        "gcloud_probe": gcloud_probe,
+        "privacy": {
+            "raw_expected_google_email_exposed": False,
+            "raw_auth_link_exposed": False,
+        },
+        "telegram_delivery": {},
+        "observed_at": str(receipt.get("generated_at") or observed_at).strip() or observed_at,
+        "source": f"published_receipt:{path}",
+    }
+    report["operator_text"] = _operator_text_for_google_workspace_oauth(report)
+    return report
+
+
+def _google_workspace_oauth_probe_context_from_receipt(receipt_path: str = "") -> dict[str, object]:
+    path = Path(str(receipt_path or DEFAULT_GOOGLE_WORKSPACE_OAUTH_READINESS_PATH)).expanduser()
+    receipt = _load_json_dict(path)
+    if not receipt:
+        return {}
+    observed_account = dict(receipt.get("observed_google_account") or {})
+    expected_account = dict(receipt.get("expected_google_account") or {})
+    observed_google_email = ""
+    if bool(observed_account.get("present")) and bool(observed_account.get("matches_expected")) and bool(expected_account.get("present")):
+        observed_google_email = "__expected__"
+    return {
+        "scope_bundle": str(receipt.get("scope_bundle") or "").strip(),
+        "observed_error": str(receipt.get("observed_error") or "").strip(),
+        "observed_google_email": observed_google_email,
+        "test_user_confirmed": bool(dict(receipt.get("test_user_confirmation") or {}).get("confirmed")),
+    }
+
+
+def _google_workspace_oauth_effective_cli_context(
+    *,
+    scope_bundle: str,
+    observed_error: str,
+    observed_google_email: str,
+    test_user_confirmed: bool,
+    receipt_path: str = "",
+) -> dict[str, object]:
+    receipt_context = _google_workspace_oauth_probe_context_from_receipt(receipt_path=receipt_path)
+    effective_scope_bundle = str(scope_bundle or "").strip() or str(receipt_context.get("scope_bundle") or "").strip()
+    effective_observed_error = str(observed_error or "").strip() or str(receipt_context.get("observed_error") or "").strip()
+    effective_observed_google_email = str(observed_google_email or "").strip() or str(
+        receipt_context.get("observed_google_email") or ""
+    ).strip()
+    effective_test_user_confirmed = bool(test_user_confirmed or bool(receipt_context.get("test_user_confirmed")))
+    return {
+        "scope_bundle": effective_scope_bundle,
+        "observed_error": effective_observed_error,
+        "observed_google_email": effective_observed_google_email,
+        "test_user_confirmed": effective_test_user_confirmed,
+    }
 
 
 def probe_google_workspace_oauth(
@@ -6384,6 +13780,7 @@ def probe_google_workspace_oauth(
     dry_run: bool = False,
     timeout_seconds: float = 30.0,
     output_format: str = "json",
+    telegram_operator_streams: tuple[str, ...] | str | None = None,
 ) -> dict[str, object]:
     normalized_email = str(expected_google_email or "").strip().lower()
     normalized_observed_google_email = str(observed_google_email or "").strip().lower()
@@ -6398,6 +13795,8 @@ def probe_google_workspace_oauth(
             "ready": False,
             "status": "probe_failed",
             "reason": "expected_google_email_missing",
+            "operator_stream": OPERATOR_STREAM_OFFICE_SETUP,
+            "allowed_operator_streams": list(_effective_telegram_operator_streams(telegram_operator_streams)),
             "scope_bundle": normalized_scope,
             "expected_google_email_present": False,
             "expected_google_domain": "",
@@ -6449,6 +13848,8 @@ def probe_google_workspace_oauth(
             "ready": False,
             "status": "probe_failed",
             "reason": (str(exc).strip() or type(exc).__name__)[:160],
+            "operator_stream": OPERATOR_STREAM_OFFICE_SETUP,
+            "allowed_operator_streams": list(_effective_telegram_operator_streams(telegram_operator_streams)),
             "scope_bundle": normalized_scope,
             "expected_google_email_present": True,
             "expected_google_domain": normalized_email.rsplit("@", 1)[-1],
@@ -6498,6 +13899,8 @@ def probe_google_workspace_oauth(
         "ready": str(receipt.get("status") or "").strip() in {"pass", "ready_manual_console_check"},
         "status": str(receipt.get("status") or "").strip(),
         "reason": str(receipt.get("blocker_kind") or "").strip(),
+        "operator_stream": OPERATOR_STREAM_OFFICE_SETUP,
+        "allowed_operator_streams": list(_effective_telegram_operator_streams(telegram_operator_streams)),
         "scope_bundle": normalized_scope,
         "expected_google_email_present": bool(expected_account.get("present")),
         "expected_google_domain": str(expected_account.get("domain") or "").strip(),
@@ -6534,16 +13937,29 @@ def probe_google_workspace_oauth(
                 expected_google_email=normalized_email,
                 scope_bundle=normalized_scope,
             )
-            telegram_delivery = send_telegram(
-                principal_id=str(send_telegram_to_principal or "").strip(),
-                text=_google_workspace_oauth_telegram_text(
-                    receipt=receipt,
-                    expected_google_email=normalized_email,
-                    direct_auth_link=direct_auth_link,
-                ),
-                dry_run=bool(dry_run),
-                timeout_seconds=effective_timeout_seconds,
-            )
+            allowed_operator_streams = _effective_telegram_operator_streams(telegram_operator_streams)
+            if not _telegram_operator_stream_allowed(
+                OPERATOR_STREAM_OFFICE_SETUP,
+                allowed_operator_streams=allowed_operator_streams,
+            ):
+                telegram_delivery = _suppressed_telegram_delivery(
+                    principal_id=str(send_telegram_to_principal or "").strip(),
+                    operator_stream=OPERATOR_STREAM_OFFICE_SETUP,
+                    allowed_operator_streams=allowed_operator_streams,
+                    observed_at=observed_at,
+                    source="scripts.materialize_google_workspace_oauth_readiness.py",
+                )
+            else:
+                telegram_delivery = send_telegram(
+                    principal_id=str(send_telegram_to_principal or "").strip(),
+                    text=_google_workspace_oauth_telegram_text(
+                        receipt=receipt,
+                        expected_google_email=normalized_email,
+                        direct_auth_link=direct_auth_link,
+                    ),
+                    dry_run=bool(dry_run),
+                    timeout_seconds=effective_timeout_seconds,
+                )
         else:
             telegram_delivery = {
                 "sent": False,
@@ -6574,6 +13990,7 @@ def parse_args() -> argparse.Namespace:
     probe = subparsers.add_parser("probe-provider", help="Probe a live provider state.")
     probe.add_argument("--provider", required=True)
     probe.add_argument("--format", choices=("json", "operator"), default="json")
+    _add_timeout_seconds_argument(probe)
 
     provider_cost_pressure = subparsers.add_parser(
         "probe-provider-cost-pressure",
@@ -6612,6 +14029,7 @@ def parse_args() -> argparse.Namespace:
     whatsapp_pairing.add_argument("--dry-run", action="store_true")
     whatsapp_pairing.add_argument("--output-dir", default="")
     whatsapp_pairing.add_argument("--no-write-qr-svg", dest="write_qr_svg", action="store_false", default=True)
+    _add_telegram_operator_streams_argument(whatsapp_pairing)
 
     telegram_readiness = subparsers.add_parser("probe-telegram-readiness", help="Probe Telegram operator delivery readiness without sending a message.")
     telegram_readiness.add_argument("--principal-id", dest="telegram_principal_id", default=_default_proactive_principal_id())
@@ -6633,10 +14051,145 @@ def parse_args() -> argparse.Namespace:
     google_workspace_oauth.add_argument("--send-telegram", action="store_true")
     google_workspace_oauth.add_argument("--dry-run", action="store_true")
     google_workspace_oauth.add_argument("--format", choices=("json", "operator"), default="json")
+    _add_telegram_operator_streams_argument(google_workspace_oauth)
     _add_timeout_seconds_argument(google_workspace_oauth)
 
     teable_recovery = subparsers.add_parser("probe-teable-recovery", help="Probe Teable env backup/restore posture without exposing secret values.")
     teable_recovery.add_argument("--format", choices=("json", "operator"), default="json")
+
+    mymedia_alexa = subparsers.add_parser(
+        "probe-mymedia-alexa",
+        help="Probe My Media for Alexa pairing, indexing, and console posture without exposing secret values.",
+    )
+    mymedia_alexa.add_argument("--format", choices=("json", "operator"), default="json")
+    mymedia_alexa.add_argument("--container-name", default=_env("EA_MYMEDIA_ALEXA_CONTAINER", DEFAULT_MYMEDIA_ALEXA_CONTAINER))
+    mymedia_alexa.add_argument("--web-base-url", default=_env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL))
+    mymedia_alexa.add_argument("--public-web-base-url", default=_env("EA_MYMEDIA_ALEXA_PUBLIC_BASE_URL", DEFAULT_MYMEDIA_ALEXA_PUBLIC_BASE_URL))
+    _add_timeout_seconds_argument(mymedia_alexa)
+
+    mymedia_rescan = subparsers.add_parser(
+        "rescan-mymedia-library",
+        help="Request a My Media library rescan and return an operator-safe status receipt.",
+    )
+    mymedia_rescan.add_argument("--format", choices=("json", "operator"), default="json")
+    mymedia_rescan.add_argument("--web-base-url", default=_env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL))
+    mymedia_rescan.add_argument("--clear-history", action="store_true")
+    _add_timeout_seconds_argument(mymedia_rescan)
+
+    mymedia_console_api_repair = subparsers.add_parser(
+        "repair-mymedia-console-api",
+        help="Restart the My Media container when the local console API is wedged and return an operator-safe receipt.",
+    )
+    mymedia_console_api_repair.add_argument("--format", choices=("json", "operator"), default="json")
+    mymedia_console_api_repair.add_argument(
+        "--container-name",
+        default=_env("EA_MYMEDIA_ALEXA_CONTAINER", DEFAULT_MYMEDIA_ALEXA_CONTAINER),
+    )
+    mymedia_console_api_repair.add_argument(
+        "--web-base-url",
+        default=_env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL),
+    )
+    _add_timeout_seconds_argument(mymedia_console_api_repair)
+
+    mymedia_public_repair = subparsers.add_parser(
+        "repair-mymedia-public-surface",
+        help="Repair the Cloudflare-backed My Media public console surface and return an operator-safe receipt.",
+    )
+    mymedia_public_repair.add_argument("--format", choices=("json", "operator"), default="json")
+    mymedia_public_repair.add_argument(
+        "--web-base-url",
+        default=_env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL),
+    )
+    mymedia_public_repair.add_argument(
+        "--public-web-base-url",
+        default=_env("EA_MYMEDIA_ALEXA_PUBLIC_BASE_URL", DEFAULT_MYMEDIA_ALEXA_PUBLIC_BASE_URL),
+    )
+    mymedia_public_repair.add_argument(
+        "--public-tunnel-origin-url",
+        default=_env("EA_MYMEDIA_ALEXA_PUBLIC_TUNNEL_ORIGIN_URL", DEFAULT_MYMEDIA_ALEXA_PUBLIC_TUNNEL_ORIGIN_URL),
+    )
+    _add_timeout_seconds_argument(mymedia_public_repair)
+
+    mymedia_pairing = subparsers.add_parser(
+        "trigger-mymedia-amazon-pairing",
+        help="Drive the real My Media setup wizard into the Amazon MFA handoff and optionally notify Telegram.",
+    )
+    mymedia_pairing.add_argument("--format", choices=("json", "operator"), default="json")
+    mymedia_pairing.add_argument("--web-base-url", default=_env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL))
+    mymedia_pairing.add_argument("--setup-url", default="")
+    mymedia_pairing.add_argument(
+        "--otp-channel",
+        choices=("whatsapp", "sms", "call"),
+        default=_mymedia_runtime_default_value(
+            env_names=("EA_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL", "AMAZON_OTP_CHANNEL"),
+            payload_keys=("amazon_otp_channel",),
+            default=DEFAULT_MYMEDIA_ALEXA_AMAZON_OTP_CHANNEL,
+        ),
+    )
+    mymedia_pairing.add_argument(
+        "--phone-suffix",
+        default=_mymedia_runtime_default_value(
+            env_names=("EA_MYMEDIA_ALEXA_AMAZON_PHONE_SUFFIX", "AMAZON_OTP_SUFFIX"),
+            payload_keys=("amazon_phone_suffix",),
+            default=DEFAULT_MYMEDIA_ALEXA_AMAZON_PHONE_SUFFIX,
+        ),
+    )
+    mymedia_pairing.add_argument("--output-dir", default="")
+    mymedia_pairing.add_argument("--telegram-principal-id", default=_default_proactive_principal_id())
+    mymedia_pairing.add_argument("--send-telegram", action="store_true")
+    mymedia_pairing.add_argument("--dry-run", action="store_true")
+    _add_telegram_operator_streams_argument(mymedia_pairing)
+    _add_timeout_seconds_argument(mymedia_pairing)
+
+    mymedia_pairing_submit = subparsers.add_parser(
+        "submit-mymedia-amazon-pairing-code",
+        help="Resume the saved My Media pairing browser session and submit the Amazon MFA code.",
+    )
+    mymedia_pairing_submit.add_argument("--otp-code", required=True)
+    mymedia_pairing_submit.add_argument("--format", choices=("json", "operator"), default="json")
+    mymedia_pairing_submit.add_argument("--web-base-url", default=_env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL))
+    mymedia_pairing_submit.add_argument("--output-dir", default="")
+    _add_timeout_seconds_argument(mymedia_pairing_submit)
+
+    mymedia_pairing_telegram = subparsers.add_parser(
+        "send-mymedia-amazon-pairing-telegram",
+        help="Send the My Media Amazon pairing handoff over Telegram, reusing a fresh saved session before retriggering.",
+    )
+    mymedia_pairing_telegram.add_argument("--format", choices=("json", "operator"), default="json")
+    mymedia_pairing_telegram.add_argument("--web-base-url", default=_env("EA_MYMEDIA_ALEXA_WEB_BASE_URL", DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL))
+    mymedia_pairing_telegram.add_argument("--otp-channel", choices=("whatsapp", "sms", "call"), default="")
+    mymedia_pairing_telegram.add_argument("--phone-suffix", default="")
+    mymedia_pairing_telegram.add_argument("--output-dir", default="")
+    mymedia_pairing_telegram.add_argument("--telegram-principal-id", default=_default_proactive_principal_id())
+    mymedia_pairing_telegram.add_argument("--dry-run", action="store_true")
+    _add_telegram_operator_streams_argument(mymedia_pairing_telegram)
+    _add_timeout_seconds_argument(mymedia_pairing_telegram)
+
+    sonarr_tv_season_probe = subparsers.add_parser(
+        "probe-sonarr-tv-season",
+        help="Probe one Sonarr TV season for missing episodes, metadata-only queue rows, and staging-pack recovery candidates.",
+    )
+    sonarr_tv_season_probe.add_argument("--series-id", type=int, default=0)
+    sonarr_tv_season_probe.add_argument("--series-title", default="")
+    sonarr_tv_season_probe.add_argument("--season-number", type=int, required=True)
+    sonarr_tv_season_probe.add_argument("--sonarr-base-url", default=_env("EA_SONARR_BASE_URL", DEFAULT_SONARR_BASE_URL))
+    sonarr_tv_season_probe.add_argument("--sonarr-config-path", default=_env("EA_SONARR_CONFIG_PATH", str(DEFAULT_SONARR_CONFIG_PATH)))
+    sonarr_tv_season_probe.add_argument("--staging-root", default=_env("EA_SONARR_STAGING_ROOT", str(DEFAULT_SONARR_STAGING_ROOT)))
+    sonarr_tv_season_probe.add_argument("--format", choices=("json", "operator"), default="json")
+    _add_timeout_seconds_argument(sonarr_tv_season_probe)
+
+    sonarr_tv_season_repair = subparsers.add_parser(
+        "repair-sonarr-tv-season",
+        help="Repair one Sonarr TV season by importing staged files, rescanning the series, and clearing stale metadata-only queue rows.",
+    )
+    sonarr_tv_season_repair.add_argument("--series-id", type=int, default=0)
+    sonarr_tv_season_repair.add_argument("--series-title", default="")
+    sonarr_tv_season_repair.add_argument("--season-number", type=int, required=True)
+    sonarr_tv_season_repair.add_argument("--sonarr-base-url", default=_env("EA_SONARR_BASE_URL", DEFAULT_SONARR_BASE_URL))
+    sonarr_tv_season_repair.add_argument("--sonarr-config-path", default=_env("EA_SONARR_CONFIG_PATH", str(DEFAULT_SONARR_CONFIG_PATH)))
+    sonarr_tv_season_repair.add_argument("--staging-root", default=_env("EA_SONARR_STAGING_ROOT", str(DEFAULT_SONARR_STAGING_ROOT)))
+    sonarr_tv_season_repair.add_argument("--format", choices=("json", "operator"), default="json")
+    _add_timeout_seconds_argument(sonarr_tv_season_repair)
 
     operator_readiness = subparsers.add_parser("probe-operator-readiness", help="Probe aggregate EA operator readiness without exposing secret values.")
     operator_readiness.add_argument("--format", choices=("json", "operator"), default="json")
@@ -6647,6 +14200,18 @@ def parse_args() -> argparse.Namespace:
     operator_readiness.add_argument("--receipt-path", default=_env("EA_PROACTIVE_OODA_LIVE_RECEIPT_PATH"))
     operator_readiness.add_argument("--no-proactive", dest="include_proactive", action="store_false", default=True)
     operator_readiness.add_argument("--no-pairing", dest="include_pairing", action="store_false", default=True)
+    operator_readiness.add_argument(
+        "--sonarr-series-id",
+        type=int,
+        default=_operator_readiness_int_value(_env("EA_OPERATOR_READINESS_SONARR_SERIES_ID", "0"), default=0),
+    )
+    operator_readiness.add_argument("--sonarr-series-title", default=_env("EA_OPERATOR_READINESS_SONARR_SERIES_TITLE", ""))
+    operator_readiness.add_argument(
+        "--sonarr-season-number",
+        type=int,
+        default=_operator_readiness_int_value(_env("EA_OPERATOR_READINESS_SONARR_SEASON_NUMBER", "0"), default=0),
+    )
+    _add_telegram_operator_streams_argument(operator_readiness)
     _add_timeout_seconds_argument(operator_readiness)
 
     proactive_route = subparsers.add_parser("probe-proactive-route", help="Probe the live proactive OODA delivery route.")
@@ -6788,7 +14353,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     if args.command == "probe-provider":
-        report = probe_provider(args.provider, output_format=args.format)
+        report = probe_provider(
+            args.provider,
+            output_format=args.format,
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 20.0),
+        )
         if args.format == "operator":
             print(str(report.get("operator_text") or ""))
         else:
@@ -6843,6 +14412,7 @@ def main() -> int:
             dry_run=bool(getattr(args, "dry_run", False)),
             write_qr_svg=bool(getattr(args, "write_qr_svg", True)),
             output_dir=str(getattr(args, "output_dir", "") or "").strip(),
+            telegram_operator_streams=str(getattr(args, "telegram_operator_streams", "") or ""),
         )
         if args.format == "operator":
             print(str(report.get("operator_text") or ""))
@@ -6861,13 +14431,19 @@ def main() -> int:
             print(_json_dumps(report))
         return 0 if bool(report.get("probe_ok")) else 2
     if args.command == "probe-google-workspace-oauth":
-        report = probe_google_workspace_oauth(
-            expected_google_email=str(getattr(args, "expected_google_email", "") or "").strip(),
+        context = _google_workspace_oauth_effective_cli_context(
             scope_bundle=str(getattr(args, "scope_bundle", "") or "").strip(),
             observed_error=str(getattr(args, "observed_error", "") or "").strip(),
-            error_description=str(getattr(args, "error_description", "") or "").strip(),
             observed_google_email=str(getattr(args, "observed_google_email", "") or "").strip(),
             test_user_confirmed=bool(getattr(args, "test_user_confirmed", False)),
+        )
+        report = probe_google_workspace_oauth(
+            expected_google_email=str(getattr(args, "expected_google_email", "") or "").strip(),
+            scope_bundle=str(context.get("scope_bundle") or "").strip(),
+            observed_error=str(context.get("observed_error") or "").strip(),
+            error_description=str(getattr(args, "error_description", "") or "").strip(),
+            observed_google_email=str(context.get("observed_google_email") or "").strip(),
+            test_user_confirmed=bool(context.get("test_user_confirmed")),
             probe_gcloud=bool(getattr(args, "probe_gcloud", True)),
             send_telegram_to_principal=(
                 str(getattr(args, "telegram_principal_id", "") or "").strip()
@@ -6877,6 +14453,7 @@ def main() -> int:
             dry_run=bool(getattr(args, "dry_run", False)),
             timeout_seconds=float(getattr(args, "timeout_seconds", None) or 30.0),
             output_format=args.format,
+            telegram_operator_streams=str(getattr(args, "telegram_operator_streams", "") or ""),
         )
         if args.format == "operator":
             print(str(report.get("operator_text") or ""))
@@ -6905,6 +14482,147 @@ def main() -> int:
         else:
             print(_json_dumps(report))
         return 0 if bool(report.get("ready")) else 2
+    if args.command == "probe-mymedia-alexa":
+        report = probe_mymedia_alexa(
+            container_name=str(getattr(args, "container_name", "") or "").strip(),
+            web_base_url=str(getattr(args, "web_base_url", "") or "").strip(),
+            public_web_base_url=str(getattr(args, "public_web_base_url", "") or "").strip(),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 15.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "rescan-mymedia-library":
+        report = rescan_mymedia_library(
+            web_base_url=str(getattr(args, "web_base_url", "") or "").strip(),
+            clear_history=bool(getattr(args, "clear_history", False)),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 15.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "repair-mymedia-console-api":
+        report = repair_mymedia_console_api(
+            container_name=str(getattr(args, "container_name", "") or "").strip(),
+            web_base_url=str(getattr(args, "web_base_url", "") or "").strip(),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 45.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if str(report.get("status") or "").strip() in {"ready", "repaired"} else 2
+    if args.command == "repair-mymedia-public-surface":
+        report = repair_mymedia_public_surface(
+            web_base_url=str(getattr(args, "web_base_url", "") or "").strip(),
+            public_web_base_url=str(getattr(args, "public_web_base_url", "") or "").strip(),
+            public_tunnel_origin_url=str(getattr(args, "public_tunnel_origin_url", "") or "").strip(),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 30.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("ready")) else 2
+    if args.command == "probe-sonarr-tv-season":
+        report = probe_sonarr_tv_season(
+            series_id=(None if int(getattr(args, "series_id", 0) or 0) <= 0 else int(getattr(args, "series_id", 0) or 0)),
+            series_title=str(getattr(args, "series_title", "") or "").strip(),
+            season_number=int(getattr(args, "season_number", 0) or 0),
+            sonarr_base_url=str(getattr(args, "sonarr_base_url", "") or "").strip(),
+            sonarr_config_path=str(getattr(args, "sonarr_config_path", "") or "").strip(),
+            staging_root=str(getattr(args, "staging_root", "") or "").strip(),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 20.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) and str(report.get("status") or "").strip() == "ready" else 2
+    if args.command == "repair-sonarr-tv-season":
+        report = repair_sonarr_tv_season(
+            series_id=(None if int(getattr(args, "series_id", 0) or 0) <= 0 else int(getattr(args, "series_id", 0) or 0)),
+            series_title=str(getattr(args, "series_title", "") or "").strip(),
+            season_number=int(getattr(args, "season_number", 0) or 0),
+            sonarr_base_url=str(getattr(args, "sonarr_base_url", "") or "").strip(),
+            sonarr_config_path=str(getattr(args, "sonarr_config_path", "") or "").strip(),
+            staging_root=str(getattr(args, "staging_root", "") or "").strip(),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 45.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if str(report.get("status") or "").strip() in {"ready", "repaired"} else 2
+    if args.command == "trigger-mymedia-amazon-pairing":
+        report = trigger_mymedia_amazon_pairing(
+            web_base_url=str(getattr(args, "web_base_url", "") or "").strip(),
+            setup_url=str(getattr(args, "setup_url", "") or "").strip(),
+            otp_channel=str(getattr(args, "otp_channel", "") or "").strip(),
+            phone_suffix=str(getattr(args, "phone_suffix", "") or "").strip(),
+            send_telegram_to_principal=(
+                str(getattr(args, "telegram_principal_id", "") or "").strip()
+                if bool(getattr(args, "send_telegram", False))
+                else ""
+            ),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 45.0),
+            output_format=args.format,
+            output_dir=str(getattr(args, "output_dir", "") or "").strip(),
+            telegram_operator_streams=str(getattr(args, "telegram_operator_streams", "") or ""),
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "submit-mymedia-amazon-pairing-code":
+        report = submit_mymedia_amazon_pairing_code(
+            otp_code=str(getattr(args, "otp_code", "") or "").strip(),
+            web_base_url=str(getattr(args, "web_base_url", "") or "").strip(),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 45.0),
+            output_format=args.format,
+            output_dir=str(getattr(args, "output_dir", "") or "").strip(),
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "send-mymedia-amazon-pairing-telegram":
+        report = send_mymedia_amazon_pairing_telegram(
+            web_base_url=str(getattr(args, "web_base_url", "") or "").strip(),
+            otp_channel=str(getattr(args, "otp_channel", "") or "").strip(),
+            phone_suffix=str(getattr(args, "phone_suffix", "") or "").strip(),
+            telegram_principal_id=str(getattr(args, "telegram_principal_id", "") or "").strip(),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 45.0),
+            output_format=args.format,
+            output_dir=str(getattr(args, "output_dir", "") or "").strip(),
+            telegram_operator_streams=str(getattr(args, "telegram_operator_streams", "") or ""),
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        if bool(report.get("ready")) and str(report.get("status") or "").strip() == "already_paired":
+            return 0
+        if bool(report.get("telegram_sent")):
+            return 0
+        delivery = dict(report.get("telegram_delivery") or {})
+        if bool(getattr(args, "dry_run", False)) and str(delivery.get("reason") or "").strip() == "dry_run" and bool(delivery.get("ready")):
+            return 0
+        return 2
     if args.command == "probe-operator-readiness":
         report = probe_operator_readiness(
             args=args,
@@ -6916,7 +14634,11 @@ def main() -> int:
             timeout_seconds=float(args.timeout_seconds or 30.0),
             include_proactive=bool(getattr(args, "include_proactive", True)),
             include_pairing=bool(getattr(args, "include_pairing", True)),
+            sonarr_series_id=int(getattr(args, "sonarr_series_id", 0) or 0),
+            sonarr_series_title=str(getattr(args, "sonarr_series_title", "") or "").strip(),
+            sonarr_season_number=int(getattr(args, "sonarr_season_number", 0) or 0),
             output_format=args.format,
+            telegram_operator_streams=str(getattr(args, "telegram_operator_streams", "") or ""),
         )
         if args.format == "operator":
             print(str(report.get("operator_text") or ""))

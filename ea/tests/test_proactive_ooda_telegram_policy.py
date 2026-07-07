@@ -38,3 +38,31 @@ def test_reversible_executable_draft_prompt_is_telegram_user_action() -> None:
             "approved_action": "save_gmail_draft",
         }
     )
+
+
+def test_internal_action_prompt_is_not_telegram_user_action() -> None:
+    assert not approval_request_needs_telegram_user_action(
+        {
+            "packet_ref": "packet:google-setup",
+            "staged_artifact_ref": "artifact:google-setup",
+            "approval_prompt": "Open Google setup and add the work account as a test user.",
+            "staged_action_url": "https://myexternalbrain.com/integrations/google",
+            "work_type": "record_internal_action",
+        }
+    )
+
+
+def test_flagged_internal_operator_action_is_telegram_user_action() -> None:
+    assert approval_request_needs_telegram_user_action(
+        {
+            "packet_ref": "packet:google-setup",
+            "staged_artifact_ref": "artifact:google-setup",
+            "approval_prompt": (
+                "Retry Google auth: Google Workspace auth needs reauthorization before EA can rely on that source."
+            ),
+            "staged_action_url": "https://myexternalbrain.com/integrations/google",
+            "work_type": "record_internal_action",
+            "notification_policy": "action_required_only",
+            "operator_action_required": True,
+        }
+    )

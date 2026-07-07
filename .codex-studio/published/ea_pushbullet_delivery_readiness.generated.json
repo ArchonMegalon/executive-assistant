@@ -1,75 +1,111 @@
 {
+  "account_label": "default->tibor",
+  "account_label_basis": "default_client_ref",
   "account_settings_url": "https://www.pushbullet.com/#settings/account",
   "api_base_url": "https://api.pushbullet.com",
   "claim_boundary": "A configured token can support Pushbullet note delivery, but live account ownership is proven only when --probe-live passes against /v2/users/me. This receipt does not send a push.",
-  "client_count": 1,
+  "client_count": 4,
   "client_coverage": {
-    "configured_client_count": 1,
-    "configured_required_client_count": 1,
-    "expected_client_count": 2,
-    "missing_client_keys": [
-      "default"
-    ],
-    "missing_token_keys": [
-      "elisabeth"
-    ],
+    "configured_client_count": 4,
+    "configured_required_client_count": 3,
+    "default_client_ref_present": true,
+    "default_client_ref_resolves": true,
+    "expected_client_count": 3,
+    "missing_client_keys": [],
+    "missing_token_keys": [],
     "multi_client_expected": true,
-    "multi_client_ready": false,
-    "token_present_required_client_count": 0
+    "multi_client_ready": true,
+    "token_present_required_client_count": 3,
+    "token_required_client_count": 3
   },
   "clients": [
+    {
+      "client_key": "ahon",
+      "email_domain": "gmail.com",
+      "email_present": true,
+      "email_sha256": "4545be6c646c66d96171c5b12097d37e9b300875ebc221148e99848533ad3ddb",
+      "raw_email_exposed": false,
+      "raw_token_exposed": false,
+      "source": "named_env",
+      "token_env": "PB_TOKEN_AHON",
+      "token_present": true
+    },
+    {
+      "client_key": "archon",
+      "email_domain": "gmail.com",
+      "email_present": true,
+      "email_sha256": "4545be6c646c66d96171c5b12097d37e9b300875ebc221148e99848533ad3ddb",
+      "raw_email_exposed": false,
+      "raw_token_exposed": false,
+      "source": "named_env",
+      "token_env": "PB_TOKEN_ARCHON",
+      "token_present": true
+    },
     {
       "client_key": "elisabeth",
       "email_domain": "gmail.com",
       "email_present": true,
-      "email_sha256": "d861bf9568c1f353353f8927baf0e6e388424420781f27ae3532473ff1281250",
+      "email_sha256": "1176216c4cf436bbf22c0a7f604e5fb3c46c0b9c2b6f112a07e20f2978628a4b",
       "raw_email_exposed": false,
       "raw_token_exposed": false,
       "source": "named_env",
       "token_env": "PB_TOKEN_ELISABETH",
-      "token_present": false
+      "token_present": true
+    },
+    {
+      "client_key": "tibor",
+      "email_domain": "gmail.com",
+      "email_present": true,
+      "email_sha256": "4545be6c646c66d96171c5b12097d37e9b300875ebc221148e99848533ad3ddb",
+      "raw_email_exposed": false,
+      "raw_token_exposed": false,
+      "source": "named_env",
+      "token_env": "PB_TOKEN_TIBOR",
+      "token_present": true
     }
   ],
   "contract_name": "ea.pushbullet_delivery_readiness.v1",
+  "default_client_ref": "tibor",
+  "default_client_ref_env": "EA_PUSHBULLET_DEFAULT_CLIENT",
+  "default_client_ref_present": true,
+  "default_client_ref_resolves": true,
   "delivery_claim": {
     "irreversible_actions_consent_gated": true,
     "live_token_account_verified": false,
-    "multi_client_delivery_ready": false,
+    "multi_client_delivery_ready": true,
     "non_action_progress_push_allowed": false,
-    "pushbullet_note_delivery_ready": false
+    "pushbullet_note_delivery_ready": true,
+    "pushbullet_relay_live_verified": false,
+    "pushbullet_relay_ready": true
   },
   "docs_url": "https://docs.pushbullet.com/",
-  "generated_at": "2026-07-02T08:44:33Z",
+  "generated_at": "2026-07-07T12:34:54Z",
   "generated_by": "scripts/materialize_pushbullet_delivery_readiness.py",
   "head_semantics": "source_state",
   "live_probes": [],
-  "missing_setup": [
-    "pushbullet_client_missing:default",
-    "pushbullet_token_missing:elisabeth"
-  ],
+  "missing_setup": [],
   "multi_client_expected": true,
   "operator_action": {
     "client_coverage": {
-      "configured_client_count": 1,
-      "configured_required_client_count": 1,
-      "expected_client_count": 2,
-      "missing_client_keys": [
-        "default"
-      ],
-      "missing_token_keys": [
-        "elisabeth"
-      ],
+      "configured_client_count": 4,
+      "configured_required_client_count": 3,
+      "default_client_ref_present": true,
+      "default_client_ref_resolves": true,
+      "expected_client_count": 3,
+      "missing_client_keys": [],
+      "missing_token_keys": [],
       "multi_client_expected": true,
-      "multi_client_ready": false,
-      "token_present_required_client_count": 0
+      "multi_client_ready": true,
+      "token_present_required_client_count": 3,
+      "token_required_client_count": 3
     },
-    "delivery_policy": "action_required_only",
-    "interruption_budget": "action_required",
-    "missing_setup": [
-      "pushbullet_client_missing:default",
-      "pushbullet_token_missing:elisabeth"
-    ],
-    "next_action": "create_missing_pushbullet_access_tokens",
+    "default_client_ref": "tibor",
+    "default_client_ref_present": true,
+    "default_client_ref_resolves": true,
+    "delivery_policy": "queue_only",
+    "interruption_budget": "none",
+    "missing_setup": [],
+    "next_action": "keep_pushbullet_clients_configured",
     "next_action_href": "https://www.pushbullet.com/#settings/account",
     "next_action_label": "Open Pushbullet account settings",
     "next_action_method": "get",
@@ -78,27 +114,17 @@
     "raw_token_exposed": false,
     "required_client_keys": [
       "default",
-      "elisabeth"
+      "elisabeth",
+      "tibor"
     ],
-    "setup_checklist": [
-      {
-        "how": "Keep the original/default Pushbullet client configured and add the Elisabeth client. Use the listed token env vars so action-required delivery can target the right account.",
-        "key": "configure_pushbullet_clients",
-        "label": "Configure every expected Pushbullet client"
-      },
-      {
-        "how": "Open Pushbullet Account Settings, sign in as the intended account, create an access token, store it in the listed token env var, then rerun this readiness receipt.",
-        "key": "create_pushbullet_access_token",
-        "label": "Create a Pushbullet access token for each missing token"
-      },
-      {
-        "how": "Rerun this materializer with --probe-live so /v2/users/me can be compared against the configured account hash.",
-        "key": "verify_pushbullet_account_match",
-        "label": "Verify the token belongs to the expected account"
-      }
+    "setup_checklist": [],
+    "telegram_push_allowed": false,
+    "token_required_client_keys": [
+      "default",
+      "elisabeth",
+      "tibor"
     ],
-    "telegram_push_allowed": true,
-    "user_action_required": true
+    "user_action_required": false
   },
   "privacy": {
     "raw_email_exposed": false,
@@ -108,12 +134,32 @@
   },
   "probe_live": false,
   "provider": "pushbullet",
+  "relay": {
+    "distinct_account_hashes_ready": true,
+    "distinct_client_keys_ready": true,
+    "enabled": true,
+    "live_verified": false,
+    "missing_setup": [],
+    "primary_client_key": "tibor",
+    "primary_uses_default_alias": false,
+    "raw_email_exposed": false,
+    "resolved_primary_client_key": "tibor",
+    "resolved_secondary_client_key": "elisabeth",
+    "secondary_client_key": "elisabeth",
+    "secondary_uses_default_alias": false
+  },
   "required_client_keys": [
     "default",
-    "elisabeth"
+    "elisabeth",
+    "tibor"
   ],
-  "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
-  "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
+  "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+  "source_state_fingerprint": "52e853e2e581b1dcf0a2c3171bf2e76df05a0184ec6a46b81a8efac46e6d9346",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
-  "status": "blocked_setup_required"
+  "status": "ready_configured",
+  "token_required_client_keys": [
+    "default",
+    "elisabeth",
+    "tibor"
+  ]
 }

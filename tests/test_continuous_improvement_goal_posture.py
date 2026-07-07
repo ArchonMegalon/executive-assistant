@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from app.services.proactive_ooda_goal_actions import goal_action_queue_signals
 from scripts.materialize_continuous_improvement_goal_posture import build_goal_posture
 import scripts.materialize_continuous_improvement_goal_posture as posture_module
 import scripts.verify_continuous_improvement_goal_posture as verifier_module
@@ -16,9 +17,13 @@ def _office_provider_cost_routing_posture() -> dict[str, object]:
             "primary_background_provider": "onemin",
             "primary_background_provider_label": "1min.ai",
             "default_provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "fast_provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "cheap_provider_order": ["onemin", "magixai", "gemini_vortex"],
             "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "hard_provider_order": ["onemin", "magixai", "gemini_vortex"],
             "cost_sensitive_lanes": ["groundwork", "fast", "overflow", "review", "review_light", "audit"],
             "onemin_preferred_when_speed_is_not_critical": True,
+            "onemin_preferred_whenever_usable": True,
         },
         "gemini_vertex": {
             "provider_key": "gemini_vortex",
@@ -40,6 +45,343 @@ def _office_provider_cost_routing_posture() -> dict[str, object]:
     }
 
 
+def test_pushbullet_action_context_uses_default_client_ref_alias_token_env() -> None:
+    context = posture_module._pushbullet_delivery_action_context(
+        {
+            "multi_client_expected": True,
+            "client_count": 1,
+            "required_client_keys": ["default", "elisabeth"],
+            "default_client_ref": "elisabeth",
+            "default_client_ref_present": True,
+            "default_client_ref_resolves": True,
+            "client_coverage": {
+                "multi_client_expected": True,
+                "configured_required_client_count": 2,
+                "token_present_required_client_count": 0,
+                "missing_client_keys": [],
+                "missing_token_keys": ["elisabeth"],
+                "multi_client_ready": False,
+            },
+            "missing_setup": ["pushbullet_token_missing:elisabeth"],
+            "delivery_claim": {
+                "pushbullet_note_delivery_ready": False,
+                "multi_client_delivery_ready": False,
+                "live_token_account_verified": False,
+            },
+            "clients": [
+                {
+                    "client_key": "elisabeth",
+                    "token_env": "PB_TOKEN_ELISABETH",
+                    "token_present": False,
+                }
+            ],
+            "operator_action": {
+                "user_action_required": True,
+                "missing_setup": ["pushbullet_token_missing:elisabeth"],
+                "required_client_keys": ["default", "elisabeth"],
+                "default_client_ref": "elisabeth",
+                "default_client_ref_present": True,
+                "default_client_ref_resolves": True,
+                "delivery_policy": "action_required_only",
+                "telegram_push_allowed": True,
+                "interruption_budget": "action_required",
+                "next_action_href": "https://www.pushbullet.com/#settings/account",
+                "setup_checklist": [{"key": "create_pushbullet_access_token"}],
+                "raw_email_exposed": False,
+                "raw_token_exposed": False,
+                "raw_private_context_exposed": False,
+            },
+            "privacy": {
+                "raw_email_exposed": False,
+                "raw_token_exposed": False,
+            },
+            "account_settings_url": "https://www.pushbullet.com/#settings/account",
+        }
+    )
+
+    assert context["default_client_ref"] == "elisabeth"
+    assert context["default_client_ref_present"] is True
+    assert context["default_client_ref_resolves"] is True
+    assert context["pushbullet_token_envs"] == ["PB_TOKEN_ELISABETH"]
+    assert context["pushbullet_missing_token_envs"] == ["PB_TOKEN_ELISABETH"]
+    assert context["missing_setup"] == ["pushbullet_token_missing:elisabeth"]
+    assert "PB_TOKEN_ELISABETH" in context["telegram_message"]
+
+
+def test_pushbullet_action_context_calls_out_distinct_relay_and_account_mismatch() -> None:
+    context = posture_module._pushbullet_delivery_action_context(
+        {
+            "multi_client_expected": True,
+            "client_count": 1,
+            "required_client_keys": ["default", "elisabeth"],
+            "default_client_ref": "elisabeth",
+            "default_client_ref_present": True,
+            "default_client_ref_resolves": True,
+            "client_coverage": {
+                "multi_client_expected": True,
+                "configured_required_client_count": 2,
+                "token_present_required_client_count": 2,
+                "missing_client_keys": [],
+                "missing_token_keys": [],
+                "multi_client_ready": False,
+            },
+            "missing_setup": [
+                "pushbullet_live_probe_failed:elisabeth",
+                "pushbullet_relay_distinct_clients_required",
+            ],
+            "delivery_claim": {
+                "pushbullet_note_delivery_ready": False,
+                "multi_client_delivery_ready": False,
+                "live_token_account_verified": False,
+            },
+            "live_probes": [
+                {
+                    "client_key": "elisabeth",
+                    "status": "blocked",
+                    "reason": "pushbullet_account_email_mismatch",
+                    "expected_email_matches": False,
+                    "raw_email_exposed": False,
+                    "raw_token_exposed": False,
+                }
+            ],
+            "relay": {
+                "enabled": True,
+                "primary_client_key": "default",
+                "secondary_client_key": "elisabeth",
+                "resolved_primary_client_key": "elisabeth",
+                "resolved_secondary_client_key": "elisabeth",
+                "distinct_client_keys_ready": False,
+                "distinct_account_hashes_ready": False,
+            },
+            "clients": [
+                {
+                    "client_key": "elisabeth",
+                    "token_env": "PB_TOKEN_ELISABETH",
+                    "token_present": True,
+                }
+            ],
+            "operator_action": {
+                "user_action_required": True,
+                "missing_setup": [
+                    "pushbullet_live_probe_failed:elisabeth",
+                    "pushbullet_relay_distinct_clients_required",
+                ],
+                "required_client_keys": ["default", "elisabeth"],
+                "default_client_ref": "elisabeth",
+                "default_client_ref_present": True,
+                "default_client_ref_resolves": True,
+                "delivery_policy": "action_required_only",
+                "telegram_push_allowed": True,
+                "interruption_budget": "action_required",
+                "next_action_href": "https://www.pushbullet.com/#settings/account",
+                "raw_email_exposed": False,
+                "raw_token_exposed": False,
+                "raw_private_context_exposed": False,
+            },
+            "privacy": {
+                "raw_email_exposed": False,
+                "raw_token_exposed": False,
+            },
+            "account_settings_url": "https://www.pushbullet.com/#settings/account",
+        }
+    )
+
+    assert context["relay_distinct_clients_required"] is True
+    assert context["relay_resolved_primary_client_key"] == "elisabeth"
+    assert context["relay_resolved_secondary_client_key"] == "elisabeth"
+    assert context["live_probe_failed_client_keys"] == ["elisabeth"]
+    assert context["account_mismatch_client_keys"] == ["elisabeth"]
+    assert context["pushbullet_missing_token_envs"] == ["PB_TOKEN_ELISABETH"]
+    assert context["action_required_reason"] == "pushbullet_relay_distinct_clients_required,pushbullet_account_email_mismatch"
+    assert "same Pushbullet account" in context["telegram_message"]
+    assert "Elisabeth token" in context["telegram_message"]
+    checklist_keys = {item["key"] for item in context["setup_checklist"]}
+    assert "configure_pushbullet_relay_clients" in checklist_keys
+    assert "reissue_pushbullet_token:elisabeth" in checklist_keys
+    assert "verify_pushbullet_account_match" in checklist_keys
+
+
+def test_load_receipt_prefers_runtime_pushbullet_readiness_when_newer(tmp_path, monkeypatch) -> None:
+    published_path = tmp_path / ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json"
+    published_path.parent.mkdir(parents=True, exist_ok=True)
+    published_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.pushbullet_delivery_readiness.v1",
+                "generated_at": "2026-07-07T03:00:00Z",
+                "status": "blocked_setup_required",
+                "missing_setup": ["pushbullet_token_missing:elisabeth"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    runtime_dir = tmp_path / "provider-ledger"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    runtime_path = runtime_dir / "pushbullet_readiness.generated.json"
+    runtime_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.pushbullet_delivery_readiness.v1",
+                "generated_at": "2026-07-07T04:45:48Z",
+                "status": "blocked_setup_required",
+                "missing_setup": [
+                    "pushbullet_live_probe_failed:elisabeth",
+                    "pushbullet_relay_distinct_clients_required",
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(runtime_dir))
+
+    payload, resolved_path = posture_module._load_receipt(tmp_path, published_path)
+
+    assert payload["missing_setup"] == [
+        "pushbullet_live_probe_failed:elisabeth",
+        "pushbullet_relay_distinct_clients_required",
+    ]
+    assert resolved_path.endswith("provider-ledger/pushbullet_readiness.generated.json")
+
+
+def test_load_receipt_can_discover_runtime_ledger_via_docker_inspect(tmp_path, monkeypatch) -> None:
+    published_path = tmp_path / ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json"
+    published_path.parent.mkdir(parents=True, exist_ok=True)
+    published_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.pushbullet_delivery_readiness.v1",
+                "generated_at": "2026-07-07T03:00:00Z",
+                "status": "blocked_setup_required",
+                "missing_setup": ["pushbullet_token_missing:elisabeth"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    runtime_dir = tmp_path / "docker-volume-ledger"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    runtime_path = runtime_dir / "pushbullet_readiness.generated.json"
+    runtime_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.pushbullet_delivery_readiness.v1",
+                "generated_at": "2026-07-07T05:04:52Z",
+                "status": "blocked_setup_required",
+                "missing_setup": ["pushbullet_live_probe_failed:elisabeth"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class _DockerInspectResult:
+        returncode = 0
+
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    monkeypatch.delenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_PROVIDER_LEDGER_HOST_DIR", raising=False)
+    monkeypatch.setattr(posture_module, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        posture_module.subprocess,
+        "run",
+        lambda *args, **kwargs: _DockerInspectResult(f"{runtime_dir}\n"),
+    )
+
+    payload, resolved_path = posture_module._load_receipt(tmp_path, published_path)
+
+    assert payload["missing_setup"] == ["pushbullet_live_probe_failed:elisabeth"]
+    assert resolved_path.endswith("docker-volume-ledger/pushbullet_readiness.generated.json")
+
+
+def test_load_receipt_prefers_runtime_receipt_over_newer_published_copy(tmp_path, monkeypatch) -> None:
+    published_path = tmp_path / ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json"
+    published_path.parent.mkdir(parents=True, exist_ok=True)
+    published_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.pushbullet_delivery_readiness.v1",
+                "generated_at": "2026-07-07T06:00:00Z",
+                "status": "blocked_setup_required",
+                "missing_setup": ["pushbullet_relay_distinct_clients_required"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    runtime_dir = tmp_path / "provider-ledger"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    runtime_path = runtime_dir / "pushbullet_readiness.generated.json"
+    runtime_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.pushbullet_delivery_readiness.v1",
+                "generated_at": "2026-07-07T05:04:52Z",
+                "status": "blocked_setup_required",
+                "missing_setup": ["pushbullet_live_probe_failed:elisabeth"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(runtime_dir))
+
+    payload, resolved_path = posture_module._load_receipt(tmp_path, published_path)
+
+    assert payload["missing_setup"] == ["pushbullet_live_probe_failed:elisabeth"]
+    assert resolved_path.endswith("provider-ledger/pushbullet_readiness.generated.json")
+
+
+def test_load_receipt_can_fall_back_to_docker_exec_runtime_payload(tmp_path, monkeypatch) -> None:
+    published_path = tmp_path / ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json"
+    published_path.parent.mkdir(parents=True, exist_ok=True)
+    published_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.pushbullet_delivery_readiness.v1",
+                "generated_at": "2026-07-07T06:00:00Z",
+                "status": "blocked_setup_required",
+                "missing_setup": ["pushbullet_relay_distinct_clients_required"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class _RunResult:
+        def __init__(self, *, returncode: int, stdout: str) -> None:
+            self.returncode = returncode
+            self.stdout = stdout
+
+    def _fake_run(args, **kwargs):
+        if args[:3] == ["docker", "exec", "ea-scheduler"]:
+            return _RunResult(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "contract_name": "ea.pushbullet_delivery_readiness.v1",
+                        "generated_at": "2026-07-07T05:04:52Z",
+                        "status": "blocked_setup_required",
+                        "missing_setup": ["pushbullet_live_probe_failed:elisabeth"],
+                    }
+                ),
+            )
+        return _RunResult(returncode=1, stdout="")
+
+    monkeypatch.delenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_PROVIDER_LEDGER_HOST_DIR", raising=False)
+    monkeypatch.setattr(posture_module, "ROOT", tmp_path)
+    monkeypatch.setattr(posture_module.subprocess, "run", _fake_run)
+
+    payload, resolved_path = posture_module._load_receipt(tmp_path, published_path)
+
+    assert payload["missing_setup"] == ["pushbullet_live_probe_failed:elisabeth"]
+    assert resolved_path == "docker-exec:ea-scheduler:/data/provider-ledger/pushbullet_readiness.generated.json"
+
+
 def _operator_provider_cost_pressure() -> dict[str, object]:
     return {
         "checked": True,
@@ -50,9 +392,13 @@ def _operator_provider_cost_pressure() -> dict[str, object]:
         "window": "24h",
         "primary_background_provider": "onemin",
         "provider_order": ["onemin", "magixai", "gemini_vortex"],
+        "fast_provider_order": ["onemin", "magixai", "gemini_vortex"],
+        "cheap_provider_order": ["onemin", "magixai", "gemini_vortex"],
         "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
+        "hard_provider_order": ["onemin", "magixai", "gemini_vortex"],
         "cost_sensitive_lanes": ["groundwork", "fast", "overflow", "review", "review_light", "audit"],
         "onemin_preferred_when_speed_is_not_critical": True,
+        "onemin_preferred_whenever_usable": True,
         "onemin_usable": True,
         "onemin_ready_slots": 18,
         "onemin_configured_slots": 70,
@@ -77,6 +423,61 @@ def _operator_provider_cost_pressure() -> dict[str, object]:
             "raw_provider_secret_exposed": False,
             "raw_prompt_or_response_text_exposed": False,
             "raw_google_cloud_billing_account_exposed": False,
+            "raw_provider_slots_exposed": False,
+        },
+    }
+
+
+def _live_provider_cost_pressure_probe_payload() -> dict[str, object]:
+    return {
+        "probe_ok": True,
+        "status": "active_cost_control",
+        "source": "runtime_container_exec:ea-api:provider_ledger_cache",
+        "observed_at": "2026-07-06T11:53:55Z",
+        "window": "24h",
+        "primary_background_provider": "onemin",
+        "provider_order": ["onemin", "magixai", "gemini_vortex"],
+        "fast_provider_order": ["onemin", "magixai", "gemini_vortex"],
+        "cheap_provider_order": ["onemin", "magixai", "gemini_vortex"],
+        "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
+        "hard_provider_order": ["onemin", "magixai", "gemini_vortex"],
+        "cost_sensitive_lanes": ["audit", "fast", "groundwork", "overflow", "review", "review_light"],
+        "onemin_preferred_when_speed_is_not_critical": True,
+        "onemin_preferred_whenever_usable": True,
+        "onemin_usable": True,
+        "onemin_ready_slots": 17,
+        "onemin_configured_slots": 70,
+        "gemini_provider_key": "gemini_vortex",
+        "gemini_token_tracking": {
+            "24h": {
+                "request_count": 0,
+                "soft_cap_tokens": 200000,
+                "state": "within_soft_cap",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "total_tokens": 0,
+                "window_seconds": 86400.0,
+            },
+            "background_cost_gate": "open",
+            "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+            "explicit_gemini_requests_allowed": True,
+            "selected_window": {
+                "request_count": 0,
+                "soft_cap_tokens": 200000,
+                "state": "within_soft_cap",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "total_tokens": 0,
+                "window_seconds": 86400.0,
+            },
+            "soft_cap_percent_24h": 0.0,
+        },
+        "routing_decision": "prefer_onemin_background_when_usable",
+        "requires_recovery": False,
+        "privacy": {
+            "raw_google_cloud_billing_account_exposed": False,
+            "raw_prompt_or_response_text_exposed": False,
+            "raw_provider_secret_exposed": False,
             "raw_provider_slots_exposed": False,
         },
     }
@@ -116,16 +517,88 @@ def _write_proactive_ooda_receipts(
     *,
     source_git_head: str = "source-head",
     source_state_fingerprint: str = "source-fingerprint",
-    gold_status: str = "ready_for_approval_outcome_capture",
+    gold_status: str = "blocked_low_quality_packet_evidence",
     gold_claim_allowed: bool = False,
     gold_remaining_external_proofs: list[str] | None = None,
     gold_approval_accepted: bool = False,
+    gold_summary: str = "The proactive OODA mechanics have evidence, but the selected packet is not assistant-grade enough to prove production readiness.",
+    gold_next_action: str = "stage_fresh_assistant_grade_proactive_packet",
+    gold_next_action_href: str = "/app/queue",
+    gold_next_action_label: str = "Open queue",
+    gold_next_action_method: str = "get",
+    operator_approval_capture_surface: dict[str, object] | None = None,
+    operator_status_override: str | None = None,
+    operator_reason_override: str | None = None,
+    operator_summary_override: str | None = None,
+    operator_next_action_override: str | None = None,
+    operator_next_action_href_override: str | None = None,
+    operator_next_action_label_override: str | None = None,
+    operator_next_action_method_override: str | None = None,
+    operator_extra: dict[str, object] | None = None,
 ) -> None:
     extra = {"source_git_head": source_git_head} if source_git_head else {}
     if source_state_fingerprint:
         extra["source_state_fingerprint"] = source_state_fingerprint
     if gold_remaining_external_proofs is None:
-        gold_remaining_external_proofs = ["redacted explicit approval outcome for the proactive OODA packet"]
+        gold_remaining_external_proofs = [
+            "assistant-grade source intent and candidate alignment for the proactive OODA packet",
+            "redacted explicit approval outcome for the proactive OODA packet",
+        ]
+    operator_status = "ready_with_recovery_action"
+    operator_reason = "internal_action_not_assistant_grade"
+    operator_summary = gold_summary
+    operator_next_action = gold_next_action
+    operator_next_action_href = gold_next_action_href
+    operator_next_action_label = gold_next_action_label
+    operator_next_action_method = gold_next_action_method
+    if gold_status == "pass":
+        operator_status = "ready_with_live_receipt"
+        operator_reason = "ready"
+        operator_summary = (
+            "Proactive OODA route, packet runtime, latest host-visible live receipt, "
+            "Telegram approval, and manual approval outcome capture are ready for operator follow-through."
+        )
+        operator_next_action = "maintain_proactive_ooda_gold_acceptance_evidence"
+        operator_next_action_href = "/app/today"
+        operator_next_action_label = "Open Today"
+        operator_next_action_method = "get"
+        if gold_next_action == "stage_fresh_assistant_grade_proactive_packet":
+            gold_next_action = operator_next_action
+            gold_next_action_href = operator_next_action_href
+            gold_next_action_label = operator_next_action_label
+            gold_next_action_method = operator_next_action_method
+    elif gold_status == "ready_for_approval_outcome_capture":
+        operator_status = "ready_with_live_receipt"
+        operator_reason = "ready"
+        operator_summary = (
+            "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval "
+            "capture surface; capture the redacted approval outcome next."
+        )
+        operator_next_action = "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+        operator_next_action_href = "https://myexternalbrain.com/admin/proactive-ooda/approval"
+        operator_next_action_label = "Record packet verdict"
+        operator_next_action_method = "get"
+        if gold_next_action == "stage_fresh_assistant_grade_proactive_packet":
+            gold_next_action = operator_next_action
+            gold_next_action_href = operator_next_action_href
+            gold_next_action_label = operator_next_action_label
+            gold_next_action_method = operator_next_action_method
+    if operator_status_override is not None:
+        operator_status = operator_status_override
+    if operator_reason_override is not None:
+        operator_reason = operator_reason_override
+    if operator_summary_override is not None:
+        operator_summary = operator_summary_override
+    if operator_next_action_override is not None:
+        operator_next_action = operator_next_action_override
+    if operator_next_action_href_override is not None:
+        operator_next_action_href = operator_next_action_href_override
+    if operator_next_action_label_override is not None:
+        operator_next_action_label = operator_next_action_label_override
+    if operator_next_action_method_override is not None:
+        operator_next_action_method = operator_next_action_method_override
+    operator_extra_payload = dict(operator_extra or {})
+    provider_cost_pressure = operator_extra_payload.pop("provider_cost_pressure", _operator_provider_cost_pressure())
     _write_receipt(
         root,
         ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
@@ -133,13 +606,26 @@ def _write_proactive_ooda_receipts(
         gold_claim_allowed=gold_claim_allowed,
         remaining_external_proofs=gold_remaining_external_proofs,
         proofs={"approval_outcome": {"accepted": gold_approval_accepted}},
+        summary=gold_summary,
+        next_action=gold_next_action,
+        next_action_href=gold_next_action_href,
+        next_action_label=gold_next_action_label,
+        next_action_method=gold_next_action_method,
         **extra,
     )
     _write_receipt(
         root,
         ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
-        status="ready_with_live_receipt",
-        provider_cost_pressure=_operator_provider_cost_pressure(),
+        status=operator_status,
+        reason=operator_reason,
+        summary=operator_summary,
+        next_action=operator_next_action,
+        next_action_href=operator_next_action_href,
+        next_action_label=operator_next_action_label,
+        next_action_method=operator_next_action_method,
+        provider_cost_pressure=provider_cost_pressure,
+        approval_capture_surface=operator_approval_capture_surface or {},
+        **operator_extra_payload,
         **extra,
     )
 
@@ -217,6 +703,77 @@ def _write_teable_recovery_proof_receipt(
             "different_hash_count": 0,
             "missing_secret_value_count": 0,
             "extra_restorable_count": 0,
+        },
+    )
+
+
+def _write_operator_readiness_receipt(
+    root: Path,
+    *,
+    status: str = "ready_with_actions",
+    ready: bool = False,
+    pairing_probe_mode: str = "passive",
+    component_keys: list[str] | None = None,
+    steering_component_keys: list[str] | None = None,
+    attention_component_keys: list[str] | None = None,
+    blocked_count: int = 3,
+    probe_failed_count: int = 0,
+    supplemental_attention_component_keys: list[str] | None = None,
+    supplemental_next_actions: list[dict[str, object]] | None = None,
+    next_action: str = "set_google_workspace_expected_email_and_refresh_receipt",
+    summary: str = (
+        "operator_readiness status=ready_with_actions; ready=false; components=8; "
+        "attention=4; blocked=3; probe_failed=0"
+    ),
+) -> None:
+    if component_keys is None:
+        component_keys = [
+            "telegram",
+            "google_workspace_oauth",
+            "pushbullet",
+            "whatsapp",
+            "teable_recovery",
+            "mymedia_alexa",
+            "proactive_route",
+            "proactive_artifacts",
+        ]
+    if attention_component_keys is None:
+        attention_component_keys = [
+            "google_workspace_oauth",
+            "pushbullet",
+            "whatsapp",
+            "mymedia_alexa",
+        ]
+    if steering_component_keys is None:
+        steering_component_keys = list(component_keys)
+    if supplemental_attention_component_keys is None:
+        supplemental_attention_component_keys = []
+    if supplemental_next_actions is None:
+        supplemental_next_actions = []
+    _write_receipt(
+        root,
+        ".codex-studio/published/ea_operator_readiness.generated.json",
+        status=status,
+        ready=ready,
+        pairing_probe_mode=pairing_probe_mode,
+        component_count=len(component_keys),
+        blocked_count=blocked_count,
+        probe_failed_count=probe_failed_count,
+        supplemental_attention_count=len(supplemental_attention_component_keys),
+        supplemental_blocked_count=0,
+        supplemental_probe_failed_count=0,
+        component_keys=component_keys,
+        steering_component_keys=steering_component_keys,
+        attention_component_keys=attention_component_keys,
+        supplemental_attention_component_keys=supplemental_attention_component_keys,
+        supplemental_next_actions=supplemental_next_actions,
+        next_action=next_action,
+        summary=summary,
+        privacy={
+            "raw_component_payload_exposed": False,
+            "raw_delivery_token_exposed": False,
+            "raw_qr_artifact_exposed": False,
+            "raw_chat_ref_exposed": False,
         },
     )
 
@@ -378,6 +935,23 @@ def test_whatsapp_sidecar_pairing_context_is_action_required_and_redacted() -> N
     assert "pair URLs or QR payloads" in context["telegram_message"]
 
 
+def test_operator_form_surface_prefers_explicit_action_context_for_non_catalogued_actions() -> None:
+    form_surface = posture_module._operator_form_surface(  # noqa: SLF001
+        "enter_mymedia_amazon_pairing_code",
+        {
+            "next_action_form_href": "http://127.0.0.1:52051/index.html#!/setup",
+            "next_action_form_label": "Open My Media setup",
+            "next_action_form_method": "get",
+        },
+    )
+
+    assert form_surface == {
+        "next_action_form_href": "http://127.0.0.1:52051/index.html#!/setup",
+        "next_action_form_label": "Open My Media setup",
+        "next_action_form_method": "get",
+    }
+
+
 def test_accepted_morning_brief_evidence_is_satisfied_not_operator_action(tmp_path: Path, monkeypatch) -> None:
     _set_source_state(monkeypatch)
     _write_acceptance_receipt_with_morning_brief_accepted(tmp_path)
@@ -399,6 +973,149 @@ def test_accepted_morning_brief_evidence_is_satisfied_not_operator_action(tmp_pa
     assert "morning_brief_operator_acceptance" not in {
         item["key"] for item in receipt["operator_action_queue"]
     }
+
+
+def test_weekly_signal_review_acceptance_sorts_after_concrete_setup_actions() -> None:
+    requirements = [
+        {
+            "key": "weekly_signal_to_decision_review_acceptance",
+            "title": "Weekly signal-to-decision review acceptance",
+            "lens": "detect",
+            "status": "pending_real_world_evidence",
+            "action_context": {
+                "user_action_required": True,
+                "kind": "real_world_acceptance_capture",
+                "telegram_push_allowed": False,
+            },
+        },
+        {
+            "key": "google_workspace_oauth_setup",
+            "title": "Google Workspace OAuth test-user setup",
+            "lens": "detect",
+            "status": "pending_setup",
+            "action_context": {
+                "user_action_required": True,
+                "kind": "google_workspace_oauth_setup",
+            },
+        },
+        {
+            "key": "pushbullet_delivery_setup",
+            "title": "Pushbullet delivery setup",
+            "lens": "detect",
+            "status": "pending_setup",
+            "action_context": {
+                "user_action_required": True,
+                "kind": "pushbullet_delivery_setup",
+            },
+        },
+    ]
+
+    queue = posture_module._operator_action_queue(requirements)  # noqa: SLF001
+
+    assert [item["key"] for item in queue] == [
+        "google_workspace_oauth_setup",
+        "pushbullet_delivery_setup",
+        "weekly_signal_to_decision_review_acceptance",
+    ]
+    weekly = queue[-1]
+    assert weekly["user_action_required"] is True
+    assert weekly["telegram_push_allowed"] is False
+    assert weekly["action_digest_eligible"] is False
+    assert weekly["default_action_digest_suppressed_reason"] == "telegram_push_not_allowed"
+
+
+def test_google_manual_console_check_becomes_blocking_operator_action(tmp_path: Path, monkeypatch) -> None:
+    _set_source_state(monkeypatch)
+    _write_proactive_ooda_receipts(tmp_path)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
+        status="ready_manual_console_check",
+        scope_bundle="full_workspace",
+        console_deep_link="https://console.cloud.google.com/auth/audience?project=openclaw-concierge",
+        auth_link_template=(
+            "https://myexternalbrain.com/app/actions/google/connect?"
+            "return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&"
+            "expected_google_email=%3Credacted-email%3E"
+        ),
+        missing_setup=["oauth_test_user_confirmation_pending"],
+        privacy={
+            "raw_expected_google_email_exposed": False,
+            "raw_observed_google_email_exposed": False,
+            "raw_client_secret_exposed": False,
+            "raw_access_token_exposed": False,
+            "raw_refresh_token_exposed": False,
+            "raw_error_description_exposed": False,
+        },
+        operator_action={
+            "user_action_required": True,
+            "instruction": (
+                "Open the Google Auth Platform Audience page, confirm the requested work Google account is allowed there, "
+                "add it if missing, save, then retry the Full Workspace auth link."
+            ),
+            "next_action": "add_google_oauth_test_user_and_retry_full_workspace_auth",
+            "next_action_href": "/integrations/google",
+            "next_action_label": "Open Google setup",
+            "next_action_method": "get",
+            "missing_setup": ["oauth_test_user_confirmation_pending"],
+            "setup_checklist": [
+                {
+                    "key": "oauth_test_user_confirmation_pending",
+                    "label": "Confirm the work Google account is allowed in OAuth Audience",
+                    "how": "Open the Audience page, confirm the requested account is listed there or add it if missing, save, then retry the auth link.",
+                }
+            ],
+            "console_deep_link": "https://console.cloud.google.com/auth/audience?project=openclaw-concierge",
+            "auth_link_template": (
+                "https://myexternalbrain.com/app/actions/google/connect?"
+                "return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&"
+                "expected_google_email=%3Credacted-email%3E"
+            ),
+            "scope_bundle": "full_workspace",
+            "expected_google_email_present": True,
+            "expected_google_email_sha256": "expected-google-email-hash",
+            "expected_google_domain": "gmail.com",
+            "observed_google_email_present": False,
+            "observed_google_email_sha256": "",
+            "observed_google_domain": "",
+            "observed_google_account_matches_expected": False,
+            "telegram_message": (
+                "Action needed: Google Full Workspace auth still needs a manual Audience-page check. "
+                "Open Google Auth Platform, confirm the requested work account is allowed there, add it if missing, save, then retry the auth link."
+            ),
+            "delivery_policy": "action_required_only",
+            "telegram_push_allowed": True,
+            "interruption_budget": "action_required",
+            "quiet_hours_respected": True,
+            "non_action_progress_push_allowed": False,
+            "irreversible_actions_consent_gated": True,
+            "raw_private_context_exposed": False,
+            "raw_expected_google_email_exposed": False,
+            "raw_observed_google_email_exposed": False,
+            "raw_client_id_exposed": False,
+            "raw_client_secret_exposed": False,
+            "raw_token_exposed": False,
+            "raw_secret_exposed": False,
+            "raw_error_description_exposed": False,
+        },
+    )
+
+    receipt = build_goal_posture(
+        root=tmp_path,
+        output_path=Path(".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"),
+        generated_at="2026-07-05T15:00:00Z",
+    )
+
+    assert "detect:google_workspace_oauth=ready_manual_console_check" in receipt["blocking_reasons"]
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    google_requirement = proof_requirements["google_workspace_oauth_setup"]
+    assert google_requirement["action_context"]["user_action_required"] is True
+    assert google_requirement["action_context"]["missing_setup"] == ["oauth_test_user_confirmation_pending"]
+    google_queue_row = next(item for item in receipt["operator_action_queue"] if item["key"] == "google_workspace_oauth_setup")
+    assert google_queue_row["user_action_required"] is True
+    assert google_queue_row["delivery_policy"] == "action_required_only"
+    assert google_queue_row["telegram_push_allowed"] is True
+    assert google_queue_row["operator_stream"] == "office_setup"
 
 
 def test_pending_quality_acceptance_keys_become_action_required_queue_items(
@@ -469,6 +1186,59 @@ def test_pending_quality_acceptance_keys_become_action_required_queue_items(
         assert queue[proof_key]["delivery_policy"] == "action_required_only"
         assert queue[proof_key]["telegram_push_allowed"] is True
     assert verify(output, root=tmp_path) == []
+
+
+def test_mymedia_action_context_adds_public_console_repair_checklist_when_surface_is_broken() -> None:
+    context = posture_module._mymedia_alexa_action_context(
+        {
+            "ready": False,
+            "reason": "mymedia_library_scan_pending",
+            "next_action": "wait_for_mymedia_library_scan",
+            "next_action_href": "http://127.0.0.1:52051/index.html#!/tables",
+            "next_action_label": "Open Watch Folders",
+            "next_action_method": "get",
+            "echo_playback_claim_allowed": False,
+            "operator_action": {
+                "user_action_required": True,
+                "delivery_policy": "action_required_only",
+                "interruption_budget": "action_required",
+                "telegram_delivery_ready": False,
+            },
+            "pairing_telegram_delivery": {
+                "delivery_reason": "no_operator_action_required",
+                "delivery_transport": "telegram_bot",
+                "telegram_delivery": {
+                    "reason": "no_operator_action_required",
+                    "delivery_transport": "telegram_bot",
+                },
+            },
+            "probe": {
+                "public_surface_configured": True,
+                "public_surface_ready": False,
+                "public_surface_status": "blocked_by_cloudflare",
+                "public_surface_reason": "mymedia_public_console_blocked_by_cloudflare",
+            },
+            "privacy": {
+                "raw_refresh_token_exposed": False,
+                "raw_paired_user_exposed": False,
+                "raw_watch_folder_paths_exposed": False,
+                "raw_public_ip_exposed": False,
+                "raw_pairing_resume_url_exposed": False,
+            },
+        }
+    )
+
+    assert context["missing_setup"] == [
+        "mymedia_library_scan_pending",
+        "mymedia_public_console_blocked_by_cloudflare",
+    ]
+    assert {
+        "key": "repair_mymedia_public_console_route",
+        "label": "Repair My Media public console route",
+        "how": "make repair-mymedia-public-surface",
+    } in context["setup_checklist"]
+    assert context["public_console_surface_ready"] is False
+    assert context["public_console_surface_status"] == "blocked_by_cloudflare"
 
 
 def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_path: Path, monkeypatch) -> None:
@@ -631,7 +1401,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     _write_receipt(
         tmp_path,
         ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
-        status="blocked_setup_required",
+        status="ready_retry_required",
         scope_bundle="full_workspace",
         console_deep_link="https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
         auth_link_template=(
@@ -784,6 +1554,73 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     )
     _write_receipt(
         tmp_path,
+        ".codex-studio/published/mymedia_alexa_readiness.generated.json",
+        status="blocked_pairing_required",
+        ready=False,
+        probe_ok=True,
+        reason="amazon_account_not_paired",
+        next_action="enter_mymedia_amazon_pairing_code",
+        next_action_href="http://127.0.0.1:52051/index.html#!/setup",
+        next_action_label="Open My Media setup",
+        next_action_method="get",
+        pairing_resume_ready=True,
+        pairing_resume_command="make submit-mymedia-amazon-pairing-code OTP_CODE=123456",
+        echo_playback_claim_allowed=False,
+        operator_action={
+            "user_action_required": True,
+            "delivery_policy": "action_required_only",
+            "interruption_budget": "action_required",
+            "next_action": "enter_mymedia_amazon_pairing_code",
+            "next_action_href": "http://127.0.0.1:52051/index.html#!/setup",
+            "next_action_label": "Open My Media setup",
+            "next_action_method": "get",
+            "pairing_resume_ready": True,
+            "pairing_resume_command": "make submit-mymedia-amazon-pairing-code OTP_CODE=123456",
+            "telegram_delivery_ready": True,
+            "raw_private_context_exposed": False,
+        },
+        pairing_telegram_delivery={
+            "status": "waiting_for_code",
+            "reason": "mfa_code_requested",
+            "delivery_transport": "telegram_bot",
+            "delivery_reason": "dry_run",
+            "pairing_resume_ready": True,
+            "pairing_session_pending": True,
+            "telegram_delivery": {
+                "ready": True,
+                "readiness_status": "ready",
+                "readiness_reason": "",
+                "reason": "dry_run",
+                "delivery_transport": "telegram_bot",
+                "next_action": "",
+                "next_action_href": "",
+                "next_action_label": "",
+                "next_action_method": "",
+            },
+        },
+        privacy={
+            "raw_refresh_token_exposed": False,
+            "raw_paired_user_exposed": False,
+            "raw_watch_folder_paths_exposed": False,
+            "raw_public_ip_exposed": False,
+            "raw_pairing_resume_url_exposed": False,
+        },
+        probe={
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+            "next_action": "enter_mymedia_amazon_pairing_code",
+            "pairing_resume_ready": True,
+            "privacy": {
+                "raw_refresh_token_exposed": False,
+                "raw_paired_user_exposed": False,
+                "raw_watch_folder_paths_exposed": False,
+                "raw_public_ip_exposed": False,
+                "raw_pairing_resume_url_exposed": False,
+            },
+        },
+    )
+    _write_receipt(
+        tmp_path,
         ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
         status="blocked",
         next_action="choose_sent_replacement_voice_sample",
@@ -847,6 +1684,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         status="waiting",
     )
     _write_proactive_ooda_receipts(tmp_path)
+    _write_operator_readiness_receipt(tmp_path)
 
     receipt = build_goal_posture(
         root=tmp_path,
@@ -875,6 +1713,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         "telegram_business_signal_setup",
         "google_workspace_oauth_setup",
         "pushbullet_delivery_setup",
+        "mymedia_alexa_setup",
         "manfred_stt_tts_realtime_conversation",
         "telegram_audiobook_live_delivery",
         "whatsapp_audiobook_live_delivery",
@@ -883,12 +1722,12 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert proof_requirements["proactive_ooda_packet_acceptance"]["evidence_kind"] == "approval_outcome"
     assert (
         proof_requirements["proactive_ooda_packet_acceptance"]["next_action"]
-        == "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+        == "stage_fresh_assistant_grade_proactive_packet"
     )
-    assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_href"] == "/admin/proactive-ooda/approval"
-    assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_label"] == "Open approval capture"
+    assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_href"] == "/app/queue"
+    assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_label"] == "Open queue"
     assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_method"] == "get"
-    assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_form_href"] == "/admin/proactive-ooda/approval"
+    assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_form_href"] == "/app/queue"
     assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_form_method"] == "get"
     assert proof_requirements["morning_brief_operator_acceptance"]["next_action_href"] == "/admin/actions/acceptance-evidence"
     assert proof_requirements["morning_brief_operator_acceptance"]["next_action_method"] == "post"
@@ -925,7 +1764,8 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert weekly_context["accepted_parts"] == {"review": False, "followthrough": False}
     assert weekly_context["user_action_required"] is True
     assert weekly_context["delivery_policy"] == "action_required_only"
-    assert weekly_context["telegram_push_allowed"] is True
+    assert weekly_context["telegram_push_allowed"] is False
+    assert weekly_context["notification_policy"] == "queue_only_proof"
     assert weekly_context["non_action_progress_push_allowed"] is False
     assert any(
         "ea_proactive_ooda_gold_acceptance.generated.json" in surface
@@ -975,10 +1815,32 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert pushbullet_context["token_missing_client_keys"] == ["elisabeth"]
     assert pushbullet_context["multi_client_expected"] is True
     assert pushbullet_context["pushbullet_token_envs"] == ["PB_TOKEN_ELISABETH", "PB_TOKEN"]
+    assert pushbullet_context["pushbullet_missing_token_envs"] == ["PB_TOKEN_ELISABETH"]
+    assert "PB_TOKEN_ELISABETH" in pushbullet_context["telegram_message"]
     assert pushbullet_context["multi_client_delivery_ready"] is False
     assert pushbullet_context["external_setup_url"] == "https://www.pushbullet.com/#settings/account"
     assert pushbullet_context["raw_email_exposed"] is False
     assert pushbullet_context["raw_token_exposed"] is False
+    assert proof_requirements["mymedia_alexa_setup"]["evidence_kind"] == "delivery_channel_setup"
+    assert proof_requirements["mymedia_alexa_setup"]["next_action"] == "enter_mymedia_amazon_pairing_code"
+    assert proof_requirements["mymedia_alexa_setup"]["next_action_href"] == "http://127.0.0.1:52051/index.html#!/setup"
+    assert proof_requirements["mymedia_alexa_setup"]["next_action_label"] == "Open My Media setup"
+    mymedia_context = proof_requirements["mymedia_alexa_setup"]["action_context"]
+    assert mymedia_context["kind"] == "mymedia_alexa_setup"
+    assert mymedia_context["user_action_required"] is True
+    assert mymedia_context["missing_setup"] == ["amazon_account_not_paired"]
+    assert mymedia_context["pairing_resume_ready"] is True
+    assert mymedia_context["pairing_resume_command"] == "make submit-mymedia-amazon-pairing-code OTP_CODE=123456"
+    assert mymedia_context["echo_playback_claim_allowed"] is False
+    assert mymedia_context["telegram_delivery_ready"] is True
+    assert mymedia_context["telegram_delivery_transport"] == "telegram_bot"
+    assert mymedia_context.get("telegram_delivery_reason", "") == ""
+    assert mymedia_context["external_setup_url"] == "http://127.0.0.1:52051/index.html#!/setup"
+    assert mymedia_context["raw_refresh_token_exposed"] is False
+    assert mymedia_context["raw_paired_user_exposed"] is False
+    assert mymedia_context["raw_watch_folder_paths_exposed"] is False
+    assert mymedia_context["raw_public_ip_exposed"] is False
+    assert mymedia_context["raw_pairing_resume_url_exposed"] is False
     assert proof_requirements["telegram_audiobook_live_delivery"]["evidence_kind"] == "live_delivery_receipt"
     assert (
         proof_requirements["telegram_audiobook_live_delivery"]["next_action"]
@@ -1018,6 +1880,12 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert telegram_action_context["voice_sample_delivery_status"] == "sent"
     assert telegram_action_context["raw_voice_ids_exposed"] is False
     assert telegram_action_context["callback_tokens_exposed"] is False
+    queue_streams = {item["key"]: item["operator_stream"] for item in receipt["operator_action_queue"]}
+    assert queue_streams["proactive_ooda_packet_acceptance"] == "office_loop"
+    assert queue_streams["google_workspace_oauth_setup"] == "office_setup"
+    assert queue_streams["pushbullet_delivery_setup"] == "office_setup"
+    assert queue_streams["mymedia_alexa_setup"] == "media_memorial"
+    assert queue_streams["telegram_audiobook_live_delivery"] == "media_memorial"
     duplicate_suppression = telegram_action_context["duplicate_suppression"]
     assert duplicate_suppression["action_required_only"] is True
     assert duplicate_suppression["only_current_jobs_can_require_user_action"] is True
@@ -1085,13 +1953,18 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     )
     assert weekly_action["user_action_required"] is True
     assert weekly_action["delivery_policy"] == "action_required_only"
-    assert weekly_action["telegram_push_allowed"] is True
+    assert weekly_action["telegram_push_allowed"] is False
+    assert weekly_action["action_digest_eligible"] is False
+    assert weekly_action["default_action_digest_suppressed_reason"] == "telegram_push_not_allowed"
+    assert weekly_action["notification_policy"] == "queue_only_proof"
     assert weekly_action["evidence_part"] == "review"
     assert weekly_action["next_action_label"] == "Record a signal-loop outcome"
     assert weekly_action["next_action_form_label"] == "Record a signal-loop outcome"
     assert weekly_action["source_action_packet_present"] is True
     assert weekly_action["source_action_packet_status"] == "action_required"
     assert weekly_action["action_required_reason"] == "real_world_acceptance_missing"
+    assert "Action needed:" in weekly_action["telegram_message"]
+    assert "weekly signal-to-decision packet" in weekly_action["telegram_message"]
     assert weekly_action["required_form_fields"] == ["evidence_part", "source_kind", "evidence", "packet_ref"]
     assert weekly_action["accepted_parts"] == {"review": False, "followthrough": False}
     assert (
@@ -1133,6 +2006,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert google_action["raw_observed_google_email_exposed"] is False
     assert google_action["raw_client_id_exposed"] is False
     assert google_action["raw_client_secret_exposed"] is False
+    assert google_action["proactive_signal_allowed"] is True
     pushbullet_action = next(
         item for item in receipt["operator_action_queue"] if item["key"] == "pushbullet_delivery_setup"
     )
@@ -1148,38 +2022,91 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert pushbullet_action["token_missing_client_keys"] == ["elisabeth"]
     assert pushbullet_action["multi_client_expected"] is True
     assert pushbullet_action["pushbullet_token_envs"] == ["PB_TOKEN_ELISABETH", "PB_TOKEN"]
+    assert pushbullet_action["pushbullet_missing_token_envs"] == ["PB_TOKEN_ELISABETH"]
+    assert "PB_TOKEN_ELISABETH" in pushbullet_action["telegram_message"]
     assert pushbullet_action["multi_client_delivery_ready"] is False
     assert pushbullet_action["external_setup_url"] == "https://www.pushbullet.com/#settings/account"
+    assert pushbullet_action["notification_policy"] == "default"
     assert pushbullet_action["raw_email_exposed"] is False
     assert pushbullet_action["raw_token_exposed"] is False
-    assert receipt["operator_delivery_policy"] == {
-        "action_required_only": True,
-        "non_action_progress_push_allowed": False,
-        "quiet_hours_respected": True,
-        "irreversible_actions_consent_gated": True,
-        "telegram_push_allowed_for_next_action": True,
-        "next_action_requires_user": True,
-        "next_action_delivery_policy": "action_required_only",
-    }
+    assert pushbullet_action["proactive_signal_allowed"] is True
+    mymedia_action = next(
+        item for item in receipt["operator_action_queue"] if item["key"] == "mymedia_alexa_setup"
+    )
+    assert mymedia_action["user_action_required"] is True
+    assert mymedia_action["delivery_policy"] == "action_required_only"
+    assert mymedia_action["telegram_push_allowed"] is True
+    assert mymedia_action["next_action"] == "enter_mymedia_amazon_pairing_code"
+    assert mymedia_action["next_action_href"] == "http://127.0.0.1:52051/index.html#!/setup"
+    assert mymedia_action["next_action_form_href"] == "http://127.0.0.1:52051/index.html#!/setup"
+    assert mymedia_action["missing_setup"] == ["amazon_account_not_paired"]
+    assert mymedia_action["pairing_resume_ready"] is True
+    assert mymedia_action["pairing_resume_command"] == "make submit-mymedia-amazon-pairing-code OTP_CODE=123456"
+    assert mymedia_action["echo_playback_claim_allowed"] is False
+    assert mymedia_action["telegram_delivery_ready"] is True
+    assert mymedia_action["telegram_delivery_transport"] == "telegram_bot"
+    assert mymedia_action.get("telegram_delivery_reason", "") == ""
+    assert mymedia_action["raw_refresh_token_exposed"] is False
+    assert mymedia_action["raw_paired_user_exposed"] is False
+    assert mymedia_action["raw_watch_folder_paths_exposed"] is False
+    assert mymedia_action["raw_public_ip_exposed"] is False
+    assert mymedia_action["raw_pairing_resume_url_exposed"] is False
+    operator_delivery_policy = receipt["operator_delivery_policy"]
+    assert operator_delivery_policy["action_required_only"] is True
+    assert operator_delivery_policy["non_action_progress_push_allowed"] is False
+    assert operator_delivery_policy["quiet_hours_respected"] is True
+    assert operator_delivery_policy["irreversible_actions_consent_gated"] is True
+    assert operator_delivery_policy["default_action_digest_streams"] == ["office_loop", "office_setup", "recovery"]
+    assert operator_delivery_policy["telegram_push_allowed_for_next_action"] is True
+    assert operator_delivery_policy["next_action_digest_eligible"] is True
+    assert operator_delivery_policy["next_action_requires_user"] is True
+    assert operator_delivery_policy["next_action_delivery_policy"] == "action_required_only"
+    assert operator_delivery_policy["default_action_digest_eligible_count"] == sum(
+        1 for item in receipt["operator_action_queue"] if item["action_digest_eligible"] is True
+    )
+    assert operator_delivery_policy["default_action_digest_suppressed_count"] == sum(
+        1
+        for item in receipt["operator_action_queue"]
+        if item["user_action_required"] is True and item["action_digest_eligible"] is not True
+    )
     for row in receipt["operator_action_queue"][1:]:
+        assert row["operator_stream"] in {"office_loop", "office_setup", "recovery", "media_memorial"}
         if row["user_action_required"]:
             assert row["delivery_policy"] == "action_required_only"
-            assert row["telegram_push_allowed"] is True
             assert row["interruption_budget"] == "action_required"
+            if row["key"] == "weekly_signal_to_decision_review_acceptance":
+                assert row["telegram_push_allowed"] is False
+                assert row["action_digest_eligible"] is False
+                assert row["proactive_signal_allowed"] is False
+                assert row["default_action_digest_suppressed_reason"] == "telegram_push_not_allowed"
+                continue
+            assert row["telegram_push_allowed"] is True
+            if row["operator_stream"] == "media_memorial":
+                assert row["action_digest_eligible"] is False
+                assert row["proactive_signal_allowed"] is False
+                assert row["default_action_digest_suppressed_reason"] == "operator_stream_not_in_default_action_digest"
+            else:
+                assert row["action_digest_eligible"] is True
+                assert row["proactive_signal_allowed"] is True
             continue
         assert row["delivery_policy"] == "queue_only"
         assert row["telegram_push_allowed"] is False
+        assert row["proactive_signal_allowed"] is False
         assert row["interruption_budget"] == "none"
         assert row["quiet_hours_respected"] is True
         assert row["non_action_progress_push_allowed"] is False
         assert row["irreversible_actions_consent_gated"] is True
+    goal_action_signals = goal_action_queue_signals(receipt, limit=1, public_base_url="https://ea.test")
+    assert len(goal_action_signals) == 1
+    assert goal_action_signals[0].payload["schema"] == "ea.proactive_ooda.goal_action_queue_signal.v1"
+    assert goal_action_signals[0].source_ref.startswith("goal_action_queue:morning_brief_operator_acceptance:")
     assert {item["key"] for item in receipt["operator_action_queue"]} == {
         key for key, item in proof_requirements.items() if item["status"] != "satisfied"
     }
     assert "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something." in receipt["rules"]
     assert "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient." in receipt["rules"]
     assert "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved." in receipt["rules"]
-    assert "Provider-cost governance is part of the goal: background and non-urgent work should prefer 1min.ai, Gemini/Vertex usage must be token-tracked, and Gemini soft caps may remove it from background candidate lists without blocking explicit Gemini requests." in receipt["rules"]
+    assert "Provider-cost governance is part of the goal: whenever a lane can route through the active 1min.ai manager it should prefer 1min.ai first, Gemini/Vertex usage must be token-tracked, and Gemini soft caps may remove it from background candidate lists without blocking explicit Gemini requests." in receipt["rules"]
     assert "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth." in receipt["rules"]
 
     lenses = {lens["key"]: lens for lens in receipt["lenses"]}
@@ -1195,15 +2122,56 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert transcript_evidence["raw_transcript_text_exposed"] is False
     assert transcript_evidence["raw_archive_root_exposed"] is False
     assert transcript_evidence["raw_credential_exposed"] is False
+    assert len(lenses["detect"]["source_receipts"]) == 5
+    operator_readiness = lenses["detect"]["operator_readiness_aggregate"]
+    assert operator_readiness["key"] == "ea_operator_readiness_aggregate"
+    assert operator_readiness["status"] == "ready_with_actions"
+    assert operator_readiness["ready"] is False
+    assert operator_readiness["pairing_probe_mode"] == "passive"
+    assert operator_readiness["component_count"] == 8
+    assert operator_readiness["blocked_count"] == 3
+    assert operator_readiness["probe_failed_count"] == 0
+    assert operator_readiness["component_keys"] == [
+        "telegram",
+        "google_workspace_oauth",
+        "pushbullet",
+        "whatsapp",
+        "teable_recovery",
+        "mymedia_alexa",
+        "proactive_route",
+        "proactive_artifacts",
+    ]
+    assert operator_readiness["steering_component_keys"] == operator_readiness["component_keys"]
+    assert operator_readiness["attention_component_keys"] == [
+        "google_workspace_oauth",
+        "pushbullet",
+        "whatsapp",
+        "mymedia_alexa",
+    ]
+    assert operator_readiness["supplemental_attention_count"] == 0
+    assert operator_readiness["supplemental_blocked_count"] == 0
+    assert operator_readiness["supplemental_probe_failed_count"] == 0
+    assert operator_readiness["supplemental_attention_component_keys"] == []
+    assert operator_readiness["supplemental_next_actions"] == []
+    assert operator_readiness["next_action"] == "set_google_workspace_expected_email_and_refresh_receipt"
+    assert operator_readiness["summary"].startswith("operator_readiness status=ready_with_actions")
+    assert operator_readiness["raw_component_payload_exposed"] is False
+    assert operator_readiness["raw_delivery_token_exposed"] is False
+    assert operator_readiness["raw_qr_artifact_exposed"] is False
+    assert operator_readiness["raw_chat_ref_exposed"] is False
     assert lenses["decide"]["status"] == "ready_local_evidence"
     provider_cost = lenses["decide"]["provider_cost_control"]
     assert provider_cost["status"] == "active_cost_control"
     assert provider_cost["primary_background_provider"] == "onemin"
     assert provider_cost["primary_background_provider_label"] == "1min.ai"
     assert provider_cost["default_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert provider_cost["fast_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert provider_cost["cheap_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
     assert provider_cost["groundwork_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert provider_cost["hard_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
     assert "groundwork" in provider_cost["cost_sensitive_lanes"]
     assert provider_cost["onemin_preferred_when_speed_is_not_critical"] is True
+    assert provider_cost["onemin_preferred_whenever_usable"] is True
     assert provider_cost["gemini_provider_key"] == "gemini_vortex"
     assert provider_cost["gemini_token_tracking_required"] is True
     assert provider_cost["gemini_dispatch_ledger"] == "provider_dispatch_events.jsonl"
@@ -1226,8 +2194,12 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert provider_pressure["status"] == "active_cost_control"
     assert provider_pressure["primary_background_provider"] == "onemin"
     assert provider_pressure["provider_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert provider_pressure["fast_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert provider_pressure["cheap_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
     assert provider_pressure["groundwork_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert provider_pressure["hard_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
     assert provider_pressure["onemin_preferred_when_speed_is_not_critical"] is True
+    assert provider_pressure["onemin_preferred_whenever_usable"] is True
     assert provider_pressure["onemin_usable"] is True
     assert provider_pressure["gemini_provider_key"] == "gemini_vortex"
     assert provider_pressure["gemini_billing_truth_boundary"] == (
@@ -1255,16 +2227,29 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert deliver_components["telegram_audiobook"]["status"] == "blocked"
     assert deliver_components["whatsapp_audiobook"]["status"] == "blocked"
     assert deliver_components["pushbullet_delivery"]["status"] == "blocked_setup_required"
+    assert deliver_components["mymedia_alexa"]["status"] == "blocked_pairing_required"
     assert deliver_components["pushbullet_delivery"]["missing_setup"] == [
         "pushbullet_client_missing:default",
         "pushbullet_token_missing:elisabeth",
     ]
     assert deliver_components["pushbullet_delivery"]["raw_email_exposed"] is False
     assert deliver_components["pushbullet_delivery"]["raw_token_exposed"] is False
+    assert deliver_components["mymedia_alexa"]["pairing_resume_ready"] is True
+    assert deliver_components["mymedia_alexa"]["pairing_resume_command"] == "make submit-mymedia-amazon-pairing-code OTP_CODE=123456"
+    assert deliver_components["mymedia_alexa"]["echo_playback_claim_allowed"] is False
+    assert deliver_components["mymedia_alexa"]["telegram_delivery_ready"] is True
+    assert deliver_components["mymedia_alexa"]["telegram_delivery_transport"] == "telegram_bot"
+    assert deliver_components["mymedia_alexa"].get("telegram_delivery_reason", "") == ""
+    assert deliver_components["mymedia_alexa"]["raw_refresh_token_exposed"] is False
+    assert deliver_components["mymedia_alexa"]["raw_paired_user_exposed"] is False
+    assert deliver_components["mymedia_alexa"]["raw_watch_folder_paths_exposed"] is False
+    assert deliver_components["mymedia_alexa"]["raw_public_ip_exposed"] is False
+    assert deliver_components["mymedia_alexa"]["raw_pairing_resume_url_exposed"] is False
     assert "deliver:manfred_speech=blocked_realtime_prerequisites" in receipt["blocking_reasons"]
     assert "deliver:telegram_audiobook=blocked" in receipt["blocking_reasons"]
     assert "deliver:whatsapp_audiobook=blocked" in receipt["blocking_reasons"]
     assert "deliver:pushbullet_delivery=blocked_setup_required" in receipt["blocking_reasons"]
+    assert "deliver:mymedia_alexa=blocked_pairing_required" in receipt["blocking_reasons"]
 
     output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1283,6 +2268,39 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert "google_workspace_oauth_setup next_action must mirror OAuth readiness next_action" in issues
     assert "google_workspace_oauth_setup queue row next_action must mirror OAuth readiness next_action" in issues
 
+    stale_operator_readiness_receipt = json.loads(json.dumps(receipt))
+    detect_lens = next(lens for lens in stale_operator_readiness_receipt["lenses"] if lens["key"] == "detect")
+    detect_lens["operator_readiness_aggregate"]["component_count"] = 99
+    output.write_text(json.dumps(stale_operator_readiness_receipt, indent=2) + "\n", encoding="utf-8")
+    issues = verify(output, root=tmp_path)
+    assert "operator_readiness_aggregate component_count must mirror operator readiness receipt" in issues
+
+    operator_readiness_path = tmp_path / ".codex-studio/published/ea_operator_readiness.generated.json"
+    operator_readiness_payload = json.loads(operator_readiness_path.read_text(encoding="utf-8"))
+    operator_readiness_payload["summary"] = (
+        "operator_readiness status=ready_with_actions; ready=false; components=8; "
+        "attention=4; blocked=3; probe_failed=0; observed_at=2026-07-05T16:00:00Z"
+    )
+    operator_readiness_path.write_text(json.dumps(operator_readiness_payload, indent=2) + "\n", encoding="utf-8")
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+    assert verify(output, root=tmp_path) == []
+
+    stale_mymedia_delivery_receipt = json.loads(json.dumps(receipt))
+    for requirement in stale_mymedia_delivery_receipt["acceptance_proof_requirements"]:
+        if requirement["key"] == "mymedia_alexa_setup":
+            requirement["action_context"]["telegram_delivery_ready"] = False
+            requirement["action_context"]["telegram_delivery_reason"] = ""
+    for queue_row in stale_mymedia_delivery_receipt["operator_action_queue"]:
+        if queue_row["key"] == "mymedia_alexa_setup":
+            queue_row["telegram_delivery_ready"] = False
+            queue_row["telegram_delivery_reason"] = ""
+    output.write_text(json.dumps(stale_mymedia_delivery_receipt, indent=2) + "\n", encoding="utf-8")
+    issues = verify(output, root=tmp_path)
+    assert "mymedia_alexa_setup action_context telegram_delivery_ready must match deliver component" in issues
+    assert "blocked mymedia_alexa_setup action_context must explain Telegram delivery repair" in issues
+    assert "mymedia_alexa_setup queue row telegram_delivery_ready must match action_context" not in issues
+    assert "mymedia_alexa_setup queue row must explain Telegram delivery repair" in issues
+
     receipt["acceptance_proof_requirements"] = [
         item
         for item in list(receipt["acceptance_proof_requirements"])
@@ -1293,6 +2311,1142 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         "active blocker deliver:telegram_audiobook must have acceptance proof requirement telegram_audiobook_live_delivery"
         in verify(output)
     )
+
+
+def test_goal_posture_prefers_live_provider_cost_probe_when_operator_status_is_unchecked(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch)
+    _write_proactive_ooda_receipts(
+        tmp_path,
+        operator_extra={
+            "provider_cost_pressure": {
+                "checked": False,
+                "probe_ok": False,
+                "status": "not_checked",
+                "source": "",
+                "observed_at": "",
+                "window": "",
+                "primary_background_provider": "",
+                "provider_order": [],
+                "fast_provider_order": [],
+                "cheap_provider_order": [],
+                "groundwork_provider_order": [],
+                "hard_provider_order": [],
+                "cost_sensitive_lanes": [],
+                "onemin_preferred_when_speed_is_not_critical": False,
+                "onemin_preferred_whenever_usable": False,
+                "onemin_usable": False,
+                "onemin_ready_slots": 0,
+                "onemin_configured_slots": 0,
+                "gemini_provider_key": "gemini_vortex",
+                "gemini_token_tracking": {
+                    "24h": {},
+                    "background_cost_gate": "",
+                    "billing_truth_boundary": "",
+                    "explicit_gemini_requests_allowed": False,
+                    "selected_window": {},
+                    "soft_cap_percent_24h": None,
+                },
+                "requires_recovery": False,
+                "privacy": {
+                    "raw_provider_secret_exposed": False,
+                    "raw_prompt_or_response_text_exposed": False,
+                    "raw_google_cloud_billing_account_exposed": False,
+                    "raw_provider_slots_exposed": False,
+                },
+            }
+        },
+    )
+    _write_acceptance_receipt_with_morning_brief_accepted(tmp_path)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_office_loop_goal.generated.json",
+        status="ready_local_evidence",
+        source_git_head="source-head",
+        source_state_fingerprint="source-fingerprint",
+        provider_cost_routing_posture=_office_provider_cost_routing_posture(),
+    )
+
+    receipt = build_goal_posture(
+        root=tmp_path,
+        output_path=Path(".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"),
+        generated_at="2026-07-06T12:00:00Z",
+        provider_cost_pressure_probe=_live_provider_cost_pressure_probe_payload,
+    )
+
+    provider_pressure = {lens["key"]: lens for lens in receipt["lenses"]}["decide"]["provider_cost_pressure"]
+    assert provider_pressure["present"] is True
+    assert provider_pressure["checked"] is True
+    assert provider_pressure["status"] == "active_cost_control"
+    assert provider_pressure["source"] == "runtime_container_exec:ea-api:provider_ledger_cache"
+    assert provider_pressure["primary_background_provider"] == "onemin"
+    assert provider_pressure["provider_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert provider_pressure["gemini_background_cost_gate"] == "open"
+    assert provider_pressure["explicit_gemini_requests_allowed"] is True
+    assert provider_pressure["gemini_billing_truth_boundary"] == (
+        "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth"
+    )
+
+
+def test_build_goal_posture_uses_proactive_gold_surface_when_packet_quality_is_blocked(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        status="blocked_real_world_acceptance",
+        accepted_keys=[],
+        acceptance_capture_requirements=[],
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        real_weekly_operator_review_accepted=True,
+        closed_loop_followthrough_receipt_verified=True,
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_scope_gap_audit.generated.json",
+        status="pass",
+        reviewed_against_current_product_spine=True,
+        operator_review_accepted=True,
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/teable_env_recovery_proof.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_business_signal_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/mymedia_alexa_readiness.generated.json",
+        status="blocked_pairing_required",
+        ready=False,
+        probe_ok=True,
+        reason="amazon_account_not_paired",
+        next_action="enter_mymedia_amazon_pairing_code",
+        next_action_href="http://127.0.0.1:52051/index.html#!/setup",
+        next_action_label="Open My Media setup",
+        next_action_method="get",
+        pairing_resume_ready=True,
+        pairing_resume_command="make submit-mymedia-amazon-pairing-code OTP_CODE=123456",
+        echo_playback_claim_allowed=False,
+        operator_action={
+            "user_action_required": True,
+            "delivery_policy": "action_required_only",
+            "interruption_budget": "action_required",
+            "next_action": "enter_mymedia_amazon_pairing_code",
+            "next_action_href": "http://127.0.0.1:52051/index.html#!/setup",
+            "next_action_label": "Open My Media setup",
+            "next_action_method": "get",
+            "pairing_resume_ready": True,
+            "pairing_resume_command": "make submit-mymedia-amazon-pairing-code OTP_CODE=123456",
+            "telegram_delivery_ready": True,
+            "raw_private_context_exposed": False,
+        },
+        pairing_telegram_delivery={
+            "status": "waiting_for_code",
+            "reason": "mfa_code_requested",
+            "delivery_transport": "telegram_bot",
+            "delivery_reason": "dry_run",
+            "pairing_resume_ready": True,
+            "pairing_session_pending": True,
+            "telegram_delivery": {
+                "ready": True,
+                "readiness_status": "ready",
+                "readiness_reason": "",
+                "reason": "dry_run",
+                "delivery_transport": "telegram_bot",
+                "next_action": "",
+                "next_action_href": "",
+                "next_action_label": "",
+                "next_action_method": "",
+            },
+        },
+        privacy={
+            "raw_refresh_token_exposed": False,
+            "raw_paired_user_exposed": False,
+            "raw_watch_folder_paths_exposed": False,
+            "raw_public_ip_exposed": False,
+            "raw_pairing_resume_url_exposed": False,
+        },
+        probe={
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+            "next_action": "enter_mymedia_amazon_pairing_code",
+            "pairing_resume_ready": True,
+            "privacy": {
+                "raw_refresh_token_exposed": False,
+                "raw_paired_user_exposed": False,
+                "raw_watch_folder_paths_exposed": False,
+                "raw_public_ip_exposed": False,
+                "raw_pairing_resume_url_exposed": False,
+            },
+        },
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
+    _write_proactive_ooda_receipts(
+        tmp_path,
+        gold_status="blocked_low_quality_packet_evidence",
+        gold_remaining_external_proofs=[
+            "assistant-grade source intent and candidate alignment for the proactive OODA packet",
+            "redacted explicit approval outcome for the proactive OODA packet",
+        ],
+        gold_summary="The proactive OODA mechanics have evidence, but the selected packet is not assistant-grade enough to prove production readiness.",
+        gold_next_action="stage_fresh_assistant_grade_proactive_packet",
+        gold_next_action_href="/app/queue",
+        gold_next_action_label="Open queue",
+        gold_next_action_method="get",
+    )
+    _write_operator_readiness_receipt(tmp_path)
+
+    receipt = build_goal_posture(
+        root=tmp_path,
+        output_path=tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
+        generated_at="2026-07-04T20:20:00Z",
+    )
+
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    proactive = proof_requirements["proactive_ooda_packet_acceptance"]
+    assert proactive["next_action"] == "stage_fresh_assistant_grade_proactive_packet"
+    assert proactive["next_action_href"] == "/app/queue"
+    assert proactive["next_action_label"] == "Open queue"
+    assert proactive["next_action_method"] == "get"
+    assert proactive["action_context"]["delivery_policy"] == "queue_only"
+    assert proactive["action_context"]["telegram_push_allowed"] is False
+    assert proactive["action_context"]["gold_status"] == "blocked_low_quality_packet_evidence"
+
+
+def test_build_goal_posture_marks_live_proactive_approval_as_action_required(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        status="blocked_real_world_acceptance",
+        accepted_keys=[],
+        acceptance_capture_requirements=[],
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        real_weekly_operator_review_accepted=True,
+        closed_loop_followthrough_receipt_verified=True,
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_scope_gap_audit.generated.json",
+        status="pass",
+        reviewed_against_current_product_spine=True,
+        operator_review_accepted=True,
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/teable_env_recovery_proof.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_business_signal_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/mymedia_alexa_readiness.generated.json",
+        status="blocked_pairing_required",
+        ready=False,
+        probe_ok=True,
+        reason="amazon_account_not_paired",
+        next_action="enter_mymedia_amazon_pairing_code",
+        next_action_href="http://127.0.0.1:52051/index.html#!/setup",
+        next_action_label="Open My Media setup",
+        next_action_method="get",
+        pairing_resume_ready=True,
+        pairing_resume_command="make submit-mymedia-amazon-pairing-code OTP_CODE=123456",
+        echo_playback_claim_allowed=False,
+        operator_action={
+            "user_action_required": True,
+            "delivery_policy": "action_required_only",
+            "interruption_budget": "action_required",
+            "next_action": "enter_mymedia_amazon_pairing_code",
+            "next_action_href": "http://127.0.0.1:52051/index.html#!/setup",
+            "next_action_label": "Open My Media setup",
+            "next_action_method": "get",
+            "pairing_resume_ready": True,
+            "pairing_resume_command": "make submit-mymedia-amazon-pairing-code OTP_CODE=123456",
+            "telegram_delivery_ready": True,
+            "raw_private_context_exposed": False,
+        },
+        pairing_telegram_delivery={
+            "status": "waiting_for_code",
+            "reason": "mfa_code_requested",
+            "delivery_transport": "telegram_bot",
+            "delivery_reason": "dry_run",
+            "pairing_resume_ready": True,
+            "pairing_session_pending": True,
+            "telegram_delivery": {
+                "ready": True,
+                "readiness_status": "ready",
+                "readiness_reason": "",
+                "reason": "dry_run",
+                "delivery_transport": "telegram_bot",
+                "next_action": "",
+                "next_action_href": "",
+                "next_action_label": "",
+                "next_action_method": "",
+            },
+        },
+        privacy={
+            "raw_refresh_token_exposed": False,
+            "raw_paired_user_exposed": False,
+            "raw_watch_folder_paths_exposed": False,
+            "raw_public_ip_exposed": False,
+            "raw_pairing_resume_url_exposed": False,
+        },
+        probe={
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+            "next_action": "enter_mymedia_amazon_pairing_code",
+            "pairing_resume_ready": True,
+            "privacy": {
+                "raw_refresh_token_exposed": False,
+                "raw_paired_user_exposed": False,
+                "raw_watch_folder_paths_exposed": False,
+                "raw_public_ip_exposed": False,
+                "raw_pairing_resume_url_exposed": False,
+            },
+        },
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
+    _write_proactive_ooda_receipts(
+        tmp_path,
+        gold_status="ready_for_approval_outcome_capture",
+        gold_remaining_external_proofs=["redacted explicit approval outcome for the proactive OODA packet"],
+        gold_summary=(
+            "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval "
+            "capture surface; capture the redacted approval outcome next."
+        ),
+        gold_next_action="tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+        gold_next_action_href="https://myexternalbrain.com/admin/proactive-ooda/approval",
+        gold_next_action_label="Record packet verdict",
+        gold_next_action_method="get",
+        operator_approval_capture_surface={
+            "ready": True,
+            "telegram_approval_surface_ready": True,
+            "manual_outcome_capture_ready": True,
+            "current_packet_present": True,
+            "current_packet_live_pending_count": 1,
+            "current_packet_callback_latest_status": "pending",
+            "current_packet_callback_latest_expires_at": "2026-07-11T21:19:05Z",
+            "selected_channel": "telegram",
+        },
+    )
+    _write_operator_readiness_receipt(tmp_path)
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(
+        root=tmp_path,
+        output_path=output,
+        generated_at="2026-07-04T20:20:00Z",
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    proactive = proof_requirements["proactive_ooda_packet_acceptance"]
+    assert proactive["next_action"] == "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+    assert proactive["action_context"]["user_action_required"] is True
+    assert proactive["action_context"]["delivery_policy"] == "action_required_only"
+    assert proactive["action_context"]["telegram_push_allowed"] is False
+    assert proactive["action_context"]["interruption_budget"] == "action_required"
+    assert proactive["action_context"]["notification_policy"] == "exclusive_head"
+    assert proactive["action_context"]["approval_capture_latest_expires_at"] == "2026-07-11T21:19:05Z"
+    assert proactive["action_context"]["console_deep_link"] == "https://myexternalbrain.com/admin/proactive-ooda/approval"
+    assert "Action needed:" in proactive["action_context"]["telegram_message"]
+    assert "2026-07-11T21:19:05Z" in proactive["action_context"]["telegram_message"]
+
+    proactive_queue_row = next(item for item in receipt["operator_action_queue"] if item["key"] == "proactive_ooda_packet_acceptance")
+    assert receipt["next_action_key"] == "proactive_ooda_packet_acceptance"
+    assert receipt["next_action"] == "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+    assert receipt["operator_action_queue"][0]["key"] == "proactive_ooda_packet_acceptance"
+    assert proactive_queue_row["operator_stream"] == "office_loop"
+    assert proactive_queue_row["user_action_required"] is True
+    assert proactive_queue_row["delivery_policy"] == "action_required_only"
+    assert proactive_queue_row["telegram_push_allowed"] is False
+    assert proactive_queue_row["interruption_budget"] == "action_required"
+    assert proactive_queue_row["notification_policy"] == "exclusive_head"
+    assert proactive_queue_row["console_deep_link"] == "https://myexternalbrain.com/admin/proactive-ooda/approval"
+    assert "Action needed:" in proactive_queue_row["telegram_message"]
+    assert verify(output, root=tmp_path) == []
+
+
+def test_build_goal_posture_marks_manual_proactive_approval_as_action_required(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        status="blocked_real_world_acceptance",
+        accepted_keys=[],
+        acceptance_capture_requirements=[],
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        real_weekly_operator_review_accepted=True,
+        closed_loop_followthrough_receipt_verified=True,
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_scope_gap_audit.generated.json",
+        status="pass",
+        reviewed_against_current_product_spine=True,
+        operator_review_accepted=True,
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/teable_env_recovery_proof.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_business_signal_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/mymedia_alexa_readiness.generated.json",
+        status="blocked_pairing_required",
+        ready=False,
+        probe_ok=True,
+        reason="amazon_account_not_paired",
+        next_action="enter_mymedia_amazon_pairing_code",
+        next_action_href="http://127.0.0.1:52051/index.html#!/setup",
+        next_action_label="Open My Media setup",
+        next_action_method="get",
+        pairing_resume_ready=True,
+        pairing_resume_command="make submit-mymedia-amazon-pairing-code OTP_CODE=123456",
+        echo_playback_claim_allowed=False,
+        operator_action={
+            "user_action_required": True,
+            "delivery_policy": "action_required_only",
+            "interruption_budget": "action_required",
+            "next_action": "enter_mymedia_amazon_pairing_code",
+            "next_action_href": "http://127.0.0.1:52051/index.html#!/setup",
+            "next_action_label": "Open My Media setup",
+            "next_action_method": "get",
+            "pairing_resume_ready": True,
+            "pairing_resume_command": "make submit-mymedia-amazon-pairing-code OTP_CODE=123456",
+            "telegram_delivery_ready": True,
+            "raw_private_context_exposed": False,
+        },
+        pairing_telegram_delivery={
+            "status": "waiting_for_code",
+            "reason": "mfa_code_requested",
+            "delivery_transport": "telegram_bot",
+            "delivery_reason": "dry_run",
+            "pairing_resume_ready": True,
+            "pairing_session_pending": True,
+            "telegram_delivery": {
+                "ready": True,
+                "readiness_status": "ready",
+                "readiness_reason": "",
+                "reason": "dry_run",
+                "delivery_transport": "telegram_bot",
+                "next_action": "",
+                "next_action_href": "",
+                "next_action_label": "",
+                "next_action_method": "",
+            },
+        },
+        privacy={
+            "raw_refresh_token_exposed": False,
+            "raw_paired_user_exposed": False,
+            "raw_watch_folder_paths_exposed": False,
+            "raw_public_ip_exposed": False,
+            "raw_pairing_resume_url_exposed": False,
+        },
+        probe={
+            "status": "blocked_pairing_required",
+            "reason": "amazon_account_not_paired",
+            "next_action": "enter_mymedia_amazon_pairing_code",
+            "pairing_resume_ready": True,
+            "privacy": {
+                "raw_refresh_token_exposed": False,
+                "raw_paired_user_exposed": False,
+                "raw_watch_folder_paths_exposed": False,
+                "raw_public_ip_exposed": False,
+                "raw_pairing_resume_url_exposed": False,
+            },
+        },
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
+    _write_proactive_ooda_receipts(
+        tmp_path,
+        gold_status="ready_for_approval_outcome_capture",
+        gold_remaining_external_proofs=["redacted explicit approval outcome for the proactive OODA packet"],
+        gold_summary=(
+            "A proactive OODA packet has local gold-proof runtime evidence and manual approval outcome capture is ready; "
+            "capture the current redacted approval outcome next."
+        ),
+        gold_next_action="record_proactive_ooda_approval_outcome",
+        gold_next_action_href="https://myexternalbrain.com/admin/proactive-ooda/approval",
+        gold_next_action_label="Record packet verdict",
+        gold_next_action_method="get",
+        operator_approval_capture_surface={
+            "ready": True,
+            "telegram_approval_surface_ready": False,
+            "manual_outcome_capture_ready": True,
+            "current_packet_present": True,
+            "current_packet_live_pending_count": 1,
+            "current_packet_callback_latest_status": "pending",
+            "current_packet_callback_latest_expires_at": "2026-07-12T11:52:01Z",
+            "selected_channel": "telegram",
+        },
+    )
+    _write_operator_readiness_receipt(tmp_path)
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(
+        root=tmp_path,
+        output_path=output,
+        generated_at="2026-07-06T04:40:45Z",
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    proactive = proof_requirements["proactive_ooda_packet_acceptance"]
+    assert proactive["next_action"] == "record_proactive_ooda_approval_outcome"
+    assert proactive["action_context"]["user_action_required"] is True
+    assert proactive["action_context"]["delivery_policy"] == "action_required_only"
+    assert proactive["action_context"]["telegram_push_allowed"] is False
+    assert proactive["action_context"]["notification_policy"] == "exclusive_head"
+    assert proactive["action_context"]["approval_capture_ready"] is True
+    assert proactive["action_context"]["approval_capture_telegram_surface_ready"] is False
+    assert proactive["action_context"]["approval_capture_manual_outcome_capture_ready"] is True
+    assert proactive["action_context"]["console_deep_link"] == "https://myexternalbrain.com/admin/proactive-ooda/approval"
+    assert "Action needed:" in proactive["action_context"]["telegram_message"]
+
+    proactive_queue_row = next(item for item in receipt["operator_action_queue"] if item["key"] == "proactive_ooda_packet_acceptance")
+    assert receipt["next_action_key"] == "proactive_ooda_packet_acceptance"
+    assert receipt["next_action"] == "record_proactive_ooda_approval_outcome"
+    assert receipt["operator_action_queue"][0]["key"] == "proactive_ooda_packet_acceptance"
+    assert proactive_queue_row["user_action_required"] is True
+    assert proactive_queue_row["delivery_policy"] == "action_required_only"
+    assert proactive_queue_row["telegram_push_allowed"] is False
+    assert proactive_queue_row["notification_policy"] == "exclusive_head"
+    assert verify(output, root=tmp_path) == []
+
+
+def test_build_goal_posture_keeps_proactive_approval_queue_only_when_runtime_marks_no_user_action(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        status="blocked_real_world_acceptance",
+        accepted_keys=[],
+        acceptance_capture_requirements=[],
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        real_weekly_operator_review_accepted=True,
+        closed_loop_followthrough_receipt_verified=True,
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_scope_gap_audit.generated.json",
+        status="pass",
+        reviewed_against_current_product_spine=True,
+        operator_review_accepted=True,
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/teable_env_recovery_proof.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_business_signal_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/mymedia_alexa_readiness.generated.json",
+        status="pass",
+        ready=True,
+        echo_playback_claim_allowed=False,
+        operator_action={
+            "telegram_delivery_ready": True,
+        },
+        privacy={
+            "raw_refresh_token_exposed": False,
+            "raw_paired_user_exposed": False,
+            "raw_watch_folder_paths_exposed": False,
+            "raw_public_ip_exposed": False,
+            "raw_pairing_resume_url_exposed": False,
+        },
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
+    _write_proactive_ooda_receipts(
+        tmp_path,
+        gold_status="ready_for_approval_outcome_capture",
+        gold_remaining_external_proofs=["redacted explicit approval outcome for the proactive OODA packet"],
+        gold_summary=(
+            "A proactive OODA packet has local gold-proof runtime evidence, but the current packet no longer "
+            "requires explicit user approval."
+        ),
+        gold_next_action="record_proactive_ooda_approval_outcome",
+        gold_next_action_href="https://myexternalbrain.com/admin/proactive-ooda/approval",
+        gold_next_action_label="Record packet verdict",
+        gold_next_action_method="get",
+        operator_approval_capture_surface={
+            "ready": True,
+            "telegram_approval_surface_ready": False,
+            "manual_outcome_capture_ready": True,
+            "current_packet_present": True,
+            "current_packet_live_pending_count": 1,
+            "current_packet_callback_latest_status": "pending",
+            "current_packet_callback_latest_expires_at": "2026-07-12T11:52:01Z",
+            "current_packet_user_action_required": False,
+            "selected_channel": "telegram",
+        },
+    )
+    _write_operator_readiness_receipt(tmp_path)
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(
+        root=tmp_path,
+        output_path=output,
+        generated_at="2026-07-06T09:30:00Z",
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    proactive = proof_requirements["proactive_ooda_packet_acceptance"]
+    assert proactive["action_context"]["user_action_required"] is False
+    assert proactive["action_context"]["approval_capture_current_packet_user_action_required"] is False
+    assert proactive["action_context"]["delivery_policy"] == "queue_only"
+    assert proactive["action_context"]["operator_queue_visible"] is False
+    assert proactive["action_context"]["telegram_push_allowed"] is False
+    assert proactive["action_context"]["notification_policy"] == "default"
+    assert all(item["key"] != "proactive_ooda_packet_acceptance" for item in receipt["operator_action_queue"])
+    assert receipt["next_action_key"] != "proactive_ooda_packet_acceptance"
+    assert verify(output, root=tmp_path) == []
+
+
+def test_build_goal_posture_hides_meta_only_proactive_approval_repair_without_live_surface(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        status="blocked_real_world_acceptance",
+        accepted_keys=[],
+        acceptance_capture_requirements=[],
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        real_weekly_operator_review_accepted=True,
+        closed_loop_followthrough_receipt_verified=True,
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_scope_gap_audit.generated.json",
+        status="pass",
+        reviewed_against_current_product_spine=True,
+        operator_review_accepted=True,
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/teable_env_recovery_proof.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_business_signal_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/mymedia_alexa_readiness.generated.json",
+        status="pass",
+        ready=True,
+        echo_playback_claim_allowed=False,
+        operator_action={
+            "telegram_delivery_ready": True,
+        },
+        privacy={
+            "raw_refresh_token_exposed": False,
+            "raw_paired_user_exposed": False,
+            "raw_watch_folder_paths_exposed": False,
+            "raw_public_ip_exposed": False,
+            "raw_pairing_resume_url_exposed": False,
+        },
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
+    _write_proactive_ooda_receipts(
+        tmp_path,
+        gold_status="blocked_missing_proactive_packet_evidence",
+        gold_remaining_external_proofs=[
+            "redacted approval-capture readiness for the proactive OODA packet",
+            "redacted explicit approval outcome for the proactive OODA packet",
+        ],
+        gold_summary="Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing.",
+        gold_next_action="repair_proactive_approval_capture",
+        gold_next_action_href="https://myexternalbrain.com/admin/goals",
+        gold_next_action_label="Open goals",
+        gold_next_action_method="get",
+        operator_approval_capture_surface={
+            "ready": False,
+            "telegram_approval_surface_ready": False,
+            "manual_outcome_capture_ready": False,
+            "current_packet_present": True,
+            "current_packet_live_pending_count": 0,
+            "current_packet_callback_latest_status": "",
+            "current_packet_user_action_required": False,
+            "selected_channel": "telegram",
+        },
+    )
+    _write_operator_readiness_receipt(tmp_path)
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(
+        root=tmp_path,
+        output_path=output,
+        generated_at="2026-07-06T09:40:00Z",
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    proactive = proof_requirements["proactive_ooda_packet_acceptance"]
+    assert proactive["next_action"] == "repair_proactive_approval_capture"
+    assert proactive["next_action_href"] == "https://myexternalbrain.com/admin/goals"
+    assert proactive["next_action_label"] == "Open goals"
+    assert proactive["action_context"]["user_action_required"] is False
+    assert proactive["action_context"]["delivery_policy"] == "queue_only"
+    assert proactive["action_context"]["operator_queue_visible"] is False
+    assert proactive["action_context"]["telegram_push_allowed"] is False
+    assert proactive["action_context"]["console_deep_link"] == ""
+    assert all(item["key"] != "proactive_ooda_packet_acceptance" for item in receipt["operator_action_queue"])
+    assert receipt["next_action_key"] != "proactive_ooda_packet_acceptance"
+    assert verify(output, root=tmp_path) == []
+
+
+def test_goal_posture_verifier_accepts_queue_only_proactive_recovery_without_approval_form(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        status="blocked_real_world_acceptance",
+        accepted_keys=[],
+        acceptance_capture_requirements=[],
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        real_weekly_operator_review_accepted=True,
+        closed_loop_followthrough_receipt_verified=True,
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_scope_gap_audit.generated.json",
+        status="pass",
+        reviewed_against_current_product_spine=True,
+        operator_review_accepted=True,
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/teable_env_recovery_proof.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_business_signal_readiness.generated.json", status="pass")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/mymedia_alexa_readiness.generated.json",
+        status="pass",
+        ready=True,
+        echo_playback_claim_allowed=False,
+        operator_action={
+            "telegram_delivery_ready": True,
+        },
+        privacy={
+            "raw_refresh_token_exposed": False,
+            "raw_paired_user_exposed": False,
+            "raw_watch_folder_paths_exposed": False,
+            "raw_public_ip_exposed": False,
+            "raw_pairing_resume_url_exposed": False,
+        },
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
+    _write_proactive_ooda_receipts(
+        tmp_path,
+        gold_status="blocked_operator_runtime_posture",
+        gold_summary=(
+            "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot "
+            "be claimed until approved source health is restored."
+        ),
+        gold_next_action="repair_proactive_operator_runtime_posture",
+        gold_next_action_href="https://myexternalbrain.com/admin/goals",
+        gold_next_action_label="Open goals",
+        gold_next_action_method="get",
+        operator_status_override="ready_with_recovery_action",
+        operator_reason_override="source_health_google_workspace:google_oauth_invalid_grant",
+        operator_summary_override=(
+            "Proactive OODA route and packet runtime are available, but Google Workspace source health still "
+            "needs operator recovery."
+        ),
+        operator_next_action_override="reauthorize_google_workspace_binding",
+        operator_next_action_href_override="/integrations/google",
+        operator_next_action_label_override="Open Google setup",
+        operator_next_action_method_override="get",
+        operator_approval_capture_surface={
+            "ready": False,
+            "telegram_approval_surface_ready": False,
+            "manual_outcome_capture_ready": False,
+            "current_packet_present": True,
+            "current_packet_live_pending_count": 0,
+            "current_packet_callback_latest_status": "",
+            "current_packet_user_action_required": False,
+            "selected_channel": "telegram",
+        },
+        operator_extra={
+            "source_health": {
+                "present": True,
+                "status": "recovery_required",
+                "issue_count": 1,
+                "operator_action_required": True,
+                "user_action_required": False,
+                "issues": [
+                    {
+                        "source_key": "google_workspace",
+                        "status": "unhealthy",
+                        "error_code": "google_oauth_invalid_grant",
+                        "operator_action_required": True,
+                        "user_action_required": False,
+                    }
+                ],
+                "privacy": {
+                    "raw_source_ref_exposed": False,
+                    "raw_payload_exposed": False,
+                    "raw_credential_exposed": False,
+                    "source_refs_hashed": True,
+                },
+            },
+            "live_receipt": {
+                "ok": True,
+                "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                "errors": [],
+            },
+            "delivery_route_error": "",
+            "delivery_route_ready": True,
+        },
+    )
+    _write_operator_readiness_receipt(tmp_path)
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(
+        root=tmp_path,
+        output_path=output,
+        generated_at="2026-07-06T09:45:00Z",
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    proactive = proof_requirements["proactive_ooda_packet_acceptance"]
+    assert proactive["next_action"] == "reauthorize_google_workspace_binding"
+    assert proactive["next_action_href"] == "/integrations/google"
+    assert proactive["next_action_label"] == "Open Google setup"
+    assert proactive["action_context"]["user_action_required"] is False
+    assert proactive["next_action_form_href"] == ""
+    assert proactive["next_action_form_method"] == ""
+
+    proactive_queue_row = next(item for item in receipt["operator_action_queue"] if item["key"] == "proactive_ooda_packet_acceptance")
+    assert proactive_queue_row["user_action_required"] is False
+    assert proactive_queue_row["next_action"] == "reauthorize_google_workspace_binding"
+    assert proactive_queue_row["next_action_href"] == "/integrations/google"
+    assert proactive_queue_row["next_action_label"] == "Open Google setup"
+    assert proactive_queue_row.get("next_action_form_href", "") == ""
+    assert proactive_queue_row.get("next_action_form_method", "") == ""
+    assert receipt["next_action_key"] != "proactive_ooda_packet_acceptance"
+    assert verify(output, root=tmp_path) == []
+
+
+def test_build_goal_posture_keeps_proactive_approval_as_action_required_during_background_google_recovery(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        status="blocked_real_world_acceptance",
+        accepted_keys=[],
+        acceptance_capture_requirements=[],
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        real_weekly_operator_review_accepted=True,
+        closed_loop_followthrough_receipt_verified=True,
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_scope_gap_audit.generated.json",
+        status="pass",
+        reviewed_against_current_product_spine=True,
+        operator_review_accepted=True,
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/teable_env_recovery_proof.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_business_signal_readiness.generated.json", status="pass")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
+        status="ready_retry_required",
+        scope_bundle="full_workspace",
+        console_deep_link="https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+        auth_link_template=(
+            "https://myexternalbrain.com/app/actions/google/connect?"
+            "return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&"
+            "expected_google_email=%3Credacted-email%3E"
+        ),
+        missing_setup=["oauth_access_retry_or_account_selection_required"],
+        privacy={
+            "raw_expected_google_email_exposed": False,
+            "raw_observed_google_email_exposed": False,
+            "raw_client_id_exposed": False,
+            "raw_client_secret_exposed": False,
+            "raw_state_secret_exposed": False,
+            "raw_provider_secret_exposed": False,
+            "raw_google_code_exposed": False,
+            "raw_access_token_exposed": False,
+            "raw_refresh_token_exposed": False,
+            "raw_gcloud_token_exposed": False,
+            "raw_gcloud_account_exposed": False,
+            "raw_error_description_exposed": False,
+        },
+        ready=False,
+        operator_action={
+            "user_action_required": True,
+            "instruction": "Retry the Full Workspace auth link and explicitly choose the approved work Google account.",
+            "next_action": "retry_full_workspace_auth_with_approved_account",
+            "next_action_href": "/integrations/google",
+            "next_action_label": "Retry Google auth",
+            "next_action_method": "get",
+            "missing_setup": ["oauth_access_retry_or_account_selection_required"],
+            "setup_checklist": [
+                {
+                    "key": "oauth_access_retry_or_account_selection_required",
+                    "label": "Retry Full Workspace auth with the approved Google account",
+                    "how": "Open the redacted auth link, choose the approved work account, and finish consent.",
+                }
+            ],
+            "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+            "auth_link_template": (
+                "https://myexternalbrain.com/app/actions/google/connect?"
+                "return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&"
+                "expected_google_email=%3Credacted-email%3E"
+            ),
+            "scope_bundle": "full_workspace",
+            "expected_google_email_present": True,
+            "expected_google_email_sha256": "expected-google-email-hash",
+            "expected_google_domain": "gmail.com",
+            "observed_google_email_present": True,
+            "observed_google_email_sha256": "observed-google-email-hash",
+            "observed_google_domain": "gmail.com",
+            "observed_google_account_matches_expected": True,
+            "telegram_message": "Action needed: Google Full Workspace auth is still denied even though the work account is already approved.",
+            "delivery_policy": "action_required_only",
+            "telegram_push_allowed": True,
+            "interruption_budget": "action_required",
+            "quiet_hours_respected": True,
+            "non_action_progress_push_allowed": False,
+            "irreversible_actions_consent_gated": True,
+            "raw_private_context_exposed": False,
+            "raw_expected_google_email_exposed": False,
+            "raw_observed_google_email_exposed": False,
+            "raw_client_id_exposed": False,
+            "raw_client_secret_exposed": False,
+            "raw_token_exposed": False,
+            "raw_secret_exposed": False,
+            "raw_error_description_exposed": False,
+        },
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/telegram_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(tmp_path, ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json", status="pass")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/mymedia_alexa_readiness.generated.json",
+        status="pass",
+        ready=True,
+        echo_playback_claim_allowed=False,
+        operator_action={
+            "telegram_delivery_ready": True,
+        },
+        privacy={
+            "raw_refresh_token_exposed": False,
+            "raw_paired_user_exposed": False,
+            "raw_watch_folder_paths_exposed": False,
+            "raw_public_ip_exposed": False,
+            "raw_pairing_resume_url_exposed": False,
+        },
+    )
+    _write_receipt(tmp_path, ".codex-studio/published/active_media_ltd_goal_bundle.generated.json", status="ready_local_evidence")
+    _write_proactive_ooda_receipts(
+        tmp_path,
+        gold_status="ready_for_approval_outcome_capture",
+        gold_remaining_external_proofs=["redacted explicit approval outcome for the proactive OODA packet"],
+        gold_summary=(
+            "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval capture "
+            "surface; capture the redacted approval outcome next."
+        ),
+        gold_next_action="tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+        gold_next_action_href="https://myexternalbrain.com/admin/proactive-ooda/approval",
+        gold_next_action_label="Record packet verdict",
+        gold_next_action_method="get",
+        operator_approval_capture_surface={
+            "ready": True,
+            "telegram_approval_surface_ready": True,
+            "manual_outcome_capture_ready": True,
+            "current_packet_present": True,
+            "current_packet_live_pending_count": 1,
+            "current_packet_callback_latest_status": "pending",
+            "current_packet_callback_latest_expires_at": "2026-07-13T04:54:06Z",
+            "selected_channel": "telegram",
+        },
+        operator_status_override="ready_with_recovery_action",
+        operator_reason_override="source_health_google_workspace:google_oauth_invalid_grant",
+        operator_summary_override=(
+            "Proactive OODA route and packet runtime are available, but 1 signal source health issue needs "
+            "operator recovery: google_workspace."
+        ),
+        operator_next_action_override="reauthorize_google_workspace_binding",
+        operator_next_action_href_override=(
+            "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace"
+        ),
+        operator_next_action_label_override="Reconnect Google workspace",
+        operator_next_action_method_override="get",
+        operator_extra={
+            "source_health": {
+                "present": True,
+                "status": "recovery_required",
+                "issue_count": 1,
+                "operator_action_required": True,
+                "user_action_required": False,
+                "issues": [
+                    {
+                        "source_key": "google_workspace",
+                        "source_type": "google_workspace",
+                        "status": "unhealthy",
+                        "error_code": "google_oauth_invalid_grant",
+                        "operator_action_required": True,
+                        "user_action_required": False,
+                        "next_action": "reauthorize_google_workspace_binding",
+                        "raw_source_ref_exposed": False,
+                        "raw_payload_exposed": False,
+                        "raw_credential_exposed": False,
+                    }
+                ],
+                "privacy": {
+                    "raw_source_ref_exposed": False,
+                    "raw_payload_exposed": False,
+                    "raw_credential_exposed": False,
+                    "source_refs_hashed": True,
+                },
+            },
+            "live_receipt": {
+                "ok": True,
+                "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                "errors": [],
+            },
+            "delivery_route_error": "",
+            "delivery_route_ready": True,
+        },
+    )
+    _write_operator_readiness_receipt(tmp_path)
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(
+        root=tmp_path,
+        output_path=output,
+        generated_at="2026-07-06T05:10:00Z",
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    proactive = proof_requirements["proactive_ooda_packet_acceptance"]
+    google = proof_requirements["google_workspace_oauth_setup"]
+    assert proactive["action_context"]["user_action_required"] is True
+    assert proactive["action_context"]["delivery_policy"] == "action_required_only"
+    assert proactive["action_context"]["telegram_push_allowed"] is False
+    assert proactive["action_context"]["notification_policy"] == "exclusive_head"
+    assert google["action_context"]["user_action_required"] is True
+
+    assert receipt["next_action_key"] == "proactive_ooda_packet_acceptance"
+    assert receipt["next_action"] == "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+    assert receipt["operator_action_queue"][0]["key"] == "proactive_ooda_packet_acceptance"
+    assert any(item["key"] == "google_workspace_oauth_setup" for item in receipt["operator_action_queue"])
+    assert verify(output, root=tmp_path) == []
 
 
 def test_build_goal_posture_marks_recover_pass_when_mirrored_fresh_host_proof_exists(tmp_path: Path, monkeypatch) -> None:

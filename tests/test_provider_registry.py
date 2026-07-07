@@ -715,7 +715,7 @@ def test_provider_registry_exposes_hub_owner_projection_from_principal_overrides
             {
                 "profile": "groundwork",
                 "lane": "groundwork",
-                "public_model": "ea-groundwork-gemini",
+                "public_model": "ea-groundwork",
                 "backend_key": "gemini_vortex_cli",
                 "provider_hint_order": ("gemini_vortex",),
                 "review_required": False,
@@ -815,6 +815,55 @@ def test_provider_registry_prefers_ready_fallback_provider_for_lane_primary(monk
     assert repair["primary_provider_key"] == "onemin"
     assert repair["primary_state"] == "ready"
     assert repair["capacity_summary"]["ready_slots"] == 1
+    assert repair["providers"][0]["provider_key"] == "magixai"
+    assert repair["providers"][1]["provider_key"] == "onemin"
+
+
+def test_provider_registry_keeps_onemin_primary_when_probe_is_pending(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+
+    registry = ProviderRegistryService()
+    payload = registry.registry_read_model(
+        principal_id="codex-fleet",
+        provider_health={
+            "providers": {
+                "magixai": {
+                    "provider_key": "magixai",
+                    "state": "ready",
+                    "slots": [{"slot": "primary", "state": "ready"}],
+                },
+                "onemin": {
+                    "provider_key": "onemin",
+                    "state": "unknown",
+                    "detail": "unknown_unprobed",
+                    "configured_slots": 12,
+                    "slots": [{"slot": "primary", "state": "unknown"}],
+                },
+            }
+        },
+        profile_decisions=(
+            {
+                "profile": "repair",
+                "lane": "repair",
+                "public_model": "ea-coder-fast",
+                "backend_key": "magixai",
+                "health_provider_key": "magixai",
+                "provider_hint_order": ("magixai", "onemin"),
+                "review_required": False,
+                "needs_review": False,
+                "merge_policy": "auto_if_low_risk",
+            },
+        ),
+    )
+
+    repair = next(item for item in payload["lanes"] if item["profile"] == "repair")
+    assert repair["backend"] == "onemin"
+    assert repair["health_provider_key"] == "onemin"
+    assert repair["provider_hint_order"] == ["onemin", "magixai"]
+    assert repair["primary_provider_key"] == "onemin"
+    assert repair["primary_state"] == "unknown"
+    assert repair["capacity_summary"]["configured_slots"] == 12
     assert repair["providers"][0]["provider_key"] == "magixai"
     assert repair["providers"][1]["provider_key"] == "onemin"
 

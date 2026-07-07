@@ -63,6 +63,10 @@ def _steps() -> tuple[ReleaseMaterializerStep, ...]:
             command=("scripts/materialize_teable_env_recovery_readiness.py",),
         ),
         ReleaseMaterializerStep(
+            name="mymedia_alexa_readiness",
+            command=("scripts/materialize_mymedia_alexa_readiness.py",),
+        ),
+        ReleaseMaterializerStep(
             name="whatsapp_web_action_processor_readiness",
             command=("scripts/materialize_whatsapp_web_action_processor_readiness.py",),
         ),

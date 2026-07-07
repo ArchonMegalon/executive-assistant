@@ -40,6 +40,34 @@ def test_ea_property_app_surface_is_not_available_from_ea() -> None:
     assert response.headers["X-Robots-Tag"] == "noindex, nofollow, noarchive, nosnippet"
 
 
+def test_ea_property_app_surface_with_path_suffix_is_not_available_from_ea() -> None:
+    with patch.object(property_surface_boundary, "request_brand", return_value={"key": "ea"}):
+        response = property_surface_boundary.property_surface_boundary_response(
+            _request("/app/propertiesZweitens", "run_id=abc123")
+        )
+
+    assert response is not None
+    assert response.status_code == 404
+    assert _json_body(response) == {
+        "detail": "property_search_not_available",
+        "product_boundary": "propertyquarry",
+    }
+
+
+def test_ea_property_subsurface_with_path_suffix_is_not_available_from_ea() -> None:
+    with patch.object(property_surface_boundary, "request_brand", return_value={"key": "ea"}):
+        response = property_surface_boundary.property_surface_boundary_response(
+            _request("/app/researchZweitens", "investment=1")
+        )
+
+    assert response is not None
+    assert response.status_code == 404
+    assert _json_body(response) == {
+        "detail": "property_search_not_available",
+        "product_boundary": "propertyquarry",
+    }
+
+
 def test_myexternalbrain_stays_ea_even_when_propertyquarry_default_brand_is_enabled() -> None:
     with patch.dict(os.environ, {"PROPERTYQUARRY_DEFAULT_BRAND": "1"}, clear=False):
         assert public_branding.brand_from_hostname("myexternalbrain.com")["key"] == "ea"

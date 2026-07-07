@@ -73,6 +73,19 @@ def test_proactive_ooda_default_principal_is_generic_and_uses_runtime_default(mo
     assert verifier._default_principal_id() == "proactive-owner"
 
 
+def test_write_receipt_replaces_target_without_leaving_temp_files(tmp_path) -> None:
+    receipt_path = tmp_path / "proactive_ooda_latest_run.generated.json"
+    receipt_path.write_text('{"stale": true}\n', encoding="utf-8")
+
+    runner._write_receipt(receipt_path, {"notification_status": "skipped_no_items", "item_count": 0})
+
+    assert json.loads(receipt_path.read_text(encoding="utf-8")) == {
+        "item_count": 0,
+        "notification_status": "skipped_no_items",
+    }
+    assert list(tmp_path.glob(".proactive_ooda_latest_run.generated.json.*.tmp")) == []
+
+
 def test_dotenv_loader_ignores_missing_or_unreadable_paths(tmp_path) -> None:
     runner._load_dotenv_if_present(tmp_path / "missing.env")
 
@@ -300,6 +313,66 @@ def test_runner_load_signals_suppresses_matching_topic_after_stop_message(tmp_pa
     assert "manual:mic" not in source_refs
     assert "manual:flowers" in source_refs
     assert any(ref.startswith("observation:obs-stop-topic") for ref in source_refs)
+
+
+def test_runner_recovery_expands_observation_window_when_only_internal_rows_are_present(monkeypatch) -> None:
+    service = ProactiveOodaService()
+    goal_action_row = {
+        "source_ref": "goal_action_queue:proactive_ooda_packet_acceptance:abc123",
+        "external_id": "goal_action_queue:proactive_ooda_packet_acceptance:abc123",
+        "signal_type": "goal_action_queue",
+        "channel": "goal_action_queue",
+        "title": "Proactive OODA packet approval outcome",
+        "summary": "Record the redacted approval outcome.",
+    }
+    transcript_row = {
+        "source_ref": "observation:archive-b",
+        "external_id": "recording-123",
+        "signal_type": "pocket_transcript",
+        "channel": "product",
+        "title": "Elektriker fuer zusaetzliche Steckdosen.",
+        "summary": "Bitte suche einen Elektriker und bereite einen Vor-Ort-Termin vor.",
+    }
+    initial_digest = service.build_digest(
+        principal_id="exec",
+        signals=[goal_action_row],
+        already_notified_refs={
+            goal_action_row["source_ref"],
+            f"external_id:{goal_action_row['external_id']}",
+        },
+    )
+    assert initial_digest.items == ()
+
+    def _fake_load_signals(args, **_kwargs):
+        if int(getattr(args, "observation_lookback_hours", 0) or 0) >= 72:
+            return [goal_action_row, transcript_row]
+        return [goal_action_row]
+
+    monkeypatch.setattr(runner, "_load_signals", _fake_load_signals)
+    monkeypatch.setattr(runner, "_context_grounded_digest", lambda _principal_id, digest: digest)
+
+    args = SimpleNamespace(
+        principal_id="exec",
+        skip_observation_source=False,
+        observation_lookback_hours=24,
+    )
+    recovered_rows, recovered_digest = runner._recover_sparse_observation_digest(  # noqa: SLF001
+        args,
+        state_store=None,
+        stored_refs={
+            goal_action_row["source_ref"],
+            f"external_id:{goal_action_row['external_id']}",
+        },
+        service=service,
+        signals=[goal_action_row],
+        digest=initial_digest,
+    )
+
+    assert [row["source_ref"] for row in recovered_rows] == [
+        goal_action_row["source_ref"],
+        transcript_row["source_ref"],
+    ]
+    assert [item.signal_ref for item in recovered_digest.items] == [transcript_row["source_ref"]]
 
 
 def test_runner_notification_text_includes_safe_work_preview() -> None:
@@ -1042,6 +1115,701 @@ def test_runner_main_interruption_budget_defers_then_sends_once_when_budget_reco
     assert len(sent) == 1
     assert third_receipt["notification_status"] == "skipped_no_items"
     assert third_receipt["item_count"] == 0
+
+
+def test_runner_main_materializes_followthrough_artifacts_with_default_published_paths(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    signal_file = tmp_path / "signals.json"
+    _write_action_required_signal(signal_file)
+
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def _record(name: str, payload: dict[str, object]) -> None:
+        calls.append((name, payload))
+
+    def _operator_status_builder(*, output_path, report_args, live_receipt_path, allow_live_route_probe):
+        _record(
+            "operator_status",
+            {
+                "output_path": output_path,
+                "principal_id": getattr(report_args, "principal_id", ""),
+                "live_receipt_path": live_receipt_path,
+                "allow_live_route_probe": allow_live_route_probe,
+            },
+        )
+        return {"status": "pass", "route": {"status": "ready"}}
+
+    def _gold_acceptance_builder(
+        *,
+        output_path,
+        operator_status_path,
+        run_receipt_path,
+        stage_packet_dir,
+        safe_work_result_dir,
+        allow_live_runtime_probe,
+    ):
+        _record(
+            "gold_acceptance",
+            {
+                "output_path": output_path,
+                "operator_status_path": operator_status_path,
+                "run_receipt_path": run_receipt_path,
+                "stage_packet_dir": stage_packet_dir,
+                "safe_work_result_dir": safe_work_result_dir,
+                "allow_live_runtime_probe": allow_live_runtime_probe,
+            },
+        )
+        return {"status": "pass"}
+
+    def _goal_posture_builder(*, root, output_path):
+        _record(
+            "goal_posture",
+            {
+                "root": root,
+                "output_path": output_path,
+            },
+        )
+        return {
+            "status": "action_required",
+            "operator_action_queue": [{"key": "proactive_ooda_packet_acceptance"}],
+        }
+
+    def _action_required_digest_builder(
+        *,
+        root,
+        input_path,
+        output_path,
+        state_path,
+        principal_id,
+        send,
+        dry_run,
+        refresh_source,
+    ):
+        _record(
+            "operator_action_required_digest",
+            {
+                "root": root,
+                "input_path": input_path,
+                "output_path": output_path,
+                "state_path": state_path,
+                "principal_id": principal_id,
+                "send": send,
+                "dry_run": dry_run,
+                "refresh_source": refresh_source,
+            },
+        )
+        return {
+            "status": "no_user_action_required",
+            "notification_status": "skipped_no_items",
+            "item_count": 0,
+        }
+
+    monkeypatch.setattr(
+        runner,
+        "_load_followthrough_builders",
+        lambda: {
+            "operator_status_default_report_args": lambda: SimpleNamespace(),
+            "operator_status": _operator_status_builder,
+            "gold_acceptance": _gold_acceptance_builder,
+            "goal_posture": _goal_posture_builder,
+            "operator_action_required_digest": _action_required_digest_builder,
+        },
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        runner,
+        "sync_proactive_ooda_to_teable",
+        lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""},
+    )
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
+            "--principal-id",
+            "exec",
+            "--signals-json",
+            str(signal_file),
+            "--state-path",
+            str(tmp_path / "state.json"),
+            "--stage-packet-dir",
+            str(tmp_path / "packets"),
+            "--safe-work-result-dir",
+            str(tmp_path / "results"),
+            "--skip-observation-source",
+            "--skip-workspace-source",
+        ],
+    )
+
+    assert runner.main() == 0
+
+    assert [name for name, _payload in calls] == [
+        "operator_status",
+        "gold_acceptance",
+        "goal_posture",
+        "operator_action_required_digest",
+    ]
+    receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    followthrough = dict(receipt.get("followthrough_artifacts") or {})
+    assert followthrough["status"] == "ok"
+    assert followthrough["operator_status"]["path"] == ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    assert followthrough["gold_acceptance"]["path"] == ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    assert followthrough["goal_posture"]["path"] == ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    assert followthrough["operator_action_required_digest"]["path"] == ".codex-studio/published/ea_operator_action_required_digest.generated.json"
+    assert followthrough["operator_action_required_digest"]["input_path"] == (
+        ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    )
+    assert followthrough["operator_action_required_digest"]["refresh_source"] is False
+    assert calls[0][1]["allow_live_route_probe"] is False
+    assert calls[1][1]["allow_live_runtime_probe"] is False
+    assert calls[3][1]["send"] is False
+    assert calls[3][1]["refresh_source"] is False
+
+
+def test_runner_main_followthrough_arms_digest_send_and_refreshes_gold_acceptance(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text("[]\n", encoding="utf-8")
+
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def _record(name: str, payload: dict[str, object]) -> None:
+        calls.append((name, payload))
+
+    def _operator_status_builder(*, output_path, report_args, live_receipt_path, allow_live_route_probe):
+        _record(
+            "operator_status",
+            {
+                "output_path": output_path,
+                "state_path": getattr(report_args, "state_path", ""),
+                "live_receipt_path": live_receipt_path,
+                "allow_live_route_probe": allow_live_route_probe,
+            },
+        )
+        return {"status": "ready_with_live_receipt", "reason": "ready", "route": {"status": "ready"}}
+
+    def _gold_acceptance_builder(
+        *,
+        output_path,
+        operator_status_path,
+        run_receipt_path,
+        stage_packet_dir,
+        safe_work_result_dir,
+        allow_live_runtime_probe,
+    ):
+        _record(
+            "gold_acceptance",
+            {
+                "output_path": output_path,
+                "operator_status_path": operator_status_path,
+                "run_receipt_path": run_receipt_path,
+                "stage_packet_dir": stage_packet_dir,
+                "safe_work_result_dir": safe_work_result_dir,
+                "allow_live_runtime_probe": allow_live_runtime_probe,
+            },
+        )
+        return {"status": "ready_for_approval_outcome_capture"}
+
+    def _goal_posture_builder(*, root, output_path):
+        _record("goal_posture", {"root": root, "output_path": output_path})
+        return {"status": "active_with_blockers", "operator_action_queue": [{"key": "proactive_ooda_packet_acceptance"}]}
+
+    def _action_required_digest_builder(
+        *,
+        root,
+        input_path,
+        output_path,
+        state_path,
+        principal_id,
+        send,
+        dry_run,
+        refresh_source,
+    ):
+        _record(
+            "operator_action_required_digest",
+            {
+                "root": root,
+                "input_path": input_path,
+                "output_path": output_path,
+                "state_path": state_path,
+                "principal_id": principal_id,
+                "send": send,
+                "dry_run": dry_run,
+                "refresh_source": refresh_source,
+            },
+        )
+        return {
+            "status": "sent",
+            "notification_status": "sent",
+            "item_count": 1,
+        }
+
+    monkeypatch.setattr(
+        runner,
+        "_load_followthrough_builders",
+        lambda: {
+            "operator_status_default_report_args": lambda: SimpleNamespace(),
+            "operator_status": _operator_status_builder,
+            "gold_acceptance": _gold_acceptance_builder,
+            "goal_posture": _goal_posture_builder,
+            "operator_action_required_digest": _action_required_digest_builder,
+        },
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        runner,
+        "sync_proactive_ooda_to_teable",
+        lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""},
+    )
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
+            "--principal-id",
+            "exec",
+            "--signals-json",
+            str(signal_file),
+            "--state-path",
+            str(tmp_path / "state.json"),
+            "--skip-observation-source",
+            "--skip-workspace-source",
+            "--armed-send",
+        ],
+    )
+
+    assert runner.main() == 0
+
+    assert [name for name, _payload in calls] == [
+        "operator_status",
+        "gold_acceptance",
+        "goal_posture",
+        "operator_action_required_digest",
+        "gold_acceptance",
+    ]
+    assert calls[3][1]["send"] is True
+    assert calls[3][1]["refresh_source"] is False
+    receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    followthrough = dict(receipt.get("followthrough_artifacts") or {})
+    assert followthrough["operator_action_required_digest"]["notification_status"] == "sent"
+    assert followthrough["operator_action_required_digest"]["send_requested"] is True
+    assert followthrough["gold_acceptance"]["after_digest_delivery_refresh"] is True
+    assert followthrough["operator_action_required_dedupe_proof"]["status"] == "not_needed"
+
+
+def test_runner_main_followthrough_materializes_dedupe_proof_when_digest_is_suppressed_duplicate(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text("[]\n", encoding="utf-8")
+
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def _record(name: str, payload: dict[str, object]) -> None:
+        calls.append((name, payload))
+
+    def _operator_status_builder(*, output_path, report_args, live_receipt_path, allow_live_route_probe):
+        _record(
+            "operator_status",
+            {
+                "output_path": output_path,
+                "state_path": getattr(report_args, "state_path", ""),
+                "live_receipt_path": live_receipt_path,
+                "allow_live_route_probe": allow_live_route_probe,
+            },
+        )
+        return {"status": "ready_with_live_receipt", "reason": "ready", "route": {"status": "ready"}}
+
+    def _gold_acceptance_builder(
+        *,
+        output_path,
+        operator_status_path,
+        run_receipt_path,
+        stage_packet_dir,
+        safe_work_result_dir,
+        allow_live_runtime_probe,
+    ):
+        _record(
+            "gold_acceptance",
+            {
+                "output_path": output_path,
+                "operator_status_path": operator_status_path,
+                "run_receipt_path": run_receipt_path,
+                "stage_packet_dir": stage_packet_dir,
+                "safe_work_result_dir": safe_work_result_dir,
+                "allow_live_runtime_probe": allow_live_runtime_probe,
+            },
+        )
+        return {"status": "ready_for_approval_outcome_capture"}
+
+    def _goal_posture_builder(*, root, output_path):
+        _record("goal_posture", {"root": root, "output_path": output_path})
+        return {"status": "active_with_blockers", "operator_action_queue": [{"key": "proactive_ooda_packet_acceptance"}]}
+
+    def _action_required_digest_builder(
+        *,
+        root,
+        input_path,
+        output_path,
+        state_path,
+        principal_id,
+        send,
+        dry_run,
+        refresh_source,
+    ):
+        _record(
+            "operator_action_required_digest",
+            {
+                "root": root,
+                "input_path": input_path,
+                "output_path": output_path,
+                "state_path": state_path,
+                "principal_id": principal_id,
+                "send": send,
+                "dry_run": dry_run,
+                "refresh_source": refresh_source,
+            },
+        )
+        return {
+            "status": "suppressed_duplicate",
+            "notification_status": "suppressed_duplicate",
+            "item_count": 1,
+        }
+
+    def _dedupe_proof_builder(*, root, input_path, state_path, sent_receipt_path, output_path):
+        _record(
+            "operator_action_required_dedupe_proof",
+            {
+                "root": root,
+                "input_path": input_path,
+                "state_path": state_path,
+                "sent_receipt_path": sent_receipt_path,
+                "output_path": output_path,
+            },
+        )
+        return {"status": "pass"}
+
+    monkeypatch.setattr(
+        runner,
+        "_load_followthrough_builders",
+        lambda: {
+            "operator_status_default_report_args": lambda: SimpleNamespace(),
+            "operator_status": _operator_status_builder,
+            "gold_acceptance": _gold_acceptance_builder,
+            "goal_posture": _goal_posture_builder,
+            "operator_action_required_digest": _action_required_digest_builder,
+            "operator_action_required_dedupe_proof": _dedupe_proof_builder,
+        },
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        runner,
+        "sync_proactive_ooda_to_teable",
+        lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""},
+    )
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
+            "--principal-id",
+            "exec",
+            "--signals-json",
+            str(signal_file),
+            "--state-path",
+            str(tmp_path / "state.json"),
+            "--skip-observation-source",
+            "--skip-workspace-source",
+            "--armed-send",
+        ],
+    )
+
+    assert runner.main() == 0
+
+    assert [name for name, _payload in calls] == [
+        "operator_status",
+        "gold_acceptance",
+        "goal_posture",
+        "operator_action_required_digest",
+        "operator_action_required_dedupe_proof",
+        "gold_acceptance",
+    ]
+    assert calls[3][1]["send"] is True
+    receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    followthrough = dict(receipt.get("followthrough_artifacts") or {})
+    assert followthrough["operator_action_required_digest"]["notification_status"] == "suppressed_duplicate"
+    assert followthrough["operator_action_required_dedupe_proof"]["status"] == "pass"
+    assert followthrough["gold_acceptance"]["after_digest_delivery_refresh"] is True
+
+
+def test_runner_main_followthrough_digest_stays_quiet_when_downstream_digest_has_no_items(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text("[]\n", encoding="utf-8")
+
+    digest_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        runner,
+        "_load_followthrough_builders",
+        lambda: {
+            "operator_status_default_report_args": lambda: SimpleNamespace(),
+            "operator_status": lambda **_kwargs: {"status": "pass", "route": {"status": "ready"}},
+            "gold_acceptance": lambda **_kwargs: {"status": "pass"},
+            "goal_posture": lambda **_kwargs: {"status": "clear", "operator_action_queue": []},
+            "operator_action_required_digest": lambda **kwargs: digest_calls.append(dict(kwargs))
+            or {
+                "status": "no_user_action_required",
+                "notification_status": "skipped_no_items",
+                "item_count": 0,
+            },
+        },
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        runner,
+        "sync_proactive_ooda_to_teable",
+        lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""},
+    )
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
+            "--principal-id",
+            "exec",
+            "--signals-json",
+            str(signal_file),
+            "--state-path",
+            str(tmp_path / "state.json"),
+            "--skip-observation-source",
+            "--skip-workspace-source",
+        ],
+    )
+
+    assert runner.main() == 0
+
+    receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    followthrough = dict(receipt.get("followthrough_artifacts") or {})
+    assert receipt["notification_status"] == "skipped_no_items"
+    assert followthrough["status"] == "ok"
+    assert followthrough["operator_action_required_digest"]["status"] == "no_user_action_required"
+    assert followthrough["operator_action_required_digest"]["notification_status"] == "skipped_no_items"
+    assert digest_calls and digest_calls[0]["send"] is False
+    assert digest_calls[0]["refresh_source"] is False
+
+
+def test_runner_main_followthrough_reuses_receipt_artifact_root_when_quiet_refresh_has_no_current_artifacts(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text("[]\n", encoding="utf-8")
+
+    calls: list[tuple[str, dict[str, object]]] = []
+    receipt_path = tmp_path / "runtime" / "proactive_ooda_latest_run.generated.json"
+    temp_stage_dir = tmp_path / "tmp" / "ooda-live-packets"
+    temp_safe_dir = tmp_path / "tmp" / "ooda-live-results"
+
+    def _record(name: str, payload: dict[str, object]) -> None:
+        calls.append((name, payload))
+
+    def _operator_status_builder(*, output_path, report_args, live_receipt_path, allow_live_route_probe):
+        _record(
+            "operator_status",
+            {
+                "output_path": output_path,
+                "state_path": getattr(report_args, "state_path", ""),
+                "stage_packet_dir": getattr(report_args, "stage_packet_dir", ""),
+                "safe_work_result_dir": getattr(report_args, "safe_work_result_dir", ""),
+                "live_receipt_path": live_receipt_path,
+                "allow_live_route_probe": allow_live_route_probe,
+            },
+        )
+        return {"status": "ready_with_live_receipt", "route": {"status": "ready"}}
+
+    def _gold_acceptance_builder(
+        *,
+        output_path,
+        operator_status_path,
+        run_receipt_path,
+        stage_packet_dir,
+        safe_work_result_dir,
+        allow_live_runtime_probe,
+    ):
+        _record(
+            "gold_acceptance",
+            {
+                "output_path": output_path,
+                "operator_status_path": operator_status_path,
+                "run_receipt_path": run_receipt_path,
+                "stage_packet_dir": stage_packet_dir,
+                "safe_work_result_dir": safe_work_result_dir,
+                "allow_live_runtime_probe": allow_live_runtime_probe,
+            },
+        )
+        return {"status": "pass"}
+
+    monkeypatch.setattr(
+        runner,
+        "_load_followthrough_builders",
+        lambda: {
+            "operator_status_default_report_args": lambda: SimpleNamespace(),
+            "operator_status": _operator_status_builder,
+            "gold_acceptance": _gold_acceptance_builder,
+            "goal_posture": lambda **_kwargs: {"status": "clear", "operator_action_queue": []},
+            "operator_action_required_digest": lambda **_kwargs: {
+                "status": "no_user_action_required",
+                "notification_status": "skipped_no_items",
+                "item_count": 0,
+            },
+        },
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        runner,
+        "sync_proactive_ooda_to_teable",
+        lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""},
+    )
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
+            "--principal-id",
+            "exec",
+            "--signals-json",
+            str(signal_file),
+            "--state-path",
+            str(tmp_path / "tmp" / "ooda-live-state.json"),
+            "--receipt-path",
+            str(receipt_path),
+            "--stage-packet-dir",
+            str(temp_stage_dir),
+            "--safe-work-result-dir",
+            str(temp_safe_dir),
+            "--skip-observation-source",
+            "--skip-workspace-source",
+        ],
+    )
+
+    assert runner.main() == 0
+
+    expected_runtime_root = receipt_path.parent
+    operator_status_call = dict(calls[0][1])
+    gold_acceptance_call = dict(calls[1][1])
+    assert operator_status_call["state_path"] == str(expected_runtime_root / "proactive_ooda_notified.json")
+    assert operator_status_call["stage_packet_dir"] == str(expected_runtime_root / "proactive_ooda_stage_packets")
+    assert operator_status_call["safe_work_result_dir"] == str(expected_runtime_root / "proactive_ooda_safe_work_results")
+    assert gold_acceptance_call["stage_packet_dir"] == expected_runtime_root / "proactive_ooda_stage_packets"
+    assert gold_acceptance_call["safe_work_result_dir"] == expected_runtime_root / "proactive_ooda_safe_work_results"
+
+
+def test_runner_main_repeats_followthrough_once_when_first_operator_status_sees_missing_followthrough_receipt(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text("[]\n", encoding="utf-8")
+
+    operator_status_calls: list[dict[str, object]] = []
+    gold_calls: list[dict[str, object]] = []
+
+    def _operator_status_builder(*, output_path, report_args, live_receipt_path, allow_live_route_probe):
+        payload = {
+            "output_path": output_path,
+            "state_path": getattr(report_args, "state_path", ""),
+            "live_receipt_path": live_receipt_path,
+            "allow_live_route_probe": allow_live_route_probe,
+        }
+        operator_status_calls.append(payload)
+        if len(operator_status_calls) == 1:
+            return {
+                "status": "ready_with_recovery_action",
+                "reason": "followthrough_artifacts_missing",
+                "route": {"status": "ready"},
+            }
+        return {
+            "status": "ready_with_live_receipt",
+            "reason": "ready",
+            "route": {"status": "ready"},
+        }
+
+    def _gold_acceptance_builder(
+        *,
+        output_path,
+        operator_status_path,
+        run_receipt_path,
+        stage_packet_dir,
+        safe_work_result_dir,
+        allow_live_runtime_probe,
+    ):
+        gold_calls.append(
+            {
+                "output_path": output_path,
+                "operator_status_path": operator_status_path,
+                "run_receipt_path": run_receipt_path,
+                "stage_packet_dir": stage_packet_dir,
+                "safe_work_result_dir": safe_work_result_dir,
+                "allow_live_runtime_probe": allow_live_runtime_probe,
+            }
+        )
+        return {"status": "pass"}
+
+    monkeypatch.setattr(
+        runner,
+        "_load_followthrough_builders",
+        lambda: {
+            "operator_status_default_report_args": lambda: SimpleNamespace(),
+            "operator_status": _operator_status_builder,
+            "gold_acceptance": _gold_acceptance_builder,
+            "goal_posture": lambda **_kwargs: {"status": "clear", "operator_action_queue": []},
+            "operator_action_required_digest": lambda **_kwargs: {
+                "status": "no_user_action_required",
+                "notification_status": "skipped_no_items",
+                "item_count": 0,
+            },
+        },
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        runner,
+        "sync_proactive_ooda_to_teable",
+        lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""},
+    )
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
+            "--principal-id",
+            "exec",
+            "--signals-json",
+            str(signal_file),
+            "--state-path",
+            str(tmp_path / "runtime" / "state.json"),
+            "--skip-observation-source",
+            "--skip-workspace-source",
+        ],
+    )
+
+    assert runner.main() == 0
+
+    receipt = json.loads((tmp_path / "runtime" / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    followthrough = dict(receipt.get("followthrough_artifacts") or {})
+    assert len(operator_status_calls) == 2
+    assert len(gold_calls) == 2
+    assert operator_status_calls[0]["allow_live_route_probe"] is False
+    assert operator_status_calls[1]["allow_live_route_probe"] is False
+    assert followthrough["operator_status"]["status"] == "ready_with_live_receipt"
+    assert followthrough["operator_status"]["reason"] == "ready"
 
 
 def test_runner_archives_each_receipt_next_to_state_path(tmp_path, monkeypatch) -> None:

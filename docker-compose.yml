@@ -474,6 +474,8 @@ services:
       - TZ=Europe/Vienna
     volumes:
       - ./:/app:ro
+      - ./.codex-studio/published:/app/.codex-studio/published
+      - ./.runtime:/app/.runtime
       - ${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:-./data/pocket-ai-audio}:/data/pocket-ai-audio
       - ea_provider_ledger:/data/provider-ledger
     pids_limit: 256
@@ -498,8 +500,14 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - python -c "import pathlib; p=pathlib.Path('/app/scripts/run_proactive_ooda.py'); raise SystemExit(0 if p.exists() else 1)"
+        - >
+          if [ "$${EA_PROACTIVE_OODA_ENABLED:-0}" = "1" ]; then
+            python /app/scripts/verify_proactive_ooda_live_receipt.py;
+          else
+            python -c "import pathlib; p=pathlib.Path('/app/scripts/run_proactive_ooda.py'); raise SystemExit(0 if p.exists() else 1)";
+          fi
       interval: 2m
+      start_period: 2m
       timeout: 10s
       retries: 5
     depends_on:

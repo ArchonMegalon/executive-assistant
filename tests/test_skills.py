@@ -321,7 +321,7 @@ def test_design_governance_skills_round_trip_through_catalog() -> None:
     synthesis = client.get("/v1/skills/design_synthesis")
     assert synthesis.status_code == 200
     assert synthesis.json()["model_policy_json"]["brain_profile"] == "groundwork"
-    assert synthesis.json()["provider_hints_json"]["primary"] == ["Gemini Vortex"]
+    assert synthesis.json()["provider_hints_json"]["primary"] == ["1min.AI", "Gemini Vortex", "ChatPlayground AI"]
 
     mirror_brief = client.get("/v1/skills/mirror_status_brief")
     assert mirror_brief.status_code == 200

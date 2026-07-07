@@ -1,23 +1,23 @@
 {
   "branch": "main",
-  "commit_sha": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
+  "commit_sha": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
   "compose_files": [
     "docker-compose.yml",
     "docker-compose.prod.yml"
   ],
   "compose_overrides": [],
   "contract_name": "ea.deploy_context.v1",
-  "deployment_id": "local-20260630T171044659992Z-a9d1f39eb95b",
+  "deployment_id": "local-20260704T133516544937Z-4496e6a10582",
   "deployment_id_source": "local_fallback",
   "enabled_project_modes": [
     "EA_CORE"
   ],
-  "generated_at": "2026-06-30T17:10:44.659992Z",
+  "generated_at": "2026-07-04T13:35:16.544937Z",
   "generated_by": "scripts/materialize_deploy_context.py",
   "project_mode": "EA_CORE",
   "public_origin": "https://myexternalbrain.com",
   "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
-  "release_label": "local-20260630T171044659992Z-a9d1f39eb95b",
+  "release_label": "local-20260704T133516544937Z-4496e6a10582",
   "repository": "EA",
   "tracking_branch": "origin/main"
 }

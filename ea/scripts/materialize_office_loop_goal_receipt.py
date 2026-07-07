@@ -23,6 +23,12 @@ DEFAULT_PROACTIVE_OPERATOR_STATUS_RECEIPT = REPO_ROOT / ".codex-studio" / "publi
 DEFAULT_PROACTIVE_GOLD_ACCEPTANCE_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json"
 DEFAULT_SCOPE_GAP_AUDIT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_scope_gap_audit.generated.json"
 DEFAULT_GOOGLE_WORKSPACE_OAUTH_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_google_workspace_oauth_readiness.generated.json"
+APPROVAL_CAPTURE_ACTIONS = {
+    "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+    "record_proactive_ooda_approval_outcome",
+}
+APPROVAL_CAPTURE_LABEL = "Record packet verdict"
+APPROVAL_CAPTURE_PATH_SUFFIX = "/admin/proactive-ooda/approval"
 
 REMAINING_PROOF_LABELS = {
     "real_daily_morning_brief_accepted": "real daily morning brief acceptance",
@@ -105,12 +111,18 @@ def _source_state_fields() -> dict[str, str]:
 
 
 def _next_action_surface(payload: dict[str, Any]) -> dict[str, str]:
-    return {
+    surface = {
         "next_action": _text(payload.get("next_action")),
         "next_action_href": _text(payload.get("next_action_href")),
         "next_action_label": _text(payload.get("next_action_label")),
         "next_action_method": _text(payload.get("next_action_method")),
     }
+    action = surface["next_action"]
+    href = surface["next_action_href"]
+    if action in APPROVAL_CAPTURE_ACTIONS and href.endswith(APPROVAL_CAPTURE_PATH_SUFFIX):
+        surface["next_action_label"] = APPROVAL_CAPTURE_LABEL
+        surface["next_action_method"] = surface["next_action_method"] or "get"
+    return surface
 
 
 def _preferred_action_surface(*surfaces: dict[str, str]) -> dict[str, str]:
@@ -141,6 +153,21 @@ def _preferred_action_surface(*surfaces: dict[str, str]) -> dict[str, str]:
         for key in ("next_action_href", "next_action_label", "next_action_method"):
             selected[key] = _text(selected.get(key)) or _text(fallback_same_action.get(key))
     return selected
+
+
+def _prefer_operator_runtime_surface_for_blocked_proactive_followthrough(
+    *,
+    gold_status: str,
+    gold_surface: dict[str, str],
+    operator_surface: dict[str, str],
+) -> bool:
+    if gold_status != "blocked_operator_runtime_posture":
+        return False
+    operator_action = _text(operator_surface.get("next_action"))
+    if not operator_action:
+        return False
+    gold_action = _text(gold_surface.get("next_action"))
+    return gold_action in {"", "repair_proactive_operator_runtime_posture"}
 
 
 def _receipt_summary(path: Path, payload: dict[str, Any], *, extra: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -202,6 +229,12 @@ def _proactive_followthrough_posture(
         dict(proactive_gold.get("evidence_receipts") or {}).get("approval_capture_surface") or {}
     )
     selected_surface = _preferred_action_surface(gold_surface, operator_surface)
+    if _prefer_operator_runtime_surface_for_blocked_proactive_followthrough(
+        gold_status=gold_status,
+        gold_surface=gold_surface,
+        operator_surface=operator_surface,
+    ):
+        selected_surface = _preferred_action_surface(operator_surface, gold_surface)
     next_action = str(selected_surface.get("next_action") or "").strip() or DEFAULT_NARRATIVE_NEXT_ACTION
     return {
         "status": gold_status or operator_status or "missing",
@@ -309,9 +342,12 @@ def _additional_goals() -> list[dict[str, Any]]:
             "provider_cost_controls": {
                 "background_work_primary_provider": "onemin",
                 "background_work_primary_provider_label": "1min.ai",
+                "background_work_route_authority": "active_onemin_manager_when_usable",
+                "background_work_prefer_onemin_whenever_usable": True,
                 "gemini_vertex_alias": "gemini_vortex",
                 "gemini_token_tracking_required": True,
                 "gemini_soft_cap_required": True,
+                "gemini_fallback_only_when_onemin_unavailable_or_explicit": True,
                 "explicit_gemini_requests_allowed": True,
                 "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
             },
@@ -345,22 +381,30 @@ def _google_workspace_oauth_summary(payload: dict[str, Any]) -> str:
 def _provider_cost_routing_posture() -> dict[str, Any]:
     return {
         "status": "active_cost_control",
-        "goal": "Track Gemini/Vertex token pressure and shift non-urgent/background assistant work toward 1min.ai when usable.",
+        "goal": "Track Gemini/Vertex token pressure and route assistant work through the active 1min.ai manager whenever usable, with Gemini/Vertex only as explicit or degraded fallback.",
         "background_routing": {
             "primary_background_provider": "onemin",
             "primary_background_provider_label": "1min.ai",
             "default_provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "fast_provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "cheap_provider_order": ["onemin", "magixai", "gemini_vortex"],
             "groundwork_profile": "groundwork",
-            "groundwork_public_model": "ea-groundwork-gemini",
+            "groundwork_public_model": "ea-groundwork",
             "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "hard_provider_order": ["onemin", "magixai", "gemini_vortex"],
             "cost_sensitive_lanes": ["groundwork", "fast", "overflow", "review", "review_light", "audit"],
             "onemin_preferred_when_speed_is_not_critical": True,
-            "fallback_when_onemin_unavailable": ["magixai", "gemini_vortex", "onemin"],
+            "onemin_preferred_whenever_usable": True,
+            "route_through_active_onemin_manager_when_available": True,
+            "gemini_fallback_only_when_onemin_unavailable_or_explicit": True,
+            "fallback_when_onemin_unavailable": ["magixai", "gemini_vortex"],
+            "recovery_target_provider": "onemin",
         },
         "gemini_vertex": {
             "provider_key": "gemini_vortex",
             "provider_label": "Gemini/Vertex",
             "token_tracking_required": True,
+            "fallback_only": True,
             "dispatch_ledger": "provider_dispatch_events.jsonl",
             "live_pressure_probe_command": "python3 scripts/ea_live_ops.py probe-provider-cost-pressure --window 24h --format json",
             "live_pressure_probe_source": "runtime_container_exec:provider_ledger_cache",

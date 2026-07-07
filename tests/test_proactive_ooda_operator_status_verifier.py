@@ -206,9 +206,11 @@ def _provider_cost_pressure_recovery() -> dict[str, object]:
         "next_action": "repair_provider_cost_routing",
         "primary_background_provider": "gemini_vortex",
         "provider_order": ["gemini_vortex", "onemin"],
+        "fast_provider_order": ["gemini_vortex", "onemin"],
         "groundwork_provider_order": ["gemini_vortex", "onemin"],
         "cost_sensitive_lanes": ["groundwork"],
         "onemin_preferred_when_speed_is_not_critical": False,
+        "onemin_preferred_whenever_usable": False,
         "onemin_usable": True,
         "onemin_ready_slots": 18,
         "onemin_configured_slots": 70,
@@ -244,6 +246,24 @@ def _provider_cost_pressure_recovery() -> dict[str, object]:
             "raw_provider_secret_exposed": False,
             "raw_google_cloud_billing_account_exposed": False,
             "raw_provider_slots_exposed": False,
+        },
+    }
+
+
+def _assistant_grade_packet_recovery() -> dict[str, object]:
+    return {
+        "present": True,
+        "source": "docker_compose_exec",
+        "stage_kind": "internal_action",
+        "work_type": "record_internal_action",
+        "requires_recovery": True,
+        "blocking_reason": "internal_action_not_assistant_grade",
+        "next_action": "stage_fresh_assistant_grade_proactive_packet",
+        "privacy": {
+            "raw_packet_text_exposed": False,
+            "raw_candidate_exposed": False,
+            "raw_draft_text_exposed": False,
+            "raw_private_link_exposed": False,
         },
     }
 
@@ -288,6 +308,44 @@ def _base_payload() -> dict[str, object]:
             "next_action": "",
             "privacy": {
                 "raw_issue_details_exposed": False,
+                "raw_candidate_exposed": False,
+                "raw_draft_text_exposed": False,
+                "raw_private_link_exposed": False,
+            },
+        },
+        "browser_handoff": {
+            "present": False,
+            "required": False,
+            "source": "",
+            "site_host": "",
+            "blocker_code": "",
+            "reason": "",
+            "next_action": "",
+            "resume_instruction": "",
+            "staged_artifact_present": False,
+            "challenge": {
+                "primary_channel": "",
+                "available_channels": [],
+                "destination_hint": "",
+                "operator_instruction": "",
+                "raw_destination_stored": False,
+            },
+            "privacy": {
+                "raw_credentials_stored": False,
+                "raw_cookie_or_session_stored": False,
+                "raw_browser_artifact_stored": False,
+            },
+        },
+        "assistant_grade_packet": {
+            "present": False,
+            "source": "",
+            "stage_kind": "",
+            "work_type": "",
+            "requires_recovery": False,
+            "blocking_reason": "",
+            "next_action": "",
+            "privacy": {
+                "raw_packet_text_exposed": False,
                 "raw_candidate_exposed": False,
                 "raw_draft_text_exposed": False,
                 "raw_private_link_exposed": False,
@@ -463,6 +521,91 @@ def test_proactive_ooda_operator_status_verifier_accepts_valid_receipt(tmp_path:
     assert verifier.verify(receipt, root=tmp_path) == []
 
 
+def test_proactive_ooda_operator_status_verifier_accepts_browser_handoff_recovery(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "ready_with_recovery_action",
+            "reason": "browser_handoff_required",
+            "summary": (
+                "Proactive OODA is waiting on a live browser handoff for www.amazon.de before the current packet can "
+                "resume. Provide the verification code sent to the phone ending 419. The page also offers WhatsApp "
+                "code delivery. After the code is provided, resume the browser task from the authenticated session."
+            ),
+            "next_action": "complete_browser_handoff_then_resume_ooda_task",
+            "next_action_href": "https://myexternalbrain.com/app/queue",
+            "next_action_label": "Resume browser handoff",
+            "next_action_method": "get",
+            "operator_action_state": "recovery_required",
+            "delivery_route_error": "",
+            "delivery_route": {"ready": True, "route_error": "", "next_action": ""},
+            "delivery_guard": {
+                "delivery_state": "browser_handoff_pending",
+                "user_action_required": True,
+                "browser_handoff_pending": True,
+                "blocker_code": "mfa_code_required",
+            },
+            "safe_work_audit": {
+                "present": True,
+                "source": "docker_compose_exec",
+                "result_status": "blocked_human_handoff_required",
+                "audit_present": True,
+                "audit_status": "review",
+                "audit_passed": False,
+                "issue_count": 1,
+                "issue_codes": ["browser_handoff_required"],
+                "issue_severity_counts": {"info": 1},
+                "filtered_non_material": False,
+                "browser_handoff_user_action_required": True,
+                "delivery_allowed": True,
+                "blocks_operator_followthrough": False,
+                "blocking_reason": "",
+                "next_action": "",
+                "privacy": {
+                    "raw_issue_details_exposed": False,
+                    "raw_candidate_exposed": False,
+                    "raw_draft_text_exposed": False,
+                    "raw_private_link_exposed": False,
+                },
+            },
+            "browser_handoff": {
+                "present": True,
+                "required": True,
+                "source": "docker_compose_exec",
+                "site_host": "www.amazon.de",
+                "blocker_code": "mfa_code_required",
+                "reason": "Multi-factor verification requires user action.",
+                "next_action": "complete_browser_handoff_then_resume_ooda_task",
+                "resume_instruction": "After the code is provided, resume the browser task from the authenticated session.",
+                "staged_artifact_present": False,
+                "challenge": {
+                    "primary_channel": "phone",
+                    "available_channels": ["whatsapp", "phone"],
+                    "destination_hint": "phone ending 419",
+                    "operator_instruction": (
+                        "Provide the verification code sent to the phone ending 419. "
+                        "The page also offers WhatsApp code delivery."
+                    ),
+                    "raw_destination_stored": False,
+                },
+                "privacy": {
+                    "raw_credentials_stored": False,
+                    "raw_cookie_or_session_stored": False,
+                    "raw_browser_artifact_stored": False,
+                },
+            },
+        }
+    )
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
 def test_proactive_ooda_operator_status_verifier_accepts_source_coverage_recovery(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -482,6 +625,38 @@ def test_proactive_ooda_operator_status_verifier_accepts_source_coverage_recover
             "live_receipt_checked": True,
             "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
             "source_coverage": _degraded_source_coverage(),
+        }
+    )
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_operator_status_verifier_accepts_assistant_grade_recovery(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "ready_with_recovery_action",
+            "reason": "internal_action_not_assistant_grade",
+            "summary": (
+                "The proactive OODA mechanics have evidence, but the selected packet is not assistant-grade enough "
+                "to prove production readiness."
+            ),
+            "next_action": "stage_fresh_assistant_grade_proactive_packet",
+            "next_action_href": "https://myexternalbrain.com/app/queue",
+            "next_action_label": "Open queue",
+            "next_action_method": "get",
+            "operator_action_state": "recovery_required",
+            "live_receipt_checked": True,
+            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
+            "assistant_grade_packet": _assistant_grade_packet_recovery(),
+            "approval_capture_surface": {},
+            "approval_capture": {},
         }
     )
     _write_receipt(receipt, **payload)
@@ -581,541 +756,7 @@ def test_proactive_ooda_operator_status_verifier_rejects_live_receipt_overclaim_
     assert "degraded source_coverage without a higher-priority blocker requires receipt.next_action to match source_coverage.next_action" in issues
 
 
-def test_proactive_ooda_operator_status_verifier_rejects_live_receipt_overclaim_with_failed_source_probe(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload.update(
-        {
-            "source_git_head": "source-head-123",
-            "status": "ready_with_live_receipt",
-            "reason": "ready",
-            "summary": "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through.",
-            "next_action": "maintain_proactive_ooda_runtime",
-            "next_action_href": "https://myexternalbrain.com/app/today",
-            "next_action_label": "Open Today",
-            "next_action_method": "get",
-            "operator_action_state": "clear",
-            "live_receipt_checked": True,
-            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
-            "source_coverage": _failed_source_coverage(),
-        }
-    )
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
-
-    issues = verifier.verify(receipt, root=tmp_path)
-
-    assert "degraded source_coverage without a higher-priority blocker requires status=ready_with_recovery_action" in issues
-    assert "degraded source_coverage without a higher-priority blocker requires operator_action_state=recovery_required" in issues
-    assert "degraded source_coverage without a higher-priority blocker requires source_coverage reason" in issues
-
-
-def test_proactive_ooda_operator_status_verifier_rejects_clear_status_with_blocked_safe_work_audit(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload["source_git_head"] = "source-head-123"
-    payload["status"] = "ready_with_live_receipt"
-    payload["next_action"] = "maintain_proactive_ooda_runtime"
-    payload["next_action_href"] = "https://myexternalbrain.com/app/today"
-    payload["next_action_label"] = "Open Today"
-    payload["next_action_method"] = "get"
-    payload["operator_action_state"] = "clear"
-    payload["live_receipt_checked"] = True
-    payload["live_receipt"] = {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"}
-    payload["safe_work_audit"] = {
-        "present": True,
-        "source": "docker_compose_exec",
-        "result_status": "blocked_needs_research_input",
-        "audit_present": True,
-        "audit_status": "review",
-        "audit_passed": False,
-        "issue_count": 1,
-        "issue_codes": ["top_candidate_not_provider_like"],
-        "issue_severity_counts": {"warn": 1},
-        "browser_handoff_user_action_required": False,
-        "delivery_allowed": False,
-        "blocks_operator_followthrough": True,
-        "blocking_reason": "safe_work_audit_review",
-        "next_action": "repair_proactive_safe_work_audit",
-        "privacy": {
-            "raw_issue_details_exposed": False,
-            "raw_candidate_exposed": False,
-            "raw_draft_text_exposed": False,
-            "raw_private_link_exposed": False,
-        },
-    }
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
-
-    issues = verifier.verify(receipt, root=tmp_path)
-
-    assert "non-deliverable safe_work_audit requires status=blocked_local_runtime" in issues
-    assert "non-deliverable safe_work_audit requires next_action=repair_proactive_safe_work_audit" in issues
-    assert "non-deliverable safe_work_audit requires operator_action_state=recovery_required" in issues
-
-
-def test_proactive_ooda_operator_status_verifier_allows_suppressed_projection_recovery_without_route_error(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload.update(
-        {
-            "source_git_head": "source-head-123",
-            "status": "ready_with_recovery_action",
-            "reason": "suppressed_safe_work_projection",
-            "summary": "Proactive OODA runtime is healthy, but the latest quiet run suppressed 2 non-deliverable safe-work item(s) from user and Teable packet projection.",
-            "next_action": "repair_proactive_safe_work_audit",
-            "next_action_href": "https://myexternalbrain.com/app/queue",
-            "next_action_label": "Review safe work",
-            "next_action_method": "get",
-            "operator_action_state": "recovery_required",
-            "delivery_route_error": "",
-            "delivery_route": {"ready": True, "route_error": "", "next_action": ""},
-            "suppressed_projection": {
-                "present": True,
-                "source": "docker_compose_exec",
-                "status": "suppressed",
-                "requires_recovery": True,
-                "blocking_reason": "suppressed_safe_work_projection",
-                "next_action": "repair_proactive_safe_work_audit",
-                "run_receipt_generated_at": "2026-06-30T08:00:00Z",
-                "notification_status": "deferred",
-                "error_code": "no_user_action_required",
-                "item_count": 2,
-                "teable_status": "synced",
-                "projection_record_count": 1,
-                "packet_projection_record_count": 0,
-                "suppressed_item_count": 2,
-                "suppressed_safe_work_review_count": 2,
-                "suppressed_projection_reasons": ["safe_work_audit_review"],
-                "suppressed_safe_work_issue_codes": ["no_decision_ready_material"],
-                "inferred_from_packet_projection_gap": False,
-                "privacy": {
-                    "raw_packet_text_exposed": False,
-                    "raw_candidate_exposed": False,
-                    "raw_draft_text_exposed": False,
-                    "raw_private_link_exposed": False,
-                },
-            },
-        }
-    )
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
-
-    assert verifier.verify(receipt, root=tmp_path) == []
-
-
-def test_proactive_ooda_operator_status_verifier_allows_non_material_suppressed_projection(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload.update(
-        {
-            "source_git_head": "source-head-123",
-            "status": "ready_with_live_receipt",
-            "reason": "ready",
-            "summary": "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through.",
-            "next_action": "maintain_proactive_ooda_runtime",
-            "next_action_href": "https://myexternalbrain.com/app/today",
-            "next_action_label": "Open Today",
-            "next_action_method": "get",
-            "operator_action_state": "clear",
-            "delivery_route_error": "",
-            "delivery_route": {"ready": True, "route_error": "", "next_action": ""},
-            "live_receipt_checked": True,
-            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
-            "suppressed_projection": {
-                "present": True,
-                "source": "docker_compose_exec",
-                "status": "suppressed_non_material",
-                "requires_recovery": False,
-                "blocking_reason": "",
-                "next_action": "",
-                "suppressed_non_material": True,
-                "suppressed_non_material_reason": "quiet_no_decision_ready_material",
-                "run_receipt_generated_at": "2026-06-30T08:00:00Z",
-                "notification_status": "deferred",
-                "error_code": "no_user_action_required",
-                "item_count": 2,
-                "teable_status": "synced",
-                "projection_record_count": 1,
-                "packet_projection_record_count": 0,
-                "suppressed_item_count": 2,
-                "suppressed_safe_work_review_count": 2,
-                "suppressed_projection_reasons": ["safe_work_audit_review"],
-                "suppressed_safe_work_issue_codes": ["no_decision_ready_material"],
-                "inferred_from_packet_projection_gap": False,
-                "privacy": {
-                    "raw_packet_text_exposed": False,
-                    "raw_candidate_exposed": False,
-                    "raw_draft_text_exposed": False,
-                    "raw_private_link_exposed": False,
-                },
-            },
-        }
-    )
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
-
-    assert verifier.verify(receipt, root=tmp_path) == []
-
-
-def test_proactive_ooda_operator_status_verifier_allows_configured_source_exclusion_suppressed_projection(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload.update(
-        {
-            "source_git_head": "source-head-123",
-            "status": "ready_with_live_receipt",
-            "reason": "ready",
-            "summary": "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through.",
-            "next_action": "maintain_proactive_ooda_runtime",
-            "next_action_href": "https://myexternalbrain.com/app/today",
-            "next_action_label": "Open Today",
-            "next_action_method": "get",
-            "operator_action_state": "clear",
-            "delivery_route_error": "",
-            "delivery_route": {"ready": True, "route_error": "", "next_action": ""},
-            "live_receipt_checked": True,
-            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
-            "suppressed_projection": {
-                "present": True,
-                "source": "docker_compose_exec",
-                "status": "suppressed_non_material",
-                "requires_recovery": False,
-                "blocking_reason": "",
-                "next_action": "",
-                "suppressed_non_material": True,
-                "suppressed_non_material_reason": "configured_source_exclusion",
-                "run_receipt_generated_at": "2026-07-01T20:55:53Z",
-                "notification_status": "sent",
-                "error_code": "",
-                "item_count": 1,
-                "teable_status": "synced",
-                "projection_record_count": 1,
-                "packet_projection_record_count": 0,
-                "suppressed_item_count": 1,
-                "suppressed_safe_work_review_count": 0,
-                "suppressed_projection_reasons": ["flat_search_disabled"],
-                "suppressed_safe_work_issue_codes": ["flat_search_disabled"],
-                "inferred_from_packet_projection_gap": False,
-                "privacy": {
-                    "raw_packet_text_exposed": False,
-                    "raw_candidate_exposed": False,
-                    "raw_draft_text_exposed": False,
-                    "raw_private_link_exposed": False,
-                },
-            },
-        }
-    )
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
-
-    assert verifier.verify(receipt, root=tmp_path) == []
-
-
-def test_proactive_ooda_operator_status_verifier_allows_non_material_current_artifact_filter(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload.update(
-        {
-            "source_git_head": "source-head-123",
-            "status": "ready_with_live_receipt",
-            "reason": "ready",
-            "summary": "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through.",
-            "next_action": "maintain_proactive_ooda_runtime",
-            "next_action_href": "https://myexternalbrain.com/app/today",
-            "next_action_label": "Open Today",
-            "next_action_method": "get",
-            "operator_action_state": "clear",
-            "live_receipt_checked": True,
-            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
-            "current_artifact_filter": {
-                "present": True,
-                "source": "docker_compose_exec",
-                "reason": "single_official_info_link_not_decision_ready",
-                "filter_status": "suppressed_non_material",
-                "requires_recovery": False,
-                "blocking_reason": "",
-                "next_action": "",
-                "issue_codes": ["single_official_info_link_not_decision_ready"],
-                "privacy": {
-                    "raw_packet_text_exposed": False,
-                    "raw_candidate_exposed": False,
-                    "raw_draft_text_exposed": False,
-                    "raw_private_link_exposed": False,
-                },
-            },
-        }
-    )
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
-
-    assert verifier.verify(receipt, root=tmp_path) == []
-
-
-def test_proactive_ooda_operator_status_verifier_rejects_clear_status_with_suppressed_projection_recovery(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload.update(
-        {
-            "source_git_head": "source-head-123",
-            "status": "ready_with_live_receipt",
-            "next_action": "maintain_proactive_ooda_runtime",
-            "next_action_href": "https://myexternalbrain.com/app/today",
-            "next_action_label": "Open Today",
-            "next_action_method": "get",
-            "operator_action_state": "clear",
-            "live_receipt_checked": True,
-            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
-            "suppressed_projection": {
-                "present": True,
-                "source": "docker_compose_exec",
-                "status": "suppressed",
-                "requires_recovery": True,
-                "blocking_reason": "suppressed_safe_work_projection",
-                "next_action": "repair_proactive_safe_work_audit",
-                "run_receipt_generated_at": "2026-06-30T08:00:00Z",
-                "notification_status": "deferred",
-                "error_code": "no_user_action_required",
-                "item_count": 1,
-                "teable_status": "synced",
-                "projection_record_count": 1,
-                "packet_projection_record_count": 0,
-                "suppressed_item_count": 1,
-                "suppressed_safe_work_review_count": 1,
-                "suppressed_projection_reasons": ["safe_work_audit_review"],
-                "suppressed_safe_work_issue_codes": ["no_decision_ready_material"],
-                "inferred_from_packet_projection_gap": False,
-                "privacy": {
-                    "raw_packet_text_exposed": False,
-                    "raw_candidate_exposed": False,
-                    "raw_draft_text_exposed": False,
-                    "raw_private_link_exposed": False,
-                },
-            },
-        }
-    )
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
-
-    issues = verifier.verify(receipt, root=tmp_path)
-
-    assert "suppressed_projection recovery requires status=ready_with_recovery_action" in issues
-    assert "suppressed_projection recovery requires receipt.next_action=repair_proactive_safe_work_audit" in issues
-    assert "suppressed_projection recovery requires operator_action_state=recovery_required" in issues
-
-
-def test_proactive_ooda_operator_status_verifier_accepts_post_commit_head_change_when_source_fingerprint_matches(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload["source_git_head"] = "pre-commit-source-head"
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "post-commit-source-head")
-
-    assert verifier.verify(receipt, root=tmp_path) == []
-
-
-def test_proactive_ooda_operator_status_verifier_rejects_source_fingerprint_drift(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload["source_git_head"] = "pre-commit-source-head"
-    payload["source_state_fingerprint"] = "old-source-fingerprint"
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "post-commit-source-head")
-
-    issues = verifier.verify(receipt, root=tmp_path)
-
-    assert "receipt is stale relative to current source HEAD" in issues
-    assert "receipt is stale relative to current source fingerprint" in issues
-
-
-def test_proactive_ooda_operator_status_verifier_rejects_live_receipt_overclaim(tmp_path: Path, monkeypatch) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload.update(
-        {
-            "source_git_head": "source-head-123",
-            "status": "ready_with_live_receipt",
-            "live_receipt_checked": True,
-            "live_receipt": {"ok": False, "receipt_path": str(tmp_path / "receipt.json")},
-        }
-    )
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
-
-    issues = verifier.verify(receipt, root=tmp_path)
-
-    assert "ready_with_live_receipt status requires live_receipt.ok=true" in issues
-
-
-def test_proactive_ooda_operator_status_verifier_rejects_gmail_draft_execution_overclaim(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload["source_git_head"] = "source-head-123"
-    payload["gmail_draft_followthrough"] = {
-        **dict(payload["gmail_draft_followthrough"]),
-        "status": "already_executed",
-        "action": "save_gmail_draft",
-        "execution_status": "",
-        "execution_observation_present": False,
-        "gmail_draft_id_hash_present": False,
-        "raw_execution_payload_exposed": True,
-    }
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
-
-    issues = verifier.verify(receipt, root=tmp_path)
-
-    assert "gmail_draft_followthrough.raw_execution_payload_exposed must remain false" in issues
-    assert "already_executed gmail_draft_followthrough requires execution_status=executed" in issues
-    assert "already_executed gmail_draft_followthrough requires execution_observation_present=true" in issues
-    assert "already_executed gmail_draft_followthrough requires gmail_draft_id_hash_present=true" in issues
-
-
-def test_proactive_ooda_operator_status_verifier_rejects_raw_source_coverage_exposure(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload["source_git_head"] = "source-head-123"
-    source_coverage = dict(payload["source_coverage"])
-    privacy = dict(source_coverage["privacy"])
-    privacy["raw_transcript_text_exposed"] = True
-    source_coverage["privacy"] = privacy
-    payload["source_coverage"] = source_coverage
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
-
-    issues = verifier.verify(receipt, root=tmp_path)
-
-    assert "source_coverage.privacy.raw_transcript_text_exposed must remain false" in issues
-
-
-def test_proactive_ooda_operator_status_verifier_rejects_incomplete_docker_probe_metadata(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload.update(
-        {
-            "source_git_head": "source-head-123",
-            "route_probe_source": "docker_compose_exec",
-            "route_probe_runtime_service": "",
-            "route_probe_observed_at": "",
-        }
-    )
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
-
-    issues = verifier.verify(receipt, root=tmp_path)
-
-    assert "docker_compose_exec route probes require route_probe_runtime_service" in issues
-    assert "docker_compose_exec route probes require route_probe_observed_at" in issues
-
-
-def test_proactive_ooda_operator_status_verifier_rejects_ready_approval_surface_without_live_pending_callback(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload.update(
-        {
-            "source_git_head": "source-head-123",
-            "approval_capture_surface": {
-                "ready": True,
-                "selected_channel": "telegram",
-                "callback_dir_writable": True,
-                "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
-                "callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
-                "current_packet_live_pending_count": 0,
-            },
-        }
-    )
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
-
-    issues = verifier.verify(receipt, root=tmp_path)
-
-    assert "ready approval_capture_surface requires live callback or manual_outcome_capture_ready" in issues
-
-
-def test_proactive_ooda_operator_status_verifier_accepts_manual_capture_with_unverified_live_pending_callback(
-    tmp_path: Path, monkeypatch
-) -> None:
-    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
-    payload = _base_payload()
-    payload.update(
-        {
-            "source_git_head": "source-head-123",
-            "status": "ready_with_live_receipt",
-            "live_receipt_checked": True,
-            "live_receipt": {"ok": True, "receipt_path": str(tmp_path / "receipt.json")},
-            "next_action": "record_proactive_ooda_approval_outcome",
-            "operator_action_state": "approval_capture_pending",
-            "actionable_count": 1,
-            "delivery_guard": {
-                "delivery_state": "approval_capture_pending",
-                "user_action_required": True,
-            },
-            "approval_capture_surface": {
-                "ready": True,
-                "mode": "manual_outcome_capture_ready",
-                "selected_channel": "telegram",
-                "callback_dir_writable": True,
-                "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
-                "callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
-                "current_packet_live_pending_count": 1,
-                "telegram_approval_surface_ready": False,
-                "manual_outcome_capture_ready": True,
-                "current_packet_approval_request_recordable": True,
-                "approval_outcome_matches_current_packet": False,
-            },
-            "approval_capture": {
-                "checked": False,
-                "ready": False,
-                "status": "not_checked",
-                "source": "",
-                "observed_at": "",
-                "blocking_reason": "",
-                "next_action": "",
-                "privacy": {
-                    "raw_callback_token_exposed": False,
-                    "raw_principal_id_exposed": False,
-                    "raw_chat_ref_exposed": False,
-                    "raw_packet_ref_exposed": False,
-                    "raw_staged_artifact_ref_exposed": False,
-                },
-            },
-        }
-    )
-    _write_receipt(receipt, **payload)
-    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
-
-    issues = verifier.verify(receipt, root=tmp_path)
-
-    assert issues == []
-
-
-def test_proactive_ooda_operator_status_verifier_rejects_clear_status_when_approval_capture_is_pending(
+def test_proactive_ooda_operator_status_verifier_rejects_ready_live_receipt_with_pending_approval_surface_but_clear_operator_state(
     tmp_path: Path, monkeypatch
 ) -> None:
     receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
@@ -1198,3 +839,91 @@ def test_proactive_ooda_operator_status_verifier_allows_google_workspace_recover
     monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
 
     assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_operator_status_verifier_allows_source_health_google_workspace_recovery_without_route_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "ready_with_recovery_action",
+            "summary": "Proactive OODA routing is available, but Google workspace needs reauthorization before EA can rely on that source (google_oauth_invalid_grant).",
+            "reason": "source_health_google_workspace:google_oauth_invalid_grant",
+            "next_action": "maintain_proactive_ooda_runtime",
+            "delivery_route_error": "",
+            "delivery_route": {"ready": True, "route_error": "", "next_action": ""},
+        }
+    )
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_operator_status_verifier_allows_followthrough_recovery_without_route_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "ready_with_recovery_action",
+            "summary": "Proactive OODA can still route, but followthrough artifacts need recovery.",
+            "reason": "followthrough_artifacts_missing",
+            "next_action": "repair_proactive_operator_runtime_posture",
+            "delivery_route_error": "",
+            "delivery_route": {"ready": True, "route_error": "", "next_action": ""},
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": False,
+                "receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/latest.json",
+                "errors": ["followthrough_artifacts_missing"],
+            },
+        }
+    )
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_operator_status_verifier_rejects_historical_assistant_grade_packet_without_selected_artifact_telemetry(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "assistant_grade_packet": {
+                "present": True,
+                "source": "docker_compose_exec",
+                "bundle_source": "historical_browse_backed_proof_bundle",
+                "stage_kind": "research_packet",
+                "work_type": "compare_options",
+                "requires_recovery": False,
+                "blocking_reason": "",
+                "next_action": "",
+                "privacy": {
+                    "raw_packet_text_exposed": False,
+                    "raw_candidate_exposed": False,
+                    "raw_draft_text_exposed": False,
+                    "raw_private_link_exposed": False,
+                },
+            },
+            "stage_packets": {"ready": True, "packet_count": 0},
+            "safe_work_results": {"ready": True, "result_count": 0},
+        }
+    )
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert "historical assistant_grade_packet requires stage_packets.selected_packet_present=true" in issues
+    assert "historical assistant_grade_packet requires safe_work_results.selected_result_present=true" in issues

@@ -82,6 +82,26 @@ def test_proactive_ooda_treats_assistant_task_verbs_as_actionable() -> None:
     assert digest.items[0].approval_required is False
 
 
+def test_proactive_ooda_suppresses_low_signal_transcript_status_question() -> None:
+    service = ProactiveOodaService()
+
+    digest = service.build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "observation:status-question",
+                "signal_type": "pocket_transcript",
+                "channel": "product",
+                "title": "What did you find?",
+                "summary": "What did you find?",
+                "counterparty": "Pocket",
+            },
+        ],
+    )
+
+    assert digest.items == ()
+
+
 def test_proactive_ooda_suppresses_low_signal_gmail_social_promotions_and_auto_alerts() -> None:
     service = ProactiveOodaService()
 
@@ -316,6 +336,78 @@ def test_proactive_ooda_dedupes_previously_notified_external_id_across_sources(t
     payload = json.loads(state_path.read_text(encoding="utf-8"))
     serialized = json.dumps(payload, sort_keys=True)
     assert "https://example.test/vendor-a" not in serialized
+
+
+def test_proactive_ooda_observation_external_id_is_not_persisted_across_runs(tmp_path) -> None:
+    state_path = tmp_path / "ooda.json"
+    service = ProactiveOodaService(
+        notify=lambda _principal_id, _text: None,
+        state_store=JsonOodaStateStore(state_path),
+    )
+
+    first, _ = service.run(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "observation:archive-a",
+                "external_id": "recording-123",
+                "signal_type": "pocket_transcript",
+                "channel": "product",
+                "title": "Elektriker fuer zusaetzliche Steckdosen.",
+                "summary": "Bitte suche einen Elektriker und bereite einen Vor-Ort-Termin vor.",
+            }
+        ],
+    )
+    second, _ = service.run(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "observation:archive-b",
+                "external_id": "recording-123",
+                "signal_type": "pocket_transcript",
+                "channel": "product",
+                "title": "Elektriker fuer zusaetzliche Steckdosen.",
+                "summary": "Bitte suche einen Elektriker und bereite einen Vor-Ort-Termin vor.",
+            }
+        ],
+    )
+
+    assert len(first.items) == 1
+    assert len(second.items) == 1
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    serialized = json.dumps(payload, sort_keys=True)
+    assert "recording-123" not in serialized
+
+
+def test_proactive_ooda_dedupes_same_observation_external_id_within_one_run(tmp_path) -> None:
+    service = ProactiveOodaService(
+        notify=lambda _principal_id, _text: None,
+        state_store=JsonOodaStateStore(tmp_path / "ooda.json"),
+    )
+
+    digest, _notification_result = service.run(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "observation:archive-a",
+                "external_id": "recording-123",
+                "signal_type": "pocket_transcript",
+                "channel": "product",
+                "title": "Elektriker fuer zusaetzliche Steckdosen.",
+                "summary": "Bitte suche einen Elektriker und bereite einen Vor-Ort-Termin vor.",
+            },
+            {
+                "source_ref": "observation:archive-b",
+                "external_id": "recording-123",
+                "signal_type": "pocket_transcript",
+                "channel": "product",
+                "title": "Elektriker fuer zusaetzliche Steckdosen.",
+                "summary": "Bitte suche einen Elektriker und bereite einen Vor-Ort-Termin vor.",
+            },
+        ],
+    )
+
+    assert [item.signal_ref for item in digest.items] == ["observation:archive-a"]
 
 
 def test_ooda_state_store_tracks_interruption_events_under_hashed_principal(tmp_path) -> None:

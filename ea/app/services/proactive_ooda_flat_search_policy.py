@@ -4,6 +4,7 @@ import json
 import os
 import re
 import unicodedata
+from collections.abc import Mapping
 from typing import Any
 
 
@@ -67,6 +68,14 @@ REAL_ESTATE_CONTEXT_PHRASES = (
     "real-estate",
     "willhaben property",
 )
+PROPERTY_POLICY_METADATA_ONLY_VALUES = {
+    "flat_provider_search_blocked",
+    "flat_search_allowed",
+    "flat_search_blocked",
+    "flat_search_blockers",
+    "flat_search_disabled",
+    "flat_search_disabled_property_scout",
+}
 
 
 def proactive_ooda_flat_search_enabled() -> bool:
@@ -77,21 +86,31 @@ def proactive_ooda_flat_search_enabled() -> bool:
 
 def material_mentions_flat_property_search(*values: Any) -> bool:
     for value in values:
-        if isinstance(value, str):
-            if text_mentions_flat_property_search(value):
-                return True
-            continue
-        try:
-            material = json.dumps(value, ensure_ascii=True, sort_keys=True)
-        except Exception:
-            material = str(value or "")
-        if text_mentions_flat_property_search(material):
+        if _material_value_mentions_flat_property_search(value):
             return True
     return False
 
 
-def text_mentions_flat_property_search(value: str) -> bool:
-    normalized = f" {_ascii_fold_text(str(value or '').strip().lower())} "
+def _material_value_mentions_flat_property_search(value: Any) -> bool:
+    if isinstance(value, str):
+        return text_mentions_flat_property_search(value)
+    if isinstance(value, Mapping):
+        return any(_material_value_mentions_flat_property_search(item) for item in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return any(_material_value_mentions_flat_property_search(item) for item in value)
+    try:
+        material = json.dumps(value, ensure_ascii=True, sort_keys=True)
+    except Exception:
+        material = str(value or "")
+    return text_mentions_flat_property_search(material, split_connectors=False)
+
+
+def text_mentions_flat_property_search(value: str, *, split_connectors: bool = True) -> bool:
+    raw_value = _ascii_fold_text(str(value or "").strip().lower())
+    if raw_value in PROPERTY_POLICY_METADATA_ONLY_VALUES:
+        return False
+    raw = f" {raw_value} "
+    normalized = raw.replace("_", " ").replace("-", " ") if split_connectors else raw.replace("-", " ")
     if not normalized.strip():
         return False
     if any(phrase in normalized for phrase in REAL_ESTATE_CONTEXT_PHRASES):

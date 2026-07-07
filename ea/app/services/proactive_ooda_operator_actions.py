@@ -10,6 +10,7 @@ DEFAULT_GOOGLE_REAUTH_SCOPE_BUNDLE = "full_workspace"
 DEFAULT_GOOGLE_SYNC_RETURN_TO = "/app/settings/google"
 DEFAULT_WHATSAPP_RECOVERY_PATH = "/integrations/whatsapp"
 DEFAULT_APPROVAL_CAPTURE_PATH = "/admin/proactive-ooda/approval"
+DEFAULT_APPROVAL_REISSUE_PATH = "/admin/actions/proactive-ooda-reissue"
 DEFAULT_QUEUE_REVIEW_PATH = "/app/queue"
 DEFAULT_POCKET_SYNC_PATH = "/app/api/signals/pocket/sync?limit=10"
 DEFAULT_PROACTIVE_OODA_REVIEW_PATH = "/app/today"
@@ -59,10 +60,11 @@ def proactive_next_action_surface(action: str, *, public_base_url: str = "") -> 
         "stage_fresh_assistant_grade_proactive_packet",
         "repair_proactive_browser_action_handoff_contract",
         "improve_proactive_packet_quality_and_collect_a_new_acceptance_outcome",
+        "complete_browser_handoff_then_resume_ooda_task",
     }:
         return _surface(
             DEFAULT_QUEUE_REVIEW_PATH,
-            "Open queue",
+            "Resume browser handoff" if normalized == "complete_browser_handoff_then_resume_ooda_task" else "Open queue",
             public_base_url=public_base_url,
         )
     if normalized == "reauthorize_google_workspace_binding":
@@ -95,11 +97,29 @@ def proactive_next_action_surface(action: str, *, public_base_url: str = "") -> 
     if normalized in {
         "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
         "record_proactive_ooda_approval_outcome",
-        "repair_proactive_approval_capture",
     }:
         return _surface(
             DEFAULT_APPROVAL_CAPTURE_PATH,
-            "Open approval capture",
+            "Record packet verdict",
+            public_base_url=public_base_url,
+        )
+    if normalized == "repair_proactive_approval_capture":
+        return _surface(
+            DEFAULT_ADMIN_GOALS_PATH,
+            "Open goals",
+            public_base_url=public_base_url,
+        )
+    if normalized == "reissue_proactive_approval":
+        return _surface(
+            DEFAULT_APPROVAL_REISSUE_PATH,
+            "Reissue approval prompt",
+            method="post",
+            public_base_url=public_base_url,
+        )
+    if normalized == "cleanup_proactive_approval_callbacks":
+        return _surface(
+            DEFAULT_ADMIN_GOALS_PATH,
+            "Open goals",
             public_base_url=public_base_url,
         )
     if normalized == "repair_proactive_safe_work_audit":

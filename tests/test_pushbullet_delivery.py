@@ -65,6 +65,40 @@ def test_probe_pushbullet_client_verifies_account_hash_without_raw_email() -> No
     assert timeout == 20.0
 
 
+def test_probe_pushbullet_client_accepts_gmail_dot_aliases() -> None:
+    probe = pushbullet_delivery.probe_pushbullet_client(
+        "elisabeth",
+        env={
+            "PB_TOKEN_ELISABETH": "push-token",
+            "PUSHBULLET_ELISABETH_EMAIL": "Elisabeth.Girschele@gmail.com",
+        },
+        opener=lambda request, timeout=20: _FakeResponse(
+            {"iden": "user-1", "email_normalized": "elisabethgirschele@gmail.com"}
+        ),
+    )
+
+    assert probe["status"] == "pass"
+    assert probe["expected_email_matches"] is True
+    assert probe["reason"] == ""
+
+
+def test_probe_pushbullet_client_named_tibor_can_verify_archon_alias_mailbox() -> None:
+    probe = pushbullet_delivery.probe_pushbullet_client(
+        "tibor",
+        env={
+            "PB_TOKEN_TIBOR": "push-token",
+            "PUSHBULLET_TIBOR_EMAIL": "archon.megalon@gmail.com",
+        },
+        opener=lambda request, timeout=20: _FakeResponse(
+            {"iden": "user-1", "email_normalized": "archonmegalon@gmail.com"}
+        ),
+    )
+
+    assert probe["status"] == "pass"
+    assert probe["expected_email_matches"] is True
+    assert probe["reason"] == ""
+
+
 def test_send_pushbullet_note_posts_sanitized_note_payload() -> None:
     captured: list[object] = []
 
@@ -118,3 +152,55 @@ def test_send_pushbullet_link_uses_link_type_when_url_present() -> None:
     assert receipt.push_type == "link"
     assert captured[0]["type"] == "link"
     assert captured[0]["url"] == "https://myexternalbrain.com/app/actions/google/connect"
+
+
+def test_send_pushbullet_note_can_target_another_pushbullet_email() -> None:
+    captured: list[dict[str, object]] = []
+
+    def _fake_urlopen(request, timeout=20):
+        captured.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse({"iden": "push-3"})
+
+    receipt = pushbullet_delivery.send_pushbullet_note(
+        client_key="default",
+        title="PayPal",
+        body="Your code is 123456.",
+        target_email="elisabeth@example.test",
+        env={
+            "PB_TOKEN": "push-token",
+            "PUSHBULLET_EMAIL": "tibor@example.test",
+        },
+        opener=_fake_urlopen,
+    )
+
+    assert receipt.status == "sent"
+    assert captured[0]["email"] == "elisabeth@example.test"
+    assert captured[0]["title"] == "PayPal"
+
+
+def test_list_pushbullet_pushes_reads_history_with_modified_after_query() -> None:
+    captured: list[object] = []
+
+    def _fake_urlopen(request, timeout=20):
+        captured.append((request.full_url, timeout))
+        return _FakeResponse(
+            {
+                "pushes": [
+                    {"iden": "push-2", "modified": 20.0, "title": "Later"},
+                    {"iden": "push-1", "modified": 10.0, "title": "Earlier"},
+                ]
+            }
+        )
+
+    pushes = pushbullet_delivery.list_pushbullet_pushes(
+        "default",
+        modified_after=9.5,
+        env={
+            "PB_TOKEN": "push-token",
+            "PUSHBULLET_EMAIL": "tibor@example.test",
+        },
+        opener=_fake_urlopen,
+    )
+
+    assert [item["iden"] for item in pushes] == ["push-1", "push-2"]
+    assert captured[0][0] == "https://api.pushbullet.com/v2/pushes?modified_after=9.5&active=true"

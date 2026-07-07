@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -137,6 +138,71 @@ def test_apply_proactive_ooda_telegram_approval_callback_accepts_principal_alias
         principal_id="exec-1",
         actor="telegram:42",
         message_id="message-alias-1",
+        container=SimpleNamespace(channel_runtime=SimpleNamespace(ingest_observation=lambda **kwargs: None)),
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+    )
+
+    assert result["status"] == "recorded"
+    assert result["outcome"] == "approved"
+    assert result["execution"]["status"] == "already_executed"
+    assert result["execution"]["action"] == "save_gmail_draft"
+    assert calls["kwargs"]["principal_id"] == "exec-1"
+
+
+def test_apply_proactive_ooda_telegram_approval_callback_accepts_google_binding_principal_fallback(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import google_oauth as google_oauth_service
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    prepared = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="cf-email:work.tibor.girschele@gmail.com",
+        packet_ref="stage_packet:packet-google-binding-fallback",
+        staged_artifact_ref="safe_work_result:result-google-binding-fallback",
+        approval_prompt="Approve this staged draft.",
+        staged_action_url="https://example.com/drafts",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+        approved_execution_mode="record_outcome_only",
+        approved_action="save_gmail_draft",
+    )
+    calls: dict[str, object] = {}
+
+    def fake_finalize(**kwargs):
+        calls["kwargs"] = kwargs
+        return {
+            "approval_outcome": {
+                "outcome_id": "approval-google-binding-fallback",
+                "accepted": True,
+                "outcome": "approved",
+            },
+            "gold_acceptance_path": tmp_path / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json",
+        }
+
+    monkeypatch.setattr(approval, "finalize_proactive_ooda_approval_outcome", fake_finalize)
+    monkeypatch.setattr(
+        google_oauth_service,
+        "_google_binding_principal_ids",
+        lambda **kwargs: ("exec-1", "cf-email:work.tibor.girschele@gmail.com", "local-user"),
+    )
+    monkeypatch.setattr(
+        google_oauth_service,
+        "_principal_alias_candidates",
+        lambda **kwargs: tuple(str(value or "").strip() for value in tuple(kwargs.get("principal_ids") or ()) if str(value or "").strip()),
+    )
+
+    result = approval.apply_proactive_ooda_telegram_approval_callback(
+        callback_token=prepared["callback_token"],
+        outcome="approved",
+        principal_id="exec-1",
+        actor="telegram:42",
+        message_id="message-google-binding-fallback",
         container=SimpleNamespace(channel_runtime=SimpleNamespace(ingest_observation=lambda **kwargs: None)),
         root=tmp_path,
         state_path="state/proactive_ooda_notified.json",
@@ -595,6 +661,7 @@ def test_apply_proactive_ooda_telegram_approval_callback_supersedes_noncurrent_p
                 "source_packet_ref_hash": hashlib.sha256(current_packet_ref.encode("utf-8")).hexdigest(),
                 "status": "staged_for_user_decision",
                 "approval": {"required": True},
+                "approval_prompt": "Approve current packet.",
                 "recommended_option_or_draft": {"kind": "draft", "value": "Current"},
             },
             indent=2,
@@ -625,3 +692,145 @@ def test_apply_proactive_ooda_telegram_approval_callback_supersedes_noncurrent_p
     assert stored["status"] == "superseded"
     assert stored["previous_status"] == "pending"
     assert stored["superseded_reason"] == "not_current_proactive_ooda_packet"
+
+
+def test_apply_proactive_ooda_telegram_approval_callback_preserves_assistant_grade_pending_when_newer_runtime_packet_is_internal_action(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    prepared = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="exec",
+        packet_ref="stage_packet:old-browse-packet",
+        staged_artifact_ref="safe_work_result:old-browse-result",
+        approval_prompt="Approve old packet.",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="state/proactive_ooda_latest_run.generated.json",
+    )
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+    run_dir = tmp_path / "state" / "proactive_ooda_run_receipts"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    safe_dir.mkdir(parents=True, exist_ok=True)
+
+    old_packet_ref = "stage_packet:old-browse-packet"
+    old_result_ref = "safe_work_result:old-browse-result"
+    old_stage = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": old_packet_ref,
+        "stage": {"kind": "decision_packet"},
+        "approval": {"required": True},
+    }
+    old_safe = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": old_result_ref,
+        "source_packet_ref_hash": hashlib.sha256(old_packet_ref.encode("utf-8")).hexdigest(),
+        "status": "staged_for_user_decision",
+        "approval": {"required": True},
+        "approval_prompt": "Approve old packet.",
+        "recommended_option_or_draft": {"kind": "draft", "value": "Current browse-backed option"},
+    }
+    internal_packet_ref = "stage_packet:current-internal-packet"
+    internal_result_ref = "safe_work_result:current-internal-result"
+    internal_stage = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": internal_packet_ref,
+        "stage": {"kind": "internal_action"},
+        "approval": {"required": True},
+        "safe_work_order": {"work_type": "record_internal_action"},
+    }
+    internal_safe = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": internal_result_ref,
+        "source_packet_ref_hash": hashlib.sha256(internal_packet_ref.encode("utf-8")).hexdigest(),
+        "status": "staged_for_user_decision",
+        "approval": {"required": True},
+        "approval_prompt": "Open Google setup and add the work account as a test user.",
+        "staged_action_url": "https://myexternalbrain.com/integrations/google",
+        "work_type": "record_internal_action",
+        "recommended_option_or_draft": {"kind": "draft", "value": "Internal action"},
+    }
+    (stage_dir / "old-browse.json").write_text(json.dumps(old_stage, indent=2) + "\n", encoding="utf-8")
+    (safe_dir / "old-browse.json").write_text(json.dumps(old_safe, indent=2) + "\n", encoding="utf-8")
+    (stage_dir / "current-internal.json").write_text(json.dumps(internal_stage, indent=2) + "\n", encoding="utf-8")
+    (safe_dir / "current-internal.json").write_text(json.dumps(internal_safe, indent=2) + "\n", encoding="utf-8")
+
+    browse_receipt = run_dir / "20260629T082402_159262_0000-deferred-browse.json"
+    internal_receipt = run_dir / "20260703T092744_575415_0000-failed-internal.json"
+    browse_receipt.write_text(
+        json.dumps(
+            {
+                "notification_status": "sent",
+                "item_count": 1,
+                "message_ids": ["111"],
+                "stage_packet_ref_hashes": [hashlib.sha256(old_packet_ref.encode("utf-8")).hexdigest()],
+                "safe_work_result_ref_hashes": [hashlib.sha256(old_result_ref.encode("utf-8")).hexdigest()],
+                "stage_packet_output_dir": str(stage_dir),
+                "safe_work_result_output_dir": str(safe_dir),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    internal_receipt.write_text(
+        json.dumps(
+            {
+                "notification_status": "failed",
+                "item_count": 1,
+                "message_ids": [],
+                "stage_packet_ref_hashes": [hashlib.sha256(internal_packet_ref.encode("utf-8")).hexdigest()],
+                "safe_work_result_ref_hashes": [hashlib.sha256(internal_result_ref.encode("utf-8")).hexdigest()],
+                "stage_packet_output_dir": str(stage_dir),
+                "safe_work_result_output_dir": str(safe_dir),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    primary_receipt = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    primary_receipt.write_text(internal_receipt.read_text(encoding="utf-8"), encoding="utf-8")
+    os.utime(browse_receipt, (1000, 1000))
+    os.utime(internal_receipt, (2000, 2000))
+    os.utime(primary_receipt, (2000, 2000))
+
+    calls: dict[str, object] = {}
+
+    def fake_finalize(**kwargs):
+        calls["kwargs"] = kwargs
+        return {
+            "approval_outcome": {
+                "outcome_id": "approval-preserved-1",
+                "accepted": True,
+                "outcome": "approved",
+            },
+            "gold_acceptance_path": tmp_path / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json",
+        }
+
+    monkeypatch.setattr(approval, "finalize_proactive_ooda_approval_outcome", fake_finalize)
+
+    result = approval.apply_proactive_ooda_telegram_approval_callback(
+        callback_token=prepared["callback_token"],
+        outcome="approved",
+        principal_id="exec",
+        actor="telegram:42",
+        message_id="message-old-packet",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="state/proactive_ooda_latest_run.generated.json",
+        stage_packet_dir=stage_dir,
+        safe_work_result_dir=safe_dir,
+    )
+
+    stored = json.loads(prepared["record_path"].read_text(encoding="utf-8"))
+    assert result["status"] == "recorded"
+    assert result["outcome"] == "approved"
+    assert calls["kwargs"]["packet_ref"] == old_packet_ref
+    assert calls["kwargs"]["staged_artifact_ref"] == old_result_ref
+    assert stored["status"] == "approved"

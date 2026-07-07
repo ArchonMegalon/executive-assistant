@@ -65,6 +65,11 @@ compose() {
   COMPOSE_IGNORE_ORPHANS=1 "${DC[@]}" "${COMPOSE_ARGS[@]}" "$@"
 }
 
+repair_ooda_runtime_output_permissions() {
+  mkdir -p "${APP_ROOT}/.codex-studio/published" "${APP_ROOT}/.runtime"
+  chmod -R a+rwX "${APP_ROOT}/.codex-studio/published" "${APP_ROOT}/.runtime"
+}
+
 run_bounded() {
   local label="$1"
   shift
@@ -143,12 +148,14 @@ if [[ -n "${teable_api_key}" && -n "${teable_base_id}" ]]; then
   "${PYTHON_BIN}" "${APP_ROOT}/scripts/bootstrap_proactive_ooda_teable_tables.py" --create-missing --write-config >/dev/null
 fi
 
+repair_ooda_runtime_output_permissions
+
 compose up -d --no-build ea-db ea-teable-relay
 wait_ready ea-db 60
 wait_ready ea-teable-relay 60
 
 compose up -d --no-build --no-deps --force-recreate ea-proactive-ooda ea-telegram-teable-sync
-wait_ready ea-proactive-ooda 60
+wait_ready ea-proactive-ooda 180
 wait_ready ea-telegram-teable-sync 60
 
 run_ooda_exec property-scout-disabled python -c "from app.runner import _scheduler_property_scout_enabled; raise SystemExit(1 if _scheduler_property_scout_enabled() else 0)"

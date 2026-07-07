@@ -24,11 +24,10 @@ def test_chat_json_routes_through_ea_only(monkeypatch) -> None:
     worker = _load_worker_module()
     monkeypatch.setenv("CHUMMER6_TEXT_PROVIDER_ORDER", "ea")
     monkeypatch.delenv("CHUMMER6_TEXT_MODEL", raising=False)
-    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-groundwork")
     monkeypatch.setattr(
         worker,
         "ea_json",
-        lambda prompt, model="gemini-groundwork", skill_key=worker.PUBLIC_WRITER_SKILL_KEY: {
+        lambda prompt, model="ea-groundwork", skill_key=worker.PUBLIC_WRITER_SKILL_KEY: {
             "prompt": prompt,
             "model": model,
             "skill_key": skill_key,
@@ -38,10 +37,18 @@ def test_chat_json_routes_through_ea_only(monkeypatch) -> None:
     result = worker.chat_json("prompt")
     assert result == {
         "prompt": "prompt",
-        "model": "gemini-groundwork",
+        "model": "ea-groundwork",
         "skill_key": "chummer6_public_writer",
     }
     assert worker.TEXT_PROVIDER_USED == "ea-groundwork"
+
+
+def test_execution_text_model_preserves_groundwork_alias_for_brain_router() -> None:
+    worker = _load_worker_module()
+
+    assert worker.execution_text_model("ea-groundwork") == "ea-groundwork"
+    assert worker.execution_text_model("groundwork") == "ea-groundwork"
+    assert worker.execution_text_model("ea-groundwork-gemini") == "ea-groundwork"
 
 
 def test_chat_json_rejects_legacy_provider_aliases(monkeypatch) -> None:

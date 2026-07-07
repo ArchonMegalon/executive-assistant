@@ -122,9 +122,12 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
     assert proactive_goal["provider_cost_controls"] == {
         "background_work_primary_provider": "onemin",
         "background_work_primary_provider_label": "1min.ai",
+        "background_work_route_authority": "active_onemin_manager_when_usable",
+        "background_work_prefer_onemin_whenever_usable": True,
         "gemini_vertex_alias": "gemini_vortex",
         "gemini_token_tracking_required": True,
         "gemini_soft_cap_required": True,
+        "gemini_fallback_only_when_onemin_unavailable_or_explicit": True,
         "explicit_gemini_requests_allowed": True,
         "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
     }
@@ -136,14 +139,33 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
         "magixai",
         "gemini_vortex",
     ]
+    assert cost_posture["background_routing"]["fast_provider_order"] == [
+        "onemin",
+        "magixai",
+        "gemini_vortex",
+    ]
+    assert cost_posture["background_routing"]["cheap_provider_order"] == [
+        "onemin",
+        "magixai",
+        "gemini_vortex",
+    ]
     assert cost_posture["background_routing"]["groundwork_provider_order"] == [
         "onemin",
         "magixai",
         "gemini_vortex",
     ]
+    assert cost_posture["background_routing"]["hard_provider_order"] == [
+        "onemin",
+        "magixai",
+        "gemini_vortex",
+    ]
     assert cost_posture["background_routing"]["onemin_preferred_when_speed_is_not_critical"] is True
+    assert cost_posture["background_routing"]["onemin_preferred_whenever_usable"] is True
+    assert cost_posture["background_routing"]["route_through_active_onemin_manager_when_available"] is True
+    assert cost_posture["background_routing"]["gemini_fallback_only_when_onemin_unavailable_or_explicit"] is True
     assert cost_posture["gemini_vertex"]["provider_key"] == "gemini_vortex"
     assert cost_posture["gemini_vertex"]["token_tracking_required"] is True
+    assert cost_posture["gemini_vertex"]["fallback_only"] is True
     assert cost_posture["gemini_vertex"]["dispatch_ledger"] == "provider_dispatch_events.jsonl"
     assert (
         cost_posture["gemini_vertex"]["live_pressure_probe_command"]
@@ -216,7 +238,7 @@ def test_office_loop_goal_receipt_propagates_proactive_approval_capture_surface(
                 "summary": "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval capture surface; capture the redacted approval outcome next.",
                 "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
                 "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-                "next_action_label": "Open approval capture",
+                "next_action_label": "Record packet verdict",
                 "next_action_method": "get",
                 "proofs": {"approval_outcome": {"approval_outcome_recorded": False, "accepted": False}},
                 "evidence_receipts": {"approval_capture_surface": {"ready": True}},
@@ -235,7 +257,7 @@ def test_office_loop_goal_receipt_propagates_proactive_approval_capture_surface(
                 "summary": "Proactive OODA route, packet runtime, latest host-visible live receipt, and Telegram approval capture surface are ready for operator follow-through.",
                 "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
                 "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-                "next_action_label": "Open approval capture",
+                "next_action_label": "Record packet verdict",
                 "next_action_method": "get",
             },
             indent=2,
@@ -255,7 +277,7 @@ def test_office_loop_goal_receipt_propagates_proactive_approval_capture_surface(
 
     assert receipt["next_action"] == "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
     assert receipt["next_action_href"] == "https://myexternalbrain.com/admin/proactive-ooda/approval"
-    assert receipt["next_action_label"] == "Open approval capture"
+    assert receipt["next_action_label"] == "Record packet verdict"
     assert receipt["next_action_method"] == "get"
     assert receipt["operator_next_action_source"] == "proactive_ooda_followthrough"
     assert receipt["proactive_ooda_followthrough_posture"]["next_action"] == receipt["next_action"]
@@ -303,7 +325,7 @@ def test_office_loop_goal_receipt_prioritizes_google_workspace_oauth_when_blocke
                 "summary": "Operator runtime ready.",
                 "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
                 "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-                "next_action_label": "Open approval capture",
+                "next_action_label": "Record packet verdict",
                 "next_action_method": "get",
             },
             indent=2,
@@ -363,6 +385,87 @@ def test_office_loop_goal_receipt_prioritizes_google_workspace_oauth_when_blocke
     assert verification["issues"] == []
 
 
+def test_office_loop_goal_receipt_prefers_operator_runtime_recovery_surface_for_blocked_proactive_followthrough(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script("materialize_office_loop_goal_receipt")
+    verifier = _load_script("verify_office_loop_goal_receipt")
+    receipt_path = tmp_path / "office-loop-proactive-runtime-recovery.generated.json"
+    proactive_gold_path = tmp_path / "ea_proactive_ooda_gold_acceptance.generated.json"
+    proactive_operator_path = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
+
+    proactive_gold_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+                "status": "blocked_operator_runtime_posture",
+                "summary": (
+                    "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold "
+                    "cannot be claimed until approved source health is restored."
+                ),
+                "next_action": "repair_proactive_operator_runtime_posture",
+                "next_action_href": "https://myexternalbrain.com/admin/goals",
+                "next_action_label": "Open goals",
+                "next_action_method": "get",
+                "proofs": {"approval_outcome": {"approval_outcome_recorded": False, "accepted": False}},
+                "evidence_receipts": {"approval_capture_surface": {"ready": False}},
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    proactive_operator_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.proactive_ooda_operator_status.v1",
+                "status": "ready_with_recovery_action",
+                "summary": (
+                    "Proactive OODA routing is available, but Google workspace needs reauthorization before EA "
+                    "can rely on that source (google_oauth_invalid_grant)."
+                ),
+                "next_action": "reauthorize_google_workspace_binding",
+                "next_action_href": (
+                    "https://myexternalbrain.com/app/actions/google/connect?"
+                    "return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace"
+                ),
+                "next_action_label": "Reconnect Google workspace",
+                "next_action_method": "get",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    receipt = materializer.materialize_office_loop_goal_receipt(
+        receipt_path=receipt_path,
+        generated_at=GENERATED_AT,
+        proactive_operator_status_receipt_path=proactive_operator_path,
+        proactive_gold_acceptance_receipt_path=proactive_gold_path,
+        google_workspace_oauth_readiness_receipt_path=tmp_path / "missing-google-oauth.generated.json",
+    )
+
+    assert receipt["next_action"] == "reauthorize_google_workspace_binding"
+    assert receipt["next_action_href"] == (
+        "https://myexternalbrain.com/app/actions/google/connect?"
+        "return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace"
+    )
+    assert receipt["next_action_label"] == "Reconnect Google workspace"
+    assert receipt["next_action_method"] == "get"
+    assert receipt["operator_next_action_source"] == "proactive_ooda_followthrough"
+    assert receipt["proactive_ooda_followthrough_posture"]["next_action"] == "reauthorize_google_workspace_binding"
+    assert receipt["proactive_ooda_followthrough_posture"]["next_action_href"] == receipt["next_action_href"]
+    assert receipt["proactive_ooda_followthrough_posture"]["next_action_label"] == receipt["next_action_label"]
+    assert receipt["proactive_ooda_followthrough_posture"]["next_action_method"] == receipt["next_action_method"]
+
+    verification = verifier.verify_office_loop_goal_receipt(receipt_path)
+    assert verification["status"] == "pass"
+    assert verification["issues"] == []
+
+
 def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_path: Path) -> None:
     materializer = _load_script("materialize_office_loop_goal_receipt")
     verifier = _load_script("verify_office_loop_goal_receipt")
@@ -386,11 +489,24 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
         "gemini_vortex",
         "onemin",
     ]
+    receipt["provider_cost_routing_posture"]["background_routing"]["fast_provider_order"] = [
+        "gemini_vortex",
+        "onemin",
+    ]
+    receipt["provider_cost_routing_posture"]["background_routing"]["cheap_provider_order"] = [
+        "gemini_vortex",
+        "onemin",
+    ]
     receipt["provider_cost_routing_posture"]["background_routing"]["groundwork_provider_order"] = [
         "gemini_vortex",
         "onemin",
     ]
+    receipt["provider_cost_routing_posture"]["background_routing"]["hard_provider_order"] = [
+        "gemini_vortex",
+        "onemin",
+    ]
     receipt["provider_cost_routing_posture"]["background_routing"]["onemin_preferred_when_speed_is_not_critical"] = False
+    receipt["provider_cost_routing_posture"]["background_routing"]["onemin_preferred_whenever_usable"] = False
     receipt["provider_cost_routing_posture"]["gemini_vertex"]["token_tracking_required"] = False
     receipt["provider_cost_routing_posture"]["gemini_vertex"]["tracked_dispatch_fields"].remove("tokens_in")
     receipt["provider_cost_routing_posture"]["gemini_vertex"]["soft_cap_env"] = "WRONG"
@@ -434,6 +550,7 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     additional_goals["proactive_ooda_gold_production"]["protected_signal_sources"].remove("current_packet_and_stale_approval_state")
     additional_goals["proactive_ooda_gold_production"]["protected_signal_sources"].remove("provider_token_usage_and_cost_pressure_state")
     additional_goals["proactive_ooda_gold_production"]["provider_cost_controls"]["background_work_primary_provider"] = "gemini_vortex"
+    additional_goals["proactive_ooda_gold_production"]["provider_cost_controls"]["background_work_prefer_onemin_whenever_usable"] = False
     additional_goals["proactive_ooda_gold_production"]["provider_cost_controls"]["gemini_token_tracking_required"] = False
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -484,10 +601,15 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     assert "office_loop_proactive_ooda_source_missing:current_packet_and_stale_approval_state" in verification["issues"]
     assert "office_loop_proactive_ooda_source_missing:provider_token_usage_and_cost_pressure_state" in verification["issues"]
     assert "office_loop_provider_cost_control_background_provider_not_onemin" in verification["issues"]
+    assert "office_loop_provider_cost_control_onemin_preference_missing" in verification["issues"]
     assert "office_loop_provider_cost_control_gemini_token_tracking_not_required" in verification["issues"]
     assert "office_loop_provider_cost_background_primary_not_onemin" in verification["issues"]
+    assert "office_loop_provider_cost_fast_order_drifted" in verification["issues"]
+    assert "office_loop_provider_cost_cheap_order_drifted" in verification["issues"]
     assert "office_loop_provider_cost_groundwork_order_drifted" in verification["issues"]
+    assert "office_loop_provider_cost_hard_order_drifted" in verification["issues"]
     assert "office_loop_provider_cost_onemin_preference_missing" in verification["issues"]
+    assert "office_loop_provider_cost_onemin_preference_scope_missing" in verification["issues"]
     assert "office_loop_provider_cost_gemini_token_tracking_missing" in verification["issues"]
     assert "office_loop_provider_cost_tracked_field_missing:tokens_in" in verification["issues"]
     assert "office_loop_provider_cost_gemini_soft_cap_env_drifted" in verification["issues"]
@@ -511,7 +633,7 @@ def test_office_loop_goal_verifier_rejects_missing_proactive_action_surface(tmp_
                 "summary": "Ready to capture approval outcome.",
                 "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
                 "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-                "next_action_label": "Open approval capture",
+                "next_action_label": "Record packet verdict",
                 "next_action_method": "get",
                 "proofs": {"approval_outcome": {"approval_outcome_recorded": False, "accepted": False}},
                 "evidence_receipts": {"approval_capture_surface": {"ready": True}},
@@ -530,7 +652,7 @@ def test_office_loop_goal_verifier_rejects_missing_proactive_action_surface(tmp_
                 "summary": "Operator runtime ready for follow-through.",
                 "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
                 "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-                "next_action_label": "Open approval capture",
+                "next_action_label": "Record packet verdict",
                 "next_action_method": "get",
             },
             indent=2,

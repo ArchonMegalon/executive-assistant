@@ -106,6 +106,15 @@ _TRANSCRIPT_DRAFT_SAVE_TERMS = (
     "speichere sie als draft",
     "speichere sie als entwurf",
 )
+_TRANSCRIPT_REFERENTIAL_DRAFT_MARKERS = (
+    "if you find one",
+    "when you find one",
+    "when you found one",
+    "wenn du einen gefunden hast",
+    "wenn du einen findest",
+    "wenn du eine gefunden hast",
+    "wenn du eine findest",
+)
 _TRANSCRIPT_BOOKING_TERMS = (
     "appointment",
     "book",
@@ -611,9 +620,12 @@ def discover_postgres_observation_signals(
         return []
     signals: list[ProactiveSignal] = []
     coalesced_keys: set[str] = set()
-    for row in rows:
+    for index, row in enumerate(rows):
         event_type = str(row[3] or "")
         payload = row[4] if isinstance(row[4], Mapping) else {}
+        if _low_fidelity_office_signal_row(event_type=event_type, payload=payload):
+            continue
+        request_text_override = _contextual_transcript_request_override(rows=rows, row_index=index)
         signal = observation_row_to_signal(
             observation_id=str(row[0] or ""),
             principal_id=str(row[1] or ""),
@@ -624,16 +636,185 @@ def discover_postgres_observation_signals(
             source_id=str(row[6] or ""),
             external_id=str(row[7] or ""),
             dedupe_key=str(row[8] or ""),
+            request_text_override=request_text_override,
         )
         if not signal:
             continue
-        coalescing_key = _observation_coalescing_key(event_type=event_type, payload=payload)
+        coalescing_key = _observation_coalescing_key(
+            event_type=event_type,
+            payload=payload,
+            source_id=str(row[6] or ""),
+            signal=signal,
+        )
         if coalescing_key:
             if coalescing_key in coalesced_keys:
                 continue
             coalesced_keys.add(coalescing_key)
         signals.append(signal)
     return signals
+
+
+def _low_fidelity_office_signal_row(*, event_type: str, payload: Mapping[str, Any]) -> bool:
+    if str(event_type or "").strip() != "office_signal_ooda_evaluated":
+        return False
+    if str(payload.get("channel") or "").strip().lower() != "telegram":
+        return False
+    ooda_loop = _normalize_ooda_loop(payload.get("ooda_loop")) if isinstance(payload.get("ooda_loop"), Mapping) else {}
+    actor = str(ooda_loop.get("actor") or "").strip().lower()
+    act = ooda_loop.get("act") if isinstance(ooda_loop.get("act"), Mapping) else {}
+    return actor == "telegram_inline_proactive_stage" and _safe_int(act.get("staged_candidate_count")) > 0 and _safe_int(act.get("staged_draft_count")) == 0
+
+
+def _contextual_transcript_request_override(*, rows: list[object], row_index: int) -> str:
+    if row_index < 0 or row_index >= len(rows):
+        return ""
+    row = rows[row_index]
+    event_type = str(row[3] or "")
+    payload = row[4] if isinstance(row[4], Mapping) else {}
+    title = _observation_request_title(event_type=event_type, payload=payload)
+    current_request = _observation_transcript_request_text(
+        event_type=event_type,
+        payload=payload,
+        title=title,
+    )
+    if not current_request:
+        return ""
+    source_scope = _observation_transcript_source_scope(
+        event_type=event_type,
+        payload=payload,
+        source_id=str(row[6] or ""),
+        channel=str(row[2] or ""),
+    )
+    prior_request = _recent_related_transcript_request(
+        rows=rows,
+        row_index=row_index,
+        source_scope=source_scope,
+    )
+    if _transcript_referential_draft_followup(current_request):
+        if not prior_request:
+            return current_request
+        separator = "" if prior_request.endswith((".", "!", "?")) else "."
+        combined = f"{prior_request}{separator} {current_request}".strip()
+        return combined if len(combined) > len(current_request) else current_request
+    richer_request = _prefer_richer_prior_transcript_request(
+        current_request=current_request,
+        prior_request=prior_request,
+    )
+    return richer_request or current_request
+
+
+def _observation_request_title(*, event_type: str, payload: Mapping[str, Any]) -> str:
+    if event_type == "telegram.message":
+        return _first_sentence(str(payload.get("analysis_summary") or payload.get("text") or "Telegram message"))
+    if event_type == "telegram_business.signal_candidate":
+        return _first_sentence(str(payload.get("text_preview") or "Telegram Business signal candidate"))
+    if event_type == "office_signal_ooda_evaluated":
+        return _first_sentence(str(payload.get("summary") or "Office signal needs review"))
+    return ""
+
+
+def _observation_transcript_request_text(
+    *,
+    event_type: str,
+    payload: Mapping[str, Any],
+    title: str,
+) -> str:
+    if event_type == "telegram.message":
+        return _transcript_request_text(
+            payload.get("text"),
+            payload.get("analysis_summary"),
+            title,
+        )
+    if event_type == "telegram_business.signal_candidate":
+        return _transcript_request_text(
+            payload.get("text_preview"),
+            title,
+        )
+    if event_type == "office_signal_ooda_evaluated" and str(payload.get("channel") or "").strip().lower() == "telegram":
+        summary = _clean_office_signal_transcript_summary(str(payload.get("summary") or "").strip())
+        return _transcript_request_text(summary, title)
+    return ""
+
+
+def _clean_office_signal_transcript_summary(summary: str) -> str:
+    cleaned = _clean_text(summary).strip()
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"^\s*signal from [^.]+\.\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bstage 1 commitment candidate\b.*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned.rstrip(". ").strip()
+
+
+def _observation_transcript_source_scope(
+    *,
+    event_type: str,
+    payload: Mapping[str, Any],
+    source_id: str,
+    channel: str,
+) -> str:
+    normalized_event_type = str(event_type or "").strip()
+    normalized_source_id = str(source_id or "").strip()
+    if normalized_event_type in {"telegram.message", "telegram_business.signal_candidate"}:
+        return normalized_source_id or str(channel or "").strip()
+    if normalized_event_type == "office_signal_ooda_evaluated" and str(payload.get("channel") or "").strip().lower() == "telegram":
+        return normalized_source_id or str(payload.get("source_ref") or "").strip() or str(channel or "").strip()
+    return ""
+
+
+def _recent_related_transcript_request(*, rows: list[object], row_index: int, source_scope: str) -> str:
+    normalized_scope = str(source_scope or "").strip()
+    if not normalized_scope:
+        return ""
+    fallback_request = ""
+    for prior_row in rows[row_index + 1 :]:
+        prior_event_type = str(prior_row[3] or "")
+        prior_payload = prior_row[4] if isinstance(prior_row[4], Mapping) else {}
+        if _low_fidelity_office_signal_row(event_type=prior_event_type, payload=prior_payload):
+            continue
+        prior_scope = _observation_transcript_source_scope(
+            event_type=prior_event_type,
+            payload=prior_payload,
+            source_id=str(prior_row[6] or ""),
+            channel=str(prior_row[2] or ""),
+        )
+        if prior_scope != normalized_scope:
+            continue
+        prior_title = _observation_request_title(event_type=prior_event_type, payload=prior_payload)
+        prior_request = _observation_transcript_request_text(
+            event_type=prior_event_type,
+            payload=prior_payload,
+            title=prior_title,
+        )
+        if not prior_request:
+            continue
+        if not fallback_request:
+            fallback_request = prior_request
+        if _transcript_save_gmail_draft_requested(prior_request.lower()):
+            return prior_request
+    return fallback_request
+
+
+def _prefer_richer_prior_transcript_request(*, current_request: str, prior_request: str) -> str:
+    current_clean = _clean_text(str(current_request or "")).strip()
+    prior_clean = _clean_text(str(prior_request or "")).strip()
+    if not current_clean or not prior_clean:
+        return ""
+    current_lower = " ".join(current_clean.lower().split())
+    prior_lower = " ".join(prior_clean.lower().split())
+    if current_lower == prior_lower:
+        return ""
+    if _transcript_save_gmail_draft_requested(current_lower):
+        return ""
+    if not _transcript_save_gmail_draft_requested(prior_lower):
+        return ""
+    if current_lower and current_lower in prior_lower:
+        return prior_clean
+    current_query = _ascii_fold_text(_research_query_from_request(current_clean).strip().lower())
+    prior_query = _ascii_fold_text(_research_query_from_request(prior_clean).strip().lower())
+    if current_query and prior_query and current_query == prior_query and len(prior_clean) > len(current_clean):
+        return prior_clean
+    return ""
 
 
 def _pocket_recording_payload_fields(payload: Mapping[str, Any] | None) -> dict[str, str]:
@@ -1133,6 +1314,11 @@ def _transcript_save_gmail_draft_requested(lowered_request: str) -> bool:
     return any(marker in normalized for marker in _TRANSCRIPT_DRAFT_SAVE_TERMS)
 
 
+def _transcript_referential_draft_followup(request_text: str) -> bool:
+    normalized = " ".join(str(request_text or "").strip().lower().split())
+    return any(marker in normalized for marker in _TRANSCRIPT_REFERENTIAL_DRAFT_MARKERS)
+
+
 def _transcript_service_provider_request(lowered_request: str) -> bool:
     normalized = f" {str(lowered_request or '').strip()} "
     if _any_marker_present(normalized, _TRANSCRIPT_SERVICE_PROVIDER_MARKERS):
@@ -1205,6 +1391,12 @@ def _proactive_ooda_flat_search_enabled() -> bool:
 
 def _proactive_ooda_property_lane_signal(value: object) -> bool:
     return assistant_property_signal_present(value)
+
+
+def _proactive_ooda_property_scoped_signal(*values: Any) -> bool:
+    if assistant_property_lane_enabled():
+        return False
+    return any(_proactive_ooda_property_lane_signal(value) for value in values)
 
 
 def _transcript_is_flat_property_search(lowered_request: str) -> bool:
@@ -1472,11 +1664,12 @@ def _transcript_assistant_ooda(
     compare_like = booking_like or _any_marker_present(lowered, _TRANSCRIPT_COMPARE_TERMS)
     discovery_like = _any_marker_present(lowered, _TRANSCRIPT_COMPARE_TERMS) or "gefunden" in lowered or " found " in f" {lowered} "
     if draft_like and discovery_like:
+        focused_request = _transcript_task_focused_request_text(normalized_request) or normalized_request
         research_query = _research_query_from_request(normalized_request)
         if ambient_transcript and not _transcript_query_is_researchable(research_query):
             return {}
-        search_queries = _search_queries_from_request(research_query=research_query, request_text=normalized_request)
-        locale = _transcript_request_locale(normalized_request)
+        search_queries = _search_queries_from_request(research_query=research_query, request_text=focused_request)
+        locale = _transcript_request_locale(focused_request)
         subject_prefix = "Anfrage" if locale == "de" else "Inquiry"
         selection_criteria = ["reversible before approval", "contact details visible", "reachability"]
         if booking_like:
@@ -1539,12 +1732,12 @@ def _transcript_assistant_ooda(
                     "artifacts": ["shortlist", "comparison_table", "draft_text", "approval_prompt"],
                     "work_type": "draft",
                     "draft_mode": "research_backed_inquiry",
-                    "draft_request_text": normalized_request,
+                    "draft_request_text": focused_request,
                     "post_approval_action": "save_gmail_draft",
                     "auto_execute_action": "save_gmail_draft" if save_gmail_draft else "",
-                    "subject_hint": f"{subject_prefix}: {_first_sentence(research_query or normalized_request)[:96]}",
-                    "research_query": research_query or normalized_request,
-                    "search_queries": search_queries or [research_query or normalized_request],
+                    "subject_hint": f"{subject_prefix}: {_first_sentence(research_query or focused_request)[:96]}",
+                    "research_query": research_query or focused_request,
+                    "search_queries": search_queries or [research_query or focused_request],
                     "selection_criteria": selection_criteria,
                     "comparison_dimensions": ["reachability", "contact details", "timing"],
                     "delivery_window": delivery_window if delivery_window is not None else "",
@@ -1715,6 +1908,7 @@ def observation_row_to_signal(
     source_id: str = "",
     external_id: str = "",
     dedupe_key: str = "",
+    request_text_override: str = "",
 ) -> ProactiveSignal | None:
     if event_type == "property_scout_sync_completed" and not _proactive_ooda_property_scout_signals_enabled():
         return None
@@ -1797,7 +1991,7 @@ def observation_row_to_signal(
         counterparty = "Telegram"
         signal_type = "telegram_message"
         due_at = ""
-        transcript_request = _transcript_request_text(
+        transcript_request = str(request_text_override or "").strip() or _transcript_request_text(
             payload.get("text"),
             payload.get("analysis_summary"),
             title,
@@ -1828,7 +2022,7 @@ def observation_row_to_signal(
         signal_type = "telegram_business_signal_candidate"
         due_at = ""
         external_id = external_id or str(payload.get("message_id") or payload.get("update_id") or "").strip()
-        transcript_request = _transcript_request_text(
+        transcript_request = str(request_text_override or "").strip() or _transcript_request_text(
             payload.get("text_preview"),
             title,
         )
@@ -2131,9 +2325,38 @@ def _property_scout_zero_match_external_id(payload: Mapping[str, Any], *, create
     return f"property_scout_zero_match:{hashlib.sha256(material.encode('utf-8')).hexdigest()[:24]}"
 
 
-def _observation_coalescing_key(*, event_type: str, payload: Mapping[str, Any]) -> str:
+def _observation_coalescing_key(
+    *,
+    event_type: str,
+    payload: Mapping[str, Any],
+    source_id: str = "",
+    signal: ProactiveSignal | None = None,
+) -> str:
     if str(event_type or "").strip() != "property_scout_sync_completed":
-        return ""
+        if signal is None or str(event_type or "").strip() not in {"telegram.message", "telegram_business.signal_candidate"}:
+            return ""
+        source_scope = _observation_transcript_source_scope(
+            event_type=event_type,
+            payload=payload,
+            source_id=source_id,
+            channel=str(signal.channel or "").strip(),
+        )
+        if not source_scope:
+            return ""
+        signal_payload = signal.payload if isinstance(signal.payload, Mapping) else {}
+        ooda_loop = signal_payload.get("ooda_loop") if isinstance(signal_payload.get("ooda_loop"), Mapping) else {}
+        stage = dict(dict(ooda_loop.get("act") or {}).get("stage") or {})
+        request_basis = _first_text(
+            stage.get("draft_request_text"),
+            stage.get("research_query"),
+            signal.summary,
+            signal.title,
+        )
+        normalized_request = " ".join(_clean_text(str(request_basis or "")).strip().lower().split())
+        if not normalized_request:
+            return ""
+        material = "|".join((source_scope, normalized_request))
+        return f"transcript:{hashlib.sha256(material.encode('utf-8')).hexdigest()[:24]}"
     scout_totals = _property_scout_sync_totals(payload)
     has_attention_items = any(
         scout_totals[key] > 0
@@ -2196,11 +2419,14 @@ def _load_json_source(source: SignalSource, *, base_dir: Path, timeout_seconds: 
         rows = payload
     if not isinstance(rows, list):
         return []
-    return [
-        _signal_from_row(row, source=source, index=index)
-        for index, row in enumerate(rows)
-        if isinstance(row, Mapping)
-    ]
+    signals: list[ProactiveSignal] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, Mapping):
+            continue
+        signal = _signal_from_row(row, source=source, index=index)
+        if signal is not None:
+            signals.append(signal)
+    return signals
 
 
 def _load_jsonl_source(source: SignalSource, *, base_dir: Path, timeout_seconds: int) -> list[ProactiveSignal]:
@@ -2211,7 +2437,9 @@ def _load_jsonl_source(source: SignalSource, *, base_dir: Path, timeout_seconds:
             continue
         payload = json.loads(normalized)
         if isinstance(payload, Mapping):
-            rows.append(_signal_from_row(payload, source=source, index=index))
+            signal = _signal_from_row(payload, source=source, index=index)
+            if signal is not None:
+                rows.append(signal)
     return rows
 
 
@@ -2226,6 +2454,8 @@ def _load_rss_source(source: SignalSource, *, base_dir: Path, timeout_seconds: i
         link = _xml_text(item, "link") or _atom_link(item)
         published = _xml_text(item, "pubDate") or _xml_text(item, "published") or _xml_text(item, "updated")
         source_ref = f"{source.channel}:{link or title or index}"
+        if _proactive_ooda_property_scoped_signal(title, summary, counterparty := source.counterparty):
+            continue
         signals.append(
             ProactiveSignal(
                 source_ref=source_ref,
@@ -2266,7 +2496,9 @@ def _load_teable_source(source: SignalSource, *, timeout_seconds: int) -> list[P
     for index, record in enumerate(records):
         fields = dict(record.get("fields") or {})
         record_id = str(record.get("id") or index).strip()
-        signals.append(_signal_from_teable_record(fields, record_id=record_id, source=source))
+        signal = _signal_from_teable_record(fields, record_id=record_id, source=source)
+        if signal is not None:
+            signals.append(signal)
     return signals
 
 
@@ -2731,7 +2963,7 @@ def _float_list(value: Any) -> list[float]:
     return values
 
 
-def _signal_from_teable_record(fields: Mapping[str, Any], *, record_id: str, source: SignalSource) -> ProactiveSignal:
+def _signal_from_teable_record(fields: Mapping[str, Any], *, record_id: str, source: SignalSource) -> ProactiveSignal | None:
     field_map = {
         "source_ref": "source_ref",
         "signal_type": "signal_type",
@@ -2751,6 +2983,21 @@ def _signal_from_teable_record(fields: Mapping[str, Any], *, record_id: str, sou
     counterparty = _field_text(fields, field_map["counterparty"]) or source.counterparty
     due_at = _field_text(fields, field_map["due_at"])
     external_id = _field_text(fields, field_map["external_id"]) or record_id
+    if _proactive_ooda_property_scoped_signal(
+        title,
+        summary,
+        counterparty,
+        signal_type,
+        channel,
+        source_ref,
+        source.channel,
+        source.signal_type,
+        source.counterparty,
+        source.ref,
+        fields,
+        source.ref,
+    ):
+        return None
     return ProactiveSignal(
         source_ref=source_ref,
         signal_type=signal_type,
@@ -2764,7 +3011,7 @@ def _signal_from_teable_record(fields: Mapping[str, Any], *, record_id: str, sou
     )
 
 
-def _signal_from_row(row: Mapping[str, Any], *, source: SignalSource, index: int) -> ProactiveSignal:
+def _signal_from_row(row: Mapping[str, Any], *, source: SignalSource, index: int) -> ProactiveSignal | None:
     merged = dict(row)
     merged.setdefault("channel", source.channel)
     merged.setdefault("signal_type", source.signal_type)
@@ -2773,6 +3020,22 @@ def _signal_from_row(row: Mapping[str, Any], *, source: SignalSource, index: int
     if not str(merged.get("source_ref") or "").strip():
         source_ref = str(merged.get("url") or merged.get("link") or merged.get("external_id") or "").strip()
         merged["source_ref"] = source_ref or f"{source.channel}:{source.ref}:{index}"
+    if _proactive_ooda_property_scoped_signal(
+        merged.get("title"),
+        merged.get("summary"),
+        merged.get("counterparty"),
+        merged.get("signal_type"),
+        merged.get("channel"),
+        merged.get("source_ref"),
+        merged.get("task_type"),
+        merged.get("detail"),
+        merged.get("body"),
+        merged.get("description"),
+        merged.get("notes"),
+        merged,
+        row,
+    ):
+        return None
     return ProactiveSignal.from_mapping(merged)
 
 

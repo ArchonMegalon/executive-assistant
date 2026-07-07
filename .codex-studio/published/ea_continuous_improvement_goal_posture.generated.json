@@ -44,18 +44,18 @@
           "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "4ef6fa548655b48806e3713b754e4e55c9e5213cbae8216b0ba40de9c575fc9a",
           "status": "ready_real_world_acceptance_evidence"
         },
         {
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "4ef6fa548655b48806e3713b754e4e55c9e5213cbae8216b0ba40de9c575fc9a",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -83,6 +83,7 @@
         "next_action_label": "Record a signal-loop outcome",
         "next_action_method": "post",
         "non_action_progress_push_allowed": false,
+        "notification_policy": "queue_only_proof",
         "quiet_hours_respected": true,
         "raw_acceptance_text_exposed": false,
         "raw_actor_identity_exposed": false,
@@ -99,7 +100,8 @@
         ],
         "source_action_packet_present": true,
         "source_action_packet_status": "action_required",
-        "telegram_push_allowed": true,
+        "telegram_message": "Action needed: record that you reviewed the weekly signal-to-decision packet. Open the evidence form and save a short redacted review note.",
+        "telegram_push_allowed": false,
         "user_action_required": true
       },
       "capture_surfaces": [
@@ -122,9 +124,9 @@
           "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "a3572c150100e1a3be707546aa269d5cbd227499",
-          "source_state_fingerprint": "7d23f1a04f223d186a1d0c0cad8c6506c58e553ce83bb1577ba13e8c5d8006f3",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "31c5b0e6521d32bea835786b1496ea97860d7ebf0f13f9a7abfc9bcb01f78805",
           "status": "ready_local_packet_pending_operator_acceptance"
         }
       ],
@@ -132,6 +134,52 @@
       "title": "Weekly signal-to-decision review acceptance"
     },
     {
+      "action_context": {
+        "approval_capture_current_packet_user_action_required": false,
+        "approval_capture_latest_expires_at": "",
+        "approval_capture_latest_status": "",
+        "approval_capture_live_pending_count": 0,
+        "approval_capture_manual_outcome_capture_ready": false,
+        "approval_capture_ready": false,
+        "approval_capture_selected_channel": "telegram",
+        "approval_capture_telegram_surface_ready": false,
+        "approval_outcome_accepted": false,
+        "approval_outcome_recorded": true,
+        "callback_tokens_exposed": false,
+        "console_deep_link": "",
+        "delivery_policy": "queue_only",
+        "gold_status": "blocked_not_accepted_under_ordinary_use",
+        "instruction": "A proactive OODA packet was routed and staged, but the recorded outcome was not accepted under ordinary use.",
+        "interruption_budget": "none",
+        "irreversible_actions_consent_gated": true,
+        "kind": "proactive_ooda_acceptance_followthrough",
+        "next_action": "improve_proactive_packet_quality_and_collect_a_new_acceptance_outcome",
+        "next_action_form_href": "",
+        "next_action_form_label": "",
+        "next_action_form_method": "",
+        "next_action_href": "https://myexternalbrain.com/app/queue",
+        "next_action_label": "Open queue",
+        "next_action_method": "get",
+        "non_action_progress_push_allowed": false,
+        "notification_policy": "default",
+        "operator_queue_visible": true,
+        "operator_runtime_status": "ready_with_recovery_action",
+        "quiet_hours_respected": true,
+        "raw_chat_ids_exposed": false,
+        "raw_pair_url_exposed": false,
+        "raw_private_context_exposed": false,
+        "raw_qr_payload_exposed": false,
+        "raw_secret_exposed": false,
+        "raw_token_exposed": false,
+        "raw_voice_ids_exposed": false,
+        "raw_whatsapp_session_ref_exposed": false,
+        "remaining_external_proofs": [
+          "real proactive OODA packet accepted under ordinary use"
+        ],
+        "telegram_message": "",
+        "telegram_push_allowed": false,
+        "user_action_required": false
+      },
       "capture_surfaces": [
         ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
         ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
@@ -140,12 +188,12 @@
       "evidence_kind": "approval_outcome",
       "key": "proactive_ooda_packet_acceptance",
       "lens": "decide",
-      "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
-      "next_action_form_href": "/admin/proactive-ooda/approval",
-      "next_action_form_label": "Open approval capture",
-      "next_action_form_method": "get",
-      "next_action_href": "/admin/proactive-ooda/approval",
-      "next_action_label": "Open approval capture",
+      "next_action": "improve_proactive_packet_quality_and_collect_a_new_acceptance_outcome",
+      "next_action_form_href": "",
+      "next_action_form_label": "",
+      "next_action_form_method": "",
+      "next_action_href": "https://myexternalbrain.com/app/queue",
+      "next_action_label": "Open queue",
       "next_action_method": "get",
       "required_next_receipt": "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
       "source_receipts": [
@@ -154,18 +202,18 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "cc6df243013fba7690e3c77ba4c7675e071dd1aa",
-          "source_state_fingerprint": "068b0bf8b38dab2d1570e6de9e9a56f7e22822fe11606988300d9650654cec56",
-          "status": "blocked_operator_runtime_posture"
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "52e853e2e581b1dcf0a2c3171bf2e76df05a0184ec6a46b81a8efac46e6d9346",
+          "status": "blocked_not_accepted_under_ordinary_use"
         },
         {
           "contract_name": "ea.proactive_ooda_operator_status.v1",
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "cc6df243013fba7690e3c77ba4c7675e071dd1aa",
-          "source_state_fingerprint": "068b0bf8b38dab2d1570e6de9e9a56f7e22822fe11606988300d9650654cec56",
-          "status": "ready_with_live_receipt"
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "52e853e2e581b1dcf0a2c3171bf2e76df05a0184ec6a46b81a8efac46e6d9346",
+          "status": "ready_with_recovery_action"
         }
       ],
       "status": "pending_real_world_evidence",
@@ -215,18 +263,18 @@
           "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "4ef6fa548655b48806e3713b754e4e55c9e5213cbae8216b0ba40de9c575fc9a",
           "status": "ready_real_world_acceptance_evidence"
         },
         {
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "4ef6fa548655b48806e3713b754e4e55c9e5213cbae8216b0ba40de9c575fc9a",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -277,18 +325,18 @@
           "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "4ef6fa548655b48806e3713b754e4e55c9e5213cbae8216b0ba40de9c575fc9a",
           "status": "ready_real_world_acceptance_evidence"
         },
         {
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "4ef6fa548655b48806e3713b754e4e55c9e5213cbae8216b0ba40de9c575fc9a",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -339,63 +387,23 @@
           "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "4ef6fa548655b48806e3713b754e4e55c9e5213cbae8216b0ba40de9c575fc9a",
           "status": "ready_real_world_acceptance_evidence"
         },
         {
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "4ef6fa548655b48806e3713b754e4e55c9e5213cbae8216b0ba40de9c575fc9a",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
       "status": "satisfied",
       "title": "Real provider failure recovered"
-    },
-    {
-      "capture_surfaces": [
-        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
-        ".codex-studio/published/teable_env_recovery_proof.generated.json"
-      ],
-      "claim_boundary": "does_not_prove_recovery_readiness_until_fresh_host_drill_evidence_is_mirrored",
-      "evidence_kind": "fresh_host_recovery_drill",
-      "key": "fresh_host_teable_recovery_drill",
-      "lens": "recover",
-      "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
-      "next_action_form_href": "/admin/goals",
-      "next_action_form_label": "Open goal evidence",
-      "next_action_form_method": "get",
-      "next_action_href": "/admin/goals",
-      "next_action_label": "Open goal evidence",
-      "next_action_method": "get",
-      "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
-      "source_receipts": [
-        {
-          "contract_name": "ea.teable_env_recovery_readiness.v1",
-          "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
-          "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
-          "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
-          "status": "ready_local_audit"
-        },
-        {
-          "contract_name": "ea.teable_env_recovery_proof.v1",
-          "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
-          "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
-          "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
-          "status": "pass"
-        }
-      ],
-      "status": "pending_real_world_evidence",
-      "title": "Fresh-host Teable recovery drill"
     },
     {
       "action_context": {
@@ -405,7 +413,7 @@
         "expected_google_domain": "gmail.com",
         "expected_google_email_present": true,
         "expected_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
-        "instruction": "Retry the Full Workspace auth link and explicitly choose the approved work Google account. If Google still denies access, reopen the Google Auth Platform Audience page and confirm the tester save has propagated.",
+        "instruction": "Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work Google account.",
         "missing_setup": [
           "oauth_access_retry_or_account_selection_required"
         ],
@@ -415,10 +423,10 @@
         "next_action_href": "/integrations/google",
         "next_action_label": "Retry Google auth",
         "next_action_method": "get",
-        "observed_google_account_matches_expected": true,
-        "observed_google_domain": "gmail.com",
-        "observed_google_email_present": true,
-        "observed_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
+        "observed_google_account_matches_expected": false,
+        "observed_google_domain": "",
+        "observed_google_email_present": false,
+        "observed_google_email_sha256": "",
         "raw_chat_ids_exposed": false,
         "raw_client_id_exposed": false,
         "raw_client_secret_exposed": false,
@@ -436,7 +444,7 @@
             "label": "Retry Full Workspace auth with the approved Google account"
           }
         ],
-        "telegram_message": "Action needed: Google Full Workspace auth is still denied even though the work account is already approved. Retry the auth link, explicitly choose the approved account, and if Google still blocks it re-open the Audience page to confirm the save. Console: https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+        "telegram_message": "Action needed: Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work account. If Google still blocks it, re-open the Audience page and confirm the tester/project setup. Console: https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
         "user_action_required": true
       },
       "capture_surfaces": [
@@ -460,106 +468,13 @@
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "cc6df243013fba7690e3c77ba4c7675e071dd1aa",
-          "source_state_fingerprint": "068b0bf8b38dab2d1570e6de9e9a56f7e22822fe11606988300d9650654cec56",
-          "status": "blocked_setup_required"
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "47c11355e7677ec0dcfec6bdbb57630fbadb7a82486aa0f2340798b3f6fa8702",
+          "status": "ready_retry_required"
         }
       ],
       "status": "pending_real_world_evidence",
       "title": "Google Workspace OAuth test-user setup"
-    },
-    {
-      "action_context": {
-        "callback_tokens_exposed": false,
-        "delivery_policy": "action_required_only",
-        "external_setup_url": "https://www.pushbullet.com/#settings/account",
-        "instruction": "Create missing Pushbullet access tokens for configured delivery clients, then rerun readiness.",
-        "interruption_budget": "action_required",
-        "irreversible_actions_consent_gated": true,
-        "kind": "pushbullet_delivery_setup",
-        "live_token_account_verified": false,
-        "missing_client_keys": [
-          "default"
-        ],
-        "missing_setup": [
-          "pushbullet_client_missing:default",
-          "pushbullet_token_missing:elisabeth"
-        ],
-        "multi_client_delivery_ready": false,
-        "multi_client_expected": true,
-        "next_action_form_href": "https://www.pushbullet.com/#settings/account",
-        "next_action_form_label": "Open Pushbullet account settings",
-        "next_action_form_method": "get",
-        "non_action_progress_push_allowed": false,
-        "pushbullet_client_count": 1,
-        "pushbullet_note_delivery_ready": false,
-        "pushbullet_token_envs": [
-          "PB_TOKEN_ELISABETH",
-          "PB_TOKEN"
-        ],
-        "quiet_hours_respected": true,
-        "raw_chat_ids_exposed": false,
-        "raw_email_exposed": false,
-        "raw_private_context_exposed": false,
-        "raw_secret_exposed": false,
-        "raw_token_exposed": false,
-        "raw_voice_ids_exposed": false,
-        "required_client_keys": [
-          "default",
-          "elisabeth"
-        ],
-        "setup_checklist": [
-          {
-            "how": "Keep the original/default Pushbullet client configured and add the Elisabeth client. Use the listed token env vars so action-required delivery can target the right account.",
-            "key": "configure_pushbullet_clients",
-            "label": "Configure every expected Pushbullet client"
-          },
-          {
-            "how": "Open Pushbullet Account Settings, sign in as the intended account, create an access token, store it in the listed token env var, then rerun this readiness receipt.",
-            "key": "create_pushbullet_access_token",
-            "label": "Create a Pushbullet access token for each missing token"
-          },
-          {
-            "how": "Rerun this materializer with --probe-live so /v2/users/me can be compared against the configured account hash.",
-            "key": "verify_pushbullet_account_match",
-            "label": "Verify the token belongs to the expected account"
-          }
-        ],
-        "telegram_message": "Action needed: Pushbullet delivery is not ready. Configure the expected Pushbullet clients, create missing access tokens, then rerun the Pushbullet readiness receipt. Missing: pushbullet_client_missing:default, pushbullet_token_missing:elisabeth.",
-        "telegram_push_allowed": true,
-        "token_missing_client_keys": [
-          "elisabeth"
-        ],
-        "user_action_required": true
-      },
-      "capture_surfaces": [
-        ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json"
-      ],
-      "claim_boundary": "does_not_prove_action_required_pushbullet_delivery_until_required_clients_are_configured_and_live_verifiable",
-      "evidence_kind": "delivery_channel_setup",
-      "key": "pushbullet_delivery_setup",
-      "lens": "deliver",
-      "next_action": "create_missing_pushbullet_access_tokens",
-      "next_action_form_href": "https://www.pushbullet.com/#settings/account",
-      "next_action_form_label": "Open Pushbullet account settings",
-      "next_action_form_method": "get",
-      "next_action_href": "https://www.pushbullet.com/#settings/account",
-      "next_action_label": "Open Pushbullet account settings",
-      "next_action_method": "get",
-      "required_next_receipt": "Pushbullet delivery clients configured and live-verifiable for action-required delivery",
-      "source_receipts": [
-        {
-          "contract_name": "ea.pushbullet_delivery_readiness.v1",
-          "path": ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json",
-          "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
-          "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
-          "status": "blocked_setup_required"
-        }
-      ],
-      "status": "pending_real_world_evidence",
-      "title": "Pushbullet delivery setup"
     },
     {
       "action_context": {
@@ -751,8 +666,8 @@
             "status": "pending_after_pairing"
           }
         ],
-        "sidecar_qr_age_seconds": 11,
-        "sidecar_qr_fresh": true,
+        "sidecar_qr_age_seconds": 182851,
+        "sidecar_qr_fresh": false,
         "sidecar_qr_present": true,
         "sidecar_qr_required": true,
         "sidecar_status": "qr_required",
@@ -784,9 +699,9 @@
           "contract_name": "ea.whatsapp_web_action_processor_readiness.v1",
           "path": ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
-          "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "52e853e2e581b1dcf0a2c3171bf2e76df05a0184ec6a46b81a8efac46e6d9346",
           "status": "blocked"
         },
         {
@@ -822,11 +737,10 @@
     }
   ],
   "blocking_reasons": [
-    "detect:google_workspace_oauth=blocked_setup_required",
+    "detect:google_workspace_oauth=ready_retry_required",
     "deliver:manfred_speech=blocked_realtime_prerequisites",
     "deliver:telegram_audiobook=blocked",
-    "deliver:whatsapp_audiobook=blocked",
-    "deliver:pushbullet_delivery=blocked_setup_required"
+    "deliver:whatsapp_audiobook=blocked"
   ],
   "contract_name": "ea.continuous_improvement_goal_posture.v1",
   "execution_lenses": [
@@ -836,7 +750,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-02T16:09:34Z",
+  "generated_at": "2026-07-07T12:35:04Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -847,7 +761,7 @@
       "components": [],
       "google_workspace_oauth_readiness": {
         "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E",
-        "blocker_kind": "oauth_retry_or_account_selection_required",
+        "blocker_kind": "",
         "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
         "expected_google_email_present": true,
         "expected_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
@@ -855,9 +769,9 @@
         "next_action": "retry_full_workspace_auth_with_approved_account",
         "oauth_project_id": "propertyquarry-498318",
         "oauth_project_number": "95627800296",
-        "observed_google_account_matches_expected": true,
-        "observed_google_email_present": true,
-        "observed_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
+        "observed_google_account_matches_expected": false,
+        "observed_google_email_present": false,
+        "observed_google_email_sha256": "",
         "raw_access_token_exposed": false,
         "raw_client_secret_exposed": false,
         "raw_error_description_exposed": false,
@@ -865,18 +779,72 @@
         "raw_observed_google_email_exposed": false,
         "raw_refresh_token_exposed": false,
         "scope_bundle": "full_workspace",
-        "status": "blocked_setup_required"
+        "status": "ready_retry_required"
       },
       "key": "detect",
       "next_action": "record_redacted_signal_review_acceptance",
+      "operator_readiness_aggregate": {
+        "attention_component_keys": [
+          "google_workspace_oauth",
+          "teable_recovery"
+        ],
+        "blocked_count": 2,
+        "component_count": 9,
+        "component_keys": [
+          "telegram",
+          "google_workspace_oauth",
+          "pushbullet",
+          "whatsapp",
+          "whatsapp_pairing",
+          "teable_recovery",
+          "mymedia_alexa",
+          "proactive_route",
+          "proactive_artifacts"
+        ],
+        "key": "ea_operator_readiness_aggregate",
+        "next_action": "retry_full_workspace_auth_with_approved_account",
+        "pairing_probe_mode": "active",
+        "probe_failed_count": 0,
+        "raw_chat_ref_exposed": false,
+        "raw_component_payload_exposed": false,
+        "raw_delivery_token_exposed": false,
+        "raw_qr_artifact_exposed": false,
+        "ready": false,
+        "status": "ready_with_actions",
+        "steering_component_keys": [
+          "telegram",
+          "google_workspace_oauth",
+          "teable_recovery",
+          "mymedia_alexa",
+          "proactive_route",
+          "proactive_artifacts"
+        ],
+        "summary": "operator_readiness status=ready_with_actions; ready=false; components=9; attention=2; blocked=2; probe_failed=0; supplemental_attention=1; supplemental_blocked=1; supplemental_probe_failed=0; states=telegram:ready,google_workspace_oauth:ready_retry_required,mymedia_alexa:ready,proactive_route:ready,proactive_artifacts:ok; supplemental_states=pushbullet:ready_live_verified,whatsapp_pairing:available; next=google_workspace_oauth:retry_full_workspace_auth_with_approved_account; supplemental_next=whatsapp_pairing:scan_whatsapp_web_qr; observed_at=2026-07-07T11:35:51Z; source=ea_live_ops.aggregate",
+        "supplemental_attention_component_keys": [
+          "whatsapp_pairing"
+        ],
+        "supplemental_attention_count": 1,
+        "supplemental_blocked_count": 1,
+        "supplemental_next_actions": [
+          {
+            "action": "scan_whatsapp_web_qr",
+            "component_key": "whatsapp_pairing",
+            "href": "https://myexternalbrain.com/integrations/whatsapp",
+            "label": "Open WhatsApp pairing",
+            "method": "get",
+            "reason": ""
+          }
+        ],
+        "supplemental_probe_failed_count": 0
+      },
       "source_receipts": [
         {
           "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "a3572c150100e1a3be707546aa269d5cbd227499",
-          "source_state_fingerprint": "7d23f1a04f223d186a1d0c0cad8c6506c58e553ce83bb1577ba13e8c5d8006f3",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "31c5b0e6521d32bea835786b1496ea97860d7ebf0f13f9a7abfc9bcb01f78805",
           "status": "ready_local_packet_pending_operator_acceptance"
         },
         {
@@ -902,9 +870,18 @@
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "cc6df243013fba7690e3c77ba4c7675e071dd1aa",
-          "source_state_fingerprint": "068b0bf8b38dab2d1570e6de9e9a56f7e22822fe11606988300d9650654cec56",
-          "status": "blocked_setup_required"
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "47c11355e7677ec0dcfec6bdbb57630fbadb7a82486aa0f2340798b3f6fa8702",
+          "status": "ready_retry_required"
+        },
+        {
+          "contract_name": "ea.operator_readiness.v1",
+          "path": ".codex-studio/published/ea_operator_readiness.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "47c11355e7677ec0dcfec6bdbb57630fbadb7a82486aa0f2340798b3f6fa8702",
+          "status": "ready_with_actions"
         }
       ],
       "status": "ready_local_packet_pending_operator_acceptance",
@@ -950,15 +927,21 @@
         "python3 scripts/verify_pocket_audio_archive_receipt.py",
         "python3 scripts/verify_telegram_business_signal_readiness.py",
         "python3 scripts/verify_google_workspace_oauth_readiness.py",
+        "python3 scripts/verify_ea_operator_readiness.py",
         "make verify-proactive-ooda"
       ]
     },
     {
       "components": [],
       "key": "decide",
-      "next_action": "retry_full_workspace_auth_with_approved_account",
+      "next_action": "improve_proactive_packet_quality_and_collect_a_new_acceptance_outcome",
       "provider_cost_control": {
         "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+        "cheap_provider_order": [
+          "onemin",
+          "magixai",
+          "gemini_vortex"
+        ],
         "cost_sensitive_lanes": [
           "groundwork",
           "fast",
@@ -973,6 +956,11 @@
           "gemini_vortex"
         ],
         "explicit_gemini_requests_allowed": true,
+        "fast_provider_order": [
+          "onemin",
+          "magixai",
+          "gemini_vortex"
+        ],
         "gemini_dispatch_ledger": "provider_dispatch_events.jsonl",
         "gemini_live_pressure_probe_command": "python3 scripts/ea_live_ops.py probe-provider-cost-pressure --window 24h --format json",
         "gemini_live_pressure_probe_source": "runtime_container_exec:provider_ledger_cache",
@@ -986,7 +974,13 @@
           "magixai",
           "gemini_vortex"
         ],
+        "hard_provider_order": [
+          "onemin",
+          "magixai",
+          "gemini_vortex"
+        ],
         "onemin_preferred_when_speed_is_not_critical": true,
+        "onemin_preferred_whenever_usable": true,
         "primary_background_provider": "onemin",
         "primary_background_provider_label": "1min.ai",
         "raw_google_cloud_billing_account_exposed": false,
@@ -996,6 +990,11 @@
         "status": "active_cost_control"
       },
       "provider_cost_pressure": {
+        "cheap_provider_order": [
+          "onemin",
+          "magixai",
+          "gemini_vortex"
+        ],
         "checked": true,
         "cost_sensitive_lanes": [
           "audit",
@@ -1006,6 +1005,11 @@
           "review_light"
         ],
         "explicit_gemini_requests_allowed": true,
+        "fast_provider_order": [
+          "onemin",
+          "magixai",
+          "gemini_vortex"
+        ],
         "gemini_24h_request_count": 0,
         "gemini_24h_soft_cap_tokens": 200000,
         "gemini_24h_state": "within_soft_cap",
@@ -1021,10 +1025,16 @@
           "magixai",
           "gemini_vortex"
         ],
-        "observed_at": "2026-07-02T16:08:59Z",
+        "hard_provider_order": [
+          "onemin",
+          "magixai",
+          "gemini_vortex"
+        ],
+        "observed_at": "2026-07-07T12:28:49Z",
         "onemin_configured_slots": 70,
         "onemin_preferred_when_speed_is_not_critical": true,
-        "onemin_ready_slots": 16,
+        "onemin_preferred_whenever_usable": true,
+        "onemin_ready_slots": 17,
         "onemin_usable": true,
         "present": true,
         "primary_background_provider": "onemin",
@@ -1048,8 +1058,8 @@
           "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "cc6df243013fba7690e3c77ba4c7675e071dd1aa",
-          "source_state_fingerprint": "068b0bf8b38dab2d1570e6de9e9a56f7e22822fe11606988300d9650654cec56",
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "c188bbd644721eac56b179efd2e9814bf17850cac8f7a3939cc8efe7500365ac",
           "status": "ready_local_evidence"
         }
       ],
@@ -1135,9 +1145,9 @@
               "contract_name": "ea.whatsapp_web_action_processor_readiness.v1",
               "path": ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
-              "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
+              "source_fresh_to_current_source": true,
+              "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+              "source_state_fingerprint": "52e853e2e581b1dcf0a2c3171bf2e76df05a0184ec6a46b81a8efac46e6d9346",
               "status": "blocked"
             },
             {
@@ -1174,36 +1184,63 @@
           "title": "WhatsApp audiobook delivery"
         },
         {
-          "client_count": 1,
+          "client_count": 2,
           "key": "pushbullet_delivery",
-          "live_token_account_verified": false,
-          "missing_setup": [
-            "pushbullet_client_missing:default",
-            "pushbullet_token_missing:elisabeth"
-          ],
-          "next_action": "create_missing_pushbullet_access_tokens",
-          "pushbullet_note_delivery_ready": false,
+          "live_token_account_verified": true,
+          "missing_setup": [],
+          "next_action": "keep_pushbullet_clients_configured",
+          "pushbullet_note_delivery_ready": true,
           "raw_email_exposed": false,
           "raw_token_exposed": false,
           "required_client_keys": [
             "default",
-            "elisabeth"
+            "elisabeth",
+            "tibor"
           ],
           "source_receipts": [
             {
               "contract_name": "ea.pushbullet_delivery_readiness.v1",
-              "path": ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json",
+              "path": "docker-exec:ea-scheduler:/data/provider-ledger/pushbullet_readiness.generated.json",
               "present": true,
               "source_fresh_to_current_source": false,
-              "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
-              "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
-              "status": "blocked_setup_required"
+              "source_state_fingerprint": "3375bb12e148c406ecd7e924b17057c7205966a8e07c9bc2affce20d3908e176",
+              "status": "ready_live_verified"
             }
           ],
-          "status": "blocked_setup_required",
-          "status_class": "blocking",
-          "summary": "Pushbullet clients: 1 configured; missing setup: 2.",
+          "status": "ready_live_verified",
+          "status_class": "progress",
+          "summary": "Pushbullet clients: 2 configured; missing setup: 0.",
           "title": "Pushbullet action-required delivery"
+        },
+        {
+          "echo_playback_claim_allowed": false,
+          "key": "mymedia_alexa",
+          "next_action": "complete_amazon_pairing_for_mymedia",
+          "pairing_resume_command": "",
+          "pairing_resume_ready": false,
+          "raw_paired_user_exposed": false,
+          "raw_pairing_resume_url_exposed": false,
+          "raw_public_ip_exposed": false,
+          "raw_refresh_token_exposed": false,
+          "raw_watch_folder_paths_exposed": false,
+          "source_receipts": [
+            {
+              "contract_name": "ea.mymedia_alexa_readiness.v1",
+              "path": ".codex-studio/published/mymedia_alexa_readiness.generated.json",
+              "present": true,
+              "source_fresh_to_current_source": true,
+              "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+              "source_state_fingerprint": "52e853e2e581b1dcf0a2c3171bf2e76df05a0184ec6a46b81a8efac46e6d9346",
+              "status": "ready"
+            }
+          ],
+          "status": "ready",
+          "status_class": "progress",
+          "summary": "My Media runtime ready; pairing resume not_ready.",
+          "telegram_delivery_ready": false,
+          "telegram_delivery_reason": "no_operator_action_required",
+          "telegram_delivery_transport": "telegram_bot",
+          "title": "My Media for Alexa"
         }
       ],
       "key": "deliver",
@@ -1222,6 +1259,7 @@
         "make verify-whatsapp-audiobook-operator-proof-bundle",
         "make verify-whatsapp-audiobook-live-delivery-receipt",
         "make verify-whatsapp-audiobook-public-share-playback",
+        "make verify-mymedia-alexa-readiness",
         "python3 scripts/verify_pushbullet_delivery_readiness.py"
       ]
     },
@@ -1234,24 +1272,24 @@
           "contract_name": "ea.teable_env_recovery_readiness.v1",
           "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
-          "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "52e853e2e581b1dcf0a2c3171bf2e76df05a0184ec6a46b81a8efac46e6d9346",
           "status": "ready_local_audit"
         },
         {
           "contract_name": "ea.teable_env_recovery_proof.v1",
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
-          "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "33c1ca7bf2b0dfe16e73b0f2e0aa131426c367cf57a99b56173f7e4f6a671ae0",
           "status": "pass"
         }
       ],
-      "status": "ready_local_audit",
+      "status": "pass",
       "status_class": "progress",
-      "summary": "A Teable recovery proof is mirrored and passed, but its source-state evidence is stale; refresh the recovery drill proof before keeping the recover lens at pass.",
+      "summary": "Fresh-host-style Teable recovery proof is mirrored and passed with redacted evidence; keep it current when env/config recovery changes.",
       "title": "Fresh-host recovery",
       "verifier_commands": [
         "make verify-teable-env-recovery-readiness",
@@ -1273,9 +1311,9 @@
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+          "source_state_fingerprint": "4ef6fa548655b48806e3713b754e4e55c9e5213cbae8216b0ba40de9c575fc9a",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -1288,63 +1326,18 @@
       ]
     }
   ],
-  "next_action": "record_weekly_signal_to_decision_review_acceptance",
-  "next_action_form_href": "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review",
-  "next_action_form_label": "Record a signal-loop outcome",
+  "next_action": "retry_full_workspace_auth_with_approved_account",
+  "next_action_form_href": "/integrations/google",
+  "next_action_form_label": "Retry Google auth",
   "next_action_form_method": "get",
-  "next_action_href": "/admin/actions/signal-to-decision-evidence",
-  "next_action_instruction": "Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",
-  "next_action_key": "weekly_signal_to_decision_review_acceptance",
-  "next_action_label": "Record a signal-loop outcome",
-  "next_action_method": "post",
+  "next_action_href": "/integrations/google",
+  "next_action_instruction": "Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work Google account.",
+  "next_action_key": "google_workspace_oauth_setup",
+  "next_action_label": "Retry Google auth",
+  "next_action_method": "get",
   "operator_action_queue": [
     {
-      "accepted_parts": {
-        "followthrough": false,
-        "review": false
-      },
-      "action_required_reason": "real_world_acceptance_missing",
-      "callback_tokens_exposed": false,
-      "delivery_policy": "action_required_only",
-      "evidence_kind": "real_review_acceptance",
-      "evidence_part": "review",
-      "instruction": "Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",
-      "interruption_budget": "action_required",
-      "irreversible_actions_consent_gated": true,
-      "key": "weekly_signal_to_decision_review_acceptance",
-      "kind": "real_world_acceptance_capture",
-      "lens": "detect",
-      "next_action": "record_weekly_signal_to_decision_review_acceptance",
-      "next_action_form_href": "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review",
-      "next_action_form_label": "Record a signal-loop outcome",
-      "next_action_form_method": "get",
-      "next_action_href": "/admin/actions/signal-to-decision-evidence",
-      "next_action_label": "Record a signal-loop outcome",
-      "next_action_method": "post",
-      "non_action_progress_push_allowed": false,
-      "quiet_hours_respected": true,
-      "raw_acceptance_text_exposed": false,
-      "raw_actor_identity_exposed": false,
-      "raw_chat_ids_exposed": false,
-      "raw_object_reference_exposed": false,
-      "raw_private_context_exposed": false,
-      "raw_secret_exposed": false,
-      "raw_token_exposed": false,
-      "raw_voice_ids_exposed": false,
-      "required_form_fields": [
-        "evidence_part",
-        "source_kind",
-        "evidence",
-        "packet_ref"
-      ],
-      "required_next_receipt": "real weekly signal-to-decision review acceptance receipt",
-      "source_action_packet_present": true,
-      "source_action_packet_status": "action_required",
-      "telegram_push_allowed": true,
-      "title": "Weekly signal-to-decision review acceptance",
-      "user_action_required": true
-    },
-    {
+      "action_digest_eligible": true,
       "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E",
       "callback_tokens_exposed": false,
       "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
@@ -1353,7 +1346,7 @@
       "expected_google_domain": "gmail.com",
       "expected_google_email_present": true,
       "expected_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
-      "instruction": "Retry the Full Workspace auth link and explicitly choose the approved work Google account. If Google still denies access, reopen the Google Auth Platform Audience page and confirm the tester save has propagated.",
+      "instruction": "Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work Google account.",
       "interruption_budget": "action_required",
       "irreversible_actions_consent_gated": true,
       "key": "google_workspace_oauth_setup",
@@ -1369,10 +1362,10 @@
       "next_action_label": "Retry Google auth",
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
-      "observed_google_account_matches_expected": true,
-      "observed_google_domain": "gmail.com",
-      "observed_google_email_present": true,
-      "observed_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
+      "observed_google_account_matches_expected": false,
+      "observed_google_email_present": false,
+      "operator_stream": "office_setup",
+      "proactive_signal_allowed": true,
       "quiet_hours_respected": true,
       "raw_chat_ids_exposed": false,
       "raw_client_id_exposed": false,
@@ -1393,84 +1386,13 @@
           "label": "Retry Full Workspace auth with the approved Google account"
         }
       ],
-      "telegram_message": "Action needed: Google Full Workspace auth is still denied even though the work account is already approved. Retry the auth link, explicitly choose the approved account, and if Google still blocks it re-open the Audience page to confirm the save. Console: https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+      "telegram_message": "Action needed: Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work account. If Google still blocks it, re-open the Audience page and confirm the tester/project setup. Console: https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
       "telegram_push_allowed": true,
       "title": "Google Workspace OAuth test-user setup",
       "user_action_required": true
     },
     {
-      "callback_tokens_exposed": false,
-      "delivery_policy": "action_required_only",
-      "evidence_kind": "delivery_channel_setup",
-      "external_setup_url": "https://www.pushbullet.com/#settings/account",
-      "instruction": "Create missing Pushbullet access tokens for configured delivery clients, then rerun readiness.",
-      "interruption_budget": "action_required",
-      "irreversible_actions_consent_gated": true,
-      "key": "pushbullet_delivery_setup",
-      "kind": "pushbullet_delivery_setup",
-      "lens": "deliver",
-      "live_token_account_verified": false,
-      "missing_client_keys": [
-        "default"
-      ],
-      "missing_setup": [
-        "pushbullet_client_missing:default",
-        "pushbullet_token_missing:elisabeth"
-      ],
-      "multi_client_delivery_ready": false,
-      "multi_client_expected": true,
-      "next_action": "create_missing_pushbullet_access_tokens",
-      "next_action_form_href": "https://www.pushbullet.com/#settings/account",
-      "next_action_form_label": "Open Pushbullet account settings",
-      "next_action_form_method": "get",
-      "next_action_href": "https://www.pushbullet.com/#settings/account",
-      "next_action_label": "Open Pushbullet account settings",
-      "next_action_method": "get",
-      "non_action_progress_push_allowed": false,
-      "pushbullet_client_count": 1,
-      "pushbullet_note_delivery_ready": false,
-      "pushbullet_token_envs": [
-        "PB_TOKEN_ELISABETH",
-        "PB_TOKEN"
-      ],
-      "quiet_hours_respected": true,
-      "raw_chat_ids_exposed": false,
-      "raw_email_exposed": false,
-      "raw_private_context_exposed": false,
-      "raw_secret_exposed": false,
-      "raw_token_exposed": false,
-      "raw_voice_ids_exposed": false,
-      "required_client_keys": [
-        "default",
-        "elisabeth"
-      ],
-      "required_next_receipt": "Pushbullet delivery clients configured and live-verifiable for action-required delivery",
-      "setup_checklist": [
-        {
-          "how": "Keep the original/default Pushbullet client configured and add the Elisabeth client. Use the listed token env vars so action-required delivery can target the right account.",
-          "key": "configure_pushbullet_clients",
-          "label": "Configure every expected Pushbullet client"
-        },
-        {
-          "how": "Open Pushbullet Account Settings, sign in as the intended account, create an access token, store it in the listed token env var, then rerun this readiness receipt.",
-          "key": "create_pushbullet_access_token",
-          "label": "Create a Pushbullet access token for each missing token"
-        },
-        {
-          "how": "Rerun this materializer with --probe-live so /v2/users/me can be compared against the configured account hash.",
-          "key": "verify_pushbullet_account_match",
-          "label": "Verify the token belongs to the expected account"
-        }
-      ],
-      "telegram_message": "Action needed: Pushbullet delivery is not ready. Configure the expected Pushbullet clients, create missing access tokens, then rerun the Pushbullet readiness receipt. Missing: pushbullet_client_missing:default, pushbullet_token_missing:elisabeth.",
-      "telegram_push_allowed": true,
-      "title": "Pushbullet delivery setup",
-      "token_missing_client_keys": [
-        "elisabeth"
-      ],
-      "user_action_required": true
-    },
-    {
+      "action_digest_eligible": false,
       "author_gender_match_count": 2,
       "author_gender_matched_candidates_only": true,
       "author_gender_mismatch_count": 0,
@@ -1483,6 +1405,7 @@
         "Jurgen"
       ],
       "candidate_labels_distinct": true,
+      "default_action_digest_suppressed_reason": "operator_stream_not_in_default_action_digest",
       "delivery_policy": "action_required_only",
       "distinct_candidate_label_count": 2,
       "duplicate_suppression": {
@@ -1511,6 +1434,8 @@
       "next_action_label": "Open Telegram",
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
+      "operator_stream": "media_memorial",
+      "proactive_signal_allowed": false,
       "quiet_hours_respected": true,
       "raw_chat_ids_exposed": false,
       "raw_private_context_exposed": false,
@@ -1527,9 +1452,11 @@
       "voice_sample_delivery_status": "sent"
     },
     {
+      "action_digest_eligible": false,
       "callback_tokens_exposed": false,
       "candidate_raw_text_fields_exposed": false,
       "ci_must_not_auto_assert": true,
+      "default_action_digest_suppressed_reason": "operator_stream_not_in_default_action_digest",
       "delivery_policy": "action_required_only",
       "evidence_kind": "consented_realtime_media_proof",
       "instruction": "Collect the manual real-room audio attestation for the Manfred spoken conversation proof.",
@@ -1547,6 +1474,8 @@
       "next_action_label": "Spoken conversation proof",
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
+      "operator_stream": "media_memorial",
+      "proactive_signal_allowed": false,
       "quiet_hours_respected": true,
       "raw_chat_ids_exposed": false,
       "raw_private_context_exposed": false,
@@ -1572,7 +1501,9 @@
       "user_action_required": true
     },
     {
+      "action_digest_eligible": false,
       "callback_tokens_exposed": false,
+      "default_action_digest_suppressed_reason": "operator_stream_not_in_default_action_digest",
       "delivery_policy": "action_required_only",
       "evidence_kind": "live_delivery_receipt",
       "instruction": "Pair the WhatsApp Web sidecar from the WhatsApp integration, then rerun the WhatsApp audiobook delivery checks.",
@@ -1592,8 +1523,10 @@
       "next_action_label": "Open WhatsApp",
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
+      "operator_stream": "media_memorial",
       "pair_url_actionable_from_telegram": false,
       "pair_url_scope": "host_local",
+      "proactive_signal_allowed": false,
       "quiet_hours_respected": true,
       "raw_chat_ids_exposed": false,
       "raw_pair_url_exposed": false,
@@ -1629,8 +1562,8 @@
           "status": "pending_after_pairing"
         }
       ],
-      "sidecar_qr_age_seconds": 11,
-      "sidecar_qr_fresh": true,
+      "sidecar_qr_age_seconds": 182851,
+      "sidecar_qr_fresh": false,
       "sidecar_qr_present": true,
       "sidecar_qr_required": true,
       "sidecar_status": "qr_required",
@@ -1640,54 +1573,86 @@
       "user_action_required": true
     },
     {
+      "accepted_parts": {
+        "followthrough": false,
+        "review": false
+      },
+      "action_digest_eligible": false,
+      "action_required_reason": "real_world_acceptance_missing",
       "callback_tokens_exposed": false,
-      "delivery_policy": "queue_only",
-      "evidence_kind": "fresh_host_recovery_drill",
-      "interruption_budget": "none",
+      "default_action_digest_suppressed_reason": "telegram_push_not_allowed",
+      "delivery_policy": "action_required_only",
+      "evidence_kind": "real_review_acceptance",
+      "evidence_part": "review",
+      "instruction": "Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",
+      "interruption_budget": "action_required",
       "irreversible_actions_consent_gated": true,
-      "key": "fresh_host_teable_recovery_drill",
-      "lens": "recover",
-      "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
-      "next_action_form_href": "/admin/goals",
-      "next_action_form_label": "Open goal evidence",
+      "key": "weekly_signal_to_decision_review_acceptance",
+      "kind": "real_world_acceptance_capture",
+      "lens": "detect",
+      "next_action": "record_weekly_signal_to_decision_review_acceptance",
+      "next_action_form_href": "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review",
+      "next_action_form_label": "Record a signal-loop outcome",
       "next_action_form_method": "get",
-      "next_action_href": "/admin/goals",
-      "next_action_label": "Open goal evidence",
-      "next_action_method": "get",
+      "next_action_href": "/admin/actions/signal-to-decision-evidence",
+      "next_action_label": "Record a signal-loop outcome",
+      "next_action_method": "post",
       "non_action_progress_push_allowed": false,
+      "notification_policy": "queue_only_proof",
+      "operator_stream": "office_loop",
+      "proactive_signal_allowed": false,
       "quiet_hours_respected": true,
+      "raw_acceptance_text_exposed": false,
+      "raw_actor_identity_exposed": false,
       "raw_chat_ids_exposed": false,
+      "raw_object_reference_exposed": false,
       "raw_private_context_exposed": false,
       "raw_secret_exposed": false,
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
-      "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
+      "required_form_fields": [
+        "evidence_part",
+        "source_kind",
+        "evidence",
+        "packet_ref"
+      ],
+      "required_next_receipt": "real weekly signal-to-decision review acceptance receipt",
+      "source_action_packet_present": true,
+      "source_action_packet_status": "action_required",
+      "telegram_message": "Action needed: record that you reviewed the weekly signal-to-decision packet. Open the evidence form and save a short redacted review note.",
       "telegram_push_allowed": false,
-      "title": "Fresh-host Teable recovery drill",
-      "user_action_required": false
+      "title": "Weekly signal-to-decision review acceptance",
+      "user_action_required": true
     },
     {
+      "action_digest_eligible": false,
       "callback_tokens_exposed": false,
+      "default_action_digest_suppressed_reason": "not_user_action_required",
       "delivery_policy": "queue_only",
       "evidence_kind": "approval_outcome",
+      "instruction": "A proactive OODA packet was routed and staged, but the recorded outcome was not accepted under ordinary use.",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
       "key": "proactive_ooda_packet_acceptance",
+      "kind": "proactive_ooda_acceptance_followthrough",
       "lens": "decide",
-      "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
-      "next_action_form_href": "/admin/proactive-ooda/approval",
-      "next_action_form_label": "Open approval capture",
-      "next_action_form_method": "get",
-      "next_action_href": "/admin/proactive-ooda/approval",
-      "next_action_label": "Open approval capture",
+      "next_action": "improve_proactive_packet_quality_and_collect_a_new_acceptance_outcome",
+      "next_action_href": "https://myexternalbrain.com/app/queue",
+      "next_action_label": "Open queue",
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
+      "notification_policy": "default",
+      "operator_stream": "office_loop",
+      "proactive_signal_allowed": false,
       "quiet_hours_respected": true,
       "raw_chat_ids_exposed": false,
+      "raw_pair_url_exposed": false,
       "raw_private_context_exposed": false,
+      "raw_qr_payload_exposed": false,
       "raw_secret_exposed": false,
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
+      "raw_whatsapp_session_ref_exposed": false,
       "required_next_receipt": "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
       "telegram_push_allowed": false,
       "title": "Proactive OODA packet approval outcome",
@@ -1696,8 +1661,16 @@
   ],
   "operator_delivery_policy": {
     "action_required_only": true,
+    "default_action_digest_eligible_count": 1,
+    "default_action_digest_streams": [
+      "office_loop",
+      "office_setup",
+      "recovery"
+    ],
+    "default_action_digest_suppressed_count": 4,
     "irreversible_actions_consent_gated": true,
     "next_action_delivery_policy": "action_required_only",
+    "next_action_digest_eligible": true,
     "next_action_requires_user": true,
     "non_action_progress_push_allowed": false,
     "quiet_hours_respected": true,
@@ -1707,6 +1680,11 @@
   "overall_status": "active_with_blockers",
   "provider_cost_control": {
     "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+    "cheap_provider_order": [
+      "onemin",
+      "magixai",
+      "gemini_vortex"
+    ],
     "cost_sensitive_lanes": [
       "groundwork",
       "fast",
@@ -1721,6 +1699,11 @@
       "gemini_vortex"
     ],
     "explicit_gemini_requests_allowed": true,
+    "fast_provider_order": [
+      "onemin",
+      "magixai",
+      "gemini_vortex"
+    ],
     "gemini_dispatch_ledger": "provider_dispatch_events.jsonl",
     "gemini_live_pressure_probe_command": "python3 scripts/ea_live_ops.py probe-provider-cost-pressure --window 24h --format json",
     "gemini_live_pressure_probe_source": "runtime_container_exec:provider_ledger_cache",
@@ -1734,7 +1717,13 @@
       "magixai",
       "gemini_vortex"
     ],
+    "hard_provider_order": [
+      "onemin",
+      "magixai",
+      "gemini_vortex"
+    ],
     "onemin_preferred_when_speed_is_not_critical": true,
+    "onemin_preferred_whenever_usable": true,
     "primary_background_provider": "onemin",
     "primary_background_provider_label": "1min.ai",
     "raw_google_cloud_billing_account_exposed": false,
@@ -1744,6 +1733,11 @@
     "status": "active_cost_control"
   },
   "provider_cost_pressure": {
+    "cheap_provider_order": [
+      "onemin",
+      "magixai",
+      "gemini_vortex"
+    ],
     "checked": true,
     "cost_sensitive_lanes": [
       "audit",
@@ -1754,6 +1748,11 @@
       "review_light"
     ],
     "explicit_gemini_requests_allowed": true,
+    "fast_provider_order": [
+      "onemin",
+      "magixai",
+      "gemini_vortex"
+    ],
     "gemini_24h_request_count": 0,
     "gemini_24h_soft_cap_tokens": 200000,
     "gemini_24h_state": "within_soft_cap",
@@ -1769,10 +1768,16 @@
       "magixai",
       "gemini_vortex"
     ],
-    "observed_at": "2026-07-02T16:08:59Z",
+    "hard_provider_order": [
+      "onemin",
+      "magixai",
+      "gemini_vortex"
+    ],
+    "observed_at": "2026-07-07T12:28:49Z",
     "onemin_configured_slots": 70,
     "onemin_preferred_when_speed_is_not_critical": true,
-    "onemin_ready_slots": 16,
+    "onemin_preferred_whenever_usable": true,
+    "onemin_ready_slots": 17,
     "onemin_usable": true,
     "present": true,
     "primary_background_provider": "onemin",
@@ -1794,9 +1799,7 @@
   "required_next_receipts": [
     "real weekly signal-to-decision review acceptance receipt",
     "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
-    "fresh-host Teable recovery drill receipt mirrored into the repo",
     "Google Workspace OAuth test-user or verified app access for Full Workspace auth",
-    "Pushbullet delivery clients configured and live-verifiable for action-required delivery",
     "consented Manfred STT/TTS realtime conversation proof",
     "passing Telegram audiobook live delivery receipt",
     "passing WhatsApp audiobook live delivery receipt"
@@ -1807,13 +1810,13 @@
     "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something.",
     "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient.",
     "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved.",
-    "Provider-cost governance is part of the goal: background and non-urgent work should prefer 1min.ai, Gemini/Vertex usage must be token-tracked, and Gemini soft caps may remove it from background candidate lists without blocking explicit Gemini requests.",
+    "Provider-cost governance is part of the goal: whenever a lane can route through the active 1min.ai manager it should prefer 1min.ai first, Gemini/Vertex usage must be token-tracked, and Gemini soft caps may remove it from background candidate lists without blocking explicit Gemini requests.",
     "The recover lens may use a mirrored local readiness receipt, but it must not claim pass until a source-fresh fresh-host Teable recovery drill receipt is mirrored.",
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "cc6df243013fba7690e3c77ba4c7675e071dd1aa",
-  "source_state_fingerprint": "068b0bf8b38dab2d1570e6de9e9a56f7e22822fe11606988300d9650654cec56",
+  "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+  "source_state_fingerprint": "52e853e2e581b1dcf0a2c3171bf2e76df05a0184ec6a46b81a8efac46e6d9346",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "active_with_blockers"
 }

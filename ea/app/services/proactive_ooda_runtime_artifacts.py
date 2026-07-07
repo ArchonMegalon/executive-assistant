@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
@@ -16,6 +17,7 @@ from app.services.proactive_ooda_safe_work import (
     safe_work_decision_materiality_issue,
 )
 from app.services.proactive_ooda_stage_packets import default_stage_packet_dir
+from app.services.proactive_ooda_telegram_policy import approval_request_needs_telegram_user_action
 
 
 RUN_RECEIPT_FILENAME = "proactive_ooda_latest_run.generated.json"
@@ -29,6 +31,14 @@ STAGE_PACKET_SCHEMA = "proactive_ooda.stage_packet.v1"
 SAFE_WORK_RESULT_SCHEMA = "proactive_ooda.safe_work_result.v1"
 _APPROVAL_CALLBACK_DECISION_STATUSES = {"approved", "rejected", "deferred", "dismissed"}
 _APPROVAL_CALLBACK_TERMINAL_STATUSES = {*_APPROVAL_CALLBACK_DECISION_STATUSES, "expired", "superseded"}
+_ASSISTANT_GRADE_BLOCKING_WORK_TYPES = {"record_internal_action", "internal_action", "operator_action"}
+
+
+def default_proactive_ooda_runtime_root() -> Path:
+    configured = str(os.getenv("EA_PROACTIVE_OODA_RUNTIME_ROOT") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path(__file__).resolve().parents[3]
 
 
 def default_run_receipt_path(*, root: Path, state_path: str | Path) -> Path:
@@ -208,11 +218,15 @@ def load_runtime_artifact_bundle(
         approval_callback_dir=approval_callback_dir,
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
+        stage_packet_dir=resolved_stage_dir,
+        safe_work_result_dir=resolved_safe_dir,
     )
     quiet_receipt_path, quiet_receipt = choose_action_required_only_quiet_receipt(
         primary_run_receipt_path=primary_run_receipt_path,
         primary_run_receipt=primary_run_receipt,
         run_receipt_dir=run_receipt_dir,
+        stage_packet_dir=resolved_stage_dir,
+        safe_work_result_dir=resolved_safe_dir,
     )
     return {
         "state_path": _path_from_value(root, state_path),
@@ -315,7 +329,9 @@ def choose_best_run_receipt_artifact_candidate(
         ) or operator_safe_mirror
         teable_sync = dict(payload.get("teable_sync") or {})
         artifact_score = _stage_safe_pair_score(stage_packet, safe_work_result, mtime)
+        assistant_grade_score = _assistant_grade_pair_score(stage_packet, safe_work_result)
         score = (
+            assistant_grade_score,
             1 if delivery_proof else 0,
             artifact_score[0],
             artifact_score[1],
@@ -338,6 +354,8 @@ def choose_action_required_only_quiet_receipt(
     primary_run_receipt_path: Path | None,
     primary_run_receipt: dict[str, Any],
     run_receipt_dir: Path,
+    stage_packet_dir: Path,
+    safe_work_result_dir: Path,
 ) -> tuple[Path | None, dict[str, Any]]:
     best: tuple[Path | None, dict[str, Any], float] | None = None
     best_score: tuple[int, int, float] | None = None
@@ -347,6 +365,12 @@ def choose_action_required_only_quiet_receipt(
         run_receipt_dir=run_receipt_dir,
     ):
         if not _receipt_proves_action_required_only_quiet_delivery(payload):
+            continue
+        if _quiet_receipt_is_property_scoped(
+            payload,
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+        ):
             continue
         stage_hash_count = len(_run_receipt_ref_hash_sets(payload)[0])
         score = (
@@ -360,6 +384,40 @@ def choose_action_required_only_quiet_receipt(
     if best is None:
         return None, {}
     return best[0], best[1]
+
+
+def _quiet_receipt_is_property_scoped(
+    payload: Mapping[str, Any],
+    *,
+    stage_packet_dir: Path,
+    safe_work_result_dir: Path,
+) -> bool:
+    preferred_pair = choose_stage_and_safe_work_for_run_receipt(
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+        run_receipt=payload,
+    )
+    if preferred_pair is not None:
+        _stage_path, stage_packet, _safe_path, safe_work_result = preferred_pair
+        if _artifacts_are_disabled_flat_search(
+            stage_packet=stage_packet,
+            safe_work_result=safe_work_result,
+        ):
+            return True
+
+    projection_summary = dict(dict(payload.get("teable_sync") or {}).get("projection_summary") or {})
+    reasons = {
+        str(item or "").strip()
+        for item in list(projection_summary.get("suppressed_projection_reasons") or [])
+        if str(item or "").strip()
+    }
+    issue_codes = {
+        str(item or "").strip()
+        for item in list(projection_summary.get("suppressed_safe_work_issue_codes") or [])
+        if str(item or "").strip()
+    }
+    property_reasons = {"flat_search_disabled", "flat_search_disabled_property_scout"}
+    return bool((reasons | issue_codes) & property_reasons)
 
 
 def _receipt_proves_action_required_only_quiet_delivery(payload: Mapping[str, Any]) -> bool:
@@ -465,8 +523,15 @@ def approval_callback_runtime_summary(
     approval_callback_dir: Path,
     stage_packet: Mapping[str, Any],
     safe_work_result: Mapping[str, Any],
+    stage_packet_dir: Path | None = None,
+    safe_work_result_dir: Path | None = None,
 ) -> dict[str, Any]:
     callback_rows = _approval_callback_rows(approval_callback_dir)
+    callback_artifact_refs = _approval_callback_artifact_ref_index(
+        callback_rows,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+    )
     current_packet_rows = _matching_approval_callback_rows(
         callback_rows,
         stage_packet=stage_packet,
@@ -494,11 +559,24 @@ def approval_callback_runtime_summary(
         for row in current_packet_rows
         if _approval_callback_status(row) == "pending" and not _approval_callback_expired(row)
     ]
+    property_scoped_pending_rows = [
+        row
+        for row in pending_rows
+        if _approval_callback_is_property_scoped(
+            row,
+            callback_artifact_refs=callback_artifact_refs,
+        )
+    ]
     latest_created_at = str(latest_current_packet.get("created_at") or "").strip()
     latest_expires_at = str(latest_current_packet.get("expires_at") or "").strip()
     stale_pending_rows = [
         row
         for row in pending_rows
+        if _approval_callback_expired(row) or not _approval_callback_matches_current(row, current_packet_rows)
+    ]
+    stale_property_scoped_pending_rows = [
+        row
+        for row in property_scoped_pending_rows
         if _approval_callback_expired(row) or not _approval_callback_matches_current(row, current_packet_rows)
     ]
     return {
@@ -512,6 +590,8 @@ def approval_callback_runtime_summary(
         "approval_callback_noncurrent_pending_count": len(noncurrent_pending_rows),
         "approval_callback_expired_pending_count": len(expired_pending_rows),
         "approval_callback_stale_pending_count": len(stale_pending_rows),
+        "approval_callback_property_scoped_pending_count": len(property_scoped_pending_rows),
+        "approval_callback_stale_property_pending_count": len(stale_property_scoped_pending_rows),
         "approval_callback_recorded_count": len(recorded_rows),
         "approval_callback_expired_count": len(expired_rows),
         "approval_callback_superseded_count": len(superseded_rows),
@@ -536,6 +616,111 @@ def approval_callback_runtime_summary(
             current_decision_rows[-1] if current_decision_rows else {},
         ),
     }
+
+
+def current_packet_user_approval_surface(
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> bool:
+    packet_ref = _stage_packet_ref(stage_packet)
+    staged_artifact_ref = _safe_work_result_ref(safe_work_result)
+    if not packet_ref or not staged_artifact_ref:
+        return False
+    if str(safe_work_result.get("status") or "").strip() != "staged_for_user_decision":
+        return False
+    stage_approval = dict(stage_packet.get("approval") or {})
+    safe_work_approval = dict(safe_work_result.get("approval") or {})
+    if not (bool(stage_approval.get("required")) or bool(safe_work_approval.get("required"))):
+        return False
+    stage = dict(stage_packet.get("stage") or {})
+    payload = dict(stage.get("payload") or {})
+    approval_request = {
+        "packet_ref": packet_ref,
+        "staged_artifact_ref": staged_artifact_ref,
+        "approval_prompt": str(safe_work_result.get("approval_prompt") or "").strip(),
+        "staged_action_url": str(safe_work_result.get("staged_action_url") or "").strip(),
+        "approved_execution_mode": str(payload.get("approved_execution_mode") or "").strip(),
+        "approved_action": str(payload.get("approved_action") or "").strip(),
+        "work_type": _approval_request_work_type(stage_packet=stage_packet, safe_work_result=safe_work_result),
+    }
+    return approval_request_needs_telegram_user_action(approval_request)
+
+
+def _approval_request_work_type(
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> str:
+    stage = dict(stage_packet.get("stage") or {})
+    payload = dict(stage.get("payload") or {})
+    safe_work_order = dict(stage_packet.get("safe_work_order") or {})
+    for value in (
+        safe_work_result.get("work_type"),
+        safe_work_order.get("work_type"),
+        payload.get("work_type"),
+    ):
+        text = str(value or "").strip().lower()
+        if text:
+            return text
+    return ""
+
+
+def _approval_callback_artifact_ref_index(
+    rows: list[dict[str, Any]],
+    *,
+    stage_packet_dir: Path | None,
+    safe_work_result_dir: Path | None,
+) -> dict[str, dict[str, Any]]:
+    requested_refs: set[str] = set()
+    for row in rows:
+        packet_ref = str(row.get("packet_ref") or "").strip()
+        if packet_ref:
+            requested_refs.add(packet_ref)
+        staged_artifact_ref = str(row.get("staged_artifact_ref") or "").strip()
+        if staged_artifact_ref:
+            requested_refs.add(staged_artifact_ref)
+    if not requested_refs:
+        return {}
+
+    artifact_payloads: dict[str, dict[str, Any]] = {}
+    if stage_packet_dir is not None and stage_packet_dir.is_dir():
+        for _, payload, _ in latest_payloads(stage_packet_dir, schema=STAGE_PACKET_SCHEMA):
+            payload_packet_ref = str(payload.get("packet_ref") or "").strip()
+            if payload_packet_ref and payload_packet_ref in requested_refs:
+                artifact_payloads[payload_packet_ref] = payload
+            payload_packet_id = str(payload.get("packet_id") or "").strip()
+            if payload_packet_id and f"stage_packet:{payload_packet_id}" in requested_refs:
+                artifact_payloads[f"stage_packet:{payload_packet_id}"] = payload
+
+    if safe_work_result_dir is not None and safe_work_result_dir.is_dir():
+        for _, payload, _ in latest_payloads(safe_work_result_dir, schema=SAFE_WORK_RESULT_SCHEMA):
+            payload_artifact_ref = str(payload.get("result_ref") or "").strip()
+            if payload_artifact_ref and payload_artifact_ref in requested_refs:
+                artifact_payloads[payload_artifact_ref] = payload
+            payload_result_id = str(payload.get("result_id") or "").strip()
+            if payload_result_id and f"safe_work_result:{payload_result_id}" in requested_refs:
+                artifact_payloads[f"safe_work_result:{payload_result_id}"] = payload
+
+    return artifact_payloads
+
+
+def _approval_callback_is_property_scoped(
+    row: Mapping[str, Any],
+    *,
+    callback_artifact_refs: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    if material_mentions_flat_property_search(row):
+        return True
+    packet_ref = str(row.get("packet_ref") or "").strip()
+    if packet_ref and packet_ref in callback_artifact_refs:
+        if material_mentions_flat_property_search(callback_artifact_refs[packet_ref]):
+            return True
+    staged_artifact_ref = str(row.get("staged_artifact_ref") or "").strip()
+    if staged_artifact_ref and staged_artifact_ref in callback_artifact_refs:
+        if material_mentions_flat_property_search(callback_artifact_refs[staged_artifact_ref]):
+            return True
+    return False
 
 
 def choose_stage_and_safe_work(
@@ -999,6 +1184,20 @@ def _staged_for_decision(safe_work_result: dict[str, Any], stage_packet: dict[st
     stage_approval = dict(stage_packet.get("approval") or {})
     safe_approval = dict(safe_work_result.get("approval") or {})
     return bool(stage_approval.get("required")) or bool(safe_approval.get("required"))
+
+
+def _assistant_grade_pair_score(stage_packet: dict[str, Any], safe_work_result: dict[str, Any]) -> int:
+    stage = dict(stage_packet.get("stage") or {})
+    stage_payload = dict(stage.get("payload") or {})
+    safe_work_order = dict(stage_packet.get("safe_work_order") or {})
+    stage_kind = str(stage.get("kind") or "").strip().lower()
+    work_type = str(
+        stage_payload.get("work_type")
+        or safe_work_order.get("work_type")
+        or safe_work_result.get("work_type")
+        or ""
+    ).strip().lower()
+    return 0 if stage_kind in _ASSISTANT_GRADE_BLOCKING_WORK_TYPES or work_type in _ASSISTANT_GRADE_BLOCKING_WORK_TYPES else 1
 
 
 def _stage_safe_pair_score(

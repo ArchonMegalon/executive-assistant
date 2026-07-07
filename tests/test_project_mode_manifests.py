@@ -171,6 +171,8 @@ def test_source_worktree_metadata_reports_source_dirty_without_generated_noise(
                 " M .codex-design/product/PROJECT_MODES.generated.json",
                 " M .codex-studio/published/memorial_stt_provider_benchmark.generated.json",
                 "?? ea/.runtime/voice-preview/sample.wav",
+                " M state/proactive_ooda_latest_run.generated.json",
+                "?? ea/state/proactive_ooda_safe_work_results/result.json",
                 " M app/api/routes/public_memorials.py",
                 "?? scripts/source_state_head.py",
                 "R  old_service.py -> app/services/new_service.py",
@@ -204,11 +206,22 @@ def test_source_worktree_fingerprint_hashes_effective_source_files_only(
     source_file = tmp_path / "app/api/routes/public_memorials.py"
     materializer = tmp_path / "scripts/materialize_project_mode_manifests.py"
     generated = tmp_path / ".codex-studio/published/receipt.generated.json"
+    state_generated = tmp_path / "state/proactive_ooda_latest_run.generated.json"
+    dot_state_generated = tmp_path / ".state/runtime-artifact.json"
+    ea_state_generated = tmp_path / "ea/state/proactive_ooda_safe_work_results/result.generated.json"
     test_file = tmp_path / "tests/test_generated_noise.py"
+    tmp_probe = tmp_path / "tmp_runtime_probe.py"
     source_file.write_text("source = 1\n", encoding="utf-8")
     materializer.write_text("materializer = 1\n", encoding="utf-8")
     generated.write_text("generated = 1\n", encoding="utf-8")
+    state_generated.parent.mkdir(parents=True)
+    state_generated.write_text("runtime = 1\n", encoding="utf-8")
+    dot_state_generated.parent.mkdir(parents=True)
+    dot_state_generated.write_text("dot runtime = 1\n", encoding="utf-8")
+    ea_state_generated.parent.mkdir(parents=True)
+    ea_state_generated.write_text("ea runtime = 1\n", encoding="utf-8")
     test_file.write_text("test = 1\n", encoding="utf-8")
+    tmp_probe.write_text("probe = 1\n", encoding="utf-8")
 
     def _fake_git_stdout(_root: Path, *args: str) -> str:
         if args == ("ls-files", "--cached", "--others", "--exclude-standard"):
@@ -217,7 +230,11 @@ def test_source_worktree_fingerprint_hashes_effective_source_files_only(
                     "app/api/routes/public_memorials.py",
                     "scripts/materialize_project_mode_manifests.py",
                     ".codex-studio/published/receipt.generated.json",
+                    "state/proactive_ooda_latest_run.generated.json",
+                    ".state/runtime-artifact.json",
+                    "ea/state/proactive_ooda_safe_work_results/result.generated.json",
                     "tests/test_generated_noise.py",
+                    "tmp_runtime_probe.py",
                     "deleted_source.py",
                 ]
             )
@@ -227,7 +244,11 @@ def test_source_worktree_fingerprint_hashes_effective_source_files_only(
 
     first = source_state_head.resolve_source_worktree_fingerprint(tmp_path)
     generated.write_text("generated = 2\n", encoding="utf-8")
+    state_generated.write_text("runtime = 2\n", encoding="utf-8")
+    dot_state_generated.write_text("dot runtime = 2\n", encoding="utf-8")
+    ea_state_generated.write_text("ea runtime = 2\n", encoding="utf-8")
     test_file.write_text("test = 2\n", encoding="utf-8")
+    tmp_probe.write_text("probe = 2\n", encoding="utf-8")
     assert source_state_head.resolve_source_worktree_fingerprint(tmp_path) == first
 
     source_file.write_text("source = 2\n", encoding="utf-8")
@@ -243,13 +264,24 @@ def test_source_worktree_fingerprint_falls_back_without_git_binary(
     source_file = tmp_path / "app/service.py"
     test_file = tmp_path / "tests/test_service.py"
     generated = tmp_path / ".codex-studio/published/receipt.generated.json"
+    state_generated = tmp_path / "state/proactive_ooda_latest_run.generated.json"
+    dot_state_generated = tmp_path / ".state/runtime-artifact.json"
+    ea_state_generated = tmp_path / "ea/state/proactive_ooda_safe_work_results/result.generated.json"
     env_file = tmp_path / ".env"
     env_example = tmp_path / ".env.example"
+    tmp_probe = tmp_path / "tmp_runtime_probe.py"
     source_file.write_text("source = 1\n", encoding="utf-8")
     test_file.write_text("test = 1\n", encoding="utf-8")
     generated.write_text("generated = 1\n", encoding="utf-8")
+    state_generated.parent.mkdir(parents=True)
+    state_generated.write_text("runtime = 1\n", encoding="utf-8")
+    dot_state_generated.parent.mkdir(parents=True)
+    dot_state_generated.write_text("dot runtime = 1\n", encoding="utf-8")
+    ea_state_generated.parent.mkdir(parents=True)
+    ea_state_generated.write_text("ea runtime = 1\n", encoding="utf-8")
     env_file.write_text("SECRET=real\n", encoding="utf-8")
     env_example.write_text("SECRET=\n", encoding="utf-8")
+    tmp_probe.write_text("probe = 1\n", encoding="utf-8")
     monkeypatch.setattr(source_state_head, "_git_stdout", lambda *_args, **_kwargs: "")
 
     first = source_state_head.resolve_source_worktree_fingerprint(tmp_path)
@@ -257,7 +289,11 @@ def test_source_worktree_fingerprint_falls_back_without_git_binary(
 
     test_file.write_text("test = 2\n", encoding="utf-8")
     generated.write_text("generated = 2\n", encoding="utf-8")
+    state_generated.write_text("runtime = 2\n", encoding="utf-8")
+    dot_state_generated.write_text("dot runtime = 2\n", encoding="utf-8")
+    ea_state_generated.write_text("ea runtime = 2\n", encoding="utf-8")
     env_file.write_text("SECRET=changed\n", encoding="utf-8")
+    tmp_probe.write_text("probe = 2\n", encoding="utf-8")
     assert source_state_head.resolve_source_worktree_fingerprint(tmp_path) == first
 
     source_file.write_text("source = 2\n", encoding="utf-8")

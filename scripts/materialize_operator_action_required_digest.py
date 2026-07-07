@@ -6,9 +6,10 @@ import hashlib
 import json
 import subprocess
 import sys
+import urllib.parse
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 try:
     from scripts.source_state_head import resolve_source_state_head
@@ -23,6 +24,7 @@ DEFAULT_INPUT = ROOT / ".codex-studio/published/ea_continuous_improvement_goal_p
 DEFAULT_OUTPUT = ROOT / ".codex-studio/published/ea_operator_action_required_digest.generated.json"
 DEFAULT_STATE = ROOT / ".runtime/ea_operator_action_required_digest_state.json"
 DEFAULT_QUEUE_URL = "https://myexternalbrain.com/admin/goals"
+DEFAULT_ALLOWED_OPERATOR_STREAMS = ("office_loop", "office_setup", "recovery")
 
 PRIVATE_EXPOSURE_FLAGS = (
     "raw_private_context_exposed",
@@ -51,6 +53,7 @@ PRIVATE_EXPOSURE_FLAGS = (
 
 
 TelegramSender = Callable[[str, str, bool, float], dict[str, Any]]
+PostureRefresher = Callable[..., Mapping[str, Any]]
 
 
 def _utc_now() -> str:
@@ -74,6 +77,10 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_json_dumps(payload), encoding="utf-8")
+
+
+def _resolve_path(root: Path, path: Path) -> Path:
+    return path if path.is_absolute() else root / path
 
 
 def _sha256_text(value: str) -> str:
@@ -110,6 +117,49 @@ def _bool_is_false_or_missing(row: dict[str, Any], key: str) -> bool:
     return key not in row or row.get(key) is False
 
 
+def _normalize_operator_streams(values: object) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    if isinstance(values, str):
+        raw_values = [part.strip() for part in values.split(",")]
+    else:
+        raw_values = [str(item or "").strip() for item in list(values or [])]
+    aliases = {
+        "default": DEFAULT_ALLOWED_OPERATOR_STREAMS,
+        "office": DEFAULT_ALLOWED_OPERATOR_STREAMS,
+        "office_only": DEFAULT_ALLOWED_OPERATOR_STREAMS,
+        "office-loop": ("office_loop",),
+        "office_loop": ("office_loop",),
+        "office-setup": ("office_setup",),
+        "office_setup": ("office_setup",),
+        "recovery": ("recovery",),
+        "media": ("media_memorial",),
+        "media_memorial": ("media_memorial",),
+        "all": ("*",),
+        "*": ("*",),
+    }
+    normalized: list[str] = []
+    for value in raw_values:
+        if not value:
+            continue
+        expanded = aliases.get(value.lower(), (value.strip(),))
+        for item in expanded:
+            token = str(item or "").strip()
+            if token and token not in normalized:
+                normalized.append(token)
+    return tuple(normalized)
+
+
+def _default_allowed_operator_streams(posture: dict[str, Any]) -> tuple[str, ...]:
+    policy = dict(posture.get("operator_delivery_policy") or {})
+    configured = _normalize_operator_streams(policy.get("default_action_digest_streams"))
+    return configured or DEFAULT_ALLOWED_OPERATOR_STREAMS
+
+
+def _row_operator_stream(row: dict[str, Any]) -> str:
+    return str(row.get("operator_stream") or "").strip()
+
+
 def _row_is_action_required_push(row: dict[str, Any]) -> bool:
     if row.get("user_action_required") is not True:
         return False
@@ -129,8 +179,9 @@ def _row_is_action_required_push(row: dict[str, Any]) -> bool:
 
 
 def _sanitize_action_item(row: dict[str, Any]) -> dict[str, Any]:
-    return {
+    item = {
         "key": _text(row.get("key"), limit=96),
+        "operator_stream": _text(_row_operator_stream(row), limit=48),
         "title": _text(row.get("title"), limit=120),
         "required_next_receipt": _text(row.get("required_next_receipt"), limit=180),
         "instruction": _text(row.get("instruction"), limit=180),
@@ -151,8 +202,29 @@ def _sanitize_action_item(row: dict[str, Any]) -> dict[str, Any]:
         "console_deep_link": _text(row.get("console_deep_link"), limit=220),
         "auth_link_template": _text(row.get("auth_link_template"), limit=260),
         "external_setup_url": _text(row.get("external_setup_url"), limit=260),
+        "token_missing_client_keys": [
+            _text(item, limit=80)
+            for item in list(row.get("token_missing_client_keys") or [])
+            if _text(item, limit=80)
+        ],
+        "missing_client_keys": [
+            _text(item, limit=80)
+            for item in list(row.get("missing_client_keys") or [])
+            if _text(item, limit=80)
+        ],
+        "pushbullet_token_envs": [
+            _text(item, limit=80)
+            for item in list(row.get("pushbullet_token_envs") or [])
+            if _text(item, limit=80)
+        ],
+        "pushbullet_missing_token_envs": [
+            _text(item, limit=80)
+            for item in list(row.get("pushbullet_missing_token_envs") or [])
+            if _text(item, limit=80)
+        ],
         "delivery_policy": "action_required_only",
         "telegram_push_allowed": True,
+        "action_digest_eligible": True,
         "interruption_budget": "action_required",
         "quiet_hours_respected": True,
         "non_action_progress_push_allowed": False,
@@ -173,29 +245,49 @@ def _sanitize_action_item(row: dict[str, Any]) -> dict[str, Any]:
         "raw_qr_payload_exposed": False,
         "raw_whatsapp_session_ref_exposed": False,
     }
+    notification_policy = _text(row.get("notification_policy"), limit=32)
+    if notification_policy:
+        item["notification_policy"] = notification_policy
+    return item
 
 
-def _select_items(posture: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, int]]:
+def _select_items(
+    posture: dict[str, Any],
+    *,
+    allowed_operator_streams: tuple[str, ...] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
     rows = [row for row in list(posture.get("operator_action_queue") or []) if isinstance(row, dict)]
-    included = [_sanitize_action_item(row) for row in rows if _row_is_action_required_push(row)]
+    effective_streams = allowed_operator_streams or _default_allowed_operator_streams(posture)
+    include_all_streams = "*" in set(effective_streams)
+    included: list[dict[str, Any]] = []
     queue_only = 0
     privacy_blocked = 0
     policy_blocked = 0
+    out_of_scope = 0
     for row in rows:
-        if _row_is_action_required_push(row):
+        if not _row_is_action_required_push(row):
+            if row.get("user_action_required") is not True or str(row.get("delivery_policy") or "").strip() == "queue_only":
+                queue_only += 1
+            elif not all(_bool_is_false_or_missing(row, key) for key in PRIVATE_EXPOSURE_FLAGS):
+                privacy_blocked += 1
+            else:
+                policy_blocked += 1
             continue
-        if row.get("user_action_required") is not True or str(row.get("delivery_policy") or "").strip() == "queue_only":
-            queue_only += 1
-        elif not all(_bool_is_false_or_missing(row, key) for key in PRIVATE_EXPOSURE_FLAGS):
-            privacy_blocked += 1
-        else:
-            policy_blocked += 1
+        if row.get("action_digest_eligible") is False:
+            out_of_scope += 1
+            continue
+        row_stream = _row_operator_stream(row)
+        if row_stream and not include_all_streams and row_stream not in effective_streams:
+            out_of_scope += 1
+            continue
+        included.append(_sanitize_action_item(row))
     return included, {
         "input_count": len(rows),
         "included_count": len(included),
         "suppressed_queue_only_count": queue_only,
         "suppressed_privacy_blocked_count": privacy_blocked,
         "suppressed_policy_blocked_count": policy_blocked,
+        "suppressed_out_of_scope_count": out_of_scope,
     }
 
 
@@ -204,6 +296,7 @@ def _digest_material(items: list[dict[str, Any]], queue_url: str) -> dict[str, A
     for item in items:
         row = {
             "key": item.get("key"),
+            "operator_stream": item.get("operator_stream"),
             "instruction": item.get("instruction"),
             "next_action": item.get("next_action"),
             "next_action_form_href": item.get("next_action_form_href"),
@@ -211,6 +304,14 @@ def _digest_material(items: list[dict[str, Any]], queue_url: str) -> dict[str, A
         external_setup_url = str(item.get("external_setup_url") or "").strip()
         if external_setup_url:
             row["external_setup_url"] = external_setup_url
+        for key in ("token_missing_client_keys", "missing_client_keys", "pushbullet_missing_token_envs"):
+            values = [
+                str(value or "").strip()
+                for value in list(item.get(key) or [])
+                if str(value or "").strip()
+            ]
+            if values:
+                row[key] = values
         material_items.append(row)
     return {
         "queue_url": queue_url,
@@ -218,16 +319,42 @@ def _digest_material(items: list[dict[str, Any]], queue_url: str) -> dict[str, A
     }
 
 
+def _summary_instruction(item: dict[str, Any]) -> str:
+    primary = (
+        str(item.get("telegram_message") or "").strip()
+        or str(item.get("instruction") or "").strip()
+        or str(item.get("title") or "").strip()
+        or str(item.get("next_action") or "").strip()
+    )
+    for marker in ("\nConsole:", "\nRetry:", "\nSetup:", " Console:", " Retry:", " Setup:"):
+        if marker not in primary:
+            continue
+        primary = primary.split(marker, 1)[0].strip()
+    return _text(primary, limit=260)
+
+
 def _item_hash(item: dict[str, Any]) -> str:
     row = {
         "key": item.get("key"),
+        "operator_stream": item.get("operator_stream"),
         "instruction": item.get("instruction"),
         "next_action": item.get("next_action"),
         "next_action_form_href": item.get("next_action_form_href"),
     }
+    notification_policy = str(item.get("notification_policy") or "").strip()
+    if notification_policy:
+        row["notification_policy"] = notification_policy
     external_setup_url = str(item.get("external_setup_url") or "").strip()
     if external_setup_url:
         row["external_setup_url"] = external_setup_url
+    for key in ("token_missing_client_keys", "missing_client_keys", "pushbullet_missing_token_envs"):
+        values = [
+            str(value or "").strip()
+            for value in list(item.get(key) or [])
+            if str(value or "").strip()
+        ]
+        if values:
+            row[key] = values
     return _sha256_json(row)
 
 
@@ -239,6 +366,80 @@ def _item_hashes_by_key(items: list[dict[str, Any]]) -> dict[str, str]:
     }
 
 
+def _head_item(items: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return dict(items[0]) if items else None
+
+
+def _notification_policy(item: Mapping[str, Any]) -> str:
+    return str(item.get("notification_policy") or "").strip().lower() or "default"
+
+
+def _state_keys(state: dict[str, Any], field_name: str) -> list[str]:
+    return [
+        str(item or "").strip()
+        for item in list(state.get(field_name) or [])
+        if str(item or "").strip()
+    ]
+
+
+def _state_hashes(state: dict[str, Any], field_name: str) -> dict[str, str]:
+    return {
+        str(key or "").strip(): str(value or "").strip()
+        for key, value in dict(state.get(field_name) or {}).items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+
+
+def _notification_coverage(
+    state: dict[str, Any],
+    *,
+    item_hashes: dict[str, str],
+) -> tuple[set[str], dict[str, str]]:
+    notification_keys = _state_keys(state, "last_notification_item_keys")
+    notification_hashes = _state_hashes(state, "last_notification_item_hashes")
+    if notification_hashes:
+        return set(notification_hashes), notification_hashes
+    if notification_keys:
+        return set(notification_keys), {
+            key: item_hashes[key]
+            for key in notification_keys
+            if key in item_hashes
+        }
+    return set(_state_keys(state, "last_item_keys")), dict(item_hashes)
+
+
+def _previous_head_key(state: dict[str, Any]) -> str:
+    notification_keys = _state_keys(state, "last_notification_item_keys")
+    if notification_keys:
+        return notification_keys[0]
+    item_keys = _state_keys(state, "last_item_keys")
+    return item_keys[0] if item_keys else ""
+
+
+def _changed_or_unsent_items(
+    items: list[dict[str, Any]],
+    *,
+    covered_keys: set[str],
+    state_hashes: dict[str, str],
+) -> list[dict[str, Any]]:
+    changed: list[dict[str, Any]] = []
+    for item in items:
+        key = str(item.get("key") or "").strip()
+        if not key:
+            continue
+        if key not in covered_keys:
+            changed.append(dict(item))
+            continue
+        item_hash = _item_hash(item)
+        state_hash = state_hashes.get(key)
+        if state_hash and state_hash == item_hash:
+            continue
+        if not state_hash:
+            continue
+        changed.append(dict(item))
+    return changed
+
+
 def _notification_items(
     *,
     items: list[dict[str, Any]],
@@ -248,61 +449,127 @@ def _notification_items(
 ) -> tuple[list[dict[str, Any]], str]:
     if not items:
         return [], "none"
+    head = _head_item(items)
+    if not head:
+        return [], "none"
+    head_key = str(head.get("key") or "").strip()
+    if not head_key:
+        return [], "none"
+    head_hash = _item_hash(head)
+    head_policy = _notification_policy(head)
+    head_is_exclusive = head_policy == "exclusive_head"
+    previous_head_key = _previous_head_key(state)
     if force:
-        return list(items), "forced_full"
+        return [head], "forced_head"
+
+    state_hashes = _state_hashes(state, "last_item_hashes")
+    if state_hashes:
+        covered_keys, covered_hashes = _notification_coverage(state, item_hashes=state_hashes)
+        changed_items = _changed_or_unsent_items(
+            items,
+            covered_keys=covered_keys,
+            state_hashes=covered_hashes,
+        )
+        head_state_hash = covered_hashes.get(head_key)
+        head_changed = head_key not in covered_keys or (bool(head_state_hash) and head_state_hash != head_hash)
+        head_promoted = bool(previous_head_key and previous_head_key != head_key)
+        if head_is_exclusive:
+            if head_promoted:
+                return [head], "head_promoted"
+            if head_changed:
+                return [head], "head_delta"
+            return [], "covered_by_previous_send"
+
+        changed_keys = {str(item.get("key") or "").strip() for item in changed_items}
+        tail_items = [
+            item
+            for item in changed_items
+            if str(item.get("key") or "").strip() != head_key
+            and _notification_policy(item) != "head_only"
+        ]
+        if not head_changed and not head_promoted and not tail_items:
+            return [], "covered_by_previous_send"
+
+        notification_items: list[dict[str, Any]] = []
+        if head_promoted or head_changed:
+            notification_items.append(head)
+        notification_items.extend(tail_items)
+        if not notification_items and changed_items:
+            notification_items = list(changed_items)
+
+        if head_promoted and tail_items:
+            return notification_items, "head_promoted_with_new_items"
+        if head_promoted:
+            return notification_items, "head_promoted"
+        if head_changed and tail_items:
+            return notification_items, "head_delta_with_new_items"
+        if head_changed:
+            return notification_items, "head_delta"
+        if tail_items:
+            return notification_items, "new_items_behind_existing_head"
+        if changed_keys:
+            return notification_items, "changed_items"
+        return [], "covered_by_previous_send"
+
+    state_keys = _state_keys(state, "last_item_keys")
+    if state_keys:
+        if previous_head_key == head_key:
+            return [], "covered_by_previous_send"
+        return [head], "head_promoted_legacy_key_state"
+
     if digest_sha256 and state.get("last_digest_sha256") == digest_sha256:
         return [], "duplicate_suppressed"
-
-    state_hashes = {
-        str(key or "").strip(): str(value or "").strip()
-        for key, value in dict(state.get("last_item_hashes") or {}).items()
-        if str(key or "").strip() and str(value or "").strip()
-    }
-    if state_hashes:
-        changed = [item for item in items if state_hashes.get(str(item.get("key") or "").strip()) != _item_hash(item)]
-        if not changed:
-            return [], "covered_by_previous_send"
-        return changed, "delta"
-
-    state_keys = [
-        str(item or "").strip()
-        for item in list(state.get("last_item_keys") or [])
-        if str(item or "").strip()
-    ]
-    if state_keys:
-        state_key_set = set(state_keys)
-        new_items = [item for item in items if str(item.get("key") or "").strip() not in state_key_set]
-        if new_items:
-            return new_items, "delta_legacy_key_state"
-        current_keys = [str(item.get("key") or "").strip() for item in items if str(item.get("key") or "").strip()]
-        if current_keys == state_keys:
-            return list(items), "changed_full_legacy_key_state"
-        return list(items), "changed_full"
-
-    return list(items), "full"
+    return [head], "head_full"
 
 
 def _telegram_text(items: list[dict[str, Any]], queue_url: str) -> str:
     lines = ["Action needed for EA:"]
     for index, item in enumerate(items[:8], start=1):
-        instruction = _text(
-            item.get("telegram_message") or item.get("instruction") or item.get("title") or item.get("next_action"),
-            limit=260,
-        )
+        instruction = _summary_instruction(item)
         lines.append(f"{index}. {instruction}")
+        action_href = _action_link_for_telegram(item, queue_url=queue_url)
+        if action_href:
+            lines.append(f"   Open: {action_href}")
         console_link = _text(item.get("console_deep_link"), limit=220)
         if console_link:
             lines.append(f"   Console: {console_link}")
         auth_template = _text(item.get("auth_link_template"), limit=260)
-        if auth_template:
+        if auth_template and not _redacted_link(auth_template) and auth_template != action_href:
             lines.append(f"   Retry: {auth_template}")
         setup_url = _text(item.get("external_setup_url"), limit=260)
-        if setup_url:
+        if setup_url and setup_url != action_href:
             lines.append(f"   Setup: {setup_url}")
+        missing_token_envs = [
+            _text(value, limit=80)
+            for value in list(item.get("pushbullet_missing_token_envs") or [])
+            if _text(value, limit=80)
+        ]
+        if missing_token_envs:
+            lines.append(f"   Env: {', '.join(missing_token_envs[:3])}")
     if len(items) > 8:
         lines.append(f"+ {len(items) - 8} more in the queue")
     lines.append(f"Queue: {queue_url}")
     return "\n".join(lines)
+
+
+def _redacted_link(value: str) -> bool:
+    normalized = value.lower()
+    return "<redacted" in normalized or "%3credacted" in normalized or "%3credacted" in urllib.parse.unquote(normalized)
+
+
+def _action_link_for_telegram(item: Mapping[str, Any], *, queue_url: str) -> str:
+    href = _text(item.get("next_action_form_href"), limit=260)
+    if not href:
+        return ""
+    parsed = urllib.parse.urlparse(href)
+    if parsed.scheme and parsed.netloc:
+        return href
+    if not href.startswith("/"):
+        return href
+    base = urllib.parse.urlparse(queue_url)
+    if not (base.scheme and base.netloc):
+        return href
+    return urllib.parse.urlunparse((base.scheme, base.netloc, href, "", "", ""))
 
 
 def _run_telegram_sender(principal_id: str, text: str, dry_run: bool, timeout_seconds: float) -> dict[str, Any]:
@@ -338,6 +605,49 @@ def _run_telegram_sender(principal_id: str, text: str, dry_run: bool, timeout_se
     return payload
 
 
+def _refresh_source_posture(
+    *,
+    root: Path,
+    input_path: Path,
+    refresher: PostureRefresher | None = None,
+) -> dict[str, Any]:
+    resolved_input = _resolve_path(root, input_path)
+    if resolved_input != _resolve_path(root, DEFAULT_INPUT):
+        return {
+            "attempted": False,
+            "status": "skipped_nondefault_input",
+            "path": _display_path(resolved_input, root),
+            "error": "",
+        }
+    refresh = refresher or _default_posture_refresher
+    try:
+        refresh(root=root, output_path=resolved_input)
+    except Exception as exc:
+        return {
+            "attempted": True,
+            "status": "failed",
+            "path": _display_path(resolved_input, root),
+            "error": f"{exc.__class__.__name__}:{str(exc or '').strip() or 'refresh_failed'}",
+        }
+    return {
+        "attempted": True,
+        "status": "materialized",
+        "path": _display_path(resolved_input, root),
+        "error": "",
+    }
+
+
+def _default_posture_refresher(*, root: Path, output_path: Path) -> Mapping[str, Any]:
+    try:
+        from scripts.materialize_continuous_improvement_goal_posture import build_goal_posture
+    except ModuleNotFoundError:  # pragma: no cover - direct script execution fallback
+        from materialize_continuous_improvement_goal_posture import build_goal_posture  # type: ignore[no-redef]
+
+    receipt = dict(build_goal_posture(root=root, output_path=output_path))
+    _write_json(output_path, receipt)
+    return receipt
+
+
 def build_operator_action_required_digest(
     *,
     root: Path = ROOT,
@@ -350,13 +660,27 @@ def build_operator_action_required_digest(
     dry_run: bool = False,
     force: bool = False,
     timeout_seconds: float = 30.0,
+    allowed_streams: tuple[str, ...] | None = None,
     generated_at: str | None = None,
     telegram_sender: TelegramSender | None = None,
+    refresh_source: bool = False,
+    posture_refresher: PostureRefresher | None = None,
 ) -> dict[str, Any]:
     generated_at = generated_at or _utc_now()
-    posture = _load_json(input_path)
+    source_refresh = _refresh_source_posture(
+        root=root,
+        input_path=input_path,
+        refresher=posture_refresher,
+    ) if refresh_source else {
+        "attempted": False,
+        "status": "not_requested",
+        "path": _display_path(_resolve_path(root, input_path), root),
+        "error": "",
+    }
+    posture = _load_json(_resolve_path(root, input_path))
     source_sha256 = _sha256_json(posture) if posture else ""
-    items, counts = _select_items(posture)
+    effective_allowed_streams = allowed_streams or _default_allowed_operator_streams(posture)
+    items, counts = _select_items(posture, allowed_operator_streams=effective_allowed_streams)
     digest_sha256 = _sha256_json(_digest_material(items, queue_url)) if items else ""
     state = _load_json(state_path)
     notification_items, notification_mode = _notification_items(
@@ -402,6 +726,7 @@ def build_operator_action_required_digest(
                     "last_item_hashes": current_item_hashes,
                     "last_notification_digest_sha256": notification_digest_sha256,
                     "last_notification_item_keys": [item["key"] for item in notification_items],
+                    "last_notification_item_hashes": _item_hashes_by_key(notification_items),
                     "last_notification_mode": notification_mode,
                     "message_id_count": len(list(send_result.get("message_ids") or [])),
                 },
@@ -451,6 +776,8 @@ def build_operator_action_required_digest(
             "status": str(posture.get("status") or posture.get("overall_status") or "").strip(),
             "sha256": source_sha256,
         },
+        "source_refresh": source_refresh,
+        "allowed_operator_streams": list(effective_allowed_streams),
         "item_count": len(items),
         "included_action_keys": [item["key"] for item in items],
         "items": items,
@@ -500,6 +827,7 @@ def build_operator_action_required_digest(
         "rules": [
             "Only operator_action_queue items that require user action may enter this digest.",
             "Telegram is an action surface, not a progress log; non-action progress remains queue-only.",
+            "The published EA digest defaults to office-loop, office-setup, and recovery action streams; media and memorial actions stay in admin/operator surfaces unless the stream filter is widened.",
             "Purchases, bookings, cancellations, external sends, posts, payments, and commitments still require explicit approval elsewhere.",
             "Duplicate suppression stores a digest hash in local runtime state, not raw private context or chat identifiers.",
         ],
@@ -519,6 +847,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
+    parser.add_argument("--operator-streams", default="")
+    parser.add_argument("--no-refresh-source", action="store_true")
     return parser.parse_args()
 
 
@@ -534,6 +864,8 @@ def main() -> int:
         dry_run=bool(args.dry_run),
         force=bool(args.force),
         timeout_seconds=float(args.timeout_seconds or 30.0),
+        allowed_streams=_normalize_operator_streams(args.operator_streams),
+        refresh_source=not bool(args.no_refresh_source),
     )
     print(_json_dumps(receipt), end="")
     return 0 if str(receipt.get("status") or "").startswith(("ready", "sent", "suppressed", "no_user_action")) else 2

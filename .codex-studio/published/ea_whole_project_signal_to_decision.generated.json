@@ -55,7 +55,7 @@
     "source_kind": "",
     "status": "missing_or_invalid"
   },
-  "generated_at": "2026-07-02T07:21:47Z",
+  "generated_at": "2026-07-03T03:58:58Z",
   "generated_by": "ea/scripts/materialize_whole_project_signal_to_decision_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -131,6 +131,7 @@
     "real weekly signal-to-decision review accepted by the operator",
     "closed-loop signal-to-decision follow-through receipt accepted by the operator",
     "real whole-project scope gap audit reviewed against the current product spine",
+    "Google Workspace OAuth test-user or verified app access for Full Workspace auth",
     "ChatLab account capability receipt",
     "ChatLab live runtime probe receipt",
     "ChatLab no-private-context-upload runtime receipt",
@@ -293,8 +294,8 @@
       "status": "mapped_from_sources"
     }
   ],
-  "source_git_head": "a3572c150100e1a3be707546aa269d5cbd227499",
-  "source_state_fingerprint": "7d23f1a04f223d186a1d0c0cad8c6506c58e553ce83bb1577ba13e8c5d8006f3",
+  "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+  "source_state_fingerprint": "31c5b0e6521d32bea835786b1496ea97860d7ebf0f13f9a7abfc9bcb01f78805",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_packet_pending_operator_acceptance"
 }

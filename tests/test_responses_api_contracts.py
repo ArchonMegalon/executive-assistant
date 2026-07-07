@@ -4421,13 +4421,14 @@ def test_models_list_returns_responses_aliases() -> None:
     assert "ea-audit-jury" in model_ids
     assert "ea-audit" in model_ids
     assert "ea-review-light" in model_ids
-    assert "ea-groundwork-gemini" in model_ids
     assert "ea-groundwork" in model_ids
     assert "ea-onemin-coder" in model_ids
     assert "ea-gemini-flash" in model_ids
     assert "ea-coder-survival" in model_ids
+    assert "ea-groundwork-gemini" not in model_ids
+    assert "ea-repair-gemini" not in model_ids
     assert "gpt-5" in model_ids
-    assert "gemini-3.5-flash" in model_ids
+    assert any(model_id.startswith("gemini-") for model_id in model_ids)
     assert "x-ai/grok-code-fast-1" in model_ids
 
 
@@ -5054,10 +5055,10 @@ def test_codex_core_easy_repair_groundwork_review_light_and_audit_endpoints_forc
             provider_account = "ONEMIN_AI_API_KEY"
             provider_key = "onemin"
             provider_model = "gpt-5"
-        elif requested_model == "ea-groundwork-gemini":
-            provider_account = "EA_GEMINI_VORTEX_API_KEY"
-            provider_key = "gemini_vortex"
-            provider_model = "gemini-2.5-flash"
+        elif requested_model == "ea-groundwork":
+            provider_account = "ONEMIN_AI_API_KEY"
+            provider_key = "onemin"
+            provider_model = "deepseek-chat"
         elif requested_model == "ea-repair-gemini":
             provider_account = "EA_GEMINI_VORTEX_API_KEY"
             provider_key = "gemini_vortex"
@@ -5106,7 +5107,7 @@ def test_codex_core_easy_repair_groundwork_review_light_and_audit_endpoints_forc
         "ea-coder-hard",
         "ea-coder-fast",
         "ea-repair-gemini",
-        "ea-groundwork-gemini",
+        "ea-groundwork",
         "ea-review-light",
         "ea-audit-jury",
     ]
@@ -5148,7 +5149,7 @@ def test_codex_core_easy_repair_groundwork_review_light_and_audit_endpoints_forc
     assert core.json()["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
     assert easy.json()["metadata"]["provider_account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
     assert repair.json()["metadata"]["provider_account_name"] == "EA_GEMINI_VORTEX_API_KEY"
-    assert groundwork.json()["metadata"]["provider_account_name"] == "EA_GEMINI_VORTEX_API_KEY"
+    assert groundwork.json()["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
     assert review_light.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
     assert audit.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
 
@@ -5317,14 +5318,14 @@ def test_responses_upstream_provider_order_prefers_onemin_by_default(monkeypatch
 
     monkeypatch.delenv("EA_RESPONSES_PROVIDER_ORDER", raising=False)
 
-    assert responses_upstream._provider_order() == ("onemin", "gemini_vortex", "magixai")
+    assert responses_upstream._provider_order() == ("onemin", "magixai", "gemini_vortex")
 
 
 def test_responses_upstream_cheap_provider_order_is_policy_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import responses_upstream
 
     monkeypatch.delenv("EA_RESPONSES_CHEAP_PROVIDER_ORDER", raising=False)
-    assert responses_upstream._cheap_provider_order() == ("gemini_vortex", "magixai", "onemin")
+    assert responses_upstream._cheap_provider_order() == ("onemin", "magixai", "gemini_vortex")
 
     monkeypatch.setenv("EA_RESPONSES_CHEAP_PROVIDER_ORDER", "1min,magicx,gemini_vortex")
     assert responses_upstream._cheap_provider_order() == ("onemin", "magixai", "gemini_vortex")
@@ -5373,7 +5374,7 @@ def test_codex_survival_endpoint_returns_in_progress_then_completed(monkeypatch:
     assert created_body["model"] == "ea-coder-survival"
     assert created_body["metadata"]["codex_profile"] == "survival"
     assert created_body["metadata"]["codex_lane"] == "survival"
-    assert created_body["metadata"]["survival_route_order"] == "onemin,gemini_vortex,gemini_web,chatplayground"
+    assert created_body["metadata"]["survival_route_order"] == "onemin,chatplayground,gemini_vortex,gemini_web"
 
     response_id = created_body["id"]
     completed_body: dict[str, object] | None = None
@@ -6995,6 +6996,23 @@ def test_stabilize_codex_profile_promotes_repair_model_when_onemin_only_reports_
     assert profile["model"] == "ea-onemin-coder"
 
 
+def test_stabilize_codex_profile_defaults_repair_model_to_onemin_when_backend_is_unresolved() -> None:
+    from app.api.routes import responses
+
+    profile = responses._stabilize_codex_profile(
+        {
+            "profile": "repair",
+            "lane": "repair",
+            "model": "ea-coder-fast",
+        },
+        provider_health={"providers": {}},
+    )
+
+    assert str(profile.get("backend") or "") == ""
+    assert str(profile.get("health_provider_key") or "") == ""
+    assert profile["model"] == "ea-onemin-coder"
+
+
 def test_stabilize_codex_profile_promotes_groundwork_away_from_degraded_gemini() -> None:
     from app.api.routes import responses
 
@@ -7037,6 +7055,35 @@ def test_stabilize_codex_profile_promotes_groundwork_when_gemini_is_bad_and_onem
             "providers": {
                 "gemini_vortex": {"state": "degraded"},
                 "onemin": {"state": "unknown", "detail": "unknown_unprobed"},
+            }
+        },
+    )
+
+    assert profile["backend"] == "onemin"
+    assert profile["health_provider_key"] == "onemin"
+    assert profile["provider_hint_order"][0] == "onemin"
+    assert profile["model"] == "ea-onemin-coder"
+
+
+def test_stabilize_codex_profile_keeps_groundwork_onemin_primary_when_health_row_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    profile = responses._stabilize_codex_profile(
+        {
+            "profile": "groundwork",
+            "lane": "groundwork",
+            "model": "ea-groundwork-gemini",
+            "provider_hint_order": ["gemini_vortex"],
+            "backend": "gemini_vortex",
+            "health_provider_key": "gemini_vortex",
+        },
+        provider_health={
+            "providers": {
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "ready"},
             }
         },
     )
@@ -8682,7 +8729,7 @@ def test_planner_runtime_helpers_cover_history_env_model_and_deadline(monkeypatc
         hard_batch_public_model="ea-coder-hard-batch",
         hard_rescue_public_model="ea-coder-hard-rescue",
         review_light_public_model="ea-review-light",
-        groundwork_public_model="ea-groundwork-gemini",
+        groundwork_public_model="ea-groundwork",
         survival_public_model="ea-coder-survival",
         onemin_public_model="onemin:gpt-5.5",
         is_staged_local_orientation_prompt=lambda prompt: "staged" in prompt,

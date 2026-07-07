@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.telegram_video_delivery_live_receipt",
-  "generated_at": "2026-06-30T17:08:50Z",
+  "generated_at": "2026-07-04T13:32:23Z",
   "generated_by": "scripts/materialize_telegram_video_delivery_live_receipt.py",
-  "source_git_head": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
+  "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
   "head_semantics": "source_state",
   "output_path": ".codex-studio/published/telegram_video_delivery_live.generated.json",
   "status": "blocked",
@@ -14,7 +14,7 @@
       ".env",
       ".env.local"
     ],
-    "loaded_count": 411,
+    "loaded_count": 417,
     "storage_backend_present": true,
     "database_url_present": true,
     "docker_postgres_fallback": {
@@ -27,14 +27,14 @@
       "row_count": 0,
       "diagnostics": {
         "status": "pass",
-        "telegram_observation_count": 379,
+        "telegram_observation_count": 404,
         "telegram_video_related_observation_count": 88,
         "telegram_video_delivery_receipt_count": 0,
         "telegram_video_sent_text_ack_count": 1,
         "telegram_event_type_counts": [
           {
             "event_type": "telegram.reply_sent",
-            "count": 86
+            "count": 93
           },
           {
             "event_type": "telegram.message",
@@ -42,15 +42,15 @@
           },
           {
             "event_type": "telegram.callback_query",
-            "count": 56
+            "count": 63
           },
           {
             "event_type": "telegram.reply_async_processing",
-            "count": 32
+            "count": 34
           },
           {
             "event_type": "telegram.reply_async_started",
-            "count": 30
+            "count": 31
           },
           {
             "event_type": "telegram.reply_async_sent",
@@ -70,11 +70,11 @@
           },
           {
             "event_type": "telegram.reply_async_failed",
-            "count": 7
+            "count": 9
           },
           {
             "event_type": "telegram.callback_processed",
-            "count": 2
+            "count": 8
           }
         ],
         "telegram_video_related_event_type_counts": [
@@ -116,13 +116,13 @@
           },
           {
             "channel": "telegram",
-            "status": "retry",
-            "count": 53
+            "status": "sent",
+            "count": 65
           },
           {
             "channel": "telegram",
-            "status": "sent",
-            "count": 34
+            "status": "retry",
+            "count": 53
           },
           {
             "channel": "email",
@@ -145,7 +145,7 @@
             "count": 1
           }
         ],
-        "telegram_delivery_outbox_video_count": 0,
+        "telegram_delivery_outbox_video_count": 1,
         "interpretation": "telegram_video_sent_text_ack_without_delivery_receipt",
         "privacy": {
           "raw_payloads_included": false,

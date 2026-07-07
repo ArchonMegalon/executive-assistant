@@ -3,7 +3,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.product.service import ProductService
-from app.services.assistant_property_lane import assistant_property_lane_enabled
+from app.services.assistant_property_lane import (
+    assistant_property_lane_enabled,
+    assistant_property_signal_present,
+)
+from app.services.proactive_ooda_flat_search_policy import material_mentions_flat_property_search
 
 
 def _product_service() -> ProductService:
@@ -82,13 +86,13 @@ def test_property_lane_stays_disabled_without_explicit_property_deploy_mode(monk
     assert assistant_property_lane_enabled() is False
 
 
-def test_property_lane_enables_only_for_dedicated_property_primary_mode(monkeypatch: object) -> None:
+def test_property_lane_stays_disabled_even_for_legacy_property_primary_mode(monkeypatch: object) -> None:
     monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
     monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
     monkeypatch.setenv("PROPERTYQUARRY_SCHEDULER_PROFILE", "property")
     monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "PROPERTY")
 
-    assert assistant_property_lane_enabled() is True
+    assert assistant_property_lane_enabled() is False
 
 
 def test_ingest_office_signal_marks_property_alert_email_ignored(monkeypatch: object) -> None:
@@ -171,3 +175,39 @@ def test_property_alert_ingest_stays_disabled_without_propertyquarry_brand(monke
     assert payload["ignored"] is True
     assert payload["ignore_reason"] == "property_search_not_available"
     assert payload["product_boundary"] == "propertyquarry"
+
+
+def test_assistant_property_signal_present_catches_freeform_apartment_request() -> None:
+    assert (
+        assistant_property_signal_present("Kannst du mir eine Wohnung in 1200 Wien suchen?")
+        is True
+    )
+
+
+def test_assistant_property_signal_present_does_not_treat_recording_studio_as_property() -> None:
+    assert (
+        assistant_property_signal_present("Book a recording studio for next week and compare options.")
+        is False
+    )
+
+
+def test_assistant_property_signal_present_catches_connector_tokens() -> None:
+    assert assistant_property_signal_present("flat_candidate_waiting") is True
+    assert assistant_property_signal_present("apartment_search_pending") is True
+
+
+def test_flat_search_policy_ignores_structured_runtime_key_names() -> None:
+    assert (
+        material_mentions_flat_property_search(
+            {
+                "flat_search_enabled": False,
+                "approval_callback_property_scoped_pending_count": 0,
+                "artifact_filter_reason": "",
+            }
+        )
+        is False
+    )
+
+
+def test_flat_search_policy_catches_structured_connector_values() -> None:
+    assert material_mentions_flat_property_search({"state": "apartment_search_pending"}) is True

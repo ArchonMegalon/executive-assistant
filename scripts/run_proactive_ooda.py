@@ -7,6 +7,7 @@ import inspect
 import json
 import os
 import sys
+import tempfile
 from datetime import datetime, time as datetime_time, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -60,6 +61,7 @@ from app.services.proactive_signal_discovery import (  # noqa: E402
 )
 from app.services.proactive_ooda_receipts import persist_proactive_ooda_receipt  # noqa: E402
 from app.services.proactive_ooda_runtime_artifacts import (  # noqa: E402
+    RUN_RECEIPT_DIRNAME,
     default_run_receipt_dir,
     default_run_receipt_path,
 )
@@ -77,6 +79,7 @@ from app.services.proactive_ooda_stage_packets import (  # noqa: E402
 from app.services.proactive_ooda_telegram_approval import (
     build_reversible_execution_approval_prompt,
     execute_proactive_ooda_action,
+    expire_stale_proactive_ooda_telegram_approval_callbacks,
 )
 from app.services.proactive_ooda_context_grounding import ground_digest_for_principal, ground_digest_with_context  # noqa: E402
 from app.services.proactive_ooda_delivery import (  # noqa: E402
@@ -91,6 +94,13 @@ from app.services.proactive_ooda_telegram_policy import approval_request_needs_t
 from app.services.proactive_ooda_teable_sync import (  # noqa: E402
     sync_proactive_ooda_to_teable,
     teable_sync_enabled,
+)
+from app.services.assistant_property_boundary_cleanup import (  # noqa: E402
+    cleanup_hidden_property_runtime_state,
+)
+from app.services.assistant_property_lane import (  # noqa: E402
+    assistant_property_lane_enabled,
+    assistant_property_signal_present,
 )
 
 
@@ -138,10 +148,34 @@ def main() -> int:
         help="Ingest sanitized user-action-required rows from the goal posture operator action queue.",
     )
     parser.add_argument(
+        "--operator-action-required-digest-json",
+        default=os.getenv(
+            "EA_PROACTIVE_OODA_OPERATOR_ACTION_REQUIRED_DIGEST_JSON",
+            ".codex-studio/published/ea_operator_action_required_digest.generated.json",
+        ),
+        help="Published operator action-required digest refreshed after the live run.",
+    )
+    parser.add_argument(
+        "--operator-action-required-digest-state-path",
+        default=os.getenv(
+            "EA_PROACTIVE_OODA_OPERATOR_ACTION_REQUIRED_DIGEST_STATE_PATH",
+            ".runtime/ea_operator_action_required_digest_state.json",
+        ),
+        help="State file used to suppress duplicate operator action-required digest sends.",
+    )
+    parser.add_argument(
         "--goal-action-queue-limit",
         type=int,
         default=int(os.getenv("EA_PROACTIVE_OODA_GOAL_ACTION_QUEUE_LIMIT", str(DEFAULT_GOAL_ACTION_QUEUE_LIMIT)) or "1"),
         help="Maximum goal-posture action queue rows to surface per run. Defaults to one prioritized action.",
+    )
+    parser.add_argument(
+        "--goal-action-operator-streams",
+        default=os.getenv("EA_PROACTIVE_OODA_GOAL_ACTION_OPERATOR_STREAMS", ""),
+        help=(
+            "Optional comma-separated operator streams to ingest from goal posture action rows. "
+            "Defaults to the posture's published action-digest streams."
+        ),
     )
     parser.add_argument(
         "--observation-lookback-hours",
@@ -247,13 +281,13 @@ def main() -> int:
     if not str(args.receipt_path or "").strip():
         args.receipt_path = str(default_run_receipt_path(root=ROOT, state_path=args.state_path))
 
+    property_boundary_cleanup = _cleanup_hidden_property_boundary(args)
     state_store = JsonOodaStateStore(ROOT / args.state_path)
     signals = _load_signals(
         args,
         state_store=state_store,
         persist_opportunity_state=not args.dry_run,
     )
-    source_health = _source_health_summary(signals)
     service = ProactiveOodaService(
         state_store=state_store,
         max_items=args.max_items,
@@ -267,6 +301,15 @@ def main() -> int:
         already_notified_refs=stored_refs,
     )
     digest = _context_grounded_digest(args.principal_id, digest)
+    signals, digest = _recover_sparse_observation_digest(
+        args,
+        state_store=state_store,
+        stored_refs=stored_refs,
+        service=service,
+        signals=signals,
+        digest=digest,
+    )
+    source_health = _source_health_summary(signals)
     if not args.dry_run:
         deferred_reason = _operator_pause_defer_reason(args, digest)
         if not deferred_reason:
@@ -354,6 +397,10 @@ def main() -> int:
         safe_work_result_paths=safe_work_result_paths,
         auto_execute_results=auto_execution_results,
     )
+    approval_callback_cleanup = _cleanup_approval_callbacks(
+        args,
+        approval_request=approval_request,
+    )
     if (
         digest.items
         and not args.dry_run
@@ -428,6 +475,7 @@ def main() -> int:
             receipt=receipt,
             safe_work_results=safe_work_results,
         )
+    followthrough_artifacts: dict[str, Any] = {}
     if args.receipt_path:
         receipt_payload = _receipt_payload(
             receipt=receipt,
@@ -437,9 +485,54 @@ def main() -> int:
             auto_execute_results=auto_execution_results,
             delivery_mirror=delivery_mirror,
             source_health=source_health,
+            approval_callback_cleanup=approval_callback_cleanup,
+            property_boundary_cleanup=property_boundary_cleanup,
         )
         _write_receipt(Path(args.receipt_path), receipt_payload)
         _write_receipt(_archived_receipt_path(args, payload=receipt_payload), receipt_payload)
+        followthrough_artifacts = _materialize_followthrough_artifacts(
+            args,
+            receipt_path=Path(args.receipt_path),
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+            current_runtime_artifacts_present=bool(stage_packet_refs or safe_work_result_refs),
+        )
+        receipt_payload = _receipt_payload(
+            receipt=receipt,
+            teable_sync=teable_sync,
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+            auto_execute_results=auto_execution_results,
+            delivery_mirror=delivery_mirror,
+            source_health=source_health,
+            approval_callback_cleanup=approval_callback_cleanup,
+            property_boundary_cleanup=property_boundary_cleanup,
+            followthrough_artifacts=followthrough_artifacts,
+        )
+        _write_receipt(Path(args.receipt_path), receipt_payload)
+        _write_receipt(_archived_receipt_path(args, payload=receipt_payload), receipt_payload)
+        if str(dict(followthrough_artifacts.get("operator_status") or {}).get("reason") or "").strip() == "followthrough_artifacts_missing":
+            followthrough_artifacts = _materialize_followthrough_artifacts(
+                args,
+                receipt_path=Path(args.receipt_path),
+                stage_packet_dir=stage_packet_dir,
+                safe_work_result_dir=safe_work_result_dir,
+                current_runtime_artifacts_present=bool(stage_packet_refs or safe_work_result_refs),
+            )
+            receipt_payload = _receipt_payload(
+                receipt=receipt,
+                teable_sync=teable_sync,
+                stage_packet_dir=stage_packet_dir,
+                safe_work_result_dir=safe_work_result_dir,
+                auto_execute_results=auto_execution_results,
+                delivery_mirror=delivery_mirror,
+                source_health=source_health,
+                approval_callback_cleanup=approval_callback_cleanup,
+                property_boundary_cleanup=property_boundary_cleanup,
+                followthrough_artifacts=followthrough_artifacts,
+            )
+            _write_receipt(Path(args.receipt_path), receipt_payload)
+            _write_receipt(_archived_receipt_path(args, payload=receipt_payload), receipt_payload)
     if error_code and not _is_deferred_error(error_code):
         raise RuntimeError(f"proactive_ooda_notification_failed:{error_code}")
     if args.pretty:
@@ -456,6 +549,9 @@ def main() -> int:
                         safe_work_result_dir=safe_work_result_dir,
                         delivery_mirror=delivery_mirror,
                         source_health=source_health,
+                        approval_callback_cleanup=approval_callback_cleanup,
+                        property_boundary_cleanup=property_boundary_cleanup,
+                        followthrough_artifacts=followthrough_artifacts,
                     ),
                     "teable_sync": teable_sync,
                 },
@@ -468,7 +564,27 @@ def main() -> int:
 
 def _write_receipt(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(serialized)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temp_path = Path(handle.name)
+        if temp_path is None:
+            raise OSError("receipt_tempfile_missing")
+        temp_path.replace(path)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
 
 
 def _archived_receipt_path(args: argparse.Namespace, *, payload: Mapping[str, Any]) -> Path:
@@ -498,6 +614,38 @@ def _archived_receipt_path(args: argparse.Namespace, *, payload: Mapping[str, An
     return archive_dir / f"{timestamp}-{status}-{receipt_hash}.json"
 
 
+def _receipt_artifact_root(receipt_path: Path) -> Path:
+    if receipt_path.parent.name == RUN_RECEIPT_DIRNAME:
+        return receipt_path.parent.parent
+    return receipt_path.parent
+
+
+def _followthrough_runtime_context(
+    args: argparse.Namespace,
+    *,
+    receipt_path: Path,
+    stage_packet_dir: Path,
+    safe_work_result_dir: Path,
+    current_runtime_artifacts_present: bool,
+) -> dict[str, Path]:
+    if current_runtime_artifacts_present:
+        state_path_value = Path(
+            str(getattr(args, "state_path", "state/proactive_ooda_notified.json") or "state/proactive_ooda_notified.json")
+        )
+        resolved_state_path = state_path_value if state_path_value.is_absolute() else ROOT / state_path_value
+        return {
+            "state_path": resolved_state_path,
+            "stage_packet_dir": stage_packet_dir,
+            "safe_work_result_dir": safe_work_result_dir,
+        }
+    artifact_root = _receipt_artifact_root(receipt_path)
+    return {
+        "state_path": artifact_root / "proactive_ooda_notified.json",
+        "stage_packet_dir": artifact_root / "proactive_ooda_stage_packets",
+        "safe_work_result_dir": artifact_root / "proactive_ooda_safe_work_results",
+    }
+
+
 def _receipt_payload(
     *,
     receipt: Any,
@@ -507,6 +655,9 @@ def _receipt_payload(
     auto_execute_results: Iterable[Mapping[str, Any]] = (),
     delivery_mirror: Mapping[str, Any] | None = None,
     source_health: Mapping[str, Any] | None = None,
+    approval_callback_cleanup: Mapping[str, Any] | None = None,
+    property_boundary_cleanup: Mapping[str, Any] | None = None,
+    followthrough_artifacts: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = receipt_to_dict(receipt)
     payload["stage_packet_output_dir"] = str(stage_packet_dir)
@@ -528,7 +679,235 @@ def _receipt_payload(
     if delivery_mirror:
         payload["delivery_mirror"] = dict(delivery_mirror)
     payload["source_health"] = dict(source_health or _source_health_summary(()))
+    if approval_callback_cleanup:
+        payload["approval_callback_cleanup"] = dict(approval_callback_cleanup)
+    if property_boundary_cleanup:
+        payload["property_boundary_cleanup"] = dict(property_boundary_cleanup)
+    if followthrough_artifacts:
+        payload["followthrough_artifacts"] = dict(followthrough_artifacts)
     return payload
+
+
+def _materialize_followthrough_artifacts(
+    args: argparse.Namespace,
+    *,
+    receipt_path: Path,
+    stage_packet_dir: Path,
+    safe_work_result_dir: Path,
+    current_runtime_artifacts_present: bool,
+) -> dict[str, Any]:
+    if bool(getattr(args, "dry_run", False)):
+        return {
+            "status": "skipped",
+            "reason": "dry_run",
+            "run_receipt_path": _display_root_relative_path(receipt_path),
+        }
+
+    builders = _load_followthrough_builders()
+    operator_status_path = _root_relative_path(
+        "",
+        default_relative=".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
+    )
+    gold_acceptance_path = _root_relative_path(
+        "",
+        default_relative=".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
+    )
+    goal_posture_path = _root_relative_path(
+        str(getattr(args, "goal_posture_json", "") or ""),
+        default_relative=".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
+    )
+    digest_path = _root_relative_path(
+        str(getattr(args, "operator_action_required_digest_json", "") or ""),
+        default_relative=".codex-studio/published/ea_operator_action_required_digest.generated.json",
+    )
+    digest_state_path = _root_relative_path(
+        str(getattr(args, "operator_action_required_digest_state_path", "") or ""),
+        default_relative=".runtime/ea_operator_action_required_digest_state.json",
+    )
+    dedupe_proof_path = _root_relative_path(
+        "",
+        default_relative=".codex-studio/published/ea_operator_action_required_dedupe_proof.generated.json",
+    )
+    summary: dict[str, Any] = {
+        "status": "ok",
+        "reason": "",
+        "run_receipt_path": _display_root_relative_path(receipt_path),
+        "operator_status": {
+            "path": _display_root_relative_path(operator_status_path),
+            "status": "pending",
+        },
+        "gold_acceptance": {
+            "path": _display_root_relative_path(gold_acceptance_path),
+            "status": "pending",
+        },
+        "goal_posture": {
+            "path": _display_root_relative_path(goal_posture_path),
+            "status": "pending",
+        },
+        "operator_action_required_digest": {
+            "path": _display_root_relative_path(digest_path),
+            "status": "pending",
+            "input_path": _display_root_relative_path(goal_posture_path),
+            "state_path": _display_root_relative_path(digest_state_path),
+            "refresh_source": False,
+        },
+        "operator_action_required_dedupe_proof": {
+            "path": _display_root_relative_path(dedupe_proof_path),
+            "status": "not_needed",
+            "input_path": _display_root_relative_path(goal_posture_path),
+            "state_path": _display_root_relative_path(digest_state_path),
+            "sent_receipt_path": _display_root_relative_path(digest_path),
+        },
+    }
+    runtime_context = _followthrough_runtime_context(
+        args,
+        receipt_path=receipt_path,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+        current_runtime_artifacts_present=current_runtime_artifacts_present,
+    )
+    report_args = builders["operator_status_default_report_args"]()
+    for key, value in vars(args).items():
+        setattr(report_args, key, value)
+    report_args.state_path = str(runtime_context["state_path"])
+    report_args.stage_packet_dir = str(runtime_context["stage_packet_dir"])
+    report_args.safe_work_result_dir = str(runtime_context["safe_work_result_dir"])
+    digest_send_requested = bool(getattr(args, "armed_send", False))
+    try:
+        operator_status = dict(
+            builders["operator_status"](
+                output_path=operator_status_path,
+                report_args=report_args,
+                live_receipt_path=receipt_path,
+                allow_live_route_probe=False,
+            )
+        )
+        summary["operator_status"].update(
+            {
+                "status": str(operator_status.get("status") or "written").strip() or "written",
+                "route_status": str(dict(operator_status.get("route") or {}).get("status") or "").strip(),
+                "reason": str(operator_status.get("reason") or "").strip(),
+            }
+        )
+
+        gold_acceptance = dict(
+            builders["gold_acceptance"](
+                output_path=gold_acceptance_path,
+                operator_status_path=operator_status_path,
+                run_receipt_path=receipt_path,
+                stage_packet_dir=runtime_context["stage_packet_dir"],
+                safe_work_result_dir=runtime_context["safe_work_result_dir"],
+                allow_live_runtime_probe=False,
+            )
+        )
+        summary["gold_acceptance"].update(
+            {
+                "status": str(gold_acceptance.get("status") or "written").strip() or "written",
+            }
+        )
+
+        goal_posture = dict(
+            builders["goal_posture"](
+                root=ROOT,
+                output_path=goal_posture_path,
+            )
+        )
+        summary["goal_posture"].update(
+            {
+                "status": str(goal_posture.get("status") or "written").strip() or "written",
+                "operator_action_queue_count": len(list(goal_posture.get("operator_action_queue") or [])),
+            }
+        )
+
+        action_required_digest = dict(
+            builders["operator_action_required_digest"](
+                root=ROOT,
+                input_path=goal_posture_path,
+                output_path=digest_path,
+                state_path=digest_state_path,
+                principal_id=str(getattr(args, "principal_id", "") or "").strip(),
+                send=digest_send_requested,
+                dry_run=False,
+                refresh_source=False,
+            )
+        )
+        summary["operator_action_required_digest"].update(
+            {
+                "status": str(action_required_digest.get("status") or "written").strip() or "written",
+                "notification_status": str(action_required_digest.get("notification_status") or "").strip(),
+                "item_count": int(action_required_digest.get("item_count") or 0),
+                "send_requested": digest_send_requested,
+            }
+        )
+        digest_notification_status = str(action_required_digest.get("notification_status") or "").strip()
+        if digest_notification_status == "suppressed_duplicate":
+            dedupe_proof = dict(
+                builders["operator_action_required_dedupe_proof"](
+                    root=ROOT,
+                    input_path=goal_posture_path,
+                    state_path=digest_state_path,
+                    sent_receipt_path=digest_path,
+                    output_path=dedupe_proof_path,
+                )
+            )
+            summary["operator_action_required_dedupe_proof"].update(
+                {
+                    "status": str(dedupe_proof.get("status") or "written").strip() or "written",
+                }
+            )
+        if digest_notification_status in {"sent", "suppressed_duplicate"}:
+            gold_acceptance = dict(
+                builders["gold_acceptance"](
+                    output_path=gold_acceptance_path,
+                    operator_status_path=operator_status_path,
+                    run_receipt_path=receipt_path,
+                    stage_packet_dir=runtime_context["stage_packet_dir"],
+                    safe_work_result_dir=runtime_context["safe_work_result_dir"],
+                    allow_live_runtime_probe=False,
+                )
+            )
+            summary["gold_acceptance"].update(
+                {
+                    "status": str(gold_acceptance.get("status") or "written").strip() or "written",
+                    "after_digest_delivery_refresh": True,
+                }
+            )
+    except Exception as exc:
+        summary["status"] = "failed"
+        summary["reason"] = type(exc).__name__
+        summary["error"] = f"{type(exc).__name__}:{str(exc or '').strip()}"
+    return summary
+
+
+def _cleanup_hidden_property_boundary(args: argparse.Namespace) -> dict[str, Any]:
+    if bool(getattr(args, "dry_run", False)):
+        return {
+            "status": "skipped",
+            "reason": "dry_run",
+            "ran": False,
+            "archived_total": 0,
+        }
+    if assistant_property_lane_enabled():
+        return {
+            "status": "skipped",
+            "reason": "assistant_property_lane_enabled",
+            "ran": False,
+            "archived_total": 0,
+        }
+    cleanup = dict(
+        cleanup_hidden_property_runtime_state(
+            state_path=str(getattr(args, "state_path", "") or "state/proactive_ooda_notified.json"),
+        )
+        or {}
+    )
+    cleanup.setdefault("status", "ok")
+    cleanup["ran"] = True
+    cleanup["reason"] = ""
+    cleanup["archived_total"] = int(cleanup.get("archived_total") or 0)
+    cleanup["stage_packet_total"] = int(cleanup.get("stage_packet_total") or 0)
+    cleanup["safe_work_result_total"] = int(cleanup.get("safe_work_result_total") or 0)
+    cleanup["approval_callback_total"] = int(cleanup.get("approval_callback_total") or 0)
+    return cleanup
 
 
 def _delivery_mirror_receipt(
@@ -806,9 +1185,16 @@ def _notification_approval_request(
             continue
         packet_hash = str(result.get("source_packet_ref_hash") or "").strip()
         stage_packet = stage_packets_by_hash.get(packet_hash, {})
+        stage_payload = dict(dict(stage_packet.get("stage") or {}).get("payload") or {})
         approval = dict(stage_packet.get("approval") or {})
         packet_ref = str(stage_packet.get("packet_ref") or "").strip()
         staged_artifact_ref = str(result.get("result_ref") or "").strip()
+        work_type = str(result.get("work_type") or stage_payload.get("work_type") or "").strip().lower()
+        notification_policy = _approval_request_notification_policy(
+            result=result,
+            stage_payload=stage_payload,
+        )
+        operator_action_required = _approval_request_operator_action_required(stage_payload=stage_payload)
         if not packet_ref or not staged_artifact_ref:
             continue
         if bool(approval.get("required")):
@@ -817,8 +1203,14 @@ def _notification_approval_request(
                 "staged_artifact_ref": staged_artifact_ref,
                 "approval_prompt": str(result.get("approval_prompt") or "").strip(),
                 "staged_action_url": str(result.get("staged_action_url") or "").strip(),
+                "approved_action": _approval_request_approved_action_name(
+                    work_type=work_type,
+                    stage_payload=stage_payload,
+                ),
+                "work_type": work_type,
+                "notification_policy": notification_policy,
+                "operator_action_required": operator_action_required,
             }
-        stage_payload = dict(dict(stage_packet.get("stage") or {}).get("payload") or {})
         auto_execute_action = str(stage_payload.get("auto_execute_action") or "").strip().lower()
         if auto_execute_action and (packet_ref, staged_artifact_ref, auto_execute_action, "executed") in auto_executed_pairs:
             return {
@@ -828,14 +1220,57 @@ def _notification_approval_request(
                 "staged_action_url": str(result.get("staged_action_url") or "").strip(),
                 "approved_execution_mode": "record_outcome_only",
                 "approved_action": auto_execute_action,
+                "work_type": work_type,
+                "notification_policy": notification_policy,
+                "operator_action_required": operator_action_required,
             }
         return {
             "packet_ref": packet_ref,
             "staged_artifact_ref": staged_artifact_ref,
             "approval_prompt": str(result.get("approval_prompt") or "").strip(),
             "staged_action_url": str(result.get("staged_action_url") or "").strip(),
+            "work_type": work_type,
+            "notification_policy": notification_policy,
+            "operator_action_required": operator_action_required,
         }
     return None
+
+
+def _approval_request_approved_action_name(*, work_type: str, stage_payload: Mapping[str, Any]) -> str:
+    explicit = str(
+        stage_payload.get("post_approval_action")
+        or stage_payload.get("approved_action")
+        or ""
+    ).strip().lower()
+    if explicit:
+        return explicit
+    return "save_gmail_draft" if work_type == "draft" else "keep_staged"
+
+
+def _approval_request_notification_policy(
+    *,
+    result: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+) -> str:
+    quality_gate = dict(result.get("quality_gate") or {})
+    constraints = dict(stage_payload.get("constraints") or {})
+    return str(
+        quality_gate.get("notification_policy")
+        or constraints.get("delivery_policy")
+        or ""
+    ).strip().lower()
+
+
+def _approval_request_operator_action_required(*, stage_payload: Mapping[str, Any]) -> bool:
+    criteria = stage_payload.get("selection_criteria")
+    if not isinstance(criteria, (list, tuple)):
+        return False
+    normalized = {
+        str(item or "").strip().lower()
+        for item in criteria
+        if str(item or "").strip()
+    }
+    return "operator action required" in normalized
 
 
 def _safe_work_requires_user_action(result: Mapping[str, Any]) -> bool:
@@ -869,6 +1304,52 @@ def _safe_work_allows_delivery_or_auto_execution(result: Mapping[str, Any]) -> b
 
 def _notification_requires_user_action(approval_request: Mapping[str, Any] | None) -> bool:
     return approval_request_needs_telegram_user_action(approval_request)
+
+
+def _approval_request_is_nonassistant_internal_action(approval_request: Mapping[str, Any] | None) -> bool:
+    request = dict(approval_request or {})
+    work_type = str(request.get("work_type") or "").strip().lower()
+    return work_type in {"record_internal_action", "internal_action", "operator_action"}
+
+
+def _cleanup_approval_callbacks(
+    args: argparse.Namespace,
+    *,
+    approval_request: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    requires_user_action = _notification_requires_user_action(approval_request)
+    if bool(getattr(args, "dry_run", False)):
+        return {
+            "status": "skipped",
+            "reason": "dry_run",
+            "approval_request_requires_user_action": requires_user_action,
+            "supersede_noncurrent_requested": False,
+        }
+    request = dict(approval_request or {})
+    active_packet_ref = str(request.get("packet_ref") or "").strip()
+    active_staged_artifact_ref = str(request.get("staged_artifact_ref") or "").strip()
+    active_refs_present = bool(active_packet_ref and active_staged_artifact_ref)
+    supersede_noncurrent = bool(
+        active_refs_present
+        and requires_user_action
+        and not _approval_request_is_nonassistant_internal_action(request)
+    )
+    supersede_active_pending = bool(active_refs_present and not requires_user_action)
+    cleanup = dict(
+        expire_stale_proactive_ooda_telegram_approval_callbacks(
+            root=ROOT,
+            state_path=str(getattr(args, "state_path", "state/proactive_ooda_notified.json") or "state/proactive_ooda_notified.json"),
+            receipt_path=str(getattr(args, "receipt_path", "") or ""),
+            supersede_noncurrent=supersede_noncurrent,
+            supersede_active_pending=supersede_active_pending,
+            active_packet_ref=active_packet_ref,
+            active_staged_artifact_ref=active_staged_artifact_ref,
+        )
+    )
+    cleanup["approval_request_requires_user_action"] = requires_user_action
+    cleanup["supersede_noncurrent_requested"] = supersede_noncurrent
+    cleanup["supersede_active_pending_requested"] = supersede_active_pending
+    return cleanup
 
 
 def _delivery_guard_snapshot(
@@ -1175,6 +1656,7 @@ def _load_signals(
             goal_action_signals = load_goal_action_queue_signals(
                 goal_posture_path,
                 limit=max(int(getattr(args, "goal_action_queue_limit", DEFAULT_GOAL_ACTION_QUEUE_LIMIT) or 0), 0),
+                allowed_operator_streams=str(getattr(args, "goal_action_operator_streams", "") or ""),
             )
             rows.extend(signal.__dict__ for signal in goal_action_signals)
     if not args.skip_observation_source:
@@ -1186,14 +1668,14 @@ def _load_signals(
         if observation_signals:
             rows.extend(signal.__dict__ for signal in observation_signals)
     if bool(getattr(args, "skip_workspace_source", False)):
-        return _apply_recent_topic_suppressions(rows)
+        return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows))
     try:
         from app.container import build_container
         from app.services.google_oauth import list_recent_workspace_signals
     except Exception as exc:  # pragma: no cover - depends on full runtime being present
         if _workspace_source_not_configured(exc):
-            return _apply_recent_topic_suppressions(rows)
-        return _apply_recent_topic_suppressions(rows + [_workspace_source_error_signal(exc)])
+            return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows))
+        return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows + [_workspace_source_error_signal(exc)]))
     try:
         container = build_container()
         packet = list_recent_workspace_signals(
@@ -1205,12 +1687,76 @@ def _load_signals(
         )
     except Exception as exc:
         if _workspace_source_not_configured(exc):
-            return _apply_recent_topic_suppressions(rows)
-        return _apply_recent_topic_suppressions(rows + [_workspace_source_error_signal(exc)])
+            return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows))
+        return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows + [_workspace_source_error_signal(exc)]))
     for signal in packet.signals:
         if hasattr(signal, "__dict__"):
             rows.append(dict(signal.__dict__))
-    return _apply_recent_topic_suppressions(rows)
+    return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows))
+
+
+def _recover_sparse_observation_digest(
+    args: argparse.Namespace,
+    *,
+    state_store: JsonOodaStateStore | None,
+    stored_refs: set[str],
+    service: ProactiveOodaService,
+    signals: list[dict[str, Any]],
+    digest: ProactiveOodaDigest,
+) -> tuple[list[dict[str, Any]], ProactiveOodaDigest]:
+    if getattr(digest, "items", ()):
+        return signals, digest
+    if bool(getattr(args, "skip_observation_source", False)):
+        return signals, digest
+    recovery_lookback_hours = _observation_recovery_lookback_hours(args)
+    current_lookback_hours = max(int(getattr(args, "observation_lookback_hours", 0) or 0), 0)
+    if recovery_lookback_hours <= current_lookback_hours:
+        return signals, digest
+    if not _signals_only_internal_recovery_rows(signals):
+        return signals, digest
+
+    recovery_args = argparse.Namespace(**dict(vars(args)))
+    recovery_args.observation_lookback_hours = recovery_lookback_hours
+    recovered_signals = _load_signals(
+        recovery_args,
+        state_store=state_store,
+        persist_opportunity_state=False,
+    )
+    recovered_digest = service.build_digest(
+        principal_id=str(getattr(args, "principal_id", "") or ""),
+        signals=recovered_signals,
+        already_notified_refs=stored_refs,
+    )
+    recovered_digest = _context_grounded_digest(str(getattr(args, "principal_id", "") or ""), recovered_digest)
+    if len(tuple(getattr(recovered_digest, "items", ()) or ())) <= len(tuple(getattr(digest, "items", ()) or ())):
+        return signals, digest
+    return recovered_signals, recovered_digest
+
+
+def _observation_recovery_lookback_hours(args: argparse.Namespace) -> int:
+    configured = int(os.getenv("EA_PROACTIVE_OODA_RECOVERY_OBSERVATION_LOOKBACK_HOURS", "72") or "72")
+    current = max(int(getattr(args, "observation_lookback_hours", 0) or 0), 0)
+    return max(configured, current)
+
+
+def _signals_only_internal_recovery_rows(rows: Iterable[Mapping[str, Any]]) -> bool:
+    observed_any = False
+    for row in rows:
+        observed_any = True
+        signal_type = str(row.get("signal_type") or row.get("type") or "").strip().lower()
+        channel = str(row.get("channel") or "").strip().lower()
+        source_ref = str(row.get("source_ref") or row.get("ref") or row.get("id") or "").strip().lower()
+        payload = row.get("payload") if isinstance(row.get("payload"), Mapping) else {}
+        if signal_type == "goal_action_queue":
+            continue
+        if signal_type in {"proactive_source_health", "source_health"}:
+            continue
+        if channel == "proactive_runtime" and source_ref.startswith("proactive_source_error:"):
+            continue
+        if isinstance(payload.get("source_health"), Mapping):
+            continue
+        return False
+    return observed_any
 
 
 def _goal_posture_json_path(value: str) -> Path | None:
@@ -1219,6 +1765,41 @@ def _goal_posture_json_path(value: str) -> Path | None:
         return None
     path = Path(normalized)
     return path if path.is_absolute() else ROOT / path
+
+
+def _root_relative_path(value: str, *, default_relative: str) -> Path:
+    normalized = str(value or "").strip() or default_relative
+    path = Path(normalized)
+    return path if path.is_absolute() else ROOT / path
+
+
+def _display_root_relative_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except Exception:
+        return str(path)
+
+
+def _load_followthrough_builders() -> dict[str, Any]:
+    from scripts.materialize_continuous_improvement_goal_posture import build_goal_posture
+    from scripts.materialize_operator_action_required_dedupe_proof import (
+        build_operator_action_required_dedupe_proof,
+    )
+    from scripts.materialize_operator_action_required_digest import build_operator_action_required_digest
+    from scripts.materialize_proactive_ooda_gold_acceptance import materialize_proactive_ooda_gold_acceptance
+    from scripts.materialize_proactive_ooda_operator_status import (
+        _default_report_args as operator_status_default_report_args,
+    )
+    from scripts.materialize_proactive_ooda_operator_status import build_proactive_ooda_operator_status
+
+    return {
+        "operator_status": build_proactive_ooda_operator_status,
+        "operator_status_default_report_args": operator_status_default_report_args,
+        "gold_acceptance": materialize_proactive_ooda_gold_acceptance,
+        "goal_posture": build_goal_posture,
+        "operator_action_required_digest": build_operator_action_required_digest,
+        "operator_action_required_dedupe_proof": build_operator_action_required_dedupe_proof,
+    }
 
 
 def _apply_recent_topic_suppressions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1249,6 +1830,31 @@ def _apply_recent_topic_suppressions(rows: list[dict[str, Any]]) -> list[dict[st
         if not suppressed:
             filtered.append(row)
     return filtered
+
+
+def _filter_hidden_property_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if assistant_property_lane_enabled():
+        return rows
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
+        if _row_hidden_from_ea_property_boundary(row):
+            continue
+        filtered.append(row)
+    return filtered
+
+
+def _row_hidden_from_ea_property_boundary(row: Mapping[str, Any]) -> bool:
+    return assistant_property_signal_present(
+        row.get("source_ref"),
+        row.get("signal_type"),
+        row.get("channel"),
+        row.get("title"),
+        row.get("summary"),
+        row.get("counterparty"),
+        row.get("external_id"),
+        row.get("payload"),
+        row,
+    )
 
 
 def _signal_created_at(row: Mapping[str, Any]) -> datetime | None:
