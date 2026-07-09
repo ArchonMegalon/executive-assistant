@@ -59,6 +59,7 @@ NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES = {
 NON_MATERIAL_SUPPRESSED_PROJECTION_REASONS = {
     "packet_projection_suppressed",
     "safe_work_audit_review",
+    "safe_work_quality_gate_review",
     "flat_search_disabled_property_scout",
     "flat_search_disabled",
 }
@@ -689,13 +690,24 @@ def _verify_suppressed_projection(receipt: dict[str, Any], issues: list[str]) ->
         if suppressed.get("suppressed_non_material") is not True:
             issues.append("non-material suppressed_projection requires suppressed_non_material=true")
         non_material_reason = str(suppressed.get("suppressed_non_material_reason") or "").strip()
-        if non_material_reason not in {"quiet_no_decision_ready_material", "configured_source_exclusion"}:
+        if non_material_reason not in {
+            "quiet_no_decision_ready_material",
+            "configured_source_exclusion",
+            "mixed_delivery_non_material",
+        }:
             issues.append("non-material suppressed_projection requires a recognized non-material reason")
         if non_material_reason == "quiet_no_decision_ready_material":
             if str(suppressed.get("notification_status") or "").strip() != "deferred":
                 issues.append("quiet non-material suppressed_projection requires deferred notification_status")
             if str(suppressed.get("error_code") or "").strip() != "no_user_action_required":
                 issues.append("quiet non-material suppressed_projection requires no_user_action_required error_code")
+        if non_material_reason == "mixed_delivery_non_material":
+            if str(suppressed.get("notification_status") or "").strip() != "sent":
+                issues.append("mixed-delivery non-material suppressed_projection requires sent notification_status")
+            if int(suppressed.get("packet_projection_record_count") or 0) <= 0:
+                issues.append("mixed-delivery non-material suppressed_projection requires projected packet records")
+            if int(suppressed.get("item_count") or 0) <= int(suppressed.get("packet_projection_record_count") or 0):
+                issues.append("mixed-delivery non-material suppressed_projection requires suppressed siblings beyond projected records")
         if non_material_reason == "configured_source_exclusion":
             if any(code not in CONFIGURED_SOURCE_EXCLUSION_REASONS for code in issue_codes):
                 issues.append("configured-source-exclusion suppressed_projection contains non-exclusion issue code")

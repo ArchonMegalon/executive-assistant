@@ -2791,6 +2791,47 @@ def test_suppressed_projection_treats_flat_search_disabled_as_non_material_witho
     assert summary["suppressed_safe_work_issue_codes"] == ["flat_search_disabled"]
 
 
+def test_suppressed_projection_treats_mixed_delivery_non_material_review_as_non_blocking() -> None:
+    module = _load_script()
+
+    summary = module._normalized_suppressed_projection(  # noqa: SLF001
+        {
+            "source": "docker_compose_exec",
+            "run_receipt": {
+                "generated_at": "2026-07-09T05:39:02Z",
+                "notification_status": "sent",
+                "error_code": "",
+                "item_count": 5,
+                "teable_sync": {
+                    "status": "synced",
+                    "projection_summary": {
+                        "record_count": 4,
+                        "suppressed_item_count": 4,
+                        "suppressed_safe_work_review_count": 4,
+                        "suppressed_projection_reasons": ["safe_work_quality_gate_review"],
+                        "suppressed_safe_work_issue_codes": ["no_decision_ready_material"],
+                        "tables": {
+                            "proactive_ooda_runs": {"record_count": 1},
+                            "proactive_ooda_items": {"record_count": 1},
+                            "proactive_ooda_safe_work": {"record_count": 1},
+                        },
+                    },
+                },
+            },
+        }
+    )
+
+    assert summary["status"] == "suppressed_non_material"
+    assert summary["requires_recovery"] is False
+    assert summary["suppressed_non_material"] is True
+    assert summary["suppressed_non_material_reason"] == "mixed_delivery_non_material"
+    assert summary["blocking_reason"] == ""
+    assert summary["next_action"] == ""
+    assert summary["packet_projection_record_count"] == 2
+    assert summary["suppressed_item_count"] == 4
+    assert summary["suppressed_safe_work_issue_codes"] == ["no_decision_ready_material"]
+
+
 def test_materialize_proactive_ooda_operator_status_writes_recovery_receipt(tmp_path: Path, monkeypatch) -> None:
     module = _load_script()
     monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")

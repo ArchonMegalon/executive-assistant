@@ -74,6 +74,7 @@ NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES = {
 NON_MATERIAL_SUPPRESSED_PROJECTION_REASONS = {
     "packet_projection_suppressed",
     "safe_work_audit_review",
+    "safe_work_quality_gate_review",
     "flat_search_disabled_property_scout",
     "flat_search_disabled",
 }
@@ -1809,12 +1810,22 @@ def _normalized_suppressed_projection(artifact_probe: Mapping[str, Any]) -> dict
         and issue_codes
         and all(code in CONFIGURED_SOURCE_EXCLUSION_REASONS for code in issue_codes)
     )
+    mixed_delivery_non_material = bool(
+        suppressed_item_count > 0
+        and packet_projection_record_count > 0
+        and int(selected_receipt.get("item_count") or 0) > packet_projection_record_count
+        and str(selected_receipt.get("notification_status") or "").strip() == "sent"
+        and issue_codes
+        and all(code in NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES for code in issue_codes)
+        and reasons
+        and all(reason in NON_MATERIAL_SUPPRESSED_PROJECTION_REASONS for reason in reasons)
+    )
     non_material_suppression = bool(
         suppressed_item_count > 0
         and issue_codes
         and all(code in NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES for code in issue_codes)
         and all(reason in NON_MATERIAL_SUPPRESSED_PROJECTION_REASONS for reason in reasons)
-        and (quiet_no_action or configured_source_exclusion)
+        and (quiet_no_action or configured_source_exclusion or mixed_delivery_non_material)
     )
     requires_recovery = suppressed_item_count > 0 and not non_material_suppression
     non_material_reason = ""
@@ -1822,6 +1833,8 @@ def _normalized_suppressed_projection(artifact_probe: Mapping[str, Any]) -> dict
         non_material_reason = (
             "configured_source_exclusion"
             if configured_source_exclusion
+            else "mixed_delivery_non_material"
+            if mixed_delivery_non_material
             else "quiet_no_decision_ready_material"
         )
     return {

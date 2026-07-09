@@ -521,6 +521,76 @@ def test_proactive_ooda_operator_status_verifier_accepts_valid_receipt(tmp_path:
     assert verifier.verify(receipt, root=tmp_path) == []
 
 
+def test_proactive_ooda_operator_status_verifier_accepts_mixed_delivery_non_material_suppression(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "ready_with_live_receipt",
+            "summary": "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through.",
+            "next_action": "maintain_proactive_ooda_runtime",
+            "next_action_href": "https://myexternalbrain.com/app/today",
+            "next_action_label": "Open Today",
+            "next_action_method": "get",
+            "operator_action_state": "clear",
+            "route_probe_source": "docker_compose_exec",
+            "route_probe_runtime_service": "ea-proactive-ooda",
+            "route_probe_observed_at": "2026-07-09T05:40:00Z",
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": True,
+                "receipt_path": "/data/provider-ledger/proactive_ooda_live_sent_receipt.json",
+                "delivery_mode": "telegram_sent",
+                "sent_message_ids": ["3610"],
+            },
+            "delivery_route": {
+                "ready": True,
+                "route_error": "",
+                "next_action": "",
+                "selected_channel": "telegram",
+                "selected_transport": "telegram",
+                "selected_by": "tool_runtime_binding",
+                "available_channels": ["telegram"],
+            },
+            "suppressed_projection": {
+                "present": True,
+                "source": "docker_compose_exec",
+                "status": "suppressed_non_material",
+                "requires_recovery": False,
+                "blocking_reason": "",
+                "next_action": "",
+                "run_receipt_generated_at": "2026-07-09T05:39:02Z",
+                "notification_status": "sent",
+                "error_code": "",
+                "item_count": 5,
+                "teable_status": "synced",
+                "projection_record_count": 4,
+                "packet_projection_record_count": 2,
+                "suppressed_item_count": 4,
+                "suppressed_safe_work_review_count": 4,
+                "suppressed_projection_reasons": ["safe_work_quality_gate_review"],
+                "suppressed_safe_work_issue_codes": ["no_decision_ready_material"],
+                "suppressed_non_material": True,
+                "suppressed_non_material_reason": "mixed_delivery_non_material",
+                "inferred_from_packet_projection_gap": False,
+                "privacy": {
+                    "raw_packet_text_exposed": False,
+                    "raw_candidate_exposed": False,
+                    "raw_draft_text_exposed": False,
+                    "raw_private_link_exposed": False,
+                },
+            },
+        }
+    )
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
 def test_proactive_ooda_operator_status_verifier_accepts_browser_handoff_recovery(
     tmp_path: Path, monkeypatch
 ) -> None:

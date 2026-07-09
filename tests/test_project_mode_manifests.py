@@ -170,6 +170,7 @@ def test_source_worktree_metadata_reports_source_dirty_without_generated_noise(
             [
                 " M .codex-design/product/PROJECT_MODES.generated.json",
                 " M .codex-studio/published/memorial_stt_provider_benchmark.generated.json",
+                " M .vexp/manifest.json",
                 "?? ea/.runtime/voice-preview/sample.wav",
                 " M state/proactive_ooda_latest_run.generated.json",
                 "?? ea/state/proactive_ooda_safe_work_results/result.json",
@@ -202,9 +203,11 @@ def test_source_worktree_fingerprint_hashes_effective_source_files_only(
     (tmp_path / "app/api/routes").mkdir(parents=True)
     (tmp_path / "scripts").mkdir()
     (tmp_path / "tests").mkdir()
+    (tmp_path / ".vexp").mkdir()
     (tmp_path / ".codex-studio/published").mkdir(parents=True)
     source_file = tmp_path / "app/api/routes/public_memorials.py"
     materializer = tmp_path / "scripts/materialize_project_mode_manifests.py"
+    vexp_manifest = tmp_path / ".vexp/manifest.json"
     generated = tmp_path / ".codex-studio/published/receipt.generated.json"
     state_generated = tmp_path / "state/proactive_ooda_latest_run.generated.json"
     dot_state_generated = tmp_path / ".state/runtime-artifact.json"
@@ -213,6 +216,7 @@ def test_source_worktree_fingerprint_hashes_effective_source_files_only(
     tmp_probe = tmp_path / "tmp_runtime_probe.py"
     source_file.write_text("source = 1\n", encoding="utf-8")
     materializer.write_text("materializer = 1\n", encoding="utf-8")
+    vexp_manifest.write_text("{\"indexed\":1}\n", encoding="utf-8")
     generated.write_text("generated = 1\n", encoding="utf-8")
     state_generated.parent.mkdir(parents=True)
     state_generated.write_text("runtime = 1\n", encoding="utf-8")
@@ -229,6 +233,7 @@ def test_source_worktree_fingerprint_hashes_effective_source_files_only(
                 [
                     "app/api/routes/public_memorials.py",
                     "scripts/materialize_project_mode_manifests.py",
+                    ".vexp/manifest.json",
                     ".codex-studio/published/receipt.generated.json",
                     "state/proactive_ooda_latest_run.generated.json",
                     ".state/runtime-artifact.json",
@@ -243,6 +248,7 @@ def test_source_worktree_fingerprint_hashes_effective_source_files_only(
     monkeypatch.setattr(source_state_head, "_git_stdout", _fake_git_stdout)
 
     first = source_state_head.resolve_source_worktree_fingerprint(tmp_path)
+    vexp_manifest.write_text("{\"indexed\":2}\n", encoding="utf-8")
     generated.write_text("generated = 2\n", encoding="utf-8")
     state_generated.write_text("runtime = 2\n", encoding="utf-8")
     dot_state_generated.write_text("dot runtime = 2\n", encoding="utf-8")
@@ -260,9 +266,11 @@ def test_source_worktree_fingerprint_falls_back_without_git_binary(
 ) -> None:
     (tmp_path / "app").mkdir()
     (tmp_path / "tests").mkdir()
+    (tmp_path / ".vexp").mkdir()
     (tmp_path / ".codex-studio/published").mkdir(parents=True)
     source_file = tmp_path / "app/service.py"
     test_file = tmp_path / "tests/test_service.py"
+    vexp_manifest = tmp_path / ".vexp/manifest.json"
     generated = tmp_path / ".codex-studio/published/receipt.generated.json"
     state_generated = tmp_path / "state/proactive_ooda_latest_run.generated.json"
     dot_state_generated = tmp_path / ".state/runtime-artifact.json"
@@ -272,6 +280,7 @@ def test_source_worktree_fingerprint_falls_back_without_git_binary(
     tmp_probe = tmp_path / "tmp_runtime_probe.py"
     source_file.write_text("source = 1\n", encoding="utf-8")
     test_file.write_text("test = 1\n", encoding="utf-8")
+    vexp_manifest.write_text("{\"indexed\":1}\n", encoding="utf-8")
     generated.write_text("generated = 1\n", encoding="utf-8")
     state_generated.parent.mkdir(parents=True)
     state_generated.write_text("runtime = 1\n", encoding="utf-8")
@@ -288,6 +297,7 @@ def test_source_worktree_fingerprint_falls_back_without_git_binary(
     assert first
 
     test_file.write_text("test = 2\n", encoding="utf-8")
+    vexp_manifest.write_text("{\"indexed\":2}\n", encoding="utf-8")
     generated.write_text("generated = 2\n", encoding="utf-8")
     state_generated.write_text("runtime = 2\n", encoding="utf-8")
     dot_state_generated.write_text("dot runtime = 2\n", encoding="utf-8")

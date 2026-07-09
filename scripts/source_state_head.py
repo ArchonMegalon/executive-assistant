@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 GENERATED_ONLY_PREFIXES = (
+    ".vexp/",
     ".runtime/",
     ".codex-design/product/",
     ".codex-studio/published/",
@@ -29,6 +30,7 @@ FALLBACK_SOURCE_DIR_EXCLUDES = {
     ".mypy_cache",
     ".pytest_cache",
     ".ruff_cache",
+    ".vexp",
     ".venv",
     "__pycache__",
     "data",
