@@ -13,6 +13,9 @@ from app.services.proactive_ooda_approval_outcomes import (
     record_proactive_ooda_approval_outcome,
 )
 from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
+from app.services.proactive_ooda_runtime_artifacts import latest_run_receipts
+from app.services.proactive_ooda_runtime_artifacts import choose_stage_and_safe_work_for_run_receipt
+from app.services.proactive_ooda_runtime_artifacts import resolve_runtime_artifact_paths
 from app.services.proactive_ooda_teable_sync import (
     sync_proactive_ooda_approval_outcome_to_teable,
     teable_sync_enabled,
@@ -99,6 +102,17 @@ def finalize_proactive_ooda_approval_outcome(
         receipt_path=receipt_path,
         stage_packet_dir=stage_packet_dir,
         safe_work_result_dir=safe_work_result_dir,
+    )
+    bundle = _bundle_for_requested_artifacts(
+        bundle=bundle,
+        bundle_loader=bundle_loader,
+        root=resolved_root,
+        state_path=state_path,
+        receipt_path=receipt_path,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+        packet_ref=packet_ref,
+        staged_artifact_ref=staged_artifact_ref,
     )
     approval_outcome = attach_proactive_ooda_approval_bundle_snapshot(
         approval_outcome=approval_outcome,
@@ -281,3 +295,123 @@ def _path_or_default(value: Any, *, root: Path, fallback: str | Path) -> Path | 
 
 def _materialization_error(exc: Exception) -> str:
     return f"{exc.__class__.__name__}:{str(exc or '').strip() or 'materialization_failed'}"
+
+
+def _bundle_for_requested_artifacts(
+    *,
+    bundle: dict[str, Any],
+    bundle_loader: Callable[..., dict[str, Any]],
+    root: Path,
+    state_path: str | Path,
+    receipt_path: str | Path,
+    stage_packet_dir: str | Path,
+    safe_work_result_dir: str | Path,
+    packet_ref: str,
+    staged_artifact_ref: str,
+) -> dict[str, Any]:
+    normalized_packet_ref = str(packet_ref or "").strip()
+    normalized_artifact_ref = str(staged_artifact_ref or "").strip()
+    if not normalized_packet_ref or not normalized_artifact_ref:
+        return dict(bundle or {})
+    current_bundle = dict(bundle or {})
+    if _bundle_matches_requested_artifacts(
+        current_bundle,
+        packet_ref=normalized_packet_ref,
+        staged_artifact_ref=normalized_artifact_ref,
+    ):
+        return current_bundle
+    resolved = _matching_runtime_bundle_for_artifact_refs(
+        root=root,
+        state_path=state_path,
+        receipt_path=receipt_path,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+        packet_ref=normalized_packet_ref,
+        staged_artifact_ref=normalized_artifact_ref,
+    )
+    if resolved:
+        return resolved
+    fallback_bundle = bundle_loader(
+        root=root,
+        state_path=state_path,
+        receipt_path=receipt_path,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+    )
+    fallback_bundle = dict(fallback_bundle or {})
+    if _bundle_matches_requested_artifacts(
+        fallback_bundle,
+        packet_ref=normalized_packet_ref,
+        staged_artifact_ref=normalized_artifact_ref,
+    ):
+        return fallback_bundle
+    return current_bundle
+
+
+def _bundle_matches_requested_artifacts(
+    bundle: dict[str, Any] | None,
+    *,
+    packet_ref: str,
+    staged_artifact_ref: str,
+) -> bool:
+    current_bundle = dict(bundle or {})
+    stage_packet = dict(current_bundle.get("stage_packet") or {})
+    safe_work_result = dict(current_bundle.get("safe_work_result") or {})
+    return bool(
+        str(stage_packet.get("packet_ref") or stage_packet.get("packet_id") or "").strip() == packet_ref
+        and str(safe_work_result.get("result_ref") or "").strip() == staged_artifact_ref
+    )
+
+
+def _matching_runtime_bundle_for_artifact_refs(
+    *,
+    root: Path,
+    state_path: str | Path,
+    receipt_path: str | Path,
+    stage_packet_dir: str | Path,
+    safe_work_result_dir: str | Path,
+    packet_ref: str,
+    staged_artifact_ref: str,
+) -> dict[str, Any]:
+    paths = resolve_runtime_artifact_paths(
+        root=root,
+        state_path=state_path,
+        receipt_path=receipt_path,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+    )
+    run_receipt_dir = paths["run_receipt_dir"]
+    stage_dir = paths["stage_packet_dir"]
+    safe_dir = paths["safe_work_result_dir"]
+    if not (run_receipt_dir.is_dir() and stage_dir.is_dir() and safe_dir.is_dir()):
+        return {}
+    for run_path, run_receipt, _mtime in latest_run_receipts(run_receipt_dir):
+        selected = choose_stage_and_safe_work_for_run_receipt(
+            stage_packet_dir=stage_dir,
+            safe_work_result_dir=safe_dir,
+            run_receipt=run_receipt,
+        )
+        if selected is None:
+            continue
+        stage_path, stage_packet, safe_path, safe_work_result = selected
+        if (
+            str(dict(stage_packet).get("packet_ref") or dict(stage_packet).get("packet_id") or "").strip()
+            != packet_ref
+        ):
+            continue
+        if str(dict(safe_work_result).get("result_ref") or "").strip() != staged_artifact_ref:
+            continue
+        return {
+            "run_receipt_path": run_path,
+            "run_receipt": dict(run_receipt or {}),
+            "stage_packet_dir": stage_dir,
+            "safe_work_result_dir": safe_dir,
+            "approval_outcome_path": paths["approval_outcome_path"],
+            "approval_callback_dir": paths["approval_callback_dir"],
+            "stage_packet_path": stage_path,
+            "stage_packet": dict(stage_packet or {}),
+            "safe_work_result_path": safe_path,
+            "safe_work_result": dict(safe_work_result or {}),
+            "approval_outcome": {},
+        }
+    return {}

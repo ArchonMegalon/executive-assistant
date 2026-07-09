@@ -7,6 +7,8 @@ import json
 import os
 import re
 import sys
+import urllib.parse
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -874,6 +876,367 @@ def _matching_run_receipt_for_artifact_hashes(
     return matched[-1]
 
 
+def _configured_teable_projection_tables() -> dict[str, dict[str, Any]]:
+    raw = str(os.environ.get("TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
+    if not raw:
+        return {}
+    try:
+        loaded = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(loaded, Mapping):
+        return {}
+    configured: dict[str, dict[str, Any]] = {}
+    for raw_name, raw_value in dict(loaded).items():
+        name = str(raw_name or "").strip()
+        if not name or not isinstance(raw_value, Mapping):
+            continue
+        configured[name] = dict(raw_value)
+    return configured
+
+
+def _teable_request_json(*, method: str, url: str, api_key: str) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Content-Type": "application/json",
+            "Origin": "https://app.teable.ai",
+            "Referer": "https://app.teable.ai/",
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+            ),
+        },
+    )
+    with urllib.request.urlopen(request, timeout=90.0) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    return dict(payload) if isinstance(payload, Mapping) else {}
+
+
+def _teable_table_rows(table_name: str) -> list[dict[str, Any]]:
+    configured = _configured_teable_projection_tables()
+    table = dict(configured.get(str(table_name or "").strip()) or {})
+    table_id = str(table.get("table_id") or "").strip()
+    if not table_id:
+        return []
+    api_key = str(os.environ.get("TEABLE_API_KEY") or "").strip()
+    if not api_key:
+        return []
+    base_url = str(os.environ.get("TEABLE_BASE_URL") or "https://app.teable.ai").strip().rstrip("/")
+    field_key_type = str(table.get("field_key_type") or "name").strip() or "name"
+    rows: list[dict[str, Any]] = []
+    skip = 0
+    take = 1000
+    while True:
+        query = urllib.parse.urlencode(
+            {
+                "fieldKeyType": field_key_type,
+                "cellFormat": "json",
+                "take": take,
+                "skip": skip,
+            },
+            doseq=True,
+        )
+        payload = _teable_request_json(
+            method="GET",
+            url=f"{base_url}/api/table/{urllib.parse.quote(table_id)}/record?{query}",
+            api_key=api_key,
+        )
+        records = [dict(item) for item in list(payload.get("records") or []) if isinstance(item, Mapping)]
+        for record in records:
+            rows.append(dict(record.get("fields") or {}))
+        if len(records) < take:
+            break
+        skip += take
+    return rows
+
+
+def _teable_string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item or "").strip() for item in value if str(item or "").strip()]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            return [text]
+        if isinstance(parsed, list):
+            return [str(item or "").strip() for item in parsed if str(item or "").strip()]
+    return []
+
+
+def _safe_work_projection_id_for_result(safe_work_result: Mapping[str, Any]) -> str:
+    result_id = _first_text(dict(safe_work_result or {}).get("result_id"))
+    if result_id:
+        return f"proactive_ooda_safe_work:{result_id}"
+    result_ref = _first_text(dict(safe_work_result or {}).get("result_ref"))
+    if result_ref.startswith("safe_work_result:"):
+        return f"proactive_ooda_safe_work:{result_ref.split(':', 1)[1]}"
+    return ""
+
+
+def _teable_projection_summary_for_recovered_bundle(
+    *,
+    run_row: Mapping[str, Any] | None,
+    item_rows: Iterable[Mapping[str, Any]],
+    safe_work_row: Mapping[str, Any] | None,
+    approval_surface_row: Mapping[str, Any] | None,
+    approval_outcome_row: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    tables: dict[str, dict[str, Any]] = {}
+    if run_row:
+        tables["proactive_ooda_runs"] = {
+            "record_count": 1,
+            "sample_projection_ids": [_first_text(dict(run_row).get("projection_id"))],
+        }
+    item_projection_ids = [
+        _first_text(dict(row).get("projection_id"))
+        for row in item_rows
+        if _first_text(dict(row).get("projection_id"))
+    ]
+    if item_projection_ids:
+        tables["proactive_ooda_items"] = {
+            "record_count": len(item_projection_ids),
+            "sample_projection_ids": item_projection_ids[:3],
+        }
+    if safe_work_row:
+        tables["proactive_ooda_safe_work"] = {
+            "record_count": 1,
+            "sample_projection_ids": [_first_text(dict(safe_work_row).get("projection_id"))],
+        }
+    if approval_surface_row:
+        tables["proactive_ooda_approval_surfaces"] = {
+            "record_count": 1,
+            "sample_projection_ids": [_first_text(dict(approval_surface_row).get("projection_id"))],
+        }
+    if approval_outcome_row:
+        tables["proactive_ooda_approval_outcomes"] = {
+            "record_count": 1,
+            "sample_projection_ids": [_first_text(dict(approval_outcome_row).get("projection_id"))],
+        }
+    return {
+        "sync_version": "proactive_ooda_teable_projection_v1",
+        "table_count": len(tables),
+        "record_count": sum(int(row.get("record_count") or 0) for row in tables.values()),
+        "suppressed_item_count": 0,
+        "suppressed_safe_work_review_count": 0,
+        "suppressed_projection_reasons": [],
+        "suppressed_safe_work_issue_codes": [],
+        "tables": tables,
+    }
+
+
+def _synthetic_run_receipt_from_teable_rows(
+    *,
+    packet_ref_sha256: str,
+    staged_artifact_sha256: str,
+    run_row: Mapping[str, Any] | None,
+    item_rows: Iterable[Mapping[str, Any]],
+    safe_work_row: Mapping[str, Any] | None,
+    approval_surface_row: Mapping[str, Any] | None,
+    approval_outcome_row: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    run = dict(run_row or {})
+    surface = dict(approval_surface_row or {})
+    message_ids = (
+        _teable_string_list(run.get("delivery_message_ids"))
+        or _teable_string_list(run.get("approval_surface_message_ids"))
+        or _teable_string_list(surface.get("message_ids"))
+    )
+    projection_summary = _teable_projection_summary_for_recovered_bundle(
+        run_row=run_row,
+        item_rows=item_rows,
+        safe_work_row=safe_work_row,
+        approval_surface_row=approval_surface_row,
+        approval_outcome_row=approval_outcome_row,
+    )
+    generated_at = _first_text(
+        run.get("generated_at"),
+        surface.get("delivered_at"),
+        dict(approval_outcome_row or {}).get("recorded_at"),
+    )
+    return {
+        "notification_status": _first_text(run.get("notification_status"), "sent"),
+        "item_count": max(int(run.get("item_count") or 0), 1),
+        "delivery_channel": _first_text(run.get("selected_channel"), surface.get("channel"), "telegram"),
+        "delivery_message_ids": message_ids,
+        "telegram_message_ids": message_ids,
+        "stage_packet_ref_hashes": [packet_ref_sha256] if packet_ref_sha256 else [],
+        "safe_work_result_ref_hashes": [staged_artifact_sha256] if staged_artifact_sha256 else [],
+        "generated_at": generated_at,
+        "teable_sync": {
+            "status": "synced",
+            "sync_attempted": True,
+            "blocked_reason": "",
+            "missing_tables": [],
+            "projection_summary": projection_summary,
+        },
+        "approval_surface": {
+            "message_ids": message_ids,
+            "message_count": max(int(surface.get("message_count") or 0), len(message_ids)),
+            "callback_token_sha256": _first_text(surface.get("callback_token_sha256")),
+            "channel": _first_text(surface.get("channel"), "telegram"),
+            "status": _first_text(surface.get("status"), "pending"),
+        },
+        "teable_recovery": {
+            "recovered": True,
+            "run_projection_id": _first_text(run.get("projection_id"), surface.get("run_projection_id")),
+            "safe_work_projection_id": _first_text(
+                dict(safe_work_row or {}).get("projection_id"),
+                surface.get("safe_work_projection_id"),
+            ),
+            "approval_outcome_projection_id": _first_text(dict(approval_outcome_row or {}).get("projection_id")),
+            "approval_outcome_run_projection_id": _first_text(
+                dict(approval_outcome_row or {}).get("run_projection_id")
+            ),
+        },
+    }
+
+
+def _historical_accepted_callback_bundle_from_teable(
+    *,
+    callback_row: Mapping[str, Any],
+    approval_row: Mapping[str, Any],
+    run_receipt_path: Path | None,
+    stage_packet_dir: Path | None,
+    safe_work_result_dir: Path | None,
+) -> dict[str, Any]:
+    stage_path, stage_packet = _matching_stage_packet_for_ref_hash(
+        stage_packet_dir=stage_packet_dir,
+        run_receipt_path=run_receipt_path,
+        safe_work_result_dir=safe_work_result_dir,
+        packet_ref_sha256=str(approval_row.get("packet_ref_sha256") or "").strip(),
+    )
+    safe_path, safe_work_result = _matching_safe_work_result_for_ref_hash(
+        safe_work_result_dir=safe_work_result_dir,
+        run_receipt_path=run_receipt_path,
+        stage_packet_dir=stage_packet_dir,
+        staged_artifact_sha256=str(approval_row.get("staged_artifact_sha256") or "").strip(),
+    )
+    if not (stage_packet and safe_work_result):
+        return {}
+    packet_artifacts_match_run_receipt = True
+    _assistant_grade_proof, assistant_grade_present = _assistant_grade_packet_quality_proof(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+        packet_artifacts_match_run_receipt=packet_artifacts_match_run_receipt,
+    )
+    if not assistant_grade_present:
+        return {}
+    safe_work_projection_id = _safe_work_projection_id_for_result(safe_work_result)
+    if not safe_work_projection_id:
+        return {}
+    try:
+        safe_work_rows = _teable_table_rows("proactive_ooda_safe_work")
+        run_rows = _teable_table_rows("proactive_ooda_runs")
+        item_rows = _teable_table_rows("proactive_ooda_items")
+        approval_surface_rows = _teable_table_rows("proactive_ooda_approval_surfaces")
+        approval_outcome_rows = _teable_table_rows("proactive_ooda_approval_outcomes")
+    except Exception:
+        return {}
+    safe_work_teable_row = next(
+        (
+            row
+            for row in safe_work_rows
+            if _first_text(dict(row).get("projection_id")) == safe_work_projection_id
+        ),
+        {},
+    )
+    if not safe_work_teable_row:
+        return {}
+    run_projection_id = _first_text(dict(safe_work_teable_row).get("run_projection_id"))
+    if not run_projection_id:
+        return {}
+    run_teable_row = next(
+        (
+            row
+            for row in run_rows
+            if _first_text(dict(row).get("projection_id")) == run_projection_id
+        ),
+        {},
+    )
+    candidate_item_rows = [
+        row
+        for row in item_rows
+        if _first_text(dict(row).get("run_projection_id")) == run_projection_id
+    ]
+    approval_surface_teable_row = next(
+        (
+            row
+            for row in approval_surface_rows
+            if _first_text(dict(row).get("safe_work_projection_id")) == safe_work_projection_id
+            and _first_text(dict(row).get("run_projection_id")) == run_projection_id
+        ),
+        {},
+    )
+    approval_outcome_projection_id = _first_text(dict(callback_row).get("approval_outcome_id"))
+    approval_outcome_projection_id = (
+        f"proactive_ooda_approval_outcome:{approval_outcome_projection_id}"
+        if approval_outcome_projection_id
+        else ""
+    )
+    approval_outcome_teable_row = next(
+        (
+            row
+            for row in approval_outcome_rows
+            if approval_outcome_projection_id
+            and _first_text(dict(row).get("projection_id")) == approval_outcome_projection_id
+        ),
+        {},
+    )
+    if not approval_outcome_teable_row:
+        approval_outcome_teable_row = next(
+            (
+                row
+                for row in approval_outcome_rows
+                if _first_text(dict(row).get("packet_ref_sha256"))
+                == str(approval_row.get("packet_ref_sha256") or "").strip()
+                and _first_text(dict(row).get("staged_artifact_sha256"))
+                == str(approval_row.get("staged_artifact_sha256") or "").strip()
+                and bool(dict(row).get("accepted"))
+            ),
+            {},
+        )
+    if not run_teable_row and not approval_surface_teable_row:
+        return {}
+    if not approval_outcome_teable_row:
+        return {}
+    synthetic_run_receipt = _synthetic_run_receipt_from_teable_rows(
+        packet_ref_sha256=str(approval_row.get("packet_ref_sha256") or "").strip(),
+        staged_artifact_sha256=str(approval_row.get("staged_artifact_sha256") or "").strip(),
+        run_row=run_teable_row,
+        item_rows=candidate_item_rows,
+        safe_work_row=safe_work_teable_row,
+        approval_surface_row=approval_surface_teable_row,
+        approval_outcome_row=approval_outcome_teable_row,
+    )
+    recovered_approval_row = {
+        **dict(approval_row),
+        "teable_sync": synthetic_run_receipt.get("teable_sync"),
+        "approval_outcome_projection_id": _first_text(dict(approval_outcome_teable_row).get("projection_id")),
+        "approval_outcome_run_projection_id": _first_text(
+            dict(approval_outcome_teable_row).get("run_projection_id")
+        ),
+    }
+    return {
+        "run_receipt_path": None,
+        "run_receipt": synthetic_run_receipt,
+        "stage_packet_path": stage_path,
+        "stage_packet": stage_packet,
+        "safe_work_result_path": safe_path,
+        "safe_work_result": safe_work_result,
+        "selection_source": "historical_accepted_approval_callback_teable_recovery",
+        "approval_row": recovered_approval_row,
+        "approval_row_source": "historical_approved_callback_teable_recovery",
+    }
+
+
 def _historical_accepted_bundle_from_approval_outcome(
     *,
     approval_row: Mapping[str, Any],
@@ -1068,6 +1431,14 @@ def _historical_accepted_callback_bundle_from_runtime_paths(
             stage_packet_dir=stage_packet_dir,
             safe_work_result_dir=safe_work_result_dir,
         )
+        if not bundle:
+            bundle = _historical_accepted_callback_bundle_from_teable(
+                callback_row=callback_row,
+                approval_row=approval_row,
+                run_receipt_path=run_receipt_path,
+                stage_packet_dir=stage_packet_dir,
+                safe_work_result_dir=safe_work_result_dir,
+            )
         if not bundle:
             continue
         run_receipt = dict(bundle.get("run_receipt") or {})
@@ -3483,16 +3854,23 @@ def materialize_proactive_ooda_gold_acceptance(
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
     )
+    approval_capture_surface = dict(operator_status.get("approval_capture_surface") or {})
     current_bundle_approval_followthrough_candidate = bool(
-        not _current_packet_internal_action(
-            stage_packet=stage_packet,
-            safe_work_result=safe_work_result,
-        )
-        and (
+        (
             int(bundle.get("current_packet_live_pending_count") or 0) > 0
             or int(bundle.get("current_packet_callback_pending_count") or 0) > 0
             or int(bundle.get("current_packet_callback_record_count") or 0) > 0
+            or (
+                bool(approval_capture_surface.get("current_packet_present"))
+                and bool(approval_capture_surface.get("current_packet_approval_request_recordable"))
+            )
         )
+    )
+    live_runtime_reports_no_callback_history = bool(
+        used_live_runtime_probe
+        and int(bundle.get("approval_callback_record_count") or 0) == 0
+        and int(bundle.get("approval_callback_pending_count") or 0) == 0
+        and int(bundle.get("approval_callback_recorded_count") or 0) == 0
     )
     selected_bundle_source = "current_runtime_bundle"
     if (
@@ -3644,7 +4022,7 @@ def materialize_proactive_ooda_gold_acceptance(
         (file_approval_matches_current_packet and bool(file_approval_row.get("accepted")))
         or (callback_approval_matches_current_packet and bool(callback_approval_row.get("accepted")))
     )
-    if not selected_bundle_has_accepted_approval:
+    if not selected_bundle_has_accepted_approval and not current_bundle_approval_followthrough_candidate:
         historical_callback_bundle = _historical_accepted_callback_bundle_from_runtime_paths(
             approval_callback_dir=resolved_approval_callback_dir
             if isinstance(resolved_approval_callback_dir, Path)
@@ -3653,7 +4031,11 @@ def materialize_proactive_ooda_gold_acceptance(
             stage_packet_dir=resolved_stage_dir if isinstance(resolved_stage_dir, Path) else None,
             safe_work_result_dir=resolved_safe_dir if isinstance(resolved_safe_dir, Path) else None,
         )
-        if not historical_callback_bundle and used_live_runtime_probe:
+        if (
+            not historical_callback_bundle
+            and used_live_runtime_probe
+            and not live_runtime_reports_no_callback_history
+        ):
             historical_callback_bundle = _live_historical_accepted_callback_bundle_from_runtime_paths(
                 approval_callback_dir=resolved_approval_callback_dir
                 if isinstance(resolved_approval_callback_dir, Path)
@@ -3662,6 +4044,18 @@ def materialize_proactive_ooda_gold_acceptance(
                 stage_packet_dir=resolved_stage_dir if isinstance(resolved_stage_dir, Path) else None,
                 safe_work_result_dir=resolved_safe_dir if isinstance(resolved_safe_dir, Path) else None,
             )
+        if historical_callback_bundle:
+            historical_callback_stage_packet = dict(historical_callback_bundle.get("stage_packet") or {})
+            historical_callback_safe_work_result = dict(historical_callback_bundle.get("safe_work_result") or {})
+            historical_callback_matches_selected_bundle = bool(
+                _stage_packet_ref(historical_callback_stage_packet) == _stage_packet_ref(stage_packet)
+                and _safe_work_result_ref(historical_callback_safe_work_result) == _safe_work_result_ref(safe_work_result)
+            )
+            if (
+                selected_bundle_source != "current_runtime_bundle"
+                and not historical_callback_matches_selected_bundle
+            ):
+                historical_callback_bundle = {}
         if historical_callback_bundle:
             selected_runtime_bundle = dict(historical_callback_bundle)
             selected_bundle_source = str(historical_callback_bundle.get("selection_source") or "").strip() or (

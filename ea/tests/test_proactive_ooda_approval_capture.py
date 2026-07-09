@@ -12,6 +12,11 @@ from app.api.routes.proactive_ooda_approval_support import (
 from app.services import proactive_ooda_approval_capture
 
 
+def _write_json(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
 def test_finalize_proactive_ooda_approval_outcome_persists_bundle_snapshot(tmp_path: Path) -> None:
     approval_outcome_path = tmp_path / "provider-ledger" / "proactive_ooda_latest_approval_outcome.generated.json"
     operator_status_path = tmp_path / ".codex-studio" / "published" / "operator.json"
@@ -73,6 +78,122 @@ def test_finalize_proactive_ooda_approval_outcome_persists_bundle_snapshot(tmp_p
     stored_text = approval_outcome_path.read_text(encoding="utf-8")
     assert "stage_packet:packet-1" not in stored_text
     assert "safe_work_result:result-1" not in stored_text
+
+
+def test_finalize_proactive_ooda_approval_outcome_rebinds_bundle_to_requested_runtime_artifacts(
+    tmp_path: Path,
+) -> None:
+    approval_outcome_path = tmp_path / "provider-ledger" / "proactive_ooda_latest_approval_outcome.generated.json"
+    operator_status_path = tmp_path / ".codex-studio" / "published" / "operator.json"
+    gold_acceptance_path = tmp_path / ".codex-studio" / "published" / "gold.json"
+    receipt_path = tmp_path / "provider-ledger" / "proactive_ooda_latest_run.generated.json"
+    run_receipt_dir = tmp_path / "provider-ledger" / "proactive_ooda_run_receipts"
+    stage_dir = tmp_path / "provider-ledger" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "provider-ledger" / "proactive_ooda_safe_work_results"
+
+    old_stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:packet-old",
+        "stage": {"kind": "research_packet", "payload": {"work_type": "compare_options"}},
+        "approval": {"required": True},
+    }
+    old_safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:result-old",
+        "source_packet_ref_hash": hashlib.sha256(old_stage_packet["packet_ref"].encode("utf-8")).hexdigest(),
+        "status": "staged_for_user_decision",
+        "work_type": "compare_options",
+        "recommended_option_or_draft": {"kind": "shortlist_candidate", "value": {"label": "Old option"}},
+        "approval": {"required": True},
+        "audit": {"status": "pass", "issues": []},
+    }
+    requested_stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:packet-requested",
+        "stage": {"kind": "research_packet", "payload": {"work_type": "compare_options"}},
+        "approval": {"required": True},
+    }
+    requested_safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:result-requested",
+        "source_packet_ref_hash": hashlib.sha256(requested_stage_packet["packet_ref"].encode("utf-8")).hexdigest(),
+        "status": "staged_for_user_decision",
+        "work_type": "compare_options",
+        "recommended_option_or_draft": {"kind": "shortlist_candidate", "value": {"label": "Requested option"}},
+        "approval": {"required": True},
+        "audit": {"status": "pass", "issues": []},
+    }
+    _write_json(stage_dir / "packet-old.json", old_stage_packet)
+    _write_json(safe_dir / "result-old.json", old_safe_work_result)
+    _write_json(stage_dir / "packet-requested.json", requested_stage_packet)
+    _write_json(safe_dir / "result-requested.json", requested_safe_work_result)
+
+    old_run_receipt = {
+        "notification_status": "sent",
+        "item_count": 1,
+        "delivery_message_ids": ["msg-old"],
+        "stage_packet_ref_hashes": [hashlib.sha256(old_stage_packet["packet_ref"].encode("utf-8")).hexdigest()],
+        "safe_work_result_ref_hashes": [hashlib.sha256(old_safe_work_result["result_ref"].encode("utf-8")).hexdigest()],
+        "stage_packet_output_dir": str(stage_dir),
+        "safe_work_result_output_dir": str(safe_dir),
+    }
+    requested_run_receipt = {
+        "notification_status": "sent",
+        "item_count": 1,
+        "delivery_message_ids": ["msg-requested"],
+        "stage_packet_ref_hashes": [hashlib.sha256(requested_stage_packet["packet_ref"].encode("utf-8")).hexdigest()],
+        "safe_work_result_ref_hashes": [
+            hashlib.sha256(requested_safe_work_result["result_ref"].encode("utf-8")).hexdigest()
+        ],
+        "stage_packet_output_dir": str(stage_dir),
+        "safe_work_result_output_dir": str(safe_dir),
+    }
+    _write_json(receipt_path, old_run_receipt)
+    _write_json(run_receipt_dir / "20260709T090000-old.json", old_run_receipt)
+    _write_json(run_receipt_dir / "20260709T091500-requested.json", requested_run_receipt)
+
+    wrong_bundle = {
+        "run_receipt_path": receipt_path,
+        "run_receipt": old_run_receipt,
+        "stage_packet_path": stage_dir / "packet-old.json",
+        "stage_packet": old_stage_packet,
+        "safe_work_result_path": safe_dir / "result-old.json",
+        "safe_work_result": old_safe_work_result,
+    }
+
+    proactive_ooda_approval_capture.finalize_proactive_ooda_approval_outcome(
+        principal_id="principal-1",
+        outcome="approved",
+        evidence="operator approved the requested packet",
+        actor="operator@example.com",
+        packet_ref=requested_stage_packet["packet_ref"],
+        staged_artifact_ref=requested_safe_work_result["result_ref"],
+        source_kind="operator_manual",
+        recorded_at="2026-07-09T09:20:00Z",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path=receipt_path,
+        stage_packet_dir=stage_dir,
+        safe_work_result_dir=safe_dir,
+        approval_outcome_path=approval_outcome_path,
+        operator_status_path=operator_status_path,
+        gold_acceptance_path=gold_acceptance_path,
+        runtime_artifact_loader=lambda **_kwargs: wrong_bundle,
+        teable_sync_decider=lambda: False,
+        operator_status_materializer=lambda **_kwargs: None,
+        gold_materializer=lambda **_kwargs: None,
+    )
+
+    stored = json.loads(approval_outcome_path.read_text(encoding="utf-8"))
+    snapshot = dict(stored.get("bundle_snapshot") or {})
+
+    assert snapshot["run_receipt"]["notification_status"] == "sent"
+    assert snapshot["stage_packet"]["packet_ref_sha256"] == hashlib.sha256(
+        requested_stage_packet["packet_ref"].encode("utf-8")
+    ).hexdigest()
+    assert snapshot["safe_work_result"]["result_ref_sha256"] == hashlib.sha256(
+        requested_safe_work_result["result_ref"].encode("utf-8")
+    ).hexdigest()
 
 
 def test_build_proactive_ooda_approval_surface_explains_self_capture_without_runtime_noise() -> None:

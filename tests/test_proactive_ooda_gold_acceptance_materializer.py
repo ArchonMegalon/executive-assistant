@@ -5461,6 +5461,135 @@ def test_historical_accepted_callback_bundle_from_runtime_paths_prefers_assistan
     assert bundle["run_receipt_path"] == run_receipt_dir / "20260701T090000_000000_0000-sent-approved.json"
 
 
+def test_historical_accepted_callback_bundle_from_teable_recovers_missing_run_receipt(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_script()
+
+    run_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    safe_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_json(run_receipt_path, {"notification_status": "deferred", "item_count": 0})
+
+    stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_id": "pkt-teable",
+        "packet_ref": "stage_packet:pkt-teable",
+        "stage": {"kind": "research_packet", "payload": {"work_type": "compare_options", "request": "compare vendors"}},
+        "approval": {"required": True},
+        "safe_work_order": {
+            "work_type": "compare_options",
+            "handoff_policy": {
+                "safe_to_execute_before_approval": True,
+                "external_actions_remain_staged_only": True,
+            },
+        },
+    }
+    safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_id": "res-teable",
+        "result_ref": "safe_work_result:res-teable",
+        "source_packet_ref_hash": _sha256(stage_packet["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "work_type": "compare_options",
+        "recommended_option_or_draft": {
+            "kind": "shortlist_candidate",
+            "value": {"label": "Vendor A", "url": "https://example.test/vendor-a"},
+        },
+        "shortlist": [{"label": "Vendor A"}],
+        "approval": {"required": True},
+        "audit": {"status": "pass", "issues": []},
+        "execution_receipt": {
+            "network_fetch_count": 4,
+            "network_fetch_success_count": 4,
+            "page_checks": [{"url": "https://example.test/vendor-a", "reachable": True}],
+            "irreversible_actions_attempted": [],
+        },
+    }
+    _write_json(stage_dir / "pkt-teable.json", stage_packet)
+    _write_json(safe_dir / "res-teable.json", safe_work_result)
+
+    callback_row = {"approval_outcome_id": "approval-1"}
+    approval_row = {
+        "accepted": True,
+        "approval_outcome_recorded": True,
+        "packet_ref_sha256": _sha256(stage_packet["packet_ref"]),
+        "staged_artifact_sha256": _sha256(safe_work_result["result_ref"]),
+    }
+    teable_rows = {
+        "proactive_ooda_safe_work": [
+            {
+                "projection_id": "proactive_ooda_safe_work:res-teable",
+                "run_projection_id": "proactive_ooda_run:run-1",
+            }
+        ],
+        "proactive_ooda_runs": [
+            {
+                "projection_id": "proactive_ooda_run:run-1",
+                "generated_at": "2026-06-29T07:59:09.656143+00:00",
+                "notification_status": "sent",
+                "delivery_message_ids": '["3215"]',
+                "approval_surface_message_count": 1,
+                "selected_channel": "telegram",
+                "item_count": 1,
+            }
+        ],
+        "proactive_ooda_items": [
+            {
+                "projection_id": "proactive_ooda_item:item-1",
+                "run_projection_id": "proactive_ooda_run:run-1",
+            }
+        ],
+        "proactive_ooda_approval_surfaces": [
+            {
+                "projection_id": "proactive_ooda_approval_surface:surface-1",
+                "run_projection_id": "proactive_ooda_run:run-1",
+                "safe_work_projection_id": "proactive_ooda_safe_work:res-teable",
+                "message_ids": '["3215"]',
+                "message_count": 1,
+                "channel": "telegram",
+                "status": "pending",
+            }
+        ],
+        "proactive_ooda_approval_outcomes": [
+            {
+                "projection_id": "proactive_ooda_approval_outcome:approval-1",
+                "run_projection_id": "proactive_ooda_run:wrong-run",
+                "packet_ref_sha256": approval_row["packet_ref_sha256"],
+                "staged_artifact_sha256": approval_row["staged_artifact_sha256"],
+                "accepted": True,
+                "recorded_at": "2026-06-29T07:59:15.651176Z",
+            }
+        ],
+    }
+    monkeypatch.setattr(module, "_teable_table_rows", lambda table_name: list(teable_rows.get(table_name, [])))
+
+    bundle = module._historical_accepted_callback_bundle_from_teable(  # noqa: SLF001
+        callback_row=callback_row,
+        approval_row=approval_row,
+        run_receipt_path=run_receipt_path,
+        stage_packet_dir=stage_dir,
+        safe_work_result_dir=safe_dir,
+    )
+
+    assert bundle["selection_source"] == "historical_accepted_approval_callback_teable_recovery"
+    assert bundle["approval_row_source"] == "historical_approved_callback_teable_recovery"
+    assert bundle["run_receipt_path"] is None
+    assert bundle["stage_packet_path"] == stage_dir / "pkt-teable.json"
+    assert bundle["safe_work_result_path"] == safe_dir / "res-teable.json"
+    assert bundle["run_receipt"]["delivery_message_ids"] == ["3215"]
+    assert bundle["run_receipt"]["stage_packet_ref_hashes"] == [approval_row["packet_ref_sha256"]]
+    assert bundle["run_receipt"]["safe_work_result_ref_hashes"] == [approval_row["staged_artifact_sha256"]]
+    assert bundle["run_receipt"]["teable_recovery"]["run_projection_id"] == "proactive_ooda_run:run-1"
+    assert bundle["run_receipt"]["teable_recovery"]["approval_outcome_run_projection_id"] == "proactive_ooda_run:wrong-run"
+    assert bundle["approval_row"]["approval_outcome_projection_id"] == "proactive_ooda_approval_outcome:approval-1"
+    assert bundle["approval_row"]["approval_outcome_run_projection_id"] == "proactive_ooda_run:wrong-run"
+
+
 def test_materialize_proactive_ooda_gold_acceptance_uses_historical_approved_callback_bundle_for_pass(
     tmp_path: Path,
     monkeypatch,

@@ -575,14 +575,14 @@
   },
   "blocked_checks": [],
   "claim_readiness_blockers": [
-    "blocked_missing_proactive_packet_evidence"
+    "blocked_low_quality_packet_evidence"
   ],
   "contract_name": "ea.executive_assistant_quality_readiness.v1",
   "ea_is_product_truth": false,
   "ea_owns_canonical_queue_truth": false,
   "ea_owns_release_authority": false,
   "external_acceptance_blockers": [],
-  "generated_at": "2026-07-09T04:50:36Z",
+  "generated_at": "2026-07-09T05:40:53Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": false,
@@ -599,13 +599,13 @@
     "next_action_label": "Open queue",
     "next_action_method": "get",
     "receipt_info": {
-      "bytes": 27122,
+      "bytes": 27464,
       "exists": true,
       "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
-      "sha256": "507ce7d60aeeec3f122902ba4e63e87dec9b8ee9cf8f23324f0130a00e1eab35"
+      "sha256": "65aa36216a84e4f0f374b42b7ae6ee53a77f1a68f4f91c97c81d4747d9b7d35d"
     },
-    "status": "blocked_missing_proactive_packet_evidence",
-    "summary": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing."
+    "status": "blocked_low_quality_packet_evidence",
+    "summary": "The proactive OODA mechanics have evidence, but the selected packet is not assistant-grade enough to prove production readiness."
   },
   "next_action_form_href": "https://myexternalbrain.com/app/queue",
   "next_action_form_label": "Open queue",
@@ -635,13 +635,13 @@
     "next_action_method": "get",
     "present": true,
     "receipt_info": {
-      "bytes": 27122,
+      "bytes": 27464,
       "exists": true,
       "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
-      "sha256": "507ce7d60aeeec3f122902ba4e63e87dec9b8ee9cf8f23324f0130a00e1eab35"
+      "sha256": "65aa36216a84e4f0f374b42b7ae6ee53a77f1a68f4f91c97c81d4747d9b7d35d"
     },
-    "status": "blocked_missing_proactive_packet_evidence",
-    "summary": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing."
+    "status": "blocked_low_quality_packet_evidence",
+    "summary": "The proactive OODA mechanics have evidence, but the selected packet is not assistant-grade enough to prove production readiness."
   },
   "provider_telemetry_is_product_authority": false,
   "public_or_premium_claim_allowed": false,
@@ -681,14 +681,14 @@
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason"
   ],
-  "source_git_head": "4f56f1de175b6be113788f6d4b5e573f4dbc56e7",
+  "source_git_head": "298c588b84f49007a253e5aab888f24151df21fc",
   "source_receipt": {
     "bytes": 16387,
     "exists": true,
     "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
     "sha256": "01236199c3df3ddf46b6ca7789e52be9640e80f4ce92dc9ce1cf6071487ec1d7"
   },
-  "source_state_fingerprint": "a92b6c816599180b418a841bd5cf1d18b1abbf30e8e8cb6b68dbc57afb89e664",
+  "source_state_fingerprint": "988ee8bca72c5b9f4c1043b11c5fc2686dee81bd2b3efdff269ee96e5220b3e3",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_real_world_acceptance"
 }
