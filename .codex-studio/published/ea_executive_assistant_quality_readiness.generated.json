@@ -575,14 +575,14 @@
   },
   "blocked_checks": [],
   "claim_readiness_blockers": [
-    "blocked_operator_runtime_posture"
+    "blocked_missing_proactive_packet_evidence"
   ],
   "contract_name": "ea.executive_assistant_quality_readiness.v1",
   "ea_is_product_truth": false,
   "ea_owns_canonical_queue_truth": false,
   "ea_owns_release_authority": false,
   "external_acceptance_blockers": [],
-  "generated_at": "2026-07-08T12:49:42Z",
+  "generated_at": "2026-07-09T04:50:36Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": false,
@@ -590,28 +590,28 @@
   "live_daily_use_verified": true,
   "local_blockers": [],
   "local_quality_evidence_ready": true,
-  "next_action": "reauthorize_google_workspace_binding",
+  "next_action": "stage_fresh_assistant_grade_proactive_packet",
   "next_action_context": {
     "gold_claim_allowed": false,
     "kind": "proactive_ooda_gold_recovery",
-    "next_action": "reauthorize_google_workspace_binding",
-    "next_action_href": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-    "next_action_label": "Reconnect Google workspace",
+    "next_action": "stage_fresh_assistant_grade_proactive_packet",
+    "next_action_href": "https://myexternalbrain.com/app/queue",
+    "next_action_label": "Open queue",
     "next_action_method": "get",
     "receipt_info": {
-      "bytes": 27585,
+      "bytes": 27122,
       "exists": true,
       "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
-      "sha256": "9fd0863ca101348a2602cab472a586e15557068c2c27e800416230ed826474fc"
+      "sha256": "507ce7d60aeeec3f122902ba4e63e87dec9b8ee9cf8f23324f0130a00e1eab35"
     },
-    "status": "blocked_operator_runtime_posture",
-    "summary": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored."
+    "status": "blocked_missing_proactive_packet_evidence",
+    "summary": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing."
   },
-  "next_action_form_href": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-  "next_action_form_label": "Reconnect Google workspace",
+  "next_action_form_href": "https://myexternalbrain.com/app/queue",
+  "next_action_form_label": "Open queue",
   "next_action_form_method": "get",
-  "next_action_href": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-  "next_action_label": "Reconnect Google workspace",
+  "next_action_href": "https://myexternalbrain.com/app/queue",
+  "next_action_label": "Open queue",
   "next_action_method": "get",
   "next_action_proof_key": "",
   "privacy": {
@@ -626,22 +626,22 @@
   "proactive_ooda_gold_acceptance": {
     "claim_ready": false,
     "gold_claim_allowed": false,
-    "next_action": "reauthorize_google_workspace_binding",
-    "next_action_form_href": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-    "next_action_form_label": "Reconnect Google workspace",
+    "next_action": "stage_fresh_assistant_grade_proactive_packet",
+    "next_action_form_href": "https://myexternalbrain.com/app/queue",
+    "next_action_form_label": "Open queue",
     "next_action_form_method": "get",
-    "next_action_href": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-    "next_action_label": "Reconnect Google workspace",
+    "next_action_href": "https://myexternalbrain.com/app/queue",
+    "next_action_label": "Open queue",
     "next_action_method": "get",
     "present": true,
     "receipt_info": {
-      "bytes": 27585,
+      "bytes": 27122,
       "exists": true,
       "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
-      "sha256": "9fd0863ca101348a2602cab472a586e15557068c2c27e800416230ed826474fc"
+      "sha256": "507ce7d60aeeec3f122902ba4e63e87dec9b8ee9cf8f23324f0130a00e1eab35"
     },
-    "status": "blocked_operator_runtime_posture",
-    "summary": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored."
+    "status": "blocked_missing_proactive_packet_evidence",
+    "summary": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing."
   },
   "provider_telemetry_is_product_authority": false,
   "public_or_premium_claim_allowed": false,
@@ -681,14 +681,14 @@
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason"
   ],
-  "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
+  "source_git_head": "4f56f1de175b6be113788f6d4b5e573f4dbc56e7",
   "source_receipt": {
     "bytes": 16387,
     "exists": true,
     "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
     "sha256": "01236199c3df3ddf46b6ca7789e52be9640e80f4ce92dc9ce1cf6071487ec1d7"
   },
-  "source_state_fingerprint": "3c28a4de2eb6dfbfeac1c695d48c47baa66bbc05918771558cf8518253a9c75e",
+  "source_state_fingerprint": "a92b6c816599180b418a841bd5cf1d18b1abbf30e8e8cb6b68dbc57afb89e664",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_real_world_acceptance"
 }
