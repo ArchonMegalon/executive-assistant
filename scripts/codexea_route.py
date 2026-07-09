@@ -1389,25 +1389,71 @@ def _resolve_telegram_chat_id_from_proactive_bindings(*, principal_id: str) -> s
     return str(resolved or "").strip()
 
 
+def _resolve_telegram_target_from_ea_api_container(*, principal_id: str) -> dict[str, object]:
+    principal = str(principal_id or "").strip()
+    if not principal or not shutil.which("docker"):
+        return {}
+    script = (
+        "import json, os\n"
+        "from app.services.proactive_telegram_binding import resolve_proactive_telegram_target\n"
+        "principal = os.environ.get('CODEXEA_TELEGRAM_RESOLVE_PRINCIPAL_ID', '')\n"
+        "print(json.dumps(resolve_proactive_telegram_target(principal_id=principal), sort_keys=True))\n"
+    )
+    timeout_seconds = _env_int("CODEXEA_TELEGRAM_TARGET_RESOLVE_TIMEOUT_SECONDS", 30, minimum=1, maximum=60)
+    try:
+        completed = subprocess.run(
+            [
+                "docker",
+                "exec",
+                "-e",
+                f"CODEXEA_TELEGRAM_RESOLVE_PRINCIPAL_ID={principal}",
+                DEFAULT_EA_API_CONTAINER,
+                "python",
+                "-c",
+                script,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except Exception:
+        return {}
+    if completed.returncode != 0:
+        return {}
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _telegram_resolution_principal_id() -> str:
+    return (
+        _telegram_env_value("EA_PROACTIVE_OODA_PRINCIPAL_ID")
+        or _telegram_env_value("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID")
+        or _telegram_env_value("EA_DEFAULT_PRINCIPAL_ID")
+        or ""
+    )
+
+
 def _resolve_telegram_chat_id(args: argparse.Namespace) -> str:
-    return str(
+    direct_chat_id = str(
         getattr(args, "telegram_chat_id", "")
         or _telegram_env_value("CODEXEA_TELEGRAM_CHAT_ID")
         or _telegram_env_value("EA_TELEGRAM_CHAT_ID")
         or _telegram_env_value("EA_TELEGRAM_DEFAULT_CHAT_ID")
         or _telegram_env_value("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID")
         or _telegram_env_value("TELEGRAM_CHAT_ID")
-        or _resolve_telegram_chat_id_from_proactive_bindings(
-            principal_id=_telegram_env_value("EA_PROACTIVE_OODA_PRINCIPAL_ID")
-            or _telegram_env_value("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID")
-            or _telegram_env_value("EA_DEFAULT_PRINCIPAL_ID")
-            or ""
-        )
-        or _resolve_telegram_chat_id_from_proactive_bindings(
-            principal_id=_telegram_env_value("EA_PROACTIVE_OODA_PRINCIPAL_ID")
-            or _telegram_env_value("EA_DEFAULT_PRINCIPAL_ID")
-        )
     ).strip()
+    if direct_chat_id:
+        return direct_chat_id
+    principal_id = _telegram_resolution_principal_id()
+    binding_chat_id = _resolve_telegram_chat_id_from_proactive_bindings(principal_id=principal_id)
+    if binding_chat_id:
+        return binding_chat_id
+    target = _resolve_telegram_target_from_ea_api_container(principal_id=principal_id)
+    return str(target.get("chat_id") or "").strip()
 
 
 def _to_bool_text(value: object, *, yes_value: str = "yes", no_value: str = "no") -> str:

@@ -834,3 +834,51 @@ def test_build_telegram_delivery_request_reports_missing_bot_token() -> None:
     assert delivery["requested"] is True
     assert delivery["sent"] is False
     assert delivery["reason"] == "telegram_bot_token_missing"
+
+
+def test_telegram_delivery_request_uses_ea_api_container_target_when_host_binding_missing(monkeypatch) -> None:
+    module = _load_module()
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_PRINCIPAL_ID", "cf-email:user@example.test")
+    for key in (
+        "CODEXEA_TELEGRAM_CHAT_ID",
+        "EA_TELEGRAM_CHAT_ID",
+        "EA_TELEGRAM_DEFAULT_CHAT_ID",
+        "EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID",
+        "TELEGRAM_CHAT_ID",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(module, "_resolve_telegram_chat_id_from_proactive_bindings", lambda *, principal_id: "")
+    monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/docker" if name == "docker" else None)
+
+    observed: dict[str, object] = {}
+
+    def _fake_run(command, **kwargs):
+        observed["command"] = command
+        observed["timeout"] = kwargs.get("timeout")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps({"chat_id": "1354554303", "source": "connector_binding"}),
+            stderr="",
+        )
+
+    def _fake_send(payload, *, timeout_seconds):
+        observed["telegram_payload"] = dict(payload)
+        observed["telegram_timeout_seconds"] = timeout_seconds
+        return {"message_id": 42, "chat": {"id": "1354554303"}}
+
+    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+    monkeypatch.setattr(module, "_send_telegram_message", _fake_send)
+
+    delivery = module._build_telegram_delivery_request(
+        _args(send_telegram=True),
+        {"generated_at": "2026-07-09T17:18:02Z", "onemin_refresh": {"ran": True}},
+    )
+
+    assert delivery["sent"] is True
+    assert delivery["reason"] == "sent"
+    assert delivery["message_id"] == 42
+    assert delivery["chat_id_present"] is True
+    assert "CODEXEA_TELEGRAM_RESOLVE_PRINCIPAL_ID=cf-email:user@example.test" in observed["command"]
+    assert observed["telegram_payload"]["chat_id"] == "1354554303"

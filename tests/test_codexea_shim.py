@@ -1875,6 +1875,67 @@ def test_credits_refresh_forwards_telegram_arguments_to_route_helper(tmp_path: P
     assert "19" in argv
 
 
+def test_credits_refresh_exports_telegram_principal_defaults_to_route_helper(tmp_path: Path) -> None:
+    runtime_env = tmp_path / "runtime.ea.env"
+    runtime_env.write_text(
+        "\n".join(
+            [
+                "EA_PROACTIVE_OODA_PRINCIPAL_ID=cf-email:user@example.test",
+                "EA_TELEGRAM_DEFAULT_PRINCIPAL_ID=cf-email:user@example.test",
+                "EA_DEFAULT_PRINCIPAL_ID=local-user",
+                "EA_TELEGRAM_DEFAULT_CHAT_ID=1354554303",
+                "EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID=1354554303",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    route_helper = tmp_path / "fake-route-helper.py"
+    route_helper.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import json, os",
+                "keys = [",
+                "  'EA_PROACTIVE_OODA_PRINCIPAL_ID',",
+                "  'EA_TELEGRAM_DEFAULT_PRINCIPAL_ID',",
+                "  'EA_DEFAULT_PRINCIPAL_ID',",
+                "  'EA_TELEGRAM_DEFAULT_CHAT_ID',",
+                "  'EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID',",
+                "]",
+                "print(json.dumps({key: os.environ.get(key, '') for key in keys}, sort_keys=True))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    route_helper.chmod(route_helper.stat().st_mode | stat.S_IXUSR)
+
+    env = json.loads(
+        _run_shim_stdout(
+            tmp_path,
+            "credits",
+            "refresh",
+            "--send-telegram",
+            extra_env={
+                "CODEXEA_ROUTE_HELPER": str(route_helper),
+                "CODEXEA_RUNTIME_EA_ENV_PATH": str(runtime_env),
+                "EA_PROACTIVE_OODA_PRINCIPAL_ID": "",
+                "EA_TELEGRAM_DEFAULT_PRINCIPAL_ID": "",
+                "EA_DEFAULT_PRINCIPAL_ID": "",
+                "EA_TELEGRAM_DEFAULT_CHAT_ID": "",
+                "EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID": "",
+            },
+        )
+    )
+
+    assert env == {
+        "EA_PROACTIVE_OODA_PRINCIPAL_ID": "cf-email:user@example.test",
+        "EA_TELEGRAM_DEFAULT_PRINCIPAL_ID": "cf-email:user@example.test",
+        "EA_DEFAULT_PRINCIPAL_ID": "local-user",
+        "EA_TELEGRAM_DEFAULT_CHAT_ID": "1354554303",
+        "EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID": "1354554303",
+    }
+
+
 def test_onemin_help_is_shim_local_and_does_not_require_route_helper(tmp_path: Path) -> None:
     stdout = _run_shim_stdout(
         tmp_path,
