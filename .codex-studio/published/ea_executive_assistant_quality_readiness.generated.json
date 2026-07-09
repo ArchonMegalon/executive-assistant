@@ -582,7 +582,7 @@
   "ea_owns_canonical_queue_truth": false,
   "ea_owns_release_authority": false,
   "external_acceptance_blockers": [],
-  "generated_at": "2026-07-09T06:39:13Z",
+  "generated_at": "2026-07-09T07:12:09Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": false,
@@ -590,28 +590,28 @@
   "live_daily_use_verified": true,
   "local_blockers": [],
   "local_quality_evidence_ready": true,
-  "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+  "next_action": "repair_proactive_safe_work_audit",
   "next_action_context": {
     "gold_claim_allowed": false,
     "kind": "proactive_ooda_gold_recovery",
-    "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
-    "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-    "next_action_label": "Record packet verdict",
+    "next_action": "repair_proactive_safe_work_audit",
+    "next_action_href": "https://myexternalbrain.com/app/queue",
+    "next_action_label": "Review safe work",
     "next_action_method": "get",
     "receipt_info": {
-      "bytes": 28155,
+      "bytes": 27543,
       "exists": true,
       "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
-      "sha256": "4a8b972746d181e988ba62f8b3813e66d0ccf45c0b5f9a17023d112d977a5c68"
+      "sha256": "ef5eb4b8df09dbb0ace13d07c0c07253bf5ef261f0427bca9ca1d56a6dda498a"
     },
     "status": "blocked_operator_runtime_posture",
     "summary": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored."
   },
-  "next_action_form_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-  "next_action_form_label": "Record packet verdict",
+  "next_action_form_href": "https://myexternalbrain.com/app/queue",
+  "next_action_form_label": "Review safe work",
   "next_action_form_method": "get",
-  "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-  "next_action_label": "Record packet verdict",
+  "next_action_href": "https://myexternalbrain.com/app/queue",
+  "next_action_label": "Review safe work",
   "next_action_method": "get",
   "next_action_proof_key": "",
   "privacy": {
@@ -626,19 +626,19 @@
   "proactive_ooda_gold_acceptance": {
     "claim_ready": false,
     "gold_claim_allowed": false,
-    "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
-    "next_action_form_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-    "next_action_form_label": "Record packet verdict",
+    "next_action": "repair_proactive_safe_work_audit",
+    "next_action_form_href": "https://myexternalbrain.com/app/queue",
+    "next_action_form_label": "Review safe work",
     "next_action_form_method": "get",
-    "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-    "next_action_label": "Record packet verdict",
+    "next_action_href": "https://myexternalbrain.com/app/queue",
+    "next_action_label": "Review safe work",
     "next_action_method": "get",
     "present": true,
     "receipt_info": {
-      "bytes": 28155,
+      "bytes": 27543,
       "exists": true,
       "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
-      "sha256": "4a8b972746d181e988ba62f8b3813e66d0ccf45c0b5f9a17023d112d977a5c68"
+      "sha256": "ef5eb4b8df09dbb0ace13d07c0c07253bf5ef261f0427bca9ca1d56a6dda498a"
     },
     "status": "blocked_operator_runtime_posture",
     "summary": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored."
@@ -681,14 +681,14 @@
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason"
   ],
-  "source_git_head": "1232dc4c9660ac083ff72624593496e81cbe4d9a",
+  "source_git_head": "8557ae4e3acf469eb9f8b89e0f33fb9e83ccc8e4",
   "source_receipt": {
     "bytes": 16387,
     "exists": true,
     "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
     "sha256": "01236199c3df3ddf46b6ca7789e52be9640e80f4ce92dc9ce1cf6071487ec1d7"
   },
-  "source_state_fingerprint": "42d8e99632c75fbd95cd17851ab3a39bfe0546c6eb3226d4eb5e6fa67d6c9b52",
+  "source_state_fingerprint": "89ec7429dd14cf3159f0b74cbe4f40c5f89735f2cfae44e263b04b3105db9988",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_real_world_acceptance"
 }

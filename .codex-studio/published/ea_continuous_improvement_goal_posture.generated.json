@@ -45,7 +45,7 @@
           "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
           "source_state_fingerprint": "3044e8f6bf19e2d041cde518c0db07af359d8eb4423bec770df6bc8eb700e375",
           "status": "ready_real_world_acceptance_evidence"
@@ -55,8 +55,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
-          "source_state_fingerprint": "3c28a4de2eb6dfbfeac1c695d48c47baa66bbc05918771558cf8518253a9c75e",
+          "source_git_head": "8557ae4e3acf469eb9f8b89e0f33fb9e83ccc8e4",
+          "source_state_fingerprint": "9367cc1b53a452fb4f05a708cbfdab98dec65fd86c439af9c175be7a6467bce8",
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -125,7 +125,7 @@
           "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
           "source_state_fingerprint": "3044e8f6bf19e2d041cde518c0db07af359d8eb4423bec770df6bc8eb700e375",
           "status": "ready_local_packet_pending_operator_acceptance"
@@ -136,35 +136,35 @@
     },
     {
       "action_context": {
-        "approval_capture_current_packet_user_action_required": false,
-        "approval_capture_latest_expires_at": "",
-        "approval_capture_latest_status": "",
-        "approval_capture_live_pending_count": 0,
-        "approval_capture_manual_outcome_capture_ready": false,
-        "approval_capture_ready": false,
+        "approval_capture_current_packet_user_action_required": true,
+        "approval_capture_latest_expires_at": "2026-07-16T05:39:15Z",
+        "approval_capture_latest_status": "pending",
+        "approval_capture_live_pending_count": 1,
+        "approval_capture_manual_outcome_capture_ready": true,
+        "approval_capture_ready": true,
         "approval_capture_selected_channel": "telegram",
-        "approval_capture_telegram_surface_ready": false,
-        "approval_outcome_accepted": false,
-        "approval_outcome_recorded": false,
+        "approval_capture_telegram_surface_ready": true,
+        "approval_outcome_accepted": true,
+        "approval_outcome_recorded": true,
         "callback_tokens_exposed": false,
         "console_deep_link": "",
         "delivery_policy": "queue_only",
-        "gold_status": "blocked_low_quality_packet_evidence",
-        "instruction": "The proactive OODA mechanics have evidence, but the selected packet is not assistant-grade enough to prove production readiness.",
+        "gold_status": "blocked_operator_runtime_posture",
+        "instruction": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored.",
         "interruption_budget": "none",
         "irreversible_actions_consent_gated": true,
         "kind": "proactive_ooda_acceptance_followthrough",
-        "next_action": "reauthorize_google_workspace_binding",
-        "next_action_form_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-        "next_action_form_label": "Reconnect Google workspace",
-        "next_action_form_method": "get",
-        "next_action_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-        "next_action_label": "Reconnect Google workspace",
+        "next_action": "repair_proactive_safe_work_audit",
+        "next_action_form_href": "",
+        "next_action_form_label": "",
+        "next_action_form_method": "",
+        "next_action_href": "https://myexternalbrain.com/app/queue",
+        "next_action_label": "Review safe work",
         "next_action_method": "get",
         "non_action_progress_push_allowed": false,
         "notification_policy": "default",
         "operator_queue_visible": true,
-        "operator_runtime_status": "ready_with_recovery_action",
+        "operator_runtime_status": "ready_with_live_receipt",
         "quiet_hours_respected": true,
         "raw_chat_ids_exposed": false,
         "raw_pair_url_exposed": false,
@@ -175,10 +175,7 @@
         "raw_voice_ids_exposed": false,
         "raw_whatsapp_session_ref_exposed": false,
         "remaining_external_proofs": [
-          "healthy operator runtime posture across approved proactive sources",
-          "assistant-grade source intent and candidate alignment for the proactive OODA packet",
-          "redacted approval-capture readiness for the proactive OODA packet",
-          "redacted explicit approval outcome for the proactive OODA packet"
+          "healthy operator runtime posture across approved proactive sources"
         ],
         "telegram_message": "",
         "telegram_push_allowed": false,
@@ -192,12 +189,12 @@
       "evidence_kind": "approval_outcome",
       "key": "proactive_ooda_packet_acceptance",
       "lens": "decide",
-      "next_action": "reauthorize_google_workspace_binding",
-      "next_action_form_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-      "next_action_form_label": "Reconnect Google workspace",
-      "next_action_form_method": "get",
-      "next_action_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-      "next_action_label": "Reconnect Google workspace",
+      "next_action": "repair_proactive_safe_work_audit",
+      "next_action_form_href": "",
+      "next_action_form_label": "",
+      "next_action_form_method": "",
+      "next_action_href": "https://myexternalbrain.com/app/queue",
+      "next_action_label": "Review safe work",
       "next_action_method": "get",
       "required_next_receipt": "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
       "source_receipts": [
@@ -206,18 +203,18 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
-          "source_state_fingerprint": "131ab9febb73f428792c7002dfc1f8d75cddcaa4aae9059850e79534a38820ce",
-          "status": "blocked_low_quality_packet_evidence"
+          "source_git_head": "8557ae4e3acf469eb9f8b89e0f33fb9e83ccc8e4",
+          "source_state_fingerprint": "9367cc1b53a452fb4f05a708cbfdab98dec65fd86c439af9c175be7a6467bce8",
+          "status": "blocked_operator_runtime_posture"
         },
         {
           "contract_name": "ea.proactive_ooda_operator_status.v1",
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
-          "source_state_fingerprint": "131ab9febb73f428792c7002dfc1f8d75cddcaa4aae9059850e79534a38820ce",
-          "status": "ready_with_recovery_action"
+          "source_git_head": "8557ae4e3acf469eb9f8b89e0f33fb9e83ccc8e4",
+          "source_state_fingerprint": "9367cc1b53a452fb4f05a708cbfdab98dec65fd86c439af9c175be7a6467bce8",
+          "status": "ready_with_live_receipt"
         }
       ],
       "status": "pending_real_world_evidence",
@@ -268,7 +265,7 @@
           "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
           "source_state_fingerprint": "3044e8f6bf19e2d041cde518c0db07af359d8eb4423bec770df6bc8eb700e375",
           "status": "ready_real_world_acceptance_evidence"
@@ -278,8 +275,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
-          "source_state_fingerprint": "3c28a4de2eb6dfbfeac1c695d48c47baa66bbc05918771558cf8518253a9c75e",
+          "source_git_head": "8557ae4e3acf469eb9f8b89e0f33fb9e83ccc8e4",
+          "source_state_fingerprint": "9367cc1b53a452fb4f05a708cbfdab98dec65fd86c439af9c175be7a6467bce8",
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -331,7 +328,7 @@
           "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
           "source_state_fingerprint": "3044e8f6bf19e2d041cde518c0db07af359d8eb4423bec770df6bc8eb700e375",
           "status": "ready_real_world_acceptance_evidence"
@@ -341,8 +338,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
-          "source_state_fingerprint": "3c28a4de2eb6dfbfeac1c695d48c47baa66bbc05918771558cf8518253a9c75e",
+          "source_git_head": "8557ae4e3acf469eb9f8b89e0f33fb9e83ccc8e4",
+          "source_state_fingerprint": "9367cc1b53a452fb4f05a708cbfdab98dec65fd86c439af9c175be7a6467bce8",
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -394,7 +391,7 @@
           "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
           "source_state_fingerprint": "3044e8f6bf19e2d041cde518c0db07af359d8eb4423bec770df6bc8eb700e375",
           "status": "ready_real_world_acceptance_evidence"
@@ -404,8 +401,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
-          "source_state_fingerprint": "3c28a4de2eb6dfbfeac1c695d48c47baa66bbc05918771558cf8518253a9c75e",
+          "source_git_head": "8557ae4e3acf469eb9f8b89e0f33fb9e83ccc8e4",
+          "source_state_fingerprint": "9367cc1b53a452fb4f05a708cbfdab98dec65fd86c439af9c175be7a6467bce8",
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -514,9 +511,9 @@
           "contract_name": "ea.google_workspace_oauth_readiness.v1",
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
-          "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
-          "source_state_fingerprint": "131ab9febb73f428792c7002dfc1f8d75cddcaa4aae9059850e79534a38820ce",
+          "source_fresh_to_current_source": false,
+          "source_git_head": "7b63159d1033dae27debdf3520143f78b53014b9",
+          "source_state_fingerprint": "190654acf27285a544710e351d09b25faf8929f8a57befb863052e53f7d2216f",
           "status": "ready_retry_required"
         }
       ],
@@ -801,7 +798,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-08T15:46:33Z",
+  "generated_at": "2026-07-09T07:05:07Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -893,7 +890,7 @@
           "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
           "source_state_fingerprint": "3044e8f6bf19e2d041cde518c0db07af359d8eb4423bec770df6bc8eb700e375",
           "status": "ready_local_packet_pending_operator_acceptance"
@@ -920,9 +917,9 @@
           "contract_name": "ea.google_workspace_oauth_readiness.v1",
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
-          "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
-          "source_state_fingerprint": "131ab9febb73f428792c7002dfc1f8d75cddcaa4aae9059850e79534a38820ce",
+          "source_fresh_to_current_source": false,
+          "source_git_head": "7b63159d1033dae27debdf3520143f78b53014b9",
+          "source_state_fingerprint": "190654acf27285a544710e351d09b25faf8929f8a57befb863052e53f7d2216f",
           "status": "ready_retry_required"
         },
         {
@@ -1081,7 +1078,7 @@
           "magixai",
           "gemini_vortex"
         ],
-        "observed_at": "2026-07-08T15:45:34Z",
+        "observed_at": "2026-07-09T07:03:28Z",
         "onemin_configured_slots": 70,
         "onemin_preferred_when_speed_is_not_critical": true,
         "onemin_preferred_whenever_usable": true,
@@ -1108,7 +1105,7 @@
           "contract_name": "ea.office_loop_goal_receipt.v1",
           "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
           "source_state_fingerprint": "3044e8f6bf19e2d041cde518c0db07af359d8eb4423bec770df6bc8eb700e375",
           "status": "ready_local_evidence"
@@ -1356,15 +1353,15 @@
     {
       "components": [],
       "key": "prove",
-      "next_action": "reauthorize_google_workspace_binding",
+      "next_action": "repair_proactive_safe_work_audit",
       "source_receipts": [
         {
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
-          "source_state_fingerprint": "3c28a4de2eb6dfbfeac1c695d48c47baa66bbc05918771558cf8518253a9c75e",
+          "source_git_head": "8557ae4e3acf469eb9f8b89e0f33fb9e83ccc8e4",
+          "source_state_fingerprint": "9367cc1b53a452fb4f05a708cbfdab98dec65fd86c439af9c175be7a6467bce8",
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -1712,18 +1709,15 @@
       "default_action_digest_suppressed_reason": "not_user_action_required",
       "delivery_policy": "queue_only",
       "evidence_kind": "approval_outcome",
-      "instruction": "The proactive OODA mechanics have evidence, but the selected packet is not assistant-grade enough to prove production readiness.",
+      "instruction": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored.",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
       "key": "proactive_ooda_packet_acceptance",
       "kind": "proactive_ooda_acceptance_followthrough",
       "lens": "decide",
-      "next_action": "reauthorize_google_workspace_binding",
-      "next_action_form_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-      "next_action_form_label": "Reconnect Google workspace",
-      "next_action_form_method": "get",
-      "next_action_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-      "next_action_label": "Reconnect Google workspace",
+      "next_action": "repair_proactive_safe_work_audit",
+      "next_action_href": "https://myexternalbrain.com/app/queue",
+      "next_action_label": "Review safe work",
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
       "notification_policy": "default",
@@ -1858,7 +1852,7 @@
       "magixai",
       "gemini_vortex"
     ],
-    "observed_at": "2026-07-08T15:45:34Z",
+    "observed_at": "2026-07-09T07:03:28Z",
     "onemin_configured_slots": 70,
     "onemin_preferred_when_speed_is_not_critical": true,
     "onemin_preferred_whenever_usable": true,
@@ -1901,8 +1895,8 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
-  "source_state_fingerprint": "131ab9febb73f428792c7002dfc1f8d75cddcaa4aae9059850e79534a38820ce",
+  "source_git_head": "8557ae4e3acf469eb9f8b89e0f33fb9e83ccc8e4",
+  "source_state_fingerprint": "9367cc1b53a452fb4f05a708cbfdab98dec65fd86c439af9c175be7a6467bce8",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_real_world_acceptance"
 }

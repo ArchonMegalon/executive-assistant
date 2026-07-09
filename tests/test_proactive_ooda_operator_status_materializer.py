@@ -3256,6 +3256,87 @@ def test_materialize_proactive_ooda_operator_status_prefers_live_route_probe_whe
     assert receipt["source_coverage"]["privacy"]["raw_transcript_text_exposed"] is False
 
 
+def test_materialize_proactive_ooda_operator_status_treats_current_packet_ref_errors_as_recovery(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-07-09T07:10:00Z",
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": True,
+                "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                "errors": [],
+            },
+            "route_report": {
+                "ok": True,
+                "delivery_route": {
+                    "ready": True,
+                    "selected_channel": "telegram",
+                    "selected_by": "tool_runtime_binding",
+                    "next_action": "regenerate_proactive_ooda_stage_packet",
+                },
+                "delivery_guard": {"delivery_state": "no_actionable_items"},
+                "stage_packets": {"ready": True, "errors": ["current_packet_refs_missing"]},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 1,
+                "actionable_count": 0,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
+            "approval_callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 1,
+            "approval_callback_pending_count": 1,
+            "approval_callback_recorded_count": 0,
+            "current_packet_callback_record_count": 1,
+            "current_packet_callback_pending_count": 1,
+            "current_packet_callback_recorded_count": 0,
+            "current_packet_live_callback_record_count": 1,
+            "current_packet_live_pending_count": 1,
+            "current_packet_callback_latest_status": "pending",
+            "current_packet_callback_latest_expired": False,
+        },
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_approval_capture", _fake_approval_capture_probe)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-09T07:11:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "ready_with_recovery_action"
+    assert receipt["reason"] == "current_packet_refs_missing"
+    assert receipt["next_action"] == "regenerate_proactive_ooda_stage_packet"
+    assert receipt["operator_action_state"] == "recovery_required"
+    assert receipt["approval_capture_surface"]["ready"] is True
+    assert receipt["delivery_guard"]["delivery_state"] == "no_actionable_items"
+    assert receipt["delivery_guard"].get("user_action_required") is not True
+    assert receipt["actionable_count"] == 0
+
+
 def test_materialize_proactive_ooda_operator_status_counts_pending_approval_as_user_action(
     tmp_path: Path, monkeypatch
 ) -> None:

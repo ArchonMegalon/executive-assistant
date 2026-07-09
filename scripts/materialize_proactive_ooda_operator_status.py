@@ -2215,6 +2215,8 @@ def _status(report: dict[str, Any], *, live_receipt: dict[str, Any], live_receip
     route_ready = bool(route.get("ready"))
     route_error = str(route.get("route_error") or "").strip()
     delivery_state = str(guard.get("delivery_state") or "").strip()
+    stage_errors = [str(item).strip() for item in list(stage_packets.get("errors") or []) if str(item).strip()]
+    safe_errors = [str(item).strip() for item in list(safe_work.get("errors") or []) if str(item).strip()]
     if delivery_state == "deferred":
         return "deferred"
     if route_error:
@@ -2226,6 +2228,8 @@ def _status(report: dict[str, Any], *, live_receipt: dict[str, Any], live_receip
     if not bool(report.get("ok")) and not _has_only_workspace_health_errors(report):
         return "blocked_local_runtime"
     if not bool(report.get("ok")) and _has_only_workspace_health_errors(report):
+        return "ready_with_recovery_action"
+    if stage_errors or safe_errors:
         return "ready_with_recovery_action"
     if live_receipt_checked and _live_receipt_requires_runtime_recovery(live_receipt):
         return "ready_with_recovery_action"

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 from app.services.proactive_ooda_safe_work import build_safe_work_result
@@ -898,10 +899,18 @@ def test_runner_main_defers_when_safe_work_has_no_decision_ready_material(tmp_pa
 
     captured = capsys.readouterr()
     receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
-    safe_work = json.loads(next((tmp_path / "results").glob("*.json")).read_text(encoding="utf-8"))
+    archived_stage_dir = Path(receipt["stage_packet_output_dir"])
+    archived_safe_dir = Path(receipt["safe_work_result_output_dir"])
+    safe_work = json.loads(next(archived_safe_dir.glob("*.json")).read_text(encoding="utf-8"))
     assert sent == []
     assert receipt["notification_status"] == "deferred"
     assert receipt["error_code"] == "no_decision_ready_safe_work"
+    assert archived_stage_dir != tmp_path / "packets"
+    assert archived_safe_dir != tmp_path / "results"
+    assert list((tmp_path / "packets").glob("*.json")) == []
+    assert list((tmp_path / "results").glob("*.json")) == []
+    assert len(list(archived_stage_dir.glob("*.json"))) == 1
+    assert len(list(archived_safe_dir.glob("*.json"))) == 1
     assert safe_work["status"] == "blocked_needs_research_input"
     assert safe_work["audit"]["issues"][0]["code"] == "no_decision_ready_material"
     assert '"notification_status": "deferred"' in captured.out

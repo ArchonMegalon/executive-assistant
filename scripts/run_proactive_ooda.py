@@ -7,6 +7,7 @@ import inspect
 import json
 import logging
 import os
+import shutil
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -536,6 +537,7 @@ def main() -> int:
         )
     followthrough_artifacts: dict[str, Any] = {}
     if args.receipt_path:
+        current_runtime_artifacts_present = bool(stage_packet_refs or safe_work_result_refs)
         receipt_payload = _receipt_payload(
             receipt=receipt,
             teable_sync=teable_sync,
@@ -547,14 +549,38 @@ def main() -> int:
             approval_callback_cleanup=approval_callback_cleanup,
             property_boundary_cleanup=property_boundary_cleanup,
         )
+        archived_receipt_path = _archived_receipt_path(args, payload=receipt_payload)
+        if current_runtime_artifacts_present and _should_archive_runtime_artifacts(error_code):
+            (
+                stage_packet_dir,
+                safe_work_result_dir,
+                stage_packet_paths,
+                safe_work_result_paths,
+            ) = _archive_runtime_artifacts_for_receipt(
+                archived_receipt_path=archived_receipt_path,
+                stage_packet_paths=stage_packet_paths,
+                safe_work_result_paths=safe_work_result_paths,
+            )
+            current_runtime_artifacts_present = bool(stage_packet_paths or safe_work_result_paths)
+            receipt_payload = _receipt_payload(
+                receipt=receipt,
+                teable_sync=teable_sync,
+                stage_packet_dir=stage_packet_dir,
+                safe_work_result_dir=safe_work_result_dir,
+                auto_execute_results=auto_execution_results,
+                delivery_mirror=delivery_mirror,
+                source_health=source_health,
+                approval_callback_cleanup=approval_callback_cleanup,
+                property_boundary_cleanup=property_boundary_cleanup,
+            )
         _write_receipt(Path(args.receipt_path), receipt_payload)
-        _write_receipt(_archived_receipt_path(args, payload=receipt_payload), receipt_payload)
+        _write_receipt(archived_receipt_path, receipt_payload)
         followthrough_artifacts = _materialize_followthrough_artifacts(
             args,
             receipt_path=Path(args.receipt_path),
             stage_packet_dir=stage_packet_dir,
             safe_work_result_dir=safe_work_result_dir,
-            current_runtime_artifacts_present=bool(stage_packet_refs or safe_work_result_refs),
+            current_runtime_artifacts_present=current_runtime_artifacts_present,
         )
         receipt_payload = _receipt_payload(
             receipt=receipt,
@@ -569,14 +595,14 @@ def main() -> int:
             followthrough_artifacts=followthrough_artifacts,
         )
         _write_receipt(Path(args.receipt_path), receipt_payload)
-        _write_receipt(_archived_receipt_path(args, payload=receipt_payload), receipt_payload)
+        _write_receipt(archived_receipt_path, receipt_payload)
         if str(dict(followthrough_artifacts.get("operator_status") or {}).get("reason") or "").strip() == "followthrough_artifacts_missing":
             followthrough_artifacts = _materialize_followthrough_artifacts(
                 args,
                 receipt_path=Path(args.receipt_path),
                 stage_packet_dir=stage_packet_dir,
                 safe_work_result_dir=safe_work_result_dir,
-                current_runtime_artifacts_present=bool(stage_packet_refs or safe_work_result_refs),
+                current_runtime_artifacts_present=current_runtime_artifacts_present,
             )
             receipt_payload = _receipt_payload(
                 receipt=receipt,
@@ -591,7 +617,7 @@ def main() -> int:
                 followthrough_artifacts=followthrough_artifacts,
             )
             _write_receipt(Path(args.receipt_path), receipt_payload)
-            _write_receipt(_archived_receipt_path(args, payload=receipt_payload), receipt_payload)
+            _write_receipt(archived_receipt_path, receipt_payload)
     if error_code and not _is_deferred_error(error_code):
         raise RuntimeError(f"proactive_ooda_notification_failed:{error_code}")
     if args.pretty:
@@ -677,6 +703,45 @@ def _receipt_artifact_root(receipt_path: Path) -> Path:
     if receipt_path.parent.name == RUN_RECEIPT_DIRNAME:
         return receipt_path.parent.parent
     return receipt_path.parent
+
+
+def _should_archive_runtime_artifacts(error_code: str) -> bool:
+    return str(error_code or "").strip() == "no_decision_ready_safe_work"
+
+
+def _archive_runtime_artifacts_for_receipt(
+    *,
+    archived_receipt_path: Path,
+    stage_packet_paths: Iterable[str | Path],
+    safe_work_result_paths: Iterable[str | Path],
+) -> tuple[Path, Path, tuple[str, ...], tuple[str, ...]]:
+    archive_root = archived_receipt_path.parent / f"{archived_receipt_path.stem}.artifacts"
+    archive_stage_dir = archive_root / "proactive_ooda_stage_packets"
+    archive_safe_dir = archive_root / "proactive_ooda_safe_work_results"
+    return (
+        archive_stage_dir,
+        archive_safe_dir,
+        _relocate_runtime_artifact_files(paths=stage_packet_paths, target_dir=archive_stage_dir),
+        _relocate_runtime_artifact_files(paths=safe_work_result_paths, target_dir=archive_safe_dir),
+    )
+
+
+def _relocate_runtime_artifact_files(*, paths: Iterable[str | Path], target_dir: Path) -> tuple[str, ...]:
+    relocated: list[str] = []
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for raw_path in paths:
+        source_path = Path(raw_path)
+        if not source_path.exists():
+            continue
+        target_path = target_dir / source_path.name
+        try:
+            if source_path.resolve() != target_path.resolve():
+                shutil.move(str(source_path), str(target_path))
+        except Exception:
+            relocated.append(str(source_path))
+            continue
+        relocated.append(str(target_path))
+    return tuple(relocated)
 
 
 def _followthrough_runtime_context(
