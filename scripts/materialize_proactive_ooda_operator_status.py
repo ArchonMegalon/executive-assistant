@@ -30,6 +30,7 @@ import scripts.verify_proactive_ooda_live_receipt as live_receipt_verifier
 import scripts.ea_live_ops as ea_live_ops
 from app.services.proactive_ooda_live_ops_bridge import resolve_proactive_ooda_capture_bundle
 from app.services.proactive_ooda_operator_actions import proactive_next_action_surface
+from app.services.proactive_source_health_policy import source_health_issue_requires_user_action
 from app.services.proactive_ooda_telegram_policy import approval_request_needs_telegram_user_action
 from app.services.proactive_ooda_safe_work import safe_work_decision_materiality_issue
 from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
@@ -37,19 +38,6 @@ from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_
 
 DEFAULT_OUTPUT = ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
 CONTRACT_NAME = "ea.proactive_ooda_operator_status.v1"
-GOOGLE_WORKSPACE_REAUTH_USER_ACTION_ERROR_CODES = {
-    "disconnected_by_operator",
-    "google_oauth_access_denied",
-    "google_oauth_access_token_missing",
-    "google_oauth_account_mismatch",
-    "google_oauth_binding_not_found",
-    "google_oauth_invalid_grant",
-    "google_oauth_refresh_failed",
-    "google_oauth_unauthorized_client",
-}
-GOOGLE_WORKSPACE_REAUTH_USER_ACTIONS = {
-    "reauthorize_google_workspace_binding",
-}
 
 RULES = [
     "This receipt proves proactive OODA route, guard, and packet-runtime posture only; it does not prove a human accepted the packet.",
@@ -167,6 +155,11 @@ def _default_report_args() -> argparse.Namespace:
         interruption_budget_limit=_safe_int(str(os.getenv("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_LIMIT") or "0"), default=0),
         interruption_budget_window_hours=_safe_int(str(os.getenv("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_WINDOW_HOURS") or "24"), default=24),
         interruption_budget_allow_high_priority=_env_truthy("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_ALLOW_HIGH_PRIORITY", default=True),
+        notification_cooldown_seconds=_safe_int(str(os.getenv("EA_PROACTIVE_OODA_NOTIFICATION_COOLDOWN_SECONDS") or "1800"), default=1800),
+        notification_cooldown_allow_high_priority=_env_truthy(
+            "EA_PROACTIVE_OODA_NOTIFICATION_COOLDOWN_ALLOW_HIGH_PRIORITY",
+            default=True,
+        ),
         stage_packet_dir=str(os.getenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR") or "").strip(),
         safe_work_result_dir=str(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR") or "").strip(),
         stage_packets=_env_truthy("EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED", default=True),
@@ -832,17 +825,7 @@ def _string_list(value: Any, *, limit: int) -> list[str]:
 
 
 def _runtime_source_health_issue_requires_user_action(issue: Mapping[str, Any]) -> bool:
-    if bool(issue.get("user_action_required")):
-        return True
-    source_key = str(issue.get("source_key") or "").strip()
-    source_type = str(issue.get("source_type") or "").strip()
-    error_code = str(issue.get("error_code") or "").strip()
-    next_action = str(issue.get("next_action") or "").strip()
-    if next_action in GOOGLE_WORKSPACE_REAUTH_USER_ACTIONS:
-        return True
-    if "google_workspace" in {source_key, source_type} and error_code in GOOGLE_WORKSPACE_REAUTH_USER_ACTION_ERROR_CODES:
-        return True
-    return False
+    return source_health_issue_requires_user_action(issue)
 
 
 def _runtime_source_health_summary(artifact_probe: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -868,6 +851,23 @@ def _runtime_source_health_summary(artifact_probe: Mapping[str, Any] | None) -> 
             "raw_payload_exposed": False,
             "raw_credential_exposed": False,
         }
+        recovery_mode = str(issue.get("recovery_mode") or "").strip()
+        blocked_until = str(issue.get("blocked_until") or issue.get("cooldown_until") or "").strip()
+        last_observed_at = str(issue.get("last_observed_at") or "").strip()
+        if recovery_mode:
+            normalized["recovery_mode"] = recovery_mode[:80]
+        if blocked_until:
+            normalized["blocked_until"] = blocked_until[:40]
+        if last_observed_at:
+            normalized["last_observed_at"] = last_observed_at[:40]
+        if "cooldown_active" in issue or blocked_until:
+            normalized["cooldown_active"] = bool(issue.get("cooldown_active"))
+        try:
+            cooldown_seconds_remaining = max(int(issue.get("cooldown_seconds_remaining") or 0), 0)
+        except Exception:
+            cooldown_seconds_remaining = 0
+        if cooldown_seconds_remaining > 0:
+            normalized["cooldown_seconds_remaining"] = cooldown_seconds_remaining
         issues.append(normalized)
     operator_action_required = any(bool(issue.get("operator_action_required")) for issue in issues)
     user_action_required = any(bool(issue.get("user_action_required")) for issue in issues)
@@ -932,12 +932,110 @@ def _runtime_source_health_recovery_summary(source_health: Mapping[str, Any] | N
     issues = [dict(issue or {}) for issue in list(normalized.get("issues") or []) if isinstance(issue, Mapping)]
     if not issues:
         return "Proactive OODA route and packet runtime are available, but source-health posture needs review."
+    google_cooldown_issue = next(
+        (
+            issue
+            for issue in issues
+            if str(issue.get("source_key") or "").strip() == "google_workspace"
+            and bool(issue.get("cooldown_active"))
+        ),
+        None,
+    )
+    if google_cooldown_issue is not None:
+        blocked_until = str(google_cooldown_issue.get("blocked_until") or "").strip()
+        if blocked_until:
+            return (
+                "Proactive OODA route and packet runtime are available, but "
+                f"Google workspace recovery cooldown is active until {blocked_until}."
+            )
     preview = ", ".join(str(issue.get("source_key") or "unknown").strip() or "unknown" for issue in issues[:3])
     extra_count = max(len(issues) - 3, 0)
     suffix = f" (+{extra_count} more)" if extra_count else ""
     return (
         "Proactive OODA route and packet runtime are available, but "
         f"{len(issues)} signal source health issue(s) need operator recovery: {preview}{suffix}."
+    )
+
+
+def _runtime_artifact_drift_summary(artifact_probe: Mapping[str, Any] | None) -> dict[str, Any]:
+    drift = dict(dict(artifact_probe or {}).get("runtime_artifact_drift") or {})
+    if not drift:
+        return {
+            "checked": False,
+            "present": False,
+            "status": "not_recorded",
+            "requires_recovery": False,
+            "blocking_reason": "",
+            "next_action": "",
+            "mismatch_count": 0,
+            "material_mismatch_count": 0,
+            "mismatch_fields": [],
+            "material_mismatch_fields": [],
+            "host_artifacts_present": False,
+            "privacy": {
+                "raw_packet_ref_exposed": False,
+                "raw_staged_artifact_ref_exposed": False,
+                "raw_private_paths_exposed": False,
+            },
+        }
+    return {
+        "checked": bool(drift.get("checked")),
+        "present": bool(drift.get("present")),
+        "status": str(drift.get("status") or "").strip() or "unknown",
+        "requires_recovery": bool(drift.get("requires_recovery")),
+        "blocking_reason": str(drift.get("blocking_reason") or "").strip(),
+        "next_action": str(drift.get("next_action") or "").strip(),
+        "mismatch_count": int(drift.get("mismatch_count") or 0),
+        "material_mismatch_count": int(drift.get("material_mismatch_count") or 0),
+        "mismatch_fields": _string_list(drift.get("mismatch_fields"), limit=10),
+        "material_mismatch_fields": _string_list(drift.get("material_mismatch_fields"), limit=10),
+        "host_artifacts_present": bool(drift.get("host_artifacts_present")),
+        "privacy": {
+            "raw_packet_ref_exposed": False,
+            "raw_staged_artifact_ref_exposed": False,
+            "raw_private_paths_exposed": False,
+        },
+    }
+
+
+def _runtime_artifact_drift_requires_recovery(runtime_artifact_drift: Mapping[str, Any] | None) -> bool:
+    normalized = dict(runtime_artifact_drift or {})
+    return bool(normalized.get("requires_recovery"))
+
+
+def _runtime_artifact_drift_recovery_reason(runtime_artifact_drift: Mapping[str, Any] | None) -> str:
+    normalized = dict(runtime_artifact_drift or {})
+    blocking_reason = str(normalized.get("blocking_reason") or "").strip()
+    if blocking_reason:
+        return blocking_reason
+    mismatch_fields = _string_list(normalized.get("material_mismatch_fields"), limit=1)
+    if mismatch_fields:
+        return f"runtime_artifact_drift:{mismatch_fields[0]}"
+    return "runtime_artifact_drift:recovery_required"
+
+
+def _runtime_artifact_drift_recovery_next_action(runtime_artifact_drift: Mapping[str, Any] | None) -> str:
+    normalized = dict(runtime_artifact_drift or {})
+    next_action = str(normalized.get("next_action") or "").strip()
+    return next_action or "repair_proactive_runtime_artifact_drift"
+
+
+def _runtime_artifact_drift_recovery_summary(runtime_artifact_drift: Mapping[str, Any] | None) -> str:
+    normalized = dict(runtime_artifact_drift or {})
+    status = str(normalized.get("status") or "unknown").strip() or "unknown"
+    mismatch_fields = _string_list(normalized.get("material_mismatch_fields"), limit=3)
+    mismatch_count = int(normalized.get("material_mismatch_count") or len(mismatch_fields))
+    if mismatch_fields:
+        preview = ", ".join(mismatch_fields)
+        extra_count = max(mismatch_count - len(mismatch_fields), 0)
+        suffix = f" (+{extra_count} more)" if extra_count else ""
+        return (
+            "Proactive OODA live runtime and host fallback artifacts disagree on current packet evidence. "
+            f"Recover that runtime artifact drift before claiming gold-ready posture ({preview}{suffix})."
+        )
+    return (
+        "Proactive OODA live runtime and host fallback artifacts need recovery before gold-ready posture is "
+        f"trustworthy ({status})."
     )
 
 
@@ -1136,6 +1234,7 @@ def _soft_followthrough_recovery_override(
     suppressed_projection_blocks: bool,
     browser_handoff_recovery_active: bool,
     source_health_recovery_active: bool,
+    runtime_artifact_drift_recovery_active: bool,
     provider_cost_pressure_recovery_active: bool,
     approval_callback_hygiene_blocks: bool,
 ) -> bool:
@@ -1147,6 +1246,8 @@ def _soft_followthrough_recovery_override(
         or assistant_grade_recovery_active
         or suppressed_projection_blocks
         or browser_handoff_recovery_active
+        or source_health_recovery_active
+        or runtime_artifact_drift_recovery_active
         or provider_cost_pressure_recovery_active
         or approval_callback_hygiene_blocks
     ):
@@ -1807,19 +1908,48 @@ def _assistant_grade_stage_kind_and_work_type(artifact_probe: Mapping[str, Any])
     return stage_kind, work_type
 
 
+def _assistant_grade_safe_work_requires_recovery(artifact_probe: Mapping[str, Any]) -> tuple[bool, str]:
+    probe = _mapping_value(artifact_probe)
+    safe_work_result = _mapping_value(probe.get("safe_work_result"))
+    if not safe_work_result:
+        return False, ""
+    bundle_source = str(probe.get("assistant_grade_bundle_source") or "current_runtime_bundle").strip()
+    if bundle_source != "historical_browse_backed_proof_bundle":
+        return False, ""
+    if not _mapping_value(safe_work_result.get("audit")) and not _mapping_value(safe_work_result.get("browser_action_receipt")):
+        return False, ""
+    safe_work_audit = _normalized_safe_work_audit(probe)
+    if bool(safe_work_audit.get("delivery_allowed")):
+        return False, ""
+    blocking_reason = str(safe_work_audit.get("blocking_reason") or "").strip()
+    if not blocking_reason and bool(safe_work_audit.get("filtered_non_material")):
+        blocking_reason = "safe_work_audit_filtered_non_material"
+    if not blocking_reason:
+        blocking_reason = "safe_work_audit_not_pass"
+    return True, blocking_reason
+
+
 def _normalized_assistant_grade_packet(artifact_probe: Mapping[str, Any]) -> dict[str, Any]:
     probe = _mapping_value(artifact_probe)
     stage_packet = _mapping_value(probe.get("stage_packet"))
     safe_work_result = _mapping_value(probe.get("safe_work_result"))
     present = bool(stage_packet or safe_work_result)
     stage_kind, work_type = _assistant_grade_stage_kind_and_work_type(probe)
+    safe_work_requires_recovery, safe_work_blocking_reason = _assistant_grade_safe_work_requires_recovery(probe)
     requires_recovery = bool(
         present
         and (
             stage_kind in ASSISTANT_GRADE_BLOCKING_WORK_TYPES
             or work_type in ASSISTANT_GRADE_BLOCKING_WORK_TYPES
+            or safe_work_requires_recovery
         )
     )
+    blocking_reason = ""
+    if requires_recovery:
+        if stage_kind in ASSISTANT_GRADE_BLOCKING_WORK_TYPES or work_type in ASSISTANT_GRADE_BLOCKING_WORK_TYPES:
+            blocking_reason = "internal_action_not_assistant_grade"
+        else:
+            blocking_reason = safe_work_blocking_reason or "safe_work_audit_not_pass"
     return {
         "present": present,
         "source": str(probe.get("source") or "").strip(),
@@ -1827,7 +1957,7 @@ def _normalized_assistant_grade_packet(artifact_probe: Mapping[str, Any]) -> dic
         "stage_kind": stage_kind,
         "work_type": work_type,
         "requires_recovery": requires_recovery,
-        "blocking_reason": "internal_action_not_assistant_grade" if requires_recovery else "",
+        "blocking_reason": blocking_reason,
         "next_action": "stage_fresh_assistant_grade_proactive_packet" if requires_recovery else "",
         "privacy": {
             "raw_packet_text_exposed": False,
@@ -2046,6 +2176,8 @@ def _next_action(report: dict[str, Any], *, live_receipt: dict[str, Any], live_r
         return "resume_after_quiet_hours"
     if deferred_reason == "deferred_by_interruption_budget":
         return "wait_for_interruption_budget_window"
+    if deferred_reason == "deferred_by_notification_cooldown":
+        return "wait_for_notification_cooldown"
     if deferred_reason == "deferred_by_unarmed_send":
         return "arm_proactive_send_for_live_delivery"
     if not bool(stage_packets.get("ready")):
@@ -2119,6 +2251,11 @@ def _summary(
             return "Proactive OODA delivery is currently deferred by quiet hours."
         if deferred_reason == "deferred_by_interruption_budget":
             return "Proactive OODA delivery is currently deferred because the interruption budget is exhausted."
+        if deferred_reason == "deferred_by_notification_cooldown":
+            remaining = int(dict(report.get("delivery_guard") or {}).get("notification_cooldown_seconds_remaining") or 0)
+            if remaining > 0:
+                return f"Proactive OODA delivery is currently deferred by the notification cooldown ({remaining}s remaining)."
+            return "Proactive OODA delivery is currently deferred by the notification cooldown."
         if deferred_reason == "deferred_by_operator_pause":
             return "Proactive OODA delivery is currently deferred by operator pause."
         return f"Proactive OODA delivery is currently deferred by {delivery_state or 'operator policy'}."
@@ -2683,6 +2820,7 @@ def _local_artifact_probe(
         "artifact_resolution_source": resolution_source or "host_runtime_fallback",
         "artifact_resolution_host_fallback_used": bool(resolution.get("host_fallback_used")),
         "artifact_resolution_fallback_reason": str(resolution.get("fallback_reason") or "").strip(),
+        "runtime_artifact_drift": dict(resolution.get("runtime_artifact_drift") or {}),
         "artifact_filter_reason": str(bundle.get("artifact_filter_reason") or "").strip(),
         "assistant_grade_bundle_source": (
             "historical_browse_backed_proof_bundle" if prefer_browse_backed_delivery else "current_runtime_bundle"
@@ -2750,10 +2888,15 @@ def _assistant_grade_artifact_probe(
     if not _assistant_grade_historical_fallback_allowed(current_probe):
         return current_probe
 
+    allow_live_runtime_probe = bool(
+        allow_live_route_probe
+        and live_receipt_path is None
+        and not _has_explicit_artifact_dirs(report_args)
+    )
     candidate_probe = _local_artifact_probe(
         report_args=report_args,
         live_receipt_path=live_receipt_path,
-        allow_live_runtime_probe=False,
+        allow_live_runtime_probe=allow_live_runtime_probe,
         live_probe_timeout_seconds=live_probe_timeout_seconds,
         prefer_browse_backed_delivery=True,
     )
@@ -2992,6 +3135,7 @@ def build_proactive_ooda_operator_status(
     suppressed_projection = _normalized_suppressed_projection(artifact_probe)
     suppressed_projection_blocks = bool(suppressed_projection.get("requires_recovery"))
     runtime_source_health = _runtime_source_health_summary(artifact_probe)
+    runtime_artifact_drift = _runtime_artifact_drift_summary(artifact_probe)
     source_coverage = _source_coverage_summary(source_coverage_probe)
     provider_cost_pressure = _provider_cost_pressure_summary(provider_cost_pressure_probe)
     status = _status(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
@@ -3031,6 +3175,19 @@ def build_proactive_ooda_operator_status(
     if source_health_recovery_active:
         status = "ready_with_recovery_action"
         reason = _runtime_source_health_recovery_reason(runtime_source_health)
+    runtime_artifact_drift_recovery_active = bool(
+        not safe_work_audit_blocks
+        and not current_artifact_filter_blocks
+        and not assistant_grade_recovery_active
+        and not suppressed_projection_blocks
+        and not browser_handoff_recovery_active
+        and not source_health_recovery_active
+        and status in {"ready_local_runtime", "ready_with_live_receipt"}
+        and _runtime_artifact_drift_requires_recovery(runtime_artifact_drift)
+    )
+    if runtime_artifact_drift_recovery_active:
+        status = "ready_with_recovery_action"
+        reason = _runtime_artifact_drift_recovery_reason(runtime_artifact_drift)
     provider_cost_pressure_recovery_active = bool(
         not safe_work_audit_blocks
         and not current_artifact_filter_blocks
@@ -3038,6 +3195,7 @@ def build_proactive_ooda_operator_status(
         and not suppressed_projection_blocks
         and not browser_handoff_recovery_active
         and not source_health_recovery_active
+        and not runtime_artifact_drift_recovery_active
         and status in {"ready_local_runtime", "ready_with_live_receipt"}
         and bool(provider_cost_pressure.get("requires_recovery"))
     )
@@ -3051,6 +3209,7 @@ def build_proactive_ooda_operator_status(
         and not suppressed_projection_blocks
         and not browser_handoff_recovery_active
         and not source_health_recovery_active
+        and not runtime_artifact_drift_recovery_active
         and not provider_cost_pressure_recovery_active
         and status in {"ready_local_runtime", "ready_with_live_receipt"}
         and _source_coverage_requires_recovery(source_coverage)
@@ -3065,6 +3224,7 @@ def build_proactive_ooda_operator_status(
         and not safe_work_audit_blocks
         and not current_artifact_filter_blocks
         and not assistant_grade_recovery_active
+        and not runtime_artifact_drift_recovery_active
         and _approval_capture_surface_ready(approval_capture_surface)
         and int(approval_capture_surface.get("current_packet_live_pending_count") or 0) > 0
         and live_receipt_checked
@@ -3106,12 +3266,14 @@ def build_proactive_ooda_operator_status(
         suppressed_projection_blocks=suppressed_projection_blocks,
         browser_handoff_recovery_active=browser_handoff_recovery_active,
         source_health_recovery_active=source_health_recovery_active,
+        runtime_artifact_drift_recovery_active=runtime_artifact_drift_recovery_active,
         provider_cost_pressure_recovery_active=provider_cost_pressure_recovery_active,
         approval_callback_hygiene_blocks=approval_callback_hygiene_blocks,
     )
     if approval_followthrough_override_active:
         status = "ready_with_live_receipt"
         source_health_recovery_active = False
+        runtime_artifact_drift_recovery_active = False
         source_coverage_recovery_active = False
     if safe_work_audit_blocks or current_artifact_filter_blocks or suppressed_projection_blocks:
         next_action = "repair_proactive_safe_work_audit"
@@ -3126,6 +3288,8 @@ def build_proactive_ooda_operator_status(
         ).strip()
     elif source_health_recovery_active:
         next_action = _runtime_source_health_recovery_next_action(runtime_source_health)
+    elif runtime_artifact_drift_recovery_active:
+        next_action = _runtime_artifact_drift_recovery_next_action(runtime_artifact_drift)
     elif provider_cost_pressure_recovery_active:
         next_action = "repair_provider_cost_routing"
     elif source_coverage_recovery_active:
@@ -3169,6 +3333,8 @@ def build_proactive_ooda_operator_status(
         )
     elif source_health_recovery_active:
         summary = _runtime_source_health_recovery_summary(runtime_source_health)
+    elif runtime_artifact_drift_recovery_active:
+        summary = _runtime_artifact_drift_recovery_summary(runtime_artifact_drift)
     elif provider_cost_pressure_recovery_active:
         summary = _provider_cost_pressure_recovery_summary(provider_cost_pressure)
     elif source_coverage_recovery_active:
@@ -3214,6 +3380,7 @@ def build_proactive_ooda_operator_status(
             or suppressed_projection_blocks
             or browser_handoff_recovery_active
             or source_health_recovery_active
+            or runtime_artifact_drift_recovery_active
             or provider_cost_pressure_recovery_active
             else _operator_followthrough_action_state(
                 status,
@@ -3254,6 +3421,7 @@ def build_proactive_ooda_operator_status(
         "assistant_grade_packet": assistant_grade_packet,
         "suppressed_projection": suppressed_projection,
         "source_health": runtime_source_health,
+        "runtime_artifact_drift": runtime_artifact_drift,
         "provider_cost_pressure": provider_cost_pressure,
         "receipt_observation_count": int(report.get("receipt_observation_count") or 0),
         "runtime_actionable_count": runtime_actionable_count,

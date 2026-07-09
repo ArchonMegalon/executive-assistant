@@ -1471,7 +1471,14 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         proactive_operator_receipt=proactive_ooda_operator_receipt,
         proactive_gold_receipt=proactive_ooda_gold_receipt,
     )
-    proactive_gold_action_visible = proactive_gold_verdict_available
+    proactive_gold_action_visible = bool(
+        proactive_gold_verdict_available
+        or (
+            str(proactive_ooda_gold_receipt.get("status") or "").strip()
+            and str(proactive_ooda_gold_receipt.get("status") or "").strip() != "missing"
+            and str(proactive_ooda_gold_receipt.get("next_action") or "").strip()
+        )
+    )
     proactive_runtime_property_scoped = _assistant_property_scoped_proactive_runtime(
         proactive_runtime_bundle,
         proactive_operator_receipt=proactive_ooda_operator_receipt,

@@ -9209,6 +9209,8 @@ def test_probe_proactive_source_coverage_expands_window_when_initial_limit_is_tr
     )
 
     assert len(calls) == 2
+    assert calls[0]["timeout_seconds"] == 60.0
+    assert calls[1]["timeout_seconds"] == 180.0
     assert report["observation_limit"] == 4000
     assert report["observation_row_count"] == 3
     assert "pocket_ai_audio_transcripts" not in report["missing_lane_keys"]

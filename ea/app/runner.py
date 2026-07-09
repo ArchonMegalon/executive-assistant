@@ -35,12 +35,22 @@ _SCHEDULER_ALEXA_HISTORY_SYNC_INTERVAL_SECONDS = 900.0
 _SCHEDULER_MORNING_MEMO_INTERVAL_SECONDS = 300.0
 _SCHEDULER_PUSHBULLET_RELAY_INTERVAL_SECONDS = 15.0
 _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_INTERVAL_SECONDS = 5.0
+_SCHEDULER_TELEGRAM_ASYNC_IDLE_INTERVAL_SECONDS = 30.0
 _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MIN_AGE_SECONDS = 0.0
+_SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MAX_SENDS_PER_PASS = 5
 _SCHEDULER_WHATSAPP_ASYNC_RECOVERY_INTERVAL_SECONDS = 6.0
+_SCHEDULER_WHATSAPP_ASYNC_IDLE_INTERVAL_SECONDS = 30.0
 _SCHEDULER_WHATSAPP_ASYNC_RECOVERY_MIN_AGE_SECONDS = 2.0
+_SCHEDULER_WHATSAPP_ASYNC_RECOVERY_MAX_SENDS_PER_PASS = 5
+_SCHEDULER_HOST_MAX_LOAD_PER_CORE = 1.25
+_SCHEDULER_HOST_MIN_AVAILABLE_MEMORY_GIB = 2.0
+_SCHEDULER_RUNTIME_GUARD_LOG_INTERVAL_SECONDS = 300.0
+_SCHEDULER_ASYNC_IDLE_LOG_INTERVAL_SECONDS = 300.0
 _SCHEDULER_MORNING_MEMO_DELIVERY_WINDOW_MINUTES = 120
 _SCHEDULER_MORNING_MEMO_RETRY_AFTER_MINUTES = 60
+_SCHEDULER_MORNING_MEMO_MAX_DELIVERIES_PER_PASS = 1
 _SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWNS: dict[str, float] = {}
+_SCHEDULER_GOOGLE_SIGNAL_SYNC_RUNTIME_COOLDOWNS: dict[str, dict[str, object]] = {}
 
 
 def _env_float(name: str, default: float) -> float:
@@ -70,6 +80,217 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+def _scheduler_side_effects_enabled() -> bool:
+    return _env_bool("EA_SCHEDULER_SIDE_EFFECTS_ENABLED", True)
+
+
+def _scheduler_host_pressure_guard_enabled() -> bool:
+    return _env_bool("EA_SCHEDULER_HOST_PRESSURE_GUARD_ENABLED", True)
+
+
+def _scheduler_digest_email_enabled() -> bool:
+    return _env_bool("EA_SCHEDULER_DIGEST_EMAIL_ENABLED", False)
+
+
+def _scheduler_digest_email_require_explicit_allowlist() -> bool:
+    return _env_bool("EA_SCHEDULER_DIGEST_EMAIL_REQUIRE_EXPLICIT_ALLOWLIST", True)
+
+
+def _csv_env_values(name: str, *, lowercase: bool = False) -> tuple[str, ...]:
+    raw = str(os.environ.get(name) or "").strip()
+    if not raw:
+        return ()
+    values: list[str] = []
+    for part in re.split(r"[\s,;]+", raw):
+        normalized = str(part or "").strip()
+        if not normalized:
+            continue
+        if lowercase:
+            normalized = normalized.lower()
+        if normalized not in values:
+            values.append(normalized)
+    return tuple(values)
+
+
+def _scheduler_digest_email_allowed_principal_ids() -> tuple[str, ...]:
+    return _csv_env_values("EA_SCHEDULER_DIGEST_EMAIL_ALLOWED_PRINCIPAL_IDS")
+
+
+def _scheduler_digest_email_allowed_recipient_emails() -> tuple[str, ...]:
+    return _csv_env_values("EA_SCHEDULER_DIGEST_EMAIL_ALLOWED_RECIPIENT_EMAILS", lowercase=True)
+
+
+def _truthy_setting_value(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _scheduler_digest_email_explicit_opt_in(format_json: dict[str, object]) -> bool:
+    for key in (
+        "allow_scheduler_email",
+        "scheduler_email_allowed",
+        "scheduler_email_opt_in",
+        "email_delivery_approved",
+    ):
+        if _truthy_setting_value(format_json.get(key)):
+            return True
+    return False
+
+
+def _scheduler_digest_email_within_bounds(
+    *,
+    principal_id: str,
+    recipient_email: str,
+    format_json: dict[str, object],
+) -> bool:
+    if _scheduler_digest_email_explicit_opt_in(format_json):
+        return True
+    if not _scheduler_digest_email_require_explicit_allowlist():
+        return True
+    normalized_principal_id = str(principal_id or "").strip()
+    normalized_recipient_email = str(recipient_email or "").strip().lower()
+    return bool(
+        normalized_principal_id
+        and normalized_principal_id in set(_scheduler_digest_email_allowed_principal_ids())
+    ) or bool(
+        normalized_recipient_email
+        and normalized_recipient_email in set(_scheduler_digest_email_allowed_recipient_emails())
+    )
+
+
+def _find_observation_by_dedupe(channel_runtime, *, dedupe_key: str, principal_id: str):  # type: ignore[no-untyped-def]
+    normalized = str(dedupe_key or "").strip()
+    if not normalized:
+        return None
+    finder = getattr(channel_runtime, "find_observation_by_dedupe", None)
+    if not callable(finder):
+        return None
+    try:
+        return finder(normalized, principal_id=principal_id)
+    except TypeError:
+        return finder(normalized)
+    except Exception:
+        return None
+
+
+def _ingest_observation_once(
+    channel_runtime,
+    *,
+    principal_id: str,
+    channel: str,
+    event_type: str,
+    payload: dict[str, object] | None = None,
+    source_id: str = "",
+    external_id: str = "",
+    dedupe_key: str = "",
+    auth_context_json: dict[str, object] | None = None,
+    raw_payload_uri: str = "",
+):  # type: ignore[no-untyped-def]
+    normalized_dedupe = str(dedupe_key or "").strip()
+    if normalized_dedupe:
+        existing = _find_observation_by_dedupe(
+            channel_runtime,
+            dedupe_key=normalized_dedupe,
+            principal_id=principal_id,
+        )
+        if existing is not None:
+            return existing
+    ingester = getattr(channel_runtime, "ingest_observation", None)
+    if not callable(ingester):
+        return None
+    return ingester(
+        principal_id=principal_id,
+        channel=channel,
+        event_type=event_type,
+        payload=dict(payload or {}),
+        source_id=source_id,
+        external_id=external_id,
+        dedupe_key=normalized_dedupe,
+        auth_context_json=auth_context_json,
+        raw_payload_uri=raw_payload_uri,
+    )
+
+
+def _scheduler_host_max_load_per_core() -> float:
+    return _env_float(
+        "EA_SCHEDULER_HOST_MAX_LOAD_PER_CORE",
+        _SCHEDULER_HOST_MAX_LOAD_PER_CORE,
+    )
+
+
+def _scheduler_host_min_available_memory_gib() -> float:
+    return _env_float(
+        "EA_SCHEDULER_HOST_MIN_AVAILABLE_MEMORY_GIB",
+        _SCHEDULER_HOST_MIN_AVAILABLE_MEMORY_GIB,
+    )
+
+
+def _scheduler_available_memory_gib() -> float | None:
+    try:
+        with open("/proc/meminfo", "r", encoding="utf-8", errors="ignore") as handle:
+            for raw_line in handle:
+                if not raw_line.startswith("MemAvailable:"):
+                    continue
+                parts = raw_line.split()
+                if len(parts) < 2:
+                    return None
+                return float(parts[1]) / (1024.0 * 1024.0)
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _scheduler_host_pressure_snapshot() -> dict[str, object]:
+    guard_enabled = _scheduler_host_pressure_guard_enabled()
+    max_load_per_core = max(_scheduler_host_max_load_per_core(), 0.0)
+    min_available_memory_gib = max(_scheduler_host_min_available_memory_gib(), 0.0)
+    cpu_count = max(int(os.cpu_count() or 1), 1)
+    load1 = None
+    load_per_core = None
+    try:
+        load1 = float(os.getloadavg()[0])
+        load_per_core = load1 / float(cpu_count)
+    except (AttributeError, OSError, ValueError):
+        load1 = None
+        load_per_core = None
+    available_gib = _scheduler_available_memory_gib()
+    reasons: list[str] = []
+    if guard_enabled:
+        if load_per_core is not None and max_load_per_core > 0 and load_per_core > max_load_per_core:
+            reasons.append("load")
+        if available_gib is not None and min_available_memory_gib > 0 and available_gib < min_available_memory_gib:
+            reasons.append("memory")
+    return {
+        "blocked": bool(reasons),
+        "guard_enabled": guard_enabled,
+        "reasons": reasons,
+        "cpu_count": cpu_count,
+        "load1": load1,
+        "load_per_core": load_per_core,
+        "max_load_per_core": max_load_per_core,
+        "available_memory_gib": available_gib,
+        "min_available_memory_gib": min_available_memory_gib,
+    }
+
+
+def _scheduler_runtime_guard_state() -> dict[str, object]:
+    host_pressure = _scheduler_host_pressure_snapshot()
+    side_effects_enabled = _scheduler_side_effects_enabled()
+    reasons = list(host_pressure.get("reasons") or [])
+    if not side_effects_enabled:
+        reasons.append("side_effects_disabled")
+    deduped_reasons = list(dict.fromkeys(str(reason).strip() for reason in reasons if str(reason).strip()))
+    return {
+        "blocked": bool(host_pressure.get("blocked")) or not side_effects_enabled,
+        "reasons": deduped_reasons,
+        "host_pressure": host_pressure,
+        "side_effects_enabled": side_effects_enabled,
+    }
 
 
 def _scheduler_onemin_refresh_interval_seconds() -> float:
@@ -129,6 +350,150 @@ def _scheduler_google_signal_sync_forbidden_cooldown_seconds() -> float:
     )
 
 
+def _scheduler_google_signal_sync_runtime_cooldown_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_GOOGLE_SIGNAL_SYNC_RUNTIME_COOLDOWN_SECONDS",
+        _scheduler_google_signal_sync_forbidden_cooldown_seconds(),
+    )
+
+
+def _scheduler_google_signal_sync_cooldown_log_interval_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_GOOGLE_SIGNAL_SYNC_COOLDOWN_LOG_INTERVAL_SECONDS",
+        300.0,
+    )
+
+
+def _scheduler_google_signal_sync_runtime_cooldown_error_codes() -> tuple[str, ...]:
+    raw = str(
+        os.environ.get("EA_SCHEDULER_GOOGLE_SIGNAL_SYNC_RUNTIME_COOLDOWN_ERROR_CODES")
+        or "google_oauth_invalid_grant"
+    ).strip()
+    values = [part.strip().lower() for part in re.split(r"[\s,;]+", raw) if part.strip()]
+    return tuple(sorted(set(values)))
+
+
+def _normalize_google_signal_sync_runtime_error_code(exc: BaseException) -> str:
+    normalized = str(exc or "").strip().lower()
+    if not normalized:
+        return ""
+    for separator in (":", " "):
+        if separator in normalized:
+            normalized = normalized.split(separator, 1)[0].strip()
+            break
+    return normalized
+
+
+def _google_signal_sync_runtime_cooldown_reason(exc: BaseException) -> str:
+    error_code = _normalize_google_signal_sync_runtime_error_code(exc)
+    if not error_code:
+        return ""
+    if error_code not in set(_scheduler_google_signal_sync_runtime_cooldown_error_codes()):
+        return ""
+    return error_code
+
+
+def _store_google_signal_sync_runtime_cooldown(*, principal_id: str, reason: str, blocked_until: float) -> None:
+    _SCHEDULER_GOOGLE_SIGNAL_SYNC_RUNTIME_COOLDOWNS[principal_id] = {
+        "blocked_until": float(blocked_until),
+        "reason": str(reason or "").strip(),
+        "last_logged_at": 0.0,
+    }
+
+
+def _active_google_signal_sync_runtime_cooldown(
+    principal_id: str,
+    *,
+    now_epoch: float,
+) -> dict[str, object] | None:
+    raw_state = _SCHEDULER_GOOGLE_SIGNAL_SYNC_RUNTIME_COOLDOWNS.get(principal_id)
+    state = dict(raw_state or {})
+    blocked_until = float(state.get("blocked_until") or 0.0)
+    if blocked_until <= now_epoch:
+        if blocked_until > 0.0:
+            _SCHEDULER_GOOGLE_SIGNAL_SYNC_RUNTIME_COOLDOWNS.pop(principal_id, None)
+        return None
+    state["blocked_until"] = blocked_until
+    state["last_logged_at"] = float(state.get("last_logged_at") or 0.0)
+    return state
+
+
+def _maybe_log_google_signal_sync_runtime_cooldown_skip(
+    log: logging.Logger,
+    *,
+    principal_id: str,
+    state: dict[str, object],
+    now_epoch: float,
+) -> None:
+    last_logged_at = float(state.get("last_logged_at") or 0.0)
+    if last_logged_at > 0.0 and (
+        now_epoch - last_logged_at < _scheduler_google_signal_sync_cooldown_log_interval_seconds()
+    ):
+        return
+    retry_in_seconds = max(1, int(float(state.get("blocked_until") or 0.0) - now_epoch))
+    reason = str(state.get("reason") or "runtime_cooldown").strip() or "runtime_cooldown"
+    log.debug(
+        "scheduler google signal sync cooldown principal=%s reason=%s retry_in=%ss",
+        principal_id,
+        reason,
+        retry_in_seconds,
+    )
+    state["last_logged_at"] = now_epoch
+    _SCHEDULER_GOOGLE_SIGNAL_SYNC_RUNTIME_COOLDOWNS[principal_id] = dict(state)
+
+
+def _google_signal_sync_runtime_cooldown_payload(
+    *,
+    reason: str,
+    blocked_until: float,
+    cooldown_seconds: float,
+    now_epoch: float,
+) -> dict[str, object]:
+    return {
+        "reason": str(reason or "").strip() or "runtime_cooldown",
+        "blocked_at": datetime.fromtimestamp(now_epoch, timezone.utc).isoformat().replace("+00:00", "Z"),
+        "blocked_until": datetime.fromtimestamp(blocked_until, timezone.utc).isoformat().replace("+00:00", "Z"),
+        "cooldown_seconds": max(int(float(cooldown_seconds or 0.0)), 0),
+        "cooldown_active": True,
+        "recovery_mode": "scheduler_cooldown",
+        "raw_credential_exposed": False,
+        "raw_payload_exposed": False,
+    }
+
+
+def _record_google_signal_sync_runtime_cooldown_event(
+    container: object,
+    *,
+    principal_id: str,
+    reason: str,
+    blocked_until: float,
+    cooldown_seconds: float,
+    now_epoch: float,
+) -> None:
+    runtime = getattr(container, "channel_runtime", None)
+    ingest = getattr(runtime, "ingest_observation", None)
+    if not callable(ingest) or blocked_until <= 0.0:
+        return
+    payload = _google_signal_sync_runtime_cooldown_payload(
+        reason=reason,
+        blocked_until=blocked_until,
+        cooldown_seconds=cooldown_seconds,
+        now_epoch=now_epoch,
+    )
+    event_ref = f"google-workspace-signal-sync-recovery-blocked:{principal_id}:{int(blocked_until)}"
+    try:
+        ingest(
+            principal_id=principal_id,
+            channel="product",
+            event_type="google_workspace_signal_sync_recovery_blocked",
+            payload=payload,
+            source_id=event_ref,
+            dedupe_key=event_ref,
+        )
+    except Exception:
+        return
+
+
 def _scheduler_pocket_signal_sync_interval_seconds() -> float:
     return _env_float(
         "EA_SCHEDULER_POCKET_SIGNAL_SYNC_INTERVAL_SECONDS",
@@ -170,6 +535,10 @@ def _scheduler_morning_memo_enabled() -> bool:
     return _env_bool("EA_SCHEDULER_MORNING_MEMO_ENABLED", True)
 
 
+def _scheduler_morning_memo_max_deliveries_per_pass() -> int:
+    return max(1, _env_int("EA_SCHEDULER_MORNING_MEMO_MAX_DELIVERIES_PER_PASS", _SCHEDULER_MORNING_MEMO_MAX_DELIVERIES_PER_PASS))
+
+
 def _scheduler_pushbullet_relay_interval_seconds() -> float:
     return _env_float(
         "EA_SCHEDULER_PUSHBULLET_RELAY_INTERVAL_SECONDS",
@@ -194,6 +563,13 @@ def _scheduler_telegram_async_recovery_interval_seconds() -> float:
     )
 
 
+def _scheduler_telegram_async_idle_interval_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_TELEGRAM_ASYNC_IDLE_INTERVAL_SECONDS",
+        _SCHEDULER_TELEGRAM_ASYNC_IDLE_INTERVAL_SECONDS,
+    )
+
+
 def _scheduler_telegram_async_recovery_min_age_seconds() -> float:
     return _env_float(
         "EA_SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MIN_AGE_SECONDS",
@@ -205,10 +581,27 @@ def _scheduler_telegram_async_recovery_enabled() -> bool:
     return _env_bool("EA_SCHEDULER_TELEGRAM_ASYNC_RECOVERY_ENABLED", True)
 
 
+def _scheduler_telegram_async_recovery_max_sends_per_pass() -> int:
+    return max(
+        1,
+        _env_int(
+            "EA_SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MAX_SENDS_PER_PASS",
+            _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MAX_SENDS_PER_PASS,
+        ),
+    )
+
+
 def _scheduler_whatsapp_async_recovery_interval_seconds() -> float:
     return _env_float(
         "EA_SCHEDULER_WHATSAPP_ASYNC_RECOVERY_INTERVAL_SECONDS",
         _SCHEDULER_WHATSAPP_ASYNC_RECOVERY_INTERVAL_SECONDS,
+    )
+
+
+def _scheduler_whatsapp_async_idle_interval_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_WHATSAPP_ASYNC_IDLE_INTERVAL_SECONDS",
+        _SCHEDULER_WHATSAPP_ASYNC_IDLE_INTERVAL_SECONDS,
     )
 
 
@@ -221,6 +614,23 @@ def _scheduler_whatsapp_async_recovery_min_age_seconds() -> float:
 
 def _scheduler_whatsapp_async_recovery_enabled() -> bool:
     return _env_bool("EA_SCHEDULER_WHATSAPP_ASYNC_RECOVERY_ENABLED", True)
+
+
+def _scheduler_whatsapp_async_recovery_max_sends_per_pass() -> int:
+    return max(
+        1,
+        _env_int(
+            "EA_SCHEDULER_WHATSAPP_ASYNC_RECOVERY_MAX_SENDS_PER_PASS",
+            _SCHEDULER_WHATSAPP_ASYNC_RECOVERY_MAX_SENDS_PER_PASS,
+        ),
+    )
+
+
+def _scheduler_async_idle_log_interval_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_ASYNC_IDLE_LOG_INTERVAL_SECONDS",
+        _SCHEDULER_ASYNC_IDLE_LOG_INTERVAL_SECONDS,
+    )
 
 
 def _whatsapp_queue_max_attempts() -> int:
@@ -799,11 +1209,24 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
     forbidden_cooldown_seconds = _scheduler_google_signal_sync_forbidden_cooldown_seconds()
     now_epoch = time.time()
     for principal_id in principal_ids:
+        runtime_cooldown = _active_google_signal_sync_runtime_cooldown(
+            principal_id,
+            now_epoch=now_epoch,
+        )
+        if runtime_cooldown is not None:
+            skipped += 1
+            _maybe_log_google_signal_sync_runtime_cooldown_skip(
+                log,
+                principal_id=principal_id,
+                state=runtime_cooldown,
+                now_epoch=now_epoch,
+            )
+            continue
         blocked_until = float(_SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWNS.get(principal_id) or 0.0)
         if blocked_until > now_epoch:
             skipped += 1
-            log.info(
-                "scheduler google signal sync skipped principal=%s reason=http_403_cooldown retry_in=%ss",
+            log.debug(
+                "scheduler google signal sync cooldown principal=%s reason=http_403_cooldown retry_in=%ss",
                 principal_id,
                 max(1, int(blocked_until - now_epoch)),
             )
@@ -830,6 +1253,35 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
                 )
                 property_synced += int(property_summary.get("synced_total") or 0)
         except RuntimeError as exc:
+            runtime_cooldown_reason = _google_signal_sync_runtime_cooldown_reason(exc)
+            if runtime_cooldown_reason:
+                error_count += 1
+                cooldown_seconds = _scheduler_google_signal_sync_runtime_cooldown_seconds()
+                blocked_until = time.time() + cooldown_seconds if cooldown_seconds > 0.0 else 0.0
+                if blocked_until > 0.0:
+                    _store_google_signal_sync_runtime_cooldown(
+                        principal_id=principal_id,
+                        reason=runtime_cooldown_reason,
+                        blocked_until=blocked_until,
+                    )
+                    _record_google_signal_sync_runtime_cooldown_event(
+                        container,
+                        principal_id=principal_id,
+                        reason=runtime_cooldown_reason,
+                        blocked_until=blocked_until,
+                        cooldown_seconds=cooldown_seconds,
+                        now_epoch=now_epoch,
+                    )
+                    log.warning(
+                        "scheduler google signal sync recovery blocked principal=%s reason=%s cooldown_until=%s",
+                        principal_id,
+                        runtime_cooldown_reason,
+                        datetime.fromtimestamp(blocked_until, timezone.utc)
+                        .replace(microsecond=0)
+                        .isoformat()
+                        .replace("+00:00", "Z"),
+                    )
+                    continue
             error_count += 1
             log.info(
                 "scheduler google signal sync skipped principal=%s reason=%s",
@@ -1199,7 +1651,9 @@ def _run_scheduler_morning_memo_delivery(
     blocked = 0
     failed = 0
     skipped = 0
+    budget_deferred = 0
     error_count = 0
+    max_deliveries = _scheduler_morning_memo_max_deliveries_per_pass()
 
     for principal_id in sorted(principals):
         try:
@@ -1256,12 +1710,17 @@ def _run_scheduler_morning_memo_delivery(
             local_day = local_now.date().isoformat()
             schedule_key = str(preference.preference_id or f"morning-memo:{principal_id}").strip()
             sent_dedupe = f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|sent"
-            if container.channel_runtime.find_observation_by_dedupe(sent_dedupe, principal_id=principal_id):
+            if _find_observation_by_dedupe(
+                container.channel_runtime,
+                dedupe_key=sent_dedupe,
+                principal_id=principal_id,
+            ):
                 skipped += 1
                 continue
             if _is_local_time_within_quiet_hours(local_now, quiet_start=quiet_start, quiet_end=quiet_end):
                 blocked += 1
-                container.channel_runtime.ingest_observation(
+                _ingest_observation_once(
+                    container.channel_runtime,
                     principal_id=principal_id,
                     channel="product",
                     event_type="scheduled_morning_memo_delivery_blocked",
@@ -1293,7 +1752,8 @@ def _run_scheduler_morning_memo_delivery(
             delivery_channel = str(format_json.get("delivery_channel") or preference.channel or "email").strip().lower() or "email"
             if delivery_channel not in {"email", "telegram"}:
                 blocked += 1
-                container.channel_runtime.ingest_observation(
+                _ingest_observation_once(
+                    container.channel_runtime,
                     principal_id=principal_id,
                     channel="product",
                     event_type="scheduled_morning_memo_delivery_blocked",
@@ -1327,7 +1787,8 @@ def _run_scheduler_morning_memo_delivery(
             recipient_email = explicit_email or google_email or principal_id
             if not recipient_email:
                 blocked += 1
-                container.channel_runtime.ingest_observation(
+                _ingest_observation_once(
+                    container.channel_runtime,
                     principal_id=principal_id,
                     channel="product",
                     event_type="scheduled_morning_memo_delivery_blocked",
@@ -1349,9 +1810,27 @@ def _run_scheduler_morning_memo_delivery(
             if digest is None or (digest_key == "assistant_nudge" and not list(digest.get("items") or [])):
                 skipped += 1
                 continue
+            if delivery_channel == "email" and not _scheduler_digest_email_enabled():
+                blocked += 1
+                _ingest_observation_once(
+                    container.channel_runtime,
+                    principal_id=principal_id,
+                    channel="product",
+                    event_type="scheduled_morning_memo_delivery_blocked",
+                    payload={
+                        "schedule_key": schedule_key,
+                        "local_day": local_day,
+                        "reason": "scheduler_digest_email_disabled",
+                        "recipient_email": recipient_email,
+                    },
+                    source_id=schedule_key,
+                    dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|email-disabled",
+                )
+                continue
             if delivery_channel == "email" and not email_delivery_enabled():
                 blocked += 1
-                container.channel_runtime.ingest_observation(
+                _ingest_observation_once(
+                    container.channel_runtime,
                     principal_id=principal_id,
                     channel="product",
                     event_type="scheduled_morning_memo_delivery_blocked",
@@ -1363,6 +1842,45 @@ def _run_scheduler_morning_memo_delivery(
                     },
                     source_id=schedule_key,
                     dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|email-not-configured",
+                )
+                continue
+            if delivery_channel == "email" and not _scheduler_digest_email_within_bounds(
+                principal_id=principal_id,
+                recipient_email=recipient_email,
+                format_json=format_json,
+            ):
+                blocked += 1
+                _ingest_observation_once(
+                    container.channel_runtime,
+                    principal_id=principal_id,
+                    channel="product",
+                    event_type="scheduled_morning_memo_delivery_blocked",
+                    payload={
+                        "schedule_key": schedule_key,
+                        "local_day": local_day,
+                        "reason": "scheduler_digest_email_not_allowlisted",
+                        "recipient_email": recipient_email,
+                        "delivery_channel": delivery_channel,
+                    },
+                    source_id=schedule_key,
+                    dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|email-out-of-bounds",
+                )
+                continue
+            if sent + failed >= max_deliveries:
+                budget_deferred += 1
+                _ingest_observation_once(
+                    container.channel_runtime,
+                    principal_id=principal_id,
+                    channel="product",
+                    event_type="scheduled_morning_memo_delivery_deferred",
+                    payload={
+                        "schedule_key": schedule_key,
+                        "local_day": local_day,
+                        "reason": "pass_budget_exhausted",
+                        "delivery_channel": delivery_channel,
+                    },
+                    source_id=schedule_key,
+                    dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|budget",
                 )
                 continue
             payload = service.issue_channel_digest_delivery(
@@ -1378,7 +1896,8 @@ def _run_scheduler_morning_memo_delivery(
             )
             if payload is None:
                 failed += 1
-                container.channel_runtime.ingest_observation(
+                _ingest_observation_once(
+                    container.channel_runtime,
                     principal_id=principal_id,
                     channel="product",
                     event_type="scheduled_morning_memo_delivery_failed",
@@ -1396,7 +1915,8 @@ def _run_scheduler_morning_memo_delivery(
             ).strip().lower()
             if delivery_status == "sent":
                 sent += 1
-                container.channel_runtime.ingest_observation(
+                _ingest_observation_once(
+                    container.channel_runtime,
                     principal_id=principal_id,
                     channel="product",
                     event_type="scheduled_morning_memo_delivery_sent",
@@ -1414,7 +1934,8 @@ def _run_scheduler_morning_memo_delivery(
                 continue
             if delivery_status == "not_configured":
                 blocked += 1
-                container.channel_runtime.ingest_observation(
+                _ingest_observation_once(
+                    container.channel_runtime,
                     principal_id=principal_id,
                     channel="product",
                     event_type="scheduled_morning_memo_delivery_blocked",
@@ -1430,7 +1951,8 @@ def _run_scheduler_morning_memo_delivery(
                 continue
             failed += 1
             failure_bucket = int(observed_at.timestamp()) // max(retry_after_minutes * 60, 60)
-            container.channel_runtime.ingest_observation(
+            _ingest_observation_once(
+                container.channel_runtime,
                 principal_id=principal_id,
                 channel="product",
                 event_type="scheduled_morning_memo_delivery_failed",
@@ -1460,6 +1982,7 @@ def _run_scheduler_morning_memo_delivery(
         "blocked": blocked,
         "failed": failed,
         "skipped": skipped,
+        "budget_deferred": budget_deferred,
         "errors": error_count,
     }
 
@@ -1492,8 +2015,11 @@ def _run_scheduler_telegram_async_recovery(container, log: logging.Logger) -> di
     pending = 0
     skipped = 0
     errors = 0
+    budget_deferred = 0
+    attempts = 0
     observed_at = datetime.now(timezone.utc)
     min_age_seconds = max(_scheduler_telegram_async_recovery_min_age_seconds(), 5.0)
+    max_sends = _scheduler_telegram_async_recovery_max_sends_per_pass()
     for row in container.channel_runtime.list_recent_observations(limit=400):
         if str(getattr(row, "channel", "") or "").strip() != "telegram":
             continue
@@ -1526,6 +2052,10 @@ def _run_scheduler_telegram_async_recovery(container, log: logging.Logger) -> di
             continue
         bot_key = str(payload.get("bot_key") or "").strip()
         bot_handle = str(payload.get("bot_handle") or "").strip()
+        if attempts >= max_sends:
+            budget_deferred += 1
+            continue
+        attempts += 1
         try:
             bot_config = _resolve_telegram_bot_config(bot_key=bot_key)
             if not bot_config and bot_handle:
@@ -1558,6 +2088,7 @@ def _run_scheduler_telegram_async_recovery(container, log: logging.Logger) -> di
         "drained": drained,
         "pending": pending,
         "skipped": skipped,
+        "budget_deferred": budget_deferred,
         "errors": errors,
     }
 
@@ -1568,9 +2099,12 @@ def _run_scheduler_whatsapp_async_recovery(container, log: logging.Logger) -> di
     skipped = 0
     errors = 0
     dead_lettered = 0
+    budget_deferred = 0
+    attempts = 0
     observed_at = datetime.now(timezone.utc)
     min_age_seconds = max(_scheduler_whatsapp_async_recovery_min_age_seconds(), 2.0)
     max_attempts = _whatsapp_queue_max_attempts()
+    max_sends = _scheduler_whatsapp_async_recovery_max_sends_per_pass()
     for row in container.channel_runtime.list_pending_delivery(limit=400):
         if str(getattr(row, "channel", "") or "").strip() != "whatsapp":
             continue
@@ -1595,6 +2129,10 @@ def _run_scheduler_whatsapp_async_recovery(container, log: logging.Logger) -> di
         if max((observed_at - created_at).total_seconds(), 0.0) < min_age_seconds:
             pending += 1
             continue
+        if attempts >= max_sends:
+            budget_deferred += 1
+            continue
+        attempts += 1
         attempt_count = max(0, int(getattr(row, "attempt_count", 0) or 0))
         try:
             normalized_recipient = whatsapp_delivery._normalize_recipient(recipient)
@@ -1657,7 +2195,29 @@ def _run_scheduler_whatsapp_async_recovery(container, log: logging.Logger) -> di
         "skipped": skipped,
         "errors": errors,
         "dead_lettered": dead_lettered,
+        "budget_deferred": budget_deferred,
     }
+
+
+def _scheduler_async_recovery_is_idle(summary: dict[str, object] | None) -> bool:
+    payload = dict(summary or {})
+    for key in ("drained", "pending", "errors", "budget_deferred", "dead_lettered"):
+        if int(payload.get(key) or 0) > 0:
+            return False
+    return True
+
+
+def _scheduler_async_recovery_state_key(summary: dict[str, object] | None) -> str:
+    payload = dict(summary or {})
+    values = (
+        int(payload.get("drained") or 0),
+        int(payload.get("pending") or 0),
+        int(payload.get("skipped") or 0),
+        int(payload.get("budget_deferred") or 0),
+        int(payload.get("errors") or 0),
+        int(payload.get("dead_lettered") or 0),
+    )
+    return ":".join(str(value) for value in values)
 
 
 def _run_api() -> None:
@@ -1696,12 +2256,47 @@ def _run_execution_worker(role: str) -> None:
     last_pushbullet_relay_at = 0.0
     last_telegram_async_recovery_at = 0.0
     last_whatsapp_async_recovery_at = 0.0
+    telegram_async_recovery_idle = False
+    whatsapp_async_recovery_idle = False
+    last_telegram_async_recovery_state_key = ""
+    last_whatsapp_async_recovery_state_key = ""
+    last_telegram_async_recovery_log_at = 0.0
+    last_whatsapp_async_recovery_log_at = 0.0
+    last_runtime_guard_key = ""
+    last_runtime_guard_log_at = 0.0
     property_only_scheduler = role == "scheduler" and _scheduler_property_only_profile_enabled()
     property_only_worker = role == "worker" and _worker_property_only_profile_enabled()
     log.info("role=%s started worker loop", role)
     while not stop["flag"]:
+        now = time.time()
+        runtime_guard = _scheduler_runtime_guard_state()
+        runtime_guard_blocked = bool(runtime_guard.get("blocked"))
+        runtime_guard_reasons = [str(item).strip() for item in list(runtime_guard.get("reasons") or []) if str(item).strip()]
+        host_pressure = dict(runtime_guard.get("host_pressure") or {})
+        runtime_guard_key = ",".join(runtime_guard_reasons)
+        if runtime_guard_blocked:
+            if (
+                runtime_guard_key != last_runtime_guard_key
+                or now - last_runtime_guard_log_at >= _SCHEDULER_RUNTIME_GUARD_LOG_INTERVAL_SECONDS
+            ):
+                log.warning(
+                    "role=%s runtime guard paused new work reasons=%s load_per_core=%s available_memory_gib=%s",
+                    role,
+                    ",".join(runtime_guard_reasons) or "blocked",
+                    host_pressure.get("load_per_core"),
+                    host_pressure.get("available_memory_gib"),
+                )
+                last_runtime_guard_key = runtime_guard_key
+                last_runtime_guard_log_at = now
+            time.sleep(idle_backoff_seconds)
+            idle_backoff_seconds = min(idle_backoff_seconds * 2.0, _IDLE_BACKOFF_MAX_SECONDS)
+            continue
+        if last_runtime_guard_key:
+            log.info("role=%s runtime guard resumed new work", role)
+            last_runtime_guard_key = ""
+            last_runtime_guard_log_at = now
+            idle_backoff_seconds = _IDLE_BACKOFF_START_SECONDS
         if role == "scheduler":
-            now = time.time()
             if not property_only_scheduler and now - last_horizon_scan_at >= _SCHEDULER_SCAN_INTERVAL_SECONDS:
                 observed_at = datetime.now(timezone.utc)
                 try:
@@ -1876,7 +2471,7 @@ def _run_execution_worker(role: str) -> None:
                     memo_summary = _run_scheduler_morning_memo_delivery(container, log)
                     last_morning_memo_at = now
                     log.info(
-                        "role=%s scheduler morning memo configured=%s due=%s sent=%s blocked=%s failed=%s skipped=%s errors=%s",
+                        "role=%s scheduler morning memo configured=%s due=%s sent=%s blocked=%s failed=%s skipped=%s deferred=%s errors=%s",
                         role,
                         memo_summary.get("configured"),
                         memo_summary.get("due"),
@@ -1884,6 +2479,7 @@ def _run_execution_worker(role: str) -> None:
                         memo_summary.get("blocked"),
                         memo_summary.get("failed"),
                         memo_summary.get("skipped"),
+                        memo_summary.get("budget_deferred"),
                         memo_summary.get("errors"),
                     )
                 except Exception:
@@ -1918,39 +2514,92 @@ def _run_execution_worker(role: str) -> None:
                         relay_summary.get("inspected_total"),
                         relay_summary.get("skipped_total"),
                     )
+            telegram_async_interval_seconds = (
+                _scheduler_telegram_async_idle_interval_seconds()
+                if telegram_async_recovery_idle
+                else _scheduler_telegram_async_recovery_interval_seconds()
+            )
             if not property_only_scheduler and _scheduler_telegram_async_recovery_enabled() and (
-                now - last_telegram_async_recovery_at >= _scheduler_telegram_async_recovery_interval_seconds()
+                now - last_telegram_async_recovery_at >= telegram_async_interval_seconds
             ):
                 try:
                     recovery_summary = _run_scheduler_telegram_async_recovery(container, log)
                     last_telegram_async_recovery_at = now
-                    log.info(
-                        "role=%s scheduler telegram async outbox drained=%s pending=%s skipped=%s errors=%s",
-                        role,
-                        recovery_summary.get("drained"),
-                        recovery_summary.get("pending"),
-                        recovery_summary.get("skipped"),
-                        recovery_summary.get("errors"),
-                    )
+                    telegram_async_recovery_idle = _scheduler_async_recovery_is_idle(recovery_summary)
+                    telegram_async_state_key = _scheduler_async_recovery_state_key(recovery_summary)
+                    if telegram_async_recovery_idle:
+                        if (
+                            telegram_async_state_key != last_telegram_async_recovery_state_key
+                            or now - last_telegram_async_recovery_log_at >= _scheduler_async_idle_log_interval_seconds()
+                        ):
+                            log.debug(
+                                "role=%s scheduler telegram async outbox idle pending=%s skipped=%s deferred=%s errors=%s",
+                                role,
+                                recovery_summary.get("pending"),
+                                recovery_summary.get("skipped"),
+                                recovery_summary.get("budget_deferred"),
+                                recovery_summary.get("errors"),
+                            )
+                            last_telegram_async_recovery_log_at = now
+                    else:
+                        log.info(
+                            "role=%s scheduler telegram async outbox drained=%s pending=%s skipped=%s deferred=%s errors=%s",
+                            role,
+                            recovery_summary.get("drained"),
+                            recovery_summary.get("pending"),
+                            recovery_summary.get("skipped"),
+                            recovery_summary.get("budget_deferred"),
+                            recovery_summary.get("errors"),
+                        )
+                        last_telegram_async_recovery_log_at = now
+                    last_telegram_async_recovery_state_key = telegram_async_state_key
                 except Exception:
+                    telegram_async_recovery_idle = False
                     log.exception("role=%s scheduler telegram async outbox failed", role)
                     last_telegram_async_recovery_at = now
+            whatsapp_async_interval_seconds = (
+                _scheduler_whatsapp_async_idle_interval_seconds()
+                if whatsapp_async_recovery_idle
+                else _scheduler_whatsapp_async_recovery_interval_seconds()
+            )
             if not property_only_scheduler and _scheduler_whatsapp_async_recovery_enabled() and (
-                now - last_whatsapp_async_recovery_at >= _scheduler_whatsapp_async_recovery_interval_seconds()
+                now - last_whatsapp_async_recovery_at >= whatsapp_async_interval_seconds
             ):
                 try:
                     recovery_summary = _run_scheduler_whatsapp_async_recovery(container, log)
                     last_whatsapp_async_recovery_at = now
-                    log.info(
-                        "role=%s scheduler whatsapp async outbox drained=%s pending=%s skipped=%s errors=%s dead_lettered=%s",
-                        role,
-                        recovery_summary.get("drained"),
-                        recovery_summary.get("pending"),
-                        recovery_summary.get("skipped"),
-                        recovery_summary.get("errors"),
-                        recovery_summary.get("dead_lettered"),
-                    )
+                    whatsapp_async_recovery_idle = _scheduler_async_recovery_is_idle(recovery_summary)
+                    whatsapp_async_state_key = _scheduler_async_recovery_state_key(recovery_summary)
+                    if whatsapp_async_recovery_idle:
+                        if (
+                            whatsapp_async_state_key != last_whatsapp_async_recovery_state_key
+                            or now - last_whatsapp_async_recovery_log_at >= _scheduler_async_idle_log_interval_seconds()
+                        ):
+                            log.debug(
+                                "role=%s scheduler whatsapp async outbox idle pending=%s skipped=%s deferred=%s errors=%s dead_lettered=%s",
+                                role,
+                                recovery_summary.get("pending"),
+                                recovery_summary.get("skipped"),
+                                recovery_summary.get("budget_deferred"),
+                                recovery_summary.get("errors"),
+                                recovery_summary.get("dead_lettered"),
+                            )
+                            last_whatsapp_async_recovery_log_at = now
+                    else:
+                        log.info(
+                            "role=%s scheduler whatsapp async outbox drained=%s pending=%s skipped=%s deferred=%s errors=%s dead_lettered=%s",
+                            role,
+                            recovery_summary.get("drained"),
+                            recovery_summary.get("pending"),
+                            recovery_summary.get("skipped"),
+                            recovery_summary.get("budget_deferred"),
+                            recovery_summary.get("errors"),
+                            recovery_summary.get("dead_lettered"),
+                        )
+                        last_whatsapp_async_recovery_log_at = now
+                    last_whatsapp_async_recovery_state_key = whatsapp_async_state_key
                 except Exception:
+                    whatsapp_async_recovery_idle = False
                     log.exception("role=%s scheduler whatsapp async outbox failed", role)
                     last_whatsapp_async_recovery_at = now
             if property_only_scheduler:

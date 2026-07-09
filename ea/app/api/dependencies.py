@@ -332,7 +332,8 @@ def _is_loopback_host(host: str) -> bool:
 def _loopback_no_auth_allowed(request: Request, container: AppContainer) -> bool:
     if not bool(getattr(container.settings.auth, "allow_loopback_no_auth", False)):
         return False
-    return _is_loopback_host(_client_host(request))
+    client_host = _client_host(request)
+    return _is_loopback_host(client_host) or _is_docker_host_gateway_host(client_host)
 
 
 def _provision_access_identity(container: AppContainer, identity: CloudflareAccessIdentity) -> None:

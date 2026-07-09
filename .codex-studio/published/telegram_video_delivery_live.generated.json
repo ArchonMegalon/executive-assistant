@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.telegram_video_delivery_live_receipt",
-  "generated_at": "2026-07-04T13:32:23Z",
+  "generated_at": "2026-07-07T12:56:29Z",
   "generated_by": "scripts/materialize_telegram_video_delivery_live_receipt.py",
-  "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+  "source_git_head": "bb575cc976c55adb1de1ef9734d15f2db0acfb4e",
   "head_semantics": "source_state",
   "output_path": ".codex-studio/published/telegram_video_delivery_live.generated.json",
   "status": "blocked",
@@ -14,7 +14,7 @@
       ".env",
       ".env.local"
     ],
-    "loaded_count": 417,
+    "loaded_count": 435,
     "storage_backend_present": true,
     "database_url_present": true,
     "docker_postgres_fallback": {
@@ -27,30 +27,30 @@
       "row_count": 0,
       "diagnostics": {
         "status": "pass",
-        "telegram_observation_count": 404,
+        "telegram_observation_count": 415,
         "telegram_video_related_observation_count": 88,
         "telegram_video_delivery_receipt_count": 0,
         "telegram_video_sent_text_ack_count": 1,
         "telegram_event_type_counts": [
           {
             "event_type": "telegram.reply_sent",
-            "count": 93
+            "count": 94
           },
           {
             "event_type": "telegram.message",
-            "count": 79
+            "count": 81
           },
           {
             "event_type": "telegram.callback_query",
-            "count": 63
+            "count": 64
           },
           {
             "event_type": "telegram.reply_async_processing",
-            "count": 34
+            "count": 36
           },
           {
             "event_type": "telegram.reply_async_started",
-            "count": 31
+            "count": 33
           },
           {
             "event_type": "telegram.reply_async_sent",
@@ -70,11 +70,11 @@
           },
           {
             "event_type": "telegram.reply_async_failed",
-            "count": 9
+            "count": 11
           },
           {
             "event_type": "telegram.callback_processed",
-            "count": 8
+            "count": 9
           }
         ],
         "telegram_video_related_event_type_counts": [
@@ -117,7 +117,7 @@
           {
             "channel": "telegram",
             "status": "sent",
-            "count": 65
+            "count": 72
           },
           {
             "channel": "telegram",

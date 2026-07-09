@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import os
 from pathlib import Path
@@ -78,6 +79,185 @@ def probe_live_proactive_artifacts(
     return dict(report) if isinstance(report, dict) else {}
 
 
+def _path_text(value: Any) -> str:
+    if isinstance(value, Path):
+        return value.as_posix().strip()
+    return str(value or "").strip()
+
+
+def _hash_value(value: str) -> str:
+    normalized = str(value or "").strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest() if normalized else ""
+
+
+def _stage_packet_ref(stage_packet: Mapping[str, Any]) -> str:
+    return str(stage_packet.get("packet_ref") or stage_packet.get("packet_id") or "").strip()
+
+
+def _safe_work_result_ref(safe_work_result: Mapping[str, Any]) -> str:
+    result_ref = str(safe_work_result.get("result_ref") or "").strip()
+    if result_ref:
+        return result_ref
+    result_id = str(safe_work_result.get("result_id") or "").strip()
+    return f"safe_work_result:{result_id}" if result_id else ""
+
+
+def _bundle_has_runtime_artifacts(bundle: Mapping[str, Any]) -> bool:
+    normalized = dict(bundle or {})
+    for key in (
+        "run_receipt",
+        "stage_packet",
+        "safe_work_result",
+        "approval_outcome",
+        "current_packet_callback_outcome",
+    ):
+        if dict(normalized.get(key) or {}):
+            return True
+    for key in (
+        "approval_callback_record_count",
+        "approval_callback_pending_count",
+        "approval_callback_recorded_count",
+        "current_packet_callback_record_count",
+        "current_packet_callback_pending_count",
+        "current_packet_live_pending_count",
+    ):
+        if int(normalized.get(key) or 0) > 0:
+            return True
+    return False
+
+
+def _bundle_has_current_packet_evidence(bundle: Mapping[str, Any]) -> bool:
+    normalized = dict(bundle or {})
+    if _stage_packet_ref(dict(normalized.get("stage_packet") or {})) and _safe_work_result_ref(
+        dict(normalized.get("safe_work_result") or {})
+    ):
+        return True
+    if int(normalized.get("current_packet_live_pending_count") or 0) > 0:
+        return True
+    if int(normalized.get("current_packet_callback_pending_count") or 0) > 0:
+        return True
+    if dict(select_current_approval_outcome_for_bundle(normalized).get("approval_outcome") or {}):
+        return True
+    return False
+
+
+def _runtime_artifact_drift_summary(
+    *,
+    live_bundle: Mapping[str, Any],
+    host_bundle: Mapping[str, Any],
+    host_compare_error: str = "",
+) -> dict[str, Any]:
+    if not _bundle_has_current_packet_evidence(live_bundle):
+        return {
+            "checked": False,
+            "present": False,
+            "status": "current_packet_not_present",
+            "requires_recovery": False,
+            "blocking_reason": "",
+            "next_action": "",
+            "mismatch_count": 0,
+            "material_mismatch_count": 0,
+            "mismatch_fields": [],
+            "material_mismatch_fields": [],
+            "host_artifacts_present": _bundle_has_runtime_artifacts(host_bundle),
+            "privacy": {
+                "raw_packet_ref_exposed": False,
+                "raw_staged_artifact_ref_exposed": False,
+                "raw_private_paths_exposed": False,
+            },
+        }
+    error = str(host_compare_error or "").strip()
+    if error:
+        return {
+            "checked": False,
+            "present": True,
+            "status": "host_compare_failed",
+            "requires_recovery": False,
+            "blocking_reason": f"host_compare_failed:{error}",
+            "next_action": "",
+            "mismatch_count": 0,
+            "material_mismatch_count": 0,
+            "mismatch_fields": [],
+            "material_mismatch_fields": [],
+            "host_artifacts_present": False,
+            "privacy": {
+                "raw_packet_ref_exposed": False,
+                "raw_staged_artifact_ref_exposed": False,
+                "raw_private_paths_exposed": False,
+            },
+        }
+    if not _bundle_has_current_packet_evidence(host_bundle):
+        return {
+            "checked": False,
+            "present": False,
+            "status": "host_bundle_not_checked",
+            "requires_recovery": False,
+            "blocking_reason": "",
+            "next_action": "",
+            "mismatch_count": 0,
+            "material_mismatch_count": 0,
+            "mismatch_fields": [],
+            "material_mismatch_fields": [],
+            "host_artifacts_present": False,
+            "privacy": {
+                "raw_packet_ref_exposed": False,
+                "raw_staged_artifact_ref_exposed": False,
+                "raw_private_paths_exposed": False,
+            },
+        }
+
+    live = dict(live_bundle or {})
+    host = dict(host_bundle or {})
+    live_selection = select_current_approval_outcome_for_bundle(live)
+    host_selection = select_current_approval_outcome_for_bundle(host)
+    live_selected_outcome = dict(live_selection.get("approval_outcome") or {})
+    host_selected_outcome = dict(host_selection.get("approval_outcome") or {})
+    rows = (
+        ("stage_packet_ref_sha256", _hash_value(_stage_packet_ref(dict(live.get("stage_packet") or {}))), _hash_value(_stage_packet_ref(dict(host.get("stage_packet") or {})))),
+        ("safe_work_result_ref_sha256", _hash_value(_safe_work_result_ref(dict(live.get("safe_work_result") or {}))), _hash_value(_safe_work_result_ref(dict(host.get("safe_work_result") or {})))),
+        ("safe_work_result_status", str(dict(live.get("safe_work_result") or {}).get("status") or "").strip(), str(dict(host.get("safe_work_result") or {}).get("status") or "").strip()),
+        ("artifact_filter_reason", str(live.get("artifact_filter_reason") or "").strip(), str(host.get("artifact_filter_reason") or "").strip()),
+        ("run_receipt_notification_status", str(dict(live.get("run_receipt") or {}).get("notification_status") or "").strip(), str(dict(host.get("run_receipt") or {}).get("notification_status") or "").strip()),
+        ("approval_selection_source", str(live_selection.get("source") or "").strip(), str(host_selection.get("source") or "").strip()),
+        ("approval_outcome_recorded", bool(live_selected_outcome.get("approval_outcome_recorded")), bool(host_selected_outcome.get("approval_outcome_recorded"))),
+        ("approval_outcome_status", str(live_selected_outcome.get("status") or "").strip(), str(host_selected_outcome.get("status") or "").strip()),
+        ("current_packet_live_pending_count", int(live.get("current_packet_live_pending_count") or 0), int(host.get("current_packet_live_pending_count") or 0)),
+        ("current_packet_callback_pending_count", int(live.get("current_packet_callback_pending_count") or 0), int(host.get("current_packet_callback_pending_count") or 0)),
+    )
+    mismatches: list[dict[str, Any]] = []
+    for field, live_value, host_value in rows:
+        if live_value == host_value:
+            continue
+        mismatches.append(
+            {
+                "field": field,
+                "live": live_value,
+                "host": host_value,
+                "material": True,
+            }
+        )
+    mismatch_fields = [str(row.get("field") or "").strip() for row in mismatches if str(row.get("field") or "").strip()]
+    requires_recovery = bool(mismatch_fields)
+    return {
+        "checked": True,
+        "present": requires_recovery,
+        "status": "drift_detected" if requires_recovery else "aligned",
+        "requires_recovery": requires_recovery,
+        "blocking_reason": f"runtime_artifact_drift:{mismatch_fields[0]}" if mismatch_fields else "",
+        "next_action": "repair_proactive_runtime_artifact_drift" if requires_recovery else "",
+        "mismatch_count": len(mismatch_fields),
+        "material_mismatch_count": len(mismatch_fields),
+        "mismatch_fields": mismatch_fields,
+        "material_mismatch_fields": list(mismatch_fields),
+        "host_artifacts_present": True,
+        "privacy": {
+            "raw_packet_ref_exposed": False,
+            "raw_staged_artifact_ref_exposed": False,
+            "raw_private_paths_exposed": False,
+        },
+    }
+
+
 def resolve_proactive_ooda_capture_bundle(
     *,
     root: Path,
@@ -100,12 +280,31 @@ def resolve_proactive_ooda_capture_bundle(
         }
     if bool(live_report.get("probe_ok")):
         bundle = _bundle_from_live_artifact_probe(live_report)
+        host_bundle: dict[str, Any] = {}
+        host_compare_error = ""
+        try:
+            host_bundle = dict(
+                bundle_loader(
+                    root=root,
+                    state_path=state_path,
+                    receipt_path=receipt_path,
+                    stage_packet_dir=stage_packet_dir,
+                    safe_work_result_dir=safe_work_result_dir,
+                )
+            )
+        except Exception as exc:
+            host_compare_error = type(exc).__name__
         return {
             "bundle": bundle,
             "bundle_source": "live_runtime",
             "host_fallback_used": False,
             "fallback_reason": "",
             "live_report": live_report,
+            "runtime_artifact_drift": _runtime_artifact_drift_summary(
+                live_bundle=bundle,
+                host_bundle=host_bundle,
+                host_compare_error=host_compare_error,
+            ),
             "approval_selection": select_current_approval_outcome_for_bundle(bundle),
         }
     bundle = dict(
@@ -129,6 +328,24 @@ def resolve_proactive_ooda_capture_bundle(
         "host_fallback_used": True,
         "fallback_reason": fallback_reason,
         "live_report": live_report,
+        "runtime_artifact_drift": {
+            "checked": False,
+            "present": False,
+            "status": "host_runtime_fallback_active",
+            "requires_recovery": False,
+            "blocking_reason": "",
+            "next_action": "",
+            "mismatch_count": 0,
+            "material_mismatch_count": 0,
+            "mismatch_fields": [],
+            "material_mismatch_fields": [],
+            "host_artifacts_present": _bundle_has_runtime_artifacts(bundle),
+            "privacy": {
+                "raw_packet_ref_exposed": False,
+                "raw_staged_artifact_ref_exposed": False,
+                "raw_private_paths_exposed": False,
+            },
+        },
         "approval_selection": select_current_approval_outcome_for_bundle(bundle),
     }
 

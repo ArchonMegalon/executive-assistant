@@ -22,6 +22,7 @@ from email.utils import parseaddr
 from typing import TYPE_CHECKING, Any
 
 from app.domain.models import ConnectorBinding, ProviderBindingRecord
+from app.services.proactive_source_health_policy import GOOGLE_WORKSPACE_REAUTH_USER_ACTION_ERROR_CODES
 
 if TYPE_CHECKING:
     from app.container import AppContainer
@@ -1076,11 +1077,7 @@ def run_google_gmail_smoke_test(
         message_id=rfc822_message_id,
     )
     gmail_message_id = _gmail_send_message(access_token=access_token, raw_message=raw_message)
-    updated_metadata = dict(metadata)
-    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
-    updated_metadata["last_refresh_at"] = _utc_iso_now()
-    updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
-    updated_metadata["token_status"] = "active"
+    updated_metadata = _google_binding_active_metadata(metadata, token_payload=token_payload)
     updated = container.provider_registry.upsert_binding_record(
         binding_id=binding.binding_id,
         principal_id=principal_id,
@@ -1148,11 +1145,7 @@ def send_google_gmail_message(
         raw_message=raw_message,
         thread_id=str(thread_id or "").strip() or None,
     )
-    updated_metadata = dict(metadata)
-    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
-    updated_metadata["last_refresh_at"] = _utc_iso_now()
-    updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
-    updated_metadata["token_status"] = "active"
+    updated_metadata = _google_binding_active_metadata(metadata, token_payload=token_payload)
     updated = container.provider_registry.upsert_binding_record(
         binding_id=binding.binding_id,
         principal_id=principal_id,
@@ -1221,11 +1214,7 @@ def create_google_gmail_draft(
         raw_message=raw_message,
         thread_id=str(thread_id or "").strip() or None,
     )
-    updated_metadata = dict(metadata)
-    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
-    updated_metadata["last_refresh_at"] = _utc_iso_now()
-    updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
-    updated_metadata["token_status"] = "active"
+    updated_metadata = _google_binding_active_metadata(metadata, token_payload=token_payload)
     updated = container.provider_registry.upsert_binding_record(
         binding_id=binding.binding_id,
         principal_id=principal_id,
@@ -1293,6 +1282,37 @@ def list_google_accounts(*, container: AppContainer, principal_id: str) -> list[
     return accounts
 
 
+def _google_binding_fast_fail_reauth_reason(metadata: dict[str, Any] | None) -> str:
+    row = dict(metadata or {})
+    token_status = str(row.get("token_status") or "").strip().lower()
+    reason = str(row.get("reauth_required_reason") or "").strip()
+    if token_status != "reauth_required":
+        return ""
+    if reason in GOOGLE_WORKSPACE_REAUTH_USER_ACTION_ERROR_CODES:
+        return reason
+    return ""
+
+
+def _google_binding_active_metadata(
+    metadata: dict[str, Any],
+    *,
+    token_payload: dict[str, Any],
+    mark_successful_api_call: bool = True,
+) -> dict[str, Any]:
+    updated_metadata = dict(metadata)
+    refreshed_at = _utc_iso_now()
+    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(
+        _safe_int(token_payload.get("expires_in"), default=0)
+    )
+    updated_metadata["last_refresh_at"] = refreshed_at
+    if mark_successful_api_call:
+        updated_metadata["last_successful_api_call_at"] = refreshed_at
+    updated_metadata["token_status"] = "active"
+    updated_metadata["reauth_required_reason"] = ""
+    updated_metadata["reauth_required_at"] = ""
+    return updated_metadata
+
+
 def list_recent_workspace_signals(
     *,
     container: AppContainer,
@@ -1328,6 +1348,10 @@ def list_recent_workspace_signals(
             sorted(str(scope or "").strip() for scope in (metadata.get("granted_scopes") or []) if str(scope or "").strip())
         )
         granted_scope_set = set(granted_scopes)
+        fast_fail_reason = _google_binding_fast_fail_reauth_reason(metadata)
+        if fast_fail_reason:
+            first_error = first_error or fast_fail_reason
+            continue
         refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
         if not refresh_token_ref:
             first_error = first_error or "google_gmail_refresh_token_missing"
@@ -1397,13 +1421,11 @@ def list_recent_workspace_signals(
             account_emails.append(account_email)
         if binding_healthy:
             granted_scope_union.update(granted_scope_set)
-        updated_metadata = dict(metadata)
-        updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
-        updated_metadata["last_refresh_at"] = _utc_iso_now()
-        if binding_healthy and len(signals) > prior_signal_count:
-            updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
-        if binding_healthy:
-            updated_metadata["token_status"] = "active"
+        updated_metadata = _google_binding_active_metadata(
+            metadata,
+            token_payload=token_payload,
+            mark_successful_api_call=binding_healthy and len(signals) > prior_signal_count,
+        )
         binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
         container.provider_registry.upsert_binding_record(
             binding_id=binding.binding_id,
@@ -1688,6 +1710,10 @@ def _resolve_google_binding_access_token(
         if required_scope and required_scope not in set(granted_scopes):
             scope_missing = True
             continue
+        fast_fail_reason = _google_binding_fast_fail_reauth_reason(metadata)
+        if fast_fail_reason:
+            first_error = first_error or fast_fail_reason
+            continue
         refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
         if not refresh_token_ref:
             first_error = first_error or "google_gmail_refresh_token_missing"
@@ -1714,11 +1740,7 @@ def _resolve_google_binding_access_token(
         if not access_token:
             first_error = first_error or "google_oauth_access_token_missing"
             continue
-        updated_metadata = dict(metadata)
-        updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
-        updated_metadata["last_refresh_at"] = _utc_iso_now()
-        updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
-        updated_metadata["token_status"] = "active"
+        updated_metadata = _google_binding_active_metadata(metadata, token_payload=token_payload)
         binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
         container.provider_registry.upsert_binding_record(
             binding_id=binding.binding_id,
@@ -2697,6 +2719,7 @@ def _mark_google_binding_reauth_required(
     metadata = dict(binding.auth_metadata_json or {})
     metadata["token_status"] = "reauth_required"
     metadata["reauth_required_reason"] = str(reason or "google_oauth_refresh_failed").strip() or "google_oauth_refresh_failed"
+    metadata["reauth_required_at"] = _utc_iso_now()
     metadata["access_token_expires_at"] = ""
     return container.provider_registry.upsert_binding_record(
         binding_id=binding.binding_id,
@@ -2890,6 +2913,9 @@ def _load_google_send_context(
     }
     if GOOGLE_SCOPE_SEND not in granted_scopes:
         raise RuntimeError("google_gmail_send_scope_missing")
+    fast_fail_reason = _google_binding_fast_fail_reauth_reason(metadata)
+    if fast_fail_reason:
+        raise RuntimeError(fast_fail_reason)
     refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
     if not refresh_token_ref:
         raise RuntimeError("google_gmail_refresh_token_missing")
@@ -2945,6 +2971,9 @@ def _load_google_draft_context(
     }
     if GOOGLE_SCOPE_GMAIL_MODIFY not in granted_scopes:
         raise RuntimeError("google_gmail_draft_scope_missing")
+    fast_fail_reason = _google_binding_fast_fail_reauth_reason(metadata)
+    if fast_fail_reason:
+        raise RuntimeError(fast_fail_reason)
     refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
     if not refresh_token_ref:
         raise RuntimeError("google_gmail_refresh_token_missing")
@@ -3000,6 +3029,9 @@ def _load_google_calendar_context(
     }
     if GOOGLE_SCOPE_CALENDAR not in granted_scopes:
         raise RuntimeError("google_calendar_write_scope_missing")
+    fast_fail_reason = _google_binding_fast_fail_reauth_reason(metadata)
+    if fast_fail_reason:
+        raise RuntimeError(fast_fail_reason)
     refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
     if not refresh_token_ref:
         raise RuntimeError("google_calendar_refresh_token_missing")
@@ -3052,6 +3084,9 @@ def _load_google_keep_context(
     }
     if GOOGLE_SCOPE_KEEP not in granted_scopes:
         raise RuntimeError("google_keep_scope_missing")
+    fast_fail_reason = _google_binding_fast_fail_reauth_reason(metadata)
+    if fast_fail_reason:
+        raise RuntimeError(fast_fail_reason)
     refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
     if not refresh_token_ref:
         raise RuntimeError("google_keep_refresh_token_missing")
@@ -3121,11 +3156,7 @@ def create_google_calendar_event(
     event_id = str(response_payload.get("id") or "").strip()
     if not event_id:
         raise RuntimeError("google_calendar_event_id_missing")
-    updated_metadata = dict(metadata)
-    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
-    updated_metadata["last_refresh_at"] = _utc_iso_now()
-    updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
-    updated_metadata["token_status"] = "active"
+    updated_metadata = _google_binding_active_metadata(metadata, token_payload=token_payload)
     updated = container.provider_registry.upsert_binding_record(
         binding_id=binding.binding_id,
         principal_id=principal_id,
@@ -3202,11 +3233,7 @@ def create_google_keep_note(
     note_name = str(response_payload.get("name") or "").strip()
     if not note_name:
         raise RuntimeError("google_keep_note_name_missing")
-    updated_metadata = dict(metadata)
-    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
-    updated_metadata["last_refresh_at"] = _utc_iso_now()
-    updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
-    updated_metadata["token_status"] = "active"
+    updated_metadata = _google_binding_active_metadata(metadata, token_payload=token_payload)
     updated = container.provider_registry.upsert_binding_record(
         binding_id=binding.binding_id,
         principal_id=principal_id,

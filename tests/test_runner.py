@@ -485,6 +485,7 @@ def test_scheduler_google_signal_sync_runs_configured_property_mailboxes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = _load_runner_module(monkeypatch)
+    monkeypatch.setattr(runner, "assistant_property_lane_enabled", lambda: True)
     monkeypatch.setenv("EA_PROPERTY_ALERT_ACCOUNT_EMAILS", "property.alerts@example.test")
 
     calls: list[str] = []
@@ -536,6 +537,122 @@ def test_scheduler_google_signal_sync_runs_configured_property_mailboxes(
     assert calls == ["principal-google-1|scheduler|5|5"]
     assert property_calls == ["principal-google-1|scheduler|property.alerts@example.test|10"]
 
+
+def test_scheduler_google_signal_sync_runtime_invalid_grant_enters_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    monkeypatch.setenv("EA_SCHEDULER_GOOGLE_SIGNAL_SYNC_RUNTIME_COOLDOWN_SECONDS", "600")
+    runner._SCHEDULER_GOOGLE_SIGNAL_SYNC_RUNTIME_COOLDOWNS.clear()
+
+    google_binding = ConnectorBinding(
+        binding_id="binding-google-runtime-1",
+        principal_id="principal-google-runtime-1",
+        connector_name="google_workspace",
+        external_account_ref="exec@example.com",
+        scope_json={},
+        auth_metadata_json={"google_email": "exec@example.com"},
+        status="enabled",
+        created_at="2026-03-26T00:00:00Z",
+        updated_at="2026-03-26T00:00:00Z",
+    )
+    calls: list[str] = []
+    observations: list[dict[str, object]] = []
+
+    class _FakeService:
+        def sync_google_workspace_signals(self, *, principal_id: str, actor: str, email_limit: int, calendar_limit: int):
+            calls.append(f"{principal_id}|{actor}|{email_limit}|{calendar_limit}")
+            raise RuntimeError("google_oauth_invalid_grant")
+
+    container = SimpleNamespace(
+        tool_runtime=SimpleNamespace(
+            list_connector_bindings_for_connector=lambda connector_name, limit=1000: [google_binding]
+        ),
+        channel_runtime=SimpleNamespace(ingest_observation=lambda **kwargs: observations.append(dict(kwargs))),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+    monkeypatch.setattr(runner.time, "time", lambda: 1000.0)
+
+    summary = runner._run_scheduler_google_signal_sync(container, logging.getLogger("test.runner"))
+
+    assert summary == {"ran": True, "attempted": 1, "synced": 0, "errors": 1, "skipped": 0}
+    assert calls == ["principal-google-runtime-1|scheduler|5|5"]
+    state = runner._SCHEDULER_GOOGLE_SIGNAL_SYNC_RUNTIME_COOLDOWNS["principal-google-runtime-1"]
+    assert state["reason"] == "google_oauth_invalid_grant"
+    assert state["blocked_until"] == 1600.0
+    assert observations == [
+        {
+            "principal_id": "principal-google-runtime-1",
+            "channel": "product",
+            "event_type": "google_workspace_signal_sync_recovery_blocked",
+            "payload": {
+                "reason": "google_oauth_invalid_grant",
+                "blocked_at": "1970-01-01T00:16:40Z",
+                "blocked_until": "1970-01-01T00:26:40Z",
+                "cooldown_seconds": 600,
+                "cooldown_active": True,
+                "recovery_mode": "scheduler_cooldown",
+                "raw_credential_exposed": False,
+                "raw_payload_exposed": False,
+            },
+            "source_id": "google-workspace-signal-sync-recovery-blocked:principal-google-runtime-1:1600",
+            "dedupe_key": "google-workspace-signal-sync-recovery-blocked:principal-google-runtime-1:1600",
+        }
+    ]
+
+
+def test_scheduler_google_signal_sync_runtime_cooldown_skips_repeated_reauth_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    runner._SCHEDULER_GOOGLE_SIGNAL_SYNC_RUNTIME_COOLDOWNS.clear()
+    runner._SCHEDULER_GOOGLE_SIGNAL_SYNC_RUNTIME_COOLDOWNS["principal-google-runtime-2"] = {
+        "reason": "google_oauth_invalid_grant",
+        "blocked_until": 1600.0,
+        "last_logged_at": 0.0,
+    }
+
+    google_binding = ConnectorBinding(
+        binding_id="binding-google-runtime-2",
+        principal_id="principal-google-runtime-2",
+        connector_name="google_workspace",
+        external_account_ref="exec@example.com",
+        scope_json={},
+        auth_metadata_json={"google_email": "exec@example.com"},
+        status="enabled",
+        created_at="2026-03-26T00:00:00Z",
+        updated_at="2026-03-26T00:00:00Z",
+    )
+    calls: list[str] = []
+
+    class _FakeService:
+        def sync_google_workspace_signals(self, *, principal_id: str, actor: str, email_limit: int, calendar_limit: int):
+            calls.append(f"{principal_id}|{actor}|{email_limit}|{calendar_limit}")
+            return {"total": 1}
+
+    container = SimpleNamespace(
+        tool_runtime=SimpleNamespace(
+            list_connector_bindings_for_connector=lambda connector_name, limit=1000: [google_binding]
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+    monkeypatch.setattr(runner.time, "time", lambda: 1000.0)
+    caplog.set_level(logging.DEBUG, logger="test.runner")
+
+    summary = runner._run_scheduler_google_signal_sync(container, logging.getLogger("test.runner"))
+
+    assert summary == {"ran": True, "attempted": 0, "synced": 0, "errors": 0, "skipped": 1}
+    assert calls == []
+    assert any("scheduler google signal sync cooldown" in record.getMessage() for record in caplog.records)
 
 def test_scheduler_pocket_signal_sync_runs_for_default_principal(
     monkeypatch: pytest.MonkeyPatch,
@@ -683,6 +800,7 @@ def test_worker_property_only_profile_helper_accepts_property_aliases(
 
 def test_scheduler_morning_memo_delivery_sends_once_when_due(monkeypatch: pytest.MonkeyPatch) -> None:
     runner = _load_runner_module(monkeypatch)
+    monkeypatch.setenv("EA_SCHEDULER_DIGEST_EMAIL_ENABLED", "1")
 
     google_binding = ConnectorBinding(
         binding_id="binding-google-1",
@@ -714,6 +832,7 @@ def test_scheduler_morning_memo_delivery_sends_once_when_due(monkeypatch: pytest
             "role": "principal",
             "display_name": "Exec One",
             "delivery_channel": "email",
+            "allow_scheduler_email": True,
             "retry_after_minutes": 60,
         },
         status="active",
@@ -813,6 +932,7 @@ def test_scheduler_morning_memo_delivery_sends_once_when_due(monkeypatch: pytest
         "blocked": 0,
         "failed": 0,
         "skipped": 0,
+        "budget_deferred": 0,
         "errors": 0,
     }
     assert service_calls == [("principal-memo-1", "memo", "exec@example.com")]
@@ -831,6 +951,7 @@ def test_scheduler_morning_memo_delivery_sends_once_when_due(monkeypatch: pytest
 
 def test_scheduler_morning_memo_delivery_respects_retry_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
     runner = _load_runner_module(monkeypatch)
+    monkeypatch.setenv("EA_SCHEDULER_DIGEST_EMAIL_ENABLED", "1")
 
     google_binding = ConnectorBinding(
         binding_id="binding-google-1",
@@ -921,9 +1042,298 @@ def test_scheduler_morning_memo_delivery_respects_retry_backoff(monkeypatch: pyt
         "blocked": 1,
         "failed": 0,
         "skipped": 0,
+        "budget_deferred": 0,
         "errors": 0,
     }
     assert service_calls == []
+
+
+def test_scheduler_morning_memo_delivery_blocks_email_when_digest_email_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    monkeypatch.setenv("EA_SCHEDULER_DIGEST_EMAIL_ENABLED", "0")
+
+    google_binding = ConnectorBinding(
+        binding_id="binding-google-guard-1",
+        principal_id="principal-memo-guard-1",
+        connector_name="google_workspace",
+        external_account_ref="exec@example.com",
+        scope_json={},
+        auth_metadata_json={"google_email": "exec@example.com"},
+        status="enabled",
+        created_at="2026-03-30T00:00:00Z",
+        updated_at="2026-03-30T00:00:00Z",
+    )
+    preference = SimpleNamespace(
+        preference_id="pref-memo-guard-1",
+        principal_id="principal-memo-guard-1",
+        channel="email",
+        recipient_ref="morning_memo_primary",
+        cadence="daily_morning",
+        quiet_hours_json={
+            "timezone": "UTC",
+            "delivery_time_local": "08:00",
+            "quiet_hours_start": "20:00",
+            "quiet_hours_end": "07:00",
+            "delivery_window_minutes": 120,
+        },
+        format_json={
+            "schedule_kind": "morning_memo",
+            "digest_key": "memo",
+            "role": "principal",
+            "display_name": "Exec Guard",
+            "delivery_channel": "email",
+            "retry_after_minutes": 60,
+        },
+        status="active",
+    )
+
+    service_calls: list[str] = []
+    ingested_events: list[tuple[str, str, dict[str, object]]] = []
+
+    class _FakeChannelRuntime:
+        def find_observation_by_dedupe(self, dedupe_key: str, *, principal_id: str | None = None):
+            return None
+
+        def list_recent_observations(self, limit: int = 50, principal_id: str | None = None):
+            return []
+
+        def ingest_observation(
+            self,
+            principal_id: str,
+            channel: str,
+            event_type: str,
+            payload: dict[str, object] | None = None,
+            *,
+            source_id: str = "",
+            external_id: str = "",
+            dedupe_key: str = "",
+            auth_context_json: dict[str, object] | None = None,
+            raw_payload_uri: str = "",
+        ):
+            ingested_events.append((event_type, dedupe_key, dict(payload or {})))
+            return SimpleNamespace(
+                event_type=event_type,
+                payload=dict(payload or {}),
+                created_at="2026-03-30T08:05:00+00:00",
+            )
+
+    class _FakeService:
+        def channel_digest_pack(self, *, principal_id: str, digest_key: str, operator_id: str = ""):
+            return {"key": digest_key, "items": [{"title": "Memo", "tag": "Memo"}]}
+
+        def issue_channel_digest_delivery(self, **kwargs):
+            service_calls.append("called")
+            return {"delivery_id": "digest-guard-1", "digest_key": "memo", "email_delivery_status": "sent"}
+
+    container = SimpleNamespace(
+        tool_runtime=SimpleNamespace(
+            list_connector_bindings_for_connector=lambda connector_name, limit=1000: [google_binding]
+        ),
+        memory_runtime=SimpleNamespace(
+            list_delivery_preferences=lambda principal_id, limit=50, status=None: [preference]
+        ),
+        channel_runtime=_FakeChannelRuntime(),
+    )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "app.services.registration_email",
+        SimpleNamespace(email_delivery_enabled=lambda: True),
+    )
+
+    now_utc = runner.datetime(2026, 3, 30, 8, 5, tzinfo=runner.timezone.utc)
+    summary = runner._run_scheduler_morning_memo_delivery(
+        container,
+        logging.getLogger("test.runner"),
+        now_utc=now_utc,
+    )
+
+    assert summary == {
+        "ran": True,
+        "configured": 1,
+        "due": 1,
+        "sent": 0,
+        "blocked": 1,
+        "failed": 0,
+        "skipped": 0,
+        "budget_deferred": 0,
+        "errors": 0,
+    }
+    assert service_calls == []
+    assert ingested_events == [
+        (
+            "scheduled_morning_memo_delivery_blocked",
+            "principal-memo-guard-1|scheduled-morning-memo|pref-memo-guard-1|2026-03-30|email-disabled",
+            {
+                "schedule_key": "pref-memo-guard-1",
+                "local_day": "2026-03-30",
+                "reason": "scheduler_digest_email_disabled",
+                "recipient_email": "exec@example.com",
+            },
+        )
+    ]
+
+
+def test_scheduler_morning_memo_delivery_blocks_email_when_not_explicitly_allowlisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    monkeypatch.setenv("EA_SCHEDULER_DIGEST_EMAIL_ENABLED", "1")
+    monkeypatch.setenv("EA_SCHEDULER_DIGEST_EMAIL_REQUIRE_EXPLICIT_ALLOWLIST", "1")
+
+    google_binding = ConnectorBinding(
+        binding_id="binding-google-guard-2",
+        principal_id="principal-memo-guard-2",
+        connector_name="google_workspace",
+        external_account_ref="exec@example.com",
+        scope_json={},
+        auth_metadata_json={"google_email": "exec@example.com"},
+        status="enabled",
+        created_at="2026-03-30T00:00:00Z",
+        updated_at="2026-03-30T00:00:00Z",
+    )
+    preference = SimpleNamespace(
+        preference_id="pref-memo-guard-2",
+        principal_id="principal-memo-guard-2",
+        channel="email",
+        recipient_ref="morning_memo_primary",
+        cadence="daily_morning",
+        quiet_hours_json={
+            "timezone": "UTC",
+            "delivery_time_local": "08:00",
+            "quiet_hours_start": "20:00",
+            "quiet_hours_end": "07:00",
+            "delivery_window_minutes": 120,
+        },
+        format_json={
+            "schedule_kind": "morning_memo",
+            "digest_key": "memo",
+            "role": "principal",
+            "display_name": "Exec Guard Two",
+            "delivery_channel": "email",
+            "retry_after_minutes": 60,
+        },
+        status="active",
+    )
+
+    service_calls: list[str] = []
+    ingested_events: list[tuple[str, str, dict[str, object]]] = []
+    dedupe_index: dict[str, SimpleNamespace] = {}
+
+    class _FakeChannelRuntime:
+        def find_observation_by_dedupe(self, dedupe_key: str, *, principal_id: str | None = None):
+            return dedupe_index.get(dedupe_key)
+
+        def list_recent_observations(self, limit: int = 50, principal_id: str | None = None):
+            return []
+
+        def ingest_observation(
+            self,
+            principal_id: str,
+            channel: str,
+            event_type: str,
+            payload: dict[str, object] | None = None,
+            *,
+            source_id: str = "",
+            external_id: str = "",
+            dedupe_key: str = "",
+            auth_context_json: dict[str, object] | None = None,
+            raw_payload_uri: str = "",
+        ):
+            ingested_events.append((event_type, dedupe_key, dict(payload or {})))
+            row = SimpleNamespace(
+                event_type=event_type,
+                payload=dict(payload or {}),
+                created_at="2026-03-30T08:05:00+00:00",
+            )
+            if dedupe_key:
+                dedupe_index[dedupe_key] = row
+            return row
+
+    class _FakeService:
+        def channel_digest_pack(self, *, principal_id: str, digest_key: str, operator_id: str = ""):
+            return {"key": digest_key, "items": [{"title": "Memo", "tag": "Memo"}]}
+
+        def issue_channel_digest_delivery(self, **kwargs):
+            service_calls.append("called")
+            return {"delivery_id": "digest-guard-2", "digest_key": "memo", "email_delivery_status": "sent"}
+
+    container = SimpleNamespace(
+        tool_runtime=SimpleNamespace(
+            list_connector_bindings_for_connector=lambda connector_name, limit=1000: [google_binding]
+        ),
+        memory_runtime=SimpleNamespace(
+            list_delivery_preferences=lambda principal_id, limit=50, status=None: [preference]
+        ),
+        channel_runtime=_FakeChannelRuntime(),
+    )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "app.services.registration_email",
+        SimpleNamespace(email_delivery_enabled=lambda: True),
+    )
+
+    now_utc = runner.datetime(2026, 3, 30, 8, 5, tzinfo=runner.timezone.utc)
+    summary = runner._run_scheduler_morning_memo_delivery(
+        container,
+        logging.getLogger("test.runner"),
+        now_utc=now_utc,
+    )
+    second_summary = runner._run_scheduler_morning_memo_delivery(
+        container,
+        logging.getLogger("test.runner"),
+        now_utc=now_utc,
+    )
+
+    assert summary == {
+        "ran": True,
+        "configured": 1,
+        "due": 1,
+        "sent": 0,
+        "blocked": 1,
+        "failed": 0,
+        "skipped": 0,
+        "budget_deferred": 0,
+        "errors": 0,
+    }
+    assert second_summary == {
+        "ran": True,
+        "configured": 1,
+        "due": 1,
+        "sent": 0,
+        "blocked": 1,
+        "failed": 0,
+        "skipped": 0,
+        "budget_deferred": 0,
+        "errors": 0,
+    }
+    assert service_calls == []
+    assert ingested_events == [
+        (
+            "scheduled_morning_memo_delivery_blocked",
+            "principal-memo-guard-2|scheduled-morning-memo|pref-memo-guard-2|2026-03-30|email-out-of-bounds",
+            {
+                "schedule_key": "pref-memo-guard-2",
+                "local_day": "2026-03-30",
+                "reason": "scheduler_digest_email_not_allowlisted",
+                "recipient_email": "exec@example.com",
+                "delivery_channel": "email",
+            },
+        )
+    ]
 
 
 def test_scheduler_actionable_nudge_delivery_sends_telegram_when_due(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1067,12 +1477,185 @@ def test_scheduler_actionable_nudge_delivery_sends_telegram_when_due(monkeypatch
         "blocked": 0,
         "failed": 0,
         "skipped": 0,
+        "budget_deferred": 0,
         "errors": 0,
     }
     assert service_calls == [("principal-nudge-1", "assistant_nudge", "principal-nudge-1", "telegram")]
     assert ingested_events == [
         ("scheduled_morning_memo_delivery_sent", "principal-nudge-1|scheduled-morning-memo|pref-nudge-1|2026-03-30|sent")
     ]
+
+
+def test_scheduler_morning_memo_delivery_defers_when_pass_budget_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    monkeypatch.setenv("EA_SCHEDULER_DIGEST_EMAIL_ENABLED", "1")
+    monkeypatch.setenv("EA_SCHEDULER_MORNING_MEMO_MAX_DELIVERIES_PER_PASS", "1")
+
+    google_bindings = [
+        ConnectorBinding(
+            binding_id="binding-google-a",
+            principal_id="principal-memo-a",
+            connector_name="google_workspace",
+            external_account_ref="exec-a@example.com",
+            scope_json={},
+            auth_metadata_json={"google_email": "exec-a@example.com"},
+            status="enabled",
+            created_at="2026-03-30T00:00:00Z",
+            updated_at="2026-03-30T00:00:00Z",
+        ),
+        ConnectorBinding(
+            binding_id="binding-google-b",
+            principal_id="principal-memo-b",
+            connector_name="google_workspace",
+            external_account_ref="exec-b@example.com",
+            scope_json={},
+            auth_metadata_json={"google_email": "exec-b@example.com"},
+            status="enabled",
+            created_at="2026-03-30T00:00:00Z",
+            updated_at="2026-03-30T00:00:00Z",
+        ),
+    ]
+    preferences = {
+        "principal-memo-a": [
+            SimpleNamespace(
+                preference_id="pref-memo-a",
+                principal_id="principal-memo-a",
+                channel="email",
+                recipient_ref="morning_memo_primary",
+                cadence="daily_morning",
+                quiet_hours_json={
+                    "timezone": "UTC",
+                    "delivery_time_local": "08:00",
+                    "quiet_hours_start": "20:00",
+                    "quiet_hours_end": "07:00",
+                    "delivery_window_minutes": 120,
+                },
+                format_json={
+                    "schedule_kind": "morning_memo",
+                    "digest_key": "memo",
+                    "role": "principal",
+                    "display_name": "Exec A",
+                    "delivery_channel": "email",
+                    "allow_scheduler_email": True,
+                    "retry_after_minutes": 60,
+                },
+                status="active",
+            )
+        ],
+        "principal-memo-b": [
+            SimpleNamespace(
+                preference_id="pref-memo-b",
+                principal_id="principal-memo-b",
+                channel="email",
+                recipient_ref="morning_memo_primary",
+                cadence="daily_morning",
+                quiet_hours_json={
+                    "timezone": "UTC",
+                    "delivery_time_local": "08:00",
+                    "quiet_hours_start": "20:00",
+                    "quiet_hours_end": "07:00",
+                    "delivery_window_minutes": 120,
+                },
+                format_json={
+                    "schedule_kind": "morning_memo",
+                    "digest_key": "memo",
+                    "role": "principal",
+                    "display_name": "Exec B",
+                    "delivery_channel": "email",
+                    "allow_scheduler_email": True,
+                    "retry_after_minutes": 60,
+                },
+                status="active",
+            )
+        ],
+    }
+
+    service_calls: list[str] = []
+    ingested_events: list[str] = []
+
+    class _FakeChannelRuntime:
+        def find_observation_by_dedupe(self, dedupe_key: str, *, principal_id: str | None = None):
+            return None
+
+        def list_recent_observations(self, limit: int = 50, principal_id: str | None = None):
+            return []
+
+        def ingest_observation(
+            self,
+            principal_id: str,
+            channel: str,
+            event_type: str,
+            payload: dict[str, object] | None = None,
+            *,
+            source_id: str = "",
+            external_id: str = "",
+            dedupe_key: str = "",
+            auth_context_json: dict[str, object] | None = None,
+            raw_payload_uri: str = "",
+        ):
+            ingested_events.append(event_type)
+            return SimpleNamespace(
+                event_type=event_type,
+                payload=dict(payload or {}),
+                created_at="2026-03-30T08:05:00+00:00",
+            )
+
+    class _FakeService:
+        def channel_digest_pack(self, *, principal_id: str, digest_key: str, operator_id: str = ""):
+            return {"key": digest_key, "items": [{"title": principal_id, "tag": "Memo"}]}
+
+        def issue_channel_digest_delivery(self, **kwargs):
+            service_calls.append(str(kwargs["principal_id"]))
+            return {
+                "delivery_id": f"digest-{kwargs['principal_id']}",
+                "digest_key": str(kwargs["digest_key"]),
+                "email_delivery_status": "sent",
+            }
+
+    container = SimpleNamespace(
+        tool_runtime=SimpleNamespace(
+            list_connector_bindings_for_connector=lambda connector_name, limit=1000: list(google_bindings)
+        ),
+        memory_runtime=SimpleNamespace(
+            list_delivery_preferences=lambda principal_id, limit=50, status=None: list(preferences.get(principal_id, []))
+        ),
+        channel_runtime=_FakeChannelRuntime(),
+    )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "app.services.registration_email",
+        SimpleNamespace(email_delivery_enabled=lambda: True),
+    )
+
+    now_utc = runner.datetime(2026, 3, 30, 8, 5, tzinfo=runner.timezone.utc)
+    summary = runner._run_scheduler_morning_memo_delivery(
+        container,
+        logging.getLogger("test.runner"),
+        now_utc=now_utc,
+    )
+
+    assert summary == {
+        "ran": True,
+        "configured": 2,
+        "due": 2,
+        "sent": 1,
+        "blocked": 0,
+        "failed": 0,
+        "skipped": 0,
+        "budget_deferred": 1,
+        "errors": 0,
+    }
+    assert service_calls == ["principal-memo-a"]
+    assert ingested_events.count("scheduled_morning_memo_delivery_sent") == 1
+    assert ingested_events.count("scheduled_morning_memo_delivery_deferred") == 1
 
 
 def test_scheduler_whatsapp_async_recovery_sends_queued_message(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1160,6 +1743,7 @@ def test_scheduler_whatsapp_async_recovery_sends_queued_message(monkeypatch: pyt
     assert summary["skipped"] == 0
     assert summary["errors"] == 0
     assert summary["dead_lettered"] == 0
+    assert summary["budget_deferred"] == 0
     assert row_count[0] == 1
     assert marked_sent == [("delivery-whatsapp-1", "principal-whatsapp-1")]
     assert captured[0]["tool_runtime"] is tool_runtime
@@ -1242,6 +1826,7 @@ def test_scheduler_whatsapp_async_recovery_dead_letters_after_retry_budget(monke
     assert summary["skipped"] == 0
     assert summary["errors"] == 1
     assert summary["dead_lettered"] == 1
+    assert summary["budget_deferred"] == 0
     assert failures[0]["tool_runtime"] is tool_runtime
     assert failures[0]["principal_id"] == "principal-whatsapp-2"
     assert failures[0]["recipient"] == "15550100000"
@@ -1249,6 +1834,131 @@ def test_scheduler_whatsapp_async_recovery_dead_letters_after_retry_budget(monke
     assert failures[0]["binding_id"] == "binding-2"
     assert failures[0]["binding"] is None
     assert marked_failed == [("delivery-whatsapp-2", True, None)]
+
+
+def test_scheduler_whatsapp_async_recovery_defers_after_pass_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    monkeypatch.setenv("EA_SCHEDULER_WHATSAPP_ASYNC_RECOVERY_MAX_SENDS_PER_PASS", "1")
+    captured: list[str] = []
+    marked_sent: list[str] = []
+
+    class _FakeChannelRuntime:
+        def __init__(self) -> None:
+            self.rows = [
+                SimpleNamespace(
+                    channel="whatsapp",
+                    principal_id="principal-whatsapp-a",
+                    recipient="+15550100001",
+                    content="Message A",
+                    metadata={"delivery_mode": "queued", "binding_id": "binding-a"},
+                    created_at="2026-01-01T00:00:00Z",
+                    delivery_id="delivery-whatsapp-a",
+                    attempt_count=0,
+                ),
+                SimpleNamespace(
+                    channel="whatsapp",
+                    principal_id="principal-whatsapp-b",
+                    recipient="+15550100002",
+                    content="Message B",
+                    metadata={"delivery_mode": "queued", "binding_id": "binding-b"},
+                    created_at="2026-01-01T00:00:00Z",
+                    delivery_id="delivery-whatsapp-b",
+                    attempt_count=0,
+                ),
+            ]
+
+        def list_pending_delivery(self, limit: int = 50, *, principal_id: str | None = None) -> list[SimpleNamespace]:
+            return list(self.rows)
+
+        def mark_delivery_sent(self, delivery_id: str, *, principal_id: str, receipt_json: dict[str, object] | None = None):
+            marked_sent.append(str(delivery_id))
+            return SimpleNamespace(status="sent", delivery_id=delivery_id, principal_id=principal_id)
+
+        def mark_delivery_failed(
+            self,
+            delivery_id: str,
+            *,
+            principal_id: str,
+            error: str,
+            next_attempt_at: str | None = None,
+            dead_letter: bool = False,
+        ):
+            raise AssertionError("mark_delivery_failed should not run in budget deferral test")
+
+    class _FakeToolRuntime:
+        def get_connector_binding(self, binding_id: str):
+            raise AssertionError("get_connector_binding should not be called when send helper is mocked")
+
+    def _fake_send(**kwargs):
+        captured.append(str(kwargs["principal_id"]))
+        from app.services.whatsapp_delivery import WhatsAppDeliveryReceipt
+
+        return WhatsAppDeliveryReceipt(
+            principal_id=kwargs["principal_id"],
+            binding_id=str(kwargs["binding_id"]),
+            connector_name="whatsapp_export",
+            recipient=kwargs["recipient"],
+            message_ids=("wamid.1",),
+            request_url="https://graph.facebook.com/v20.0/phone/messages",
+            binding_status="enabled",
+            external_account_ref="acc-ref",
+        )
+
+    monkeypatch.setattr(runner, "send_whatsapp_text", _fake_send)
+
+    container = SimpleNamespace(
+        channel_runtime=_FakeChannelRuntime(),
+        tool_runtime=_FakeToolRuntime(),
+    )
+
+    summary = runner._run_scheduler_whatsapp_async_recovery(
+        container,
+        logging.getLogger("test.runner"),
+    )
+
+    assert summary == {
+        "ran": True,
+        "drained": 1,
+        "pending": 0,
+        "skipped": 0,
+        "errors": 0,
+        "dead_lettered": 0,
+        "budget_deferred": 1,
+    }
+    assert captured == ["principal-whatsapp-a"]
+    assert marked_sent == ["delivery-whatsapp-a"]
+
+
+def test_scheduler_async_recovery_idle_helper_treats_skipped_only_pass_as_idle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+
+    assert (
+        runner._scheduler_async_recovery_is_idle(
+            {
+                "drained": 0,
+                "pending": 0,
+                "skipped": 2,
+                "budget_deferred": 0,
+                "errors": 0,
+                "dead_lettered": 0,
+            }
+        )
+        is True
+    )
+
+
+def test_scheduler_async_recovery_idle_helper_treats_error_or_pending_work_as_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+
+    assert runner._scheduler_async_recovery_is_idle({"pending": 1}) is False
+    assert runner._scheduler_async_recovery_is_idle({"errors": 1}) is False
+    assert runner._scheduler_async_recovery_is_idle({"dead_lettered": 1}) is False
 
 
 def test_scheduler_property_results_finalize_reconciles_ready_runs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1278,3 +1988,55 @@ def test_scheduler_property_results_finalize_reconciles_ready_runs(monkeypatch: 
         "errors": 0,
     }
     assert observed == [40]
+
+
+def test_scheduler_host_pressure_snapshot_blocks_when_load_and_memory_cross_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    monkeypatch.setattr(runner.os, "getloadavg", lambda: (8.0, 7.0, 6.0))
+    monkeypatch.setattr(runner.os, "cpu_count", lambda: 4)
+    monkeypatch.setattr(runner, "_scheduler_available_memory_gib", lambda: 1.0)
+    monkeypatch.setenv("EA_SCHEDULER_HOST_PRESSURE_GUARD_ENABLED", "1")
+    monkeypatch.setenv("EA_SCHEDULER_HOST_MAX_LOAD_PER_CORE", "1.25")
+    monkeypatch.setenv("EA_SCHEDULER_HOST_MIN_AVAILABLE_MEMORY_GIB", "2.0")
+
+    snapshot = runner._scheduler_host_pressure_snapshot()
+
+    assert snapshot["blocked"] is True
+    assert snapshot["reasons"] == ["load", "memory"]
+    assert snapshot["load_per_core"] == 2.0
+    assert snapshot["available_memory_gib"] == 1.0
+
+
+def test_execution_worker_pauses_before_queue_work_when_runtime_guard_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    queue_calls: list[str] = []
+
+    container = SimpleNamespace(
+        orchestrator=SimpleNamespace(run_next_queue_item=lambda lease_owner: queue_calls.append(lease_owner) or None)
+    )
+    monkeypatch.setattr(runner, "build_container", lambda: container)
+    monkeypatch.setattr(runner.signal, "signal", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        runner,
+        "_scheduler_runtime_guard_state",
+        lambda: {
+            "blocked": True,
+            "reasons": ["load"],
+            "host_pressure": {"load_per_core": 2.0, "available_memory_gib": 1.0},
+            "side_effects_enabled": True,
+        },
+    )
+
+    def _stop_sleep(_seconds: float) -> None:
+        raise StopIteration
+
+    monkeypatch.setattr(runner.time, "sleep", _stop_sleep)
+
+    with pytest.raises(StopIteration):
+        runner._run_execution_worker("worker")
+
+    assert queue_calls == []

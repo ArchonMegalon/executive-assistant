@@ -2259,6 +2259,63 @@ def test_property_scout_route_sends_client_email_alerts_via_emailit(monkeypatch)
     assert "Willhaben Wien rentals" in str(observed_email["provider_label"])
 
 
+def test_property_scout_hit_email_does_not_silently_fallback_to_gmail_by_default(monkeypatch) -> None:
+    principal_id = "cf-email:principal.user@example.test"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Gmail Fallback Guard")
+    product = ProductService(client.app.state.container)
+
+    monkeypatch.setattr(product_service, "email_delivery_enabled", lambda: True)
+    monkeypatch.setattr(
+        product,
+        "_render_property_scout_dossier",
+        lambda **kwargs: {
+            "publication_id": "publication-property-fallback-guard",
+            "public_pdf_url": "https://myexternalbrain.com/property/fallback-guard.pdf",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_property_match_email",
+        lambda **kwargs: (_ for _ in ()).throw(
+            RuntimeError('registration_email_send_failed:422:{"error":"Domain not verified"}')
+        ),
+    )
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_google_accounts",
+        lambda **kwargs: [
+            SimpleNamespace(
+                binding=SimpleNamespace(binding_id="google-binding-fallback-guard"),
+                google_email="principal.user@example.test",
+            )
+        ],
+    )
+
+    observed_gmail: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        google_oauth_service,
+        "send_google_gmail_message",
+        lambda **kwargs: observed_gmail.append(dict(kwargs)) or SimpleNamespace(gmail_message_id="gmail-guard-1"),
+    )
+
+    result = product._send_property_scout_hit_email(  # noqa: SLF001
+        principal_id=principal_id,
+        actor="property_scout",
+        title="Guard flat",
+        summary="Interesting candidate.",
+        counterparty="Willhaben Wien rentals",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/guard-flat-1",
+        source_ref="property-scout:fallback-guard-1",
+        assessment={"recommendation": "shortlist", "fit_score": 92.0},
+        review_url="https://myexternalbrain.com/review/guard-flat-1",
+        tour_result={"tour_url": "https://myexternalbrain.com/tours/guard-flat-1"},
+    )
+
+    assert result["status"] == "failed"
+    assert observed_gmail == []
+
+
 def test_property_scout_route_notifies_top_watch_hit_when_no_good_fit(monkeypatch) -> None:
     principal_id = "cf-email:principal.user@example.test"
     client = build_product_client(principal_id=principal_id)
@@ -8199,14 +8256,14 @@ def test_pocket_api_sync_routes_gmail_trigger_to_manual_followup_by_default(monk
     assert executed["payload"]["policy_reason"] == "action_policy_requires_manual_followup"
 
 
-def test_pocket_api_sync_keeps_gmail_manual_without_explicit_dangerous_action_policy(monkeypatch) -> None:
+def test_pocket_api_sync_keeps_gmail_manual_even_with_explicit_dangerous_action_policy(monkeypatch) -> None:
     principal_id = "exec-product-pocket-sync-gmail-dangerous-policy"
     client = build_product_client(principal_id=principal_id)
     seed_product_state(client, principal_id=principal_id)
     gmail_send_called = False
 
     monkeypatch.setenv("EA_POCKET_ASSISTANT_AUTO_ACTIONS", "shopping_list_add,gmail_send,manual_followup,none")
-    monkeypatch.delenv("EA_POCKET_ASSISTANT_DANGEROUS_AUTO_ACTIONS", raising=False)
+    monkeypatch.setenv("EA_POCKET_ASSISTANT_DANGEROUS_AUTO_ACTIONS", "gmail_send,calendar_create")
 
     monkeypatch.setattr(
         product_service,
@@ -8279,7 +8336,7 @@ def test_pocket_api_sync_keeps_gmail_manual_without_explicit_dangerous_action_po
     def _fake_send(**kwargs):  # type: ignore[no-untyped-def]
         nonlocal gmail_send_called
         gmail_send_called = True
-        raise AssertionError("gmail send should not auto-execute without dangerous action policy")
+        raise AssertionError("gmail send should not auto-execute even with dangerous action policy configured")
 
     monkeypatch.setattr(google_oauth_service, "send_google_gmail_message", _fake_send)
 
@@ -8298,6 +8355,111 @@ def test_pocket_api_sync_keeps_gmail_manual_without_explicit_dangerous_action_po
         for item in product_events.json()["items"]
         if item["event_type"] == "pocket_assistant_command_executed"
         and item["payload"]["recording_id"] == "trigger-gmail-dangerous-1"
+    )
+    assert executed["payload"]["delivery_backend"] == "human_followup"
+    assert executed["payload"]["policy_reason"] == "action_policy_requires_manual_followup"
+
+
+def test_pocket_api_sync_keeps_calendar_manual_even_with_explicit_dangerous_action_policy(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-sync-calendar-dangerous-policy"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    calendar_create_called = False
+
+    monkeypatch.setenv("EA_POCKET_ASSISTANT_AUTO_ACTIONS", "calendar_create,manual_followup,none")
+    monkeypatch.setenv("EA_POCKET_ASSISTANT_DANGEROUS_AUTO_ACTIONS", "gmail_send,calendar_create")
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {"id": "trigger-calendar-dangerous-1", "title": "Pocket calendar command", "state": "completed"},
+            ],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Pocket calendar command",
+                "state": "completed",
+                "duration": 93.0,
+                "language": "de",
+                "recording_at": "2026-05-30T10:00:00Z",
+                "created_at": "2026-05-30T10:00:10Z",
+                "updated_at": "2026-05-30T10:00:20Z",
+                "tags": ["memo"],
+                "transcript": {
+                    "text": "Assistent: erstelle einen Kalendereintrag morgen um 15 Uhr fuer Arzttermin.",
+                    "segments": [{"start": 0.0, "end": 6.0, "text": "Assistent: erstelle einen Kalendereintrag morgen um 15 Uhr fuer Arzttermin."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_pocket_audio_archive_index_to_teable",
+        lambda self, *, principal_id, rows: {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service.responses_upstream,
+        "generate_text",
+        lambda **kwargs: type(
+            "UpstreamResultStub",
+            (),
+            {
+                "text": json.dumps(
+                    {
+                        "action": "calendar_create",
+                        "confidence": 0.98,
+                        "reason": "spoken_request_to_create_calendar_event",
+                        "params": {
+                            "title": "Arzttermin",
+                            "start_at": "2026-05-31T15:00:00+02:00",
+                            "end_at": "2026-05-31T16:00:00+02:00",
+                            "description": "Erinnerung aus Pocket Memo",
+                        },
+                    }
+                )
+            },
+        )(),
+    )
+
+    def _fake_create(**kwargs):  # type: ignore[no-untyped-def]
+        nonlocal calendar_create_called
+        calendar_create_called = True
+        raise AssertionError("calendar create should not auto-execute even with dangerous action policy configured")
+
+    monkeypatch.setattr(google_oauth_service, "create_google_calendar_event", _fake_create)
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["assistant_trigger_total"] == 1
+    assert body["assistant_trigger_executed_total"] == 1
+    assert body["assistant_trigger_blocked_total"] == 0
+    assert calendar_create_called is False
+
+    product_events = client.get("/app/api/events", params={"channel": "product"})
+    assert product_events.status_code == 200
+    executed = next(
+        item
+        for item in product_events.json()["items"]
+        if item["event_type"] == "pocket_assistant_command_executed"
+        and item["payload"]["recording_id"] == "trigger-calendar-dangerous-1"
     )
     assert executed["payload"]["delivery_backend"] == "human_followup"
     assert executed["payload"]["policy_reason"] == "action_policy_requires_manual_followup"
@@ -11264,6 +11426,7 @@ def test_google_signal_sync_marks_pdf_attachment_pending_when_answerly_training_
 def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_to_tibor(monkeypatch) -> None:
     from app.domain.models import Artifact
 
+    monkeypatch.setenv("EA_ASSISTANT_GMAIL_FALLBACK_ENABLED", "1")
     monkeypatch.setenv("EA_WILLHABEN_SEARCH_AGENT_AUTO_CREATE_PROPERTY_TOUR", "1")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_DEFAULT_RECIPIENT_EMAIL", "principal.user@example.test")
@@ -11983,6 +12146,7 @@ def test_resolve_primary_telegram_binding_prefers_real_numeric_chat_ref() -> Non
 def test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_binding(monkeypatch) -> None:
     from app.domain.models import Artifact
 
+    monkeypatch.setenv("EA_ASSISTANT_GMAIL_FALLBACK_ENABLED", "1")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     principal_id = "cf-email:principal.user@example.test"
     client = build_product_client(principal_id=principal_id)
@@ -12090,6 +12254,196 @@ def test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_bind
     )
     assert events.status_code == 200
     assert any(item["payload"]["google_binding_id"] == "google-binding-fallback" for item in events.json()["items"])
+
+
+def test_willhaben_property_tour_service_blocks_gmail_fallback_by_default(monkeypatch) -> None:
+    from app.domain.models import Artifact
+
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    monkeypatch.delenv("EA_ASSISTANT_GMAIL_FALLBACK_ENABLED", raising=False)
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+
+    principal_id = "cf-email:principal.user@example.test"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+    service = ProductService(client.app.state.container)
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/live-apartment-fallback-guard-1",
+        "listing_id": "listing-fallback-guard-1",
+        "listing_uuid": "listing-uuid-fallback-guard-1",
+        "title": "Fallback Guard apartment",
+        "property_facts_json": {},
+        "media_urls_json": ["https://cdn.example.com/apartment-fallback-guard/photo-1.jpg"],
+        "floorplan_urls_json": [],
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+                "creative_brief": "Lead with the floor plan.",
+                "call_to_action": "Open the tour.",
+                "scene_selection_json": {},
+                "tour_settings_json": {},
+            }
+        ],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        return Artifact(
+            artifact_id="artifact-property-tour-fallback-guard-1",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-property-tour-fallback-guard-1",
+            principal_id=principal_id,
+            structured_output_json={
+                "public_url": "https://myexternalbrain.com/tours/fallback-guard-apartment",
+                "crezlo_public_url": "https://vendor.example.com/tours/fallback-guard-apartment",
+                "editor_url": "https://vendor.example.com/editor/fallback-guard-apartment",
+                "tour_id": "tour-fallback-guard-1",
+            },
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_google_accounts",
+        lambda **kwargs: [
+            SimpleNamespace(
+                binding=SimpleNamespace(binding_id="google-binding-fallback-guard"),
+                google_email="principal.user@example.test",
+            )
+        ],
+    )
+
+    observed_gmail: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        google_oauth_service,
+        "send_google_gmail_message",
+        lambda **kwargs: observed_gmail.append(dict(kwargs)) or SimpleNamespace(gmail_message_id="gmail-guard-1"),
+    )
+
+    created = service.create_willhaben_property_tour(
+        principal_id=principal_id,
+        property_url=packet["property_url"],
+        recipient_email="principal.user@example.test",
+        binding_id="browseract-binding-fallback-guard-1",
+    )
+
+    assert created["status"] == "blocked"
+    assert created["delivery_status"] == "blocked"
+    assert created["blocked_reason"] == "email_delivery_not_configured"
+    assert observed_gmail == []
+
+
+def test_willhaben_property_tour_service_retries_gmail_delivery_with_fallback_binding_when_explicitly_enabled(monkeypatch) -> None:
+    from app.domain.models import Artifact
+
+    monkeypatch.setenv("EA_ASSISTANT_GMAIL_FALLBACK_ENABLED", "1")
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+
+    principal_id = "cf-email:principal.user@example.test"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+    service = ProductService(client.app.state.container)
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/live-apartment-fallback-service-1",
+        "listing_id": "listing-fallback-service-1",
+        "listing_uuid": "listing-uuid-fallback-service-1",
+        "title": "Fallback Service apartment",
+        "property_facts_json": {},
+        "media_urls_json": ["https://cdn.example.com/apartment-fallback-service/photo-1.jpg"],
+        "floorplan_urls_json": [],
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+                "creative_brief": "Lead with the floor plan.",
+                "call_to_action": "Open the tour.",
+                "scene_selection_json": {},
+                "tour_settings_json": {},
+            }
+        ],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        return Artifact(
+            artifact_id="artifact-property-tour-fallback-service-1",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-property-tour-fallback-service-1",
+            principal_id=principal_id,
+            structured_output_json={
+                "public_url": "https://myexternalbrain.com/tours/fallback-service-apartment",
+                "crezlo_public_url": "https://vendor.example.com/tours/fallback-service-apartment",
+                "editor_url": "https://vendor.example.com/editor/fallback-service-apartment",
+                "tour_id": "tour-fallback-service-1",
+            },
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    def _fake_list_google_accounts(**kwargs):  # type: ignore[no-untyped-def]
+        principal = str(kwargs.get("principal_id") or "")
+        if principal == principal_id:
+            return [
+                SimpleNamespace(
+                    binding=SimpleNamespace(binding_id="google-binding-stale"),
+                    google_email="principal.user@example.test",
+                )
+            ]
+        if principal == "principal-default":
+            return [
+                SimpleNamespace(
+                    binding=SimpleNamespace(binding_id="google-binding-fallback"),
+                    google_email="principal.user@example.test",
+                )
+            ]
+        return []
+
+    monkeypatch.setattr(google_oauth_service, "list_google_accounts", _fake_list_google_accounts)
+
+    attempts: list[tuple[str, str]] = []
+
+    def _fake_send_google_gmail_message(**kwargs):  # type: ignore[no-untyped-def]
+        binding_id = str(kwargs.get("binding_id") or "")
+        attempts.append((str(kwargs.get("principal_id") or ""), binding_id))
+        if binding_id == "google-binding-stale":
+            raise RuntimeError("google_oauth_refresh_failed invalid_grant")
+        return google_oauth_service.GoogleGmailSendResult(
+            binding=SimpleNamespace(binding_id=binding_id),
+            sender_email="principal.user@example.test",
+            recipient_email=str(kwargs["recipient_email"]),
+            subject=str(kwargs["subject"]),
+            rfc822_message_id="<property-tour-fallback-service@ea.local>",
+            gmail_message_id="gmail-property-tour-fallback-service",
+            sent_at="2026-05-25T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr(google_oauth_service, "send_google_gmail_message", _fake_send_google_gmail_message)
+
+    created = service.create_willhaben_property_tour(
+        principal_id=principal_id,
+        property_url=packet["property_url"],
+        recipient_email="principal.user@example.test",
+        binding_id="browseract-binding-fallback-service-1",
+    )
+
+    assert created["status"] == "sent"
+    assert created["delivery_status"] == "sent"
+    assert attempts == [
+        (principal_id, "google-binding-stale"),
+        ("principal-default", "google-binding-fallback"),
+    ]
 
 
 def test_willhaben_property_tour_route_backfills_hosted_url_from_structured_output(monkeypatch) -> None:
@@ -13829,7 +14183,7 @@ def test_channel_digest_delivery_uses_public_host_fallback(monkeypatch) -> None:
     assert "/app/api/" not in delivery_body["plain_text"]
 
 
-def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_emailit_is_disabled(monkeypatch) -> None:
+def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_explicitly_enabled(monkeypatch) -> None:
     principal_id = "exec-product-signin-gmail-fallback"
     client = build_product_client(principal_id=principal_id)
     seed_product_state(client, principal_id=principal_id)
@@ -13843,6 +14197,7 @@ def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_emailit_is
         source_kind="sign_in_email",
         expires_in_hours=24,
     )
+    monkeypatch.setenv("EA_WORKSPACE_SIGN_IN_GMAIL_FALLBACK_ENABLED", "1")
     monkeypatch.setattr(product_service, "email_delivery_enabled", lambda: False)
     sent: list[dict[str, object]] = []
 

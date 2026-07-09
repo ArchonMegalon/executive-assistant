@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.parse
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json"
+OPERATOR_SAFE_RECEIPT_FILE_MODE = 0o644
 DEFAULT_OPERATOR_STATUS = ROOT / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
 CONTRACT_NAME = "ea.google_workspace_oauth_readiness.v1"
 DEFAULT_SCOPE_BUNDLE = "full_workspace"
@@ -94,7 +96,11 @@ def _configured_expected_google_email() -> str:
 def _load_env_file(path: Path | None) -> None:
     if path is None or not path.is_file():
         return
-    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return
+    for raw_line in lines:
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -136,15 +142,15 @@ def _source_fresh(payload: dict[str, Any], *, current_source_state: dict[str, st
     )
 
 
-def _operator_status_reauth_required_reason(
+def _operator_status_google_workspace_issue(
     *,
     current_source_state: dict[str, str],
     operator_status_path: Path | None = None,
-) -> str:
+) -> dict[str, Any]:
     operator_status_path = operator_status_path or DEFAULT_OPERATOR_STATUS
     payload = _load_json(operator_status_path)
     if not payload or not _source_fresh(payload, current_source_state=current_source_state):
-        return ""
+        return {}
     source_health = dict(payload.get("source_health") or {})
     for raw_issue in list(source_health.get("issues") or []):
         issue = dict(raw_issue or {}) if isinstance(raw_issue, dict) else {}
@@ -153,12 +159,46 @@ def _operator_status_reauth_required_reason(
             continue
         error_code = str(issue.get("error_code") or "").strip()
         if error_code:
-            return error_code
+            try:
+                cooldown_seconds_remaining = max(int(issue.get("cooldown_seconds_remaining") or 0), 0)
+            except Exception:
+                cooldown_seconds_remaining = 0
+            return {
+                "error_code": error_code,
+                "recovery_mode": str(issue.get("recovery_mode") or "").strip(),
+                "blocked_until": str(issue.get("blocked_until") or issue.get("cooldown_until") or "").strip(),
+                "cooldown_active": bool(issue.get("cooldown_active")),
+                "cooldown_seconds_remaining": cooldown_seconds_remaining,
+                "last_observed_at": str(issue.get("last_observed_at") or "").strip(),
+                "source": "source_health_issue",
+            }
     reason = str(payload.get("reason") or "").strip()
     for prefix in ("source_health_google_workspace:", "google_workspace_signal_source_unhealthy:"):
         if reason.startswith(prefix):
-            return reason[len(prefix) :].strip()
-    return ""
+            return {
+                "error_code": reason[len(prefix) :].strip(),
+                "recovery_mode": "",
+                "blocked_until": "",
+                "cooldown_active": False,
+                "cooldown_seconds_remaining": 0,
+                "last_observed_at": "",
+                "source": "reason_prefix",
+            }
+    return {}
+
+
+def _operator_status_reauth_required_reason(
+    *,
+    current_source_state: dict[str, str],
+    operator_status_path: Path | None = None,
+) -> str:
+    return str(
+        _operator_status_google_workspace_issue(
+            current_source_state=current_source_state,
+            operator_status_path=operator_status_path,
+        ).get("error_code")
+        or ""
+    ).strip()
 
 
 def _project_number_from_client_id(client_id: str) -> str:
@@ -383,11 +423,20 @@ def _setup_checklist(missing: list[str], *, console_link: str, auth_link_templat
     return result
 
 
-def _instruction_text(*, missing: list[str], reauth_required_reason: str = "") -> str:
+def _instruction_text(
+    *,
+    missing: list[str],
+    reauth_required_reason: str = "",
+    runtime_recovery: Mapping[str, Any] | None = None,
+) -> str:
+    recovery = dict(runtime_recovery or {})
+    blocked_until = str(recovery.get("blocked_until") or "").strip()
     if reauth_required_reason in LIVE_REAUTH_RETRY_REASONS and "oauth_access_retry_or_account_selection_required" in missing:
+        cooldown_suffix = f" A bounded recovery cooldown is active until {blocked_until}." if blocked_until else ""
         return (
             "Google Workspace auth needs reauthorization before EA can rely on that source. "
             "Retry the Full Workspace auth link with the approved work Google account."
+            f"{cooldown_suffix}"
         )
     if "oauth_account_selection_mismatch" in missing:
         return (
@@ -419,14 +468,23 @@ def _instruction_text(*, missing: list[str], reauth_required_reason: str = "") -
     )
 
 
-def _telegram_message(*, missing: list[str], console_link: str, reauth_required_reason: str = "") -> str:
+def _telegram_message(
+    *,
+    missing: list[str],
+    console_link: str,
+    reauth_required_reason: str = "",
+    runtime_recovery: Mapping[str, Any] | None = None,
+) -> str:
+    recovery = dict(runtime_recovery or {})
     if not missing:
         return ""
     if reauth_required_reason in LIVE_REAUTH_RETRY_REASONS and "oauth_access_retry_or_account_selection_required" in missing:
+        blocked_until = str(recovery.get("blocked_until") or "").strip()
+        cooldown_suffix = f" Cooldown active until {blocked_until}." if blocked_until else ""
         return (
             "Action needed: Google Workspace auth needs reauthorization before EA can rely on that source. "
             "Retry the Full Workspace auth link with the approved work account. "
-            f"If Google still blocks it, re-open the Audience page and confirm the tester/project setup. Console: {console_link}"
+            f"If Google still blocks it, re-open the Audience page and confirm the tester/project setup.{cooldown_suffix} Console: {console_link}"
         )
     if "oauth_account_selection_mismatch" in missing:
         return (
@@ -504,15 +562,28 @@ def build_receipt(
     project_id = _env("EA_GOOGLE_OAUTH_PROJECT_ID")
     project_number = _project_number_from_client_id(client_id)
     current_source_state = _source_state()
-    normalized_reauth_required_reason = str(reauth_required_reason or "").strip() or _operator_status_reauth_required_reason(
-        current_source_state=current_source_state
+    operator_status_issue = _operator_status_google_workspace_issue(
+        current_source_state=current_source_state,
     )
+    normalized_reauth_required_reason = str(reauth_required_reason or "").strip() or str(
+        operator_status_issue.get("error_code") or ""
+    ).strip()
     reauth_retry_required = normalized_reauth_required_reason in LIVE_REAUTH_RETRY_REASONS
     console_link = _console_deep_link(project_id)
     auth_link_template = _connect_link_template(
         scope_bundle=normalized_scope,
         expected_google_email_present=expected_email_present,
     )
+    runtime_recovery = {
+        "active": bool(operator_status_issue.get("cooldown_active")),
+        "mode": str(operator_status_issue.get("recovery_mode") or "").strip(),
+        "blocked_until": str(operator_status_issue.get("blocked_until") or "").strip(),
+        "cooldown_seconds_remaining": max(int(operator_status_issue.get("cooldown_seconds_remaining") or 0), 0),
+        "last_observed_at": str(operator_status_issue.get("last_observed_at") or "").strip(),
+        "reason": normalized_reauth_required_reason,
+        "source": str(operator_status_issue.get("source") or "").strip(),
+        "raw_private_state_exposed": False,
+    }
 
     missing = [
         f"env_{key.lower()}_missing"
@@ -657,12 +728,14 @@ def build_receipt(
             "instruction": _instruction_text(
                 missing=missing,
                 reauth_required_reason=normalized_reauth_required_reason,
+                runtime_recovery=runtime_recovery,
             ),
             "next_action": next_action,
             "next_action_href": "/integrations/google",
             "next_action_label": next_action_label,
             "next_action_method": "get",
             "reauth_required_reason": normalized_reauth_required_reason,
+            "runtime_recovery": runtime_recovery,
             "missing_setup": missing,
             "setup_checklist": setup_checklist,
             "console_deep_link": console_link,
@@ -679,6 +752,7 @@ def build_receipt(
                 missing=missing,
                 console_link=console_link,
                 reauth_required_reason=normalized_reauth_required_reason,
+                runtime_recovery=runtime_recovery,
             ),
             "delivery_policy": "action_required_only" if action_required else "queue_only",
             "telegram_push_allowed": action_required,
@@ -695,6 +769,7 @@ def build_receipt(
             "raw_secret_exposed": False,
             "raw_error_description_exposed": False,
         },
+        "runtime_recovery": runtime_recovery,
         "telegram_notification": {
             "should_send": action_required,
             "reason": "user_action_required" if action_required else "no_operator_action_required",
@@ -756,7 +831,21 @@ def main() -> int:
         timeout_seconds=float(args.timeout_seconds or 5.0),
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=output_path.parent,
+        prefix=f".{output_path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as handle:
+        handle.write(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        temp_path = Path(handle.name)
+    try:
+        temp_path.chmod(OPERATOR_SAFE_RECEIPT_FILE_MODE)
+    except OSError:
+        pass
+    temp_path.replace(output_path)
     print(json.dumps(receipt, indent=2, sort_keys=True) if args.pretty else output_path)
     return 0 if str(receipt.get("status") or "") in {"pass", "ready_manual_console_check", "ready_retry_required", "blocked_setup_required"} else 2
 

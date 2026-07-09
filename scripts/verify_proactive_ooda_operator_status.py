@@ -3,8 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = ROOT / "ea"
+for candidate in (str(ROOT), str(EA_ROOT)):
+    if candidate not in sys.path:
+        sys.path.insert(0, candidate)
 
 try:
     from scripts.source_state_head import resolve_source_state_head
@@ -13,8 +20,7 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
     from source_state_head import resolve_source_worktree_fingerprint
 
-
-ROOT = Path(__file__).resolve().parents[1]
+from app.services.proactive_ooda_operator_actions import proactive_next_action_surface
 DEFAULT_RECEIPT = ROOT / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
 EXPECTED_RULES = {
     "This receipt proves proactive OODA route, guard, and packet-runtime posture only; it does not prove a human accepted the packet.",
@@ -219,16 +225,19 @@ def _verify_next_action_surface(receipt: dict[str, Any], issues: list[str]) -> N
         return
     if next_action != "reauthorize_google_workspace_binding":
         return
+    expected_surface = proactive_next_action_surface(next_action)
     href = str(receipt.get("next_action_href") or "").strip()
     label = str(receipt.get("next_action_label") or "").strip()
     method = str(receipt.get("next_action_method") or "").strip().lower()
     if not href:
         issues.append("reauthorize_google_workspace_binding requires next_action_href")
-    elif "/app/actions/google/connect?" not in href:
-        issues.append("reauthorize_google_workspace_binding next_action_href must target the Google connect action")
+    elif href != str(expected_surface.get("href") or "").strip():
+        issues.append("reauthorize_google_workspace_binding next_action_href must target the Google auth recovery surface")
     if not label:
         issues.append("reauthorize_google_workspace_binding requires next_action_label")
-    if method != "get":
+    elif label != str(expected_surface.get("label") or "").strip():
+        issues.append("reauthorize_google_workspace_binding next_action_label drifted")
+    if method != str(expected_surface.get("method") or "").strip().lower():
         issues.append("reauthorize_google_workspace_binding requires next_action_method=get")
 
 

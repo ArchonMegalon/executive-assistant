@@ -86,10 +86,11 @@ def _reset_shared_runtime_state() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _restore_environment_and_shared_runtime_state() -> None:
+def _restore_environment_and_shared_runtime_state(tmp_path: Path) -> None:
     snapshot = dict(os.environ)
     _restore_missing_repo_assets()
     _reset_shared_runtime_state()
+    os.environ["EA_OUTBOUND_EMAIL_GUARD_STATE_PATH"] = str(tmp_path / "outbound_email_guard.json")
     yield
     current_keys = set(os.environ.keys())
     original_keys = set(snapshot.keys())

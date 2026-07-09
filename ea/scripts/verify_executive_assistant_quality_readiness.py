@@ -22,6 +22,7 @@ from materialize_executive_assistant_acceptance_evidence import _acceptance_capt
 from materialize_executive_assistant_quality_readiness import REQUIRED_REAL_WORLD_PROOF
 from materialize_executive_assistant_quality_readiness import LOCAL_REVIEW_LABEL
 from materialize_executive_assistant_quality_readiness import LOCAL_REVIEW_PATH
+from materialize_executive_assistant_quality_readiness import PROACTIVE_GOLD_REVIEW_PROOF
 from scripts.source_state_head import resolve_source_state_head  # noqa: E402
 from scripts.source_state_head import resolve_source_worktree_fingerprint  # noqa: E402
 
@@ -141,46 +142,84 @@ def verify_executive_assistant_quality_readiness(receipt_path: str | Path) -> di
             issues.append(f"ea_quality_acceptance_capture_requirement_status_mismatch:{key}")
     status = str(receipt.get("status") or "").strip()
     if status == "blocked_real_world_acceptance":
-        if next_action_href != ACCEPTANCE_CAPTURE_PATH:
-            issues.append("ea_quality_next_action_href_missing")
-        if next_action_label != ACCEPTANCE_CAPTURE_LABEL:
-            issues.append("ea_quality_next_action_label_missing")
-        if next_action_method != ACCEPTANCE_CAPTURE_METHOD.lower():
-            issues.append("ea_quality_next_action_method_missing")
-        if not next_action_proof_key:
-            issues.append("ea_quality_next_action_proof_key_missing")
-        if next_action_form_href != _acceptance_capture_form_href(next_action_proof_key):
-            issues.append("ea_quality_next_action_form_href_missing")
-        if next_action_form_label != ACCEPTANCE_CAPTURE_LABEL:
-            issues.append("ea_quality_next_action_form_label_missing")
-        if next_action_form_method != ACCEPTANCE_CAPTURE_FORM_METHOD.lower():
-            issues.append("ea_quality_next_action_form_method_missing")
-        if next_action_context.get("kind") != "redacted_acceptance_capture":
-            issues.append("ea_quality_next_action_context_kind_missing")
-        if next_action_context.get("proof_key") != next_action_proof_key:
-            issues.append("ea_quality_next_action_context_proof_key_mismatch")
-        if next_action_context.get("proof_label") != REMAINING_PROOF_LABELS.get(next_action_proof_key):
-            issues.append("ea_quality_next_action_context_label_mismatch")
-        if next_action_context.get("capture_path") != ACCEPTANCE_CAPTURE_PATH:
-            issues.append("ea_quality_next_action_context_capture_path_missing")
-        if str(next_action_context.get("capture_method") or "").lower() != ACCEPTANCE_CAPTURE_METHOD.lower():
-            issues.append("ea_quality_next_action_context_capture_method_missing")
-        if next_action_context.get("form_href") != _acceptance_capture_form_href(next_action_proof_key):
-            issues.append("ea_quality_next_action_context_form_href_missing")
-        if str(next_action_context.get("form_method") or "").lower() != ACCEPTANCE_CAPTURE_FORM_METHOD.lower():
-            issues.append("ea_quality_next_action_context_form_method_missing")
-        for field in ACCEPTANCE_CAPTURE_FORM_FIELDS:
-            if field not in list(next_action_context.get("required_form_fields") or []):
-                issues.append(f"ea_quality_next_action_context_field_missing:{field}")
-        if next_action_context.get("stored_evidence_shape") != "sha256_only":
-            issues.append("ea_quality_next_action_context_not_hash_only")
-        for key in (
-            "raw_acceptance_text_persisted",
-            "raw_actor_identity_persisted",
-            "raw_object_reference_persisted",
-        ):
-            if next_action_context.get(key) is not False:
-                issues.append(f"ea_quality_next_action_context_privacy_not_false:{key}")
+        blocked_checks = list(receipt.get("blocked_checks") or [])
+        claim_readiness_blockers = [
+            str(item or "").strip()
+            for item in list(receipt.get("claim_readiness_blockers") or [])
+            if str(item or "").strip()
+        ]
+        proactive_rollup = dict(receipt.get("proactive_ooda_gold_acceptance") or {})
+        remaining_external_proofs = list(receipt.get("remaining_external_proofs") or [])
+        if blocked_checks:
+            if next_action_href != ACCEPTANCE_CAPTURE_PATH:
+                issues.append("ea_quality_next_action_href_missing")
+            if next_action_label != ACCEPTANCE_CAPTURE_LABEL:
+                issues.append("ea_quality_next_action_label_missing")
+            if next_action_method != ACCEPTANCE_CAPTURE_METHOD.lower():
+                issues.append("ea_quality_next_action_method_missing")
+            if not next_action_proof_key:
+                issues.append("ea_quality_next_action_proof_key_missing")
+            if next_action_form_href != _acceptance_capture_form_href(next_action_proof_key):
+                issues.append("ea_quality_next_action_form_href_missing")
+            if next_action_form_label != ACCEPTANCE_CAPTURE_LABEL:
+                issues.append("ea_quality_next_action_form_label_missing")
+            if next_action_form_method != ACCEPTANCE_CAPTURE_FORM_METHOD.lower():
+                issues.append("ea_quality_next_action_form_method_missing")
+            if next_action_context.get("kind") != "redacted_acceptance_capture":
+                issues.append("ea_quality_next_action_context_kind_missing")
+            if next_action_context.get("proof_key") != next_action_proof_key:
+                issues.append("ea_quality_next_action_context_proof_key_mismatch")
+            if next_action_context.get("proof_label") != REMAINING_PROOF_LABELS.get(next_action_proof_key):
+                issues.append("ea_quality_next_action_context_label_mismatch")
+            if next_action_context.get("capture_path") != ACCEPTANCE_CAPTURE_PATH:
+                issues.append("ea_quality_next_action_context_capture_path_missing")
+            if str(next_action_context.get("capture_method") or "").lower() != ACCEPTANCE_CAPTURE_METHOD.lower():
+                issues.append("ea_quality_next_action_context_capture_method_missing")
+            if next_action_context.get("form_href") != _acceptance_capture_form_href(next_action_proof_key):
+                issues.append("ea_quality_next_action_context_form_href_missing")
+            if str(next_action_context.get("form_method") or "").lower() != ACCEPTANCE_CAPTURE_FORM_METHOD.lower():
+                issues.append("ea_quality_next_action_context_form_method_missing")
+            for field in ACCEPTANCE_CAPTURE_FORM_FIELDS:
+                if field not in list(next_action_context.get("required_form_fields") or []):
+                    issues.append(f"ea_quality_next_action_context_field_missing:{field}")
+            if next_action_context.get("stored_evidence_shape") != "sha256_only":
+                issues.append("ea_quality_next_action_context_not_hash_only")
+            for key in (
+                "raw_acceptance_text_persisted",
+                "raw_actor_identity_persisted",
+                "raw_object_reference_persisted",
+            ):
+                if next_action_context.get(key) is not False:
+                    issues.append(f"ea_quality_next_action_context_privacy_not_false:{key}")
+        elif claim_readiness_blockers:
+            if proactive_rollup.get("claim_ready") is not False:
+                issues.append("ea_quality_proactive_rollup_ready_mismatch")
+            if next_action_proof_key:
+                issues.append("ea_quality_proactive_next_action_proof_key_should_be_empty")
+            if next_action_context.get("kind") != "proactive_ooda_gold_recovery":
+                issues.append("ea_quality_proactive_next_action_context_kind_missing")
+            if next_action_context.get("status") != str(proactive_rollup.get("status") or "").strip():
+                issues.append("ea_quality_proactive_next_action_context_status_mismatch")
+            if next_action_context.get("next_action") != str(proactive_rollup.get("next_action") or "").strip():
+                issues.append("ea_quality_proactive_next_action_context_action_mismatch")
+            if next_action_context.get("gold_claim_allowed") is not False:
+                issues.append("ea_quality_proactive_next_action_context_claim_flag_mismatch")
+            if next_action_href != str(proactive_rollup.get("next_action_href") or "").strip():
+                issues.append("ea_quality_proactive_next_action_href_mismatch")
+            if next_action_label != str(proactive_rollup.get("next_action_label") or "").strip():
+                issues.append("ea_quality_proactive_next_action_label_mismatch")
+            if next_action_method != str(proactive_rollup.get("next_action_method") or "").strip().lower():
+                issues.append("ea_quality_proactive_next_action_method_mismatch")
+            if next_action_form_href != str(proactive_rollup.get("next_action_form_href") or next_action_href).strip():
+                issues.append("ea_quality_proactive_next_action_form_href_mismatch")
+            if next_action_form_label != str(proactive_rollup.get("next_action_form_label") or next_action_label).strip():
+                issues.append("ea_quality_proactive_next_action_form_label_mismatch")
+            if next_action_form_method != str(proactive_rollup.get("next_action_form_method") or next_action_method).strip().lower():
+                issues.append("ea_quality_proactive_next_action_form_method_mismatch")
+            if PROACTIVE_GOLD_REVIEW_PROOF not in remaining_external_proofs:
+                issues.append("ea_quality_proactive_remaining_external_proof_missing")
+        else:
+            issues.append("ea_quality_blocked_status_without_blocker")
     elif status == "blocked_local_quality_evidence":
         if next_action_href != LOCAL_REVIEW_PATH:
             issues.append("ea_quality_local_next_action_href_drift")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+from pathlib import Path
 
 import scripts.verify_proactive_ooda_live_receipt as live_receipt_module
 from scripts.verify_proactive_ooda_live_receipt import verify_receipt
@@ -486,3 +487,94 @@ def test_verify_proactive_ooda_live_receipt_default_prefers_repo_state_when_env_
     (tmp_path / "state" / "proactive_ooda_notified.json").write_text("{}", encoding="utf-8")
 
     assert module.default_receipt_path() == tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+
+
+def test_verify_proactive_ooda_live_receipt_main_prefers_runtime_container_when_default_runtime_path_is_not_local(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    module = importlib.reload(live_receipt_module)
+    monkeypatch.setattr(module, "CURRENT_RUNTIME_RECEIPT", tmp_path / "missing-runtime" / "proactive_ooda_latest_run.generated.json")
+    monkeypatch.setattr(module, "DEFAULT_RUNTIME_CONTAINER", "ea-proactive-ooda")
+    monkeypatch.setattr(
+        module,
+        "_verify_receipt_via_runtime_container",
+        lambda container_name: {
+            "ok": True,
+            "errors": [],
+            "receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/live.json",
+            "latest_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "latest_notification_status": "skipped_no_items",
+            "archived_delivery_receipt_used": True,
+            "archived_sent_receipt_used": True,
+            "archived_operator_safe_mirror_receipt_used": False,
+            "quiet_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "quiet_receipt_error_code": "skipped_no_items",
+            "delivery_mode": "telegram_sent",
+            "operator_safe_mirror_present": False,
+            "notification_status": "sent",
+            "item_count": 1,
+            "delivery_channel": "telegram",
+            "delivery_message_count": 1,
+            "telegram_message_count": 1,
+            "delivery_route_error": "",
+            "delivery_recovery_hint": "",
+            "delivery_next_action": "",
+            "delivery_guard_state": "eligible",
+            "delivery_guard_deferred_reason": "",
+            "quiet_hours_active": False,
+            "interruption_budget_exhausted": False,
+            "notification_requires_user_action": False,
+            "followthrough_status": "ok",
+            "followthrough_reason": "",
+            "followthrough_error": "",
+            "followthrough_run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "followthrough_operator_status": "ready_with_recovery_action",
+            "followthrough_gold_acceptance_status": "blocked_operator_runtime_posture",
+            "followthrough_goal_posture_status": "active_with_blockers",
+            "followthrough_goal_posture_queue_count": 7,
+            "followthrough_digest_status": "suppressed_duplicate",
+            "followthrough_digest_notification_status": "suppressed_duplicate",
+            "followthrough_digest_item_count": 1,
+            "generated_at": "2026-07-08T12:38:09.960446+00:00",
+        },
+    )
+    monkeypatch.setattr(module, "verify_receipt", lambda path: (_ for _ in ()).throw(AssertionError(f"unexpected local verify: {path}")))
+
+    assert module.main([]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["receipt_path"] == "/data/provider-ledger/proactive_ooda_run_receipts/live.json"
+    assert payload["archived_delivery_receipt_used"] is True
+
+
+def test_verify_proactive_ooda_live_receipt_main_keeps_explicit_receipt_path_local(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    module = importlib.reload(live_receipt_module)
+    monkeypatch.setattr(module, "CURRENT_RUNTIME_RECEIPT", tmp_path / "missing-runtime" / "proactive_ooda_latest_run.generated.json")
+    monkeypatch.setattr(module, "_verify_receipt_via_runtime_container", lambda container_name: (_ for _ in ()).throw(AssertionError("unexpected runtime delegation")))
+    receipt = tmp_path / "explicit.json"
+    receipt.write_text(
+        json.dumps(
+            _with_followthrough(
+                {
+                    "dry_run": False,
+                    "error_code": "",
+                    "generated_at": "2026-06-20T14:58:30+00:00",
+                    "item_count": 1,
+                    "notification_status": "sent",
+                    "notified_ref_hashes": ["a" * 64],
+                    "principal_id_hash": "b" * 64,
+                    "telegram_message_ids": ["3004"],
+                }
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    assert module.main(["--receipt-path", str(receipt)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["receipt_path"] == str(receipt)

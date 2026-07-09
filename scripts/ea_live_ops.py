@@ -88,6 +88,8 @@ DEFAULT_WHATSAPP_WEB_COMPOSE_FILE = ROOT / "docker-compose.whatsapp-web-session.
 DEFAULT_WHATSAPP_WEB_ACTION_PROCESSOR_SERVICE = "ea-whatsapp-web-action-processor"
 DEFAULT_PROACTIVE_OODA_COMPOSE_FILE = ROOT / "docker-compose.yml"
 DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE = "ea-proactive-ooda"
+DEFAULT_PROACTIVE_SOURCE_COVERAGE_TIMEOUT_SECONDS = 60.0
+DEFAULT_EXPANDED_PROACTIVE_SOURCE_COVERAGE_TIMEOUT_SECONDS = 180.0
 DEFAULT_EA_COMPOSE_PROJECT_NAME = "ea"
 DEFAULT_MYMEDIA_ALEXA_CONTAINER = "mymediaalexa"
 DEFAULT_MYMEDIA_ALEXA_WEB_BASE_URL = "http://127.0.0.1:52051"
@@ -10490,11 +10492,12 @@ def probe_proactive_source_coverage(
     compose_file: str = "",
     runtime_service: str = "",
     observation_limit: int = 400,
-    timeout_seconds: float = 60.0,
+    timeout_seconds: float = DEFAULT_PROACTIVE_SOURCE_COVERAGE_TIMEOUT_SECONDS,
     output_format: str = "json",
 ) -> dict[str, object]:
     effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
     effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
+    effective_timeout_seconds = max(float(timeout_seconds or DEFAULT_PROACTIVE_SOURCE_COVERAGE_TIMEOUT_SECONDS), 1.0)
     observed_at = _utc_now()
     if not effective_compose_file or not effective_runtime_service:
         report = {
@@ -10547,7 +10550,7 @@ def probe_proactive_source_coverage(
                         compose_file=effective_compose_file,
                         runtime_service=effective_runtime_service,
                         observation_limit=expanded_limit,
-                        timeout_seconds=timeout_seconds,
+                        timeout_seconds=effective_timeout_seconds,
                         output_format=output_format,
                     )
             repaired_report = dict(report)
@@ -10638,7 +10641,7 @@ def probe_proactive_source_coverage(
         compose_file=effective_compose_file,
         service=effective_runtime_service,
         command=command,
-        timeout_seconds=timeout_seconds,
+        timeout_seconds=effective_timeout_seconds,
     )
     if not payload or payload.get("probe_ok") is False or payload.get("ok") is False:
         reason = str(payload.get("reason") or "").strip() if payload else ""
@@ -10689,14 +10692,18 @@ def probe_proactive_source_coverage(
     if _should_expand_source_coverage_window(report, observation_limit=limit):
         expanded_limit = min(max(limit * 10, 1000), 4000)
         if expanded_limit > limit:
+            expanded_timeout_seconds = max(
+                effective_timeout_seconds,
+                DEFAULT_EXPANDED_PROACTIVE_SOURCE_COVERAGE_TIMEOUT_SECONDS,
+            )
             return probe_proactive_source_coverage(
                 principal_id=principal_id,
                 compose_file=effective_compose_file,
                 runtime_service=effective_runtime_service,
                 observation_limit=expanded_limit,
-                    timeout_seconds=timeout_seconds,
-                    output_format=output_format,
-                )
+                timeout_seconds=expanded_timeout_seconds,
+                output_format=output_format,
+            )
     finalized_report = dict(report)
     if str(finalized_report.get("status") or "").strip() == "repaired":
         finalized_report["status"] = "ready"

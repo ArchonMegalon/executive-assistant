@@ -159,6 +159,16 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=_env_truthy("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_ALLOW_HIGH_PRIORITY", default=True),
     )
+    parser.add_argument(
+        "--notification-cooldown-seconds",
+        type=int,
+        default=int(os.getenv("EA_PROACTIVE_OODA_NOTIFICATION_COOLDOWN_SECONDS", "1800") or "1800"),
+    )
+    parser.add_argument(
+        "--notification-cooldown-allow-high-priority",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_NOTIFICATION_COOLDOWN_ALLOW_HIGH_PRIORITY", default=True),
+    )
     parser.add_argument("--stage-packet-dir", default=os.getenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR", ""))
     parser.add_argument("--safe-work-result-dir", default=os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR", ""))
     parser.add_argument(
@@ -748,24 +758,36 @@ def _delivery_guard_status(
     digest: Any | None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
+    current_now = now or datetime.now(timezone.utc)
     items = tuple(getattr(digest, "items", ()) or ()) if digest is not None else ()
     has_items = bool(items)
     has_high_priority = any(getattr(item, "priority", "") == "high" for item in items)
     paused = bool(getattr(args, "paused", False))
-    quiet_active = _quiet_hours_active(args, now=now)
+    quiet_active = _quiet_hours_active(args, now=current_now)
     quiet_allows_high = bool(getattr(args, "quiet_hours_allow_high_priority", True))
     armed_send = bool(getattr(args, "armed_send", False))
     budget_limit = max(_safe_int(getattr(args, "interruption_budget_limit", 0), default=0), 0)
     budget_window_hours = max(_safe_int(getattr(args, "interruption_budget_window_hours", 24), default=24), 1)
+    interruption_events = state_store.load_interruption_events(str(getattr(args, "principal_id", "") or ""))
     budget_used = len(
         _recent_interruption_events(
-            state_store.load_interruption_events(str(getattr(args, "principal_id", "") or "")),
-            now=now or datetime.now(timezone.utc),
+            interruption_events,
+            now=current_now,
             window_hours=budget_window_hours,
         )
     )
     budget_allows_high = bool(getattr(args, "interruption_budget_allow_high_priority", True))
     budget_exhausted = budget_limit > 0 and budget_used >= budget_limit
+    notification_cooldown_seconds = _notification_cooldown_seconds(args)
+    notification_cooldown_allow_high_priority = _notification_cooldown_allow_high_priority(args)
+    latest_interruption_event = _latest_interruption_event(interruption_events)
+    notification_cooldown_seconds_remaining = 0
+    if latest_interruption_event is not None and notification_cooldown_seconds > 0:
+        notification_cooldown_seconds_remaining = max(
+            0,
+            int((latest_interruption_event - current_now).total_seconds()) + notification_cooldown_seconds,
+        )
+    notification_cooldown_active = notification_cooldown_seconds_remaining > 0
 
     delivery_state = "no_actionable_items" if not has_items else "eligible"
     deferred_reason = ""
@@ -778,6 +800,11 @@ def _delivery_guard_status(
     elif has_items and budget_exhausted and not (budget_allows_high and has_high_priority):
         delivery_state = "deferred"
         deferred_reason = "deferred_by_interruption_budget"
+    elif has_items and notification_cooldown_active and not (
+        notification_cooldown_allow_high_priority and has_high_priority
+    ):
+        delivery_state = "deferred"
+        deferred_reason = "deferred_by_notification_cooldown"
     elif has_items and not armed_send:
         delivery_state = "deferred"
         deferred_reason = "deferred_by_unarmed_send"
@@ -796,6 +823,10 @@ def _delivery_guard_status(
         "interruption_budget_used": budget_used,
         "interruption_budget_exhausted": budget_exhausted,
         "interruption_budget_allow_high_priority": budget_allows_high,
+        "notification_cooldown_seconds": notification_cooldown_seconds,
+        "notification_cooldown_active": notification_cooldown_active,
+        "notification_cooldown_seconds_remaining": notification_cooldown_seconds_remaining,
+        "notification_cooldown_allow_high_priority": notification_cooldown_allow_high_priority,
         "has_high_priority": has_high_priority,
     }
 
@@ -1091,6 +1122,25 @@ def _recent_interruption_events(events: tuple[str, ...], *, now: datetime, windo
     return tuple(recent)
 
 
+def _latest_interruption_event(events: tuple[str, ...]) -> datetime | None:
+    latest: datetime | None = None
+    for raw_event in events:
+        parsed = _parse_datetime(raw_event)
+        if parsed is None:
+            continue
+        if latest is None or parsed > latest:
+            latest = parsed
+    return latest
+
+
+def _notification_cooldown_seconds(args: argparse.Namespace) -> int:
+    return max(_safe_int(getattr(args, "notification_cooldown_seconds", 1800), default=1800), 0)
+
+
+def _notification_cooldown_allow_high_priority(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "notification_cooldown_allow_high_priority", True))
+
+
 def _parse_datetime(value: str) -> datetime | None:
     raw = str(value or "").strip()
     if not raw:
@@ -1201,11 +1251,13 @@ def _delivery_guard_summary(report: dict[str, Any]) -> str:
     reason = str(guard.get("deferred_reason") or "").strip()
     budget_limit = int(guard.get("interruption_budget_limit") or 0)
     budget_used = int(guard.get("interruption_budget_used") or 0)
+    cooldown_remaining = int(guard.get("notification_cooldown_seconds_remaining") or 0)
     budget = f", budget {budget_used}/{budget_limit}" if budget_limit > 0 else ""
+    cooldown = f", cooldown {cooldown_remaining}s" if bool(guard.get("notification_cooldown_active")) else ""
     paused = ", paused" if guard.get("operator_paused") else ""
     quiet = ", quiet-active" if guard.get("quiet_hours_active") else ""
     unarmed = ", unarmed" if state != "no_actionable_items" and not bool(guard.get("armed_send", True)) else ""
-    return f"{state}{f' ({reason})' if reason else ''}{paused}{quiet}{budget}{unarmed}"
+    return f"{state}{f' ({reason})' if reason else ''}{paused}{quiet}{budget}{cooldown}{unarmed}"
 
 
 def _context_grounding_summary(report: dict[str, Any]) -> str:

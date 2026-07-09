@@ -182,6 +182,7 @@ from app.services.registration_email import (
     send_workspace_access_email,
     send_workspace_invitation_email,
 )
+from app.services.outbound_email_bounds import bounded_outbound_email
 try:
     from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 except Exception:  # pragma: no cover - compat path when FlipLink publication deps are unavailable
@@ -640,6 +641,18 @@ def _property_truthy_flag(value: object) -> bool:
     if isinstance(value, (int, float)):
         return float(value) != 0.0
     return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "available"}
+
+
+def _workspace_sign_in_gmail_fallback_enabled() -> bool:
+    return _property_truthy_flag(os.getenv("EA_WORKSPACE_SIGN_IN_GMAIL_FALLBACK_ENABLED") or "0")
+
+
+def workspace_sign_in_email_delivery_available() -> bool:
+    return email_delivery_enabled() or _workspace_sign_in_gmail_fallback_enabled()
+
+
+def _assistant_gmail_fallback_enabled() -> bool:
+    return _property_truthy_flag(os.getenv("EA_ASSISTANT_GMAIL_FALLBACK_ENABLED") or "0")
 
 
 def _property_nonempty_sequence(value: object) -> list[str]:
@@ -16812,9 +16825,8 @@ class ProductService:
             policy_reason = ""
             if action and action not in {"manual_followup", "none"}:
                 allowed_actions = _pocket_assistant_auto_action_allowlist()
-                dangerous_allowed_actions = _pocket_assistant_dangerous_auto_action_allowlist()
                 min_confidence = _pocket_assistant_min_confidence_for_action(action)
-                if action in _pocket_assistant_manual_only_actions() and action not in dangerous_allowed_actions:
+                if action in _pocket_assistant_manual_only_actions():
                     policy_reason = "action_policy_requires_manual_followup"
                 elif action not in allowed_actions:
                     policy_reason = "action_not_in_auto_allowlist"
@@ -21076,7 +21088,9 @@ class ProductService:
             )
             if gmail_binding_candidates:
                 gmail_binding_id, gmail_sender_email, gmail_sender_principal_id = gmail_binding_candidates[0]
-        delivery_mode = "emailit" if email_delivery_enabled() else ("gmail" if gmail_binding_candidates else "")
+        delivery_mode = "emailit" if email_delivery_enabled() else (
+            "gmail" if gmail_binding_candidates and _assistant_gmail_fallback_enabled() else ""
+        )
         subject, body_text = _property_tour_delivery_message(
             property_title=title,
             property_url=normalized_url,
@@ -29542,7 +29556,11 @@ class ProductService:
             message_id = str(receipt.message_id or "").strip()
         except Exception as exc:
             normalized_error = compact_text(str(exc or ""), fallback="email_delivery_failed", limit=300)
-            if "Domain not verified" in normalized_error and gmail_binding_candidates:
+            if (
+                "Domain not verified" in normalized_error
+                and gmail_binding_candidates
+                and _assistant_gmail_fallback_enabled()
+            ):
                 gmail_subject = f"PropertyQuarry found a new match · {compact_text(title, fallback='Property scout update', limit=90)}"
                 lines = [
                     str(summary or "").strip() or "PropertyQuarry found a new property match.",
@@ -31793,19 +31811,25 @@ class ProductService:
         session = self.preview_workspace_access_session(token=token)
         if session is None:
             return None
-        try:
-            operator_context = self.resolve_workspace_access_operator_context(
-                principal_id=str(session.get("principal_id") or "").strip(),
-                email=str(session.get("email") or "").strip().lower(),
-                role=str(session.get("role") or "principal").strip().lower() or "principal",
-                display_name=str(session.get("display_name") or "").strip(),
-                operator_id=str(session.get("operator_id") or "").strip(),
-                source_kind=str(session.get("source_kind") or "workspace_access").strip() or "workspace_access",
-            )
-        except ValueError:
-            operator_context = {}
+        session_role = str(session.get("role") or "principal").strip().lower() or "principal"
+        source_kind = str(session.get("source_kind") or "workspace_access").strip() or "workspace_access"
+        operator_context: dict[str, str] = {}
+        if session_role == "operator" or self._workspace_access_session_allows_operator_self_heal(
+            role=session_role,
+            source_kind=source_kind,
+        ):
+            try:
+                operator_context = self.resolve_workspace_access_operator_context(
+                    principal_id=str(session.get("principal_id") or "").strip(),
+                    email=str(session.get("email") or "").strip().lower(),
+                    role=session_role,
+                    display_name=str(session.get("display_name") or "").strip(),
+                    operator_id=str(session.get("operator_id") or "").strip(),
+                    source_kind=source_kind,
+                )
+            except ValueError:
+                operator_context = {}
         if operator_context:
-            session_role = str(session.get("role") or "principal").strip().lower() or "principal"
             session_operator_id = str(session.get("operator_id") or "").strip()
             if session_role != "operator" or session_operator_id != str(operator_context.get("operator_id") or "").strip():
                 default_target = str(session.get("default_target") or "").strip()
@@ -31845,6 +31869,20 @@ class ProductService:
                 source_id=session_id,
             )
         return session
+
+    @staticmethod
+    def _workspace_access_session_allows_operator_self_heal(*, role: str, source_kind: str) -> bool:
+        normalized_role = str(role or "principal").strip().lower() or "principal"
+        if normalized_role == "operator":
+            return True
+        normalized_source_kind = str(source_kind or "").strip().lower()
+        return normalized_source_kind in {
+            "",
+            "workspace_access",
+            "legacy_principal_session",
+            "seed_principal_workspace_session",
+            "seed_principal_sign_in",
+        }
 
     def _ensure_workspace_access_operator_profile(
         self,
@@ -32358,30 +32396,45 @@ class ProductService:
                     invite_note = str(candidate.get("note") or "").strip()
                     invite_expires_at = str(candidate.get("expires_at") or "").strip()
                     if email_delivery_enabled():
-                        receipt = send_workspace_invitation_email(
-                            recipient_email=normalized_email,
-                            invite_url=absolute_invite_url,
-                            role=role,
-                            invited_by=invited_by,
-                            note=invite_note,
-                            expires_at=invite_expires_at,
-                        )
-                        provider = receipt.provider
-                    else:
-                        gmail_receipt = google_oauth_service.send_google_gmail_message(
-                            container=self._container,
-                            principal_id=principal_id,
+                        with bounded_outbound_email(
+                            kind="ea_workspace_invitation",
                             recipient_email=normalized_email,
                             subject=_workspace_invitation_email_subject(invited_by=invited_by),
-                            body_text=_workspace_invitation_email_text(
+                            provider="emailit",
+                        ):
+                            receipt = send_workspace_invitation_email(
+                                recipient_email=normalized_email,
                                 invite_url=absolute_invite_url,
                                 role=role,
                                 invited_by=invited_by,
                                 note=invite_note,
                                 expires_at=invite_expires_at,
-                            ),
-                        )
+                            )
+                        provider = receipt.provider
+                    elif _workspace_sign_in_gmail_fallback_enabled():
+                        with bounded_outbound_email(
+                            kind="ea_workspace_invitation",
+                            recipient_email=normalized_email,
+                            subject=_workspace_invitation_email_subject(invited_by=invited_by),
+                            provider="google_gmail",
+                        ):
+                            gmail_receipt = google_oauth_service.send_google_gmail_message(
+                                container=self._container,
+                                principal_id=principal_id,
+                                recipient_email=normalized_email,
+                                subject=_workspace_invitation_email_subject(invited_by=invited_by),
+                                body_text=_workspace_invitation_email_text(
+                                    invite_url=absolute_invite_url,
+                                    role=role,
+                                    invited_by=invited_by,
+                                    note=invite_note,
+                                    expires_at=invite_expires_at,
+                                ),
+                            )
+                        del gmail_receipt
                         provider = "google_gmail"
+                    else:
+                        raise RuntimeError("workspace_sign_in_email_delivery_not_configured")
                     self._record_product_event(
                         principal_id=principal_id,
                         event_type="workspace_sign_in_invite_email_sent",
@@ -32418,30 +32471,45 @@ class ProductService:
                 absolute_access_url = urllib.parse.urljoin(str(base_url or "").strip(), access_url) if str(base_url or "").strip() else access_url
                 access_expires_at = str(access_session.get("expires_at") or "").strip()
                 if email_delivery_enabled():
-                    receipt = send_workspace_access_email(
-                        recipient_email=normalized_email,
-                        workspace_name=workspace_name,
-                        access_url=absolute_access_url,
-                        role=role,
-                        display_name=display_name,
-                        expires_at=access_expires_at,
-                    )
-                    provider = receipt.provider
-                else:
-                    gmail_receipt = google_oauth_service.send_google_gmail_message(
-                        container=self._container,
-                        principal_id=principal_id,
+                    with bounded_outbound_email(
+                        kind="ea_workspace_access_session",
                         recipient_email=normalized_email,
                         subject=_workspace_access_email_subject(workspace_name=workspace_name),
-                        body_text=_workspace_access_email_text(
+                        provider="emailit",
+                    ):
+                        receipt = send_workspace_access_email(
+                            recipient_email=normalized_email,
                             workspace_name=workspace_name,
                             access_url=absolute_access_url,
                             role=role,
                             display_name=display_name,
                             expires_at=access_expires_at,
-                        ),
-                    )
+                        )
+                    provider = receipt.provider
+                elif _workspace_sign_in_gmail_fallback_enabled():
+                    with bounded_outbound_email(
+                        kind="ea_workspace_access_session",
+                        recipient_email=normalized_email,
+                        subject=_workspace_access_email_subject(workspace_name=workspace_name),
+                        provider="google_gmail",
+                    ):
+                        gmail_receipt = google_oauth_service.send_google_gmail_message(
+                            container=self._container,
+                            principal_id=principal_id,
+                            recipient_email=normalized_email,
+                            subject=_workspace_access_email_subject(workspace_name=workspace_name),
+                            body_text=_workspace_access_email_text(
+                                workspace_name=workspace_name,
+                                access_url=absolute_access_url,
+                                role=role,
+                                display_name=display_name,
+                                expires_at=access_expires_at,
+                            ),
+                        )
+                    del gmail_receipt
                     provider = "google_gmail"
+                else:
+                    raise RuntimeError("workspace_sign_in_email_delivery_not_configured")
                 self._record_product_event(
                     principal_id=principal_id,
                     event_type="workspace_sign_in_access_email_sent",

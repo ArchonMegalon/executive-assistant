@@ -691,6 +691,11 @@ def test_materialize_proactive_ooda_operator_status_prefers_source_health_over_f
                             "source_type": "google_workspace",
                             "status": "unhealthy",
                             "error_code": "google_oauth_invalid_grant",
+                            "recovery_mode": "scheduler_cooldown",
+                            "blocked_until": "2026-07-06T20:00:00Z",
+                            "cooldown_active": True,
+                            "cooldown_seconds_remaining": 7200,
+                            "last_observed_at": "2026-07-06T18:00:30Z",
                             "error_ref_hash": "abc123",
                             "operator_action_required": True,
                             "user_action_required": False,
@@ -733,6 +738,151 @@ def test_materialize_proactive_ooda_operator_status_prefers_source_health_over_f
     assert receipt["source_health"]["user_action_required"] is True
     assert receipt["source_health"]["issues"][0]["user_action_required"] is True
     assert receipt["source_health"]["issues"][0]["next_action"] == "reauthorize_google_workspace_binding"
+    assert receipt["source_health"]["issues"][0]["recovery_mode"] == "scheduler_cooldown"
+    assert receipt["source_health"]["issues"][0]["blocked_until"] == "2026-07-06T20:00:00Z"
+    assert receipt["source_health"]["issues"][0]["cooldown_active"] is True
+    assert receipt["source_health"]["issues"][0]["cooldown_seconds_remaining"] == 7200
+    assert receipt["summary"] == (
+        "Proactive OODA route and packet runtime are available, but "
+        "Google workspace recovery cooldown is active until 2026-07-06T20:00:00Z."
+    )
+
+
+def test_materialize_proactive_ooda_operator_status_recovers_on_runtime_artifact_drift(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", lambda **_kwargs: {
+        "probe_ok": True,
+        "source": "docker_compose_exec",
+        "runtime_service": "ea-proactive-ooda",
+        "observed_at": "2026-07-08T09:00:00Z",
+        "live_receipt_checked": True,
+        "live_receipt": {
+            "ok": True,
+            "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "errors": [],
+            "notification_status": "sent",
+            "delivery_message_count": 1,
+            "telegram_message_count": 1,
+        },
+        "route_report": {
+            "ok": True,
+            "delivery_route": {
+                "ready": True,
+                "route_error": "",
+                "recovery_hint": "",
+                "next_action": "",
+                "selected_channel": "telegram",
+                "selected_by": "tool_runtime_binding",
+            },
+            "delivery_guard": {"delivery_state": "eligible"},
+            "stage_packets": {"ready": True, "errors": []},
+            "safe_work_results": {"ready": True, "errors": []},
+            "receipt_observation_count": 1,
+            "actionable_count": 1,
+        },
+    })
+    monkeypatch.setattr(
+        module,
+        "_local_artifact_probe",
+        lambda **_kwargs: {
+            "source": "docker_compose_exec",
+            "artifact_resolution_source": "live_runtime",
+            "artifact_resolution_host_fallback_used": False,
+            "artifact_resolution_fallback_reason": "",
+            "runtime_artifact_drift": {
+                "checked": True,
+                "present": True,
+                "status": "drift_detected",
+                "requires_recovery": True,
+                "blocking_reason": "runtime_artifact_drift:stage_packet_ref_sha256",
+                "next_action": "repair_proactive_runtime_artifact_drift",
+                "mismatch_count": 2,
+                "material_mismatch_count": 2,
+                "mismatch_fields": ["stage_packet_ref_sha256", "safe_work_result_ref_sha256"],
+                "material_mismatch_fields": ["stage_packet_ref_sha256", "safe_work_result_ref_sha256"],
+                "host_artifacts_present": True,
+            },
+            "artifact_filter_reason": "",
+            "run_receipt": {"notification_status": "sent"},
+            "stage_packet": {
+                "packet_ref": "stage_packet:live-packet",
+                "approval": {"required": True},
+            },
+            "safe_work_result": {
+                "result_ref": "safe_work_result:live-artifact",
+                "status": "staged_for_user_decision",
+                "approval": {"required": True},
+                "approval_prompt": "Approve the staged shortlist.",
+                "staged_action_url": "https://example.test/approve",
+                "audit": {"status": "pass", "issues": []},
+            },
+            "approval_outcome": {},
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 1,
+            "approval_callback_pending_count": 1,
+            "approval_callback_raw_pending_count": 1,
+            "approval_callback_live_pending_count": 1,
+            "approval_callback_unexpired_pending_count": 1,
+            "approval_callback_noncurrent_pending_count": 0,
+            "approval_callback_stale_pending_count": 0,
+            "approval_callback_expired_pending_count": 0,
+            "approval_callback_recorded_count": 0,
+            "approval_callback_expired_count": 0,
+            "approval_callback_superseded_count": 0,
+            "approval_callback_terminal_count": 0,
+            "current_packet_callback_record_count": 1,
+            "current_packet_callback_pending_count": 1,
+            "current_packet_callback_raw_pending_count": 1,
+            "current_packet_callback_stale_pending_count": 0,
+            "current_packet_callback_expired_pending_count": 0,
+            "current_packet_callback_recorded_count": 0,
+            "current_packet_callback_expired_count": 0,
+            "current_packet_callback_superseded_count": 0,
+            "current_packet_live_callback_record_count": 1,
+            "current_packet_live_pending_count": 1,
+            "current_packet_callback_latest_status": "pending",
+            "current_packet_callback_latest_expired": False,
+            "current_packet_callback_latest_created_at": "2026-07-08T08:59:00Z",
+            "current_packet_callback_latest_expires_at": "2026-07-08T09:19:00Z",
+            "current_packet_callback_latest_age_seconds": 60,
+            "current_packet_callback_latest_seconds_until_expiry": 1200,
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_approval_capture",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("runtime artifact drift recovery should short-circuit approval followthrough")
+        ),
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-08T09:01:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "ready_with_recovery_action"
+    assert receipt["reason"] == "runtime_artifact_drift:stage_packet_ref_sha256"
+    assert receipt["next_action"] == "repair_proactive_runtime_artifact_drift"
+    assert receipt["operator_action_state"] == "recovery_required"
+    assert receipt["runtime_artifact_drift"]["requires_recovery"] is True
+    assert receipt["runtime_artifact_drift"]["host_artifacts_present"] is True
+    assert receipt["runtime_artifact_drift"]["material_mismatch_fields"] == [
+        "stage_packet_ref_sha256",
+        "safe_work_result_ref_sha256",
+    ]
+    assert "runtime artifact drift" in receipt["summary"]
 
 
 def test_materialize_proactive_ooda_operator_status_projects_provider_cost_pressure(
@@ -2102,6 +2252,160 @@ def test_materialize_proactive_ooda_operator_status_uses_historical_browse_backe
     assert receipt["safe_work_results"]["expected_result_count"] == 1
     assert receipt["safe_work_results"]["schema_valid_count"] == 1
     assert receipt["approval_capture_surface"] != {}
+
+
+def test_materialize_proactive_ooda_operator_status_rejects_historical_browse_backed_packet_without_decision_ready_material(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-07-09T04:11:06Z",
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": True,
+                "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                "errors": [],
+                "generated_at": "2026-07-09T04:11:31Z",
+                "notification_status": "sent",
+            },
+            "route_report": {
+                "ok": True,
+                "delivery_route": {"ready": True, "selected_channel": "telegram", "selected_by": "tool_runtime_binding"},
+                "delivery_guard": {"delivery_state": "eligible"},
+                "stage_packets": {"ready": True, "errors": []},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 1,
+                "actionable_count": 1,
+            },
+        },
+    )
+
+    def _artifact_probe(**kwargs):
+        if kwargs.get("prefer_browse_backed_delivery"):
+            return {
+                "probe_ok": True,
+                "source": "local_filesystem",
+                "assistant_grade_bundle_source": "historical_browse_backed_proof_bundle",
+                "stage_packet_path": "/data/provider-ledger/proactive_ooda_stage_packets/pkt-review.json",
+                "safe_work_result_path": "/data/provider-ledger/proactive_ooda_safe_work_results/res-review.json",
+                "stage_packet": {
+                    "schema": "proactive_ooda.stage_packet.v1",
+                    "packet_ref": "packet-review-1",
+                    "stage": {"kind": "decision_packet", "payload": {"work_type": "research"}},
+                    "safe_work_order": {"work_type": "research"},
+                    "approval": {"required": True},
+                },
+                "safe_work_result": {
+                    "schema": "proactive_ooda.safe_work_result.v1",
+                    "result_ref": "result-review-1",
+                    "status": "staged_for_user_decision",
+                    "work_type": "research",
+                    "approval": {"required": True},
+                    "audit": {
+                        "status": "review",
+                        "issues": [{"code": "no_decision_ready_material", "severity": "warn"}],
+                    },
+                    "execution_receipt": {
+                        "network_fetch_count": 0,
+                        "network_fetch_success_count": 0,
+                        "page_checks": [],
+                        "irreversible_actions_attempted": [],
+                    },
+                },
+                "run_receipt": {"notification_status": "sent", "item_count": 1, "delivery_channel": "telegram"},
+            }
+        return {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
+            "approval_callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 1,
+            "approval_callback_pending_count": 0,
+            "approval_callback_raw_pending_count": 0,
+            "approval_callback_live_pending_count": 0,
+            "approval_callback_unexpired_pending_count": 0,
+            "approval_callback_noncurrent_pending_count": 0,
+            "approval_callback_stale_pending_count": 0,
+            "approval_callback_recorded_count": 1,
+            "current_packet_callback_record_count": 0,
+            "current_packet_callback_pending_count": 0,
+            "current_packet_callback_raw_pending_count": 0,
+            "current_packet_live_callback_record_count": 0,
+            "current_packet_live_pending_count": 0,
+            "stage_packet_path": "/data/provider-ledger/proactive_ooda_stage_packets/pkt-current.json",
+            "safe_work_result_path": "/data/provider-ledger/proactive_ooda_safe_work_results/res-current.json",
+            "stage_packet": {
+                "schema": "proactive_ooda.stage_packet.v1",
+                "packet_ref": "packet-internal-1",
+                "stage": {"kind": "internal_action", "payload": {"work_type": "record_internal_action"}},
+                "safe_work_order": {"work_type": "record_internal_action"},
+                "approval": {"required": True},
+            },
+            "safe_work_result": {
+                "schema": "proactive_ooda.safe_work_result.v1",
+                "result_ref": "result-internal-1",
+                "status": "staged_for_user_decision",
+                "work_type": "record_internal_action",
+                "approval": {"required": True},
+                "approval_prompt": "Record this internal action?",
+                "staged_action_url": "https://myexternalbrain.com/app/queue",
+                "audit": {"status": "pass", "issues": []},
+            },
+            "run_receipt": {"notification_status": "sent", "item_count": 1, "delivery_channel": "telegram"},
+        }
+
+    monkeypatch.setattr(module, "_local_artifact_probe", _artifact_probe)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_approval_capture",
+        lambda **_kwargs: {
+            "checked": True,
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "source": "docker_compose_exec",
+            "privacy": {
+                "raw_callback_token_exposed": False,
+                "raw_principal_id_exposed": False,
+                "raw_chat_ref_exposed": False,
+                "raw_packet_ref_exposed": False,
+                "raw_staged_artifact_ref_exposed": False,
+            },
+        },
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-09T04:11:31Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "ready_with_recovery_action"
+    assert receipt["reason"] == "internal_action_not_assistant_grade"
+    assert receipt["assistant_grade_packet"]["bundle_source"] == "current_runtime_bundle"
+    assert receipt["assistant_grade_packet"]["stage_kind"] == "internal_action"
+    assert receipt["assistant_grade_packet"]["work_type"] == "record_internal_action"
+    assert receipt["assistant_grade_packet"]["requires_recovery"] is True
+    assert receipt["assistant_grade_packet"]["blocking_reason"] == "internal_action_not_assistant_grade"
+    assert receipt["stage_packets"]["selected_bundle_source"] == "current_runtime_bundle"
+    assert receipt["stage_packets"]["selected_packet_path"] == "/data/provider-ledger/proactive_ooda_stage_packets/pkt-current.json"
+    assert receipt["safe_work_results"]["selected_bundle_source"] == "current_runtime_bundle"
+    assert receipt["safe_work_results"]["selected_result_path"] == "/data/provider-ledger/proactive_ooda_safe_work_results/res-current.json"
 
 
 def test_materialize_proactive_ooda_operator_status_explicit_live_receipt_still_uses_historical_browse_backed_packet(
@@ -4434,6 +4738,91 @@ def test_materialize_proactive_ooda_operator_status_humanizes_interruption_budge
     assert receipt["operator_action_state"] == "deferred"
     assert receipt["summary"] == "Proactive OODA delivery is currently deferred because the interruption budget is exhausted."
     assert receipt["delivery_guard"]["interruption_budget_exhausted"] is True
+
+
+def test_materialize_proactive_ooda_operator_status_humanizes_notification_cooldown_deferral(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(
+        module.proactive_verifier,
+        "_build_report",
+        lambda _args: {
+            "ok": True,
+            "delivery_route": {
+                "ready": True,
+                "route_error": "",
+                "recovery_hint": "",
+                "next_action": "",
+                "selected_channel": "telegram",
+                "selected_transport": "telegram",
+                "selected_by": "tool_runtime_binding",
+                "available_channels": ["telegram"],
+            },
+            "delivery_guard": {
+                "delivery_state": "deferred",
+                "deferred_reason": "deferred_by_notification_cooldown",
+                "armed_send": True,
+                "quiet_hours_active": False,
+                "interruption_budget_exhausted": False,
+                "notification_cooldown_active": True,
+                "notification_cooldown_seconds_remaining": 1200,
+            },
+            "stage_packets": {"ready": True, "errors": []},
+            "safe_work_results": {"ready": True, "errors": []},
+            "receipt_observation_count": 0,
+            "actionable_count": 1,
+            "source_mode": "signals_json",
+        },
+    )
+    monkeypatch.setattr(
+        module.live_receipt_verifier,
+        "verify_receipt",
+        lambda _path: {
+            "ok": False,
+            "errors": ["receipt_missing"],
+            "receipt_path": str(tmp_path / "live-receipt.json"),
+            "notification_status": "",
+            "delivery_channel": "",
+            "delivery_message_count": 0,
+            "telegram_message_count": 0,
+            "delivery_route_error": "",
+            "delivery_recovery_hint": "",
+            "delivery_next_action": "",
+            "generated_at": "",
+        },
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-02T22:50:00Z",
+        report_args=Namespace(armed_send=True),
+        live_receipt_path=tmp_path / "live-receipt.json",
+        allow_live_route_probe=False,
+    )
+
+    assert receipt["status"] == "deferred"
+    assert receipt["reason"] == "deferred_by_notification_cooldown"
+    assert receipt["next_action"] == "wait_for_notification_cooldown"
+    assert receipt["next_action_label"] == "Open Today"
+    assert receipt["operator_action_state"] == "deferred"
+    assert receipt["summary"] == "Proactive OODA delivery is currently deferred by the notification cooldown (1200s remaining)."
+    assert receipt["delivery_guard"]["notification_cooldown_active"] is True
+    assert receipt["delivery_guard"]["notification_cooldown_seconds_remaining"] == 1200
+
+
+def test_materialize_proactive_ooda_operator_status_default_report_args_include_notification_cooldown_env(
+    monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setenv("EA_PROACTIVE_OODA_NOTIFICATION_COOLDOWN_SECONDS", "900")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_NOTIFICATION_COOLDOWN_ALLOW_HIGH_PRIORITY", "0")
+
+    args = module._default_report_args()
+
+    assert args.notification_cooldown_seconds == 900
+    assert args.notification_cooldown_allow_high_priority is False
 
 
 def test_materialize_proactive_ooda_operator_status_uses_local_callback_surface_when_live_probe_is_skipped(

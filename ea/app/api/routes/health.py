@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.api.dependencies import get_container
 from app.container import AppContainer
 from app.product.service import build_product_service
+from app.services.outbound_email_bounds import outbound_email_guard_summary
 from app.settings import get_settings
 
 router = APIRouter(tags=["system"])
@@ -142,6 +143,32 @@ def _public_surface_flags() -> dict[str, str]:
         "public_results_enabled": _bool_str(settings.public_results_enabled),
         "legacy_runtime_surfaces_enabled": _bool_str(settings.legacy_runtime_surfaces_enabled),
     }
+
+
+def _truthy_query_value(value: object) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _memorial_probe_requested(
+    request: Request,
+    *,
+    slug: str,
+    memorial_runtime: dict[str, object],
+) -> bool:
+    if not _loopback_request(request):
+        return False
+    if not slug or not bool(memorial_runtime.get("route_mounted")):
+        return False
+    query_params = getattr(request, "query_params", None)
+    if query_params is None:
+        return False
+    probe = str(query_params.get("probe") or "").strip().lower()
+    if probe in {"memorial", "deep_memorial"}:
+        return True
+    return any(
+        _truthy_query_value(query_params.get(key))
+        for key in ("probe_memorial", "memorial_probe", "deep_probe")
+    )
 
 
 def _read_json_file(path: Path) -> dict[str, object]:
@@ -360,6 +387,52 @@ def _whatsapp_runtime_status() -> dict[str, object]:
     }
 
 
+def _outbound_email_runtime_status() -> dict[str, object]:
+    summary = outbound_email_guard_summary()
+    status = str(summary.get("status") or "unknown").strip()
+    if status == "guard_unavailable":
+        operator_action_state = "action_required"
+        next_action = "inspect_outbound_email_guard_state"
+        recheck_after = 0
+        state = "unknown"
+    elif status == "disabled":
+        operator_action_state = "action_required"
+        next_action = "enable_outbound_email_bounds"
+        recheck_after = 0
+        state = "disabled"
+    elif status == "bounded":
+        operator_action_state = "clear"
+        next_action = "wait_for_outbound_email_cooldown"
+        recheck_after = 60
+        state = "bounded"
+    else:
+        operator_action_state = "clear"
+        next_action = "maintain_outbound_email_bounds"
+        recheck_after = 300
+        state = "clear"
+    return {
+        "state": state,
+        "enabled": bool(summary.get("enabled")),
+        "next_action": next_action,
+        "operator_action_state": operator_action_state,
+        "operator_recheck_after_seconds": recheck_after,
+        "guard_status": status,
+        "guard_path": str(summary.get("state_path") or ""),
+        "guard_file_bytes": int(summary.get("guard_file_bytes") or 0),
+        "entry_count": int(summary.get("entry_count") or 0),
+        "attempt_count": int(summary.get("attempt_count") or 0),
+        "active_cooldown_count": int(summary.get("active_cooldown_count") or 0),
+        "active_window_budget_count": int(summary.get("active_window_budget_count") or 0),
+        "most_recent_attempt_at": str(summary.get("most_recent_attempt_at") or ""),
+        "categories": dict(summary.get("categories") or {}),
+        "privacy": {
+            "raw_recipient_exposed": False,
+            "raw_subject_exposed": False,
+        },
+        "guard_error": str(summary.get("guard_error") or ""),
+    }
+
+
 def _route_mounted(request: Request, path: str) -> bool:
     scope = getattr(request, "scope", None)
     app = scope.get("app") if isinstance(scope, dict) else None
@@ -432,43 +505,40 @@ async def healthz() -> dict[str, str]:
 @router.get("/health/live")
 async def health_live(request: Request) -> dict[str, object]:
     slug = _memorial_healthcheck_slug()
+    loopback = _loopback_request(request)
     memorial_runtime = _memorial_runtime_status(request)
-    if not slug:
-        if not _loopback_request(request):
-            return {"status": "live"}
-        return {
-            "status": "live",
-            "public_surface_flags": _public_surface_flags(),
-            "memorial_runtime": memorial_runtime,
-            "whatsapp_runtime": _whatsapp_runtime_status(),
-        }
-    if not bool(memorial_runtime.get("route_mounted")):
-        if not _loopback_request(request):
-            return {"status": "live"}
-        return {
-            "status": "live",
-            "public_surface_flags": _public_surface_flags(),
-            "memorial_runtime": memorial_runtime,
-            "whatsapp_runtime": _whatsapp_runtime_status(),
-        }
-    probe = _probe_public_memorial_surface(slug)
-    latency_posture = _memorial_latency_posture(probe.get("elapsed_ms"))
-    if not _loopback_request(request):
+    if not loopback:
         return {"status": "live"}
-    return {
+    payload: dict[str, object] = {
         "status": "live",
-        "memorial_slug": str(probe["slug"]),
-        "memorial_voice_plugin": str(probe["voice_plugin"]),
-        "memorial_audio_clip_count": str(probe["audio_clip_count"]),
-        "memorial_elapsed_ms": str(probe["elapsed_ms"]),
-        "memorial_latency_tier": str(latency_posture["tier"]),
-        "memorial_latency_budget_ms": str(latency_posture["budget_ms"]),
-        "memorial_operator_action_state": str(latency_posture["operator_action_state"]),
-        "memorial_latency_next_action": str(latency_posture["next_action"]),
         "public_surface_flags": _public_surface_flags(),
         "memorial_runtime": memorial_runtime,
+        "outbound_email_runtime": _outbound_email_runtime_status(),
         "whatsapp_runtime": _whatsapp_runtime_status(),
     }
+    if not _memorial_probe_requested(request, slug=slug, memorial_runtime=memorial_runtime):
+        payload["memorial_probe_mode"] = (
+            "deferred"
+            if slug and bool(memorial_runtime.get("route_mounted"))
+            else "unavailable"
+        )
+        return payload
+    probe = _probe_public_memorial_surface(slug)
+    latency_posture = _memorial_latency_posture(probe.get("elapsed_ms"))
+    payload.update(
+        {
+            "memorial_probe_mode": "explicit",
+            "memorial_slug": str(probe["slug"]),
+            "memorial_voice_plugin": str(probe["voice_plugin"]),
+            "memorial_audio_clip_count": str(probe["audio_clip_count"]),
+            "memorial_elapsed_ms": str(probe["elapsed_ms"]),
+            "memorial_latency_tier": str(latency_posture["tier"]),
+            "memorial_latency_budget_ms": str(latency_posture["budget_ms"]),
+            "memorial_operator_action_state": str(latency_posture["operator_action_state"]),
+            "memorial_latency_next_action": str(latency_posture["next_action"]),
+        }
+    )
+    return payload
 
 
 @router.get("/health/ready")

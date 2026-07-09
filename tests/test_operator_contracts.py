@@ -798,12 +798,15 @@ def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() 
 
 def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    runtime_dockerfile = (ROOT / "ea" / "Dockerfile").read_text(encoding="utf-8")
+    operator_dockerfile = (ROOT / "ea" / "Dockerfile.operator").read_text(encoding="utf-8")
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert "EA_ROLE" in dockerfile
-    assert 'role=${EA_ROLE:-api}; case \\"$role\\" in' in dockerfile
-    assert "worker|scheduler)" in dockerfile
-    assert "http://127.0.0.1:8090/health/live" in dockerfile
+    for content in (dockerfile, runtime_dockerfile, operator_dockerfile):
+        assert "EA_ROLE" in content
+        assert 'role=${EA_ROLE:-api}; case \\"$role\\" in' in content
+        assert "worker|scheduler)" in content
+        assert "http://127.0.0.1:8090/healthz" in content
     assert "EA_ROLE=api" in compose
     assert "EA_ROLE=worker" in compose
     assert "EA_ROLE=scheduler" in compose

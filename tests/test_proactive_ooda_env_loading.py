@@ -1901,6 +1901,15 @@ def test_runner_auto_execute_candidates_require_safe_work_audit_pass(tmp_path) -
     ) == ()
 
     payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload.pop("audit")
+    result_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert runner._proactive_ooda_auto_execute_candidates(
+        stage_packet_paths=(stage_path,),
+        safe_work_result_paths=(result_path,),
+    ) == ()
+
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
     payload["audit"] = {"status": "pass", "issues": []}
     result_path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -2097,6 +2106,68 @@ def test_runner_interruption_budget_allows_high_priority_when_configured(tmp_pat
     assert reason == ""
 
 
+def test_runner_notification_cooldown_defers_when_recent_send_exists(tmp_path) -> None:
+    state_store = JsonOodaStateStore(tmp_path / "state.json")
+    state_store.save_interruption_events("exec", ["2026-06-26T11:45:00+00:00"])
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "opportunity:vendor-review",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Review vendor options",
+                "summary": "Review the provider notes.",
+            }
+        ],
+    )
+    args = SimpleNamespace(
+        notification_cooldown_seconds=1800,
+        notification_cooldown_allow_high_priority=True,
+    )
+
+    reason = runner._notification_cooldown_defer_reason(
+        args,
+        state_store=state_store,
+        principal_id="exec",
+        digest=digest,
+        now=datetime(2026, 6, 26, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert reason == "deferred_by_notification_cooldown"
+
+
+def test_runner_notification_cooldown_allows_high_priority_when_configured(tmp_path) -> None:
+    state_store = JsonOodaStateStore(tmp_path / "state.json")
+    state_store.save_interruption_events("exec", ["2026-06-26T11:45:00+00:00"])
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "gmail:approval",
+                "signal_type": "email_thread",
+                "channel": "gmail",
+                "title": "Approval needed today",
+                "summary": "Approve the provider renewal today.",
+            }
+        ],
+    )
+    args = SimpleNamespace(
+        notification_cooldown_seconds=1800,
+        notification_cooldown_allow_high_priority=True,
+    )
+
+    reason = runner._notification_cooldown_defer_reason(
+        args,
+        state_store=state_store,
+        principal_id="exec",
+        digest=digest,
+        now=datetime(2026, 6, 26, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert reason == ""
+
+
 def test_runner_interruption_budget_records_and_prunes_window(tmp_path) -> None:
     state_store = JsonOodaStateStore(tmp_path / "state.json")
     state_store.save_interruption_events(
@@ -2147,6 +2218,8 @@ def test_verifier_delivery_guard_reports_unarmed_send_state(tmp_path) -> None:
         interruption_budget_limit=0,
         interruption_budget_window_hours=24,
         interruption_budget_allow_high_priority=True,
+        notification_cooldown_seconds=1800,
+        notification_cooldown_allow_high_priority=True,
     )
 
     status = verifier._delivery_guard_status(args, state_store=state_store, digest=digest)
@@ -2163,7 +2236,7 @@ def test_runner_delivery_guard_snapshot_tracks_action_required_and_budget_state(
         "exec",
         (
             "2026-07-02T08:00:00+00:00",
-            "2026-07-02T10:00:00+00:00",
+            "2026-07-02T11:40:00+00:00",
         ),
     )
     digest = ProactiveOodaService().build_digest(
@@ -2190,6 +2263,8 @@ def test_runner_delivery_guard_snapshot_tracks_action_required_and_budget_state(
         interruption_budget_limit=2,
         interruption_budget_window_hours=24,
         interruption_budget_allow_high_priority=False,
+        notification_cooldown_seconds=1800,
+        notification_cooldown_allow_high_priority=True,
         action_required_delivery_only=True,
         mirror_delivery_proof=False,
     )
@@ -2213,6 +2288,9 @@ def test_runner_delivery_guard_snapshot_tracks_action_required_and_budget_state(
     assert guard["deferred_reason"] == "deferred_by_interruption_budget"
     assert guard["interruption_budget_used"] == 2
     assert guard["interruption_budget_exhausted"] is True
+    assert guard["notification_cooldown_seconds"] == 1800
+    assert guard["notification_cooldown_active"] is True
+    assert guard["notification_cooldown_seconds_remaining"] == 600
     assert guard["notification_requires_user_action"] is True
     assert guard["action_required_delivery_only"] is True
 

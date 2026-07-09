@@ -5,6 +5,8 @@ import argparse
 import json
 import os
 from pathlib import Path
+import subprocess
+import time
 from typing import Any, Mapping
 
 
@@ -13,6 +15,17 @@ LEGACY_DEFAULT_RECEIPT = "/data/provider-ledger/proactive_ooda_live_sent_receipt
 CURRENT_DEFAULT_RECEIPT_NAME = "proactive_ooda_latest_run.generated.json"
 CURRENT_RUNTIME_RECEIPT = Path("/data/provider-ledger") / CURRENT_DEFAULT_RECEIPT_NAME
 RUN_RECEIPT_DIRNAME = "proactive_ooda_run_receipts"
+DEFAULT_RUNTIME_CONTAINER = str(
+    os.getenv("EA_PROACTIVE_OODA_RUNTIME_CONTAINER") or "ea-proactive-ooda"
+).strip() or "ea-proactive-ooda"
+DEFAULT_RUNTIME_VERIFY_ATTEMPTS = max(
+    int(str(os.getenv("EA_PROACTIVE_OODA_RUNTIME_VERIFY_ATTEMPTS") or "2").strip() or "2"),
+    1,
+)
+DEFAULT_RUNTIME_VERIFY_RETRY_DELAY_SECONDS = max(
+    float(str(os.getenv("EA_PROACTIVE_OODA_RUNTIME_VERIFY_RETRY_DELAY_SECONDS") or "0.25").strip() or "0.25"),
+    0.0,
+)
 
 
 def default_receipt_path() -> Path:
@@ -38,13 +51,81 @@ def default_receipt_path() -> Path:
 DEFAULT_RECEIPT = str(default_receipt_path())
 
 
-def main() -> int:
+def _explicit_receipt_path_requested(argv: list[str]) -> bool:
+    for index, token in enumerate(argv):
+        if token == "--receipt-path":
+            return index + 1 < len(argv)
+        if token.startswith("--receipt-path="):
+            return True
+    return False
+
+
+def _runtime_container_available(container_name: str) -> bool:
+    normalized = str(container_name or "").strip()
+    if not normalized:
+        return False
+    try:
+        completed = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Status}}", normalized],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        return False
+    return completed.returncode == 0 and bool(str(completed.stdout or "").strip())
+
+
+def _verify_receipt_via_runtime_container(container_name: str) -> dict[str, Any] | None:
+    normalized = str(container_name or "").strip()
+    if not normalized or not _runtime_container_available(normalized):
+        return None
+    last_payload: dict[str, Any] | None = None
+    for attempt in range(DEFAULT_RUNTIME_VERIFY_ATTEMPTS):
+        try:
+            completed = subprocess.run(
+                ["docker", "exec", normalized, "python", "/app/scripts/verify_proactive_ooda_live_receipt.py"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            completed = None
+        if completed is not None and completed.returncode in {0, 1}:
+            try:
+                payload = json.loads(str(completed.stdout or "").strip() or "{}")
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict):
+                payload.setdefault("runtime_container_delegated", True)
+                payload.setdefault("runtime_container", normalized)
+                last_payload = payload
+                break
+        if attempt + 1 < DEFAULT_RUNTIME_VERIFY_ATTEMPTS and DEFAULT_RUNTIME_VERIFY_RETRY_DELAY_SECONDS > 0:
+            time.sleep(DEFAULT_RUNTIME_VERIFY_RETRY_DELAY_SECONDS)
+    return last_payload
+
+
+def _runtime_container_report_for_default_invocation(argv: list[str]) -> dict[str, Any] | None:
+    if _explicit_receipt_path_requested(argv):
+        return None
+    if CURRENT_RUNTIME_RECEIPT.exists():
+        return None
+    return _verify_receipt_via_runtime_container(DEFAULT_RUNTIME_CONTAINER)
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv_list = list(argv or [])
     parser = argparse.ArgumentParser(description="Verify the proactive OODA live Telegram delivery receipt.")
     parser.add_argument("--receipt-path", default=str(default_receipt_path()))
     parser.add_argument("--pretty", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv_list)
 
-    report = verify_receipt(Path(args.receipt_path))
+    report = _runtime_container_report_for_default_invocation(argv_list)
+    if report is None:
+        report = verify_receipt(Path(args.receipt_path))
     if args.pretty:
         print(_format_report(report))
     else:
@@ -76,13 +157,14 @@ def verify_receipt(path: Path) -> dict[str, Any]:
             errors.extend(_operator_safe_mirror_receipt_errors(payload))
         else:
             errors.extend(_sent_receipt_errors(payload))
-    errors.extend(_followthrough_errors(latest_payload))
+    followthrough, followthrough_source = _effective_followthrough_payload(latest_payload, payload)
+    followthrough_errors = _followthrough_errors(latest_payload, delivery_payload=payload)
+    errors.extend(followthrough_errors)
     errors.extend(f"quiet_{error}" for error in quiet_receipt_errors)
     delivery_mode = _delivery_mode(payload)
     delivery_guard = dict(payload.get("delivery_guard") or {})
-    followthrough = _followthrough_payload(latest_payload)
     delivery_next_action = str(payload.get("delivery_next_action") or "").strip()
-    if not delivery_next_action and _followthrough_requires_recovery(latest_payload):
+    if not delivery_next_action and followthrough_errors:
         delivery_next_action = "repair_proactive_operator_runtime_posture"
 
     return {
@@ -116,6 +198,7 @@ def verify_receipt(path: Path) -> dict[str, Any]:
         "interruption_budget_exhausted": bool(delivery_guard.get("interruption_budget_exhausted")),
         "notification_requires_user_action": bool(delivery_guard.get("notification_requires_user_action")),
         "followthrough_status": str(followthrough.get("status") or ""),
+        "followthrough_source": followthrough_source,
         "followthrough_reason": str(followthrough.get("reason") or ""),
         "followthrough_error": str(followthrough.get("error") or ""),
         "followthrough_run_receipt_path": str(followthrough.get("run_receipt_path") or ""),
@@ -262,6 +345,19 @@ def _followthrough_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     return dict(raw) if isinstance(raw, Mapping) else {}
 
 
+def _effective_followthrough_payload(
+    latest_payload: Mapping[str, Any],
+    delivery_payload: Mapping[str, Any],
+) -> tuple[dict[str, Any], str]:
+    latest_followthrough = _followthrough_payload(latest_payload)
+    if latest_followthrough:
+        return latest_followthrough, "latest_receipt"
+    delivery_followthrough = _followthrough_payload(delivery_payload)
+    if delivery_followthrough:
+        return delivery_followthrough, "delivery_receipt"
+    return {}, ""
+
+
 def _followthrough_component_status(followthrough: Mapping[str, Any], key: str) -> str:
     component = followthrough.get(key)
     if not isinstance(component, Mapping):
@@ -283,14 +379,24 @@ def _followthrough_component_int(followthrough: Mapping[str, Any], key: str, fie
     return int(component.get(field) or 0)
 
 
-def _followthrough_requires_recovery(payload: Mapping[str, Any]) -> bool:
-    return any(error.startswith("followthrough_") for error in _followthrough_errors(payload))
+def _followthrough_requires_recovery(
+    latest_payload: Mapping[str, Any],
+    delivery_payload: Mapping[str, Any],
+) -> bool:
+    return any(
+        error.startswith("followthrough_")
+        for error in _followthrough_errors(latest_payload, delivery_payload=delivery_payload)
+    )
 
 
-def _followthrough_errors(payload: Mapping[str, Any]) -> list[str]:
-    if not payload:
+def _followthrough_errors(
+    latest_payload: Mapping[str, Any],
+    *,
+    delivery_payload: Mapping[str, Any] | None = None,
+) -> list[str]:
+    if not latest_payload and not delivery_payload:
         return []
-    followthrough = _followthrough_payload(payload)
+    followthrough, _source = _effective_followthrough_payload(latest_payload, delivery_payload or {})
     if not followthrough:
         return ["followthrough_artifacts_missing"]
     errors: list[str] = []
@@ -335,6 +441,8 @@ def _receipt_proves_operator_safe_mirror(payload: dict[str, Any]) -> bool:
 def _receipt_allows_archived_delivery_fallback(payload: dict[str, Any]) -> bool:
     if _receipt_proves_action_required_only_quiet_delivery(payload):
         return True
+    if _receipt_proves_no_decision_ready_safe_work_quiet_refresh(payload):
+        return True
     return (
         payload.get("dry_run") is False
         and str(payload.get("notification_status") or "").strip().lower() == "skipped_no_items"
@@ -357,6 +465,32 @@ def _receipt_proves_action_required_only_quiet_delivery(payload: dict[str, Any])
         _message_id_count(payload.get("delivery_message_ids") or []) == 0
         and _message_id_count(payload.get("telegram_message_ids") or []) == 0
     )
+
+
+def _receipt_proves_no_decision_ready_safe_work_quiet_refresh(payload: dict[str, Any]) -> bool:
+    if payload.get("dry_run") is not False:
+        return False
+    if str(payload.get("notification_status") or "").strip().lower() != "deferred":
+        return False
+    if str(payload.get("error_code") or "").strip() != "no_decision_ready_safe_work":
+        return False
+    if int(payload.get("item_count") or 0) <= 0:
+        return False
+    if (
+        _message_id_count(payload.get("delivery_message_ids") or []) > 0
+        or _message_id_count(payload.get("telegram_message_ids") or []) > 0
+    ):
+        return False
+    if str(payload.get("delivery_route_error") or "").strip():
+        return False
+    delivery_guard = dict(payload.get("delivery_guard") or {})
+    if str(delivery_guard.get("deferred_reason") or "").strip() != "no_decision_ready_safe_work":
+        return False
+    if bool(delivery_guard.get("notification_requires_user_action")):
+        return False
+    if bool(delivery_guard.get("decision_ready_safe_work_present")):
+        return False
+    return True
 
 
 def _raw_payload_errors(payload: dict[str, Any]) -> list[str]:

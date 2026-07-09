@@ -47,6 +47,31 @@ def _assert_whatsapp_runtime(body: dict[str, object]) -> None:
     assert isinstance(container_health["containers"], list)
 
 
+def _assert_outbound_email_runtime(body: dict[str, object]) -> None:
+    runtime = body["outbound_email_runtime"]
+    assert isinstance(runtime, dict)
+    assert runtime["state"] in {"disabled", "clear", "bounded", "unknown"}
+    assert isinstance(runtime["enabled"], bool)
+    assert isinstance(runtime["next_action"], str)
+    assert runtime["operator_action_state"] in {"action_required", "clear"}
+    assert isinstance(runtime["operator_recheck_after_seconds"], int)
+    assert isinstance(runtime["guard_status"], str)
+    assert isinstance(runtime["guard_path"], str)
+    assert isinstance(runtime["guard_file_bytes"], int)
+    assert isinstance(runtime["entry_count"], int)
+    assert isinstance(runtime["attempt_count"], int)
+    assert isinstance(runtime["active_cooldown_count"], int)
+    assert isinstance(runtime["active_window_budget_count"], int)
+    assert isinstance(runtime["most_recent_attempt_at"], str)
+    assert isinstance(runtime["categories"], dict)
+    privacy = runtime["privacy"]
+    assert isinstance(privacy, dict)
+    assert privacy == {
+        "raw_recipient_exposed": False,
+        "raw_subject_exposed": False,
+    }
+
+
 def test_health_live_stays_simple_without_memorial_probe(monkeypatch) -> None:
     monkeypatch.delenv("EA_HEALTHCHECK_MEMORIAL_SLUG", raising=False)
     client = _client(storage_backend="memory")
@@ -58,13 +83,40 @@ def test_health_live_stays_simple_without_memorial_probe(monkeypatch) -> None:
     _assert_public_surface_flags(payload)
     assert "memorial_runtime" in payload
     _assert_memorial_runtime(payload)
+    assert "outbound_email_runtime" in payload
+    _assert_outbound_email_runtime(payload)
     assert "whatsapp_runtime" in payload
     _assert_whatsapp_runtime(payload)
     assert payload["memorial_runtime"]["state"] == "disabled"
     assert payload["memorial_runtime"]["route_mounted"] is False
+    assert payload["memorial_probe_mode"] == "unavailable"
+    assert "memorial_slug" not in payload
 
 
-def test_health_live_includes_memorial_probe_when_configured(monkeypatch) -> None:
+def test_health_live_defers_memorial_probe_when_not_explicit(monkeypatch) -> None:
+    monkeypatch.setenv("EA_HEALTHCHECK_MEMORIAL_SLUG", "manfred")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "1")
+    from app.api.routes import health
+
+    def _unexpected_probe(slug: str) -> dict[str, object]:
+        raise AssertionError(f"probe should stay deferred for slug={slug}")
+
+    monkeypatch.setattr(health, "_probe_public_memorial_surface", _unexpected_probe)
+    client = _client(storage_backend="memory")
+    response = client.get("/health/live")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "live"
+    assert payload["memorial_probe_mode"] == "deferred"
+    assert payload["memorial_runtime"]["state"] == "mounted"
+    assert payload["memorial_runtime"]["route_mounted"] is True
+    assert payload["memorial_runtime"]["healthcheck_slug"] == "manfred"
+    assert "memorial_slug" not in payload
+    assert "memorial_latency_tier" not in payload
+
+
+def test_health_live_includes_memorial_probe_when_explicit(monkeypatch) -> None:
     monkeypatch.setenv("EA_HEALTHCHECK_MEMORIAL_SLUG", "manfred")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "1")
@@ -76,10 +128,11 @@ def test_health_live_includes_memorial_probe_when_configured(monkeypatch) -> Non
         lambda slug: {"slug": slug, "voice_plugin": "unmixr_clone", "audio_clip_count": 3, "elapsed_ms": 8.4},
     )
     client = _client(storage_backend="memory")
-    response = client.get("/health/live")
+    response = client.get("/health/live?probe=memorial")
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "live"
+    assert payload["memorial_probe_mode"] == "explicit"
     assert payload["memorial_slug"] == "manfred"
     assert payload["memorial_voice_plugin"] == "unmixr_clone"
     assert payload["memorial_audio_clip_count"] == "3"
@@ -92,6 +145,8 @@ def test_health_live_includes_memorial_probe_when_configured(monkeypatch) -> Non
     _assert_public_surface_flags(payload)
     assert "memorial_runtime" in payload
     _assert_memorial_runtime(payload)
+    assert "outbound_email_runtime" in payload
+    _assert_outbound_email_runtime(payload)
     assert "whatsapp_runtime" in payload
     _assert_whatsapp_runtime(payload)
     assert payload["memorial_runtime"]["state"] == "mounted"
@@ -168,6 +223,50 @@ def test_whatsapp_runtime_status_reports_readiness_receipt_without_secrets(monke
     assert payload["container_health"]["source"] == "docker_inspect"
     assert len(payload["container_health"]["containers"]) == 3
     assert "secret" not in payload
+
+
+def test_outbound_email_runtime_status_reports_bounded_guard_without_leaking_recipients(monkeypatch, tmp_path) -> None:
+    from app.api.routes import health
+
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_GUARD_STATE_PATH", str(tmp_path / "outbound_email_guard.json"))
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_AUTH_COOLDOWN_SECONDS", "600")
+    guard_path = tmp_path / "outbound_email_guard.json"
+    guard_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "entries": {
+                    "ea_registration_verification|founder@example.com": [
+                        {
+                            "attempt_id": "attempt-1",
+                            "attempted_at": 2_000_000_000.0,
+                            "status": "sent",
+                            "recipient_email": "founder@example.com",
+                            "subject": "Verify your email for PropertyQuarry",
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(health.time, "time", lambda: 2_000_000_100.0)
+
+    payload = health._outbound_email_runtime_status()
+
+    assert payload["state"] == "bounded"
+    assert payload["enabled"] is True
+    assert payload["next_action"] == "wait_for_outbound_email_cooldown"
+    assert payload["operator_action_state"] == "clear"
+    assert payload["active_cooldown_count"] == 1
+    assert payload["entry_count"] == 1
+    assert payload["attempt_count"] == 1
+    assert payload["most_recent_attempt_at"] == "2033-05-18T03:33:20Z"
+    assert payload["categories"]["auth"]["entry_count"] == 1
+    assert payload["categories"]["auth"]["active_cooldown_count"] == 1
+    serialized = json.dumps(payload, sort_keys=True)
+    assert "founder@example.com" not in serialized
+    assert "Verify your email for PropertyQuarry" not in serialized
 
 
 def test_whatsapp_runtime_status_reports_fresh_receipt(monkeypatch, tmp_path) -> None:
@@ -329,11 +428,12 @@ def test_health_live_marks_slow_memorial_probe_as_degraded_for_loopback(monkeypa
         lambda slug: {"slug": slug, "voice_plugin": "unmixr_clone", "audio_clip_count": 3, "elapsed_ms": 2100.0},
     )
     client = _client(storage_backend="memory")
-    response = client.get("/health/live")
+    response = client.get("/health/live?probe=memorial")
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "live"
+    assert payload["memorial_probe_mode"] == "explicit"
     assert payload["memorial_latency_tier"] == "degraded"
     assert payload["memorial_operator_action_state"] == "action_required"
     assert payload["memorial_latency_next_action"] == "optimize_memorial_voice_runtime_latency"

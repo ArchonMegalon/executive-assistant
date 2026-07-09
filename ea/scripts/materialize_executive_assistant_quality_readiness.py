@@ -26,6 +26,7 @@ REPO_ROOT = SCRIPT_PATH.parents[2]
 DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_executive_assistant_quality_readiness.generated.json"
 DEFAULT_OFFICE_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_office_loop_goal.generated.json"
 DEFAULT_ACCEPTANCE_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_executive_assistant_acceptance_evidence.generated.json"
+DEFAULT_PROACTIVE_GOLD_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json"
 
 LOCAL_CHECKS = {
     "command_brief_local_ready": "command_brief",
@@ -41,6 +42,7 @@ LOCAL_CHECKS = {
 REQUIRED_REAL_WORLD_PROOF = list(REMAINING_PROOF_LABELS.values())
 LOCAL_REVIEW_PATH = "/app/today"
 LOCAL_REVIEW_LABEL = "Open Today"
+PROACTIVE_GOLD_REVIEW_PROOF = "current proactive OODA gold acceptance with approved-source health and live follow-through proof"
 
 
 def _now() -> str:
@@ -96,6 +98,48 @@ def _acceptance(
     return {"accepted_keys": [], "blocked_keys": REQUIRED_ACCEPTANCE_KEYS, "remaining_external_proofs": REQUIRED_REAL_WORLD_PROOF}
 
 
+def _proactive_gold_rollup(
+    proactive_gold_acceptance: dict[str, Any] | None,
+    path: str | Path | None,
+    *,
+    allow_default: bool = True,
+) -> dict[str, Any]:
+    receipt = dict(proactive_gold_acceptance or {})
+    receipt_path = path
+    if not receipt and path and Path(path).is_file():
+        receipt = _load(path)
+    elif not receipt and allow_default and DEFAULT_PROACTIVE_GOLD_RECEIPT.is_file():
+        receipt = _load(DEFAULT_PROACTIVE_GOLD_RECEIPT)
+        receipt_path = DEFAULT_PROACTIVE_GOLD_RECEIPT
+    status = str(receipt.get("status") or "").strip()
+    gold_claim_allowed = bool(receipt.get("gold_claim_allowed"))
+    claim_ready = not receipt or gold_claim_allowed or status == "pass"
+    next_action_href = str(receipt.get("next_action_href") or "").strip()
+    next_action_label = str(receipt.get("next_action_label") or "").strip()
+    next_action_method = str(receipt.get("next_action_method") or "").strip().lower()
+    next_action_form_href = str(receipt.get("next_action_form_href") or next_action_href).strip()
+    next_action_form_label = str(receipt.get("next_action_form_label") or next_action_label).strip()
+    next_action_form_method = str(receipt.get("next_action_form_method") or next_action_method).strip().lower()
+    blocker = "" if claim_ready else (status or "proactive_ooda_gold_not_ready")
+    return {
+        "present": bool(receipt),
+        "claim_ready": claim_ready,
+        "blocker": blocker,
+        "status": status,
+        "gold_claim_allowed": gold_claim_allowed,
+        "summary": str(receipt.get("summary") or "").strip(),
+        "next_action": str(receipt.get("next_action") or "").strip(),
+        "next_action_href": next_action_href,
+        "next_action_label": next_action_label,
+        "next_action_method": next_action_method,
+        "next_action_form_href": next_action_form_href,
+        "next_action_form_label": next_action_form_label,
+        "next_action_form_method": next_action_form_method,
+        "receipt": receipt,
+        "receipt_info": _receipt_info(receipt_path or DEFAULT_PROACTIVE_GOLD_RECEIPT),
+    }
+
+
 def _acceptance_rows(acceptance: dict[str, Any]) -> dict[str, dict[str, Any]]:
     rows: dict[str, dict[str, Any]] = {key: _empty_row() for key in REQUIRED_ACCEPTANCE_KEYS}
     existing = acceptance.get("acceptance_keys")
@@ -133,16 +177,27 @@ def materialize_executive_assistant_quality_readiness(
     office_loop_receipt_path: str | Path | None = None,
     acceptance_evidence: dict[str, Any] | None = None,
     acceptance_evidence_receipt_path: str | Path | None = None,
+    proactive_gold_acceptance: dict[str, Any] | None = None,
+    proactive_gold_acceptance_receipt_path: str | Path | None = None,
     refresh: bool = True,
 ) -> dict[str, Any]:
     del refresh
-    office_loop_provided = office_loop is not None
+    office_loop_input_provided = office_loop is not None or office_loop_receipt_path is not None
     if office_loop is None:
         office_loop = _load(office_loop_receipt_path or DEFAULT_OFFICE_RECEIPT)
     acceptance = _acceptance(
         acceptance_evidence,
         acceptance_evidence_receipt_path,
-        allow_default=not office_loop_provided,
+        allow_default=not office_loop_input_provided,
+    )
+    proactive_gold = _proactive_gold_rollup(
+        proactive_gold_acceptance,
+        proactive_gold_acceptance_receipt_path,
+        allow_default=(
+            proactive_gold_acceptance is None
+            and proactive_gold_acceptance_receipt_path is None
+            and not office_loop_input_provided
+        ),
     )
     local_blockers = _local_blockers(office_loop)
     accepted = set(acceptance.get("accepted_keys") or [])
@@ -150,18 +205,24 @@ def materialize_executive_assistant_quality_readiness(
     acceptance_rows = _acceptance_rows(acceptance)
     local_ready = not local_blockers
     acceptance_ready = not blocked_checks or bool(office_loop.get("live_daily_use_verified") and office_loop.get("real_operator_acceptance_verified") and office_loop.get("external_provider_runtime_verified"))
+    claim_readiness_blockers = [str(proactive_gold.get("blocker") or "").strip()] if not bool(proactive_gold.get("claim_ready")) else []
     if not local_ready:
         status = "blocked_local_quality_evidence"
+    elif claim_readiness_blockers:
+        status = "blocked_real_world_acceptance"
     elif acceptance_ready:
         status = "ready_for_good_executive_assistant_claim_review"
     else:
         status = "blocked_real_world_acceptance"
-    good_claim = bool(local_ready and acceptance_ready)
-    next_action = "review_good_executive_assistant_claim" if good_claim else (
-        "collect_redacted_real_world_acceptance_evidence"
-        if local_ready
-        else "inspect_local_office_loop_quality_regression"
-    )
+    good_claim = bool(local_ready and acceptance_ready and not claim_readiness_blockers)
+    if good_claim:
+        next_action = "review_good_executive_assistant_claim"
+    elif not local_ready:
+        next_action = "inspect_local_office_loop_quality_regression"
+    elif blocked_checks:
+        next_action = "collect_redacted_real_world_acceptance_evidence"
+    else:
+        next_action = str(proactive_gold.get("next_action") or "review_proactive_ooda_gold_blocker").strip()
     next_action_href = ""
     next_action_label = ""
     next_action_method = ""
@@ -170,13 +231,21 @@ def materialize_executive_assistant_quality_readiness(
     next_action_form_method = ""
     next_action_proof_key = ""
     if local_ready and not good_claim:
-        next_action_href = ACCEPTANCE_CAPTURE_PATH
-        next_action_label = ACCEPTANCE_CAPTURE_LABEL
-        next_action_method = ACCEPTANCE_CAPTURE_METHOD.lower()
-        next_action_proof_key = str(acceptance.get("next_action_proof_key") or (blocked_checks[0] if blocked_checks else "")).strip()
-        next_action_form_href = _acceptance_capture_form_href(next_action_proof_key)
-        next_action_form_label = ACCEPTANCE_CAPTURE_LABEL
-        next_action_form_method = ACCEPTANCE_CAPTURE_FORM_METHOD.lower()
+        if blocked_checks:
+            next_action_href = ACCEPTANCE_CAPTURE_PATH
+            next_action_label = ACCEPTANCE_CAPTURE_LABEL
+            next_action_method = ACCEPTANCE_CAPTURE_METHOD.lower()
+            next_action_proof_key = str(acceptance.get("next_action_proof_key") or (blocked_checks[0] if blocked_checks else "")).strip()
+            next_action_form_href = _acceptance_capture_form_href(next_action_proof_key)
+            next_action_form_label = ACCEPTANCE_CAPTURE_LABEL
+            next_action_form_method = ACCEPTANCE_CAPTURE_FORM_METHOD.lower()
+        else:
+            next_action_href = str(proactive_gold.get("next_action_href") or "").strip()
+            next_action_label = str(proactive_gold.get("next_action_label") or "").strip()
+            next_action_method = str(proactive_gold.get("next_action_method") or "").strip().lower()
+            next_action_form_href = str(proactive_gold.get("next_action_form_href") or next_action_href).strip()
+            next_action_form_label = str(proactive_gold.get("next_action_form_label") or next_action_label).strip()
+            next_action_form_method = str(proactive_gold.get("next_action_form_method") or next_action_method).strip().lower()
     elif not local_ready:
         next_action_href = LOCAL_REVIEW_PATH
         next_action_label = LOCAL_REVIEW_LABEL
@@ -198,6 +267,7 @@ def materialize_executive_assistant_quality_readiness(
         "local_blockers": local_blockers,
         "blocked_checks": [] if acceptance_ready else blocked_checks,
         "external_acceptance_blockers": [] if acceptance_ready else blocked_checks,
+        "claim_readiness_blockers": claim_readiness_blockers,
         "live_daily_use_verified": acceptance_ready,
         "real_principal_acceptance_verified": bool(acceptance.get("real_principal_acceptance_verified") or office_loop.get("live_daily_use_verified")),
         "real_operator_acceptance_verified": bool(acceptance.get("real_operator_acceptance_verified") or office_loop.get("real_operator_acceptance_verified")),
@@ -219,7 +289,26 @@ def materialize_executive_assistant_quality_readiness(
         "acceptance_capture_requirements": acceptance_capture_requirements(acceptance_rows),
         "source_receipt": _receipt_info(office_loop_receipt_path or DEFAULT_OFFICE_RECEIPT),
         "required_real_world_proof": REQUIRED_REAL_WORLD_PROOF,
-        "remaining_external_proofs": [] if acceptance_ready else [REMAINING_PROOF_LABELS[key] for key in blocked_checks],
+        "remaining_external_proofs": (
+            [REMAINING_PROOF_LABELS[key] for key in blocked_checks]
+            if blocked_checks
+            else ([PROACTIVE_GOLD_REVIEW_PROOF] if claim_readiness_blockers else [])
+        ),
+        "proactive_ooda_gold_acceptance": {
+            "present": bool(proactive_gold.get("present")),
+            "claim_ready": bool(proactive_gold.get("claim_ready")),
+            "status": str(proactive_gold.get("status") or "").strip(),
+            "gold_claim_allowed": bool(proactive_gold.get("gold_claim_allowed")),
+            "summary": str(proactive_gold.get("summary") or "").strip(),
+            "next_action": str(proactive_gold.get("next_action") or "").strip(),
+            "next_action_href": str(proactive_gold.get("next_action_href") or "").strip(),
+            "next_action_label": str(proactive_gold.get("next_action_label") or "").strip(),
+            "next_action_method": str(proactive_gold.get("next_action_method") or "").strip().lower(),
+            "next_action_form_href": str(proactive_gold.get("next_action_form_href") or "").strip(),
+            "next_action_form_label": str(proactive_gold.get("next_action_form_label") or "").strip(),
+            "next_action_form_method": str(proactive_gold.get("next_action_form_method") or "").strip().lower(),
+            "receipt_info": dict(proactive_gold.get("receipt_info") or {}),
+        },
         "privacy": {
             "credential_values_exposed": False,
             "env_values_exposed": False,
@@ -239,6 +328,18 @@ def materialize_executive_assistant_quality_readiness(
         "next_action_proof_key": next_action_proof_key,
         "next_action_context": _next_action_context(proof_key=next_action_proof_key),
     }
+    if claim_readiness_blockers and not blocked_checks:
+        receipt["next_action_context"] = {
+            "kind": "proactive_ooda_gold_recovery",
+            "status": str(proactive_gold.get("status") or "").strip(),
+            "summary": str(proactive_gold.get("summary") or "").strip(),
+            "next_action": str(proactive_gold.get("next_action") or "").strip(),
+            "next_action_href": str(proactive_gold.get("next_action_href") or "").strip(),
+            "next_action_label": str(proactive_gold.get("next_action_label") or "").strip(),
+            "next_action_method": str(proactive_gold.get("next_action_method") or "").strip().lower(),
+            "receipt_info": dict(proactive_gold.get("receipt_info") or {}),
+            "gold_claim_allowed": bool(proactive_gold.get("gold_claim_allowed")),
+        }
     _write(receipt_path, receipt)
     return receipt
 
@@ -248,6 +349,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--receipt", default=str(DEFAULT_RECEIPT))
     parser.add_argument("--office-loop-receipt")
     parser.add_argument("--acceptance-evidence-receipt")
+    parser.add_argument("--proactive-gold-acceptance-receipt")
     parser.add_argument("--generated-at", default="")
     parser.add_argument("--no-refresh", action="store_true")
     args = parser.parse_args(argv)
@@ -255,6 +357,7 @@ def main(argv: list[str] | None = None) -> int:
         receipt_path=args.receipt,
         office_loop_receipt_path=args.office_loop_receipt,
         acceptance_evidence_receipt_path=args.acceptance_evidence_receipt,
+        proactive_gold_acceptance_receipt_path=args.proactive_gold_acceptance_receipt,
         generated_at=args.generated_at,
         refresh=not args.no_refresh,
     )

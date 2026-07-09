@@ -167,8 +167,14 @@ def _verify_ea_core_runtime() -> None:
     operator_client = _client(operator=True)
 
     modes_public = client.get("/modes", follow_redirects=False)
-    if modes_public.status_code not in {401, 403}:
+    public_location = str(modes_public.headers.get("location") or "").strip()
+    if modes_public.status_code not in {303, 401, 403}:
         raise SystemExit(f"modes_public_not_operator_gated:{modes_public.status_code}")
+    if modes_public.status_code == 303 and not (
+        public_location.startswith("/admin/bootstrap-operator")
+        or public_location.startswith("/sign-in")
+    ):
+        raise SystemExit(f"modes_public_redirect_unexpected:{public_location or 'missing'}")
     modes_operator = operator_client.get("/modes", follow_redirects=False)
     if modes_operator.status_code != 200 or "data-project-mode-switchboard" not in modes_operator.text:
         raise SystemExit("modes_operator_surface_unavailable")
@@ -205,7 +211,7 @@ def _verify_memorial_runtime() -> None:
         if modes_operator.status_code != 200 or "Memorial" not in modes_operator.text:
             raise SystemExit("modes_operator_memorial_surface_unavailable")
 
-        live = client.get("/health/live")
+        live = client.get("/health/live?probe=memorial")
         if live.status_code != 200:
             raise SystemExit(f"memorial_health_live_unavailable:{live.status_code}")
         live_payload = live.json()

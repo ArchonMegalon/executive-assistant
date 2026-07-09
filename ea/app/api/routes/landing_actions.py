@@ -1283,98 +1283,8 @@ def _refresh_acceptance_receipt_summary(
         "raw_private_context_exposed": False,
     }
 def _update_quality_receipt_from_acceptance(acceptance: dict[str, object]) -> None:
-    quality = _load_json(EA_QUALITY_READINESS_RECEIPT)
-    if not quality:
-        quality = {
-            "contract_name": "ea.executive_assistant_quality_readiness.v1",
-            "status": "blocked_real_world_acceptance",
-            "goal_completion_claim_allowed": False,
-            "external_acceptance_blockers": [
-                "real_daily_morning_brief_accepted",
-                "real_decision_cleared",
-                "real_commitment_recovered_or_closed",
-                "real_approved_action_audited",
-                "real_provider_failure_recovered",
-            ],
-            "privacy": {
-                "raw_acceptance_text_exposed": False,
-            },
-        }
-    normalized_acceptance = dict(acceptance)
-    acceptance_keys = dict(normalized_acceptance.get("acceptance_keys") or {})
-    _refresh_acceptance_receipt_summary(normalized_acceptance, acceptance_keys)
-    blockers = list(normalized_acceptance.get("blocked_keys") or [])
-    local_ready = bool(quality.get("local_quality_evidence_ready", True))
-    if not local_ready:
-        status = "blocked_local_quality_evidence"
-    elif blockers:
-        status = "blocked_real_world_acceptance"
-    else:
-        status = "ready_for_good_executive_assistant_claim_review"
-    quality["status"] = status
-    quality.update(_source_state_fields())
-    quality["goal_completion_claim_allowed"] = False
-    quality["good_executive_assistant_claim_allowed"] = bool(local_ready and not blockers)
-    quality["public_or_premium_claim_allowed"] = False
-    quality["local_quality_evidence_ready"] = local_ready
-    quality["blocked_checks"] = [] if not blockers else blockers
-    quality["external_acceptance_blockers"] = blockers
-    quality["live_daily_use_verified"] = not blockers
-    quality["real_principal_acceptance_verified"] = bool(normalized_acceptance.get("real_principal_acceptance_verified"))
-    quality["real_operator_acceptance_verified"] = bool(normalized_acceptance.get("real_operator_acceptance_verified"))
-    quality["real_provider_recovery_verified"] = bool(normalized_acceptance.get("real_provider_recovery_verified"))
-    quality["ea_is_product_truth"] = False
-    quality["ea_owns_canonical_queue_truth"] = False
-    quality["ea_owns_release_authority"] = False
-    quality["provider_telemetry_is_product_authority"] = False
-    quality["acceptance_evidence"] = normalized_acceptance
-    quality["acceptance_capture_surface"] = _acceptance_capture_surface()
-    quality["acceptance_capture_requirements"] = _acceptance_capture_requirements(
-        dict(normalized_acceptance.get("acceptance_keys") or {})
-    )
-    quality["required_real_world_proof"] = [_ACCEPTANCE_PROOF_LABELS[key] for key in _ACCEPTANCE_KEYS]
-    quality["remaining_external_proofs"] = [_ACCEPTANCE_PROOF_LABELS[key] for key in blockers]
-    quality["privacy"] = {
-        "credential_values_exposed": False,
-        "env_values_exposed": False,
-        "raw_acceptance_actor_exposed": False,
-        "raw_acceptance_object_ref_exposed": False,
-        "raw_acceptance_text_exposed": False,
-        "raw_private_context_exposed": False,
-        "seeded_fixture_raw_private_context_exposed": False,
-    }
-    if status == "blocked_local_quality_evidence":
-        quality["next_action"] = "inspect_local_office_loop_quality_regression"
-        quality["next_action_href"] = _LOCAL_REVIEW_PATH
-        quality["next_action_label"] = _LOCAL_REVIEW_LABEL
-        quality["next_action_method"] = "get"
-        quality["next_action_form_href"] = _LOCAL_REVIEW_PATH
-        quality["next_action_form_label"] = _LOCAL_REVIEW_LABEL
-        quality["next_action_form_method"] = "get"
-        quality["next_action_proof_key"] = ""
-        quality["next_action_context"] = {}
-    elif status == "blocked_real_world_acceptance":
-        next_action_proof_key = blockers[0] if blockers else ""
-        quality["next_action"] = "collect_redacted_real_world_acceptance_evidence"
-        quality["next_action_href"] = _ACCEPTANCE_CAPTURE_PATH
-        quality["next_action_label"] = _ACCEPTANCE_CAPTURE_LABEL
-        quality["next_action_method"] = _ACCEPTANCE_CAPTURE_METHOD.lower()
-        quality["next_action_form_href"] = _acceptance_capture_form_href(next_action_proof_key)
-        quality["next_action_form_label"] = _ACCEPTANCE_CAPTURE_LABEL
-        quality["next_action_form_method"] = _ACCEPTANCE_CAPTURE_FORM_METHOD.lower()
-        quality["next_action_proof_key"] = next_action_proof_key
-        quality["next_action_context"] = _quality_next_action_context(next_action_proof_key)
-    else:
-        quality["next_action"] = "review_good_executive_assistant_claim"
-        quality["next_action_href"] = ""
-        quality["next_action_label"] = ""
-        quality["next_action_method"] = ""
-        quality["next_action_form_href"] = ""
-        quality["next_action_form_label"] = ""
-        quality["next_action_form_method"] = ""
-        quality["next_action_proof_key"] = ""
-        quality["next_action_context"] = {}
-    _write_json(EA_QUALITY_READINESS_RECEIPT, quality)
+    del acceptance
+    _materialize_admin_quality_readiness_from_sources()
 
 
 def _update_scope_gap_evidence() -> None:
@@ -1418,6 +1328,7 @@ def _materialize_admin_quality_readiness_from_sources() -> dict[str, object]:
         receipt_path=EA_QUALITY_READINESS_RECEIPT,
         office_loop_receipt_path=EA_OFFICE_LOOP_GOAL_RECEIPT,
         acceptance_evidence_receipt_path=EA_ACCEPTANCE_EVIDENCE_RECEIPT,
+        proactive_gold_acceptance_receipt_path=EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT,
     )
 
 

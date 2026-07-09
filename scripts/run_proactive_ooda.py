@@ -5,9 +5,11 @@ import argparse
 import hashlib
 import inspect
 import json
+import logging
 import os
 import sys
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, time as datetime_time, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -95,6 +97,7 @@ from app.services.proactive_ooda_teable_sync import (  # noqa: E402
     sync_proactive_ooda_to_teable,
     teable_sync_enabled,
 )
+from app.services.proactive_source_health_policy import source_health_issue_requires_user_action  # noqa: E402
 from app.services.assistant_property_boundary_cleanup import (  # noqa: E402
     cleanup_hidden_property_runtime_state,
 )
@@ -106,6 +109,43 @@ from app.services.assistant_property_lane import (  # noqa: E402
 
 def _default_principal_id() -> str:
     return os.getenv("EA_PROACTIVE_OODA_PRINCIPAL_ID") or os.getenv("EA_DEFAULT_PRINCIPAL_ID") or "principal-default"
+
+
+@contextmanager
+def _suppress_container_postgres_fallback_warning():
+    logger = logging.getLogger("ea.container")
+
+    class _PostgresFallbackFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            try:
+                message = record.getMessage()
+            except Exception:
+                message = str(getattr(record, "msg", "") or "")
+            return "postgres runtime profile unavailable, switching whole container to memory" not in message
+
+    noise_filter = _PostgresFallbackFilter()
+    logger.addFilter(noise_filter)
+    try:
+        yield
+    finally:
+        logger.removeFilter(noise_filter)
+
+
+def _build_postgres_container_for_script() -> object | None:
+    try:
+        from app.container import build_container
+    except Exception:
+        return None
+    try:
+        with _suppress_container_postgres_fallback_warning():
+            container = build_container()
+    except Exception:
+        return None
+    runtime_profile = getattr(container, "runtime_profile", None)
+    storage_backend = str(getattr(runtime_profile, "storage_backend", "") or "").strip().lower()
+    if storage_backend and storage_backend != "postgres":
+        return None
+    return container
 
 
 def main() -> int:
@@ -229,6 +269,18 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=_env_truthy("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_ALLOW_HIGH_PRIORITY", default=True),
     )
+    parser.add_argument(
+        "--notification-cooldown-seconds",
+        type=int,
+        default=int(os.getenv("EA_PROACTIVE_OODA_NOTIFICATION_COOLDOWN_SECONDS", "1800") or "1800"),
+        help="Minimum gap between proactive sends for the same principal; 0 disables this guard.",
+    )
+    parser.add_argument(
+        "--notification-cooldown-allow-high-priority",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_NOTIFICATION_COOLDOWN_ALLOW_HIGH_PRIORITY", default=True),
+        help="Allow high-priority digests to bypass the proactive send cooldown.",
+    )
     parser.add_argument("--max-items", type=int, default=int(os.getenv("EA_PROACTIVE_OODA_MAX_ITEMS", "5")))
     parser.add_argument("--receipt-path", default=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""))
     parser.add_argument("--stage-packet-dir", default=os.getenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR", ""))
@@ -316,6 +368,13 @@ def main() -> int:
             deferred_reason = _quiet_hours_defer_reason(args, digest)
         if not deferred_reason:
             deferred_reason = _interruption_budget_defer_reason(
+                args,
+                state_store=state_store,
+                principal_id=args.principal_id,
+                digest=digest,
+            )
+        if not deferred_reason:
+            deferred_reason = _notification_cooldown_defer_reason(
                 args,
                 state_store=state_store,
                 principal_id=args.principal_id,
@@ -646,6 +705,29 @@ def _followthrough_runtime_context(
     }
 
 
+def _operator_status_google_workspace_reauth_required_reason(operator_status: Mapping[str, Any]) -> str:
+    payload = dict(operator_status or {})
+    source_health = dict(payload.get("source_health") or {})
+    for raw_issue in list(source_health.get("issues") or []):
+        issue = dict(raw_issue or {}) if isinstance(raw_issue, Mapping) else {}
+        source_key = str(issue.get("source_key") or issue.get("source_type") or "").strip()
+        if source_key != "google_workspace":
+            continue
+        if not source_health_issue_requires_user_action(issue):
+            continue
+        error_code = str(issue.get("error_code") or issue.get("reason_code") or "").strip()
+        if error_code:
+            return error_code
+    reason = str(payload.get("reason") or "").strip()
+    for prefix in (
+        "source_health_google_workspace:",
+        "google_workspace_signal_source_unhealthy:",
+    ):
+        if reason.startswith(prefix):
+            return reason[len(prefix) :].strip()
+    return ""
+
+
 def _receipt_payload(
     *,
     receipt: Any,
@@ -728,6 +810,10 @@ def _materialize_followthrough_artifacts(
         "",
         default_relative=".codex-studio/published/ea_operator_action_required_dedupe_proof.generated.json",
     )
+    google_workspace_oauth_readiness_path = _root_relative_path(
+        "",
+        default_relative=".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
+    )
     summary: dict[str, Any] = {
         "status": "ok",
         "reason": "",
@@ -743,6 +829,11 @@ def _materialize_followthrough_artifacts(
         "goal_posture": {
             "path": _display_root_relative_path(goal_posture_path),
             "status": "pending",
+        },
+        "google_workspace_oauth_readiness": {
+            "path": _display_root_relative_path(google_workspace_oauth_readiness_path),
+            "status": "not_needed",
+            "reason": "no_google_workspace_runtime_blocker",
         },
         "operator_action_required_digest": {
             "path": _display_root_relative_path(digest_path),
@@ -789,6 +880,28 @@ def _materialize_followthrough_artifacts(
                 "reason": str(operator_status.get("reason") or "").strip(),
             }
         )
+        google_workspace_reauth_reason = _operator_status_google_workspace_reauth_required_reason(operator_status)
+        if google_workspace_reauth_reason:
+            google_workspace_oauth_readiness = dict(
+                builders["google_workspace_oauth_readiness"](
+                    reauth_required_reason=google_workspace_reauth_reason,
+                    include_env_file=ROOT / ".env",
+                    probe_gcloud=False,
+                )
+            )
+            _write_receipt(google_workspace_oauth_readiness_path, google_workspace_oauth_readiness)
+            summary["google_workspace_oauth_readiness"].update(
+                {
+                    "status": str(google_workspace_oauth_readiness.get("status") or "written").strip() or "written",
+                    "reason": "",
+                    "reauth_required_reason": str(
+                        google_workspace_oauth_readiness.get("reauth_required_reason") or ""
+                    ).strip(),
+                    "next_action": str(
+                        dict(google_workspace_oauth_readiness.get("operator_action") or {}).get("next_action") or ""
+                    ).strip(),
+                }
+            )
 
         gold_acceptance = dict(
             builders["gold_acceptance"](
@@ -956,11 +1069,8 @@ def _auto_execute_proactive_ooda_actions(
     if not candidates:
         return ()
 
-    try:
-        from app.container import build_container
-
-        container = build_container()
-    except Exception:
+    container = _build_postgres_container_for_script()
+    if container is None:
         return ()
 
     results: list[dict[str, Any]] = []
@@ -1005,7 +1115,7 @@ def _proactive_ooda_auto_execute_candidates(
         stage_packet_paths=stage_packet_paths,
         safe_work_result_paths=safe_work_result_paths,
     ):
-        if not _safe_work_allows_delivery_or_auto_execution(result):
+        if not _safe_work_allows_auto_execution(result):
             continue
         packet_ref = ""
         result_ref = str(result.get("result_ref") or "").strip()
@@ -1036,6 +1146,17 @@ def _proactive_ooda_auto_execute_candidates(
     return tuple(candidates)
 
 
+def _safe_work_allows_auto_execution(result: Mapping[str, Any]) -> bool:
+    if not _safe_work_allows_delivery_or_auto_execution(result):
+        return False
+    if str(result.get("status") or "").strip() != "staged_for_user_decision":
+        return False
+    audit = result.get("audit")
+    if not isinstance(audit, Mapping):
+        return False
+    return str(audit.get("status") or "").strip().lower() == "pass"
+
+
 def _redact_auto_execute_result(result: Mapping[str, Any]) -> Mapping[str, Any]:
     execution = dict(result.get("execution") or {})
     return {
@@ -1051,13 +1172,8 @@ def _redact_auto_execute_result(result: Mapping[str, Any]) -> Mapping[str, Any]:
 def _context_grounded_digest(principal_id: str, digest: ProactiveOodaDigest) -> ProactiveOodaDigest:
     if not digest.items:
         return digest
-    try:
-        from app.container import build_container
-    except Exception:
-        return digest
-    try:
-        container = build_container()
-    except Exception:
+    container = _build_postgres_container_for_script()
+    if container is None:
         return digest
     return ground_digest_for_principal(
         digest,
@@ -1363,23 +1479,34 @@ def _delivery_guard_snapshot(
     error_code: str,
     now: datetime | None = None,
 ) -> dict[str, Any]:
+    current_now = now or datetime.now(timezone.utc)
     items = tuple(getattr(digest, "items", ()) or ())
     has_items = bool(items)
     has_high_priority = any(getattr(item, "priority", "") == "high" for item in items)
     paused = bool(getattr(args, "paused", False))
-    quiet_active = _quiet_hours_active(args, now=now)
+    quiet_active = _quiet_hours_active(args, now=current_now)
     quiet_allows_high = bool(getattr(args, "quiet_hours_allow_high_priority", True))
     armed_send = bool(getattr(args, "armed_send", False))
     budget_limit = max(int(getattr(args, "interruption_budget_limit", 0) or 0), 0)
     budget_window_hours = max(int(getattr(args, "interruption_budget_window_hours", 24) or 24), 1)
     budget_allows_high = bool(getattr(args, "interruption_budget_allow_high_priority", True))
+    notification_cooldown_seconds = _notification_cooldown_seconds(args)
+    notification_cooldown_allow_high_priority = _notification_cooldown_allow_high_priority(args)
     recent_budget_events = _recent_interruption_events(
         state_store.load_interruption_events(principal_id),
-        now=now or datetime.now(timezone.utc),
+        now=current_now,
         window_hours=budget_window_hours,
     )
     budget_used = len(recent_budget_events)
     budget_exhausted = budget_limit > 0 and budget_used >= budget_limit
+    latest_interruption_event = _latest_interruption_event(state_store.load_interruption_events(principal_id))
+    notification_cooldown_seconds_remaining = 0
+    if latest_interruption_event is not None and notification_cooldown_seconds > 0:
+        notification_cooldown_seconds_remaining = max(
+            0,
+            int((latest_interruption_event - current_now).total_seconds()) + notification_cooldown_seconds,
+        )
+    notification_cooldown_active = notification_cooldown_seconds_remaining > 0
     user_action_required = _notification_requires_user_action(approval_request)
     decision_ready_safe_work = _has_decision_ready_safe_work(safe_work_results)
     if not has_items:
@@ -1402,6 +1529,10 @@ def _delivery_guard_snapshot(
         "interruption_budget_used": budget_used,
         "interruption_budget_exhausted": budget_exhausted,
         "interruption_budget_allow_high_priority": budget_allows_high,
+        "notification_cooldown_seconds": notification_cooldown_seconds,
+        "notification_cooldown_active": notification_cooldown_active,
+        "notification_cooldown_seconds_remaining": notification_cooldown_seconds_remaining,
+        "notification_cooldown_allow_high_priority": notification_cooldown_allow_high_priority,
         "has_high_priority": has_high_priority,
         "action_required_delivery_only": bool(getattr(args, "action_required_delivery_only", True)),
         "notification_requires_user_action": user_action_required,
@@ -1470,6 +1601,17 @@ def _unarmed_send_defer_reason(args: argparse.Namespace, digest: Any) -> str:
     return "" if bool(getattr(args, "armed_send", False)) else "deferred_by_unarmed_send"
 
 
+def _notification_cooldown_seconds(args: argparse.Namespace) -> int:
+    try:
+        return max(int(getattr(args, "notification_cooldown_seconds", 1800) or 0), 0)
+    except (TypeError, ValueError):
+        return 1800
+
+
+def _notification_cooldown_allow_high_priority(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "notification_cooldown_allow_high_priority", True))
+
+
 def _without_notified_refs(digest: ProactiveOodaDigest) -> ProactiveOodaDigest:
     return ProactiveOodaDigest(
         principal_id=digest.principal_id,
@@ -1505,6 +1647,29 @@ def _interruption_budget_defer_reason(
     return "deferred_by_interruption_budget" if len(recent) >= limit else ""
 
 
+def _notification_cooldown_defer_reason(
+    args: argparse.Namespace,
+    *,
+    state_store: JsonOodaStateStore,
+    principal_id: str,
+    digest: Any,
+    now: datetime | None = None,
+) -> str:
+    if not getattr(digest, "items", ()):
+        return ""
+    cooldown_seconds = _notification_cooldown_seconds(args)
+    if cooldown_seconds <= 0:
+        return ""
+    if _notification_cooldown_allow_high_priority(args) and any(item.priority == "high" for item in digest.items):
+        return ""
+    latest_event = _latest_interruption_event(state_store.load_interruption_events(principal_id))
+    if latest_event is None:
+        return ""
+    current_now = now or datetime.now(timezone.utc)
+    elapsed_seconds = (current_now - latest_event).total_seconds()
+    return "deferred_by_notification_cooldown" if elapsed_seconds < cooldown_seconds else ""
+
+
 def _record_interruption_event(
     args: argparse.Namespace,
     *,
@@ -1512,7 +1677,7 @@ def _record_interruption_event(
     principal_id: str,
     occurred_at: str,
 ) -> None:
-    window_hours = max(int(getattr(args, "interruption_budget_window_hours", 24) or 24), 1)
+    window_hours = _interruption_event_retention_window_hours(args)
     now = _parse_datetime(occurred_at) or datetime.now(timezone.utc)
     recent = list(
         _recent_interruption_events(
@@ -1523,6 +1688,13 @@ def _record_interruption_event(
     )
     recent.append(now.isoformat())
     state_store.save_interruption_events(principal_id, recent)
+
+
+def _interruption_event_retention_window_hours(args: argparse.Namespace) -> int:
+    budget_window_hours = max(int(getattr(args, "interruption_budget_window_hours", 24) or 24), 1)
+    cooldown_seconds = _notification_cooldown_seconds(args)
+    cooldown_window_hours = max(1, (cooldown_seconds + 3599) // 3600) if cooldown_seconds > 0 else 1
+    return max(budget_window_hours, cooldown_window_hours)
 
 
 def _recent_interruption_events(events: tuple[str, ...], *, now: datetime, window_hours: int) -> tuple[str, ...]:
@@ -1536,6 +1708,17 @@ def _recent_interruption_events(events: tuple[str, ...], *, now: datetime, windo
         if parsed.timestamp() >= cutoff_epoch:
             recent.append(parsed.isoformat())
     return tuple(recent)
+
+
+def _latest_interruption_event(events: tuple[str, ...]) -> datetime | None:
+    latest: datetime | None = None
+    for raw_event in events:
+        parsed = _parse_datetime(raw_event)
+        if parsed is None:
+            continue
+        if latest is None or parsed > latest:
+            latest = parsed
+    return latest
 
 
 def _parse_datetime(value: str) -> datetime | None:
@@ -1670,14 +1853,27 @@ def _load_signals(
     if bool(getattr(args, "skip_workspace_source", False)):
         return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows))
     try:
-        from app.container import build_container
         from app.services.google_oauth import list_recent_workspace_signals
     except Exception as exc:  # pragma: no cover - depends on full runtime being present
         if _workspace_source_not_configured(exc):
             return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows))
         return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows + [_workspace_source_error_signal(exc)]))
+    cooldown_state: dict[str, Any] = {}
     try:
-        container = build_container()
+        container = _build_postgres_container_for_script()
+        if container is None:
+            return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows))
+        cooldown_state = _google_workspace_runtime_cooldown_state(
+            container=container,
+            principal_id=args.principal_id,
+        )
+        if bool(cooldown_state.get("active")):
+            cooldown_reason = str(cooldown_state.get("reason") or "google_workspace_recovery_cooldown_active").strip()
+            return _filter_hidden_property_rows(
+                _apply_recent_topic_suppressions(
+                    rows + [_workspace_source_error_signal(RuntimeError(cooldown_reason), cooldown_state=cooldown_state)]
+                )
+            )
         packet = list_recent_workspace_signals(
             container=container,
             principal_id=args.principal_id,
@@ -1688,7 +1884,9 @@ def _load_signals(
     except Exception as exc:
         if _workspace_source_not_configured(exc):
             return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows))
-        return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows + [_workspace_source_error_signal(exc)]))
+        return _filter_hidden_property_rows(
+            _apply_recent_topic_suppressions(rows + [_workspace_source_error_signal(exc, cooldown_state=cooldown_state)])
+        )
     for signal in packet.signals:
         if hasattr(signal, "__dict__"):
             rows.append(dict(signal.__dict__))
@@ -1782,6 +1980,9 @@ def _display_root_relative_path(path: Path) -> str:
 
 def _load_followthrough_builders() -> dict[str, Any]:
     from scripts.materialize_continuous_improvement_goal_posture import build_goal_posture
+    from scripts.materialize_google_workspace_oauth_readiness import (
+        build_receipt as build_google_workspace_oauth_readiness_receipt,
+    )
     from scripts.materialize_operator_action_required_dedupe_proof import (
         build_operator_action_required_dedupe_proof,
     )
@@ -1797,6 +1998,7 @@ def _load_followthrough_builders() -> dict[str, Any]:
         "operator_status_default_report_args": operator_status_default_report_args,
         "gold_acceptance": materialize_proactive_ooda_gold_acceptance,
         "goal_posture": build_goal_posture,
+        "google_workspace_oauth_readiness": build_google_workspace_oauth_readiness_receipt,
         "operator_action_required_digest": build_operator_action_required_digest,
         "operator_action_required_dedupe_proof": build_operator_action_required_dedupe_proof,
     }
@@ -1906,6 +2108,7 @@ def _source_error_signals(errors: tuple[str, ...], *, source_label: str) -> list
                     "ooda_loop": _source_health_ooda(
                         "A configured proactive source failed.",
                         "Check the configured source and repair credentials, URL, or table mapping.",
+                        user_action_required=bool(source_health.get("user_action_required")),
                     )
                 },
             }
@@ -1934,17 +2137,107 @@ def _workspace_source_not_configured(exc: Exception) -> bool:
     return _workspace_source_error_detail(exc) in _WORKSPACE_SOURCE_NOT_CONFIGURED_ERRORS
 
 
-def _workspace_source_error_signal(exc: Exception) -> dict[str, Any]:
+def _google_workspace_runtime_cooldown_state(
+    *,
+    container: object,
+    principal_id: str,
+) -> dict[str, Any]:
+    runtime = getattr(container, "channel_runtime", None)
+    list_recent_observations = getattr(runtime, "list_recent_observations", None)
+    if not callable(list_recent_observations):
+        return {}
+    try:
+        rows = list(list_recent_observations(limit=200, principal_id=principal_id) or [])
+    except Exception:
+        return {}
+    product_rows = sorted(
+        [
+            row
+            for row in rows
+            if str(getattr(row, "channel", "") or "").strip().lower() == "product"
+        ],
+        key=lambda row: str(getattr(row, "created_at", "") or "").strip(),
+    )
+    cooldown_event = next(
+        (
+            row
+            for row in reversed(product_rows)
+            if str(getattr(row, "event_type", "") or "").strip()
+            == "google_workspace_signal_sync_recovery_blocked"
+        ),
+        None,
+    )
+    if cooldown_event is None:
+        return {}
+    payload = dict(getattr(cooldown_event, "payload", {}) or {})
+    blocked_until = str(payload.get("blocked_until") or payload.get("cooldown_until") or "").strip()
+    blocked_until_at = _parse_timestamp(blocked_until)
+    if blocked_until_at is None:
+        return {}
+    cooldown_event_at = _parse_timestamp(str(getattr(cooldown_event, "created_at", "") or "").strip())
+    latest_completed = next(
+        (
+            row
+            for row in reversed(product_rows)
+            if str(getattr(row, "event_type", "") or "").strip()
+            == "google_workspace_signal_sync_completed"
+        ),
+        None,
+    )
+    recovered_at = ""
+    latest_completed_at = _parse_timestamp(str(getattr(latest_completed, "created_at", "") or "").strip()) if latest_completed else None
+    if cooldown_event_at is not None and latest_completed_at is not None and latest_completed_at >= cooldown_event_at:
+        recovered_at = str(getattr(latest_completed, "created_at", "") or "").strip()
+    now = datetime.now(timezone.utc)
+    try:
+        cooldown_seconds = max(int(payload.get("cooldown_seconds") or 0), 0)
+    except Exception:
+        cooldown_seconds = 0
+    active = blocked_until_at > now and not recovered_at
+    return {
+        "reason": str(payload.get("reason") or "").strip(),
+        "blocked_until": blocked_until,
+        "last_observed_at": str(getattr(cooldown_event, "created_at", "") or payload.get("blocked_at") or "").strip(),
+        "cooldown_seconds": cooldown_seconds,
+        "seconds_remaining": max(int((blocked_until_at - now).total_seconds()), 0) if active else 0,
+        "recovery_mode": str(payload.get("recovery_mode") or "scheduler_cooldown").strip(),
+        "active": active,
+        "recovered_at": recovered_at,
+    }
+
+
+def _workspace_source_error_signal(
+    exc: Exception,
+    *,
+    cooldown_state: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     error_name = exc.__class__.__name__
     error_text = _workspace_source_error_detail(exc)
+    cooldown = dict(cooldown_state or {})
+    if not error_text:
+        error_text = str(cooldown.get("reason") or error_name).strip()
+    cooldown_active = bool(cooldown.get("active"))
+    blocked_until = str(cooldown.get("blocked_until") or "").strip()
     summary = "Google workspace scanning is failing, so EA cannot reliably inspect Gmail or Calendar for proactive nudges."
     action = "Reauthorize Google for the EA principal, then rerun the proactive OODA verifier."
+    if cooldown_active:
+        until_suffix = f" until {blocked_until}" if blocked_until else ""
+        summary = (
+            "Google workspace scanning is paused in a bounded recovery cooldown"
+            f"{until_suffix}, so EA is waiting for reauthorization before retrying Gmail or Calendar ingest."
+        )
+        action = "Reconnect Google workspace, then rerun the proactive OODA verifier after the cooldown clears."
     source_health = _source_health_issue_payload(
         source_key="google_workspace",
         source_type="google_workspace",
         status="unhealthy",
         error_code=error_text or error_name,
         next_action="reauthorize_google_workspace_binding",
+        recovery_mode=str(cooldown.get("recovery_mode") or "scheduler_cooldown").strip() if cooldown_active else "",
+        blocked_until=blocked_until,
+        cooldown_seconds_remaining=int(cooldown.get("seconds_remaining") or 0),
+        last_observed_at=str(cooldown.get("last_observed_at") or "").strip(),
+        cooldown_active=cooldown_active if cooldown else None,
     )
     return {
         "source_ref": f"proactive_source_error:google_workspace:{_short_hash(error_text or error_name)}",
@@ -1956,7 +2249,11 @@ def _workspace_source_error_signal(exc: Exception) -> dict[str, Any]:
         "payload": {
             "source_health": source_health,
             "reason_code": error_text or error_name,
-            "ooda_loop": _source_health_ooda(summary, action),
+            "ooda_loop": _source_health_ooda(
+                summary,
+                action,
+                user_action_required=bool(source_health.get("user_action_required")),
+            ),
         },
     }
 
@@ -1968,8 +2265,13 @@ def _source_health_issue_payload(
     status: str,
     error_code: str,
     next_action: str,
+    recovery_mode: str = "",
+    blocked_until: str = "",
+    cooldown_seconds_remaining: int | None = None,
+    last_observed_at: str = "",
+    cooldown_active: bool | None = None,
 ) -> dict[str, Any]:
-    return {
+    issue = {
         "schema": "ea.proactive_ooda.source_health.v1",
         "source_key": str(source_key or "unknown").strip() or "unknown",
         "source_type": str(source_type or "unknown").strip() or "unknown",
@@ -1983,6 +2285,18 @@ def _source_health_issue_payload(
         "raw_payload_exposed": False,
         "raw_credential_exposed": False,
     }
+    if str(recovery_mode or "").strip():
+        issue["recovery_mode"] = str(recovery_mode or "").strip()[:80]
+    if str(blocked_until or "").strip():
+        issue["blocked_until"] = str(blocked_until or "").strip()[:40]
+    if cooldown_seconds_remaining is not None and int(cooldown_seconds_remaining or 0) > 0:
+        issue["cooldown_seconds_remaining"] = max(int(cooldown_seconds_remaining or 0), 0)
+    if str(last_observed_at or "").strip():
+        issue["last_observed_at"] = str(last_observed_at or "").strip()[:40]
+    if cooldown_active is not None:
+        issue["cooldown_active"] = bool(cooldown_active)
+    issue["user_action_required"] = source_health_issue_requires_user_action(issue)
+    return issue
 
 
 def _source_health_summary(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
@@ -2047,7 +2361,7 @@ def _compact_source_health_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
     source_key = str(issue.get("source_key") or "unknown").strip() or "unknown"
     source_type = str(issue.get("source_type") or source_key).strip() or source_key
     error_code = _source_health_error_code(str(issue.get("error_code") or issue.get("reason_code") or "source_error"))
-    return {
+    normalized = {
         "source_key": source_key[:80],
         "source_type": source_type[:80],
         "status": str(issue.get("status") or "failed").strip()[:80] or "failed",
@@ -2061,6 +2375,25 @@ def _compact_source_health_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
         "raw_payload_exposed": False,
         "raw_credential_exposed": False,
     }
+    recovery_mode = str(issue.get("recovery_mode") or "").strip()
+    blocked_until = str(issue.get("blocked_until") or issue.get("cooldown_until") or "").strip()
+    last_observed_at = str(issue.get("last_observed_at") or "").strip()
+    if recovery_mode:
+        normalized["recovery_mode"] = recovery_mode[:80]
+    if blocked_until:
+        normalized["blocked_until"] = blocked_until[:40]
+    if last_observed_at:
+        normalized["last_observed_at"] = last_observed_at[:40]
+    if "cooldown_active" in issue or blocked_until:
+        normalized["cooldown_active"] = bool(issue.get("cooldown_active"))
+    try:
+        cooldown_seconds_remaining = max(int(issue.get("cooldown_seconds_remaining") or 0), 0)
+    except Exception:
+        cooldown_seconds_remaining = 0
+    if cooldown_seconds_remaining > 0:
+        normalized["cooldown_seconds_remaining"] = cooldown_seconds_remaining
+    normalized["user_action_required"] = source_health_issue_requires_user_action(normalized)
+    return normalized
 
 
 def _source_health_error_code(value: str) -> str:
@@ -2072,7 +2405,7 @@ def _source_health_error_code(value: str) -> str:
     return "source_error"
 
 
-def _source_health_ooda(summary: str, action: str) -> dict[str, Any]:
+def _source_health_ooda(summary: str, action: str, *, user_action_required: bool = False) -> dict[str, Any]:
     return {
         "reviewed": True,
         "observe": {"summary": summary, "channel": "proactive_runtime", "signal_type": "source_health"},
@@ -2083,10 +2416,14 @@ def _source_health_ooda(summary: str, action: str) -> dict[str, Any]:
         "decide": {
             "summary": "Repair the source or accept that EA will miss reminders from it.",
             "recommended_actions": [action],
-            "approval_required": False,
+            "approval_required": user_action_required,
+            "user_action_required": user_action_required,
             "ignored_consequence": "EA may stay quiet even when a human assistant would have found the signal.",
         },
-        "act": {"summary": action},
+        "act": {
+            "summary": action,
+            "user_action_required": user_action_required,
+        },
     }
 
 
@@ -2108,13 +2445,8 @@ def _callable_accepts_keyword(fn: object, name: str) -> bool:
 
 
 def _delivery_status(principal_id: str, *, digest: ProactiveOodaDigest | None = None) -> object:
-    try:
-        from app.container import build_container
-    except Exception:
-        return resolve_proactive_ooda_delivery_status(principal_id=principal_id, digest=digest)
-    try:
-        container = build_container()
-    except Exception:
+    container = _build_postgres_container_for_script()
+    if container is None:
         return resolve_proactive_ooda_delivery_status(principal_id=principal_id, digest=digest)
     if not hasattr(container, "tool_runtime") or not hasattr(container, "memory_runtime"):
         return resolve_proactive_ooda_delivery_status(principal_id=principal_id, digest=digest)
@@ -2133,22 +2465,8 @@ def _deliver_notification(
     digest: ProactiveOodaDigest | None = None,
     approval_request: Mapping[str, Any] | None = None,
 ) -> object:
-    try:
-        from app.container import build_container
-    except Exception:
-        kwargs: dict[str, Any] = {
-            "principal_id": principal_id,
-            "text": text,
-            "digest": digest,
-        }
-        if approval_request is not None:
-            kwargs["approval_request"] = approval_request
-        return send_proactive_ooda_notification(
-            **kwargs,
-        )
-    try:
-        container = build_container()
-    except Exception:
+    container = _build_postgres_container_for_script()
+    if container is None:
         kwargs: dict[str, Any] = {
             "principal_id": principal_id,
             "text": text,

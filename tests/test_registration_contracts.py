@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import urllib.parse
 
@@ -93,6 +94,157 @@ def test_register_start_reports_email_delivery_failure_without_aborting_flow(
     assert len(body["verification_code"]) == 6
 
 
+def test_workspace_access_email_rate_limits_repeated_delivery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_AUTH_COOLDOWN_SECONDS", "3600")
+
+    from app.services import registration_email as service
+
+    call_count = {"value": 0}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "access-message-1"}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):
+        call_count["value"] += 1
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+
+    first = service.send_workspace_access_email(
+        recipient_email="founder@example.com",
+        workspace_name="Founder Office",
+        access_url="https://assistant.example.test/workspace-access/test-token",
+        role="principal",
+        display_name="Founder Office",
+        expires_at="2026-03-26T01:00:00+00:00",
+    )
+
+    assert first.message_id == "access-message-1"
+    with pytest.raises(service.EmailDeliveryRateLimitedError) as excinfo:
+        service.send_workspace_access_email(
+            recipient_email="founder@example.com",
+            workspace_name="Founder Office",
+            access_url="https://assistant.example.test/workspace-access/test-token-2",
+            role="principal",
+            display_name="Founder Office",
+            expires_at="2026-03-26T01:00:00+00:00",
+        )
+
+    assert call_count["value"] == 1
+    assert excinfo.value.retry_after_seconds > 0
+    assert excinfo.value.provider_error == "cooldown"
+
+
+def test_registration_email_provider_429_fails_fast_without_sleep_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_GUARD_STATE_PATH", str(tmp_path / "outbound_email_guard.json"))
+    monkeypatch.delenv("EA_EMAILIT_MAX_429_RETRY_ATTEMPTS", raising=False)
+    monkeypatch.setenv("EA_EMAILIT_MAX_429_SLEEP_SECONDS", "30")
+
+    from app.services import registration_email as service
+
+    call_count = {"value": 0}
+    slept: list[int] = []
+
+    class _TooManyRequests(service.urllib.error.HTTPError):
+        def __init__(self) -> None:
+            super().__init__(
+                url=service.EMAILIT_API_BASE,
+                code=429,
+                msg="Too Many Requests",
+                hdrs=None,
+                fp=io.BytesIO(json.dumps({"error": "too_many_requests", "retry_after": 4}).encode("utf-8")),
+            )
+
+    def _fake_urlopen(request, timeout=0):
+        call_count["value"] += 1
+        raise _TooManyRequests()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(service.time, "sleep", lambda seconds: slept.append(int(seconds)))
+
+    with pytest.raises(service.EmailDeliveryRateLimitedError) as excinfo:
+        service.send_registration_email(
+            recipient_email="principal.user@example.test",
+            verification_code="654321",
+            magic_link_url="https://assistant.example.test/register?token=test&code=654321",
+            expires_at=2_000_000_000,
+        )
+
+    assert call_count["value"] == 1
+    assert slept == []
+    assert excinfo.value.retry_after_seconds == 4
+    assert excinfo.value.provider_error == "too_many_requests"
+
+
+def test_registration_email_provider_429_retries_once_when_explicitly_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_GUARD_STATE_PATH", str(tmp_path / "outbound_email_guard.json"))
+    monkeypatch.setenv("EA_EMAILIT_MAX_429_RETRY_ATTEMPTS", "1")
+    monkeypatch.setenv("EA_EMAILIT_MAX_429_SLEEP_SECONDS", "30")
+
+    from app.services import registration_email as service
+
+    call_count = {"value": 0}
+    slept: list[int] = []
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "emailit-429-retry-success"}).encode("utf-8")
+
+    class _TooManyRequests(service.urllib.error.HTTPError):
+        def __init__(self) -> None:
+            super().__init__(
+                url=service.EMAILIT_API_BASE,
+                code=429,
+                msg="Too Many Requests",
+                hdrs=None,
+                fp=io.BytesIO(json.dumps({"error": "too_many_requests", "retry_after": 1}).encode("utf-8")),
+            )
+
+    def _fake_urlopen(request, timeout=0):
+        call_count["value"] += 1
+        if call_count["value"] == 1:
+            raise _TooManyRequests()
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(service.time, "sleep", lambda seconds: slept.append(int(seconds)))
+
+    receipt = service.send_registration_email(
+        recipient_email="principal.user@example.test",
+        verification_code="654321",
+        magic_link_url="https://assistant.example.test/register?token=test&code=654321",
+        expires_at=2_000_000_000,
+    )
+
+    assert call_count["value"] == 2
+    assert slept == [1]
+    assert receipt.message_id == "emailit-429-retry-success"
+
+
 def test_sign_in_email_link_reissues_workspace_access_for_existing_email(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -137,6 +289,134 @@ def test_sign_in_email_link_reissues_workspace_access_for_existing_email(
     assert observed["recipient_email"] == "founder@example.com"
     assert observed["workspace_name"] == "Founder Office"
     assert str(observed["access_url"]).startswith("https://assistant.example.test/workspace-access/")
+
+
+def test_sign_in_email_link_blocks_gmail_fallback_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+    client = _client(monkeypatch)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    issued = client.post(
+        "/app/api/access-sessions",
+        json={"email": "founder@example.com", "role": "principal", "display_name": "Founder Office"},
+    )
+    assert issued.status_code == 200
+
+    from app.product.service import build_product_service
+    from app.services import google_oauth as google_service
+
+    observed: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        google_service,
+        "send_google_gmail_message",
+        lambda **kwargs: observed.append(dict(kwargs)) or {"provider": "google_gmail"},
+    )
+
+    service = build_product_service(client.app.state.container)
+    result = service.request_workspace_sign_in_email_links(
+        email="founder@example.com",
+        base_url="https://assistant.example.test",
+    )
+
+    assert result["status"] == "failed"
+    assert result["sent_total"] == 0
+    assert result["failed_total"] == 1
+    assert observed == []
+    assert "workspace_sign_in_email_delivery_not_configured" in str(result["items"][0]["error"])
+
+
+def test_sign_in_email_link_gmail_fallback_obeys_outbound_bounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+    monkeypatch.setenv("EA_WORKSPACE_SIGN_IN_GMAIL_FALLBACK_ENABLED", "1")
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_AUTH_COOLDOWN_SECONDS", "3600")
+    client = _client(monkeypatch)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    issued = client.post(
+        "/app/api/access-sessions",
+        json={"email": "founder@example.com", "role": "principal", "display_name": "Founder Office"},
+    )
+    assert issued.status_code == 200
+
+    from app.product.service import build_product_service
+    from app.services import google_oauth as google_service
+
+    observed: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        google_service,
+        "send_google_gmail_message",
+        lambda **kwargs: observed.append(dict(kwargs)) or {"provider": "google_gmail"},
+    )
+
+    service = build_product_service(client.app.state.container)
+    first = service.request_workspace_sign_in_email_links(
+        email="founder@example.com",
+        base_url="https://assistant.example.test",
+    )
+    second = service.request_workspace_sign_in_email_links(
+        email="founder@example.com",
+        base_url="https://assistant.example.test",
+    )
+
+    assert first["status"] == "sent"
+    assert first["sent_total"] == 1
+    assert second["status"] == "failed"
+    assert second["failed_total"] == 1
+    assert len(observed) == 1
+    assert "outbound_email_rate_limited:cooldown" in str(second["items"][0]["error"])
+
+
+def test_sign_in_email_link_emailit_obeys_outbound_bounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_OUTBOUND_EMAIL_AUTH_COOLDOWN_SECONDS", "3600")
+    client = _client(monkeypatch)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    issued = client.post(
+        "/app/api/access-sessions",
+        json={"email": "founder@example.com", "role": "principal", "display_name": "Founder Office"},
+    )
+    assert issued.status_code == 200
+
+    from app.product import service as product_service
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    observed: list[dict[str, object]] = []
+
+    def _fake_send_workspace_access_email(**kwargs) -> RegistrationEmailReceipt:
+        observed.append(dict(kwargs))
+        return RegistrationEmailReceipt(
+            provider="emailit",
+            message_id=f"access-message-{len(observed)}",
+            accepted_at="2026-03-26T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr(product_service, "send_workspace_access_email", _fake_send_workspace_access_email)
+
+    service = product_service.build_product_service(client.app.state.container)
+    first = service.request_workspace_sign_in_email_links(
+        email="founder@example.com",
+        base_url="https://assistant.example.test",
+    )
+    second = service.request_workspace_sign_in_email_links(
+        email="founder@example.com",
+        base_url="https://assistant.example.test",
+    )
+
+    assert first["status"] == "sent"
+    assert first["sent_total"] == 1
+    assert second["status"] == "failed"
+    assert second["failed_total"] == 1
+    assert len(observed) == 1
+    assert "outbound_email_rate_limited:cooldown" in str(second["items"][0]["error"])
 
 
 def test_sign_in_email_link_reports_missing_workspace_match(

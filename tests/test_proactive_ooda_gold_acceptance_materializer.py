@@ -222,6 +222,39 @@ def test_operator_runtime_suppressed_projection_posture_allows_non_material_quie
     assert detail["next_action"] == ""
 
 
+def test_operator_runtime_artifact_drift_posture_blocks_recovery() -> None:
+    module = _load_script()
+
+    ready, detail = module._operator_runtime_artifact_drift_posture(  # noqa: SLF001
+        {
+            "runtime_artifact_drift": {
+                "checked": True,
+                "present": True,
+                "status": "drift_detected",
+                "requires_recovery": True,
+                "blocking_reason": "runtime_artifact_drift:stage_packet_ref_sha256",
+                "next_action": "repair_proactive_runtime_artifact_drift",
+                "mismatch_count": 2,
+                "material_mismatch_count": 2,
+                "material_mismatch_fields": [
+                    "stage_packet_ref_sha256",
+                    "safe_work_result_ref_sha256",
+                ],
+            }
+        }
+    )
+
+    assert ready is False
+    assert detail["runtime_artifact_drift_recorded"] is True
+    assert detail["runtime_artifact_drift_ready"] is False
+    assert detail["runtime_artifact_drift_requires_recovery"] is True
+    assert detail["runtime_artifact_drift_fields"] == [
+        "stage_packet_ref_sha256",
+        "safe_work_result_ref_sha256",
+    ]
+    assert detail["next_action"] == "repair_proactive_runtime_artifact_drift"
+
+
 def test_materialize_proactive_ooda_gold_acceptance_passes_with_full_proof_chain(
     tmp_path: Path,
     monkeypatch,
@@ -377,6 +410,8 @@ def test_materialize_proactive_ooda_gold_acceptance_passes_with_full_proof_chain
     assert persisted["proofs"]["approval_outcome"]["source_kind"] == "operator"
     assert persisted["evidence_receipts"]["operator_status"]["generated_at"] == "2026-06-26T18:29:00Z"
     assert persisted["evidence_receipts"]["operator_status"]["source_git_head"] == "source-head-123"
+    assert persisted["evidence_receipts"]["runtime_artifact_drift"]["present"] is False
+    assert persisted["evidence_receipts"]["runtime_artifact_drift"]["requires_recovery"] is False
 
 
 def test_materialize_proactive_ooda_gold_acceptance_counts_archived_sent_delivery_when_only_followthrough_is_missing(
@@ -1399,7 +1434,7 @@ def test_materialize_proactive_ooda_gold_acceptance_does_not_request_approval_ca
         generated_at="2026-07-06T13:03:00Z",
     )
 
-    assert receipt["status"] == "blocked_missing_proactive_packet_evidence"
+    assert receipt["status"] == "blocked_operator_runtime_posture"
     assert receipt["next_action"] == "reauthorize_google_workspace_binding"
     assert receipt["proofs"]["approval_capture_readiness"]["required"] is False
     assert receipt["proofs"]["approval_capture_readiness"]["ready"] is False
@@ -5274,6 +5309,376 @@ def test_historical_accepted_bundle_from_approval_outcome_recovers_archived_arti
     assert bundle["stage_packet"]["packet_ref"] == archived_stage_packet["packet_ref"]
     assert bundle["safe_work_result"]["result_ref"] == archived_safe_work_result["result_ref"]
 
+
+def test_historical_accepted_callback_bundle_from_runtime_paths_prefers_assistant_grade_callback(
+    tmp_path: Path,
+) -> None:
+    module = _load_script()
+
+    run_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    run_receipt_dir = tmp_path / "state" / "proactive_ooda_run_receipts"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+    callback_dir = tmp_path / "state" / "proactive_ooda_approval_callbacks"
+    run_receipt_dir.mkdir(parents=True, exist_ok=True)
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    safe_dir.mkdir(parents=True, exist_ok=True)
+    callback_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_json(
+        run_receipt_path,
+        {
+            "notification_status": "deferred",
+            "item_count": 0,
+        },
+    )
+
+    low_stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-low",
+        "stage": {"kind": "internal_action", "payload": {"work_type": "record_internal_action"}},
+        "approval": {"required": True},
+        "safe_work_order": {"work_type": "record_internal_action"},
+    }
+    low_safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-low",
+        "source_packet_ref_hash": _sha256(low_stage_packet["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "work_type": "record_internal_action",
+        "recommended_option_or_draft": {"kind": "internal_action", "value": {"label": "Retry auth"}},
+        "approval": {"required": True},
+        "audit": {"status": "pass", "issues": []},
+        "execution_receipt": {
+            "network_fetch_count": 0,
+            "network_fetch_success_count": 0,
+            "page_checks": [],
+            "irreversible_actions_attempted": [],
+        },
+    }
+    approved_stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-approved",
+        "stage": {"kind": "approval_packet", "payload": {"work_type": "compare_options", "request": "compare vendors"}},
+        "approval": {"required": True},
+        "safe_work_order": {
+            "work_type": "compare_options",
+            "handoff_policy": {
+                "safe_to_execute_before_approval": True,
+                "external_actions_remain_staged_only": True,
+            },
+        },
+    }
+    approved_safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-approved",
+        "source_packet_ref_hash": _sha256(approved_stage_packet["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "work_type": "compare_options",
+        "recommended_option_or_draft": {
+            "kind": "shortlist_candidate",
+            "value": {"label": "Vendor A", "url": "https://example.test/vendor-a"},
+        },
+        "shortlist": [{"label": "Vendor A"}],
+        "approval": {"required": True},
+        "audit": {"status": "pass", "issues": []},
+        "execution_receipt": {
+            "network_fetch_count": 2,
+            "network_fetch_success_count": 2,
+            "page_checks": [{"url": "https://example.test/vendor-a", "reachable": True}],
+            "irreversible_actions_attempted": [],
+        },
+    }
+    _write_json(stage_dir / "pkt-low.json", low_stage_packet)
+    _write_json(safe_dir / "res-low.json", low_safe_work_result)
+    _write_json(stage_dir / "pkt-approved.json", approved_stage_packet)
+    _write_json(safe_dir / "res-approved.json", approved_safe_work_result)
+    _write_json(
+        run_receipt_dir / "20260701T080000_000000_0000-sent-low.json",
+        {
+            "notification_status": "sent",
+            "item_count": 1,
+            "delivery_message_ids": ["msg-low"],
+            "stage_packet_ref_hashes": [_sha256(low_stage_packet["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(low_safe_work_result["result_ref"])],
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+        },
+    )
+    _write_json(
+        run_receipt_dir / "20260701T090000_000000_0000-sent-approved.json",
+        {
+            "notification_status": "sent",
+            "item_count": 1,
+            "delivery_message_ids": ["msg-approved"],
+            "stage_packet_ref_hashes": [_sha256(approved_stage_packet["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(approved_safe_work_result["result_ref"])],
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+        },
+    )
+    _write_json(
+        callback_dir / "callback-low.json",
+        {
+            "status": "approved",
+            "created_at": "2026-07-01T08:01:00Z",
+            "decided_at": "2026-07-01T08:02:00Z",
+            "packet_ref": low_stage_packet["packet_ref"],
+            "staged_artifact_ref": low_safe_work_result["result_ref"],
+            "packet_ref_sha256": _sha256(low_stage_packet["packet_ref"]),
+            "staged_artifact_sha256": _sha256(low_safe_work_result["result_ref"]),
+            "actor_sha256": _sha256("operator-low"),
+            "evidence_sha256": _sha256("approved-low"),
+        },
+    )
+    _write_json(
+        callback_dir / "callback-approved.json",
+        {
+            "status": "approved",
+            "created_at": "2026-07-01T09:01:00Z",
+            "decided_at": "2026-07-01T09:02:00Z",
+            "packet_ref": approved_stage_packet["packet_ref"],
+            "staged_artifact_ref": approved_safe_work_result["result_ref"],
+            "packet_ref_sha256": _sha256(approved_stage_packet["packet_ref"]),
+            "staged_artifact_sha256": _sha256(approved_safe_work_result["result_ref"]),
+            "actor_sha256": _sha256("operator-approved"),
+            "evidence_sha256": _sha256("approved-good"),
+        },
+    )
+
+    bundle = module._historical_accepted_callback_bundle_from_runtime_paths(  # noqa: SLF001
+        approval_callback_dir=callback_dir,
+        run_receipt_path=run_receipt_path,
+        stage_packet_dir=stage_dir,
+        safe_work_result_dir=safe_dir,
+    )
+
+    assert bundle["selection_source"] == "historical_accepted_approval_callback"
+    assert bundle["approval_row_source"] == "historical_approved_callback"
+    assert bundle["approval_row"]["accepted"] is True
+    assert bundle["stage_packet_path"] == stage_dir / "pkt-approved.json"
+    assert bundle["safe_work_result_path"] == safe_dir / "res-approved.json"
+    assert bundle["run_receipt_path"] == run_receipt_dir / "20260701T090000_000000_0000-sent-approved.json"
+
+
+def test_materialize_proactive_ooda_gold_acceptance_uses_historical_approved_callback_bundle_for_pass(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module, "_source_fingerprint", lambda path=module.ROOT: "source-fingerprint-123")
+
+    operator_status_path = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
+    run_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    run_receipt_dir = tmp_path / "state" / "proactive_ooda_run_receipts"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+    callback_dir = tmp_path / "state" / "proactive_ooda_approval_callbacks"
+    approval_outcome_path = tmp_path / "state" / "proactive_ooda_latest_approval_outcome.generated.json"
+    run_receipt_dir.mkdir(parents=True, exist_ok=True)
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    safe_dir.mkdir(parents=True, exist_ok=True)
+    callback_dir.mkdir(parents=True, exist_ok=True)
+
+    current_stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-current",
+        "stage": {"kind": "approval_packet", "payload": {"work_type": "compare_options", "request": "current packet"}},
+        "approval": {"required": True},
+        "safe_work_order": {
+            "work_type": "compare_options",
+            "handoff_policy": {
+                "safe_to_execute_before_approval": True,
+                "external_actions_remain_staged_only": True,
+            },
+        },
+    }
+    current_safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-current",
+        "source_packet_ref_hash": _sha256(current_stage_packet["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "work_type": "compare_options",
+        "recommended_option_or_draft": {
+            "kind": "shortlist_candidate",
+            "value": {"label": "Current Vendor", "url": "https://example.test/current"},
+        },
+        "shortlist": [{"label": "Current Vendor"}],
+        "approval": {"required": True},
+        "audit": {"status": "pass", "issues": []},
+        "execution_receipt": {
+            "network_fetch_count": 2,
+            "network_fetch_success_count": 2,
+            "page_checks": [{"url": "https://example.test/current", "reachable": True}],
+            "irreversible_actions_attempted": [],
+        },
+    }
+    historical_stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-approved",
+        "stage": {"kind": "approval_packet", "payload": {"work_type": "compare_options", "request": "approved packet"}},
+        "approval": {"required": True},
+        "safe_work_order": {
+            "work_type": "compare_options",
+            "handoff_policy": {
+                "safe_to_execute_before_approval": True,
+                "external_actions_remain_staged_only": True,
+            },
+        },
+    }
+    historical_safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-approved",
+        "source_packet_ref_hash": _sha256(historical_stage_packet["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "work_type": "compare_options",
+        "recommended_option_or_draft": {
+            "kind": "shortlist_candidate",
+            "value": {"label": "Approved Vendor", "url": "https://example.test/approved"},
+        },
+        "shortlist": [{"label": "Approved Vendor"}],
+        "approval": {"required": True},
+        "audit": {"status": "pass", "issues": []},
+        "execution_receipt": {
+            "network_fetch_count": 3,
+            "network_fetch_success_count": 3,
+            "page_checks": [{"url": "https://example.test/approved", "reachable": True}],
+            "irreversible_actions_attempted": [],
+        },
+    }
+    _write_json(stage_dir / "pkt-current.json", current_stage_packet)
+    _write_json(safe_dir / "res-current.json", current_safe_work_result)
+    _write_json(stage_dir / "pkt-approved.json", historical_stage_packet)
+    _write_json(safe_dir / "res-approved.json", historical_safe_work_result)
+    _write_json(
+        run_receipt_dir / "20260701T080000_000000_0000-sent-approved.json",
+        {
+            "notification_status": "sent",
+            "item_count": 1,
+            "delivery_message_ids": ["msg-approved"],
+            "stage_packet_ref_hashes": [_sha256(historical_stage_packet["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(historical_safe_work_result["result_ref"])],
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "teable_sync": {
+                "status": "synced",
+                "sync_attempted": True,
+                "blocked_reason": "",
+                "missing_tables": [],
+                "projection_summary": {
+                    "record_count": 3,
+                    "tables": {
+                        "proactive_ooda_runs": {"record_count": 1},
+                        "proactive_ooda_safe_work": {"record_count": 1},
+                        "proactive_ooda_items": {"record_count": 1},
+                    },
+                },
+            },
+        },
+    )
+    _write_json(
+        run_receipt_path,
+        {
+            "notification_status": "sent",
+            "item_count": 1,
+            "delivery_message_ids": ["msg-current"],
+            "stage_packet_ref_hashes": [_sha256(current_stage_packet["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(current_safe_work_result["result_ref"])],
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "teable_sync": {
+                "status": "synced",
+                "sync_attempted": True,
+                "blocked_reason": "",
+                "missing_tables": [],
+                "projection_summary": {
+                    "record_count": 3,
+                    "tables": {
+                        "proactive_ooda_runs": {"record_count": 1},
+                        "proactive_ooda_safe_work": {"record_count": 1},
+                        "proactive_ooda_items": {"record_count": 1},
+                    },
+                },
+            },
+        },
+    )
+    _write_json(
+        operator_status_path,
+        {
+            "contract_name": "ea.proactive_ooda_operator_status.v1",
+            "status": "ready_with_live_receipt",
+            "generated_at": "2026-07-01T10:00:00Z",
+            "source_git_head": "source-head-123",
+            "source_state_fingerprint": "source-fingerprint-123",
+            "delivery_route_ready": True,
+            "live_receipt_checked": True,
+            "delivery_route": {"selected_channel": "telegram"},
+            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_live_sent_receipt.json"},
+            "delivery_guard": {
+                "delivery_state": "no_actionable_items",
+                "has_high_priority": False,
+                "interruption_budget_exhausted": False,
+                "quiet_hours_active": False,
+            },
+            "runtime_actionable_count": 0,
+            "context_grounding": {
+                "grounded": True,
+                "item_count": 1,
+                "grounded_item_count": 1,
+                "ungrounded_item_count": 0,
+                "applied_context_count": 2,
+                "recipient_location_count": 1,
+            },
+        },
+    )
+    _write_json(
+        approval_outcome_path,
+        {
+            "contract_name": "ea.proactive_ooda_approval_outcome.v1",
+            "status": "recorded_not_accepted",
+            "outcome": "rejected",
+            "source_kind": "telegram_button",
+            "recorded_at": "2026-07-01T10:05:00Z",
+            "evidence_sha256": _sha256("stale-reject"),
+            "actor_sha256": _sha256("actor-stale"),
+            "packet_ref_sha256": _sha256("stage_packet:pkt-stale"),
+            "staged_artifact_sha256": _sha256("safe_work_result:res-stale"),
+            "approval_outcome_recorded": True,
+            "accepted": False,
+        },
+    )
+    _write_json(
+        callback_dir / "callback-approved.json",
+        {
+            "status": "approved",
+            "created_at": "2026-07-01T08:01:00Z",
+            "decided_at": "2026-07-01T08:02:00Z",
+            "packet_ref": historical_stage_packet["packet_ref"],
+            "staged_artifact_ref": historical_safe_work_result["result_ref"],
+            "packet_ref_sha256": _sha256(historical_stage_packet["packet_ref"]),
+            "staged_artifact_sha256": _sha256(historical_safe_work_result["result_ref"]),
+            "actor_sha256": _sha256("operator-approved"),
+            "evidence_sha256": _sha256("approved-good"),
+        },
+    )
+
+    output = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    receipt = module.materialize_proactive_ooda_gold_acceptance(
+        output_path=output,
+        operator_status_path=operator_status_path,
+        run_receipt_path=run_receipt_path,
+        generated_at="2026-07-01T10:06:00Z",
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["gold_claim_allowed"] is True
+    assert receipt["selected_bundle_source"] == "historical_accepted_approval_callback"
+    assert receipt["proofs"]["approval_outcome"]["accepted"] is True
+    assert receipt["proofs"]["approval_outcome"]["source_kind"] == "telegram_button"
+    assert receipt["proofs"]["assistant_grade_packet_quality"]["present"] is True
+    assert receipt["evidence_receipts"]["stage_packet"]["path"].endswith("pkt-approved.json")
+    assert receipt["evidence_receipts"]["safe_work_result"]["path"].endswith("res-approved.json")
 
 def test_materialize_proactive_ooda_gold_acceptance_accepts_terminal_approval_capture_after_recorded_current_packet_outcome(
     tmp_path: Path,

@@ -43,7 +43,7 @@
         ".env",
         ".env.local"
       ],
-      "loaded_count": 417,
+      "loaded_count": 435,
       "provider_families": {
         "cartesia": true,
         "onemin": true,
@@ -60,7 +60,7 @@
       "intent_correct_samples": 3,
       "avg_token_f1": 0.9722,
       "avg_wer": 0.0278,
-      "avg_latency_ms": 422.6,
+      "avg_latency_ms": 555.4,
       "production_eligible": false
     },
     {
@@ -71,7 +71,7 @@
       "intent_correct_samples": 2,
       "avg_token_f1": 0.9445,
       "avg_wer": 0.0556,
-      "avg_latency_ms": 3699.2,
+      "avg_latency_ms": 3286.2,
       "production_eligible": false
     },
     {
@@ -82,7 +82,7 @@
       "intent_correct_samples": 0,
       "avg_token_f1": 0.0,
       "avg_wer": 1.0,
-      "avg_latency_ms": 823.0,
+      "avg_latency_ms": 899.8,
       "production_eligible": false
     }
   ],
@@ -108,7 +108,7 @@
       },
       "shadow": {
         "status": "error",
-        "ms": 823.0,
+        "ms": 899.8,
         "reason": "http_401",
         "wer": 1.0,
         "token_f1": 0.0,
@@ -132,7 +132,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 4393.8,
+        "ms": 3699.0,
         "wer": 0.0,
         "token_f1": 1.0,
         "intent_correct": true,
@@ -224,7 +224,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 3101.3,
+        "ms": 4619.7,
         "wer": 0.0,
         "token_f1": 1.0,
         "intent_correct": true,
@@ -247,7 +247,7 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 1101.8,
+        "ms": 1595.8,
         "transcriber": "cartesia/ink-whisper+enhanced_wav",
         "detail": "",
         "wer": 0.0,
@@ -315,7 +315,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 3047.5,
+        "ms": 2360.4,
         "wer": 0.1111,
         "token_f1": 0.8889,
         "intent_correct": false,
@@ -337,7 +337,7 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 318.1,
+        "ms": 303.9,
         "transcriber": "cartesia/ink-whisper+enhanced_wav",
         "detail": "",
         "wer": 0.0,
@@ -404,7 +404,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 4254.0,
+        "ms": 2465.5,
         "wer": 0.1111,
         "token_f1": 0.8889,
         "intent_correct": false,
@@ -426,7 +426,7 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 270.2,
+        "ms": 321.8,
         "transcriber": "cartesia/ink-whisper+enhanced_wav",
         "detail": "",
         "wer": 0.1111,

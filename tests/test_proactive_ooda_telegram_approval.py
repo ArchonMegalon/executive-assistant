@@ -382,6 +382,75 @@ def test_inspect_latest_telegram_gmail_draft_followthrough_reports_redacted_exec
     assert "gmail_draft_id" not in report
 
 
+def test_execute_proactive_ooda_action_blocks_auto_draft_without_audit_pass(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import google_oauth as google_oauth_service
+    from app.services import proactive_ooda_telegram_approval as approval
+    from app.services.proactive_ooda_safe_work import SAFE_WORK_RESULT_SCHEMA
+    from app.services.proactive_ooda_stage_packets import STAGE_PACKET_SCHEMA
+
+    packet_ref = "stage_packet:packet-draft-audit-missing"
+    staged_artifact_ref = "safe_work_result:result-draft-audit-missing"
+    stage_dir = tmp_path / "packets"
+    result_dir = tmp_path / "results"
+    stage_dir.mkdir(parents=True)
+    result_dir.mkdir(parents=True)
+    (stage_dir / "packet.json").write_text(
+        json.dumps(
+            {
+                "schema": STAGE_PACKET_SCHEMA,
+                "packet_ref": packet_ref,
+                "approval": {"required": False},
+                "safe_work_order": {"work_type": "draft"},
+                "stage": {
+                    "payload": {
+                        "auto_execute_action": "save_gmail_draft",
+                        "draft_text": "Hello from EA",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (result_dir / "result.json").write_text(
+        json.dumps(
+            {
+                "schema": SAFE_WORK_RESULT_SCHEMA,
+                "result_ref": staged_artifact_ref,
+                "source_packet_ref_hash": hashlib.sha256(packet_ref.encode("utf-8")).hexdigest(),
+                "status": "staged_for_user_decision",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        google_oauth_service,
+        "create_google_gmail_draft",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("draft creation must stay blocked without audit pass")),
+    )
+
+    execution = approval.execute_proactive_ooda_action(
+        container=SimpleNamespace(),
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        packet_ref=packet_ref,
+        staged_artifact_ref=staged_artifact_ref,
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+        stage_packet_dir=stage_dir,
+        safe_work_result_dir=result_dir,
+    )
+
+    assert execution["status"] == "blocked"
+    assert execution["action"] == "save_gmail_draft"
+    assert execution["work_type"] == "draft"
+    assert execution["reason"] == "audit_pass_required_for_auto_execution"
+    assert execution["audit_status"] == "missing"
+    assert execution["next_action_surface"]["label"]
+
+
 def test_apply_proactive_ooda_telegram_approval_callback_falls_back_when_materialization_module_is_missing(
     monkeypatch,
     tmp_path: Path,

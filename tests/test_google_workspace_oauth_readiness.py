@@ -146,6 +146,11 @@ def test_live_google_reauth_reason_promotes_retry_without_manual_console_check(m
                         {
                             "source_key": "google_workspace",
                             "error_code": "google_oauth_invalid_grant",
+                            "recovery_mode": "scheduler_cooldown",
+                            "blocked_until": "2026-07-08T21:00:28Z",
+                            "cooldown_active": True,
+                            "cooldown_seconds_remaining": 21600,
+                            "last_observed_at": "2026-07-08T15:00:28Z",
                             "operator_action_required": True,
                             "user_action_required": False,
                         }
@@ -169,6 +174,15 @@ def test_live_google_reauth_reason_promotes_retry_without_manual_console_check(m
     assert receipt["operator_action"]["next_action"] == "retry_full_workspace_auth_with_approved_account"
     assert receipt["operator_action"]["next_action_label"] == "Retry Google auth"
     assert receipt["operator_action"]["reauth_required_reason"] == "google_oauth_invalid_grant"
+    assert receipt["runtime_recovery"]["active"] is True
+    assert receipt["runtime_recovery"]["mode"] == "scheduler_cooldown"
+    assert receipt["runtime_recovery"]["blocked_until"] == "2026-07-08T21:00:28Z"
+    assert receipt["runtime_recovery"]["cooldown_seconds_remaining"] == 21600
+    assert receipt["operator_action"]["runtime_recovery"]["active"] is True
+    assert receipt["operator_action"]["instruction"].endswith(
+        "A bounded recovery cooldown is active until 2026-07-08T21:00:28Z."
+    )
+    assert "Cooldown active until 2026-07-08T21:00:28Z." in receipt["operator_action"]["telegram_message"]
     assert "reauthorization" in receipt["operator_action"]["telegram_message"]
     assert verifier.verify_receipt_for_test(receipt) == []
 
@@ -228,6 +242,40 @@ def test_main_returns_zero_for_ready_retry_required_status(monkeypatch, tmp_path
     assert result == 0
     receipt = json.loads(output.read_text(encoding="utf-8"))
     assert receipt["status"] == "ready_retry_required"
+
+
+def test_main_replaces_non_writable_operator_safe_receipt_and_normalizes_permissions(monkeypatch, tmp_path) -> None:
+    _patch_source_state(monkeypatch)
+    _set_google_env(monkeypatch)
+    output = tmp_path / "google-oauth.generated.json"
+    output.write_text('{"status": "stale"}\n', encoding="utf-8")
+    output.chmod(0o444)
+    monkeypatch.setattr(
+        materializer,
+        "parse_args",
+        lambda: SimpleNamespace(
+            output=output,
+            expected_google_email="work.tibor.girschele@gmail.com",
+            scope_bundle="full_workspace",
+            observed_error="",
+            error_description="",
+            observed_google_email="work.tibor.girschele@gmail.com",
+            test_user_confirmed=True,
+            probe_gcloud=False,
+            timeout_seconds=5.0,
+            env_file=tmp_path / ".env",
+            no_env_file=True,
+            pretty=False,
+            reauth_required_reason="",
+        ),
+    )
+
+    result = materializer.main()
+
+    assert result == 0
+    receipt = json.loads(output.read_text(encoding="utf-8"))
+    assert receipt["status"] == "pass"
+    assert output.stat().st_mode & 0o777 == materializer.OPERATOR_SAFE_RECEIPT_FILE_MODE
 
 
 def test_gcloud_probe_is_sanitized_and_keeps_manual_console_step(monkeypatch) -> None:

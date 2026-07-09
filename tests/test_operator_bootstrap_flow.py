@@ -43,7 +43,29 @@ def test_workspace_access_session_self_heals_into_operator_scope_without_bootstr
         headers={"accept": "text/html"},
     )
     assert proactive.status_code == 200
-    assert "Record proactive OODA outcome" in proactive.text
+    assert "Proactive OODA Approval" in proactive.text
+
+
+def test_explicit_principal_workspace_access_session_keeps_today_scope() -> None:
+    principal_id = "exec-explicit-principal-workspace-session"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal")
+
+    product = build_product_service(client.app.state.container)
+    principal_session = product.issue_workspace_access_session(
+        principal_id=principal_id,
+        email="principal@example.com",
+        role="principal",
+        display_name="Principal Access",
+        source_kind="settings_access",
+        default_target="/app/today",
+    )
+
+    opened = client.get(principal_session["access_url"], follow_redirects=False)
+
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/today"
+    assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
 
 
 def test_workspace_sign_in_candidates_prefer_active_operator_profile_for_matching_email() -> None:
@@ -143,7 +165,7 @@ def test_google_sign_in_callback_issues_operator_session_when_operator_profile_e
         headers={"accept": "text/html"},
     )
     assert proactive.status_code == 200
-    assert "Record proactive OODA outcome" in proactive.text
+    assert "Proactive OODA Approval" in proactive.text
 
 
 def test_existing_principal_workspace_session_resolves_operator_scope_for_operator_only_api() -> None:

@@ -1,0 +1,19 @@
+{
+  "name": "docker-repo-mesh",
+  "repos": [
+    { "alias": "ea", "path": "." },
+    { "alias": "arr", "path": "../arr" },
+    { "alias": "arr_v2", "path": "../arr-v2" },
+    { "alias": "chummer5a", "path": "../chummer5a" },
+    { "alias": "chummer6", "path": "../chummercomplete/Chummer6" },
+    { "alias": "chummer_core_engine", "path": "../chummercomplete/chummer-core-engine" },
+    { "alias": "chummer_design", "path": "../chummercomplete/chummer-design" },
+    { "alias": "chummer_hub_registry", "path": "../chummercomplete/chummer-hub-registry" },
+    { "alias": "chummer_play", "path": "../chummercomplete/chummer-play" },
+    { "alias": "chummer_presentation", "path": "../chummercomplete/chummer-presentation" },
+    { "alias": "chummer_run_services", "path": "../chummercomplete/chummer.run-services" },
+    { "alias": "chummer_ui_kit", "path": "../chummercomplete/chummer-ui-kit" },
+    { "alias": "fleet", "path": "../fleet" },
+    { "alias": "property", "path": "../property" }
+  ]
+}

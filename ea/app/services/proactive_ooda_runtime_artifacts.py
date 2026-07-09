@@ -109,6 +109,37 @@ def _artifact_root_from_run_receipt_path(path: Path) -> Path:
     return path.parent
 
 
+def _receipt_generated_at_timestamp(payload: Mapping[str, Any]) -> float:
+    text = str(payload.get("generated_at") or "").strip()
+    if not text:
+        return 0.0
+    normalized = text.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _overlay_current_source_health(
+    *,
+    primary_run_receipt_path: Path | None,
+    primary_run_receipt: dict[str, Any],
+    run_receipt_path: Path | None,
+    run_receipt: dict[str, Any],
+) -> dict[str, Any]:
+    if not primary_run_receipt or primary_run_receipt_path is None:
+        return run_receipt
+    if run_receipt_path == primary_run_receipt_path:
+        return run_receipt
+    if "source_health" not in primary_run_receipt:
+        return run_receipt
+    if _receipt_generated_at_timestamp(primary_run_receipt) <= _receipt_generated_at_timestamp(run_receipt):
+        return run_receipt
+    merged = dict(run_receipt)
+    merged["source_health"] = dict(primary_run_receipt.get("source_health") or {})
+    return merged
+
+
 def load_runtime_artifact_bundle(
     *,
     root: Path,
@@ -213,6 +244,12 @@ def load_runtime_artifact_bundle(
         run_receipt_dir=run_receipt_dir,
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
+    )
+    run_receipt = _overlay_current_source_health(
+        primary_run_receipt_path=primary_run_receipt_path,
+        primary_run_receipt=primary_run_receipt,
+        run_receipt_path=run_receipt_path,
+        run_receipt=run_receipt,
     )
     callback_summary = approval_callback_runtime_summary(
         approval_callback_dir=approval_callback_dir,

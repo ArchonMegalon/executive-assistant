@@ -10,6 +10,11 @@ import html
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from app.services.outbound_email_bounds import (
+    OutboundEmailRateLimitedError,
+    bounded_outbound_email,
+)
+
 
 EMAILIT_API_BASE = "https://api.emailit.com/v2/emails"
 DEFAULT_SENDER_EMAIL = "property@propertyquarry.com"
@@ -190,6 +195,16 @@ def _emailit_max_429_sleep_seconds() -> int:
         return max(int(raw), 0)
     except ValueError:
         return 30
+
+
+def _emailit_max_429_retry_attempts() -> int:
+    raw = str(os.environ.get("EA_EMAILIT_MAX_429_RETRY_ATTEMPTS") or "").strip()
+    if not raw:
+        return 0
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return 0
 
 
 def _emailit_error_payload(detail: str) -> dict[str, object]:
@@ -462,68 +477,83 @@ def _send_emailit_email(
             method="POST",
         )
 
-    request = _request_for_payload(payload, idempotency_key)
-    last_error = ""
-    used_fallback_sender = False
-    for _ in range(7):
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                body = response.read().decode("utf-8", errors="replace")
-            parsed = json.loads(body or "{}")
-            return RegistrationEmailReceipt(
-                provider="emailit",
-                message_id=str(parsed.get("id") or ""),
-                accepted_at=datetime.now(timezone.utc).isoformat(),
-            )
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            last_error = f"registration_email_send_failed:{exc.code}:{detail[:600]}"
-            if exc.code == 422 and "Domain not verified" in detail and not used_fallback_sender:
-                fallback_email = _fallback_sender_email()
-                if fallback_email and fallback_email.lower() != resolved_sender_email.lower():
-                    fallback_name = _fallback_sender_name()
-                    payload["from"] = f"{fallback_name} <{fallback_email}>"
-                    payload["reply_to"] = fallback_email
-                    payload["meta"] = _emailit_meta_payload(
-                        kind=kind,
-                        recipient_email=recipient_email,
-                        meta={
-                            **dict(payload.get("meta") or {}),
-                            "sender_fallback_used": True,
-                            "preferred_sender_email": resolved_sender_email,
-                            "fallback_sender_email": fallback_email,
-                        },
+    try:
+        with bounded_outbound_email(
+            kind=kind,
+            recipient_email=recipient_email,
+            subject=str(subject or "").strip(),
+            provider="emailit",
+        ):
+            request = _request_for_payload(payload, idempotency_key)
+            last_error = ""
+            used_fallback_sender = False
+            remaining_429_retries = _emailit_max_429_retry_attempts()
+            while True:
+                try:
+                    with urllib.request.urlopen(request, timeout=60) as response:
+                        body = response.read().decode("utf-8", errors="replace")
+                    parsed = json.loads(body or "{}")
+                    return RegistrationEmailReceipt(
+                        provider="emailit",
+                        message_id=str(parsed.get("id") or ""),
+                        accepted_at=datetime.now(timezone.utc).isoformat(),
                     )
-                    fallback_seed = json.dumps(
-                        {
-                            "kind": kind,
-                            "recipient_email": str(recipient_email or "").strip().lower(),
-                            "subject": str(subject or "").strip(),
-                            "meta": dict(payload.get("meta") or {}),
-                            "sender_email": fallback_email.lower(),
-                            "sender_name": fallback_name,
-                        },
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    )
-                    request = _request_for_payload(
-                        payload,
-                        f"ea-mail-{hashlib.sha256(fallback_seed.encode('utf-8')).hexdigest()[:24]}",
-                    )
-                    used_fallback_sender = True
-                    continue
-            if exc.code == 429:
-                error_payload = _emailit_error_payload(detail)
-                retry_after = _emailit_retry_after_seconds(detail)
-                if retry_after > _emailit_max_429_sleep_seconds():
-                    raise EmailDeliveryRateLimitedError(
-                        retry_after_seconds=retry_after,
-                        provider_error=str(error_payload.get("error") or "too_many_requests"),
-                        detail=detail[:600],
-                    ) from exc
-                time.sleep(max(1, retry_after))
-                continue
-            break
+                except urllib.error.HTTPError as exc:
+                    detail = exc.read().decode("utf-8", errors="replace")
+                    last_error = f"registration_email_send_failed:{exc.code}:{detail[:600]}"
+                    if exc.code == 422 and "Domain not verified" in detail and not used_fallback_sender:
+                        fallback_email = _fallback_sender_email()
+                        if fallback_email and fallback_email.lower() != resolved_sender_email.lower():
+                            fallback_name = _fallback_sender_name()
+                            payload["from"] = f"{fallback_name} <{fallback_email}>"
+                            payload["reply_to"] = fallback_email
+                            payload["meta"] = _emailit_meta_payload(
+                                kind=kind,
+                                recipient_email=recipient_email,
+                                meta={
+                                    **dict(payload.get("meta") or {}),
+                                    "sender_fallback_used": True,
+                                    "preferred_sender_email": resolved_sender_email,
+                                    "fallback_sender_email": fallback_email,
+                                },
+                            )
+                            fallback_seed = json.dumps(
+                                {
+                                    "kind": kind,
+                                    "recipient_email": str(recipient_email or "").strip().lower(),
+                                    "subject": str(subject or "").strip(),
+                                    "meta": dict(payload.get("meta") or {}),
+                                    "sender_email": fallback_email.lower(),
+                                    "sender_name": fallback_name,
+                                },
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            )
+                            request = _request_for_payload(
+                                payload,
+                                f"ea-mail-{hashlib.sha256(fallback_seed.encode('utf-8')).hexdigest()[:24]}",
+                            )
+                            used_fallback_sender = True
+                            continue
+                    if exc.code == 429:
+                        error_payload = _emailit_error_payload(detail)
+                        retry_after = _emailit_retry_after_seconds(detail)
+                        if retry_after <= _emailit_max_429_sleep_seconds() and remaining_429_retries > 0:
+                            remaining_429_retries -= 1
+                            time.sleep(max(1, retry_after))
+                            continue
+                        raise EmailDeliveryRateLimitedError(
+                            retry_after_seconds=retry_after,
+                            provider_error=str(error_payload.get("error") or "too_many_requests"),
+                            detail=detail[:600],
+                        ) from exc
+                    break
+    except OutboundEmailRateLimitedError as exc:
+        raise EmailDeliveryRateLimitedError(
+            retry_after_seconds=exc.retry_after_seconds,
+            provider_error=exc.reason,
+            detail=exc.detail,
+        ) from exc
     raise RuntimeError(last_error or "registration_email_send_failed")
 
 

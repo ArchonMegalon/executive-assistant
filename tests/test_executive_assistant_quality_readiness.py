@@ -65,6 +65,35 @@ def _office_loop_receipt(*, local_ready: bool = True, accepted: bool = False) ->
     }
 
 
+def _proactive_gold_receipt(*, status: str = "pass", gold_claim_allowed: bool = True) -> dict[str, object]:
+    blocked = status != "pass" or not gold_claim_allowed
+    return {
+        "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+        "status": status,
+        "gold_claim_allowed": gold_claim_allowed,
+        "summary": (
+            "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored."
+            if blocked
+            else "The proactive OODA packet has current live gold proof."
+        ),
+        "next_action": "reauthorize_google_workspace_binding" if blocked else "",
+        "next_action_href": (
+            "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace"
+            if blocked
+            else ""
+        ),
+        "next_action_label": "Reconnect Google workspace" if blocked else "",
+        "next_action_method": "get" if blocked else "",
+        "next_action_form_href": (
+            "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace"
+            if blocked
+            else ""
+        ),
+        "next_action_form_label": "Reconnect Google workspace" if blocked else "",
+        "next_action_form_method": "get" if blocked else "",
+    }
+
+
 def _raw_acceptance_input() -> dict[str, object]:
     return {
         "proofs": [
@@ -327,6 +356,51 @@ def test_executive_assistant_quality_readiness_uses_redacted_acceptance_evidence
     assert receipt["next_action_label"] == ""
     assert receipt["next_action_method"] == ""
     assert receipt["next_action_proof_key"] == ""
+
+    verification = verifier.verify_executive_assistant_quality_readiness(receipt_path)
+
+    assert verification["status"] == "pass"
+    assert verification["issues"] == []
+
+
+def test_executive_assistant_quality_readiness_blocks_claim_review_when_proactive_gold_is_not_ready(tmp_path: Path) -> None:
+    acceptance_materializer = _load_script("materialize_executive_assistant_acceptance_evidence")
+    materializer = _load_script("materialize_executive_assistant_quality_readiness")
+    verifier = _load_script("verify_executive_assistant_quality_readiness")
+    receipt_path = tmp_path / "ea-quality-proactive-blocked.generated.json"
+    acceptance_path = tmp_path / "ea-acceptance.generated.json"
+    proactive_path = tmp_path / "ea-proactive-gold.generated.json"
+    acceptance = acceptance_materializer.materialize_executive_assistant_acceptance_evidence(
+        receipt_path=acceptance_path,
+        input_payload=_raw_acceptance_input(),
+        generated_at=GENERATED_AT,
+    )
+    proactive_path.write_text(json.dumps(_proactive_gold_receipt(status="blocked_operator_runtime_posture", gold_claim_allowed=False)) + "\n", encoding="utf-8")
+
+    receipt = materializer.materialize_executive_assistant_quality_readiness(
+        receipt_path=receipt_path,
+        generated_at=GENERATED_AT,
+        office_loop=_office_loop_receipt(local_ready=True, accepted=False),
+        acceptance_evidence=acceptance,
+        acceptance_evidence_receipt_path=acceptance_path,
+        proactive_gold_acceptance_receipt_path=proactive_path,
+    )
+
+    assert receipt["status"] == "blocked_real_world_acceptance"
+    assert receipt["blocked_checks"] == []
+    assert receipt["external_acceptance_blockers"] == []
+    assert receipt["claim_readiness_blockers"] == ["blocked_operator_runtime_posture"]
+    assert receipt["good_executive_assistant_claim_allowed"] is False
+    assert receipt["next_action"] == "reauthorize_google_workspace_binding"
+    assert receipt["next_action_label"] == "Reconnect Google workspace"
+    assert receipt["next_action_method"] == "get"
+    assert receipt["next_action_proof_key"] == ""
+    assert receipt["next_action_context"]["kind"] == "proactive_ooda_gold_recovery"  # type: ignore[index]
+    assert receipt["proactive_ooda_gold_acceptance"]["claim_ready"] is False  # type: ignore[index]
+    assert (
+        "current proactive OODA gold acceptance with approved-source health and live follow-through proof"
+        in receipt["remaining_external_proofs"]
+    )
 
     verification = verifier.verify_executive_assistant_quality_readiness(receipt_path)
 

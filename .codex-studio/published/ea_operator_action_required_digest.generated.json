@@ -16,10 +16,10 @@
   "dedupe_checked": true,
   "dedupe_suppressed": true,
   "delivery_policy": "action_required_only",
-  "digest_sha256": "68ac9bd2649870c9b22d9db99514730e0802e9f483d86dafd5b906cac04e8258",
+  "digest_sha256": "437f477f56d51ca777b1318e585e8cece43725f3e0d4acc9a130bc8b69d2bc9d",
   "dry_run": false,
   "force": false,
-  "generated_at": "2026-07-07T13:14:45Z",
+  "generated_at": "2026-07-09T04:21:37Z",
   "generated_by": "scripts/materialize_operator_action_required_digest.py",
   "head_semantics": "source_state",
   "included_action_keys": [
@@ -36,13 +36,13 @@
       "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
       "delivery_policy": "action_required_only",
       "external_setup_url": "",
-      "instruction": "Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work Google account.",
+      "instruction": "Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work Google account. A bounded recovery coold...",
       "interruption_budget": "action_required",
       "irreversible_actions_consent_gated": true,
       "key": "google_workspace_oauth_setup",
       "missing_client_keys": [],
       "next_action": "retry_full_workspace_auth_with_approved_account",
-      "next_action_form_href": "/integrations/google",
+      "next_action_form_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
       "next_action_form_label": "Retry Google auth",
       "next_action_form_method": "get",
       "next_action_label": "Retry Google auth",
@@ -69,7 +69,7 @@
       "required_next_receipt": "Google Workspace OAuth test-user or verified app access for Full Workspace auth",
       "source_action_packet_present": false,
       "source_action_packet_status": "",
-      "telegram_message": "Action needed: Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work account. If Google still blocks it, re-open the Audience page and confirm the tester/project setup. Console: https://console.cloud.google.com/auth/audience?project=p...",
+      "telegram_message": "Action needed: Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work account. If Google still blocks it, re-open the Audience page and confirm the tester/project setup. Cooldown active until 2026-07-08T21:31:26.402518Z. Console: https...",
       "telegram_push_allowed": true,
       "title": "Google Workspace OAuth test-user setup",
       "token_missing_client_keys": []
@@ -129,12 +129,12 @@
     "reason": "",
     "sent": false
   },
-  "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
+  "source_git_head": "7b63159d1033dae27debdf3520143f78b53014b9",
   "source_receipt": {
     "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
     "present": true,
-    "sha256": "b3627f90dec37d6901b4d91b25d32aaafb2efaebe6477276096b67ed5b9fea95",
-    "status": "active_with_blockers"
+    "sha256": "327feca2335157b3c7b9c1e6aaf8a7d372091d0d255c90e696d4ffbbac88d43b",
+    "status": "blocked_real_world_acceptance"
   },
   "source_refresh": {
     "attempted": false,
@@ -142,7 +142,7 @@
     "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
     "status": "not_requested"
   },
-  "source_state_fingerprint": "82100084f9e2b7c3aa62f9d8d1af681ae965724e0ecc6250704da4c4ecaf4b89",
+  "source_state_fingerprint": "2869d4e07e5f210ae5a2a6aa10d916f39b73203c0b00c78db3654163dce0250e",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "state_updated": false,
   "status": "suppressed_duplicate",

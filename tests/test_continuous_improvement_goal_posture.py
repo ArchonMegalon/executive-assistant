@@ -9,6 +9,10 @@ import scripts.materialize_continuous_improvement_goal_posture as posture_module
 import scripts.verify_continuous_improvement_goal_posture as verifier_module
 from scripts.verify_continuous_improvement_goal_posture import verify
 
+GOOGLE_REAUTH_ACTION_HREF = (
+    "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace"
+)
+
 
 def _office_provider_cost_routing_posture() -> dict[str, object]:
     return {
@@ -1054,7 +1058,7 @@ def test_google_manual_console_check_becomes_blocking_operator_action(tmp_path: 
                 "add it if missing, save, then retry the Full Workspace auth link."
             ),
             "next_action": "add_google_oauth_test_user_and_retry_full_workspace_auth",
-            "next_action_href": "/integrations/google",
+            "next_action_href": GOOGLE_REAUTH_ACTION_HREF,
             "next_action_label": "Open Google setup",
             "next_action_method": "get",
             "missing_setup": ["oauth_test_user_confirmation_pending"],
@@ -1430,7 +1434,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
                 "Retry the Full Workspace auth link and explicitly choose the approved work Google account."
             ),
             "next_action": "retry_full_workspace_auth_with_approved_account",
-            "next_action_href": "/integrations/google",
+            "next_action_href": GOOGLE_REAUTH_ACTION_HREF,
             "next_action_label": "Retry Google auth",
             "next_action_method": "get",
             "missing_setup": ["oauth_access_retry_or_account_selection_required"],
@@ -1790,8 +1794,10 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert telegram_business_context["raw_secret_exposed"] is False
     assert proof_requirements["google_workspace_oauth_setup"]["evidence_kind"] == "google_workspace_oauth_test_user_setup"
     assert proof_requirements["google_workspace_oauth_setup"]["next_action"] == "retry_full_workspace_auth_with_approved_account"
-    assert proof_requirements["google_workspace_oauth_setup"]["next_action_href"] == "/integrations/google"
+    assert proof_requirements["google_workspace_oauth_setup"]["next_action_href"] == GOOGLE_REAUTH_ACTION_HREF
     assert proof_requirements["google_workspace_oauth_setup"]["next_action_label"] == "Retry Google auth"
+    assert proof_requirements["google_workspace_oauth_setup"]["next_action_form_href"] == GOOGLE_REAUTH_ACTION_HREF
+    assert proof_requirements["google_workspace_oauth_setup"]["next_action_form_method"] == "get"
     google_context = proof_requirements["google_workspace_oauth_setup"]["action_context"]
     assert google_context["user_action_required"] is True
     assert google_context["missing_setup"] == ["oauth_access_retry_or_account_selection_required"]
@@ -1997,8 +2003,10 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     )
     assert google_action["user_action_required"] is True
     assert google_action["next_action"] == "retry_full_workspace_auth_with_approved_account"
-    assert google_action["next_action_href"] == "/integrations/google"
+    assert google_action["next_action_href"] == GOOGLE_REAUTH_ACTION_HREF
     assert google_action["next_action_label"] == "Retry Google auth"
+    assert google_action["next_action_form_href"] == GOOGLE_REAUTH_ACTION_HREF
+    assert google_action["next_action_form_method"] == "get"
     assert google_action["missing_setup"] == ["oauth_access_retry_or_account_selection_required"]
     assert google_action["observed_google_email_present"] is True
     assert google_action["observed_google_account_matches_expected"] is True
@@ -3147,7 +3155,7 @@ def test_goal_posture_verifier_accepts_queue_only_proactive_recovery_without_app
             "needs operator recovery."
         ),
         operator_next_action_override="reauthorize_google_workspace_binding",
-        operator_next_action_href_override="/integrations/google",
+        operator_next_action_href_override=GOOGLE_REAUTH_ACTION_HREF,
         operator_next_action_label_override="Open Google setup",
         operator_next_action_method_override="get",
         operator_approval_capture_surface={
@@ -3206,19 +3214,21 @@ def test_goal_posture_verifier_accepts_queue_only_proactive_recovery_without_app
     proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
     proactive = proof_requirements["proactive_ooda_packet_acceptance"]
     assert proactive["next_action"] == "reauthorize_google_workspace_binding"
-    assert proactive["next_action_href"] == "/integrations/google"
+    assert proactive["next_action_href"] == GOOGLE_REAUTH_ACTION_HREF
     assert proactive["next_action_label"] == "Open Google setup"
     assert proactive["action_context"]["user_action_required"] is False
-    assert proactive["next_action_form_href"] == ""
-    assert proactive["next_action_form_method"] == ""
+    assert proactive["next_action_form_href"] == GOOGLE_REAUTH_ACTION_HREF
+    assert proactive["next_action_form_label"] == "Reconnect Google workspace"
+    assert proactive["next_action_form_method"] == "get"
 
     proactive_queue_row = next(item for item in receipt["operator_action_queue"] if item["key"] == "proactive_ooda_packet_acceptance")
     assert proactive_queue_row["user_action_required"] is False
     assert proactive_queue_row["next_action"] == "reauthorize_google_workspace_binding"
-    assert proactive_queue_row["next_action_href"] == "/integrations/google"
+    assert proactive_queue_row["next_action_href"] == GOOGLE_REAUTH_ACTION_HREF
     assert proactive_queue_row["next_action_label"] == "Open Google setup"
-    assert proactive_queue_row.get("next_action_form_href", "") == ""
-    assert proactive_queue_row.get("next_action_form_method", "") == ""
+    assert proactive_queue_row.get("next_action_form_href", "") == GOOGLE_REAUTH_ACTION_HREF
+    assert proactive_queue_row.get("next_action_form_label", "") == "Reconnect Google workspace"
+    assert proactive_queue_row.get("next_action_form_method", "") == "get"
     assert receipt["next_action_key"] != "proactive_ooda_packet_acceptance"
     assert verify(output, root=tmp_path) == []
 
@@ -3287,7 +3297,7 @@ def test_build_goal_posture_keeps_proactive_approval_as_action_required_during_b
             "user_action_required": True,
             "instruction": "Retry the Full Workspace auth link and explicitly choose the approved work Google account.",
             "next_action": "retry_full_workspace_auth_with_approved_account",
-            "next_action_href": "/integrations/google",
+            "next_action_href": GOOGLE_REAUTH_ACTION_HREF,
             "next_action_label": "Retry Google auth",
             "next_action_method": "get",
             "missing_setup": ["oauth_access_retry_or_account_selection_required"],

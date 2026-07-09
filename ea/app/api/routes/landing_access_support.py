@@ -25,11 +25,10 @@ from app.api.routes.landing_public_support import (
     _render_secure_link_page,
 )
 from app.container import AppContainer
-from app.product.service import build_product_service
+from app.product.service import build_product_service, workspace_sign_in_email_delivery_available
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import browser_google_oauth_redirect_uri, build_google_oauth_start
 from app.services.public_branding import request_brand
-from app.services.registration_email import email_delivery_enabled
 
 
 def _brand_create_account_href(brand: dict[str, str]) -> str:
@@ -97,7 +96,7 @@ def sign_in_page(
             access_identity=access_identity,
             extra={
                 "sign_in_notes": sign_in_notes_for_brand(brand["key"]),
-                "sign_in_link_enabled": email_delivery_enabled(),
+                "sign_in_link_enabled": workspace_sign_in_email_delivery_available(),
                 "sign_in_link_status": link_status,
                 "sign_in_link_email": link_email,
                 "sign_in_link_count": link_count,

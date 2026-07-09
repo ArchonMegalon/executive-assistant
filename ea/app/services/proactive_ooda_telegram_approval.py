@@ -1742,17 +1742,31 @@ def _draft_auto_execution_audit_block(
         return {}
     if str(work_type or "").strip().lower() != "draft":
         return {}
-    draft_mode = str(stage_payload.get("draft_mode") or "").strip().lower()
-    if draft_mode != "research_backed_inquiry":
-        return {}
-    audit = dict(safe_work_result.get("audit") or {})
-    if str(audit.get("status") or "").strip().lower() != "review":
-        return {}
+    audit = safe_work_result.get("audit")
+    if not isinstance(audit, dict):
+        return {
+            "reason": "audit_pass_required_for_auto_execution",
+            "audit_status": "missing",
+            "audit_issue_codes": [],
+            "next_action_surface": _approved_action_surface_for_reason("audit_review_required"),
+        }
+    audit = dict(audit)
+    audit_status = str(audit.get("status") or "").strip().lower()
     issues = [dict(item) for item in list(audit.get("issues") or []) if isinstance(item, dict)]
     issue_codes = [str(item.get("code") or "").strip() for item in issues if str(item.get("code") or "").strip()]
+    if audit_status == "pass":
+        return {}
+    draft_mode = str(stage_payload.get("draft_mode") or "").strip().lower()
+    if draft_mode == "research_backed_inquiry" and audit_status == "review":
+        return {
+            "reason": "audit_review_required",
+            "audit_status": "review",
+            "audit_issue_codes": issue_codes,
+            "next_action_surface": _approved_action_surface_for_reason("audit_review_required"),
+        }
     return {
-        "reason": "audit_review_required",
-        "audit_status": "review",
+        "reason": "audit_pass_required_for_auto_execution",
+        "audit_status": audit_status or "missing",
         "audit_issue_codes": issue_codes,
         "next_action_surface": _approved_action_surface_for_reason("audit_review_required"),
     }
@@ -1796,6 +1810,8 @@ def _telegram_gmail_draft_execution_reason(*, execution: dict[str, Any]) -> str:
     reason = str(execution.get("reason") or "").strip().lower()
     if reason == "audit_review_required":
         return "the staged draft needs review before EA auto-saves it"
+    if reason == "audit_pass_required_for_auto_execution":
+        return "the staged draft has not passed the auto-execution audit yet"
     if reason == "approved_draft_recipient_missing":
         return "I could not resolve a recipient from the request context"
     if reason == "approved_draft_body_missing":

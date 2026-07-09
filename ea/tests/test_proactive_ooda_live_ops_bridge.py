@@ -138,6 +138,68 @@ def test_resolve_proactive_ooda_capture_bundle_live_probe_preserves_internal_act
     assert bundle["approval_callback_raw_pending_count"] == 1
 
 
+def test_resolve_proactive_ooda_capture_bundle_surfaces_runtime_artifact_drift_against_host_bundle() -> None:
+    live_packet_ref = "stage_packet:live-packet"
+    live_artifact_ref = "safe_work_result:live-artifact"
+
+    def _live_probe(*, timeout_seconds: float | None = None) -> dict[str, object]:
+        assert timeout_seconds == 15.0
+        return {
+            "probe_ok": True,
+            "run_receipt": {"notification_status": "sent"},
+            "stage_packet": {
+                "packet_ref": live_packet_ref,
+                "approval": {"required": True},
+            },
+            "safe_work_result": {
+                "result_ref": live_artifact_ref,
+                "status": "staged_for_user_decision",
+                "approval": {"required": True},
+            },
+            "current_packet_callback_outcome": {
+                "approval_outcome_recorded": True,
+                "status": "approved",
+                "packet_ref_sha256": _hash(live_packet_ref),
+                "staged_artifact_sha256": _hash(live_artifact_ref),
+            },
+            "current_packet_live_pending_count": 1,
+            "current_packet_callback_pending_count": 1,
+        }
+
+    host_bundle = {
+        "run_receipt": {"notification_status": "deferred"},
+        "stage_packet": {"packet_ref": "stage_packet:host-packet", "approval": {"required": True}},
+        "safe_work_result": {
+            "result_ref": "safe_work_result:host-artifact",
+            "status": "staged_for_user_decision",
+            "approval": {"required": True},
+        },
+        "approval_outcome": {},
+        "current_packet_callback_outcome": {},
+        "current_packet_live_pending_count": 0,
+        "current_packet_callback_pending_count": 0,
+    }
+
+    result = proactive_ooda_live_ops_bridge.resolve_proactive_ooda_capture_bundle(
+        root=Path("/workspace"),
+        state_path="state/proactive_ooda_notified.json",
+        timeout_seconds=15.0,
+        live_probe=_live_probe,
+        bundle_loader=lambda **_: host_bundle,
+    )
+
+    drift = dict(result["runtime_artifact_drift"])
+    assert result["bundle_source"] == "live_runtime"
+    assert drift["checked"] is True
+    assert drift["present"] is True
+    assert drift["requires_recovery"] is True
+    assert drift["status"] == "drift_detected"
+    assert drift["host_artifacts_present"] is True
+    assert "stage_packet_ref_sha256" in drift["mismatch_fields"]
+    assert drift["blocking_reason"] == "runtime_artifact_drift:stage_packet_ref_sha256"
+    assert drift["next_action"] == "repair_proactive_runtime_artifact_drift"
+
+
 def test_resolve_proactive_ooda_capture_bundle_falls_back_to_host_bundle() -> None:
     host_bundle = {
         "stage_packet": {"packet_ref": "stage_packet:host-packet", "approval": {"required": True}},

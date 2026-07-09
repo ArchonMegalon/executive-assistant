@@ -424,6 +424,87 @@ def test_explicit_auth_env_is_not_overwritten_by_runtime_file(tmp_path: Path) ->
     assert "Bearer file-token" not in "\n".join(str(arg) for arg in result["argv"])
 
 
+def test_runtime_env_candidate_precedence_is_stable(tmp_path: Path) -> None:
+    primary_runtime_env = tmp_path / "primary-runtime.ea.env"
+    primary_runtime_env.write_text(
+        "\n".join(
+            [
+                "EA_MCP_BASE_URL=http://primary-runtime.test:8090",
+                "EA_MCP_API_TOKEN=primary-token",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    secondary_runtime_env = tmp_path / "secondary-runtime.ea.env"
+    secondary_runtime_env.write_text(
+        "\n".join(
+            [
+                "EA_MCP_BASE_URL=http://secondary-runtime.test:8090",
+                "EA_MCP_API_TOKEN=secondary-token",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = _run_shim(
+        tmp_path,
+        "core",
+        "precedence check",
+        extra_env={
+            "CODEXEA_RUNTIME_EA_ENV_PATH": str(primary_runtime_env),
+            "FLEET_RUNTIME_EA_ENV_PATH": str(secondary_runtime_env),
+        },
+    )
+
+    env = result["env"]
+    assert isinstance(env, dict)
+    assert env["EA_MCP_API_TOKEN"] == "primary-token"
+    assert env["EA_API_TOKEN"] == "primary-token"
+    rendered_args = "\n".join(str(arg) for arg in result["argv"])
+    assert 'model_providers.ea.base_url="http://primary-runtime.test:8090/v1"' in rendered_args
+    assert "secondary-runtime.test" not in rendered_args
+
+
+def test_runtime_env_later_nonempty_token_overrides_earlier_empty_placeholder(tmp_path: Path) -> None:
+    primary_runtime_env = tmp_path / "primary-runtime.ea.env"
+    primary_runtime_env.write_text(
+        "\n".join(
+            [
+                "EA_MCP_API_TOKEN=",
+                "EA_API_TOKEN=",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    secondary_runtime_env = tmp_path / "secondary-runtime.ea.env"
+    secondary_runtime_env.write_text(
+        "\n".join(
+            [
+                "EA_MCP_API_TOKEN=secondary-token",
+                "EA_API_TOKEN=secondary-token",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = _run_shim(
+        tmp_path,
+        "core",
+        "empty placeholder fallback check",
+        extra_env={
+            "CODEXEA_RUNTIME_EA_ENV_PATH": str(primary_runtime_env),
+            "FLEET_RUNTIME_EA_ENV_PATH": str(secondary_runtime_env),
+        },
+    )
+
+    env = result["env"]
+    assert isinstance(env, dict)
+    assert env["EA_MCP_API_TOKEN"] == "secondary-token"
+    assert env["EA_API_TOKEN"] == "secondary-token"
+    rendered_args = "\n".join(str(arg) for arg in result["argv"])
+    assert "Bearer secondary-token" in rendered_args
+
+
 def test_eta_does_not_fall_through_into_worker_launch(tmp_path: Path) -> None:
     completed = _run_shim_completed(
         tmp_path,
@@ -2015,6 +2096,47 @@ def test_worker_lane_preserves_explicit_local_ea_base_url_even_when_probe_candid
                     "CODEXEA_LOCAL_EA_PORT_CANDIDATES": str(server.server_port),
                 },
             )
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+
+    argv = [str(arg) for arg in payload["argv"]]
+    assert 'model_providers.ea.base_url="http://127.0.0.1:1/v1"' in argv
+    assert payload["launch_receipt"]["provider"] == "ea"
+
+
+def test_worker_lane_preserves_explicit_local_ea_mcp_base_url_when_probe_candidates_exist(
+    tmp_path: Path,
+) -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+            return
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path not in {"/health", "/health/live"}:
+                self.send_response(404)
+                self.end_headers()
+                return
+            encoded = b'{"status":"ok"}'
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        payload = _run_shim(
+            tmp_path,
+            "worker",
+            "explicit local ea mcp url smoke",
+            extra_env={
+                "EA_MCP_BASE_URL": "http://127.0.0.1:1",
+                "CODEXEA_LOCAL_EA_PORT_CANDIDATES": str(server.server_port),
+            },
+        )
     finally:
         server.shutdown()
         thread.join(timeout=2)

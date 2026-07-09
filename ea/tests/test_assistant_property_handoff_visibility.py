@@ -478,8 +478,8 @@ def test_admin_goals_payload_keeps_operator_recovery_visible_but_hides_approval_
                 "status": "ready_with_recovery_action",
                 "summary": "Proactive OODA routing is available, but Google workspace needs reauthorization before EA can rely on that source (google_oauth_invalid_grant).",
                 "next_action": "reauthorize_google_workspace_binding",
-                "next_action_href": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-                "next_action_label": "Reconnect Google workspace",
+                "next_action_href": "https://myexternalbrain.com/integrations/google",
+                "next_action_label": "Retry Google auth",
                 "next_action_method": "get",
                 "operator_action_state": "recovery_required",
             }
@@ -488,8 +488,8 @@ def test_admin_goals_payload_keeps_operator_recovery_visible_but_hides_approval_
                 "status": "blocked_operator_runtime_posture",
                 "summary": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored.",
                 "next_action": "reauthorize_google_workspace_binding",
-                "next_action_href": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-                "next_action_label": "Reconnect Google workspace",
+                "next_action_href": "https://myexternalbrain.com/integrations/google",
+                "next_action_label": "Retry Google auth",
                 "next_action_method": "get",
                 "evidence_receipts": {
                     "approval_capture_surface": {
@@ -542,7 +542,7 @@ def test_admin_goals_payload_keeps_operator_recovery_visible_but_hides_approval_
 
     rows = {row["title"]: row for row in payload["cards"][1]["items"]}
     assert "Proactive delivery recovery" in rows
-    assert rows["Proactive delivery recovery"]["action_label"] == "Reconnect Google workspace"
+    assert rows["Proactive delivery recovery"]["action_label"] == "Retry Google auth"
     assert "Proactive OODA approval outcome" not in rows
 
 

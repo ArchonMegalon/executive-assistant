@@ -1852,6 +1852,226 @@ def test_send_google_gmail_message_marks_binding_reauth_required_on_invalid_gran
     assert registry.upserts[0]["auth_metadata_json"]["reauth_required_reason"] == "google_oauth_invalid_grant"
 
 
+def test_list_recent_workspace_signals_fails_fast_when_binding_already_requires_user_reauth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    class _Binding(SimpleNamespace):
+        pass
+
+    class _Registry:
+        def __init__(self) -> None:
+            self.upserts: list[dict[str, object]] = []
+
+        def upsert_binding_record(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.upserts.append(dict(kwargs))
+            return kwargs
+
+    monkeypatch.setattr(
+        google_service,
+        "_list_google_binding_records",
+        lambda **_: [
+            _Binding(
+                binding_id="binding-fast-fail",
+                principal_id="exec-google",
+                status="enabled",
+                priority=80,
+                scope_json={},
+                probe_details_json={},
+                auth_metadata_json={
+                    "google_email": "principal.user@example.test",
+                    "refresh_token_ref": "refresh-token",
+                    "granted_scopes": [google_service.GOOGLE_SCOPE_METADATA],
+                    "token_status": "reauth_required",
+                    "reauth_required_reason": "google_oauth_invalid_grant",
+                    "reauth_required_at": "2026-07-08T08:00:00+00:00",
+                },
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            provider_secret_key="secret",
+            client_id="client-id",
+            client_secret="client-secret",
+        ),
+    )
+
+    def _unexpected_refresh(**kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError(f"unexpected refresh attempt: {kwargs}")
+
+    monkeypatch.setattr(google_service, "_refresh_google_access_token", _unexpected_refresh)
+
+    registry = _Registry()
+    with pytest.raises(RuntimeError, match="google_oauth_invalid_grant"):
+        google_service.list_recent_workspace_signals(
+            container=SimpleNamespace(provider_registry=registry),
+            principal_id="exec-google",
+            email_limit=5,
+            calendar_limit=0,
+            account_email_filter="principal.user@example.test",
+        )
+
+    assert registry.upserts == []
+
+
+def test_create_google_gmail_draft_fails_fast_when_binding_already_requires_user_reauth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    binding = SimpleNamespace(
+        binding_id="binding-draft-fast-fail",
+        principal_id="exec-google",
+        provider_key=google_service.GOOGLE_PROVIDER_KEY,
+        status="enabled",
+        priority=80,
+        probe_state="degraded",
+        probe_details_json={},
+        scope_json={},
+        auth_metadata_json={
+            "google_email": "principal.user@example.test",
+            "refresh_token_ref": "refresh-token",
+            "granted_scopes": [google_service.GOOGLE_SCOPE_GMAIL_MODIFY],
+            "token_status": "reauth_required",
+            "reauth_required_reason": "google_oauth_invalid_grant",
+            "reauth_required_at": "2026-07-08T08:00:00+00:00",
+        },
+    )
+
+    class _Registry:
+        def __init__(self) -> None:
+            self.upserts: list[dict[str, object]] = []
+
+        def get_persisted_binding_record(self, **kwargs):  # type: ignore[no-untyped-def]
+            return binding
+
+        def upsert_binding_record(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.upserts.append(dict(kwargs))
+            return kwargs
+
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            provider_secret_key="secret",
+            client_id="client-id",
+            client_secret="client-secret",
+        ),
+    )
+
+    def _unexpected_refresh(**kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError(f"unexpected refresh attempt: {kwargs}")
+
+    monkeypatch.setattr(google_service, "_refresh_google_access_token", _unexpected_refresh)
+
+    registry = _Registry()
+    with pytest.raises(RuntimeError, match="google_oauth_invalid_grant"):
+        google_service.create_google_gmail_draft(
+            container=SimpleNamespace(provider_registry=registry),
+            principal_id="exec-google",
+            recipient_email="principal.user@example.test",
+            subject="Subject",
+            body_text="Body",
+            binding_id="binding-draft-fast-fail",
+        )
+
+    assert registry.upserts == []
+
+
+def test_list_recent_workspace_signals_clears_stale_reauth_reason_after_successful_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    class _Binding(SimpleNamespace):
+        pass
+
+    class _Registry:
+        def __init__(self) -> None:
+            self.upserts: list[dict[str, object]] = []
+
+        def upsert_binding_record(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.upserts.append(dict(kwargs))
+            return kwargs
+
+    monkeypatch.setattr(
+        google_service,
+        "_list_google_binding_records",
+        lambda **_: [
+            _Binding(
+                binding_id="binding-clears-stale-reauth",
+                principal_id="exec-google",
+                status="enabled",
+                priority=80,
+                scope_json={},
+                probe_details_json={},
+                auth_metadata_json={
+                    "google_email": "principal.user@example.test",
+                    "refresh_token_ref": "refresh-token",
+                    "granted_scopes": [google_service.GOOGLE_SCOPE_METADATA],
+                    "token_status": "active",
+                    "reauth_required_reason": "google_oauth_invalid_grant",
+                    "reauth_required_at": "2026-07-08T08:00:00+00:00",
+                },
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            provider_secret_key="secret",
+            client_id="client-id",
+            client_secret="client-secret",
+        ),
+    )
+    monkeypatch.setattr(google_service, "_decrypt_secret", lambda value, key: value)
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **_: {"access_token": "token-123", "expires_in": 3600},
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_list_recent_gmail_signals",
+        lambda **_: [
+            google_service.GoogleWorkspaceSignal(
+                signal_type="email_thread",
+                channel="gmail",
+                title="Recovered mailbox",
+                summary="",
+                text="",
+                source_ref="gmail-thread:principal.user@example.test:thread-1",
+                external_id="gmail-message:principal.user@example.test:msg-1",
+                counterparty="Counterparty",
+                due_at=None,
+                payload={"account_email": "principal.user@example.test"},
+            )
+        ],
+    )
+    monkeypatch.setattr(google_service, "_list_recent_calendar_signals", lambda **_: [])
+
+    registry = _Registry()
+    packet = google_service.list_recent_workspace_signals(
+        container=SimpleNamespace(provider_registry=registry),
+        principal_id="exec-google",
+        email_limit=5,
+        calendar_limit=0,
+        account_email_filter="principal.user@example.test",
+    )
+
+    assert packet.account_emails == ("principal.user@example.test",)
+    assert len(registry.upserts) == 1
+    metadata = registry.upserts[0]["auth_metadata_json"]
+    assert metadata["token_status"] == "active"
+    assert metadata["reauth_required_reason"] == ""
+    assert metadata["reauth_required_at"] == ""
+
+
 def test_build_google_oauth_start_forces_account_prompt_when_expected_google_email_is_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

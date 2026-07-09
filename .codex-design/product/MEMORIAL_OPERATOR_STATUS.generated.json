@@ -1,306 +1,50 @@
 {
   "contract_name": "ea.memorial_operator_status",
   "generated_by": "scripts/materialize_memorial_operator_status.py",
-  "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+  "source_git_head": "bb575cc976c55adb1de1ef9734d15f2db0acfb4e",
   "head_semantics": "source_state",
-  "source_worktree_dirty": true,
-  "source_dirty_count": 103,
-  "source_dirty_files": [
-    ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
-    ".env.example",
-    ".env.local.example",
-    ".gitignore",
-    "ENVIRONMENT_MATRIX.md",
-    "LTDs.md",
-    "Makefile",
-    "NEXT_SESSION_HANDOFF.md",
-    "README.md",
-    "RUNBOOK.md",
-    "SKILLS.md",
-    "docker-compose.yml",
-    "ea/Dockerfile",
-    "ea/app/api/dependencies.py",
-    "ea/app/api/errors.py",
-    "ea/app/api/routes/admin_view_models.py",
-    "ea/app/api/routes/channels.py",
-    "ea/app/api/routes/human.py",
-    "ea/app/api/routes/landing.py",
-    "ea/app/api/routes/landing_actions.py",
-    "ea/app/api/routes/landing_console_support.py",
-    "ea/app/api/routes/landing_public.py",
-    "ea/app/api/routes/landing_public_pages_support.py",
-    "ea/app/api/routes/landing_setup.py",
-    "ea/app/api/routes/landing_shared_support.py",
-    "ea/app/api/routes/proactive_ooda_approval_support.py",
-    "ea/app/api/routes/product_api.py",
-    "ea/app/api/routes/property_surface_boundary.py",
-    "ea/app/api/routes/public_memorials.py",
-    "ea/app/api/routes/responses.py",
-    "ea/app/api/routes/responses_planner_runtime.py",
-    "ea/app/product/service.py",
-    "ea/app/runner.py",
-    "ea/app/services/assistant_property_boundary_cleanup.py",
-    "ea/app/services/assistant_property_lane.py",
-    "ea/app/services/brain_catalog.py",
-    "ea/app/services/operator_access.py",
-    "ea/app/services/proactive_ooda_approval_capture.py",
-    "ea/app/services/proactive_ooda_approval_outcomes.py",
-    "ea/app/services/proactive_ooda_approval_reissue.py",
-    "ea/app/services/proactive_ooda_browser_actions.py",
-    "ea/app/services/proactive_ooda_delivery.py",
-    "ea/app/services/proactive_ooda_flat_search_policy.py",
-    "ea/app/services/proactive_ooda_goal_actions.py",
-    "ea/app/services/proactive_ooda_live_ops_bridge.py",
-    "ea/app/services/proactive_ooda_operator_actions.py",
-    "ea/app/services/proactive_ooda_runtime_artifacts.py",
-    "ea/app/services/proactive_ooda_safe_work.py",
-    "ea/app/services/proactive_ooda_service.py",
-    "ea/app/services/proactive_ooda_telegram_approval.py",
-    "ea/app/services/proactive_ooda_telegram_policy.py",
-    "ea/app/services/proactive_signal_discovery.py",
-    "ea/app/services/provider_registry.py",
-    "ea/app/services/pushbullet_delivery.py",
-    "ea/app/services/pushbullet_relay.py",
-    "ea/app/services/release_materialization_service.py",
-    "ea/app/services/responses_upstream.py",
-    "ea/app/services/survival_lane.py",
-    "ea/app/services/tool_execution_browseract_adapter.py",
-    "ea/app/services/tool_execution_browseract_registry.py",
-    "ea/scripts/materialize_office_loop_goal_receipt.py",
-    "ea/scripts/verify_office_loop_goal_receipt.py",
-    "ea/tests/test_assistant_property_boundary.py",
-    "ea/tests/test_assistant_property_boundary_cleanup.py",
-    "ea/tests/test_assistant_property_handoff_visibility.py",
-    "ea/tests/test_ea_live_ops_whatsapp_pairing.py",
-    "ea/tests/test_memorial_runtime.py",
-    "ea/tests/test_proactive_gold_source_coverage.py",
-    "ea/tests/test_proactive_ooda_approval_capture.py",
-    "ea/tests/test_proactive_ooda_live_ops_bridge.py",
-    "ea/tests/test_proactive_ooda_runtime_artifacts.py",
-    "ea/tests/test_proactive_ooda_telegram_approval.py",
-    "ea/tests/test_proactive_ooda_telegram_policy.py",
-    "ea/tests/test_proactive_signal_discovery.py",
-    "ea/tests/test_property_surface_boundary.py",
-    "ea/tests/test_provider_cost_routing.py",
-    "ea/tests/test_run_proactive_ooda_approval_cleanup.py",
-    "ea/tests/test_run_proactive_ooda_property_boundary.py",
-    "ea/tests/test_runner_property_scout.py",
-    "feedback/2026-07-06-ea-proactive-ooda-gold-handoff.md",
-    "scripts/bootstrap_browseract_workflow_repair_skill.py",
-    "scripts/bootstrap_chummer6_guide_skill.py",
-    "scripts/bootstrap_design_governance_skills.py",
-    "scripts/chummer6_guide_worker.py",
-    "scripts/chummer6_provider_readiness.py",
-    "scripts/codexea",
-    "scripts/deploy_proactive_ooda_runtime.sh",
-    "scripts/ea_live_ops.py",
-    "scripts/materialize_continuous_improvement_goal_posture.py",
-    "scripts/materialize_ea_operator_readiness.py",
-    "scripts/materialize_google_workspace_oauth_readiness.py",
-    "scripts/materialize_mymedia_alexa_readiness.py",
-    "scripts/materialize_operator_action_required_dedupe_proof.py",
-    "scripts/materialize_operator_action_required_digest.py",
-    "scripts/materialize_proactive_ooda_gold_acceptance.py",
-    "scripts/materialize_proactive_ooda_operator_status.py",
-    "scripts/materialize_pushbullet_delivery_readiness.py",
-    "scripts/materialize_release_manifest.py",
-    "scripts/materialize_whatsapp_web_action_processor_readiness.py",
-    "scripts/operator_summary.sh",
-    "scripts/run_proactive_ooda.py",
-    "scripts/smoke_api.sh",
-    "scripts/smoke_help.sh"
-  ],
+  "source_worktree_dirty": false,
+  "source_dirty_count": 0,
+  "source_dirty_files": [],
   "source_dirty_omitted_count": 0,
-  "source_dirty_status_sha256": "52c14c5799cda666a1c8f67598f475dd3873e6de415256b3498dbd6e8de68b49",
+  "source_dirty_status_sha256": "",
   "source_dirty_summary": {
-    "status": "dirty",
-    "total_count": 103,
-    "visible_count": 103,
+    "status": "clean",
+    "total_count": 0,
+    "visible_count": 0,
     "omitted_count": 0,
-    "category_count": 9,
-    "categories": [
-      {
-        "category": "api_routes",
-        "visible_count": 16,
-        "sample_files": [
-          "ea/app/api/routes/admin_view_models.py",
-          "ea/app/api/routes/channels.py",
-          "ea/app/api/routes/human.py",
-          "ea/app/api/routes/landing.py",
-          "ea/app/api/routes/landing_actions.py",
-          "ea/app/api/routes/landing_console_support.py",
-          "ea/app/api/routes/landing_public.py",
-          "ea/app/api/routes/landing_public_pages_support.py"
-        ]
-      },
-      {
-        "category": "services",
-        "visible_count": 27,
-        "sample_files": [
-          "ea/app/services/assistant_property_boundary_cleanup.py",
-          "ea/app/services/assistant_property_lane.py",
-          "ea/app/services/brain_catalog.py",
-          "ea/app/services/operator_access.py",
-          "ea/app/services/proactive_ooda_approval_capture.py",
-          "ea/app/services/proactive_ooda_approval_outcomes.py",
-          "ea/app/services/proactive_ooda_approval_reissue.py",
-          "ea/app/services/proactive_ooda_browser_actions.py"
-        ]
-      },
-      {
-        "category": "app_core",
-        "visible_count": 4,
-        "sample_files": [
-          "ea/app/api/dependencies.py",
-          "ea/app/api/errors.py",
-          "ea/app/product/service.py",
-          "ea/app/runner.py"
-        ]
-      },
-      {
-        "category": "scripts",
-        "visible_count": 25,
-        "sample_files": [
-          "ea/scripts/materialize_office_loop_goal_receipt.py",
-          "ea/scripts/verify_office_loop_goal_receipt.py",
-          "scripts/bootstrap_browseract_workflow_repair_skill.py",
-          "scripts/bootstrap_chummer6_guide_skill.py",
-          "scripts/bootstrap_design_governance_skills.py",
-          "scripts/chummer6_guide_worker.py",
-          "scripts/chummer6_provider_readiness.py",
-          "scripts/codexea"
-        ]
-      },
-      {
-        "category": "deploy_runtime",
-        "visible_count": 2,
-        "sample_files": [
-          "docker-compose.yml",
-          "ea/Dockerfile"
-        ]
-      },
-      {
-        "category": "env_examples",
-        "visible_count": 2,
-        "sample_files": [
-          ".env.example",
-          ".env.local.example"
-        ]
-      },
-      {
-        "category": "docs",
-        "visible_count": 8,
-        "sample_files": [
-          ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
-          "ENVIRONMENT_MATRIX.md",
-          "LTDs.md",
-          "NEXT_SESSION_HANDOFF.md",
-          "README.md",
-          "RUNBOOK.md",
-          "SKILLS.md",
-          "feedback/2026-07-06-ea-proactive-ooda-gold-handoff.md"
-        ]
-      },
-      {
-        "category": "tests",
-        "visible_count": 17,
-        "sample_files": [
-          "ea/tests/test_assistant_property_boundary.py",
-          "ea/tests/test_assistant_property_boundary_cleanup.py",
-          "ea/tests/test_assistant_property_handoff_visibility.py",
-          "ea/tests/test_ea_live_ops_whatsapp_pairing.py",
-          "ea/tests/test_memorial_runtime.py",
-          "ea/tests/test_proactive_gold_source_coverage.py",
-          "ea/tests/test_proactive_ooda_approval_capture.py",
-          "ea/tests/test_proactive_ooda_live_ops_bridge.py"
-        ]
-      },
-      {
-        "category": "repo_config",
-        "visible_count": 2,
-        "sample_files": [
-          ".gitignore",
-          "Makefile"
-        ]
-      }
-    ],
-    "recommended_first_action": "review_and_commit_or_stash_source_groups_before_clean_receipts",
-    "operator_hint": "Start with api_routes/services/scripts/deploy_runtime groups; generated-only receipt changes do not explain clean-clone proof failures."
+    "category_count": 0,
+    "categories": [],
+    "recommended_first_action": "none",
+    "operator_hint": "Source worktree is clean for clean-clone receipt refresh."
   },
   "source_dirty_verifier": {
     "contract_name": "ea.source_dirty_groups_verifier.v1",
     "status": "pass",
     "issues": [],
-    "source_dirty_status": "dirty",
-    "source_dirty_count": 103,
-    "category_count": 9,
-    "priority_group_count": 5
+    "source_dirty_status": "clean",
+    "source_dirty_count": 0,
+    "category_count": 0,
+    "priority_group_count": 0
   },
   "source_cleanup": {
-    "status": "blocked",
-    "source_worktree_dirty": true,
-    "source_dirty_count": 103,
+    "status": "ready",
+    "source_worktree_dirty": false,
+    "source_dirty_count": 0,
     "source_dirty_omitted_count": 0,
-    "source_dirty_status_sha256": "52c14c5799cda666a1c8f67598f475dd3873e6de415256b3498dbd6e8de68b49",
-    "summary_status": "dirty",
-    "category_count": 9,
-    "top_categories": [
-      {
-        "category": "api_routes",
-        "visible_count": 16,
-        "drilldown_command": "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20"
-      },
-      {
-        "category": "services",
-        "visible_count": 27,
-        "drilldown_command": "scripts/inspect_source_dirty_groups.py --category services --limit 20"
-      },
-      {
-        "category": "app_core",
-        "visible_count": 4,
-        "drilldown_command": "scripts/inspect_source_dirty_groups.py --category app_core --limit 20"
-      },
-      {
-        "category": "scripts",
-        "visible_count": 25,
-        "drilldown_command": "scripts/inspect_source_dirty_groups.py --category scripts --limit 20"
-      },
-      {
-        "category": "deploy_runtime",
-        "visible_count": 2,
-        "drilldown_command": "scripts/inspect_source_dirty_groups.py --category deploy_runtime --limit 20"
-      },
-      {
-        "category": "env_examples",
-        "visible_count": 2,
-        "drilldown_command": "scripts/inspect_source_dirty_groups.py --category env_examples --limit 20"
-      }
-    ],
-    "category_drilldown_commands": [
-      "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20",
-      "scripts/inspect_source_dirty_groups.py --category services --limit 20",
-      "scripts/inspect_source_dirty_groups.py --category app_core --limit 20",
-      "scripts/inspect_source_dirty_groups.py --category scripts --limit 20",
-      "scripts/inspect_source_dirty_groups.py --category deploy_runtime --limit 20",
-      "scripts/inspect_source_dirty_groups.py --category env_examples --limit 20",
-      "scripts/inspect_source_dirty_groups.py --category docs --limit 20",
-      "scripts/inspect_source_dirty_groups.py --category tests --limit 20",
-      "scripts/inspect_source_dirty_groups.py --category repo_config --limit 20"
-    ],
+    "source_dirty_status_sha256": "",
+    "summary_status": "clean",
+    "category_count": 0,
+    "top_categories": [],
+    "category_drilldown_commands": [],
     "handoff_commands": [
       "git status --short",
-      "scripts/inspect_source_dirty_groups.py --list-categories",
-      "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20",
-      "scripts/inspect_source_dirty_groups.py --category services --limit 20",
-      "scripts/inspect_source_dirty_groups.py --category app_core --limit 20",
-      "scripts/inspect_source_dirty_groups.py --category scripts --limit 20",
-      "scripts/inspect_source_dirty_groups.py --category deploy_runtime --limit 20",
-      "scripts/inspect_source_dirty_groups.py --category env_examples --limit 20"
+      "scripts/inspect_source_dirty_groups.py --list-categories"
     ],
     "verifier_status": "pass",
     "verifier_issues": [],
-    "next_action": "commit_or_stash_source_changes_before_clean_receipts",
-    "next_command": "scripts/inspect_source_dirty_groups.py --list-categories"
+    "next_action": "",
+    "next_command": ""
   },
   "slug": "manfred",
   "status": "blocked",
@@ -370,17 +114,6 @@
         "next_command": "make materialize-memorial-room-audio-gold-clean"
       },
       {
-        "key": "source_worktree",
-        "code": "source_worktree",
-        "label": "Source worktree",
-        "component": "Source worktree",
-        "issues": [
-          "source_worktree_dirty"
-        ],
-        "next_action": "commit_or_stash_source_changes_before_clean_receipts",
-        "next_command": "scripts/inspect_source_dirty_groups.py --list-categories"
-      },
-      {
         "key": "public_runtime_mode",
         "code": "public_runtime_mode",
         "label": "Public runtime mode",
@@ -409,7 +142,6 @@
       "public_voice_receipt",
       "public_browser_receipt",
       "room_audio_receipt",
-      "source_worktree",
       "public_runtime_mode",
       "release_authority"
     ],
@@ -418,11 +150,10 @@
       "scripts/materialize_memorial_public_auto_receipts_clean.py",
       "scripts/materialize_memorial_public_auto_receipts_clean.py",
       "make materialize-memorial-room-audio-gold-clean",
-      "scripts/inspect_source_dirty_groups.py --list-categories",
       "make deploy-ea-memorial",
       "python3 scripts/verify_release_authority.py --pretty"
     ],
-    "blocked_count": 7
+    "blocked_count": 6
   },
   "operator_notes": [
     "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
@@ -469,7 +200,7 @@
   },
   "readiness": {
     "status": "blocked",
-    "current_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+    "current_head": "bb575cc976c55adb1de1ef9734d15f2db0acfb4e",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
@@ -554,335 +285,66 @@
           "code": "room_audio_receipt",
           "component": "Room audio receipt",
           "next_command": "make materialize-memorial-room-audio-gold-clean"
-        },
-        {
-          "key": "source_worktree",
-          "code": "source_worktree",
-          "label": "Source worktree",
-          "component": "Source worktree",
-          "issues": [
-            "source_worktree_dirty"
-          ],
-          "next_action": "commit_or_stash_source_changes_before_clean_receipts",
-          "next_command": "scripts/inspect_source_dirty_groups.py --list-categories"
         }
       ],
       "blocked_component_keys": [
         "local_release_receipt",
         "public_voice_receipt",
         "public_browser_receipt",
-        "room_audio_receipt",
-        "source_worktree"
+        "room_audio_receipt"
       ],
       "blocked_commands": [
         "make materialize-memorial-public-voice-gold",
         "scripts/materialize_memorial_public_auto_receipts_clean.py",
         "scripts/materialize_memorial_public_auto_receipts_clean.py",
-        "make materialize-memorial-room-audio-gold-clean",
-        "scripts/inspect_source_dirty_groups.py --list-categories"
+        "make materialize-memorial-room-audio-gold-clean"
       ],
-      "blocked_count": 5
+      "blocked_count": 4
     },
-    "next_action": "commit_or_stash_source_changes_before_clean_receipts",
-    "next_command": "scripts/inspect_source_dirty_groups.py --list-categories",
-    "source_worktree_dirty": true,
-    "source_dirty_count": 103,
-    "source_dirty_files": [
-      ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
-      ".env.example",
-      ".env.local.example",
-      ".gitignore",
-      "ENVIRONMENT_MATRIX.md",
-      "LTDs.md",
-      "Makefile",
-      "NEXT_SESSION_HANDOFF.md",
-      "README.md",
-      "RUNBOOK.md",
-      "SKILLS.md",
-      "docker-compose.yml",
-      "ea/Dockerfile",
-      "ea/app/api/dependencies.py",
-      "ea/app/api/errors.py",
-      "ea/app/api/routes/admin_view_models.py",
-      "ea/app/api/routes/channels.py",
-      "ea/app/api/routes/human.py",
-      "ea/app/api/routes/landing.py",
-      "ea/app/api/routes/landing_actions.py",
-      "ea/app/api/routes/landing_console_support.py",
-      "ea/app/api/routes/landing_public.py",
-      "ea/app/api/routes/landing_public_pages_support.py",
-      "ea/app/api/routes/landing_setup.py",
-      "ea/app/api/routes/landing_shared_support.py",
-      "ea/app/api/routes/proactive_ooda_approval_support.py",
-      "ea/app/api/routes/product_api.py",
-      "ea/app/api/routes/property_surface_boundary.py",
-      "ea/app/api/routes/public_memorials.py",
-      "ea/app/api/routes/responses.py",
-      "ea/app/api/routes/responses_planner_runtime.py",
-      "ea/app/product/service.py",
-      "ea/app/runner.py",
-      "ea/app/services/assistant_property_boundary_cleanup.py",
-      "ea/app/services/assistant_property_lane.py",
-      "ea/app/services/brain_catalog.py",
-      "ea/app/services/operator_access.py",
-      "ea/app/services/proactive_ooda_approval_capture.py",
-      "ea/app/services/proactive_ooda_approval_outcomes.py",
-      "ea/app/services/proactive_ooda_approval_reissue.py",
-      "ea/app/services/proactive_ooda_browser_actions.py",
-      "ea/app/services/proactive_ooda_delivery.py",
-      "ea/app/services/proactive_ooda_flat_search_policy.py",
-      "ea/app/services/proactive_ooda_goal_actions.py",
-      "ea/app/services/proactive_ooda_live_ops_bridge.py",
-      "ea/app/services/proactive_ooda_operator_actions.py",
-      "ea/app/services/proactive_ooda_runtime_artifacts.py",
-      "ea/app/services/proactive_ooda_safe_work.py",
-      "ea/app/services/proactive_ooda_service.py",
-      "ea/app/services/proactive_ooda_telegram_approval.py",
-      "ea/app/services/proactive_ooda_telegram_policy.py",
-      "ea/app/services/proactive_signal_discovery.py",
-      "ea/app/services/provider_registry.py",
-      "ea/app/services/pushbullet_delivery.py",
-      "ea/app/services/pushbullet_relay.py",
-      "ea/app/services/release_materialization_service.py",
-      "ea/app/services/responses_upstream.py",
-      "ea/app/services/survival_lane.py",
-      "ea/app/services/tool_execution_browseract_adapter.py",
-      "ea/app/services/tool_execution_browseract_registry.py",
-      "ea/scripts/materialize_office_loop_goal_receipt.py",
-      "ea/scripts/verify_office_loop_goal_receipt.py",
-      "ea/tests/test_assistant_property_boundary.py",
-      "ea/tests/test_assistant_property_boundary_cleanup.py",
-      "ea/tests/test_assistant_property_handoff_visibility.py",
-      "ea/tests/test_ea_live_ops_whatsapp_pairing.py",
-      "ea/tests/test_memorial_runtime.py",
-      "ea/tests/test_proactive_gold_source_coverage.py",
-      "ea/tests/test_proactive_ooda_approval_capture.py",
-      "ea/tests/test_proactive_ooda_live_ops_bridge.py",
-      "ea/tests/test_proactive_ooda_runtime_artifacts.py",
-      "ea/tests/test_proactive_ooda_telegram_approval.py",
-      "ea/tests/test_proactive_ooda_telegram_policy.py",
-      "ea/tests/test_proactive_signal_discovery.py",
-      "ea/tests/test_property_surface_boundary.py",
-      "ea/tests/test_provider_cost_routing.py",
-      "ea/tests/test_run_proactive_ooda_approval_cleanup.py",
-      "ea/tests/test_run_proactive_ooda_property_boundary.py",
-      "ea/tests/test_runner_property_scout.py",
-      "feedback/2026-07-06-ea-proactive-ooda-gold-handoff.md",
-      "scripts/bootstrap_browseract_workflow_repair_skill.py",
-      "scripts/bootstrap_chummer6_guide_skill.py",
-      "scripts/bootstrap_design_governance_skills.py",
-      "scripts/chummer6_guide_worker.py",
-      "scripts/chummer6_provider_readiness.py",
-      "scripts/codexea",
-      "scripts/deploy_proactive_ooda_runtime.sh",
-      "scripts/ea_live_ops.py",
-      "scripts/materialize_continuous_improvement_goal_posture.py",
-      "scripts/materialize_ea_operator_readiness.py",
-      "scripts/materialize_google_workspace_oauth_readiness.py",
-      "scripts/materialize_mymedia_alexa_readiness.py",
-      "scripts/materialize_operator_action_required_dedupe_proof.py",
-      "scripts/materialize_operator_action_required_digest.py",
-      "scripts/materialize_proactive_ooda_gold_acceptance.py",
-      "scripts/materialize_proactive_ooda_operator_status.py",
-      "scripts/materialize_pushbullet_delivery_readiness.py",
-      "scripts/materialize_release_manifest.py",
-      "scripts/materialize_whatsapp_web_action_processor_readiness.py",
-      "scripts/operator_summary.sh",
-      "scripts/run_proactive_ooda.py",
-      "scripts/smoke_api.sh",
-      "scripts/smoke_help.sh"
-    ],
+    "next_action": "refresh_memorial_public_auto_receipts_clean",
+    "next_command": "scripts/materialize_memorial_public_auto_receipts_clean.py",
+    "source_worktree_dirty": false,
+    "source_dirty_count": 0,
+    "source_dirty_files": [],
     "source_dirty_omitted_count": 0,
-    "source_dirty_status_sha256": "52c14c5799cda666a1c8f67598f475dd3873e6de415256b3498dbd6e8de68b49",
+    "source_dirty_status_sha256": "",
     "source_dirty_summary": {
-      "status": "dirty",
-      "total_count": 103,
-      "visible_count": 103,
+      "status": "clean",
+      "total_count": 0,
+      "visible_count": 0,
       "omitted_count": 0,
-      "category_count": 9,
-      "categories": [
-        {
-          "category": "api_routes",
-          "visible_count": 16,
-          "sample_files": [
-            "ea/app/api/routes/admin_view_models.py",
-            "ea/app/api/routes/channels.py",
-            "ea/app/api/routes/human.py",
-            "ea/app/api/routes/landing.py",
-            "ea/app/api/routes/landing_actions.py",
-            "ea/app/api/routes/landing_console_support.py",
-            "ea/app/api/routes/landing_public.py",
-            "ea/app/api/routes/landing_public_pages_support.py"
-          ]
-        },
-        {
-          "category": "services",
-          "visible_count": 27,
-          "sample_files": [
-            "ea/app/services/assistant_property_boundary_cleanup.py",
-            "ea/app/services/assistant_property_lane.py",
-            "ea/app/services/brain_catalog.py",
-            "ea/app/services/operator_access.py",
-            "ea/app/services/proactive_ooda_approval_capture.py",
-            "ea/app/services/proactive_ooda_approval_outcomes.py",
-            "ea/app/services/proactive_ooda_approval_reissue.py",
-            "ea/app/services/proactive_ooda_browser_actions.py"
-          ]
-        },
-        {
-          "category": "app_core",
-          "visible_count": 4,
-          "sample_files": [
-            "ea/app/api/dependencies.py",
-            "ea/app/api/errors.py",
-            "ea/app/product/service.py",
-            "ea/app/runner.py"
-          ]
-        },
-        {
-          "category": "scripts",
-          "visible_count": 25,
-          "sample_files": [
-            "ea/scripts/materialize_office_loop_goal_receipt.py",
-            "ea/scripts/verify_office_loop_goal_receipt.py",
-            "scripts/bootstrap_browseract_workflow_repair_skill.py",
-            "scripts/bootstrap_chummer6_guide_skill.py",
-            "scripts/bootstrap_design_governance_skills.py",
-            "scripts/chummer6_guide_worker.py",
-            "scripts/chummer6_provider_readiness.py",
-            "scripts/codexea"
-          ]
-        },
-        {
-          "category": "deploy_runtime",
-          "visible_count": 2,
-          "sample_files": [
-            "docker-compose.yml",
-            "ea/Dockerfile"
-          ]
-        },
-        {
-          "category": "env_examples",
-          "visible_count": 2,
-          "sample_files": [
-            ".env.example",
-            ".env.local.example"
-          ]
-        },
-        {
-          "category": "docs",
-          "visible_count": 8,
-          "sample_files": [
-            ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
-            "ENVIRONMENT_MATRIX.md",
-            "LTDs.md",
-            "NEXT_SESSION_HANDOFF.md",
-            "README.md",
-            "RUNBOOK.md",
-            "SKILLS.md",
-            "feedback/2026-07-06-ea-proactive-ooda-gold-handoff.md"
-          ]
-        },
-        {
-          "category": "tests",
-          "visible_count": 17,
-          "sample_files": [
-            "ea/tests/test_assistant_property_boundary.py",
-            "ea/tests/test_assistant_property_boundary_cleanup.py",
-            "ea/tests/test_assistant_property_handoff_visibility.py",
-            "ea/tests/test_ea_live_ops_whatsapp_pairing.py",
-            "ea/tests/test_memorial_runtime.py",
-            "ea/tests/test_proactive_gold_source_coverage.py",
-            "ea/tests/test_proactive_ooda_approval_capture.py",
-            "ea/tests/test_proactive_ooda_live_ops_bridge.py"
-          ]
-        },
-        {
-          "category": "repo_config",
-          "visible_count": 2,
-          "sample_files": [
-            ".gitignore",
-            "Makefile"
-          ]
-        }
-      ],
-      "recommended_first_action": "review_and_commit_or_stash_source_groups_before_clean_receipts",
-      "operator_hint": "Start with api_routes/services/scripts/deploy_runtime groups; generated-only receipt changes do not explain clean-clone proof failures."
+      "category_count": 0,
+      "categories": [],
+      "recommended_first_action": "none",
+      "operator_hint": "Source worktree is clean for clean-clone receipt refresh."
     },
     "source_dirty_verifier": {
       "contract_name": "ea.source_dirty_groups_verifier.v1",
       "status": "pass",
       "issues": [],
-      "source_dirty_status": "dirty",
-      "source_dirty_count": 103,
-      "category_count": 9,
-      "priority_group_count": 5
+      "source_dirty_status": "clean",
+      "source_dirty_count": 0,
+      "category_count": 0,
+      "priority_group_count": 0
     },
     "source_cleanup": {
-      "status": "blocked",
-      "source_worktree_dirty": true,
-      "source_dirty_count": 103,
+      "status": "ready",
+      "source_worktree_dirty": false,
+      "source_dirty_count": 0,
       "source_dirty_omitted_count": 0,
-      "source_dirty_status_sha256": "52c14c5799cda666a1c8f67598f475dd3873e6de415256b3498dbd6e8de68b49",
-      "summary_status": "dirty",
-      "category_count": 9,
-      "top_categories": [
-        {
-          "category": "api_routes",
-          "visible_count": 16,
-          "drilldown_command": "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20"
-        },
-        {
-          "category": "services",
-          "visible_count": 27,
-          "drilldown_command": "scripts/inspect_source_dirty_groups.py --category services --limit 20"
-        },
-        {
-          "category": "app_core",
-          "visible_count": 4,
-          "drilldown_command": "scripts/inspect_source_dirty_groups.py --category app_core --limit 20"
-        },
-        {
-          "category": "scripts",
-          "visible_count": 25,
-          "drilldown_command": "scripts/inspect_source_dirty_groups.py --category scripts --limit 20"
-        },
-        {
-          "category": "deploy_runtime",
-          "visible_count": 2,
-          "drilldown_command": "scripts/inspect_source_dirty_groups.py --category deploy_runtime --limit 20"
-        },
-        {
-          "category": "env_examples",
-          "visible_count": 2,
-          "drilldown_command": "scripts/inspect_source_dirty_groups.py --category env_examples --limit 20"
-        }
-      ],
-      "category_drilldown_commands": [
-        "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20",
-        "scripts/inspect_source_dirty_groups.py --category services --limit 20",
-        "scripts/inspect_source_dirty_groups.py --category app_core --limit 20",
-        "scripts/inspect_source_dirty_groups.py --category scripts --limit 20",
-        "scripts/inspect_source_dirty_groups.py --category deploy_runtime --limit 20",
-        "scripts/inspect_source_dirty_groups.py --category env_examples --limit 20",
-        "scripts/inspect_source_dirty_groups.py --category docs --limit 20",
-        "scripts/inspect_source_dirty_groups.py --category tests --limit 20",
-        "scripts/inspect_source_dirty_groups.py --category repo_config --limit 20"
-      ],
+      "source_dirty_status_sha256": "",
+      "summary_status": "clean",
+      "category_count": 0,
+      "top_categories": [],
+      "category_drilldown_commands": [],
       "handoff_commands": [
         "git status --short",
-        "scripts/inspect_source_dirty_groups.py --list-categories",
-        "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20",
-        "scripts/inspect_source_dirty_groups.py --category services --limit 20",
-        "scripts/inspect_source_dirty_groups.py --category app_core --limit 20",
-        "scripts/inspect_source_dirty_groups.py --category scripts --limit 20",
-        "scripts/inspect_source_dirty_groups.py --category deploy_runtime --limit 20",
-        "scripts/inspect_source_dirty_groups.py --category env_examples --limit 20"
+        "scripts/inspect_source_dirty_groups.py --list-categories"
       ],
       "verifier_status": "pass",
       "verifier_issues": [],
-      "next_action": "commit_or_stash_source_changes_before_clean_receipts",
-      "next_command": "scripts/inspect_source_dirty_groups.py --list-categories"
+      "next_action": "",
+      "next_command": ""
     },
     "gold_thresholds": {
       "direct_tts_f1_min": 0.92,
@@ -901,7 +363,7 @@
     }
   },
   "evidence_heads": {
-    "whole_project_map": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+    "whole_project_map": "bb575cc976c55adb1de1ef9734d15f2db0acfb4e",
     "public_voice_receipt": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
     "public_browser_receipt": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
     "public_meaningful_browser_receipt": "65f80831660870d44a2150960ff5ade4aa4f6455",
@@ -1182,7 +644,7 @@
     "sample_count": 4,
     "avg_token_f1": 0.9722,
     "avg_wer": 0.0278,
-    "avg_latency_ms": 422.6,
+    "avg_latency_ms": 555.4,
     "receipt_path": ".codex-studio/published/memorial_stt_provider_benchmark.generated.json",
     "availability": {
       "shadow_provider": "blipai",
@@ -1214,7 +676,7 @@
           ".env",
           ".env.local"
         ],
-        "loaded_count": 417,
+        "loaded_count": 435,
         "provider_families": {
           "cartesia": true,
           "onemin": true,

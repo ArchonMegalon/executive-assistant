@@ -61,7 +61,7 @@ EXPECTED_NEXT_ACTION_SURFACE_TARGETS = {
     "persist_one_reversible_staged_artifact": "Queue",
     "probe_proactive_source_coverage": "Goals",
     "prove_proactive_delivery_only_notifies_for_user_action": "Goals",
-    "reauthorize_google_workspace_binding": "the Google connect action",
+    "reauthorize_google_workspace_binding": "the Google auth recovery surface",
     "reauthorize_or_sync_google_workspace_sources": "the Google sync action",
     "repair_proactive_browser_action_handoff_contract": "Queue",
     "repair_proactive_context_grounding": "Today",

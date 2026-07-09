@@ -56,7 +56,7 @@ wait_for_health_stable() {
   local i
   for i in $(seq 1 "${attempts}"); do
     if curl -fsS "${BASE}/health" >/dev/null 2>&1 \
-      && curl -fsS "${BASE}/health/live" >/dev/null 2>&1 \
+      && curl -fsS "${BASE}/healthz" >/dev/null 2>&1 \
       && curl -fsS "${BASE}/health/ready" >/dev/null 2>&1 \
       && curl -fsS "${BASE}/version" >/dev/null 2>&1; then
       consecutive=$((consecutive + 1))

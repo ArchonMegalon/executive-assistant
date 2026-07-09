@@ -18,6 +18,9 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RECEIPT = ROOT / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
 REQUIRED_LENSES = ["detect", "decide", "deliver", "recover", "prove"]
+GOOGLE_REAUTH_ACTION_HREF = (
+    "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace"
+)
 KNOWN_STATUSES = {
     "pass",
     "ready_local_evidence",
@@ -108,7 +111,7 @@ EXPECTED_PROOF_ACTION_SURFACES = {
     "proactive_ooda_packet_acceptance": ("/admin/proactive-ooda/approval", "get"),
     "fresh_host_teable_recovery_drill": ("/admin/goals", "get"),
     "telegram_business_signal_setup": ("/integrations/telegram", "get"),
-    "google_workspace_oauth_setup": ("/integrations/google", "get"),
+    "google_workspace_oauth_setup": (GOOGLE_REAUTH_ACTION_HREF, "get"),
     "pushbullet_delivery_setup": ("https://www.pushbullet.com/#settings/account", "get"),
     "manfred_stt_tts_realtime_conversation": ("/memorials/manfred/voice-config", "get"),
     "telegram_audiobook_live_delivery": ("/integrations/telegram", "get"),
@@ -123,7 +126,7 @@ EXPECTED_PROOF_FORM_SURFACES = {
     "proactive_ooda_packet_acceptance": ("/admin/proactive-ooda/approval", "get"),
     "fresh_host_teable_recovery_drill": ("/admin/goals", "get"),
     "telegram_business_signal_setup": ("/integrations/telegram", "get"),
-    "google_workspace_oauth_setup": ("/integrations/google", "get"),
+    "google_workspace_oauth_setup": (GOOGLE_REAUTH_ACTION_HREF, "get"),
     "pushbullet_delivery_setup": ("https://www.pushbullet.com/#settings/account", "get"),
     "manfred_stt_tts_realtime_conversation": ("/memorials/manfred/voice-config", "get"),
     "telegram_audiobook_live_delivery": ("/integrations/telegram", "get"),

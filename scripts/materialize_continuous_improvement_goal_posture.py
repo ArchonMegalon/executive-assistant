@@ -66,6 +66,20 @@ DEFAULT_ACTION_DIGEST_STREAMS = (
     OPERATOR_STREAM_OFFICE_SETUP,
     OPERATOR_STREAM_RECOVERY,
 )
+DEFAULT_GOOGLE_REAUTH_RETURN_TO = "/app/settings/google"
+DEFAULT_GOOGLE_REAUTH_SCOPE_BUNDLE = "full_workspace"
+DEFAULT_GOOGLE_REAUTH_ACTION_HREF = "/app/actions/google/connect?" + urllib.parse.urlencode(
+    {
+        "return_to": DEFAULT_GOOGLE_REAUTH_RETURN_TO,
+        "scope_bundle": DEFAULT_GOOGLE_REAUTH_SCOPE_BUNDLE,
+    }
+)
+GOOGLE_REAUTH_NEXT_ACTIONS = {
+    "add_google_oauth_test_user_and_retry_full_workspace_auth",
+    "retry_full_workspace_auth_with_approved_account",
+    "retry_full_workspace_auth_with_expected_account",
+    "reauthorize_google_workspace_binding",
+}
 
 BLOCKING_PREFIXES = ("blocked", "fail", "missing", "waiting", "error")
 MORNING_BRIEF_ACCEPTANCE_RECEIPT = "real operator acceptance that the morning brief was worth reading"
@@ -169,18 +183,23 @@ ACTION_SURFACES = {
         "method": "get",
     },
     "add_google_oauth_test_user_and_retry_full_workspace_auth": {
-        "href": "/integrations/google",
+        "href": DEFAULT_GOOGLE_REAUTH_ACTION_HREF,
         "label": "Open Google setup",
         "method": "get",
     },
     "retry_full_workspace_auth_with_approved_account": {
-        "href": "/integrations/google",
+        "href": DEFAULT_GOOGLE_REAUTH_ACTION_HREF,
         "label": "Retry Google auth",
         "method": "get",
     },
     "retry_full_workspace_auth_with_expected_account": {
-        "href": "/integrations/google",
+        "href": DEFAULT_GOOGLE_REAUTH_ACTION_HREF,
         "label": "Retry Google auth",
+        "method": "get",
+    },
+    "reauthorize_google_workspace_binding": {
+        "href": DEFAULT_GOOGLE_REAUTH_ACTION_HREF,
+        "label": "Reconnect Google workspace",
         "method": "get",
     },
     "create_missing_pushbullet_access_tokens": {
@@ -279,6 +298,21 @@ def _operator_form_surface(next_action: str, action_context: dict[str, Any]) -> 
         "next_action_form_label": str(surface.get("label") or "").strip() if method == "get" else "",
         "next_action_form_method": method if method == "get" else "",
     }
+
+
+def _canonical_next_action_href(
+    next_action: str,
+    *,
+    action_href: str,
+    form_surface: dict[str, str],
+) -> str:
+    if next_action not in GOOGLE_REAUTH_NEXT_ACTIONS:
+        return action_href
+    form_href = str(form_surface.get("next_action_form_href") or "").strip()
+    form_method = str(form_surface.get("next_action_form_method") or "").strip().lower()
+    if form_href and form_method == "get":
+        return form_href
+    return action_href
 
 
 def _utc_now() -> str:
@@ -890,8 +924,15 @@ def _acceptance_proof_requirement(
     context = dict(action_context or {})
     form_surface = _operator_form_surface(next_action, context)
     action_href = str(context.get("next_action_href") or surface.get("href") or "").strip()
+    action_href = _canonical_next_action_href(
+        next_action,
+        action_href=action_href,
+        form_surface=form_surface,
+    )
     action_label = str(context.get("next_action_label") or surface.get("label") or "").strip()
     action_method = str(context.get("next_action_method") or surface.get("method") or "").strip()
+    if context and action_href:
+        context["next_action_href"] = action_href
     payload = {
         "key": key,
         "title": title,

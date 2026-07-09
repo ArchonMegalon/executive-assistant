@@ -31,6 +31,8 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 from app.services.proactive_ooda_live_ops_bridge import resolve_proactive_ooda_capture_bundle
 from app.services.proactive_ooda_operator_actions import proactive_next_action_surface
 from app.services.proactive_ooda_runtime_artifacts import (
+    _approval_callback_outcome_row,
+    _approval_callback_rows,
     choose_stage_and_safe_work_for_run_receipt,
     display_path,
     latest_run_receipts,
@@ -1045,6 +1047,160 @@ def _live_historical_accepted_bundle_from_approval_outcome(
     }
 
 
+def _historical_accepted_callback_bundle_from_runtime_paths(
+    *,
+    approval_callback_dir: Path | None,
+    run_receipt_path: Path | None,
+    stage_packet_dir: Path | None,
+    safe_work_result_dir: Path | None,
+) -> dict[str, Any]:
+    if approval_callback_dir is None or not approval_callback_dir.is_dir():
+        return {}
+    best_bundle: dict[str, Any] = {}
+    best_score: tuple[int, int, int, int, str] | None = None
+    for callback_row in _approval_callback_rows(approval_callback_dir):
+        approval_row = _approval_callback_outcome_row(callback_row)
+        if not bool(approval_row.get("accepted")):
+            continue
+        bundle = _historical_accepted_bundle_from_approval_outcome(
+            approval_row=approval_row,
+            run_receipt_path=run_receipt_path,
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+        )
+        if not bundle:
+            continue
+        run_receipt = dict(bundle.get("run_receipt") or {})
+        stage_packet = dict(bundle.get("stage_packet") or {})
+        safe_work_result = dict(bundle.get("safe_work_result") or {})
+        packet_artifacts_match_run_receipt = _run_receipt_matches_packet_artifacts(
+            run_receipt=run_receipt,
+            stage_packet=stage_packet,
+            safe_work_result=safe_work_result,
+        )
+        _assistant_grade_proof, assistant_grade_present = _assistant_grade_packet_quality_proof(
+            stage_packet=stage_packet,
+            safe_work_result=safe_work_result,
+            packet_artifacts_match_run_receipt=packet_artifacts_match_run_receipt,
+        )
+        if not assistant_grade_present:
+            continue
+        execution_receipt = dict(safe_work_result.get("execution_receipt") or {})
+        recommended = dict(safe_work_result.get("recommended_option_or_draft") or {})
+        score = (
+            int(packet_artifacts_match_run_receipt),
+            int(execution_receipt.get("network_fetch_success_count") or 0),
+            len(list(safe_work_result.get("shortlist") or [])),
+            1 if str(recommended.get("kind") or "").strip() else 0,
+            _first_text(
+                callback_row.get("decided_at"),
+                callback_row.get("updated_at"),
+                callback_row.get("created_at"),
+            ),
+        )
+        if best_score is None or score > best_score:
+            best_score = score
+            best_bundle = {
+                **bundle,
+                "selection_source": "historical_accepted_approval_callback",
+                "approval_row": approval_row,
+                "approval_row_source": "historical_approved_callback",
+            }
+    return best_bundle
+
+
+def _live_historical_accepted_callback_bundle_from_runtime_paths(
+    *,
+    approval_callback_dir: Path | None,
+    run_receipt_path: Path | None,
+    stage_packet_dir: Path | None,
+    safe_work_result_dir: Path | None,
+    timeout_seconds: float = 20.0,
+) -> dict[str, Any]:
+    if not any(
+        _path_requires_live_runtime_lookup(path)
+        for path in (approval_callback_dir, run_receipt_path, stage_packet_dir, safe_work_result_dir)
+    ):
+        return {}
+    payload = {
+        "approval_callback_dir": str(approval_callback_dir or ""),
+        "run_receipt_path": str(run_receipt_path or ""),
+        "stage_packet_dir": str(stage_packet_dir or ""),
+        "safe_work_result_dir": str(safe_work_result_dir or ""),
+    }
+    command = [
+        "python",
+        "-c",
+        (
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            "sys.path.insert(0, '/app')\n"
+            "sys.path.insert(0, '/app/scripts')\n"
+            "import materialize_proactive_ooda_gold_acceptance as gold\n"
+            "def _json_safe(value):\n"
+            "    if value is None or isinstance(value, (str, int, float, bool)):\n"
+            "        return value\n"
+            "    if isinstance(value, Path):\n"
+            "        return value.as_posix()\n"
+            "    if isinstance(value, dict):\n"
+            "        return {str(k): _json_safe(v) for k, v in value.items()}\n"
+            "    if isinstance(value, (list, tuple, set)):\n"
+            "        return [_json_safe(v) for v in value]\n"
+            "    return str(value)\n"
+            "payload = json.loads(sys.argv[1])\n"
+            "bundle = gold._historical_accepted_callback_bundle_from_runtime_paths(\n"
+            "    approval_callback_dir=Path(payload['approval_callback_dir']) if payload.get('approval_callback_dir') else None,\n"
+            "    run_receipt_path=Path(payload['run_receipt_path']) if payload.get('run_receipt_path') else None,\n"
+            "    stage_packet_dir=Path(payload['stage_packet_dir']) if payload.get('stage_packet_dir') else None,\n"
+            "    safe_work_result_dir=Path(payload['safe_work_result_dir']) if payload.get('safe_work_result_dir') else None,\n"
+            ")\n"
+            "print(json.dumps({\n"
+            "    'ok': bool(bundle),\n"
+            "    'selection_source': str(bundle.get('selection_source') or ''),\n"
+            "    'approval_row': _json_safe(dict(bundle.get('approval_row') or {})),\n"
+            "    'approval_row_source': str(bundle.get('approval_row_source') or ''),\n"
+            "    'run_receipt_path': str(bundle.get('run_receipt_path') or ''),\n"
+            "    'run_receipt': _json_safe(dict(bundle.get('run_receipt') or {})),\n"
+            "    'stage_packet_path': str(bundle.get('stage_packet_path') or ''),\n"
+            "    'stage_packet': _json_safe(dict(bundle.get('stage_packet') or {})),\n"
+            "    'safe_work_result_path': str(bundle.get('safe_work_result_path') or ''),\n"
+            "    'safe_work_result': _json_safe(dict(bundle.get('safe_work_result') or {})),\n"
+            "}, sort_keys=True))\n"
+        ),
+        json.dumps(payload, sort_keys=True),
+    ]
+    code, live_payload, stdout, stderr = ea_live_ops._docker_compose_exec_json(  # noqa: SLF001
+        compose_file=str(
+            os.environ.get("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE")
+            or ea_live_ops.DEFAULT_PROACTIVE_OODA_COMPOSE_FILE
+        ).strip(),
+        service=str(
+            os.environ.get("EA_PROACTIVE_OODA_RUNTIME_SERVICE")
+            or ea_live_ops.DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE
+        ).strip(),
+        command=command,
+        timeout_seconds=max(float(timeout_seconds or 1.0), 1.0),
+    )
+    if int(code or 0) != 0 or not bool(live_payload.get("ok")):
+        return {}
+    return {
+        "run_receipt_path": _path_from_text(ROOT, str(live_payload.get("run_receipt_path") or "")),
+        "run_receipt": dict(live_payload.get("run_receipt") or {}),
+        "stage_packet_path": _path_from_text(ROOT, str(live_payload.get("stage_packet_path") or "")),
+        "stage_packet": dict(live_payload.get("stage_packet") or {}),
+        "safe_work_result_path": _path_from_text(ROOT, str(live_payload.get("safe_work_result_path") or "")),
+        "safe_work_result": dict(live_payload.get("safe_work_result") or {}),
+        "selection_source": str(live_payload.get("selection_source") or "").strip()
+        or "historical_accepted_approval_callback",
+        "approval_row": dict(live_payload.get("approval_row") or {}),
+        "approval_row_source": str(live_payload.get("approval_row_source") or "").strip()
+        or "historical_approved_callback",
+        "source": "docker_compose_exec",
+        "stdout_excerpt": str(stdout or "").strip()[:200],
+        "stderr_excerpt": str(stderr or "").strip()[:200],
+    }
+
+
 def _historical_assistant_grade_browse_bundle_from_runtime_paths(
     *,
     state_path: Path | str | None = None,
@@ -1739,14 +1895,14 @@ def _operator_runtime_next_action(
     if not operator_status_source_ready:
         next_action = str(operator_status_source_detail.get("next_action") or "").strip()
         return concrete_operator_action or next_action or "repair_proactive_operator_runtime_posture"
+    if concrete_operator_action:
+        return concrete_operator_action
     source_health_ready, source_health_detail = _operator_runtime_source_health_posture(operator_status)
     if not source_health_ready:
         next_action = str(source_health_detail.get("next_action") or "").strip()
         if next_action:
             return next_action
     reason = str(operator_status.get("reason") or "").strip()
-    if concrete_operator_action:
-        return concrete_operator_action
     if reason.startswith("source_health_") and operator_status_next_action:
         return operator_status_next_action
     source_ready, source_detail = _operator_runtime_source_coverage_posture(operator_status)
@@ -1783,6 +1939,29 @@ def _operator_runtime_next_action(
         if next_action:
             return next_action
     return operator_status_next_action or "repair_proactive_operator_runtime_posture"
+
+
+def _operator_runtime_recovery_required(
+    *,
+    operator_runtime_ready: bool,
+    operator_runtime_next_action: str,
+    source_health_detail: Mapping[str, Any],
+) -> bool:
+    if operator_runtime_ready:
+        return False
+    generic_repair_actions = {
+        "",
+        "maintain_proactive_ooda_runtime",
+        "repair_proactive_operator_runtime_posture",
+    }
+    next_action = str(operator_runtime_next_action or "").strip()
+    source_health_status = str(source_health_detail.get("source_health_status") or "").strip()
+    return bool(
+        source_health_status == "recovery_required"
+        or bool(source_health_detail.get("source_health_operator_action_required"))
+        or bool(source_health_detail.get("source_health_user_action_required"))
+        or (next_action and next_action not in generic_repair_actions)
+    )
 
 
 def _concrete_operator_recovery_action(operator_status: Mapping[str, Any]) -> str:
@@ -2211,6 +2390,42 @@ def _operator_runtime_suppressed_projection_posture(operator_status: Mapping[str
             suppressed.get("inferred_from_packet_projection_gap")
         ),
         "next_action": "" if ready else "repair_proactive_safe_work_audit",
+    }
+
+
+def _operator_runtime_artifact_drift_posture(operator_status: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
+    drift = dict(operator_status.get("runtime_artifact_drift") or {})
+    if not drift:
+        return True, {
+            "runtime_artifact_drift_recorded": False,
+            "runtime_artifact_drift_checked": False,
+            "runtime_artifact_drift_present": False,
+            "runtime_artifact_drift_ready": True,
+            "runtime_artifact_drift_requires_recovery": False,
+            "runtime_artifact_drift_status": "",
+            "runtime_artifact_drift_mismatch_count": 0,
+            "runtime_artifact_drift_material_mismatch_count": 0,
+            "runtime_artifact_drift_fields": [],
+            "next_action": "",
+        }
+    requires_recovery = bool(drift.get("requires_recovery"))
+    ready = not requires_recovery
+    return ready, {
+        "runtime_artifact_drift_recorded": True,
+        "runtime_artifact_drift_checked": bool(drift.get("checked")),
+        "runtime_artifact_drift_present": bool(drift.get("present")),
+        "runtime_artifact_drift_ready": ready,
+        "runtime_artifact_drift_requires_recovery": requires_recovery,
+        "runtime_artifact_drift_status": str(drift.get("status") or "").strip(),
+        "runtime_artifact_drift_blocking_reason": str(drift.get("blocking_reason") or "").strip(),
+        "runtime_artifact_drift_mismatch_count": int(drift.get("mismatch_count") or 0),
+        "runtime_artifact_drift_material_mismatch_count": int(drift.get("material_mismatch_count") or 0),
+        "runtime_artifact_drift_fields": [
+            str(item or "").strip()
+            for item in list(drift.get("material_mismatch_fields") or drift.get("mismatch_fields") or [])
+            if str(item or "").strip()
+        ][:10],
+        "next_action": "" if ready else str(drift.get("next_action") or "").strip(),
     }
 
 
@@ -3157,9 +3372,10 @@ def _runtime_artifact_bundle(
         "approval_callback_dir",
         "stage_packet_path",
         "safe_work_result_path",
-    ):
+        ):
         if path_key in bundle:
             bundle[path_key] = _path_from_text(ROOT, str(bundle.get(path_key) or ""))
+    bundle["runtime_artifact_drift"] = dict(resolution.get("runtime_artifact_drift") or {})
     used_live_runtime_probe = str(resolution.get("bundle_source") or "").strip() == "live_runtime"
     if used_live_runtime_probe and not bundle.get("approval_outcome") and local_bundle.get("approval_outcome"):
         bundle["approval_outcome"] = dict(local_bundle.get("approval_outcome") or {})
@@ -3240,6 +3456,7 @@ def materialize_proactive_ooda_gold_acceptance(
     safe_path = bundle.get("safe_work_result_path")
     safe_work_result = dict(bundle.get("safe_work_result") or {})
     resolved_approval_outcome_path = approval_outcome_path or bundle.get("approval_outcome_path")
+    resolved_approval_callback_dir = bundle.get("approval_callback_dir")
     runtime_approval_outcome = (
         _load_json(resolved_approval_outcome_path)
         if approval_outcome_path is not None
@@ -3422,9 +3639,63 @@ def materialize_proactive_ooda_gold_acceptance(
                 safe_work_result=safe_work_result,
             )
             packet_artifacts_match_run_receipt = browse_packet_artifacts_match_run_receipt
+    historical_callback_bundle: dict[str, Any] = {}
+    selected_bundle_has_accepted_approval = bool(
+        (file_approval_matches_current_packet and bool(file_approval_row.get("accepted")))
+        or (callback_approval_matches_current_packet and bool(callback_approval_row.get("accepted")))
+    )
+    if not selected_bundle_has_accepted_approval:
+        historical_callback_bundle = _historical_accepted_callback_bundle_from_runtime_paths(
+            approval_callback_dir=resolved_approval_callback_dir
+            if isinstance(resolved_approval_callback_dir, Path)
+            else None,
+            run_receipt_path=run_path if isinstance(run_path, Path) else None,
+            stage_packet_dir=resolved_stage_dir if isinstance(resolved_stage_dir, Path) else None,
+            safe_work_result_dir=resolved_safe_dir if isinstance(resolved_safe_dir, Path) else None,
+        )
+        if not historical_callback_bundle and used_live_runtime_probe:
+            historical_callback_bundle = _live_historical_accepted_callback_bundle_from_runtime_paths(
+                approval_callback_dir=resolved_approval_callback_dir
+                if isinstance(resolved_approval_callback_dir, Path)
+                else None,
+                run_receipt_path=run_path if isinstance(run_path, Path) else None,
+                stage_packet_dir=resolved_stage_dir if isinstance(resolved_stage_dir, Path) else None,
+                safe_work_result_dir=resolved_safe_dir if isinstance(resolved_safe_dir, Path) else None,
+            )
+        if historical_callback_bundle:
+            selected_runtime_bundle = dict(historical_callback_bundle)
+            selected_bundle_source = str(historical_callback_bundle.get("selection_source") or "").strip() or (
+                "historical_accepted_approval_callback"
+            )
+            run_path = historical_callback_bundle.get("run_receipt_path")
+            run_receipt = dict(historical_callback_bundle.get("run_receipt") or {})
+            stage_path = historical_callback_bundle.get("stage_packet_path")
+            stage_packet = dict(historical_callback_bundle.get("stage_packet") or {})
+            safe_path = historical_callback_bundle.get("safe_work_result_path")
+            safe_work_result = dict(historical_callback_bundle.get("safe_work_result") or {})
+            file_approval_matches_current_packet = _approval_outcome_matches_packet_artifacts(
+                approval_row=file_approval_row,
+                stage_packet=stage_packet,
+                safe_work_result=safe_work_result,
+            )
+            callback_approval_matches_current_packet = _approval_outcome_matches_packet_artifacts(
+                approval_row=callback_approval_row,
+                stage_packet=stage_packet,
+                safe_work_result=safe_work_result,
+            )
+            packet_artifacts_match_run_receipt = _run_receipt_matches_packet_artifacts(
+                run_receipt=run_receipt,
+                stage_packet=stage_packet,
+                safe_work_result=safe_work_result,
+            )
     approval_row_source = "approval_outcome_artifact"
     approval_row = file_approval_row
-    if not file_approval_matches_current_packet and callback_approval_matches_current_packet:
+    if historical_callback_bundle:
+        approval_row_source = str(historical_callback_bundle.get("approval_row_source") or "").strip() or (
+            "historical_approved_callback"
+        )
+        approval_row = dict(historical_callback_bundle.get("approval_row") or {})
+    elif not file_approval_matches_current_packet and callback_approval_matches_current_packet:
         approval_row_source = "current_packet_callback"
         approval_row = callback_approval_row
     approval_row = _coherent_approval_outcome_row(
@@ -3433,7 +3704,7 @@ def materialize_proactive_ooda_gold_acceptance(
         safe_work_result=safe_work_result,
     )
     approval_outcome_stale_for_current_packet = bool(approval_row.get("stale_for_current_packet"))
-    approval_artifact_matches_current_packet = file_approval_matches_current_packet or callback_approval_matches_current_packet
+    approval_artifact_matches_current_packet = bool(approval_row.get("current_packet_match"))
     approval_capture_surface, approval_capture_surface_ready = _approval_capture_surface_receipt(
         operator_status=operator_status,
         bundle=selected_runtime_bundle,
@@ -3574,6 +3845,14 @@ def materialize_proactive_ooda_gold_acceptance(
         and approval_capture_effective_surface_ready
         and approval_capture_readiness_ready
     )
+    runtime_artifact_drift = dict(operator_status.get("runtime_artifact_drift") or {})
+    if not runtime_artifact_drift:
+        runtime_artifact_drift = dict(selected_runtime_bundle.get("runtime_artifact_drift") or {})
+        if runtime_artifact_drift:
+            operator_status = {
+                **operator_status,
+                "runtime_artifact_drift": runtime_artifact_drift,
+            }
 
     delivery_route = dict(operator_status.get("delivery_route") or {})
     live_receipt = dict(operator_status.get("live_receipt") or {})
@@ -3599,6 +3878,9 @@ def materialize_proactive_ooda_gold_acceptance(
     suppressed_projection_ready, suppressed_projection_detail = _operator_runtime_suppressed_projection_posture(
         operator_status
     )
+    runtime_artifact_drift_ready, runtime_artifact_drift_detail = _operator_runtime_artifact_drift_posture(
+        operator_status
+    )
     operator_runtime_ready = (
         operator_status_state.startswith("ready")
         and operator_status_source_ready
@@ -3608,6 +3890,7 @@ def materialize_proactive_ooda_gold_acceptance(
         and safe_work_audit_ready
         and current_artifact_filter_ready
         and suppressed_projection_ready
+        and runtime_artifact_drift_ready
         and approval_callback_hygiene_ready
     )
     operator_runtime_next_action = (
@@ -3633,6 +3916,7 @@ def materialize_proactive_ooda_gold_acceptance(
             **safe_work_audit_detail,
             **current_artifact_filter_detail,
             **suppressed_projection_detail,
+            **runtime_artifact_drift_detail,
             **approval_callback_hygiene_detail,
             "next_action": operator_runtime_next_action,
             **_next_action_surface_fields(operator_runtime_next_action),
@@ -3930,7 +4214,7 @@ def materialize_proactive_ooda_gold_acceptance(
         },
     )
 
-    runtime_proofs_complete = operator_runtime_ready and all(
+    core_packet_evidence_present = all(
         (
             delivery_present,
             assistant_grade_present,
@@ -3939,13 +4223,28 @@ def materialize_proactive_ooda_gold_acceptance(
             chosen_present,
             staged_present,
             teable_present,
-            approval_capture_readiness_present,
         )
     )
-    if not operator_runtime_ready:
-        status = "blocked_operator_runtime_posture"
-    elif delivery_present and not assistant_grade_present:
+    packet_evidence_present = core_packet_evidence_present and approval_capture_readiness_present
+    runtime_proofs_complete = operator_runtime_ready and packet_evidence_present
+    operator_runtime_recovery_required = _operator_runtime_recovery_required(
+        operator_runtime_ready=operator_runtime_ready,
+        operator_runtime_next_action=operator_runtime_next_action,
+        source_health_detail=source_health_detail,
+    )
+    if delivery_present and not assistant_grade_present:
         status = "blocked_low_quality_packet_evidence"
+    elif operator_runtime_recovery_required:
+        status = "blocked_operator_runtime_posture"
+    elif (
+        not operator_runtime_ready
+        and not approval_required
+        and not bool(approval_row.get("approval_outcome_recorded"))
+        and not approval_capture_readiness_required
+    ):
+        status = "blocked_missing_proactive_packet_evidence"
+    elif not operator_runtime_ready:
+        status = "blocked_operator_runtime_posture"
     elif runtime_proofs_complete and bool(approval_row.get("accepted")) and action_required_delivery_present:
         status = "pass"
     elif runtime_proofs_complete and bool(approval_row.get("accepted")):
@@ -4084,6 +4383,23 @@ def materialize_proactive_ooda_gold_acceptance(
                 "schema": str(safe_work_result.get("schema") or "").strip(),
                 "status": str(safe_work_result.get("status") or "").strip(),
                 "source": "docker_compose_exec" if used_live_runtime_probe else "local_filesystem",
+            },
+            "runtime_artifact_drift": {
+                "present": bool(runtime_artifact_drift.get("present")),
+                "checked": bool(runtime_artifact_drift.get("checked")),
+                "status": str(runtime_artifact_drift.get("status") or "").strip(),
+                "requires_recovery": bool(runtime_artifact_drift.get("requires_recovery")),
+                "blocking_reason": str(runtime_artifact_drift.get("blocking_reason") or "").strip(),
+                "mismatch_count": int(runtime_artifact_drift.get("mismatch_count") or 0),
+                "material_mismatch_count": int(runtime_artifact_drift.get("material_mismatch_count") or 0),
+                "mismatch_fields": [
+                    str(item or "").strip()
+                    for item in list(runtime_artifact_drift.get("material_mismatch_fields") or runtime_artifact_drift.get("mismatch_fields") or [])
+                    if str(item or "").strip()
+                ][:10],
+                "next_action": str(runtime_artifact_drift.get("next_action") or "").strip(),
+                "selected_bundle_source": selected_bundle_source,
+                "source": "docker_compose_exec_vs_local_filesystem" if used_live_runtime_probe else "local_filesystem_only",
             },
             "operator_action_required_digest": operator_action_required_digest,
             "operator_action_required_dedupe_proof": operator_action_required_dedupe_proof,

@@ -539,6 +539,47 @@ def test_loopback_no_auth_preserves_token_auth_principal_contract() -> None:
     assert loopback_context.operator_authorized is False
 
 
+def test_loopback_no_auth_accepts_local_docker_gateway_with_loopback_host_header() -> None:
+    _clear_env()
+    os.environ["EA_ALLOW_LOOPBACK_NO_AUTH"] = "1"
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    container, _ = _container_for_current_settings()
+
+    loopback_context = get_request_context(
+        _request(
+            headers={
+                "X-EA-Principal-ID": "caller-2",
+                "Host": "127.0.0.1:8090",
+            },
+            client_host="172.22.0.1",
+        ),
+        container=container,
+    )
+
+    assert loopback_context.principal_id == "caller-2"
+    assert loopback_context.auth_source == "loopback_no_auth"
+    assert loopback_context.authenticated is True
+
+
+def test_loopback_no_auth_accepts_local_docker_gateway_without_loopback_host_header() -> None:
+    _clear_env()
+    os.environ["EA_ALLOW_LOOPBACK_NO_AUTH"] = "1"
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    container, _ = _container_for_current_settings()
+
+    loopback_context = get_request_context(
+        _request(
+            headers={"X-EA-Principal-ID": "caller-3"},
+            client_host="172.22.0.1",
+        ),
+        container=container,
+    )
+
+    assert loopback_context.principal_id == "caller-3"
+    assert loopback_context.auth_source == "loopback_no_auth"
+    assert loopback_context.authenticated is True
+
+
 def test_loopback_no_auth_uses_active_operator_profile_for_operator_context() -> None:
     _clear_env()
     os.environ["EA_ALLOW_LOOPBACK_NO_AUTH"] = "1"

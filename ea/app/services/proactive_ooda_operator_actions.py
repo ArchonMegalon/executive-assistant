@@ -41,6 +41,7 @@ def proactive_next_action_surface(action: str, *, public_base_url: str = "") -> 
     normalized = str(action or "").strip()
     if normalized in {
         "maintain_proactive_ooda_runtime",
+        "wait_for_notification_cooldown",
         "repair_proactive_context_grounding",
         "refresh_relationship_and_occasion_sources",
         "sync_shopping_and_vendor_sources",
