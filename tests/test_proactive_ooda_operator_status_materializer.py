@@ -2408,6 +2408,60 @@ def test_materialize_proactive_ooda_operator_status_rejects_historical_browse_ba
     assert receipt["safe_work_results"]["selected_result_path"] == "/data/provider-ledger/proactive_ooda_safe_work_results/res-current.json"
 
 
+def test_normalized_assistant_grade_packet_requires_transcript_action_intent() -> None:
+    module = _load_script()
+
+    packet = module._normalized_assistant_grade_packet(  # noqa: SLF001
+        {
+            "source": "docker_compose_exec",
+            "assistant_grade_bundle_source": "current_runtime_bundle",
+            "stage_packet": {
+                "packet_ref": "packet-transcript-1",
+                "stage": {
+                    "kind": "research_packet",
+                    "payload": {
+                        "adapter_hint": "transcript_signal",
+                        "work_type": "compare_options",
+                        "draft_request_text": "background chatter and a passing remark",
+                    },
+                },
+                "safe_work_order": {"work_type": "compare_options"},
+                "approval": {"required": True},
+            },
+            "safe_work_result": {
+                "result_ref": "result-transcript-1",
+                "status": "staged_for_user_decision",
+                "work_type": "compare_options",
+                "approval": {"required": True},
+                "approval_prompt": "Approve this shortlist?",
+                "staged_action_url": "https://example.test/candidate",
+                "audit": {"status": "pass", "issues": []},
+                "recommended_option_or_draft": {
+                    "kind": "shortlist_candidate",
+                    "value": {"label": "Candidate", "url": "https://example.test/candidate"},
+                },
+                "shortlist": [{"label": "Candidate", "url": "https://example.test/candidate"}],
+                "execution_receipt": {
+                    "network_fetch_count": 1,
+                    "network_fetch_success_count": 1,
+                    "page_checks": [{"url": "https://example.test/candidate", "reachable": True}],
+                    "irreversible_actions_attempted": [],
+                },
+            },
+            "run_receipt": {
+                "notification_status": "sent",
+                "item_count": 1,
+                "delivery_channel": "telegram",
+            },
+        }
+    )
+
+    assert packet["present"] is True
+    assert packet["requires_recovery"] is True
+    assert packet["blocking_reason"] == "transcript_signal_lacks_action_intent"
+    assert packet["next_action"] == "stage_fresh_assistant_grade_proactive_packet"
+
+
 def test_materialize_proactive_ooda_operator_status_explicit_live_receipt_still_uses_historical_browse_backed_packet(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -3790,6 +3844,53 @@ def test_approval_capture_surface_keeps_manual_capture_ready_with_live_pending_c
     assert surface["manual_outcome_capture_ready"] is True
     assert surface["current_packet_approval_request_recordable"] is True
     assert surface["current_packet_live_pending_count"] == 1
+
+
+def test_approval_capture_surface_treats_live_pending_callback_as_user_action_when_policy_says_no(
+    monkeypatch,
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "approval_request_needs_telegram_user_action", lambda _request: False)
+
+    surface = module._approval_capture_surface(  # noqa: SLF001
+        report={
+            "delivery_route": {"ready": True, "selected_channel": "telegram"},
+            "stage_packets": {"ready": True},
+            "safe_work_results": {"ready": True},
+        },
+        artifact_probe={
+            "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
+            "approval_callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 1,
+            "approval_callback_pending_count": 1,
+            "current_packet_callback_record_count": 1,
+            "current_packet_callback_pending_count": 1,
+            "current_packet_live_callback_record_count": 1,
+            "current_packet_live_pending_count": 1,
+            "current_packet_callback_latest_status": "pending",
+            "stage_packet": {
+                "packet_ref": "stage_packet:pkt-live",
+                "approval": {"required": True},
+                "stage": {"payload": {"approval_url": "https://example.test/candidate"}},
+            },
+            "safe_work_result": {
+                "result_ref": "safe_work_result:res-live",
+                "status": "staged_for_user_decision",
+                "work_type": "compare_options",
+                "approval": {"required": True},
+                "approval_prompt": "Approve this staged candidate.",
+                "staged_action_url": "https://example.test/candidate",
+            },
+            "approval_outcome": {},
+        },
+    )
+
+    assert surface["ready"] is True
+    assert surface["current_packet_user_action_required"] is True
+    assert surface["telegram_approval_surface_ready"] is True
+    assert surface["manual_outcome_capture_ready"] is True
 
 
 def test_normalize_approval_capture_surface_downgrades_unverified_live_callback_to_manual_capture() -> None:

@@ -575,14 +575,14 @@
   },
   "blocked_checks": [],
   "claim_readiness_blockers": [
-    "blocked_missing_proactive_packet_evidence"
+    "blocked_operator_runtime_posture"
   ],
   "contract_name": "ea.executive_assistant_quality_readiness.v1",
   "ea_is_product_truth": false,
   "ea_owns_canonical_queue_truth": false,
   "ea_owns_release_authority": false,
   "external_acceptance_blockers": [],
-  "generated_at": "2026-07-09T06:11:34Z",
+  "generated_at": "2026-07-09T06:39:13Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": false,
@@ -590,28 +590,28 @@
   "live_daily_use_verified": true,
   "local_blockers": [],
   "local_quality_evidence_ready": true,
-  "next_action": "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof",
+  "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
   "next_action_context": {
     "gold_claim_allowed": false,
     "kind": "proactive_ooda_gold_recovery",
-    "next_action": "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof",
-    "next_action_href": "https://myexternalbrain.com/admin/goals",
-    "next_action_label": "Open goals",
+    "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+    "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
+    "next_action_label": "Record packet verdict",
     "next_action_method": "get",
     "receipt_info": {
-      "bytes": 27551,
+      "bytes": 28155,
       "exists": true,
       "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
-      "sha256": "4b323ee5790644bbfa2f5555b53317b4f543141cdfd310935f5322b7b1db3d5d"
+      "sha256": "4a8b972746d181e988ba62f8b3813e66d0ccf45c0b5f9a17023d112d977a5c68"
     },
-    "status": "blocked_missing_proactive_packet_evidence",
-    "summary": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing."
+    "status": "blocked_operator_runtime_posture",
+    "summary": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored."
   },
-  "next_action_form_href": "https://myexternalbrain.com/admin/goals",
-  "next_action_form_label": "Open goals",
+  "next_action_form_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
+  "next_action_form_label": "Record packet verdict",
   "next_action_form_method": "get",
-  "next_action_href": "https://myexternalbrain.com/admin/goals",
-  "next_action_label": "Open goals",
+  "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
+  "next_action_label": "Record packet verdict",
   "next_action_method": "get",
   "next_action_proof_key": "",
   "privacy": {
@@ -626,22 +626,22 @@
   "proactive_ooda_gold_acceptance": {
     "claim_ready": false,
     "gold_claim_allowed": false,
-    "next_action": "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof",
-    "next_action_form_href": "https://myexternalbrain.com/admin/goals",
-    "next_action_form_label": "Open goals",
+    "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+    "next_action_form_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
+    "next_action_form_label": "Record packet verdict",
     "next_action_form_method": "get",
-    "next_action_href": "https://myexternalbrain.com/admin/goals",
-    "next_action_label": "Open goals",
+    "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
+    "next_action_label": "Record packet verdict",
     "next_action_method": "get",
     "present": true,
     "receipt_info": {
-      "bytes": 27551,
+      "bytes": 28155,
       "exists": true,
       "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
-      "sha256": "4b323ee5790644bbfa2f5555b53317b4f543141cdfd310935f5322b7b1db3d5d"
+      "sha256": "4a8b972746d181e988ba62f8b3813e66d0ccf45c0b5f9a17023d112d977a5c68"
     },
-    "status": "blocked_missing_proactive_packet_evidence",
-    "summary": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing."
+    "status": "blocked_operator_runtime_posture",
+    "summary": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored."
   },
   "provider_telemetry_is_product_authority": false,
   "public_or_premium_claim_allowed": false,
@@ -681,14 +681,14 @@
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason"
   ],
-  "source_git_head": "3924d1ec8dccb047e26282e6ab96d1d4724ed0ab",
+  "source_git_head": "1232dc4c9660ac083ff72624593496e81cbe4d9a",
   "source_receipt": {
     "bytes": 16387,
     "exists": true,
     "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
     "sha256": "01236199c3df3ddf46b6ca7789e52be9640e80f4ce92dc9ce1cf6071487ec1d7"
   },
-  "source_state_fingerprint": "a1a0b40b5565e49ab79fb070310d1cd4adbe052bd74e1c521c16332fd0c1e410",
+  "source_state_fingerprint": "42d8e99632c75fbd95cd17851ab3a39bfe0546c6eb3226d4eb5e6fa67d6c9b52",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_real_world_acceptance"
 }

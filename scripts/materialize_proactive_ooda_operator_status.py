@@ -34,6 +34,7 @@ from app.services.proactive_source_health_policy import source_health_issue_requ
 from app.services.proactive_ooda_telegram_policy import approval_request_needs_telegram_user_action
 from app.services.proactive_ooda_safe_work import safe_work_decision_materiality_issue
 from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
+from app.services.proactive_signal_discovery import _transcript_has_action_intent
 
 
 DEFAULT_OUTPUT = ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
@@ -1921,8 +1922,94 @@ def _assistant_grade_stage_kind_and_work_type(artifact_probe: Mapping[str, Any])
     return stage_kind, work_type
 
 
+def _assistant_grade_extend_texts(values: list[str], raw: Any) -> None:
+    if isinstance(raw, str):
+        text = raw.strip()
+        if text:
+            values.append(text)
+        return
+    if isinstance(raw, (list, tuple)):
+        for item in raw:
+            if isinstance(item, str):
+                text = item.strip()
+                if text:
+                    values.append(text)
+
+
+def _assistant_grade_request_texts(stage_packet: Mapping[str, Any]) -> list[str]:
+    stage = _mapping_value(stage_packet.get("stage"))
+    stage_payload = _mapping_value(stage.get("payload"))
+    safe_work_order = _mapping_value(stage_packet.get("safe_work_order"))
+    input_contract = _mapping_value(safe_work_order.get("input_contract"))
+    values: list[str] = []
+    for source in (stage_payload, input_contract):
+        for key in (
+            "draft_request_text",
+            "research_query",
+            "requested_outcome",
+            "subject_hint",
+            "request",
+            "request_text",
+            "user_request",
+            "task_request",
+        ):
+            _assistant_grade_extend_texts(values, source.get(key))
+        for key in ("search_queries", "notes"):
+            _assistant_grade_extend_texts(values, source.get(key))
+    return list(dict.fromkeys(values))
+
+
+def _assistant_grade_safe_work_texts(safe_work_result: Mapping[str, Any]) -> list[str]:
+    execution = _mapping_value(safe_work_result.get("execution_receipt"))
+    recommended = _mapping_value(safe_work_result.get("recommended_option_or_draft"))
+    values: list[str] = []
+    _assistant_grade_extend_texts(values, execution.get("search_queries_used"))
+    _assistant_grade_extend_texts(values, safe_work_result.get("summary"))
+    value = recommended.get("value")
+    if isinstance(value, str):
+        _assistant_grade_extend_texts(values, value)
+    candidate = recommended.get("candidate")
+    if isinstance(candidate, Mapping):
+        for key in ("label", "title", "page_title", "snippet", "source_query"):
+            _assistant_grade_extend_texts(values, candidate.get(key))
+    return list(dict.fromkeys(values))
+
+
+def _assistant_grade_adapter_hint(stage_packet: Mapping[str, Any]) -> str:
+    stage = _mapping_value(stage_packet.get("stage"))
+    stage_payload = _mapping_value(stage.get("payload"))
+    safe_work_order = _mapping_value(stage_packet.get("safe_work_order"))
+    input_contract = _mapping_value(safe_work_order.get("input_contract"))
+    tool_hints = _mapping_value(input_contract.get("tool_hints"))
+    return str(stage_payload.get("adapter_hint") or tool_hints.get("adapter_hint") or "").strip()
+
+
+def _assistant_grade_quality_issue(artifact_probe: Mapping[str, Any]) -> str:
+    probe = _mapping_value(artifact_probe)
+    stage_packet = _mapping_value(probe.get("stage_packet"))
+    safe_work_result = _mapping_value(probe.get("safe_work_result"))
+    if not stage_packet or not safe_work_result:
+        return ""
+    materiality_issue = safe_work_decision_materiality_issue(
+        safe_work_result=safe_work_result,
+        stage_packet=stage_packet,
+    )
+    if materiality_issue:
+        return materiality_issue
+    if _assistant_grade_adapter_hint(stage_packet) != "transcript_signal":
+        return ""
+    request_texts = _assistant_grade_request_texts(stage_packet)
+    safe_work_texts = _assistant_grade_safe_work_texts(safe_work_result)
+    if any(_transcript_has_action_intent(text) for text in (*request_texts, *safe_work_texts) if text):
+        return ""
+    return "transcript_signal_lacks_action_intent"
+
+
 def _assistant_grade_safe_work_requires_recovery(artifact_probe: Mapping[str, Any]) -> tuple[bool, str]:
     probe = _mapping_value(artifact_probe)
+    quality_issue = _assistant_grade_quality_issue(probe)
+    if quality_issue:
+        return True, quality_issue
     safe_work_result = _mapping_value(probe.get("safe_work_result"))
     if not safe_work_result:
         return False, ""
@@ -2520,12 +2607,18 @@ def _current_packet_internal_action(artifact_probe: Mapping[str, Any]) -> bool:
 def _current_packet_user_action_required(artifact_probe: Mapping[str, Any]) -> bool:
     if _current_packet_internal_action(artifact_probe):
         return False
-    if not _current_packet_approval_request_recordable(artifact_probe):
-        return bool(
-            int(artifact_probe.get("current_packet_live_pending_count") or 0) > 0
-            or int(artifact_probe.get("current_packet_callback_pending_count") or 0) > 0
-            or int(artifact_probe.get("current_packet_callback_record_count") or 0) > 0
+    pending_callback_present = bool(
+        int(artifact_probe.get("current_packet_live_pending_count") or 0) > 0
+        or int(artifact_probe.get("current_packet_callback_pending_count") or 0) > 0
+        or (
+            str(artifact_probe.get("current_packet_callback_latest_status") or "").strip() == "pending"
+            and int(artifact_probe.get("current_packet_callback_record_count") or 0) > 0
         )
+    )
+    if pending_callback_present:
+        return True
+    if not _current_packet_approval_request_recordable(artifact_probe):
+        return False
     stage_packet = dict(artifact_probe.get("stage_packet") or {})
     safe_work_result = dict(artifact_probe.get("safe_work_result") or {})
     stage_payload = dict(dict(stage_packet.get("stage") or {}).get("payload") or {})
