@@ -26,6 +26,12 @@ DEFAULT_RUNTIME_VERIFY_RETRY_DELAY_SECONDS = max(
     float(str(os.getenv("EA_PROACTIVE_OODA_RUNTIME_VERIFY_RETRY_DELAY_SECONDS") or "0.25").strip() or "0.25"),
     0.0,
 )
+FOLLOWTHROUGH_COMPONENT_RECEIPT_RELATIVE_PATHS = {
+    "operator_status": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
+    "gold_acceptance": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
+    "goal_posture": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
+    "operator_action_required_digest": ".codex-studio/published/ea_operator_action_required_digest.generated.json",
+}
 
 
 def default_receipt_path() -> Path:
@@ -126,6 +132,8 @@ def main(argv: list[str] | None = None) -> int:
     report = _runtime_container_report_for_default_invocation(argv_list)
     if report is None:
         report = verify_receipt(Path(args.receipt_path))
+    else:
+        report = _overlay_report_with_current_followthrough_receipts(report)
     if args.pretty:
         print(_format_report(report))
     else:
@@ -167,7 +175,7 @@ def verify_receipt(path: Path) -> dict[str, Any]:
     if not delivery_next_action and followthrough_errors:
         delivery_next_action = "repair_proactive_operator_runtime_posture"
 
-    return {
+    report = {
         "ok": not errors,
         "errors": errors,
         "receipt_path": str(path),
@@ -223,6 +231,11 @@ def verify_receipt(path: Path) -> dict[str, Any]:
         ),
         "generated_at": payload.get("generated_at", ""),
     }
+    return _overlay_report_with_current_followthrough_receipts(
+        report,
+        latest_payload=latest_payload,
+        delivery_payload=payload,
+    )
 
 
 def _load_receipt(path: Path) -> tuple[dict[str, Any], list[str]]:
@@ -356,6 +369,109 @@ def _effective_followthrough_payload(
     if delivery_followthrough:
         return delivery_followthrough, "delivery_receipt"
     return {}, ""
+
+
+def _read_json_payload(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _default_followthrough_component_path(key: str) -> Path | None:
+    relative = str(FOLLOWTHROUGH_COMPONENT_RECEIPT_RELATIVE_PATHS.get(key) or "").strip()
+    if not relative:
+        return None
+    return ROOT / relative
+
+
+def _resolve_followthrough_component_path(component: Mapping[str, Any] | None, *, key: str) -> Path | None:
+    row = dict(component or {})
+    path_text = str(row.get("path") or "").strip()
+    if path_text:
+        candidate = Path(path_text)
+        return candidate if candidate.is_absolute() else ROOT / path_text
+    return _default_followthrough_component_path(key)
+
+
+def _overlay_report_with_current_followthrough_receipts(
+    report: Mapping[str, Any],
+    *,
+    latest_payload: Mapping[str, Any] | None = None,
+    delivery_payload: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized = dict(report or {})
+    followthrough, _source = _effective_followthrough_payload(
+        latest_payload or {},
+        delivery_payload or {},
+    )
+    overlay_components: list[str] = []
+
+    operator_status = _read_json_payload(
+        _resolve_followthrough_component_path(
+            followthrough.get("operator_status") if isinstance(followthrough, Mapping) else None,
+            key="operator_status",
+        )
+    )
+    operator_status_value = str(operator_status.get("status") or "").strip()
+    if operator_status_value:
+        normalized["followthrough_operator_status"] = operator_status_value
+        overlay_components.append("operator_status")
+
+    gold_acceptance = _read_json_payload(
+        _resolve_followthrough_component_path(
+            followthrough.get("gold_acceptance") if isinstance(followthrough, Mapping) else None,
+            key="gold_acceptance",
+        )
+    )
+    gold_acceptance_value = str(gold_acceptance.get("status") or "").strip()
+    if gold_acceptance_value:
+        normalized["followthrough_gold_acceptance_status"] = gold_acceptance_value
+        overlay_components.append("gold_acceptance")
+
+    goal_posture = _read_json_payload(
+        _resolve_followthrough_component_path(
+            followthrough.get("goal_posture") if isinstance(followthrough, Mapping) else None,
+            key="goal_posture",
+        )
+    )
+    goal_posture_status = str(goal_posture.get("status") or "").strip()
+    if goal_posture_status:
+        normalized["followthrough_goal_posture_status"] = goal_posture_status
+        overlay_components.append("goal_posture")
+    if "operator_action_queue_count" in goal_posture:
+        normalized["followthrough_goal_posture_queue_count"] = int(
+            goal_posture.get("operator_action_queue_count") or 0
+        )
+
+    operator_action_required_digest = _read_json_payload(
+        _resolve_followthrough_component_path(
+            followthrough.get("operator_action_required_digest")
+            if isinstance(followthrough, Mapping)
+            else None,
+            key="operator_action_required_digest",
+        )
+    )
+    digest_status = str(operator_action_required_digest.get("status") or "").strip()
+    if digest_status:
+        normalized["followthrough_digest_status"] = digest_status
+        overlay_components.append("operator_action_required_digest")
+    digest_notification_status = str(
+        operator_action_required_digest.get("notification_status") or ""
+    ).strip()
+    if digest_notification_status:
+        normalized["followthrough_digest_notification_status"] = digest_notification_status
+    if "item_count" in operator_action_required_digest:
+        normalized["followthrough_digest_item_count"] = int(
+            operator_action_required_digest.get("item_count") or 0
+        )
+
+    normalized["followthrough_current_receipt_overlay_applied"] = bool(overlay_components)
+    normalized["followthrough_current_receipt_overlay_components"] = overlay_components
+    return normalized
 
 
 def _followthrough_component_status(followthrough: Mapping[str, Any], key: str) -> str:

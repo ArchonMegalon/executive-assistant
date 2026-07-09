@@ -37,7 +37,8 @@ def _with_followthrough(payload: dict[str, object], *, status: str = "ok", reaso
     return enriched
 
 
-def test_verify_proactive_ooda_live_receipt_accepts_redacted_sent_receipt(tmp_path) -> None:
+def test_verify_proactive_ooda_live_receipt_accepts_redacted_sent_receipt(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(live_receipt_module, "ROOT", tmp_path)
     receipt = tmp_path / "receipt.json"
     receipt.write_text(
         json.dumps(
@@ -440,6 +441,78 @@ def test_verify_proactive_ooda_live_receipt_latest_followthrough_failure_is_not_
     assert report["delivery_next_action"] == "repair_proactive_operator_runtime_posture"
 
 
+def test_verify_proactive_ooda_live_receipt_overlays_current_followthrough_component_receipts(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(live_receipt_module, "ROOT", tmp_path)
+    published = tmp_path / ".codex-studio" / "published"
+    published.mkdir(parents=True, exist_ok=True)
+    (published / "ea_proactive_ooda_operator_status.generated.json").write_text(
+        json.dumps({"status": "ready_with_live_receipt"}),
+        encoding="utf-8",
+    )
+    (published / "ea_proactive_ooda_gold_acceptance.generated.json").write_text(
+        json.dumps({"status": "blocked_missing_proactive_packet_evidence"}),
+        encoding="utf-8",
+    )
+    (published / "ea_continuous_improvement_goal_posture.generated.json").write_text(
+        json.dumps(
+            {
+                "status": "blocked_real_world_acceptance",
+                "operator_action_queue_count": 6,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (published / "ea_operator_action_required_digest.generated.json").write_text(
+        json.dumps(
+            {
+                "status": "suppressed_duplicate",
+                "notification_status": "suppressed_duplicate",
+                "item_count": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text(
+        json.dumps(
+            _with_followthrough(
+                {
+                    "dry_run": False,
+                    "error_code": "",
+                    "generated_at": "2026-07-08T12:38:09.960446+00:00",
+                    "item_count": 1,
+                    "notification_status": "sent",
+                    "notified_ref_hashes": ["a" * 64],
+                    "principal_id_hash": "b" * 64,
+                    "telegram_message_ids": ["3004"],
+                }
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    report = verify_receipt(receipt)
+
+    assert report["ok"] is True
+    assert report["followthrough_operator_status"] == "ready_with_live_receipt"
+    assert report["followthrough_gold_acceptance_status"] == "blocked_missing_proactive_packet_evidence"
+    assert report["followthrough_goal_posture_status"] == "blocked_real_world_acceptance"
+    assert report["followthrough_goal_posture_queue_count"] == 6
+    assert report["followthrough_digest_status"] == "suppressed_duplicate"
+    assert report["followthrough_digest_notification_status"] == "suppressed_duplicate"
+    assert report["followthrough_digest_item_count"] == 1
+    assert report["followthrough_current_receipt_overlay_applied"] is True
+    assert report["followthrough_current_receipt_overlay_components"] == [
+        "operator_status",
+        "gold_acceptance",
+        "goal_posture",
+        "operator_action_required_digest",
+    ]
+
+
 def test_verify_proactive_ooda_live_receipt_default_prefers_runtime_receipt_env(monkeypatch) -> None:
     monkeypatch.setenv("EA_PROACTIVE_OODA_RECEIPT_PATH", "/data/provider-ledger/proactive_ooda_latest_run.generated.json")
     monkeypatch.delenv("EA_PROACTIVE_OODA_LIVE_RECEIPT_PATH", raising=False)
@@ -546,6 +619,95 @@ def test_verify_proactive_ooda_live_receipt_main_prefers_runtime_container_when_
     payload = json.loads(capsys.readouterr().out)
     assert payload["receipt_path"] == "/data/provider-ledger/proactive_ooda_run_receipts/live.json"
     assert payload["archived_delivery_receipt_used"] is True
+
+
+def test_verify_proactive_ooda_live_receipt_main_overlays_delegated_followthrough_component_receipts(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    module = importlib.reload(live_receipt_module)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "CURRENT_RUNTIME_RECEIPT", tmp_path / "missing-runtime" / "proactive_ooda_latest_run.generated.json")
+    monkeypatch.setattr(module, "DEFAULT_RUNTIME_CONTAINER", "ea-proactive-ooda")
+    published = tmp_path / ".codex-studio" / "published"
+    published.mkdir(parents=True, exist_ok=True)
+    (published / "ea_proactive_ooda_operator_status.generated.json").write_text(
+        json.dumps({"status": "ready_with_live_receipt"}),
+        encoding="utf-8",
+    )
+    (published / "ea_proactive_ooda_gold_acceptance.generated.json").write_text(
+        json.dumps({"status": "blocked_missing_proactive_packet_evidence"}),
+        encoding="utf-8",
+    )
+    (published / "ea_continuous_improvement_goal_posture.generated.json").write_text(
+        json.dumps({"status": "blocked_real_world_acceptance", "operator_action_queue_count": 6}),
+        encoding="utf-8",
+    )
+    (published / "ea_operator_action_required_digest.generated.json").write_text(
+        json.dumps(
+            {
+                "status": "suppressed_duplicate",
+                "notification_status": "suppressed_duplicate",
+                "item_count": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        module,
+        "_verify_receipt_via_runtime_container",
+        lambda container_name: {
+            "ok": True,
+            "errors": [],
+            "receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/live.json",
+            "latest_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "latest_notification_status": "skipped_no_items",
+            "archived_delivery_receipt_used": True,
+            "archived_sent_receipt_used": True,
+            "archived_operator_safe_mirror_receipt_used": False,
+            "quiet_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "quiet_receipt_error_code": "skipped_no_items",
+            "delivery_mode": "telegram_sent",
+            "operator_safe_mirror_present": False,
+            "notification_status": "sent",
+            "item_count": 1,
+            "delivery_channel": "telegram",
+            "delivery_message_count": 1,
+            "telegram_message_count": 1,
+            "delivery_route_error": "",
+            "delivery_recovery_hint": "",
+            "delivery_next_action": "",
+            "delivery_guard_state": "eligible",
+            "delivery_guard_deferred_reason": "",
+            "quiet_hours_active": False,
+            "interruption_budget_exhausted": False,
+            "notification_requires_user_action": False,
+            "followthrough_status": "ok",
+            "followthrough_reason": "",
+            "followthrough_error": "",
+            "followthrough_run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "followthrough_operator_status": "ready_with_recovery_action",
+            "followthrough_gold_acceptance_status": "blocked_operator_runtime_posture",
+            "followthrough_goal_posture_status": "active_with_blockers",
+            "followthrough_goal_posture_queue_count": 7,
+            "followthrough_digest_status": "ready_to_send",
+            "followthrough_digest_notification_status": "ready_to_send",
+            "followthrough_digest_item_count": 2,
+            "generated_at": "2026-07-08T12:38:09.960446+00:00",
+        },
+    )
+
+    assert module.main([]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["followthrough_operator_status"] == "ready_with_live_receipt"
+    assert payload["followthrough_gold_acceptance_status"] == "blocked_missing_proactive_packet_evidence"
+    assert payload["followthrough_goal_posture_status"] == "blocked_real_world_acceptance"
+    assert payload["followthrough_goal_posture_queue_count"] == 6
+    assert payload["followthrough_digest_status"] == "suppressed_duplicate"
+    assert payload["followthrough_digest_notification_status"] == "suppressed_duplicate"
+    assert payload["followthrough_digest_item_count"] == 1
+    assert payload["followthrough_current_receipt_overlay_applied"] is True
 
 
 def test_verify_proactive_ooda_live_receipt_main_keeps_explicit_receipt_path_local(
