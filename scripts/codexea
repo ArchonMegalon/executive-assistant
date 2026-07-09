@@ -24,12 +24,47 @@ runtime_env_candidates() {
   local seen=""
   local -a cwd_env_paths=()
   local -a explicit_paths=()
+  local include_cwd_env=0
+
   for path in "${CODEXEA_RUNTIME_EA_ENV_PATH:-}" "${FLEET_RUNTIME_EA_ENV_PATH:-}"; do
     [ -n "${path}" ] || continue
     explicit_paths+=("${path}")
   done
-  if [ "${#explicit_paths[@]}" -gt 0 ]; then
-    for path in "${explicit_paths[@]}"; do
+  for path in "${explicit_paths[@]}"; do
+    case $'\n'"${seen}"$'\n' in
+      *$'\n'"${path}"$'\n'*)
+        continue
+        ;;
+    esac
+    printf '%s\n' "${path}"
+    seen="${seen}"$'\n'"${path}"
+  done
+
+  if command -v git >/dev/null 2>&1; then
+    git_root="$(git -C "${PWD:-.}" rev-parse --show-toplevel 2>/dev/null || true)"
+  fi
+  if [ "${#explicit_paths[@]}" -eq 0 ]; then
+    include_cwd_env=1
+  elif runtime_env_flag_truthy "${CODEXEA_ALLOW_CWD_RUNTIME_ENV:-0}"; then
+    include_cwd_env=1
+  fi
+  if [ "${include_cwd_env}" -eq 1 ] && runtime_env_should_trust_cwd "${git_root}"; then
+    cwd_env_paths=("${PWD:-}/.env.local" "${PWD:-}/.env")
+  fi
+  for path in "${cwd_env_paths[@]}"; do
+    [ -n "${path}" ] || continue
+    case $'\n'"${seen}"$'\n' in
+      *$'\n'"${path}"$'\n'*)
+        continue
+        ;;
+    esac
+    printf '%s\n' "${path}"
+    seen="${seen}"$'\n'"${path}"
+  done
+
+  if [ "${#explicit_paths[@]}" -eq 0 ]; then
+    for path in "${git_root:+${git_root}/.env.local}" "${git_root:+${git_root}/.env}" /docker/EA/.env.local /docker/EA/.env; do
+      [ -n "${path}" ] || continue
       case $'\n'"${seen}"$'\n' in
         *$'\n'"${path}"$'\n'*)
           continue
@@ -39,13 +74,7 @@ runtime_env_candidates() {
       seen="${seen}"$'\n'"${path}"
     done
   fi
-  if command -v git >/dev/null 2>&1; then
-    git_root="$(git -C "${PWD:-.}" rev-parse --show-toplevel 2>/dev/null || true)"
-  fi
-  if runtime_env_should_trust_cwd "${git_root}"; then
-    cwd_env_paths=("${PWD:-}/.env.local" "${PWD:-}/.env")
-  fi
-  for path in "${cwd_env_paths[@]}" "${git_root:+${git_root}/.env.local}" "${git_root:+${git_root}/.env}" /docker/EA/.env.local /docker/EA/.env "${HOME:-}/.config/ea/runtime.ea.env" "${HOME:-}/.config/ea/runtime.env"; do
+  for path in "${HOME:-}/.config/ea/runtime.ea.env" "${HOME:-}/.config/ea/runtime.env"; do
     [ -n "${path}" ] || continue
     case $'\n'"${seen}"$'\n' in
       *$'\n'"${path}"$'\n'*)
@@ -215,6 +244,7 @@ apply_runtime_env_defaults() {
   local key value
   for key in \
     EA_MCP_BASE_URL EA_BASE_URL CODEXEA_STATUS_URL CODEXEA_PROFILES_URL \
+    CODEXEA_TELEGRAM_BOT_TOKEN CODEXEA_TELEGRAM_CHAT_ID \
     EA_MCP_API_TOKEN EA_API_TOKEN EA_MCP_PRINCIPAL_ID EA_PRINCIPAL_ID \
     CODEXEA_NICE ONEMIN_DEFAULT_PASSWORD BROWSERACT_PASSWORD \
     EA_GEMINI_VORTEX_COMMAND EA_GEMINI_VORTEX_MODEL EA_GEMINI_VORTEX_MODELS \
@@ -224,6 +254,7 @@ apply_runtime_env_defaults() {
     EA_RESPONSES_ONEMIN_FAST_CANDIDATE_MODELS EA_RESPONSES_ONEMIN_HARD_MODELS \
     EA_RESPONSES_ONEMIN_HARD_FALLBACK_MODELS EA_RESPONSES_ONEMIN_RESCUE_MODELS \
     EA_RESPONSES_ONEMIN_REVIEW_MODELS \
+    EA_TELEGRAM_BOT_TOKEN EA_TELEGRAM_CHAT_ID \
     CODEXEA_MODEL CODEXEA_WORKER_MODEL CODEXEA_IMPLEMENT_MODEL CODEXEA_CONTROLLER_MODEL \
     CODEXEA_CORE_MODEL CODEXEA_REPAIR_MODEL CODEXEA_EASY_MODEL CODEXEA_GROUNDWORK_MODEL \
     CODEXEA_REVIEW_LIGHT_MODEL CODEXEA_JURY_MODEL CODEXEA_POST_AUDIT_MODEL \
@@ -316,8 +347,10 @@ show_onemin_help() {
 CodexEA credits / 1min.AI commands:
   codexea credits
   codexea onemin
+  codexea credits refresh
   codexea credits --summary-json
   codexea credits --json
+  codexea credits refresh --send-telegram
 
 Probe controls:
   --probe-all
@@ -3145,14 +3178,22 @@ case "${1:-}" in
       exit 0
     fi
     if [ -f "${ROUTE_HELPER}" ]; then
+      credit_route_command=""
+      if [ "${1:-}" = "refresh" ]; then
+        credit_route_command="--onemin-refresh"
+        shift
+      fi
       ROUTE_ARGS=(--onemin-aggregate)
+      if [ -n "${credit_route_command}" ]; then
+        ROUTE_ARGS+=(--onemin-refresh)
+      fi
       if args_contains "--probe-all" "$@"; then
         :
       elif args_contains "--probe-best-effort" "$@"; then
         :
-      elif [ "${CODEXEA_CREDITS_PROBE_ALL:-0}" != "0" ]; then
+      elif [ -z "${credit_route_command}" ] && [ "${CODEXEA_CREDITS_PROBE_ALL:-0}" != "0" ]; then
         ROUTE_ARGS+=(--probe-all)
-      elif [ "${CODEXEA_CREDITS_PROBE_ALL:-0}" = "0" ] && [ "${CODEXEA_CREDITS_PROBE_BEST_EFFORT:-1}" != "0" ]; then
+      elif [ -z "${credit_route_command}" ] && [ "${CODEXEA_CREDITS_PROBE_ALL:-0}" = "0" ] && [ "${CODEXEA_CREDITS_PROBE_BEST_EFFORT:-1}" != "0" ]; then
         ROUTE_ARGS+=(--probe-best-effort)
       fi
       if [ "${CODEXEA_CREDITS_INCLUDE_BILLING}" != "0" ]; then

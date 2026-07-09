@@ -56,6 +56,10 @@ NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES = {
     "flat_search_disabled_property_scout",
     "flat_search_disabled",
 }
+QUIET_NON_MATERIAL_SUPPRESSED_PROJECTION_ERROR_CODES = {
+    "no_user_action_required",
+    "no_decision_ready_safe_work",
+}
 NON_MATERIAL_SUPPRESSED_PROJECTION_REASONS = {
     "packet_projection_suppressed",
     "safe_work_audit_review",
@@ -699,8 +703,10 @@ def _verify_suppressed_projection(receipt: dict[str, Any], issues: list[str]) ->
         if non_material_reason == "quiet_no_decision_ready_material":
             if str(suppressed.get("notification_status") or "").strip() != "deferred":
                 issues.append("quiet non-material suppressed_projection requires deferred notification_status")
-            if str(suppressed.get("error_code") or "").strip() != "no_user_action_required":
-                issues.append("quiet non-material suppressed_projection requires no_user_action_required error_code")
+            if str(suppressed.get("error_code") or "").strip() not in QUIET_NON_MATERIAL_SUPPRESSED_PROJECTION_ERROR_CODES:
+                issues.append(
+                    "quiet non-material suppressed_projection requires no_user_action_required or no_decision_ready_safe_work error_code"
+                )
         if non_material_reason == "mixed_delivery_non_material":
             if str(suppressed.get("notification_status") or "").strip() != "sent":
                 issues.append("mixed-delivery non-material suppressed_projection requires sent notification_status")

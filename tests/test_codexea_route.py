@@ -26,12 +26,18 @@ def _args(**overrides: object) -> argparse.Namespace:
         "probe_best_effort": False,
         "billing": False,
         "json": False,
+        "summary_json": False,
         "account_labels": [],
         "timeout_seconds": 300,
         "max_workers": 4,
         "probe_limit": 8,
         "telemetry_answer": None,
         "onemin_aggregate": True,
+        "onemin_refresh": False,
+        "send_telegram": False,
+        "telegram_chat_id": "",
+        "telegram_bot_token": "",
+        "telegram_timeout_seconds": 30,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -748,3 +754,83 @@ def test_summary_payload_is_bounded_and_preserves_probe_headline() -> None:
             }
         ],
     }
+
+
+def test_summary_payload_includes_refresh_and_telegram_delivery() -> None:
+    module = _load_module()
+
+    payload = module._summary_payload(
+        {
+            "provider_key": "onemin",
+            "generated_at": "2026-06-23T10:00:00Z",
+            "source": "local_python",
+            "actual_free_credits_total": 120,
+            "live_remaining_credits_total": 80,
+            "sum_free_credits": 200,
+            "current_burn_credits_per_hour": 10,
+            "hours_remaining_at_current_pace": 12,
+            "account_count": 70,
+            "slots": [{"account_name": "A"}],
+            "onemin_refresh": {
+                "ran": True,
+                "throttled": False,
+                "throttle_seconds_remaining": 0,
+                "throttle_reason": "",
+                "browseract_attempted": 1,
+                "browseract_refreshed": 1,
+                "member_reconciled": 2,
+                "api_attempted": 3,
+                "api_rate_limited": False,
+                "api_recovered": 0,
+                "errors": 0,
+                "error": "",
+            },
+            "telegram_delivery": {
+                "requested": True,
+                "sent": True,
+                "reason": "sent",
+                "message_id": 99,
+                "chat_id": "123",
+                "chat_id_present": True,
+                "bot_token_present": True,
+                "timeout_seconds": 30,
+            },
+        }
+    )
+
+    assert payload["onemin_refresh"] == {
+        "ran": True,
+        "throttled": False,
+        "throttle_seconds_remaining": 0,
+        "throttle_reason": "",
+        "browseract_attempted": 1,
+        "browseract_refreshed": 1,
+        "member_reconciled": 2,
+        "api_attempted": 3,
+        "api_rate_limited": False,
+        "api_recovered": 0,
+        "errors": 0,
+    }
+    assert payload["telegram_delivery"] == {
+        "requested": True,
+        "sent": True,
+        "reason": "sent",
+        "timeout_seconds": 30,
+        "chat_id_present": True,
+        "bot_token_present": True,
+        "message_id": 99,
+        "chat_id": "123",
+    }
+
+
+def test_build_telegram_delivery_request_reports_missing_bot_token() -> None:
+    module = _load_module()
+
+    delivery = module._build_telegram_delivery_request(
+        _args(send_telegram=True),
+        {"onemin_refresh": {"ran": True}},
+    )
+
+    assert delivery["requested"] is True
+    assert delivery["sent"] is False
+    assert delivery["reason"] == "telegram_bot_token_missing"

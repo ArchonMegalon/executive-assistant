@@ -114,6 +114,20 @@ def _env_int(name: str, default: int, *, minimum: int = 0, maximum: int | None =
     return value
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = str(os.environ.get(name, "") or "").strip().lower()
+    if not value:
+        return bool(default)
+    return value in {"1", "true", "yes", "on", "enabled", "enable", "active"}
+
+
+def _first_non_empty(*values: object) -> object:
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return None
+
+
 def _redact_runtime_text(text: object) -> str:
     rendered = str(text or "")
     if not rendered:
@@ -152,6 +166,10 @@ DEFAULT_TIMEOUT_SECONDS = _env_int("CODEXEA_ONEMIN_TIMEOUT_SECONDS", 300, minimu
 DEFAULT_COOLDOWN_SECONDS = _env_int("CODEXEA_ONEMIN_PROBE_COOLDOWN_DEFAULT_SECONDS", 300, minimum=1, maximum=86400)
 MAX_COOLDOWN_SECONDS = _env_int("CODEXEA_ONEMIN_PROBE_COOLDOWN_MAX_SECONDS", 1800, minimum=1, maximum=86400)
 MAX_COOLDOWN_RECORDS = _env_int("CODEXEA_ONEMIN_PROBE_COOLDOWN_MAX_RECORDS", 200, minimum=1, maximum=10000)
+DEFAULT_ONEMIN_ROUTE_BACKEND_ORDER = os.environ.get(
+    "CODEXEA_ONEMIN_ROUTE_BACKEND_ORDER",
+    "docker,local_python,http_runtime_telemetry",
+)
 
 CONTAINER_SCRIPT = r"""
 from __future__ import annotations
@@ -267,6 +285,8 @@ def _slot_rows_from_accounts(accounts: list[object], provider_slots: list[dict[s
 
 request = json.loads(os.environ["CODEXEA_ROUTE_REQUEST_JSON"])
 container = build_container()
+refresh_requested = bool(request.get("refresh"))
+refresh_payload = None
 probe_rows = [dict(item) for item in (request.get("account_rows") or []) if isinstance(item, dict)]
 probe_rows = _selected_rows(
     probe_rows,
@@ -310,6 +330,16 @@ if probe_enabled and probe_rows:
     }
     invalidate_provider_health_snapshot_cache()
 
+if refresh_requested:
+    try:
+        from app.runner import _run_scheduler_onemin_billing_refresh
+
+        import logging
+
+        refresh_payload = _run_scheduler_onemin_billing_refresh(container=container, log=logging.getLogger("ea-codexea-route"))
+    except Exception as exc:
+        refresh_payload = {"ran": False, "throttled": False, "throttle_seconds_remaining": 0.0, "throttle_reason": "", "browseract_attempted": 0, "browseract_refreshed": 0, "member_reconciled": 0, "api_attempted": 0, "api_rate_limited": False, "api_recovered": 0, "browseract_failed": 0, "errors": 1, "error": str(exc)}
+
 provider_health = upstream._provider_health_report()
 remember_provider_health_snapshot_cache(lightweight=False, payload=provider_health)
 remember_provider_health_snapshot_cache(
@@ -336,6 +366,7 @@ payload = {
     "source": str(os.environ.get("CODEXEA_ROUTE_SOURCE") or "").strip() or "unknown",
     "probe": probe_summary,
     "actual_credits": actual,
+    "onemin_refresh": refresh_payload,
     "slots": _slot_rows_from_accounts(list(aggregate.get("accounts") or []), provider_slots),
 }
 print(json.dumps(payload))
@@ -345,6 +376,7 @@ print(json.dumps(payload))
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CodexEA route helper.")
     parser.add_argument("--onemin-aggregate", action="store_true", help="Return the live 1min aggregate payload.")
+    parser.add_argument("--onemin-refresh", action="store_true", help="Run a scheduler-side 1min billing refresh before returning the payload.")
     parser.add_argument("--probe-all", action="store_true", help="Attempt a full live refresh before returning the aggregate.")
     parser.add_argument(
         "--probe-best-effort",
@@ -378,6 +410,10 @@ def _parse_args() -> argparse.Namespace:
         nargs=argparse.REMAINDER,
         help="Accepted for CodexEA compatibility; exit 10 to fall through to normal handling.",
     )
+    parser.add_argument("--send-telegram", action="store_true", help="Send a compact result summary to Telegram after a successful refresh.")
+    parser.add_argument("--telegram-chat-id", help="Telegram chat_id used for optional result delivery.")
+    parser.add_argument("--telegram-bot-token", help="Telegram bot token used for optional result delivery.")
+    parser.add_argument("--telegram-timeout-seconds", type=int, default=30)
     return parser.parse_args()
 
 
@@ -716,6 +752,7 @@ def _build_route_request(args: argparse.Namespace, *, account_rows: list[dict[st
     return {
         "probe": probe_mode != "off",
         "probe_mode": probe_mode,
+        "refresh": bool(args.onemin_refresh),
         "timeout_seconds": int(args.timeout_seconds),
         "max_workers": int(args.max_workers),
         "probe_limit": probe_limit,
@@ -792,6 +829,71 @@ def _status_url_to_runtime_telemetry_url(url: str) -> str:
     )
 
 
+def _runtime_path_api_root(path: str) -> str:
+    if not path:
+        return ""
+    if "/v1/" in path:
+        return path.split("/v1/", 1)[0].rstrip("/")
+    trimmed = path.rsplit("/", 1)[0]
+    return trimmed.rstrip("/")
+
+
+def _runtime_telemetry_url_to_provider_url(telemetry_url: str, endpoint: str) -> str:
+    parsed = urllib.parse.urlsplit(telemetry_url)
+    api_root = _runtime_path_api_root(parsed.path or "")
+    base = urllib.parse.urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            f"{api_root}/v1/providers/onemin/{endpoint}",
+            "",
+            "",
+        )
+    )
+    return base
+
+
+def _parse_billing_refresh_response(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ran": not bool(payload.get("refresh_throttled")),
+        "throttled": bool(payload.get("refresh_throttled")),
+        "throttle_seconds_remaining": payload.get("refresh_throttle_seconds_remaining"),
+        "throttle_reason": payload.get("note") or "",
+        "browseract_attempted": payload.get("billing_refresh_count"),
+        "browseract_refreshed": payload.get("billing_refresh_count"),
+        "member_reconciled": payload.get("member_reconciliation_count"),
+        "api_attempted": payload.get("api_billing_refresh_count"),
+        "api_rate_limited": bool(payload.get("api_rate_limited")),
+        "api_recovered": payload.get("api_billing_refresh_count"),
+        "errors": len(list(payload.get("errors") or [])),
+    }
+
+
+def _route_backend_order_preference() -> list[str]:
+    raw = str(DEFAULT_ONEMIN_ROUTE_BACKEND_ORDER or "").strip()
+    names = [item.strip().lower().replace("-", "_") for item in raw.split(",") if item.strip()]
+    if not names:
+        names = ["local_python", "docker", "http_runtime_telemetry"]
+    normalized: list[str] = []
+    allowed = {"local_python", "http_runtime_telemetry", "docker", "http", "ea_api_container"}
+    for name in names:
+        if name == "local":
+            name = "local_python"
+        if name == "runtime_telemetry":
+            name = "http_runtime_telemetry"
+        if name == "http":
+            name = "http_runtime_telemetry"
+        if name == "eaapi":
+            name = "ea_api_container"
+        if name not in allowed:
+            continue
+        if name not in normalized:
+            normalized.append(name)
+    if not normalized:
+        normalized = ["local_python", "docker", "http_runtime_telemetry"]
+    return normalized
+
+
 def _http_backend_urls() -> list[str]:
     raw_candidates: list[str] = []
     explicit_telemetry_url = str(os.environ.get("CODEXEA_RUNTIME_TELEMETRY_URL") or "").strip()
@@ -842,7 +944,32 @@ def _utc_now() -> str:
 def _http_payload_to_route_payload(payload: dict[str, Any], *, source: str) -> dict[str, Any]:
     aggregate = dict(payload.get("onemin_aggregate") or {})
     billing = dict(payload.get("onemin_billing_aggregate") or {})
-    selected = billing if billing else aggregate
+    sum_free_credits = _first_non_empty(
+        aggregate.get("sum_free_credits"),
+        aggregate.get("global_estimated_free_credits_total"),
+        billing.get("sum_free_credits"),
+    )
+    actual_free_credits = _first_non_empty(
+        billing.get("actual_free_credits_total"),
+        billing.get("sum_free_credits"),
+        aggregate.get("actual_free_credits_total"),
+        aggregate.get("global_actual_remaining_credits_total"),
+    )
+    live_remaining_credits = _first_non_empty(
+        aggregate.get("live_remaining_credits_total"),
+        aggregate.get("global_live_remaining_credits_total"),
+        billing.get("live_remaining_credits_total"),
+        aggregate.get("sum_free_credits"),
+    )
+    current_pace_burn = _first_non_empty(
+        billing.get("current_pace_burn_credits_per_hour"),
+        aggregate.get("current_pace_burn_credits_per_hour"),
+    )
+    hours_remaining = _first_non_empty(
+        aggregate.get("hours_remaining_at_current_pace"),
+        aggregate.get("global_estimated_hours_remaining_at_current_pace"),
+        billing.get("hours_remaining_at_current_pace"),
+    )
     return {
         **aggregate,
         "provider_key": "onemin",
@@ -860,14 +987,14 @@ def _http_payload_to_route_payload(payload: dict[str, Any], *, source: str) -> d
             "last_probe_at": None,
         },
         "actual_credits": billing,
-        "slots": list(selected.get("slots") or aggregate.get("slots") or []),
-        "actual_free_credits_total": selected.get("sum_free_credits"),
-        "actual_remaining_percent_total": selected.get("remaining_percent_total"),
-        "live_remaining_credits_total": aggregate.get("sum_free_credits"),
-        "current_burn_credits_per_hour": selected.get("current_pace_burn_credits_per_hour"),
-        "hours_remaining_at_current_pace": selected.get("hours_remaining_at_current_pace")
-        or aggregate.get("hours_remaining_at_current_pace"),
-        "basis_summary": selected.get("basis_summary") or aggregate.get("basis_summary"),
+        "slots": list(billing.get("slots") or aggregate.get("slots") or []),
+        "sum_free_credits": sum_free_credits,
+        "actual_free_credits_total": actual_free_credits,
+        "actual_remaining_percent_total": billing.get("remaining_percent_total"),
+        "live_remaining_credits_total": live_remaining_credits,
+        "current_burn_credits_per_hour": current_pace_burn,
+        "hours_remaining_at_current_pace": hours_remaining,
+        "basis_summary": billing.get("basis_summary") or aggregate.get("basis_summary"),
     }
 
 
@@ -895,6 +1022,44 @@ def _run_http_backend(*, request: dict[str, Any], timeout_seconds: int, backend_
         raise RuntimeError(f"{backend_name}_does_not_support_live_probe")
     errors: list[str] = []
     for url in _http_backend_urls():
+        if bool(request.get("refresh")):
+            refresh_url = _runtime_telemetry_url_to_provider_url(url, "billing-refresh")
+            refresh_body = json.dumps({"include_members": True, "include_provider_api": True}, separators=(",", ":")).encode(
+                "utf-8"
+            )
+            headers = _http_headers()
+            headers["Content-Type"] = "application/json"
+            http_request = urllib.request.Request(
+                refresh_url,
+                data=refresh_body,
+                headers=headers,
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(http_request, timeout=timeout_seconds) as response:
+                    raw_payload = response.read().decode("utf-8")
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace") if exc.fp else str(exc)
+                errors.append(f"{refresh_url}:{exc.code}:{detail[:240]}")
+                continue
+            except Exception as exc:
+                errors.append(f"{refresh_url}:{exc}")
+                continue
+            try:
+                payload = json.loads(raw_payload or "{}")
+            except json.JSONDecodeError as exc:
+                errors.append(f"{refresh_url}:invalid_json:{raw_payload[:240]}")
+                continue
+            if not isinstance(payload, dict):
+                errors.append(f"{refresh_url}:invalid_payload")
+                continue
+            mapped_payload = {
+                "onemin_aggregate": dict(payload.get("aggregate_snapshot") or {}),
+                "onemin_billing_aggregate": dict(payload.get("actual_credits_snapshot") or {}),
+            }
+            route_payload = _http_payload_to_route_payload(mapped_payload, source=backend_name)
+            route_payload["onemin_refresh"] = _parse_billing_refresh_response(payload)
+            return route_payload
         http_request = urllib.request.Request(url, headers=_http_headers(), method="GET")
         try:
             with urllib.request.urlopen(http_request, timeout=timeout_seconds) as response:
@@ -955,12 +1120,23 @@ def _run_backend_command(command: list[str], *, request: dict[str, Any], timeout
 
 def _backend_attempts(request: dict[str, Any]) -> list[tuple[str, str, list[str]]]:
     attempts: list[tuple[str, str, list[str]]] = []
-    if shutil.which("docker"):
-        attempts.append(("ea_api_container", "subprocess", _docker_backend_command(request)))
-    if _http_backend_urls():
-        attempts.append(("http_runtime_telemetry", "http", []))
-    if _local_app_tree_available():
-        attempts.append(("local_python", "subprocess", _local_backend_command(request)))
+    known: dict[str, tuple[str, str, list[str]]] = {
+        "ea_api_container": ("ea_api_container", "subprocess", _docker_backend_command(request)),
+        "docker": ("ea_api_container", "subprocess", _docker_backend_command(request)),
+        "http_runtime_telemetry": ("http_runtime_telemetry", "http", []),
+        "local_python": ("local_python", "subprocess", _local_backend_command(request)),
+    }
+    for name in _route_backend_order_preference():
+        if name in {"docker", "ea_api_container"}:
+            if shutil.which("docker"):
+                attempts.append(known[name])
+            continue
+        if name == "http_runtime_telemetry":
+            if _http_backend_urls():
+                attempts.append(known[name])
+            continue
+        if name == "local_python" and _local_app_tree_available():
+            attempts.append(known[name])
     return attempts
 
 
@@ -974,10 +1150,13 @@ def _run_backend_attempt(
 ) -> dict[str, Any]:
     if backend_kind == "http":
         return _run_http_backend(request=request, timeout_seconds=timeout_seconds, backend_name=backend_name)
+    backend_timeout_seconds = timeout_seconds
+    if backend_name in {"docker", "ea_api_container"}:
+        backend_timeout_seconds = min(int(timeout_seconds), 10)
     return _run_backend_command(
         command,
         request=request,
-        timeout_seconds=timeout_seconds,
+        timeout_seconds=backend_timeout_seconds,
         backend_name=backend_name,
     )
 
@@ -1091,6 +1270,10 @@ def _print_onemin_summary(payload: dict[str, Any]) -> None:
 
 def _summary_payload(payload: dict[str, Any], *, error_limit: int = 5) -> dict[str, Any]:
     probe = payload.get("probe") if isinstance(payload.get("probe"), dict) else {}
+    onemin_refresh = payload.get("onemin_refresh") if isinstance(payload.get("onemin_refresh"), dict) else None
+    telegram_delivery = (
+        payload.get("telegram_delivery") if isinstance(payload.get("telegram_delivery"), dict) else None
+    )
     summary: dict[str, Any] = {
         "provider_key": payload.get("provider_key"),
         "generated_at": payload.get("generated_at"),
@@ -1103,6 +1286,34 @@ def _summary_payload(payload: dict[str, Any], *, error_limit: int = 5) -> dict[s
         "account_count": payload.get("account_count"),
         "slot_count": len(payload.get("slots") or []),
     }
+    if onemin_refresh is not None:
+        summary["onemin_refresh"] = {
+            "ran": onemin_refresh.get("ran"),
+            "throttled": onemin_refresh.get("throttled"),
+            "throttle_seconds_remaining": onemin_refresh.get("throttle_seconds_remaining"),
+            "throttle_reason": onemin_refresh.get("throttle_reason"),
+            "browseract_attempted": onemin_refresh.get("browseract_attempted"),
+            "browseract_refreshed": onemin_refresh.get("browseract_refreshed"),
+            "member_reconciled": onemin_refresh.get("member_reconciled"),
+            "api_attempted": onemin_refresh.get("api_attempted"),
+            "api_rate_limited": onemin_refresh.get("api_rate_limited"),
+            "api_recovered": onemin_refresh.get("api_recovered"),
+            "errors": onemin_refresh.get("errors"),
+        }
+        if onemin_refresh.get("error"):
+            summary["onemin_refresh"]["error"] = str(onemin_refresh.get("error"))
+    if telegram_delivery is not None:
+        summary["telegram_delivery"] = {
+            "requested": telegram_delivery.get("requested"),
+            "sent": telegram_delivery.get("sent"),
+            "reason": telegram_delivery.get("reason"),
+            "timeout_seconds": telegram_delivery.get("timeout_seconds"),
+            "chat_id_present": telegram_delivery.get("chat_id_present"),
+            "bot_token_present": telegram_delivery.get("bot_token_present"),
+        }
+        if telegram_delivery.get("sent"):
+            summary["telegram_delivery"]["message_id"] = telegram_delivery.get("message_id")
+            summary["telegram_delivery"]["chat_id"] = telegram_delivery.get("chat_id")
     if probe:
         cooldown = probe.get("cooldown") if isinstance(probe.get("cooldown"), dict) else {}
         summary["probe"] = {
@@ -1150,6 +1361,191 @@ def _summary_payload(payload: dict[str, Any], *, error_limit: int = 5) -> dict[s
     return summary
 
 
+def _telegram_env_value(name: str) -> str:
+    return str(os.environ.get(name, "") or "").strip()
+
+
+def _resolve_telegram_bot_token(args: argparse.Namespace) -> str:
+    return str(
+        getattr(args, "telegram_bot_token", "")
+        or _telegram_env_value("CODEXEA_TELEGRAM_BOT_TOKEN")
+        or _telegram_env_value("EA_TELEGRAM_BOT_TOKEN")
+        or _telegram_env_value("TELEGRAM_BOT_TOKEN")
+    ).strip()
+
+
+def _resolve_telegram_chat_id_from_proactive_bindings(*, principal_id: str) -> str:
+    principal = str(principal_id or "").strip()
+    if not principal:
+        return ""
+    try:
+        from app.services import proactive_telegram_binding as proactive_telegram_binding
+    except Exception:
+        return ""
+    try:
+        resolved = proactive_telegram_binding.resolve_proactive_telegram_chat_id(principal_id=principal)
+    except Exception:
+        return ""
+    return str(resolved or "").strip()
+
+
+def _resolve_telegram_chat_id(args: argparse.Namespace) -> str:
+    return str(
+        getattr(args, "telegram_chat_id", "")
+        or _telegram_env_value("CODEXEA_TELEGRAM_CHAT_ID")
+        or _telegram_env_value("EA_TELEGRAM_CHAT_ID")
+        or _telegram_env_value("EA_TELEGRAM_DEFAULT_CHAT_ID")
+        or _telegram_env_value("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID")
+        or _telegram_env_value("TELEGRAM_CHAT_ID")
+        or _resolve_telegram_chat_id_from_proactive_bindings(
+            principal_id=_telegram_env_value("EA_PROACTIVE_OODA_PRINCIPAL_ID")
+            or _telegram_env_value("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID")
+            or _telegram_env_value("EA_DEFAULT_PRINCIPAL_ID")
+            or ""
+        )
+        or _resolve_telegram_chat_id_from_proactive_bindings(
+            principal_id=_telegram_env_value("EA_PROACTIVE_OODA_PRINCIPAL_ID")
+            or _telegram_env_value("EA_DEFAULT_PRINCIPAL_ID")
+        )
+    ).strip()
+
+
+def _to_bool_text(value: object, *, yes_value: str = "yes", no_value: str = "no") -> str:
+    return yes_value if bool(value) else no_value
+
+
+def _build_telegram_refresh_message(payload: dict[str, Any]) -> str:
+    refresh_payload = payload.get("onemin_refresh") if isinstance(payload.get("onemin_refresh"), dict) else {}
+    refresh_payload = dict(refresh_payload)
+    lines: list[str] = []
+    lines.append("1min.AI credit refresh")
+    lines.append(f"Generated at: {_fmt(payload.get('generated_at'))}")
+    lines.append(f"Source: {_fmt(payload.get('source'))}")
+    lines.append(f"Billing-backed remaining: {_fmt(payload.get('actual_free_credits_total'))}")
+    if refresh_payload:
+        lines.append(f"Refresh ran: {_to_bool_text(refresh_payload.get('ran'))}")
+        lines.append(f"Throttled: {_to_bool_text(refresh_payload.get('throttled'))}")
+        throttle_reason = str(refresh_payload.get("throttle_reason") or "").strip()
+        if refresh_payload.get("throttled") and throttle_reason:
+            lines.append(f"Throttle reason: {throttle_reason}")
+        lines.append(f"Throttle seconds remaining: {_fmt(refresh_payload.get('throttle_seconds_remaining'))}")
+        lines.append(f"BrowserAct attempted: {_fmt(refresh_payload.get('browseract_attempted'))}")
+        lines.append(f"BrowserAct refreshed: {_fmt(refresh_payload.get('browseract_refreshed'))}")
+        lines.append(f"Members reconciled: {_fmt(refresh_payload.get('member_reconciled'))}")
+        lines.append(f"API attempted: {_fmt(refresh_payload.get('api_attempted'))}")
+        lines.append(f"API recovered: {_fmt(refresh_payload.get('api_recovered'))}")
+        lines.append(f"Errors: {_fmt(refresh_payload.get('errors'))}")
+        lines.append(f"API rate-limited: {_to_bool_text(refresh_payload.get('api_rate_limited'))}")
+        if refresh_payload.get("error"):
+            lines.append(f"Error: {_fmt(refresh_payload.get('error'))}")
+    else:
+        lines.append("Refresh requested: no")
+    return "\n".join(lines)
+
+
+def _send_telegram_message(payload: dict[str, str], *, timeout_seconds: float) -> dict[str, object]:
+    bot_token = payload.get("bot_token", "").strip()
+    request_payload = {
+        "chat_id": payload.get("chat_id", "").strip(),
+        "text": payload.get("text", "").strip(),
+        "disable_web_page_preview": True,
+    }
+    body = json.dumps(request_payload).encode("utf-8")
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=max(1, float(timeout_seconds))) as response:
+        response_body = response.read().decode("utf-8")
+    if not response_body:
+        raise RuntimeError("telegram_response_empty")
+    try:
+        response_payload = json.loads(response_body)
+    except json.JSONDecodeError:
+        raise RuntimeError(f"telegram_invalid_json:{response_body[:200]}")
+    if not isinstance(response_payload, dict) or not bool(response_payload.get("ok")):
+        description = str((response_payload or {}).get("description") if isinstance(response_payload, dict) else "")
+        raise RuntimeError(f"telegram_send_failed:{description or 'invalid_response'}")
+    result_payload = response_payload.get("result")
+    if not isinstance(result_payload, dict):
+        raise RuntimeError("telegram_response_unexpected")
+    return result_payload
+
+
+def _build_telegram_delivery_request(args: argparse.Namespace, payload: dict[str, Any]) -> dict[str, object]:
+    if not bool(args.send_telegram):
+        return {
+            "requested": False,
+            "sent": False,
+            "reason": "send_telegram_not_requested",
+            "timeout_seconds": int(max(1, int(args.telegram_timeout_seconds))),
+        }
+
+    bot_token = _resolve_telegram_bot_token(args)
+    if not bot_token:
+        return {
+            "requested": True,
+            "sent": False,
+            "reason": "telegram_bot_token_missing",
+            "chat_id_present": False,
+            "bot_token_present": False,
+            "timeout_seconds": int(max(1, int(args.telegram_timeout_seconds))),
+        }
+
+    chat_id = _resolve_telegram_chat_id(args)
+    if not chat_id:
+        return {
+            "requested": True,
+            "sent": False,
+            "reason": "telegram_chat_id_missing",
+            "chat_id_present": False,
+            "bot_token_present": bool(bot_token),
+            "timeout_seconds": int(max(1, int(args.telegram_timeout_seconds))),
+        }
+
+    message = _build_telegram_refresh_message(payload)
+    request_payload = {
+        "bot_token": bot_token,
+        "chat_id": chat_id,
+        "text": message,
+        "disable_web_page_preview": True,
+    }
+    timeout_seconds = max(1, int(args.telegram_timeout_seconds))
+    try:
+        response = _send_telegram_message(request_payload, timeout_seconds=timeout_seconds)
+    except Exception as exc:
+        return {
+            "requested": True,
+            "sent": False,
+            "reason": str(exc).strip()[:200],
+            "chat_id_present": bool(chat_id),
+            "bot_token_present": bool(bot_token),
+            "timeout_seconds": timeout_seconds,
+        }
+    return {
+        "requested": True,
+        "sent": True,
+        "reason": "sent",
+        "message_id": response.get("message_id"),
+        "chat_id": str(response.get("chat", {}).get("id") or "").strip(),
+        "chat_id_present": bool(response.get("chat", {}).get("id")),
+        "bot_token_present": bool(bot_token),
+        "timeout_seconds": timeout_seconds,
+    }
+
+
+def _print_telegram_delivery_status(delivery: dict[str, Any]) -> None:
+    if not delivery:
+        return
+    if delivery.get("sent"):
+        print("Telegram: sent")
+        return
+    reason = str(delivery.get("reason") or "not_sent").strip()
+    print(f"Telegram: {reason}")
+
+
 def main() -> int:
     args = _parse_args()
     if args.telemetry_answer is not None:
@@ -1158,12 +1554,19 @@ def main() -> int:
         print("unsupported_route", file=sys.stderr)
         return 2
     payload = _run_live_onemin_aggregate(args)
+    if bool(args.send_telegram):
+        payload["telegram_delivery"] = _build_telegram_delivery_request(args, payload)
+    summary = _summary_payload(payload)
+
     if args.summary_json:
-        print(json.dumps(_summary_payload(payload), indent=2, sort_keys=True))
+        print(json.dumps(summary, indent=2, sort_keys=True))
     elif args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         _print_onemin_summary(payload)
+        if bool(args.send_telegram):
+            _print_telegram_delivery_status(payload["telegram_delivery"])
+        return 0
     return 0
 
 

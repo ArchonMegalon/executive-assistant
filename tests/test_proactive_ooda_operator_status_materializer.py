@@ -2767,6 +2767,45 @@ def test_suppressed_projection_prefers_current_run_over_stale_quiet_receipt() ->
     assert summary["suppressed_safe_work_issue_codes"] == []
 
 
+def test_suppressed_projection_treats_no_decision_ready_safe_work_as_quiet_non_material() -> None:
+    module = _load_script()
+
+    summary = module._normalized_suppressed_projection(  # noqa: SLF001
+        {
+            "source": "docker_compose_exec",
+            "action_required_only_quiet_receipt": {
+                "generated_at": "2026-06-30T08:09:30Z",
+                "notification_status": "deferred",
+                "error_code": "no_decision_ready_safe_work",
+                "item_count": 2,
+                "teable_sync": {
+                    "status": "synced",
+                    "projection_summary": {
+                        "record_count": 1,
+                        "suppressed_item_count": 2,
+                        "suppressed_safe_work_review_count": 2,
+                        "suppressed_projection_reasons": ["safe_work_quality_gate_review"],
+                        "suppressed_safe_work_issue_codes": ["no_decision_ready_material"],
+                        "tables": {
+                            "proactive_ooda_runs": {"record_count": 1},
+                            "proactive_ooda_items": {"record_count": 0},
+                            "proactive_ooda_safe_work": {"record_count": 0},
+                        },
+                    },
+                },
+            },
+        }
+    )
+
+    assert summary["status"] == "suppressed_non_material"
+    assert summary["requires_recovery"] is False
+    assert summary["suppressed_non_material"] is True
+    assert summary["suppressed_non_material_reason"] == "quiet_no_decision_ready_material"
+    assert summary["blocking_reason"] == ""
+    assert summary["next_action"] == ""
+    assert summary["error_code"] == "no_decision_ready_safe_work"
+
+
 def test_suppressed_projection_with_recovery_issue_still_requires_repair() -> None:
     module = _load_script()
 

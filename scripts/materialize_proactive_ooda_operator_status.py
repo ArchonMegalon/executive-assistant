@@ -72,6 +72,10 @@ NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES = {
     "flat_search_disabled_property_scout",
     "flat_search_disabled",
 }
+QUIET_NON_MATERIAL_SUPPRESSED_PROJECTION_ERROR_CODES = {
+    "no_user_action_required",
+    "no_decision_ready_safe_work",
+}
 NON_MATERIAL_SUPPRESSED_PROJECTION_REASONS = {
     "packet_projection_suppressed",
     "safe_work_audit_review",
@@ -1777,7 +1781,7 @@ def _normalized_suppressed_projection(artifact_probe: Mapping[str, Any]) -> dict
         and selected_receipt
         and str(teable_sync.get("status") or "").strip() in {"synced", "partial"}
         and str(selected_receipt.get("notification_status") or "").strip() == "deferred"
-        and str(selected_receipt.get("error_code") or "").strip() == "no_user_action_required"
+        and str(selected_receipt.get("error_code") or "").strip() in QUIET_NON_MATERIAL_SUPPRESSED_PROJECTION_ERROR_CODES
         and int(selected_receipt.get("item_count") or 0) > 0
         and packet_projection_record_count == 0
     ):
@@ -1803,7 +1807,7 @@ def _normalized_suppressed_projection(artifact_probe: Mapping[str, Any]) -> dict
         ][:12]
     quiet_no_action = (
         str(selected_receipt.get("notification_status") or "").strip() == "deferred"
-        and str(selected_receipt.get("error_code") or "").strip() == "no_user_action_required"
+        and str(selected_receipt.get("error_code") or "").strip() in QUIET_NON_MATERIAL_SUPPRESSED_PROJECTION_ERROR_CODES
     )
     configured_source_exclusion = bool(
         reasons

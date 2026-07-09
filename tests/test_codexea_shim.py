@@ -1832,6 +1832,49 @@ def test_onemin_route_forwards_summary_json(tmp_path: Path) -> None:
     assert "--summary-json" in argv
 
 
+def test_credits_refresh_forwards_telegram_arguments_to_route_helper(tmp_path: Path) -> None:
+    route_helper = tmp_path / "fake-route-helper.py"
+    route_helper.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import json, sys",
+                "print(json.dumps(sys.argv[1:]))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    route_helper.chmod(route_helper.stat().st_mode | stat.S_IXUSR)
+
+    argv = json.loads(
+        _run_shim_stdout(
+            tmp_path,
+            "credits",
+            "refresh",
+            "--send-telegram",
+            "--telegram-chat-id",
+            "123456789",
+            "--telegram-bot-token",
+            "bot-token",
+            "--telegram-timeout-seconds",
+            "19",
+            extra_env={
+                "CODEXEA_ROUTE_HELPER": str(route_helper),
+                "CODEXEA_CREDITS_INCLUDE_BILLING": "1",
+            },
+        )
+    )
+
+    assert argv[:2] == ["--onemin-aggregate", "--onemin-refresh"]
+    assert "--send-telegram" in argv
+    assert "--telegram-chat-id" in argv
+    assert "123456789" in argv
+    assert "--telegram-bot-token" in argv
+    assert "bot-token" in argv
+    assert "--telegram-timeout-seconds" in argv
+    assert "19" in argv
+
+
 def test_onemin_help_is_shim_local_and_does_not_require_route_helper(tmp_path: Path) -> None:
     stdout = _run_shim_stdout(
         tmp_path,
