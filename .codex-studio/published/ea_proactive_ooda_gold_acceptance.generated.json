@@ -8,9 +8,9 @@
       "callback_record_count": 28,
       "candidate_principal_hash_count": 3,
       "checked": true,
-      "current_packet_callback_latest_age_seconds": 50173,
+      "current_packet_callback_latest_age_seconds": 51523,
       "current_packet_callback_latest_expired": false,
-      "current_packet_callback_latest_seconds_until_expiry": 554625,
+      "current_packet_callback_latest_seconds_until_expiry": 553275,
       "current_packet_callback_latest_status": "pending",
       "current_packet_callback_record_count": 1,
       "current_packet_live_pending_count": 1,
@@ -21,7 +21,7 @@
       "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
       "next_action_label": "Record packet verdict",
       "next_action_method": "get",
-      "observed_at": "2026-07-09T19:35:16Z",
+      "observed_at": "2026-07-09T19:57:52Z",
       "principal_match_ready": true,
       "privacy": {
         "raw_callback_token_exposed": false,
@@ -165,11 +165,11 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-07-09T19:35:29Z",
+      "generated_at": "2026-07-09T19:57:59Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "fdc5ca20164a7d781c2467b7ed7f7aabda9273eb",
-      "source_state_fingerprint": "edc59ec5e840c9ee1ebc726610bc56aa7b80e79f1081f34ce4bd0a4b403faa7d",
+      "source_git_head": "731931a6bc67314a555e96eb36ffee230212417b",
+      "source_state_fingerprint": "be1e3181fd1e60516a858924db79542d377b88eb4c34b721673d5a8b89818a3a",
       "status": "ready_with_live_receipt"
     },
     "run_receipt": {
@@ -205,7 +205,7 @@
       "source": "docker_compose_exec"
     }
   },
-  "generated_at": "2026-07-09T19:36:00Z",
+  "generated_at": "2026-07-09T19:58:24Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": false,
@@ -247,6 +247,7 @@
       "status": "pass"
     },
     "approval_capture_readiness": {
+      "approval_capture_surface_mismatch_present": false,
       "approval_capture_surface_mode": "telegram_callback_pending",
       "approval_capture_surface_present": true,
       "approval_capture_surface_ready": false,
@@ -270,7 +271,7 @@
       "manual_capture_present": false,
       "manual_outcome_capture_ready": false,
       "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
-      "observed_at": "2026-07-09T19:35:16Z",
+      "observed_at": "2026-07-09T19:57:52Z",
       "present": false,
       "principal_match_ready": true,
       "probe_ok": true,
@@ -458,9 +459,9 @@
       "next_action_method": "get",
       "operator_status_source_current": true,
       "operator_status_source_current_required": true,
-      "operator_status_source_fingerprint": "edc59ec5e840c9ee1ebc726610bc56aa7b80e79f1081f34ce4bd0a4b403faa7d",
+      "operator_status_source_fingerprint": "be1e3181fd1e60516a858924db79542d377b88eb4c34b721673d5a8b89818a3a",
       "operator_status_source_fingerprint_matches_current": true,
-      "operator_status_source_git_head": "fdc5ca20164a7d781c2467b7ed7f7aabda9273eb",
+      "operator_status_source_git_head": "731931a6bc67314a555e96eb36ffee230212417b",
       "operator_status_source_git_head_matches_current": true,
       "operator_status_source_legacy_compatibility": false,
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
@@ -600,8 +601,8 @@
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
   "selected_bundle_source": "historical_browse_backed_proof_bundle",
-  "source_git_head": "fdc5ca20164a7d781c2467b7ed7f7aabda9273eb",
-  "source_state_fingerprint": "edc59ec5e840c9ee1ebc726610bc56aa7b80e79f1081f34ce4bd0a4b403faa7d",
+  "source_git_head": "731931a6bc67314a555e96eb36ffee230212417b",
+  "source_state_fingerprint": "be1e3181fd1e60516a858924db79542d377b88eb4c34b721673d5a8b89818a3a",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_missing_proactive_packet_evidence",
   "summary": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing.",

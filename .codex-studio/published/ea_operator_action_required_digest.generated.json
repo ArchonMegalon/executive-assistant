@@ -9,9 +9,9 @@
     "included_count": 1,
     "input_count": 7,
     "suppressed_out_of_scope_count": 3,
-    "suppressed_policy_blocked_count": 2,
+    "suppressed_policy_blocked_count": 1,
     "suppressed_privacy_blocked_count": 0,
-    "suppressed_queue_only_count": 1
+    "suppressed_queue_only_count": 2
   },
   "dedupe_checked": true,
   "dedupe_suppressed": true,
@@ -19,7 +19,7 @@
   "digest_sha256": "437f477f56d51ca777b1318e585e8cece43725f3e0d4acc9a130bc8b69d2bc9d",
   "dry_run": false,
   "force": false,
-  "generated_at": "2026-07-09T19:35:30Z",
+  "generated_at": "2026-07-09T19:57:07Z",
   "generated_by": "scripts/materialize_operator_action_required_digest.py",
   "head_semantics": "source_state",
   "included_action_keys": [
@@ -129,11 +129,11 @@
     "reason": "",
     "sent": false
   },
-  "source_git_head": "fdc5ca20164a7d781c2467b7ed7f7aabda9273eb",
+  "source_git_head": "731931a6bc67314a555e96eb36ffee230212417b",
   "source_receipt": {
     "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
     "present": true,
-    "sha256": "8ae1d1ea10f480bd40d927c1af3a70fdd5b17d959944df67289c4fbc28d2d418",
+    "sha256": "918a54f4065002a4f781021feddae1679144d207e2a56049c4f55d8dcc9e0477",
     "status": "blocked_real_world_acceptance"
   },
   "source_refresh": {
@@ -142,7 +142,7 @@
     "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
     "status": "materialized"
   },
-  "source_state_fingerprint": "edc59ec5e840c9ee1ebc726610bc56aa7b80e79f1081f34ce4bd0a4b403faa7d",
+  "source_state_fingerprint": "be1e3181fd1e60516a858924db79542d377b88eb4c34b721673d5a8b89818a3a",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "state_updated": false,
   "status": "suppressed_duplicate",

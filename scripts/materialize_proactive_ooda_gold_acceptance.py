@@ -2233,6 +2233,8 @@ def _summary_for_status(
         return "The proactive OODA mechanics have evidence, but the selected packet is not assistant-grade enough to prove production readiness."
     if status == "blocked_not_accepted_under_ordinary_use":
         return "A proactive OODA packet was routed and staged, but the recorded outcome was not accepted under ordinary use."
+    if status == "blocked_approval_capture_not_current":
+        return "A proactive OODA packet has local gold-proof runtime evidence, but the available approval capture surface is not for the selected packet; reissue or record a current-packet approval outcome next."
     if status == "ready_for_approval_outcome_capture":
         if approval_capture_surface_ready:
             if approval_outcome_stale_for_current_packet:
@@ -2853,6 +2855,8 @@ def _next_action(
     approval_capture_readiness_present: bool,
     approval_capture_readiness_ready: bool,
     approval_capture_required: bool = True,
+    approval_capture_surface_present: bool = False,
+    approval_capture_surface_mismatch_present: bool = False,
     approval_row: Mapping[str, Any],
     approval_capture_surface_ready: bool,
     approval_capture_telegram_ready: bool,
@@ -2882,6 +2886,8 @@ def _next_action(
     if not bool(approval_row.get("approval_outcome_recorded")):
         if not approval_capture_required:
             return _concrete_operator_recovery_action(operator_status) or "stage_fresh_assistant_grade_proactive_packet"
+        if approval_capture_surface_mismatch_present:
+            return "reissue_proactive_approval"
         if (
             approval_capture_readiness_ready
             and
@@ -2893,6 +2899,8 @@ def _next_action(
         if approval_capture_readiness_ready and (
             approval_capture_surface_ready or approval_capture_telegram_ready or approval_capture_manual_ready
         ):
+            if not approval_capture_surface_matches_packet_artifacts:
+                return "reissue_proactive_approval"
             return "record_proactive_ooda_approval_outcome"
         approval_capture = dict(operator_status.get("approval_capture") or {})
         capture_next_action = str(approval_capture.get("next_action") or "").strip()
@@ -2927,6 +2935,9 @@ def _remaining_external_proofs(
     approval_capture_readiness_present: bool,
     approval_capture_readiness_ready: bool,
     approval_capture_required: bool = True,
+    approval_capture_surface_matches_packet_artifacts: bool = True,
+    approval_capture_surface_present: bool = False,
+    approval_capture_surface_mismatch_present: bool = False,
     selected_bundle_is_current: bool = True,
     approval_row: Mapping[str, Any],
 ) -> list[str]:
@@ -2951,7 +2962,9 @@ def _remaining_external_proofs(
         remaining.append("mirrored Teable projection for the proactive OODA packet")
     if not bool(approval_row.get("approval_outcome_recorded")):
         if approval_capture_required:
-            if not approval_capture_readiness_present or not approval_capture_readiness_ready:
+            if approval_capture_surface_mismatch_present:
+                remaining.append("current approval-capture surface for the selected proactive OODA packet")
+            elif not approval_capture_readiness_present or not approval_capture_readiness_ready:
                 remaining.append("redacted approval-capture readiness for the proactive OODA packet")
             remaining.append("redacted explicit approval outcome for the proactive OODA packet")
         else:
@@ -3219,6 +3232,43 @@ def _approval_capture_readiness_proof(
         ),
         present,
     )
+
+
+def _approval_capture_surface_mismatch_present(
+    approval_capture_surface: Mapping[str, Any],
+    *,
+    required: bool,
+) -> bool:
+    if not required:
+        return False
+    if not bool(approval_capture_surface.get("present")):
+        return False
+    if bool(approval_capture_surface.get("current_packet_matches_packet_artifacts")):
+        return False
+    count_keys = (
+        "callback_pending_count",
+        "callback_raw_pending_count",
+        "callback_live_pending_count",
+        "callback_unexpired_pending_count",
+        "callback_noncurrent_pending_count",
+        "callback_stale_pending_count",
+        "callback_expired_pending_count",
+        "current_packet_callback_record_count",
+        "current_packet_callback_pending_count",
+        "current_packet_callback_raw_pending_count",
+        "current_packet_callback_stale_pending_count",
+        "current_packet_callback_expired_pending_count",
+        "current_packet_callback_recorded_count",
+        "current_packet_live_callback_record_count",
+        "current_packet_live_pending_count",
+    )
+    for key in count_keys:
+        try:
+            if int(approval_capture_surface.get(key) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return bool(str(approval_capture_surface.get("current_packet_callback_latest_status") or "").strip())
 
 
 def _approval_capture_surface_receipt(
@@ -4214,6 +4264,14 @@ def materialize_proactive_ooda_gold_acceptance(
         approval_outcome_recorded=bool(approval_row.get("approval_outcome_recorded")),
         approval_outcome_matches_selected_packet=approval_artifact_matches_current_packet,
     )
+    approval_capture_surface_present = bool(approval_capture_surface.get("present"))
+    approval_capture_surface_mismatch_present = _approval_capture_surface_mismatch_present(
+        approval_capture_surface,
+        required=approval_capture_readiness_required,
+    )
+    approval_capture_readiness_proof["approval_capture_surface_mismatch_present"] = (
+        approval_capture_surface_mismatch_present
+    )
     approval_capture_readiness_ready = bool(approval_capture_readiness_proof.get("ready"))
     approval_capture_effective_telegram_ready = bool(
         approval_capture_readiness_required
@@ -4619,6 +4677,7 @@ def materialize_proactive_ooda_gold_acceptance(
             teable_present,
         )
     )
+    packet_runtime_evidence_present = operator_runtime_ready and core_packet_evidence_present
     packet_evidence_present = core_packet_evidence_present and approval_capture_readiness_present
     runtime_proofs_complete = operator_runtime_ready and packet_evidence_present
     operator_runtime_recovery_required = _operator_runtime_recovery_required(
@@ -4647,6 +4706,8 @@ def materialize_proactive_ooda_gold_acceptance(
         status = "blocked_not_accepted_under_ordinary_use"
     elif runtime_proofs_complete and approval_outcome_capture_ready:
         status = "ready_for_approval_outcome_capture"
+    elif packet_runtime_evidence_present and approval_capture_surface_mismatch_present:
+        status = "blocked_approval_capture_not_current"
     else:
         status = "blocked_missing_proactive_packet_evidence"
     operator_action_required_dedupe_proof = _operator_action_required_dedupe_proof_row(
@@ -4705,6 +4766,8 @@ def materialize_proactive_ooda_gold_acceptance(
         approval_capture_readiness_present=approval_capture_readiness_present,
         approval_capture_readiness_ready=approval_capture_readiness_ready,
         approval_capture_required=approval_capture_readiness_required,
+        approval_capture_surface_present=approval_capture_surface_present,
+        approval_capture_surface_mismatch_present=approval_capture_surface_mismatch_present,
         approval_row=approval_row,
         approval_capture_surface_ready=approval_capture_effective_surface_ready,
         approval_capture_telegram_ready=approval_capture_effective_telegram_ready,
@@ -4834,12 +4897,15 @@ def materialize_proactive_ooda_gold_acceptance(
             chosen_present=chosen_present,
             staged_present=staged_present,
             teable_present=teable_present,
-        approval_capture_readiness_present=approval_capture_readiness_present,
-        approval_capture_readiness_ready=approval_capture_readiness_ready,
-        approval_capture_required=approval_capture_readiness_required,
-        selected_bundle_is_current=selected_bundle_is_current,
-        approval_row=approval_row,
-    ),
+            approval_capture_readiness_present=approval_capture_readiness_present,
+            approval_capture_readiness_ready=approval_capture_readiness_ready,
+            approval_capture_required=approval_capture_readiness_required,
+            approval_capture_surface_matches_packet_artifacts=approval_capture_surface_matches_packet_artifacts,
+            approval_capture_surface_present=approval_capture_surface_present,
+            approval_capture_surface_mismatch_present=approval_capture_surface_mismatch_present,
+            selected_bundle_is_current=selected_bundle_is_current,
+            approval_row=approval_row,
+        ),
         "verifier_commands": [
             "make verify-proactive-ooda",
             "make verify-proactive-ooda-live-receipt",

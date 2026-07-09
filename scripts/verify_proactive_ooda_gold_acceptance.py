@@ -33,6 +33,7 @@ EXPECTED_RULES = {
 KNOWN_STATUSES = {
     "blocked_operator_runtime_posture",
     "blocked_low_quality_packet_evidence",
+    "blocked_approval_capture_not_current",
     "blocked_missing_proactive_packet_evidence",
     "blocked_not_accepted_under_ordinary_use",
     "ready_for_approval_outcome_capture",
@@ -67,6 +68,7 @@ EXPECTED_NEXT_ACTION_SURFACE_TARGETS = {
     "repair_proactive_context_grounding": "Today",
     "repair_proactive_operator_runtime_posture": "Goals",
     "repair_proactive_safe_work_audit": "Queue",
+    "reissue_proactive_approval": "the proactive approval reissue surface",
     "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof": "Goals",
     "stage_fresh_assistant_grade_proactive_packet": "Queue",
     "stage_one_chosen_candidate_for_user_decision": "Queue",
@@ -372,6 +374,18 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             issues.append("ready_for_approval_outcome_capture requires approval_capture_readiness.ready=true")
     if status == "ready_for_approval_outcome_capture" and approval_recorded:
         issues.append("ready_for_approval_outcome_capture must not already have a recorded approval outcome")
+    if status == "blocked_approval_capture_not_current":
+        if not all(packet_runtime_proofs):
+            issues.append("blocked_approval_capture_not_current requires the runtime packet proofs to be present")
+        approval_capture = dict(proofs.get("approval_capture_readiness") or {})
+        if approval_capture.get("approval_capture_surface_present") is not True:
+            issues.append("blocked_approval_capture_not_current requires approval_capture_surface_present=true")
+        if approval_capture.get("approval_capture_surface_mismatch_present") is not True:
+            issues.append("blocked_approval_capture_not_current requires approval_capture_surface_mismatch_present=true")
+        if approval_capture.get("current_packet_matches_packet_artifacts") is not False:
+            issues.append("blocked_approval_capture_not_current requires current_packet_matches_packet_artifacts=false")
+        if approval_recorded and not approval.get("stale_for_current_packet"):
+            issues.append("blocked_approval_capture_not_current may only keep recorded approval evidence when it is stale for the current packet")
     if status == "blocked_not_accepted_under_ordinary_use":
         if not all(packet_runtime_proofs):
             issues.append("blocked_not_accepted_under_ordinary_use requires the runtime proofs to be present")
