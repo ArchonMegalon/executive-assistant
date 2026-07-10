@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-07-09
+Updated: 2026-07-10
 
 ## Workspace Integration Tier Guide
 
@@ -15,7 +15,7 @@ Updated: 2026-07-09
 
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
-| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts / 74 restored runtime slots` | `Owned` |  | `Tier 1` | Local `.env` key rotation pool plus restored `config/onemin_api_keys.local.json` and `config/onemin_slot_owners*.json` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Cross-base Teable recovery on `2026-07-09T04:40:40Z` restored `74` slot records, with `71` populated API-key entries in `config/onemin_api_keys.local.json`. The live operator-status receipt on `2026-07-09T04:29:06Z` still reports `133270343` remaining credits, `70` configured key slots, `17` ready slots, `53` unknown slots, and routing decision `prefer_onemin_background_when_usable`. |
+| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts / 74 restored runtime slots` | `Owned` |  | `Tier 1` | Local `.env` key rotation pool plus restored `config/onemin_api_keys.local.json` and `config/onemin_slot_owners*.json` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Latest credit refresh on `2026-07-10T02:46:35.357066+00:00` for `ONEMIN_AI_API_KEY` confirmed `15025` remaining credits with the next top-up projected for `2026-07-11T00:59:12.982000Z` (`15000` credits). |
 | `AI Magicx` | `Rune Plan` | `1 account` | `Owned` |  | `Tier 2` | `AI_MAGICX_API_KEY` slot plus `ea/app/services/responses_upstream.py` fallback lane and `ea/app/api/routes/responses.py` `/v1/codex` selectors | Distinct from `OMagic`. Runtime routing and `EA_RESPONSES_MAGICX_*` health checks exist locally, but the current `.env` still has an empty `AI_MAGICX_API_KEY`, so this remains a staged fallback lane rather than a verified live provider. |
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `Deftform` | `No tier recorded` | `1 account` | `Owned` |  | `Tier 4` | Local `.env` username/password only | Newly tracked account with shared local credentials; plan/tier and structured verification are still pending. |
@@ -59,6 +59,7 @@ Updated: 2026-07-09
 | `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | Governed premium-delivery renderer lane is defined; account/API/render proof pending | Redeemed and activated; suitable for EA morning memos, board packs, decision dossiers, audit records, support bundles, travel briefs, proof cards, and contact sheets after adapter proof lands. MarkupGo renders EA-approved source packets only and must not change content, process raw Gmail/Calendar, render unredacted board material without access policy, grant access, or own publication truth. Promote after provider verification, source-packet, redaction, artifact-hash, and delivery-receipt proofs pass. |
 | `MetaSurvey` | `Plus exclusive / 3x code-based` | `3 codes` | `Activated` |  | `Tier 2` | BrowserAct content-template packets for survey-results reading | Redeemed and activated; structured feedback collection has staged extraction support, not a verified end-to-end lane. |
 | `Mootion` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | Activation is confirmed; the current local posture is scaffold-stage workflow generation, not yet a production render lane. Candidate newsroom host/motion lane only until verified. |
+| `NeuronWriter` | `Tier 7` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 7 account is now seeded locally with the usual shared credentials for later structured verification, BrowserAct capture, and governed content-workflow assessment. |
 | `Nonverbia` | `Tier 4` | `1 account` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane yet | Official Nonverbia app access is available at `app.nonverbia.com`, and account credentials are stored in BrowserAct for later structured verification. Candidate newsroom presenter lane only until verified. |
 | `Paperguide` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
 | `PayFunnels` | `Tier 3` | `1 account` | `Owned` |  | `Tier 3` | Bounded `$1 Billing Test` adapter with HMAC webhook verification and no-op entitlement ledger | Test-only billing plumbing. The only enabled product is `payfunnels_test_payment_1usd_v1`: $1 one-time, no benefits, no premium features, no render credits, no special access, and no feature unlocks. PayFunnels is not entitlement truth and no webhook secrets are committed. |
@@ -80,7 +81,7 @@ Updated: 2026-07-09
 
 ## Summary
 
-- `55` total LTD products tracked
+- `56` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `katteb.com`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holdings: `1min.AI` (`12 licenses / 12 accounts / 74 restored runtime slots`), `MagicFit` (`3 accounts`), `OMagic` (`9 user-reported accounts`), `Unmixr AI` (`8 Tier 4 accounts / capacity slots`), `YouBooks` (`5 accounts`)
 
@@ -90,7 +91,7 @@ Use this section to track missing tier/email/account facts discovered through th
 
 | Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
 |---|---|---|---|---|---|
-| `1min.AI` |  | `manual_seeded` | `cross_base_teable_recovery + local_env + operator_status_provider_ledger` | 2026-07-09T04:40:40Z | API-key rotation slots and the shared browser-login password exist locally. Cross-base Teable recovery restored `74` slot records and `71` populated key entries across the local `onemin` secret files; the live operator-status receipt still reports `133270343` remaining credits, `70` configured key slots, `17` ready slots, `53` unknown slots, and routing decision `prefer_onemin_background_when_usable`. |
+| `1min.AI` |  | `manual_seeded` | `cross_base_teable_recovery + local_env + operator_status_provider_ledger` | 2026-07-10T02:46:35.357066+00:00 | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-07-10T02:46:35.357066+00:00` for `ONEMIN_AI_API_KEY` confirmed `15025` remaining credits with the next top-up projected for `2026-07-11T00:59:12.982000Z` (`15000` credits). |
 | `PayFunnels` |  | `manual_seeded` | `payfunnels_test_billing_receipts` | 2026-06-01T00:00:00Z | Tier 3 is tracked as a test-only billing adapter. Receipts verify the $1 no-benefit checkout copy, acknowledgement gate, webhook signature/idempotency checks, receipt ledger, no-op entitlement ledger, refund path, and security review. |
 | `PayPal API` | `primary.account@example.test` | `manual_seeded` | `local_env` | 2026-06-02T00:00:00Z | Client ID, secret, and account email are now stored locally. Checkout, webhook verification, and entitlement mapping still need implementation. |
 | `Prompt Architects` |  | `manual_seeded` | `local_env + prompt_foundry_receipts` | 2026-06-01T20:54:48.618432+00:00 | Local `.env` contains the AppSumo API key slot for `PROMPTING_SYSTEMS_API_KEY`; Prompt Foundry integration receipts verify Tier 4 capability capture, template seed/operator assist, usage metering, privacy boundaries, MagicFit bridge, and runtime GM assist disabled pending API/MCP/privacy/export proof. |
@@ -130,6 +131,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `MarkupGo` |  | `missing` | `manual_inventory + governed_lane_defined` | 2026-06-18T00:00:00Z | Activated; account-level verification details are still not documented here. EA now defines MarkupGo as the renderer half of the premium memo/board-pack delivery lane with FlipLink; provider/API/render behavior, redaction, artifact-hash, and delivery receipts remain pending. |
 | `MetaSurvey` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `Mootion` |  | `complete` | `manual_inventory` |  | Plan/Tier: License Tier 3; Status: activated |
+| `NeuronWriter` | `shared.account@example.test` | `manual_seeded` | `local_env` | 2026-07-10T04:01:28Z | Tier 7 and the usual shared credentials are now seeded locally; structured verification and any BrowserAct capture are still pending. |
 | `Nonverbia` |  | `missing` | `manual_inventory` |  | Tier 4 is confirmed manually and credentials are stored in BrowserAct, but no structured account-detail verification run is recorded yet. |
 | `OMagic` |  | `user_report` | `operator_report + cross_base_teable_recovery_gap` | 2026-07-09T04:40:40Z | Distinct from `AI Magicx`. The current user reports `9` OMagic accounts, but cross-base Teable recovery restored no `OMagic`-specific env keys or referenced secret files, so env-backed verification and account discovery are still pending. |
 | `Paperguide` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
