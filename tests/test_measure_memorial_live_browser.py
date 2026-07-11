@@ -87,6 +87,14 @@ def test_semantic_profile_for_prompt_detects_memorial_values_lane() -> None:
     assert profile["id"] == "memorial_values"
 
 
+def test_semantic_profile_for_generic_importance_prompt_uses_memorial_values_lane() -> None:
+    module = _load_module()
+
+    profile = module._semantic_profile_for_prompt("Was war Manfred wichtig?")
+
+    assert profile["id"] == "memorial_values"
+
+
 def test_answer_satisfies_semantic_profile_requires_group_structure() -> None:
     module = _load_module()
 

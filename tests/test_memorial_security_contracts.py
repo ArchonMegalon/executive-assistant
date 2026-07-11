@@ -221,6 +221,25 @@ def test_memorial_chat_citations_require_public_approval_and_safe_url() -> None:
     assert labels == ["Approved public source"]
 
 
+def test_generic_importance_question_uses_grounded_values_guardrail() -> None:
+    from app.api.routes import public_memorials
+
+    answer = public_memorials._memorial_chat_answer(
+        {"slug": "manfred", "person_name": "Manfred"},
+        "Was war Manfred wichtig?",
+        {},
+        "ea-coder-fast",
+        slug="manfred",
+    )
+
+    assert answer["fallback_reason"] == "memorial_values_guardrail"
+    assert answer["llm_provider"] == "memorial_guardrail"
+    assert answer["sources"] == []
+    assert "Tatsachen" in answer["answer"]
+    assert "Prinzip" in answer["answer"]
+    assert "Fairness" in answer["answer"]
+
+
 def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

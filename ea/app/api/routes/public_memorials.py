@@ -4843,7 +4843,7 @@ def _memorial_gemini_live_answer_requires_turn_fallback(transcript_text: str, an
 
 def _is_memorial_values_question(question: str) -> bool:
     lowered = _normalize_memorial_transcript_text(question).lower()
-    return any(
+    if any(
         token in lowered
         for token in (
             "gerechtigkeit",
@@ -4858,6 +4858,18 @@ def _is_memorial_values_question(question: str) -> bool:
             "anspruch",
             "tatsachen",
             "belegen",
+        )
+    ):
+        return True
+    return any(
+        phrase in lowered
+        for phrase in (
+            "was war manfred wichtig",
+            "was war ihm wichtig",
+            "was war dir wichtig",
+            "welche werte",
+            "wofuer stand",
+            "wofür stand",
         )
     )
 

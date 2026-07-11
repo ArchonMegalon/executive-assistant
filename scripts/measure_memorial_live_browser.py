@@ -79,7 +79,15 @@ EXIT_GATE_SEMANTIC_PROFILES = (
     },
     {
         "id": "memorial_values",
-        "prompt_tokens": ("gerechtigkeit", "opferschutz", "schach"),
+        "prompt_tokens": (
+            "gerechtigkeit",
+            "opferschutz",
+            "schach",
+            "wichtig",
+            "werte",
+            "wofuer stand",
+            "wofür stand",
+        ),
         "answer_tokens": (
             "ordnung",
             "regeln",
