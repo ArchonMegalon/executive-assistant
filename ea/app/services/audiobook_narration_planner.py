@@ -151,18 +151,28 @@ def _merge_traits(
 def _approved_traits(value: Mapping[str, object] | None) -> dict[str, dict[str, object]]:
     if not value:
         return {}
-    allowed = {
-        "gender_presentation",
-        "age_band",
-        "cultural_or_ethnic_background",
-        "accent",
-        "language",
-        "role",
-        "style",
+    aliases = {
+        "gender_presentation": ("gender_presentation", "gender"),
+        "age_band": ("age_band", "approximate_age", "age_range", "age"),
+        "cultural_or_ethnic_background": (
+            "cultural_or_ethnic_background",
+            "cultural_background",
+            "cultural_identity",
+            "ethnic_background",
+            "ethnicity",
+        ),
+        "accent": ("accent", "dialect"),
+        "language": ("language", "locale", "spoken_language", "native_language"),
+        "role": ("role", "character_role"),
+        "style": ("style", "performance_style"),
     }
     traits: dict[str, dict[str, object]] = {}
-    for key in allowed:
-        normalized = _normalized_label(value.get(key))
+    for key, source_keys in aliases.items():
+        normalized = ""
+        for source_key in source_keys:
+            normalized = _normalized_label(value.get(source_key))
+            if normalized:
+                break
         if normalized:
             traits[key] = _trait(
                 normalized,

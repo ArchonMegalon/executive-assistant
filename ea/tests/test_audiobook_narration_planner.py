@@ -139,6 +139,38 @@ def test_explicit_and_approved_traits_are_provenance_bearing_cast_hints() -> Non
     assert anna["identity_claimed"] is False
 
 
+def test_approved_casting_aliases_normalize_cultural_linguistic_and_age_metadata() -> None:
+    text = 'Anna said, “Hello.”'
+
+    plan = plan_narration(
+        (_chapter(1, text),),
+        language="en-US",
+        max_chars=180,
+        approved_speaker_profiles={
+            "Anna": {
+                "gender": "non-binary",
+                "approximate_age": "middle-aged",
+                "cultural_identity": "Austrian Nigerian",
+                "dialect": "Viennese",
+                "locale": "de-AT",
+            }
+        },
+    )
+
+    anna = next(speaker for speaker in plan["speakers"] if speaker["speaker_label"] == "Anna")
+    traits = anna["traits"]
+    assert traits["gender_presentation"]["value"] == "non-binary"
+    assert traits["age_band"]["value"] == "middle-aged"
+    assert traits["cultural_or_ethnic_background"] == {
+        "value": "Austrian Nigerian",
+        "provenance": "approved_casting_notes",
+        "confidence": 1.0,
+        "sensitive_hint": True,
+    }
+    assert traits["accent"]["value"] == "Viennese"
+    assert traits["language"]["value"] == "de-AT"
+
+
 def test_nearby_person_traits_do_not_leak_into_the_speaker_cast() -> None:
     text = '“Hello,” Anna said to the elderly man of Nigerian descent.'
 

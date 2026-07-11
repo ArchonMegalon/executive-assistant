@@ -56,6 +56,7 @@ CONTRACT_NAME = "ea.telegram_epub_to_audiobook.v1"
 SOURCE_DOCUMENT_CONTRACT_NAME = "ea.audiobook_source_document.v1"
 NARRATION_PLAN_CONTRACT_NAME = PLANNER_CONTRACT_NAME
 SPEAKER_CAST_SNAPSHOT_CONTRACT_NAME = "ea.audiobook_speaker_cast_snapshot.v1"
+SPEAKER_CAST_POLICY_NAME = "ea.audiobook_speaker_cast_policy.v2"
 PLAYER_AUDIOBOOK_ACCESS_CONTRACT_NAME = "ea.player_scoped_audiobookshelf_reference.v1"
 AUDIOBOOK_JOB_RECEIPT_CONTRACT_NAME = "ea.telegram_epub_audiobook_job_receipt.v1"
 AUDIOBOOK_RUNTIME_PREFLIGHT_CONTRACT_NAME = "ea.telegram_epub_audiobook_runtime_preflight.v1"
@@ -1073,14 +1074,23 @@ def _voice_tags_with_inferred_gender(
     label: object = "",
     gender_hint: object = "",
 ) -> tuple[str, ...]:
+    # Voice and speaker names are not demographic evidence. Keep ``label`` in
+    # the signature for compatibility with catalog callers, but only accept an
+    # explicit catalog gender field or an explicit tag.
     normalized = list(_split_tags(tags))
-    if any(tag in {"male", "female"} for tag in normalized):
-        return tuple(normalized)
-    inferred = _normalize_tag(gender_hint)
-    if inferred not in {"male", "female"}:
-        inferred = _infer_person_name_gender(label)
-    if inferred in {"male", "female"}:
-        normalized.append(inferred)
+    canonical_gender_tags = {
+        _speaker_trait_value(
+            "gender_presentation",
+            tag.removeprefix("gender_"),
+        )
+        for tag in normalized
+    }.intersection({"male", "female", "nonbinary", "neutral"})
+    if canonical_gender_tags:
+        normalized.extend(sorted(canonical_gender_tags))
+        return tuple(dict.fromkeys(normalized))
+    explicit_gender = _speaker_trait_value("gender_presentation", gender_hint)
+    if explicit_gender in {"male", "female", "nonbinary", "neutral"}:
+        normalized.append(explicit_gender)
     return tuple(dict.fromkeys(normalized))
 
 
@@ -1104,6 +1114,51 @@ def _row_tag_values(row: dict[str, object]) -> tuple[object, ...]:
             values.extend(value)
         elif value:
             values.extend(re.split(r"[,; ]+", str(value)))
+    explicit_trait_fields = {
+        "gender_presentation": ("gender", "gender_presentation"),
+        "approximate_age": ("age", "age_band", "age_range", "approximate_age"),
+        "accent": ("accent", "dialect"),
+        "ethnicity": (
+            "ethnicity",
+            "ethnic_background",
+            "cultural_background",
+            "cultural_or_ethnic_background",
+            "cultural_identity",
+        ),
+        "role": ("role", "character_role"),
+        "style": ("style", "performance_style"),
+    }
+    for kind, keys in explicit_trait_fields.items():
+        raw_value: object = None
+        for key in keys:
+            if row.get(key) not in (None, ""):
+                raw_value = row.get(key)
+                break
+        raw_items = (
+            list(raw_value)
+            if isinstance(raw_value, (list, tuple, set))
+            else [raw_value]
+        )
+        for raw_item in raw_items:
+            normalized = _speaker_trait_value(kind, raw_item)
+            if normalized in {"", "unknown", "unspecified", "none"}:
+                continue
+            values.append(normalized)
+            if kind == "gender_presentation":
+                values.append(f"gender_{normalized}")
+            elif kind == "approximate_age":
+                values.append(f"age_{normalized}")
+            elif kind == "accent":
+                values.append(f"accent_{normalized}")
+            elif kind == "ethnicity":
+                values.extend(
+                    (
+                        f"ethnicity_{normalized}",
+                        f"cultural_background_{normalized}",
+                    )
+                )
+            elif kind == "role":
+                values.append(f"role_{normalized}")
     return tuple(values)
 
 
@@ -1880,7 +1935,13 @@ def _load_voice_presets_from_value(value: object, *, source: str) -> tuple[Voice
             continue
         preset_key = _normalize_tag(row.get("preset_key") or row.get("key") or row.get("name") or f"voice_{index:02d}")
         label = str(row.get("label") or row.get("name") or preset_key or f"Voice {index}").strip()
-        language = _normalize_language(row.get("language") or row.get("lang") or os.getenv("UNMIXR_LANGUAGE") or "en-US")
+        language = _normalize_language(
+            row.get("language")
+            or row.get("locale")
+            or row.get("lang")
+            or os.getenv("UNMIXR_LANGUAGE")
+            or "en-US"
+        )
         supported_languages = _split_languages(
             row.get("supported_languages")
             or row.get("supported_locales")
@@ -2046,10 +2107,10 @@ def _unmixr_voice_list_url(*, filter_param: str, filter_value: str, page_size: i
 
 def _unmixr_voice_row_tags(row: dict[str, object], *, use_case: str) -> tuple[str, ...]:
     normalized_use_case = _normalize_tag(use_case)
-    values: list[object] = [use_case]
+    values: list[object] = [use_case, *_row_tag_values(row)]
     if any(term in normalized_use_case for term in ("audiobook", "narration", "documentary", "podcast")):
         values.extend(["audiobook", "narration"])
-    for key in ("gender", "quality", "age", "capabilities", "roles", "use_cases", "personality"):
+    for key in ("quality", "capabilities", "roles", "use_cases", "personality"):
         value = row.get(key)
         if isinstance(value, (list, tuple, set)):
             values.extend(value)
@@ -2084,7 +2145,12 @@ def _voice_preset_from_unmixr_row(row: dict[str, object], *, use_case: str, inde
     label = str(row.get("character") or row.get("label") or row.get("name") or f"Audio Voice {index}").strip()
     base_key = _normalize_tag(label) or f"voice_{index:02d}"
     preset_key = f"unmixr_{base_key}_{voice_id[:8].lower()}"
-    language = _normalize_language(row.get("language") or os.getenv("UNMIXR_LANGUAGE") or "en-US")
+    language = _normalize_language(
+        row.get("language")
+        or row.get("locale")
+        or os.getenv("UNMIXR_LANGUAGE")
+        or "en-US"
+    )
     supported_languages = _split_languages(row.get("supported_locales") or row.get("other_languages") or language)
     if language and language not in supported_languages:
         supported_languages = (language, *supported_languages)
@@ -2277,7 +2343,11 @@ def _book_topic_from_profile(*, signal_scores: dict[str, int], fiction_score: in
 
 
 def _infer_author_gender(author: str) -> str:
-    return _infer_person_name_gender(author)
+    # An author's name is not reliable or consented demographic evidence.
+    # Keep this compatibility hook neutral unless the book format eventually
+    # supplies a separate, explicitly approved metadata field.
+    del author
+    return ""
 
 
 def profile_book_for_voice(*, metadata: EpubMetadata, chapters: tuple[EpubChapter, ...], job_dir: Path) -> dict[str, object]:
@@ -2330,6 +2400,7 @@ def profile_book_for_voice(*, metadata: EpubMetadata, chapters: tuple[EpubChapte
         "title": metadata.title,
         "author": metadata.author,
         "author_gender_signal": _infer_author_gender(metadata.author),
+        "author_gender_signal_provenance": "not_available_without_explicit_approved_metadata",
         "topic": topic,
         "word_count_sampled": word_count,
         "chapter_count": len(chapters),
@@ -2347,6 +2418,10 @@ def _public_book_profile(profile: dict[str, object]) -> dict[str, object]:
         "language": profile.get("language"),
         "topic": profile.get("topic"),
         "author_gender_signal": profile.get("author_gender_signal", ""),
+        "author_gender_signal_provenance": profile.get(
+            "author_gender_signal_provenance",
+            "not_available_without_explicit_approved_metadata",
+        ),
         "dialogue_ratio": profile.get("dialogue_ratio"),
         "fiction_score": profile.get("fiction_score"),
         "nonfiction_score": profile.get("nonfiction_score"),
@@ -2500,12 +2575,18 @@ def _selected_voice_language_mismatch(*, metadata: EpubMetadata, voice_selection
 
 
 def _selected_voice_author_gender_signal(*, metadata: EpubMetadata, voice_selection: dict[str, object]) -> str:
+    del metadata
     public, _selected = _public_selected_voice_payload(voice_selection)
     profile = dict(public.get("book_profile") or voice_selection.get("book_profile") or {})
+    if (
+        str(profile.get("author_gender_signal_provenance") or "").strip()
+        != "explicit_approved_metadata"
+    ):
+        return ""
     author_gender_signal = str(profile.get("author_gender_signal") or "").strip().lower()
     if author_gender_signal in {"male", "female"}:
         return author_gender_signal
-    return _infer_author_gender(metadata.author)
+    return ""
 
 
 def _author_gender_mismatch_replacement_candidates(
@@ -3117,11 +3198,15 @@ def _voice_candidate_has_tag(row: dict[str, object], tag: str) -> bool:
 
 
 def _voice_candidate_gender(row: dict[str, object]) -> str:
-    for gender in ("male", "female"):
-        if _voice_candidate_has_tag(row, gender):
+    tags = {
+        _normalize_tag(item)
+        for item in list(row.get("tags") or [])
+        if _normalize_tag(item)
+    }
+    for gender in ("male", "female", "nonbinary", "neutral"):
+        if gender in tags or f"gender_{gender}" in tags:
             return gender
-    inferred = _infer_person_name_gender(row.get("label"))
-    return inferred if inferred in {"male", "female"} else ""
+    return ""
 
 
 _VOICE_LABEL_VARIANT_SUFFIXES = {
@@ -6711,6 +6796,112 @@ def _speaker_trait_evidence(
     }
 
 
+_SPEAKER_TRAIT_KIND_ALIASES = {
+    "gender": "gender_presentation",
+    "age": "approximate_age",
+    "age_range": "approximate_age",
+    "age_band": "approximate_age",
+    "locale": "language",
+    "spoken_language": "language",
+    "native_language": "language",
+    "dialect": "accent",
+    "cultural_background": "ethnicity",
+    "cultural_or_ethnic_background": "ethnicity",
+    "cultural_identity": "ethnicity",
+    "ethnic_background": "ethnicity",
+    "character_role": "role",
+    "performance_style": "style",
+}
+_SINGULAR_SPEAKER_TRAIT_KINDS = {
+    "gender_presentation",
+    "approximate_age",
+    "accent",
+    "ethnicity",
+}
+
+
+def _canonical_speaker_trait_kind(kind: object) -> str:
+    normalized = _normalize_tag(kind)
+    return _SPEAKER_TRAIT_KIND_ALIASES.get(normalized, normalized)
+
+
+def _merge_speaker_trait_observations(
+    observations: list[dict[str, object]],
+) -> tuple[dict[str, dict[str, object]], list[str]]:
+    merged: dict[str, dict[str, object]] = {}
+    ambiguous: set[str] = set()
+    for observation in observations:
+        for raw_kind, raw_evidence in observation.items():
+            kind = _canonical_speaker_trait_kind(raw_kind)
+            if not kind or kind in ambiguous:
+                continue
+            evidence = _speaker_trait_evidence(
+                kind,
+                raw_evidence,
+                default_provenance="private_exact_span_planner",
+            )
+            if evidence is None:
+                continue
+            evidence_values = {
+                str(value or "").strip()
+                for value in list(evidence.get("values") or [evidence.get("value")])
+                if str(value or "").strip()
+            }
+            if not evidence_values:
+                continue
+            if kind in _SINGULAR_SPEAKER_TRAIT_KINDS and len(evidence_values) != 1:
+                merged.pop(kind, None)
+                ambiguous.add(kind)
+                continue
+            existing = merged.get(kind)
+            if existing is None:
+                merged[kind] = evidence
+                continue
+            existing_values = {
+                str(value or "").strip()
+                for value in list(existing.get("values") or [existing.get("value")])
+                if str(value or "").strip()
+            }
+            if kind in _SINGULAR_SPEAKER_TRAIT_KINDS and existing_values != evidence_values:
+                merged.pop(kind, None)
+                ambiguous.add(kind)
+                continue
+            if existing_values == evidence_values:
+                merged[kind] = sorted(
+                    (existing, evidence),
+                    key=lambda row: (
+                        -float(row.get("confidence") or 0.0),
+                        str(row.get("provenance") or ""),
+                    ),
+                )[0]
+                continue
+            combined_values = sorted(existing_values | evidence_values)
+            combined_provenance = "+".join(
+                sorted(
+                    {
+                        str(existing.get("provenance") or ""),
+                        str(evidence.get("provenance") or ""),
+                    }
+                    - {""}
+                )
+            )[:120]
+            merged[kind] = {
+                "value": combined_values[0],
+                "values": combined_values,
+                "provenance": combined_provenance or "combined_explicit_evidence",
+                "confidence": round(
+                    min(
+                        float(existing.get("confidence") or 0.0),
+                        float(evidence.get("confidence") or 0.0),
+                    ),
+                    3,
+                ),
+                "explicit": True,
+                "ranking_hint_only": True,
+            }
+    return merged, sorted(ambiguous)
+
+
 def _speaker_profile_rows(job_dir: Path) -> tuple[dict[str, object], ...]:
     try:
         job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
@@ -6780,10 +6971,26 @@ def _speaker_profile_rows(job_dir: Path) -> tuple[dict[str, object], ...]:
             )
             trait_aliases = {
                 "gender_presentation": ("gender_presentation", "gender"),
-                "approximate_age": ("approximate_age", "age_range", "age"),
-                "language": ("language",),
-                "accent": ("accent",),
-                "ethnicity": ("ethnicity", "cultural_background"),
+                "approximate_age": (
+                    "approximate_age",
+                    "age_band",
+                    "age_range",
+                    "age",
+                ),
+                "language": (
+                    "language",
+                    "locale",
+                    "spoken_language",
+                    "native_language",
+                ),
+                "accent": ("accent", "dialect"),
+                "ethnicity": (
+                    "ethnicity",
+                    "ethnic_background",
+                    "cultural_background",
+                    "cultural_or_ethnic_background",
+                    "cultural_identity",
+                ),
                 "role": ("role", "character_role"),
                 "style": ("style", "performance_style"),
             }
@@ -7049,13 +7256,12 @@ def _resolve_audiobook_speaker_cast(
                 "speaker_id": speaker_id,
                 "speaker_label": str(row.get("speaker_label") or ""),
                 "evidence": row_evidence,
-                "traits": row_traits,
+                "trait_observations": [row_traits],
             }
         else:
-            existing_speaker["traits"] = {
-                **dict(existing_speaker.get("traits") or {}),
-                **row_traits,
-            }
+            observations = list(existing_speaker.get("trait_observations") or [])
+            observations.append(row_traits)
+            existing_speaker["trait_observations"] = observations
             if not str(existing_speaker.get("speaker_label") or ""):
                 existing_speaker["speaker_label"] = str(row.get("speaker_label") or "")
             if float(row_evidence.get("confidence") or 0.0) > float(
@@ -7165,30 +7371,22 @@ def _resolve_audiobook_speaker_cast(
             )
         if not str(profile.get("speaker_label") or "").strip():
             profile["speaker_label"] = detected_label
-        planner_traits: dict[str, dict[str, object]] = {}
-        for kind, raw_evidence in dict(speaker.get("traits") or {}).items():
-            normalized_kind = {
-                "gender": "gender_presentation",
-                "age": "approximate_age",
-                "age_range": "approximate_age",
-                "age_band": "approximate_age",
-                "cultural_background": "ethnicity",
-                "cultural_or_ethnic_background": "ethnicity",
-                "character_role": "role",
-                "performance_style": "style",
-            }.get(str(kind), str(kind))
-            evidence = _speaker_trait_evidence(
-                normalized_kind,
-                raw_evidence,
-                default_provenance="private_exact_span_planner",
-            )
-            if evidence is not None:
-                planner_traits[normalized_kind] = evidence
+        planner_traits, ambiguous_trait_kinds = _merge_speaker_trait_observations(
+            [
+                dict(observation)
+                for observation in list(speaker.get("trait_observations") or [])
+                if isinstance(observation, dict)
+            ]
+        )
+        approved_profile_traits = dict(profile.get("traits") or {})
         if planner_traits:
             profile["traits"] = {
-                **dict(profile.get("traits") or {}),
                 **planner_traits,
+                **approved_profile_traits,
             }
+        ambiguous_trait_kinds = [
+            kind for kind in ambiguous_trait_kinds if kind not in approved_profile_traits
+        ]
         approved = _approved_speaker_voice(
             profile=profile,
             private_candidates=private_candidates,
@@ -7341,9 +7539,16 @@ def _resolve_audiobook_speaker_cast(
             "voice_id": voice_id,
             "voice_id_sha256": _sha256_bytes(voice_id.encode("utf-8")),
             "voice_label": voice_label,
+            "voice_catalog_source": (
+                selected_preset.source
+                if selected_preset is not None
+                else str(approved.get("source") or selection_source)
+            ),
+            "render_language_compatible": True,
             "selection_source": selection_source,
             "matched_trait_kinds": matched_traits,
             "unmatched_trait_kinds": unmatched_traits,
+            "ambiguous_trait_kinds": ambiguous_trait_kinds,
             "evidence_confidence": evidence_confidence,
             "traits_are_ranking_hints_only": True,
             "identity_asserted": False,
@@ -7366,6 +7571,7 @@ def _resolve_audiobook_speaker_cast(
                 "selection_source": selection_source,
                 "matched_trait_kinds": matched_traits,
                 "unmatched_trait_kinds": unmatched_traits,
+                "ambiguous_trait_kinds": ambiguous_trait_kinds,
                 "trait_evidence_confidence": evidence_confidence,
                 "unknown_neutral_fallback": not bool(traits),
                 "raw_voice_id_exposed": False,
@@ -7544,6 +7750,7 @@ def _speaker_cast_snapshot_path(
     default_dialogue_selection: dict[str, str] | None = None,
 ) -> Path:
     binding = {
+        "casting_policy": SPEAKER_CAST_POLICY_NAME,
         "source_aggregate_sha256": str(
             narration_plan.get("source_aggregate_sha256") or ""
         ),
@@ -7566,15 +7773,11 @@ def _speaker_cast_snapshot_path(
 
 
 def _safe_public_voice_label(label: object, *private_voice_ids: str) -> str:
-    normalized_label = str(label or "").strip()
-    folded_label = normalized_label.casefold()
-    if not normalized_label:
-        return "Dialogue voice"
-    for voice_id in private_voice_ids:
-        normalized_id = str(voice_id or "").strip()
-        if normalized_id and normalized_id.casefold() in folded_label:
-            return "Dialogue voice"
-    return normalized_label[:120]
+    # Catalog labels can themselves encode a person's name or demographic
+    # descriptors. Those values remain available in the private cast snapshot;
+    # public receipts expose only a neutral role label and stable hashes.
+    del label, private_voice_ids
+    return "Dialogue voice"
 
 
 def _speaker_cast_result_from_private_entries(
@@ -7630,6 +7833,13 @@ def _speaker_cast_result_from_private_entries(
                         if str(value)
                     }
                 ),
+                "ambiguous_trait_kinds": sorted(
+                    {
+                        str(value)
+                        for value in list(entry.get("ambiguous_trait_kinds") or [])
+                        if str(value)
+                    }
+                ),
                 "trait_evidence_confidence": float(
                     entry.get("evidence_confidence") or 0.0
                 ),
@@ -7671,6 +7881,7 @@ def _speaker_cast_result_from_private_entries(
     )
     public = {
         "status": "ready",
+        "casting_policy": SPEAKER_CAST_POLICY_NAME,
         "speaker_count": len(private_cast),
         "resolved_speaker_count": len(private_cast),
         "distinct_dialogue_voice_count": len(used_voice_ids),
@@ -7759,6 +7970,8 @@ def _load_private_speaker_cast_snapshot(
         return _invalid()
     if payload.get("contract_name") != SPEAKER_CAST_SNAPSHOT_CONTRACT_NAME:
         return _invalid()
+    if payload.get("casting_policy") != SPEAKER_CAST_POLICY_NAME:
+        return _invalid()
     if str(payload.get("plan_sha256") or "") != str(
         narration_plan.get("plan_sha256") or ""
     ):
@@ -7831,6 +8044,7 @@ def _write_private_speaker_cast_snapshot(
         return
     payload = {
         "contract_name": SPEAKER_CAST_SNAPSHOT_CONTRACT_NAME,
+        "casting_policy": SPEAKER_CAST_POLICY_NAME,
         "plan_sha256": str(narration_plan.get("plan_sha256") or ""),
         "source_aggregate_sha256": str(
             narration_plan.get("source_aggregate_sha256") or ""
@@ -9894,7 +10108,13 @@ def _safe_receipt_speaker_cast(value: object) -> dict[str, object]:
     ):
         return {}
     public: dict[str, object] = {}
-    for key in ("status", "reason", "snapshot_status", "sharing_policy"):
+    for key in (
+        "status",
+        "reason",
+        "snapshot_status",
+        "sharing_policy",
+        "casting_policy",
+    ):
         normalized = _safe_receipt_public_string(speaker_cast.get(key))
         if normalized:
             public[key] = normalized
@@ -9940,7 +10160,11 @@ def _safe_receipt_speaker_cast(value: object) -> dict[str, object]:
             normalized = _safe_receipt_public_string(raw_row.get(key))
             if normalized:
                 row[key] = normalized
-        for key in ("matched_trait_kinds", "unmatched_trait_kinds"):
+        for key in (
+            "matched_trait_kinds",
+            "unmatched_trait_kinds",
+            "ambiguous_trait_kinds",
+        ):
             values = _safe_receipt_string_list(raw_row.get(key))
             if values:
                 row[key] = values

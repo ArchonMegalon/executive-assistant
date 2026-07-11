@@ -1011,6 +1011,387 @@ def test_speaker_cast_uses_explicit_traits_as_ranking_hints_and_is_stable(
     assert "east_asian" not in public_json
 
 
+def test_speaker_cast_matches_explicit_catalog_demographics_locale_and_accent(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-id",
+                    "label": "Narrator",
+                    "language": "en-US",
+                    "tags": ["narration"],
+                },
+                {
+                    "voice_id": "explicit-match-id",
+                    "label": "Senior Nigerian feminine voice",
+                    "locale": "en-NG",
+                    "supported_locales": ["en-NG", "en-US"],
+                    "gender": "feminine",
+                    "age": 72,
+                    "accent": "Austrian",
+                    "cultural_identity": "Nigerian",
+                    "tags": ["dialogue", "warm"],
+                },
+                {
+                    "voice_id": "partial-match-id",
+                    "label": "Catalog voice 18",
+                    "language": "en-US",
+                    "gender": "female",
+                    "age_band": "senior",
+                    "accent": "Canadian",
+                    "cultural_identity": "Irish",
+                    "tags": ["dialogue", "warm"],
+                },
+            ]
+        ),
+    )
+    job_dir = tmp_path / "explicit-catalog-metadata"
+    job_dir.mkdir()
+    row = _speaker_row(
+        pipeline,
+        "Speaker 17",
+        traits={
+            "gender_presentation": {
+                "value": "feminine",
+                "provenance": "approved_character_sheet",
+                "confidence": 1.0,
+            },
+            "age_band": {
+                "value": "older_adult",
+                "provenance": "approved_character_sheet",
+                "confidence": 1.0,
+            },
+            "locale": {
+                "value": "en-NG",
+                "provenance": "approved_casting_notes",
+                "confidence": 1.0,
+            },
+            "dialect": {
+                "value": "Austrian",
+                "provenance": "approved_casting_notes",
+                "confidence": 1.0,
+            },
+            "cultural_identity": {
+                "value": "Nigerian",
+                "provenance": "approved_casting_notes",
+                "confidence": 1.0,
+            },
+        },
+    )
+
+    result = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(row,),
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+
+    speaker_id = pipeline._speaker_id_from_label("Speaker 17")
+    entry = result["private"][speaker_id]
+    assert result["status"] == "ready"
+    assert entry["voice_id"] == "explicit-match-id"
+    assert entry["voice_label"] == "Senior Nigerian feminine voice"
+    assert entry["matched_trait_kinds"] == [
+        "accent",
+        "approximate_age",
+        "ethnicity",
+        "gender_presentation",
+        "language",
+    ]
+    assert entry["render_language_compatible"] is True
+    assert entry["voice_catalog_source"] == "env:EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON"
+    assert result["public"]["narrator_voice_excluded"] is True
+    assert result["public"]["identity_or_demographics_claimed"] is False
+    assert "Senior Nigerian feminine voice" not in json.dumps(
+        result["public"], ensure_ascii=False, sort_keys=True
+    )
+
+
+@pytest.mark.parametrize(
+    ("speaker_age", "catalog_age", "decoy_age"),
+    [
+        (8, "child", "adult"),
+        (16, "teen", "adult"),
+        (26, "young_adult", "senior"),
+        (42, "adult", "child"),
+        (62, "mature", "young_adult"),
+        (78, "senior", "adult"),
+    ],
+)
+def test_speaker_cast_matches_explicit_age_bands(
+    monkeypatch,
+    tmp_path: Path,
+    speaker_age: int,
+    catalog_age: str,
+    decoy_age: str,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-id",
+                    "label": "Narrator",
+                    "language": "en",
+                    "tags": ["narration"],
+                },
+                {
+                    "voice_id": f"age-{catalog_age}",
+                    "label": "Explicit age match",
+                    "language": "en",
+                    "age_band": catalog_age,
+                    "tags": ["dialogue"],
+                },
+                {
+                    "voice_id": f"age-{decoy_age}",
+                    "label": "Explicit age decoy",
+                    "language": "en",
+                    "age_band": decoy_age,
+                    "tags": ["dialogue"],
+                },
+            ]
+        ),
+    )
+    job_dir = tmp_path / f"age-{catalog_age}"
+    job_dir.mkdir()
+
+    result = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(
+            _speaker_row(
+                pipeline,
+                "Age-coded speaker",
+                traits={
+                    "approximate_age": {
+                        "value": speaker_age,
+                        "provenance": "approved_character_sheet",
+                        "confidence": 1.0,
+                    }
+                },
+            ),
+        ),
+        narrator_voice_id="narrator-id",
+        render_language="en",
+    )
+
+    speaker_id = pipeline._speaker_id_from_label("Age-coded speaker")
+    assert result["private"][speaker_id]["voice_id"] == f"age-{catalog_age}"
+    assert "approximate_age" in result["private"][speaker_id]["matched_trait_kinds"]
+
+
+def test_speaker_cast_supports_explicit_nonbinary_gender_metadata(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-id",
+                    "label": "Narrator",
+                    "language": "en",
+                    "tags": ["narration"],
+                },
+                {
+                    "voice_id": "nonbinary-id",
+                    "label": "Voice 21",
+                    "language": "en",
+                    "gender": "non-binary",
+                    "tags": ["dialogue"],
+                },
+                {
+                    "voice_id": "male-id",
+                    "label": "Voice 22",
+                    "language": "en",
+                    "gender": "male",
+                    "tags": ["dialogue"],
+                },
+            ]
+        ),
+    )
+    job_dir = tmp_path / "nonbinary-cast"
+    job_dir.mkdir()
+
+    result = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(
+            _speaker_row(
+                pipeline,
+                "Speaker 21",
+                traits={
+                    "gender_presentation": {
+                        "value": "non_binary",
+                        "provenance": "approved_casting_notes",
+                        "confidence": 1.0,
+                    }
+                },
+            ),
+        ),
+        narrator_voice_id="narrator-id",
+        render_language="en",
+    )
+
+    speaker_id = pipeline._speaker_id_from_label("Speaker 21")
+    assert result["private"][speaker_id]["voice_id"] == "nonbinary-id"
+    assert result["private"][speaker_id]["matched_trait_kinds"] == [
+        "gender_presentation"
+    ]
+
+
+def test_speaker_cast_conflicting_traits_are_ignored_stably_for_neutral_fallback(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-id",
+                    "label": "Narrator",
+                    "language": "en",
+                    "tags": ["narration"],
+                },
+                {
+                    "voice_id": "neutral-id",
+                    "label": "Neutral dialogue",
+                    "language": "en",
+                    "tags": ["neutral", "dialogue"],
+                },
+                {
+                    "voice_id": "female-id",
+                    "label": "Explicit female",
+                    "language": "en",
+                    "gender": "female",
+                    "tags": ["dialogue"],
+                },
+                {
+                    "voice_id": "male-id",
+                    "label": "Explicit male",
+                    "language": "en",
+                    "gender": "male",
+                    "tags": ["dialogue"],
+                },
+            ]
+        ),
+    )
+    job_dir = tmp_path / "ambiguous-cast"
+    job_dir.mkdir()
+    female_row = _speaker_row(
+        pipeline,
+        "Ambiguous speaker",
+        traits={
+            "gender": {
+                "value": "female",
+                "provenance": "explicit_source_phrase",
+                "confidence": 0.9,
+            }
+        },
+    )
+    male_row = _speaker_row(
+        pipeline,
+        "Ambiguous speaker",
+        traits={
+            "gender_presentation": {
+                "value": "male",
+                "provenance": "explicit_source_phrase",
+                "confidence": 0.9,
+            }
+        },
+    )
+
+    first = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(female_row, male_row),
+        narrator_voice_id="narrator-id",
+        render_language="en",
+    )
+    second = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(male_row, female_row),
+        narrator_voice_id="narrator-id",
+        render_language="en",
+    )
+
+    speaker_id = pipeline._speaker_id_from_label("Ambiguous speaker")
+    assert first["private"][speaker_id]["voice_id"] == "neutral-id"
+    assert first["private"][speaker_id]["traits"] == {}
+    assert first["private"][speaker_id]["ambiguous_trait_kinds"] == [
+        "gender_presentation"
+    ]
+    assert first["cast_map_sha256"] == second["cast_map_sha256"]
+    assert first["public"]["cast"][0]["ambiguous_trait_kinds"] == [
+        "gender_presentation"
+    ]
+
+
+def test_speaker_and_voice_names_never_supply_demographic_casting_traits(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-id",
+                    "label": "Narrator",
+                    "language": "en",
+                    "tags": ["narration"],
+                },
+                {
+                    "voice_id": "named-culture-id",
+                    "label": "Anna Okafor",
+                    "language": "en",
+                    "cultural_identity": "Nigerian",
+                    "tags": ["dialogue"],
+                },
+                {
+                    "voice_id": "neutral-id",
+                    "label": "Neutral dialogue",
+                    "language": "en",
+                    "tags": ["neutral", "dialogue"],
+                },
+            ]
+        ),
+    )
+    presets = pipeline.load_unmixr_voice_presets()
+    named_preset = next(preset for preset in presets if preset.voice_id == "named-culture-id")
+    assert "female" not in named_preset.tags
+    assert "gender_female" not in named_preset.tags
+    assert pipeline._infer_author_gender("Anna Okafor") == ""
+    assert pipeline._voice_candidate_gender({"label": "Anna Okafor", "tags": []}) == ""
+
+    job_dir = tmp_path / "no-name-inference"
+    job_dir.mkdir()
+    result = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(_speaker_row(pipeline, "Amina Okafor"),),
+        narrator_voice_id="narrator-id",
+        render_language="en",
+    )
+
+    speaker_id = pipeline._speaker_id_from_label("Amina Okafor")
+    assert result["private"][speaker_id]["voice_id"] == "neutral-id"
+    assert result["private"][speaker_id]["traits"] == {}
+    assert result["public"]["cast"][0]["unknown_neutral_fallback"] is True
+
+
 def test_speaker_cast_approved_private_choice_wins_without_public_voice_id(
     monkeypatch,
     tmp_path: Path,
@@ -1333,6 +1714,10 @@ def test_speaker_cast_snapshot_survives_catalog_change_on_resume(
     assert "actor-a" not in json.dumps(
         pipeline._safe_receipt_speaker_cast(resumed["public"]), sort_keys=True
     )
+    assert resumed["public"]["casting_policy"] == pipeline.SPEAKER_CAST_POLICY_NAME
+    assert json.loads(snapshot.read_text(encoding="utf-8"))["casting_policy"] == (
+        pipeline.SPEAKER_CAST_POLICY_NAME
+    )
     assert snapshot.stat().st_mode & 0o777 == 0o600
     assert snapshot.parent.stat().st_mode & 0o777 == 0o700
 
@@ -1576,8 +1961,10 @@ def test_stored_speaker_demographics_require_explicit_approval(tmp_path: Path) -
             "Maria": {
                 "traits": {
                     "gender_presentation": "female",
-                    "approximate_age": "senior",
-                    "ethnicity": "private-background",
+                    "age_band": "senior",
+                    "cultural_identity": "private-background",
+                    "locale": "de-AT",
+                    "dialect": "Viennese",
                 }
             }
         },
@@ -1597,6 +1984,8 @@ def test_stored_speaker_demographics_require_explicit_approval(tmp_path: Path) -
         "gender_presentation",
         "approximate_age",
         "ethnicity",
+        "language",
+        "accent",
     }
 
 
