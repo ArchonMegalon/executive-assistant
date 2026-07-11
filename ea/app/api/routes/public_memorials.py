@@ -8181,6 +8181,9 @@ def _recover_stale_memorial_voice_prewarm_for_status(
 
 
 def _prime_memorial_live_warmup_on_page_render(slug: str) -> None:
+    enabled = str(os.getenv("EA_MEMORIAL_PAGE_PREWARM_ENABLED") or "").strip().lower()
+    if enabled in {"0", "false", "no", "off"}:
+        return
     try:
         _schedule_memorial_live_warmup(slug)
     except Exception as exc:

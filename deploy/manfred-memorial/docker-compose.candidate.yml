@@ -1,0 +1,125 @@
+name: ${EA_MANFRED_COMPOSE_PROJECT:-ea-manfred-candidate}
+
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
+    pull_policy: never
+    environment:
+      POSTGRES_DB: ea
+      POSTGRES_USER: ea
+      POSTGRES_PASSWORD: ${EA_MANFRED_POSTGRES_PASSWORD:?candidate postgres password is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ea -d ea"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - candidate
+
+  redis:
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    pull_policy: never
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - candidate
+
+  api:
+    image: ${EA_MANFRED_IMAGE:?immutable Manfred candidate image is required}
+    pull_policy: never
+    user: "10001:10001"
+    env_file:
+      - ${EA_MANFRED_ENV_FILE:?mode-0600 candidate env file is required}
+    environment:
+      EA_ROLE: api
+      EA_HOST: 0.0.0.0
+      EA_PORT: "8090"
+      EA_RUNTIME_MODE: prod
+      EA_STORAGE_BACKEND: postgres
+      EA_STORAGE_FALLBACK_ALLOWED: "0"
+      EA_ALLOW_LOOPBACK_NO_AUTH: "0"
+      EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER: "0"
+      EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER: "0"
+      EA_TRUST_API_TOKEN_PRINCIPAL_HEADER: "0"
+      EA_ENABLE_LEGACY_RUNTIME_SURFACES: "0"
+      PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES: "0"
+      EA_ENABLE_PUBLIC_SIDE_SURFACES: "0"
+      EA_ENABLE_PUBLIC_RESULTS: "0"
+      EA_ENABLE_PUBLIC_TOURS: "0"
+      EA_ENABLE_PUBLIC_MEMORIALS: "1"
+      PROPERTYQUARRY_ENABLE_PUBLIC_MEMORIALS: "1"
+      EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES: "0"
+      EA_HEALTHCHECK_MEMORIAL_SLUG: manfred
+      EA_PUBLIC_MEMORIAL_RATE_BACKEND: redis
+      EA_PUBLIC_MEMORIAL_REDIS_URL: redis://redis:6379/0
+      EA_PUBLIC_MEMORIAL_DIR: /data/memorial/public
+      EA_PRIVATE_MEMORIAL_PROFILE_DIR: /data/memorial/private
+      EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR: /data/memorial/public-contributions
+      EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR: /data/memorial/private-contributions
+      EA_MEMORIAL_DATA_ROOT: /data/memorial
+      EA_MEMORIAL_ARCHIVE_DIR: /data/memorial/archive
+      EA_MEMORIAL_STATE_DIR: /data/memorial/state
+      EA_PUBLIC_MEMORIAL_ARTIFACT_DIR: /data/artifacts
+      EA_ARTIFACTS_DIR: /data/artifacts
+      EA_MEMORIAL_PAGE_PREWARM_ENABLED: "0"
+      EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED: "0"
+      EA_AUDIOBOOK_UNMIXR_AUTO_RENDER: "0"
+      EA_AUDIOBOOKSHELF_AUTO_IMPORT: "0"
+      HOME: /home/ea
+      TZ: Europe/Vienna
+    ports:
+      - "127.0.0.1:${EA_MANFRED_HOST_PORT:-18090}:8090"
+    volumes:
+      - ${EA_MANFRED_RELEASE_ROOT:?prepared release root is required}/public_memorials:/data/memorial/public:ro
+      - ${EA_MANFRED_RELEASE_ROOT:?prepared release root is required}/private_memorial_profiles:/data/memorial/private:ro
+      - ${EA_MANFRED_RELEASE_ROOT:?prepared release root is required}/memorial_archive:/data/memorial/archive:ro
+      - ${EA_MANFRED_RUNTIME_ROOT:?prepared runtime root is required}/public-contributions:/data/memorial/public-contributions
+      - ${EA_MANFRED_RUNTIME_ROOT:?prepared runtime root is required}/private-contributions:/data/memorial/private-contributions
+      - ${EA_MANFRED_RUNTIME_ROOT:?prepared runtime root is required}/state:/data/memorial/state
+      - artifacts:/data/artifacts
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 4g
+    mem_reservation: 1g
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,mode=1777
+      - /run:rw,noexec,nosuid,nodev,mode=0755
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/healthz >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - candidate
+
+volumes:
+  postgres_data:
+  redis_data:
+  artifacts:
+
+networks:
+  candidate:
+    internal: true

@@ -21,7 +21,9 @@ from app.services.memorial_private_context import (
 )
 from app.services.memorial_paths import (
     memorial_dir_candidates,
+    private_memorial_contribution_dir,
     private_profile_dir_candidates,
+    public_memorial_contribution_dir,
     repo_root,
 )
 
@@ -76,6 +78,20 @@ def _default_public_root() -> Path:
 
 def _default_private_root() -> Path:
     return private_profile_dir_candidates()[0]
+
+
+def _contribution_root(
+    *,
+    explicit: Path | None,
+    source_root: Path,
+    environment_name: str,
+    configured_root: Path,
+) -> Path:
+    if explicit is not None:
+        return _absolute(explicit)
+    if str(os.getenv(environment_name) or "").strip():
+        return _absolute(configured_root)
+    return source_root
 
 
 def _default_archive_root() -> Path:
@@ -359,11 +375,16 @@ def _source_media_inventory(
         except FileNotFoundError:
             private_context = {}
         except MemorialPrivateContextError as exc:
-            raise ValueError("memorial_recovery_inventory_private_context_invalid") from exc
+            raise ValueError(
+                "memorial_recovery_inventory_private_context_invalid"
+            ) from exc
     else:
         private_context = dict(private_context_overrides)
     context_audio_clips = private_context.get("audio_clips") or []
-    if not isinstance(context_audio_clips, list) or len(context_audio_clips) > _MAX_MEDIA_ITEMS:
+    if (
+        not isinstance(context_audio_clips, list)
+        or len(context_audio_clips) > _MAX_MEDIA_ITEMS
+    ):
         raise ValueError("memorial_recovery_inventory_source_media_invalid")
     for raw_item in context_audio_clips:
         if not isinstance(raw_item, dict) or not raw_item.get("asset_relpath"):
@@ -373,14 +394,17 @@ def _source_media_inventory(
         try:
             content = _read_regular_file(source, max_bytes=_MAX_MEDIA_FILE_BYTES)
         except (FileNotFoundError, OSError) as exc:
-            raise ValueError("memorial_recovery_inventory_source_media_incomplete") from exc
+            raise ValueError(
+                "memorial_recovery_inventory_source_media_incomplete"
+            ) from exc
         digest = hashlib.sha256(content).hexdigest()
         if digest in captured_by_digest:
             entry = {
                 "source_kind": "private_context",
                 "source_relpath": relpath,
                 "visibility": "public"
-                if str(raw_item.get("visibility") or "private").strip().lower() == "public"
+                if str(raw_item.get("visibility") or "private").strip().lower()
+                == "public"
                 else "private",
                 "sha256": digest,
                 "size_bytes": len(content),
@@ -658,13 +682,15 @@ def _consent_voice_references(*, slug: str, private_root: Path) -> dict[str, obj
 
 
 def _family_contribution_state(
-    *, slug: str, public_root: Path, private_root: Path
+    *, slug: str, public_contribution_root: Path, private_contribution_root: Path
 ) -> dict[str, object]:
     private_path = _contained(
-        private_root, private_root / slug / family_contributions.PRIVATE_FILENAME
+        private_contribution_root,
+        private_contribution_root / slug / family_contributions.PRIVATE_FILENAME,
     )
     public_path = _contained(
-        public_root, public_root / slug / family_contributions.PUBLIC_FILENAME
+        public_contribution_root,
+        public_contribution_root / slug / family_contributions.PUBLIC_FILENAME,
     )
     private_payload: dict[str, object] | None = None
     public_payload: dict[str, object] | None = None
@@ -722,6 +748,8 @@ def _inventory_payload(
     public_root: Path,
     private_root: Path,
     archive_root: Path,
+    public_contribution_root: Path,
+    private_contribution_root: Path,
 ) -> dict[str, object]:
     private_context, private_context_overrides = _private_context_inventory(
         slug=slug,
@@ -751,8 +779,8 @@ def _inventory_payload(
         ),
         "family_contributions": _family_contribution_state(
             slug=slug,
-            public_root=public_root,
-            private_root=private_root,
+            public_contribution_root=public_contribution_root,
+            private_contribution_root=private_contribution_root,
         ),
     }
 
@@ -769,7 +797,11 @@ def _validate_file_payload(entry: dict[str, object], *, media: bool) -> bytes | 
     }
     if set(entry) != expected:
         raise ValueError("memorial_recovery_inventory_source_media_invalid")
-    if entry["source_kind"] not in {"private_context", "public_manifest", "voice_profile"}:
+    if entry["source_kind"] not in {
+        "private_context",
+        "public_manifest",
+        "voice_profile",
+    }:
         raise ValueError("memorial_recovery_inventory_source_media_invalid")
     _safe_relpath(entry["source_relpath"])
     if entry["visibility"] not in {"public", "private"} or not isinstance(
@@ -1099,21 +1131,21 @@ def _atomic_write(path: Path, content: bytes, *, mode: int, root: Path) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _snapshot_root(*, slug: str, private_root: Path) -> Path:
-    return _contained(private_root, private_root / slug / "recovery_snapshots")
+def _snapshot_root(*, slug: str, inventory_root: Path) -> Path:
+    return _contained(inventory_root, inventory_root / slug / "recovery_snapshots")
 
 
 def _load_verified_inventory(
     *,
     inventory_path: str,
     expected_slug: str,
-    private_root: Path,
+    inventory_root: Path,
 ) -> tuple[dict[str, object], str, str]:
     slug = _safe_slug(expected_slug)
     source = Path(str(inventory_path or "").strip()).expanduser()
     if not str(inventory_path or "").strip():
         raise ValueError("memorial_recovery_inventory_file_invalid")
-    root = _snapshot_root(slug=slug, private_root=private_root)
+    root = _snapshot_root(slug=slug, inventory_root=inventory_root)
     source = _contained(root, source)
     if source.parent != _absolute(root):
         raise ValueError("memorial_recovery_inventory_file_invalid")
@@ -1143,22 +1175,41 @@ def materialize_memorial_recovery_inventory(
     public_root: Path | None = None,
     private_root: Path | None = None,
     archive_root: Path | None = None,
+    public_contribution_root: Path | None = None,
+    private_contribution_root: Path | None = None,
 ) -> dict[str, object]:
     slug = _safe_slug(memorial_slug)
     public = _absolute(public_root or _default_public_root())
     private = _absolute(private_root or _default_private_root())
     archive = _absolute(archive_root or _default_archive_root())
+    public_contributions = _contribution_root(
+        explicit=public_contribution_root,
+        source_root=public,
+        environment_name="EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR",
+        configured_root=public_memorial_contribution_dir(),
+    )
+    private_contributions = _contribution_root(
+        explicit=private_contribution_root,
+        source_root=private,
+        environment_name="EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR",
+        configured_root=private_memorial_contribution_dir(),
+    )
     destination = Path(str(destination_path or "").strip()).expanduser()
     if not str(destination_path or "").strip():
         raise ValueError("memorial_recovery_inventory_destination_invalid")
-    root = _snapshot_root(slug=slug, private_root=private)
+    root = _snapshot_root(slug=slug, inventory_root=private_contributions)
     destination = _contained(root, destination)
     if destination.parent != _absolute(root):
         raise ValueError("memorial_recovery_inventory_destination_invalid")
     if os.path.lexists(destination):
         raise ValueError("memorial_recovery_inventory_destination_exists")
     payload = _inventory_payload(
-        slug=slug, public_root=public, private_root=private, archive_root=archive
+        slug=slug,
+        public_root=public,
+        private_root=private,
+        archive_root=archive,
+        public_contribution_root=public_contributions,
+        private_contribution_root=private_contributions,
     )
     _validate_inventory_payload(payload, expected_slug=slug)
     payload_sha256 = hashlib.sha256(_canonical_json_bytes(payload)).hexdigest()
@@ -1171,7 +1222,7 @@ def materialize_memorial_recovery_inventory(
     if len(document) > _MAX_INVENTORY_BYTES:
         raise ValueError("memorial_recovery_inventory_file_too_large")
     try:
-        _atomic_write(destination, document, mode=0o600, root=private)
+        _atomic_write(destination, document, mode=0o600, root=private_contributions)
     except FileExistsError as exc:
         raise ValueError("memorial_recovery_inventory_destination_exists") from exc
     return {
@@ -1200,13 +1251,43 @@ def verify_memorial_recovery_inventory(
     inventory_path: str,
     expected_memorial_slug: str,
     private_root: Path | None = None,
+    public_root: Path | None = None,
+    public_contribution_root: Path | None = None,
+    private_contribution_root: Path | None = None,
 ) -> dict[str, object]:
     private = _absolute(private_root or _default_private_root())
+    public = _absolute(public_root or _default_public_root())
+    public_contributions = _contribution_root(
+        explicit=public_contribution_root,
+        source_root=public,
+        environment_name="EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR",
+        configured_root=public_memorial_contribution_dir(),
+    )
+    private_contributions = _contribution_root(
+        explicit=private_contribution_root,
+        source_root=private,
+        environment_name="EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR",
+        configured_root=private_memorial_contribution_dir(),
+    )
     payload, payload_sha256, file_sha256 = _load_verified_inventory(
         inventory_path=inventory_path,
         expected_slug=expected_memorial_slug,
-        private_root=private,
+        inventory_root=private_contributions,
     )
+    contribution_sources_verified = bool(
+        public_contribution_root is not None
+        or private_contribution_root is not None
+        or str(os.getenv("EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR") or "").strip()
+        or str(os.getenv("EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR") or "").strip()
+    )
+    if contribution_sources_verified:
+        current_family_state = _family_contribution_state(
+            slug=_safe_slug(expected_memorial_slug),
+            public_contribution_root=public_contributions,
+            private_contribution_root=private_contributions,
+        )
+        if current_family_state != payload["family_contributions"]:
+            raise ValueError("memorial_recovery_inventory_family_source_mismatch")
     family = payload["family_contributions"]
     return {
         "valid": True,
@@ -1219,6 +1300,7 @@ def verify_memorial_recovery_inventory(
         "private_context_present": bool(payload["private_context"]["present"]),
         "family_private_present": bool(family["private_present"]),
         "family_public_present": bool(family["public_present"]),
+        "contribution_sources_verified": contribution_sources_verified,
         "canonical_publication_state_included": False,
         "private_media_publication_performed": False,
     }
@@ -1227,9 +1309,10 @@ def verify_memorial_recovery_inventory(
 def _restore_writes(
     *,
     payload: dict[str, object],
-    public_root: Path,
     private_root: Path,
     archive_root: Path,
+    public_contribution_root: Path,
+    private_contribution_root: Path,
 ) -> list[tuple[Path, bytes, int, Path]]:
     slug = str(payload["slug"])
     writes: list[tuple[Path, bytes, int, Path]] = []
@@ -1315,24 +1398,28 @@ def _restore_writes(
         writes.append(
             (
                 _contained(
-                    private_root,
-                    private_root / slug / family_contributions.PRIVATE_FILENAME,
+                    private_contribution_root,
+                    private_contribution_root
+                    / slug
+                    / family_contributions.PRIVATE_FILENAME,
                 ),
                 _canonical_json_bytes(state["private_payload"]) + b"\n",
                 0o600,
-                private_root,
+                private_contribution_root,
             )
         )
     if state["public_present"]:
         writes.append(
             (
                 _contained(
-                    public_root,
-                    public_root / slug / family_contributions.PUBLIC_FILENAME,
+                    public_contribution_root,
+                    public_contribution_root
+                    / slug
+                    / family_contributions.PUBLIC_FILENAME,
                 ),
                 _canonical_json_bytes(state["public_payload"]) + b"\n",
                 0o644,
-                public_root,
+                public_contribution_root,
             )
         )
     unique: dict[str, tuple[Path, bytes, int, Path]] = {}
@@ -1353,6 +1440,8 @@ def restore_memorial_recovery_inventory(
     public_root: Path | None = None,
     private_root: Path | None = None,
     archive_root: Path | None = None,
+    public_contribution_root: Path | None = None,
+    private_contribution_root: Path | None = None,
 ) -> dict[str, object]:
     if not isinstance(dry_run, bool):
         raise ValueError("memorial_recovery_inventory_dry_run_invalid")
@@ -1360,10 +1449,22 @@ def restore_memorial_recovery_inventory(
     public = _absolute(public_root or _default_public_root())
     private = _absolute(private_root or _default_private_root())
     archive = _absolute(archive_root or _default_archive_root())
+    public_contributions = _contribution_root(
+        explicit=public_contribution_root,
+        source_root=public,
+        environment_name="EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR",
+        configured_root=public_memorial_contribution_dir(),
+    )
+    private_contributions = _contribution_root(
+        explicit=private_contribution_root,
+        source_root=private,
+        environment_name="EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR",
+        configured_root=private_memorial_contribution_dir(),
+    )
     payload, payload_sha256, file_sha256 = _load_verified_inventory(
         inventory_path=inventory_path,
         expected_slug=slug,
-        private_root=private,
+        inventory_root=private_contributions,
     )
     if not dry_run:
         confirmation = str(confirmed_payload_sha256 or "")
@@ -1372,7 +1473,11 @@ def restore_memorial_recovery_inventory(
         if not hmac.compare_digest(confirmation, payload_sha256):
             raise ValueError("memorial_recovery_inventory_apply_confirmation_mismatch")
     writes = _restore_writes(
-        payload=payload, public_root=public, private_root=private, archive_root=archive
+        payload=payload,
+        private_root=private,
+        archive_root=archive,
+        public_contribution_root=public_contributions,
+        private_contribution_root=private_contributions,
     )
     to_create: list[tuple[Path, bytes, int, Path]] = []
     existing: list[tuple[Path, bytes, int, Path]] = []

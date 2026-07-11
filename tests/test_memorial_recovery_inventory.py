@@ -15,6 +15,12 @@ _SECRET = "PROVIDER_SECRET_MUST_NOT_LEAK"
 _ARCHIVE_SOURCE = b"# Manfred life overview\n\nSource-faithful remembrance.\n"
 
 
+@pytest.fixture(autouse=True)
+def _clear_contribution_root_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR", raising=False)
+    monkeypatch.delenv("EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR", raising=False)
+
+
 def _write_json(path: Path, payload: dict[str, object], *, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -301,6 +307,118 @@ def test_inventory_is_private_secret_free_and_fresh_root_restore_is_idempotent(
     assert repeated["files_to_create"] == 0
     assert repeated["files_created"] == 0
     assert repeated["files_existing"] == repeated["files_in_inventory"]
+
+
+def test_inventory_roundtrip_keeps_source_and_contribution_roots_separate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_public, source_private, source_archive = _roots(tmp_path, "split-source")
+    _seed_flagship(source_public, source_private, source_archive)
+    source_public_contributions = tmp_path / "split-source-contributions" / "public"
+    source_private_contributions = tmp_path / "split-source-contributions" / "private"
+    source_public_contribution = (
+        source_public_contributions / "manfred" / family_contributions.PUBLIC_FILENAME
+    )
+    source_private_contribution = (
+        source_private_contributions / "manfred" / family_contributions.PRIVATE_FILENAME
+    )
+    source_public_contribution.parent.mkdir(parents=True)
+    source_private_contribution.parent.mkdir(parents=True)
+    (source_public / "manfred" / family_contributions.PUBLIC_FILENAME).replace(
+        source_public_contribution
+    )
+    (source_private / "manfred" / family_contributions.PRIVATE_FILENAME).replace(
+        source_private_contribution
+    )
+    monkeypatch.setenv(
+        "EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR",
+        str(source_public_contributions),
+    )
+    monkeypatch.setenv(
+        "EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR",
+        str(source_private_contributions),
+    )
+    inventory = _inventory_path(source_private_contributions, "split.inventory.json")
+
+    materialized = memorial_recovery_inventory.materialize_memorial_recovery_inventory(
+        memorial_slug="manfred",
+        destination_path=str(inventory),
+        public_root=source_public,
+        private_root=source_private,
+        archive_root=source_archive,
+    )
+
+    assert materialized["family_private_present"] is True
+    assert materialized["family_public_present"] is True
+    assert not (
+        source_public / "manfred" / family_contributions.PUBLIC_FILENAME
+    ).exists()
+    assert not (
+        source_private / "manfred" / family_contributions.PRIVATE_FILENAME
+    ).exists()
+    assert not (source_private / "manfred" / "recovery_snapshots").exists()
+    verified = memorial_recovery_inventory.verify_memorial_recovery_inventory(
+        inventory_path=str(inventory),
+        expected_memorial_slug="manfred",
+        private_root=source_private,
+        public_root=source_public,
+    )
+    assert verified["contribution_sources_verified"] is True
+    changed_projection = json.loads(
+        source_public_contribution.read_text(encoding="utf-8")
+    )
+    changed_projection["generated_at"] = "2026-07-11T10:00:00Z"
+    _write_json(source_public_contribution, changed_projection, mode=0o644)
+    with pytest.raises(ValueError, match="family_source_mismatch"):
+        memorial_recovery_inventory.verify_memorial_recovery_inventory(
+            inventory_path=str(inventory),
+            expected_memorial_slug="manfred",
+            private_root=source_private,
+            public_root=source_public,
+        )
+
+    target_public, target_private, target_archive = _roots(tmp_path, "split-target")
+    target_public_contributions = tmp_path / "split-target-contributions" / "public"
+    target_private_contributions = tmp_path / "split-target-contributions" / "private"
+    target_inventory = _inventory_path(
+        target_private_contributions,
+        "split.inventory.json",
+    )
+    target_inventory.parent.mkdir(parents=True)
+    target_inventory.write_bytes(inventory.read_bytes())
+    target_inventory.chmod(0o600)
+
+    restored = memorial_recovery_inventory.restore_memorial_recovery_inventory(
+        inventory_path=str(target_inventory),
+        expected_memorial_slug="manfred",
+        dry_run=False,
+        confirmed_payload_sha256=str(materialized["payload_sha256"]),
+        public_root=target_public,
+        private_root=target_private,
+        archive_root=target_archive,
+        public_contribution_root=target_public_contributions,
+        private_contribution_root=target_private_contributions,
+    )
+
+    assert restored["files_created"] == restored["files_in_inventory"]
+    restored_private = (
+        target_private_contributions / "manfred" / family_contributions.PRIVATE_FILENAME
+    )
+    restored_public = (
+        target_public_contributions / "manfred" / family_contributions.PUBLIC_FILENAME
+    )
+    assert stat.S_IMODE(restored_private.stat().st_mode) == 0o600
+    assert stat.S_IMODE(restored_private.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(restored_public.stat().st_mode) == 0o644
+    assert not (
+        target_private / "manfred" / family_contributions.PRIVATE_FILENAME
+    ).exists()
+    assert not (
+        target_public / "manfred" / family_contributions.PUBLIC_FILENAME
+    ).exists()
+    assert json.loads(restored_private.read_text(encoding="utf-8"))["contributions"]
+    assert json.loads(restored_public.read_text(encoding="utf-8"))["memory_cards"]
 
 
 def test_inventory_rejects_inner_media_tamper_even_with_recomputed_envelope_digest(

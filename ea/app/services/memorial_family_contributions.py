@@ -7,6 +7,7 @@ import json
 import os
 import re
 import secrets
+import stat
 import tempfile
 import threading
 import uuid
@@ -15,7 +16,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from app.services.memorial_paths import memorial_dir_candidates, private_profile_dir_candidates
+from app.services.memorial_paths import (
+    private_memorial_contribution_dir,
+    public_memorial_contribution_dir,
+)
 
 
 PRIVATE_SCHEMA = "ea.memorial_family_contributions.private.v1"
@@ -41,7 +45,12 @@ class MemorialContributionError(ValueError):
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def _safe_slug(slug: str) -> str:
@@ -51,20 +60,46 @@ def _safe_slug(slug: str) -> str:
     return normalized
 
 
-def _private_slug_dir(slug: str) -> Path:
-    root = private_profile_dir_candidates()[0].expanduser().resolve()
-    target = (root / _safe_slug(slug)).resolve()
-    if target != root and root not in target.parents:
+def _absolute_path(path: Path) -> Path:
+    return Path(os.path.abspath(os.fspath(path.expanduser())))
+
+
+def _reject_symlink_components(path: Path) -> None:
+    absolute = _absolute_path(path)
+    for candidate in [*reversed(absolute.parents), absolute]:
+        try:
+            mode = os.lstat(candidate).st_mode
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise MemorialContributionError(
+                "memorial_contribution_path_invalid"
+            ) from exc
+        if stat.S_ISLNK(mode):
+            raise MemorialContributionError("memorial_contribution_path_invalid")
+
+
+def _contribution_slug_dir(*, root: Path, slug: str) -> Path:
+    absolute_root = _absolute_path(root)
+    target = _absolute_path(absolute_root / _safe_slug(slug))
+    if target == absolute_root or absolute_root not in target.parents:
         raise MemorialContributionError("memorial_contribution_path_invalid")
+    _reject_symlink_components(target)
     return target
+
+
+def _private_slug_dir(slug: str) -> Path:
+    return _contribution_slug_dir(
+        root=private_memorial_contribution_dir(),
+        slug=slug,
+    )
 
 
 def _public_slug_dir(slug: str) -> Path:
-    root = memorial_dir_candidates()[0].expanduser().resolve()
-    target = (root / _safe_slug(slug)).resolve()
-    if target != root and root not in target.parents:
-        raise MemorialContributionError("memorial_contribution_path_invalid")
-    return target
+    return _contribution_slug_dir(
+        root=public_memorial_contribution_dir(),
+        slug=slug,
+    )
 
 
 def private_contribution_path(slug: str) -> Path:
@@ -100,18 +135,24 @@ def _token_hash(token: str) -> str:
 
 
 def _write_json_atomic(path: Path, payload: dict[str, object], *, mode: int) -> None:
+    _reject_symlink_components(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    _reject_symlink_components(path)
     try:
         path.parent.chmod(0o700 if mode == 0o600 else 0o755)
     except OSError:
         pass
     if path.is_symlink():
         raise MemorialContributionError("memorial_contribution_path_invalid")
-    descriptor, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    descriptor, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
+    )
     temp_path = Path(temp_name)
     try:
         os.fchmod(descriptor, mode)
-        encoded = (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        encoded = (
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        ).encode("utf-8")
         with os.fdopen(descriptor, "wb") as handle:
             descriptor = -1
             handle.write(encoded)
@@ -122,7 +163,9 @@ def _write_json_atomic(path: Path, payload: dict[str, object], *, mode: int) -> 
             path.chmod(mode)
         except OSError:
             pass
-        directory_descriptor = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        directory_descriptor = os.open(
+            path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        )
         try:
             os.fsync(directory_descriptor)
         finally:
@@ -137,17 +180,25 @@ def _write_json_atomic(path: Path, payload: dict[str, object], *, mode: int) -> 
 def _contribution_lock(slug: str) -> Iterator[None]:
     directory = _private_slug_dir(slug)
     directory.mkdir(parents=True, exist_ok=True)
+    _reject_symlink_components(directory)
     try:
         directory.chmod(0o700)
     except OSError:
         pass
     lock_path = directory / ".family_contributions.lock"
-    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    flags = (
+        os.O_RDWR
+        | os.O_CREAT
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
     with _STORE_LOCK:
         try:
             descriptor = os.open(lock_path, flags, 0o600)
         except OSError as exc:
-            raise MemorialContributionError("memorial_contribution_store_unavailable") from exc
+            raise MemorialContributionError(
+                "memorial_contribution_store_unavailable"
+            ) from exc
         try:
             os.fchmod(descriptor, 0o600)
             fcntl.flock(descriptor, fcntl.LOCK_EX)
@@ -202,7 +253,9 @@ def _save_private_ledger(slug: str, ledger: dict[str, object]) -> None:
     _write_json_atomic(private_contribution_path(slug), stored, mode=0o600)
 
 
-def _public_projection_rows(records: list[dict[str, object]]) -> list[dict[str, object]]:
+def _public_projection_rows(
+    records: list[dict[str, object]],
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     published = sorted(
         records,
@@ -216,13 +269,26 @@ def _public_projection_rows(records: list[dict[str, object]]) -> list[dict[str, 
         if not isinstance(memory, dict):
             continue
         try:
-            title = _bounded_text(memory.get("title"), field="title", max_chars=MAX_TITLE_CHARS, required=True)
-            body = _bounded_text(memory.get("body"), field="body", max_chars=MAX_BODY_CHARS, required=True)
-            source_label = _bounded_text(
-                memory.get("source_label"),
-                field="source_label",
-                max_chars=MAX_SOURCE_LABEL_CHARS,
-            ) or "Erinnerung aus der Familie"
+            title = _bounded_text(
+                memory.get("title"),
+                field="title",
+                max_chars=MAX_TITLE_CHARS,
+                required=True,
+            )
+            body = _bounded_text(
+                memory.get("body"),
+                field="body",
+                max_chars=MAX_BODY_CHARS,
+                required=True,
+            )
+            source_label = (
+                _bounded_text(
+                    memory.get("source_label"),
+                    field="source_label",
+                    max_chars=MAX_SOURCE_LABEL_CHARS,
+                )
+                or "Erinnerung aus der Familie"
+            )
         except MemorialContributionError:
             continue
         rows.append(
@@ -252,10 +318,16 @@ def _write_public_projection(slug: str, records: list[dict[str, object]]) -> Non
 
 def _records(ledger: dict[str, object]) -> list[dict[str, object]]:
     raw = ledger.get("contributions")
-    return [dict(row) for row in raw if isinstance(row, dict)] if isinstance(raw, list) else []
+    return (
+        [dict(row) for row in raw if isinstance(row, dict)]
+        if isinstance(raw, list)
+        else []
+    )
 
 
-def _find_record(records: list[dict[str, object]], contribution_id: str) -> tuple[int, dict[str, object]]:
+def _find_record(
+    records: list[dict[str, object]], contribution_id: str
+) -> tuple[int, dict[str, object]]:
     wanted = str(contribution_id or "").strip()
     for index, row in enumerate(records):
         if hmac.compare_digest(str(row.get("contribution_id") or ""), wanted):
@@ -265,9 +337,7 @@ def _find_record(records: list[dict[str, object]], contribution_id: str) -> tupl
 
 def _private_operator_projection(record: dict[str, object]) -> dict[str, object]:
     return {
-        key: value
-        for key, value in record.items()
-        if key not in {"manage_token_hash"}
+        key: value for key, value in record.items() if key not in {"manage_token_hash"}
     }
 
 
@@ -278,24 +348,41 @@ def _verify_manage_token(record: dict[str, object], manage_token: str) -> None:
         raise MemorialContributionError("memorial_contribution_unauthorized")
 
 
-def submit_family_contribution(*, slug: str, payload: dict[str, object]) -> tuple[dict[str, object], str]:
+def submit_family_contribution(
+    *, slug: str, payload: dict[str, object]
+) -> tuple[dict[str, object], str]:
     safe_slug = _safe_slug(slug)
     submission = {
-        "title": _bounded_text(payload.get("title"), field="title", max_chars=MAX_TITLE_CHARS, required=True),
-        "body": _bounded_text(payload.get("body"), field="body", max_chars=MAX_BODY_CHARS, required=True),
+        "title": _bounded_text(
+            payload.get("title"),
+            field="title",
+            max_chars=MAX_TITLE_CHARS,
+            required=True,
+        ),
+        "body": _bounded_text(
+            payload.get("body"), field="body", max_chars=MAX_BODY_CHARS, required=True
+        ),
         "source_label": _bounded_text(
-            payload.get("source_label"), field="source_label", max_chars=MAX_SOURCE_LABEL_CHARS
+            payload.get("source_label"),
+            field="source_label",
+            max_chars=MAX_SOURCE_LABEL_CHARS,
         ),
         "contributor_name": _bounded_text(
-            payload.get("contributor_name"), field="contributor_name", max_chars=MAX_PERSON_CHARS
+            payload.get("contributor_name"),
+            field="contributor_name",
+            max_chars=MAX_PERSON_CHARS,
         ),
         "relationship": _bounded_text(
-            payload.get("relationship"), field="relationship", max_chars=MAX_RELATIONSHIP_CHARS
+            payload.get("relationship"),
+            field="relationship",
+            max_chars=MAX_RELATIONSHIP_CHARS,
         ),
     }
     publication_consent = payload.get("publication_consent")
     if not isinstance(publication_consent, bool):
-        raise MemorialContributionError("memorial_contribution_publication_consent_invalid")
+        raise MemorialContributionError(
+            "memorial_contribution_publication_consent_invalid"
+        )
     manage_token = secrets.token_urlsafe(32)
     now = _utc_now_iso()
     record: dict[str, object] = {
@@ -327,7 +414,10 @@ def list_family_contributions_for_operator(*, slug: str) -> list[dict[str, objec
     safe_slug = _safe_slug(slug)
     with _contribution_lock(safe_slug):
         records = _records(_load_private_ledger(safe_slug))
-    records.sort(key=lambda row: str(row.get("updated_at") or row.get("submitted_at") or ""), reverse=True)
+    records.sort(
+        key=lambda row: str(row.get("updated_at") or row.get("submitted_at") or ""),
+        reverse=True,
+    )
     return [_private_operator_projection(row) for row in records]
 
 
@@ -340,23 +430,50 @@ def approve_family_contribution(
     safe_slug = _safe_slug(slug)
     public_memory = {
         "source_label": _bounded_text(
-            payload.get("source_label"), field="source_label", max_chars=MAX_SOURCE_LABEL_CHARS
-        ) or "Erinnerung aus der Familie",
-        "title": _bounded_text(payload.get("title"), field="title", max_chars=MAX_TITLE_CHARS, required=True),
-        "body": _bounded_text(payload.get("body"), field="body", max_chars=MAX_BODY_CHARS, required=True),
+            payload.get("source_label"),
+            field="source_label",
+            max_chars=MAX_SOURCE_LABEL_CHARS,
+        )
+        or "Erinnerung aus der Familie",
+        "title": _bounded_text(
+            payload.get("title"),
+            field="title",
+            max_chars=MAX_TITLE_CHARS,
+            required=True,
+        ),
+        "body": _bounded_text(
+            payload.get("body"), field="body", max_chars=MAX_BODY_CHARS, required=True
+        ),
     }
-    reviewer = _bounded_text(payload.get("reviewer"), field="reviewer", max_chars=MAX_PERSON_CHARS, required=True)
-    review_note = _bounded_text(payload.get("review_note"), field="review_note", max_chars=MAX_NOTE_CHARS)
+    reviewer = _bounded_text(
+        payload.get("reviewer"),
+        field="reviewer",
+        max_chars=MAX_PERSON_CHARS,
+        required=True,
+    )
+    review_note = _bounded_text(
+        payload.get("review_note"), field="review_note", max_chars=MAX_NOTE_CHARS
+    )
     with _contribution_lock(safe_slug):
         ledger = _load_private_ledger(safe_slug)
         records = _records(ledger)
         index, current = _find_record(records, contribution_id)
-        if current.get("status") not in {"pending_review", "correction_pending", "published"}:
+        if current.get("status") not in {
+            "pending_review",
+            "correction_pending",
+            "published",
+        }:
             raise MemorialContributionError("memorial_contribution_not_reviewable")
         if current.get("publication_consent") is not True:
-            raise MemorialContributionError("memorial_contribution_publication_consent_required")
+            raise MemorialContributionError(
+                "memorial_contribution_publication_consent_required"
+            )
         now = _utc_now_iso()
-        history = list(current.get("history") or []) if isinstance(current.get("history"), list) else []
+        history = (
+            list(current.get("history") or [])
+            if isinstance(current.get("history"), list)
+            else []
+        )
         if current.get("review") or current.get("public_memory"):
             history.append(
                 {
@@ -373,7 +490,11 @@ def approve_family_contribution(
                 "visibility": "public",
                 "updated_at": now,
                 "published_at": now,
-                "review": {"reviewer": reviewer, "review_note": review_note, "approved_at": now},
+                "review": {
+                    "reviewer": reviewer,
+                    "review_note": review_note,
+                    "approved_at": now,
+                },
                 "public_memory": public_memory,
                 "history": history[-10:],
             }
@@ -412,22 +533,34 @@ def correct_family_contribution(
         ):
             if key not in payload:
                 continue
-            replacement = _bounded_text(payload.get(key), field=key, max_chars=limit, required=required)
+            replacement = _bounded_text(
+                payload.get(key), field=key, max_chars=limit, required=required
+            )
             changed = changed or replacement != submission.get(key)
             submission[key] = replacement
         publication_consent = current.get("publication_consent") is True
         if "publication_consent" in payload:
             if not isinstance(payload.get("publication_consent"), bool):
-                raise MemorialContributionError("memorial_contribution_publication_consent_invalid")
-            changed = changed or payload["publication_consent"] is not publication_consent
+                raise MemorialContributionError(
+                    "memorial_contribution_publication_consent_invalid"
+                )
+            changed = (
+                changed or payload["publication_consent"] is not publication_consent
+            )
             publication_consent = bool(payload["publication_consent"])
         correction_reason = _bounded_text(
-            payload.get("correction_reason"), field="correction_reason", max_chars=MAX_NOTE_CHARS
+            payload.get("correction_reason"),
+            field="correction_reason",
+            max_chars=MAX_NOTE_CHARS,
         )
         if not changed:
             raise MemorialContributionError("memorial_contribution_correction_required")
         now = _utc_now_iso()
-        history = list(current.get("history") or []) if isinstance(current.get("history"), list) else []
+        history = (
+            list(current.get("history") or [])
+            if isinstance(current.get("history"), list)
+            else []
+        )
         history.append(
             {
                 "status": str(current.get("status") or ""),
@@ -466,7 +599,9 @@ def withdraw_family_contribution(
     reason: object = "",
 ) -> dict[str, object]:
     safe_slug = _safe_slug(slug)
-    withdrawal_reason = _bounded_text(reason, field="withdrawal_reason", max_chars=MAX_NOTE_CHARS)
+    withdrawal_reason = _bounded_text(
+        reason, field="withdrawal_reason", max_chars=MAX_NOTE_CHARS
+    )
     with _contribution_lock(safe_slug):
         ledger = _load_private_ledger(safe_slug)
         records = _records(ledger)
@@ -510,20 +645,36 @@ def load_public_family_memory_cards(*, slug: str) -> list[dict[str, object]]:
         return []
     safe_rows: list[dict[str, object]] = []
     for raw in raw_rows:
-        if not isinstance(raw, dict) or raw.get("visibility") != "public" or raw.get("public") is not True:
+        if (
+            not isinstance(raw, dict)
+            or raw.get("visibility") != "public"
+            or raw.get("public") is not True
+        ):
             continue
         try:
-            title = _bounded_text(raw.get("title"), field="title", max_chars=MAX_TITLE_CHARS, required=True)
-            body = _bounded_text(raw.get("body"), field="body", max_chars=MAX_BODY_CHARS, required=True)
+            title = _bounded_text(
+                raw.get("title"),
+                field="title",
+                max_chars=MAX_TITLE_CHARS,
+                required=True,
+            )
+            body = _bounded_text(
+                raw.get("body"), field="body", max_chars=MAX_BODY_CHARS, required=True
+            )
             public_excerpt = _bounded_text(
                 raw.get("public_excerpt"),
                 field="body",
                 max_chars=MAX_BODY_CHARS,
                 required=True,
             )
-            source_label = _bounded_text(
-                raw.get("source_label"), field="source_label", max_chars=MAX_SOURCE_LABEL_CHARS
-            ) or "Erinnerung aus der Familie"
+            source_label = (
+                _bounded_text(
+                    raw.get("source_label"),
+                    field="source_label",
+                    max_chars=MAX_SOURCE_LABEL_CHARS,
+                )
+                or "Erinnerung aus der Familie"
+            )
         except MemorialContributionError:
             continue
         # Only fields already accepted by the memorial public-memory projector leave this service.
@@ -540,7 +691,9 @@ def load_public_family_memory_cards(*, slug: str) -> list[dict[str, object]]:
     return safe_rows[:12]
 
 
-def merge_public_family_contributions(*, slug: str, memorial: dict[str, object]) -> dict[str, object]:
+def merge_public_family_contributions(
+    *, slug: str, memorial: dict[str, object]
+) -> dict[str, object]:
     payload = dict(memorial)
     contributions = load_public_family_memory_cards(slug=slug)
     existing = payload.get("memory_cards")

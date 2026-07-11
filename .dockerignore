@@ -32,5 +32,10 @@ artifacts/
 logs/
 memorial_data/
 memorial_data/**
+memorial_archive/
+memorial_archive/**
+.env
+.env.*
+!.env.example
 config/*client_secret*.json
 config/*oauth*secret*.json

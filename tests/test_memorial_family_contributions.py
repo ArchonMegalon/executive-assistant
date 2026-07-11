@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import stat
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,8 @@ def _memorial_client(
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
     monkeypatch.setenv("EA_API_TOKEN", "")
     monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
+    monkeypatch.delenv("EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR", raising=False)
+    monkeypatch.delenv("EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR", raising=False)
     public_root = tmp_path / "public"
     private_root = tmp_path / "private"
     bundle = public_root / slug
@@ -51,7 +54,9 @@ def _memorial_client(
     from app.api.routes import public_memorials
     from app.services import memorial_archive_registry
 
-    public_memorials._PUBLIC_MEMORIAL_RATE_DB = tmp_path / "artifacts" / "memorial_rate_limits.sqlite3"
+    public_memorials._PUBLIC_MEMORIAL_RATE_DB = (
+        tmp_path / "artifacts" / "memorial_rate_limits.sqlite3"
+    )
     memorial_archive_registry.PUBLIC_MEMORIAL_ROOT = tmp_path / "public_registry"
     memorial_archive_registry.ARCHIVE_ROOT = tmp_path / "archive"
 
@@ -137,7 +142,9 @@ def test_family_submission_stays_private_and_operator_review_is_authorized(
     assert candidate["submission"]["body"].startswith("RAW_PRIVATE_MEMORY_SENTINEL")
     assert "manage_token_hash" not in candidate
 
-    private_payload = (private_root / "manfred" / "family_contributions.json").read_text(encoding="utf-8")
+    private_payload = (
+        private_root / "manfred" / "family_contributions.json"
+    ).read_text(encoding="utf-8")
     assert "RAW_PRIVATE_MEMORY_SENTINEL" in private_payload
     assert receipt["manage_token"] not in private_payload
 
@@ -179,9 +186,9 @@ def test_operator_approval_publishes_only_explicit_curated_excerpt(
     assert "Manfred made time for a patient conversation." in page.text
     assert "RAW_PRIVATE" not in page.text
 
-    projection_text = (public_root / "manfred" / "family_contributions.public.json").read_text(
-        encoding="utf-8"
-    )
+    projection_text = (
+        public_root / "manfred" / "family_contributions.public.json"
+    ).read_text(encoding="utf-8")
     assert "public_excerpt" in projection_text
     assert "Manfred made time for a patient conversation." in projection_text
     assert "RAW_PRIVATE" not in projection_text
@@ -189,6 +196,78 @@ def test_operator_approval_publishes_only_explicit_curated_excerpt(
         "/memorials/files/manfred/family_contributions.public.json"
     )
     assert raw_projection.status_code == 404
+
+
+def test_contribution_roots_are_writable_and_source_roots_remain_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client, public_source, private_source = _memorial_client(monkeypatch, tmp_path)
+    public_contributions = tmp_path / "contributions" / "public"
+    private_contributions = tmp_path / "contributions" / "private"
+    monkeypatch.setenv(
+        "EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR",
+        str(public_contributions),
+    )
+    monkeypatch.setenv(
+        "EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR",
+        str(private_contributions),
+    )
+    manifest_path = public_source / "manfred" / "memorial.json"
+    original_manifest = manifest_path.read_bytes()
+
+    submitted = _submit(client)
+    assert submitted.status_code == 201
+    contribution_id = submitted.json()["contribution_id"]
+    assert _approve(client, contribution_id).status_code == 200
+
+    private_ledger = private_contributions / "manfred" / "family_contributions.json"
+    public_projection = (
+        public_contributions / "manfred" / "family_contributions.public.json"
+    )
+    assert private_ledger.is_file()
+    assert public_projection.is_file()
+    assert stat.S_IMODE(private_ledger.stat().st_mode) == 0o600
+    assert stat.S_IMODE(private_ledger.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(
+        (private_ledger.parent / ".family_contributions.lock").stat().st_mode
+    ) == 0o600
+    assert stat.S_IMODE(public_projection.stat().st_mode) == 0o644
+    assert stat.S_IMODE(public_projection.parent.stat().st_mode) == 0o755
+    assert manifest_path.read_bytes() == original_manifest
+    assert not (public_source / "manfred" / "family_contributions.public.json").exists()
+    assert not (private_source / "manfred" / "family_contributions.json").exists()
+    public_payload = client.get("/memorials/manfred.json").json()
+    assert public_payload["memory_cards"][0]["title"] == "A carefully curated memory"
+    assert "RAW_PRIVATE" not in json.dumps(public_payload)
+
+
+def test_private_contribution_root_rejects_symlink_components(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import memorial_family_contributions
+
+    real_root = tmp_path / "real-private-contributions"
+    real_root.mkdir()
+    alias_root = tmp_path / "private-contributions-alias"
+    alias_root.symlink_to(real_root, target_is_directory=True)
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR", str(alias_root))
+
+    with pytest.raises(
+        memorial_family_contributions.MemorialContributionError,
+        match="memorial_contribution_path_invalid",
+    ):
+        memorial_family_contributions.submit_family_contribution(
+            slug="manfred",
+            payload={
+                "title": "Private",
+                "body": "Must not follow a contribution-root symlink.",
+                "publication_consent": False,
+            },
+        )
+
+    assert list(real_root.iterdir()) == []
 
 
 def test_correction_and_withdrawal_remove_public_memory_until_reapproved(
@@ -229,7 +308,9 @@ def test_correction_and_withdrawal_remove_public_memory_until_reapproved(
         "/memorials/manfred/contributions/operator",
         headers={"x-memorial-write-token": "unit-write-token"},
     ).json()["contributions"]
-    assert operator_rows[0]["submission"]["body"].startswith("CORRECTED_PRIVATE_SENTINEL")
+    assert operator_rows[0]["submission"]["body"].startswith(
+        "CORRECTED_PRIVATE_SENTINEL"
+    )
 
     reapproved = _approve(
         client,
@@ -238,7 +319,9 @@ def test_correction_and_withdrawal_remove_public_memory_until_reapproved(
         body="The family approved this corrected public account.",
     )
     assert reapproved.status_code == 200
-    assert "The corrected public memory" in json.dumps(client.get("/memorials/manfred.json").json())
+    assert "The corrected public memory" in json.dumps(
+        client.get("/memorials/manfred.json").json()
+    )
 
     denied_withdrawal = client.post(
         f"/memorials/manfred/contributions/{contribution_id}/withdraw",
@@ -246,7 +329,9 @@ def test_correction_and_withdrawal_remove_public_memory_until_reapproved(
         json={"reason": "withdraw"},
     )
     assert denied_withdrawal.status_code == 403
-    assert "The corrected public memory" in json.dumps(client.get("/memorials/manfred.json").json())
+    assert "The corrected public memory" in json.dumps(
+        client.get("/memorials/manfred.json").json()
+    )
 
     withdrawn = client.post(
         f"/memorials/manfred/contributions/{contribution_id}/withdraw",
@@ -288,7 +373,9 @@ def test_contribution_mutations_are_json_only_bounded_and_require_publication_co
 
     declared_too_large = client.post(
         "/memorials/manfred/contributions",
-        content=json.dumps({"title": "large", "body": "x" * 20_000, "publication_consent": True}),
+        content=json.dumps(
+            {"title": "large", "body": "x" * 20_000, "publication_consent": True}
+        ),
         headers={"content-type": "application/json"},
     )
     assert declared_too_large.status_code == 413

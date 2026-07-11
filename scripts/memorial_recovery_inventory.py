@@ -29,6 +29,7 @@ _SAFE_RECEIPT_FIELDS = {
     "private_context_present",
     "family_private_present",
     "family_public_present",
+    "contribution_sources_verified",
     "private_file_mode",
     "canonical_publication_state_included",
     "private_media_publication_performed",
@@ -70,6 +71,8 @@ def _add_roots(
     if include_public_archive:
         parser.add_argument("--public-root", default="")
         parser.add_argument("--archive-root", default="")
+        parser.add_argument("--public-contribution-root", default="")
+        parser.add_argument("--private-contribution-root", default="")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -87,6 +90,9 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--slug", required=True)
     verify.add_argument("--inventory", required=True)
     _add_roots(verify, include_public_archive=False)
+    verify.add_argument("--public-root", default="")
+    verify.add_argument("--public-contribution-root", default="")
+    verify.add_argument("--private-contribution-root", default="")
 
     restore = commands.add_parser("restore")
     restore.add_argument("--slug", required=True)
@@ -106,12 +112,17 @@ def _run(args: argparse.Namespace) -> dict[str, object]:
             public_root=_optional_path(args.public_root),
             private_root=private_root,
             archive_root=_optional_path(args.archive_root),
+            public_contribution_root=_optional_path(args.public_contribution_root),
+            private_contribution_root=_optional_path(args.private_contribution_root),
         )
     if args.operation == "verify":
         return recovery.verify_memorial_recovery_inventory(
             inventory_path=args.inventory,
             expected_memorial_slug=args.slug,
             private_root=private_root,
+            public_root=_optional_path(args.public_root),
+            public_contribution_root=_optional_path(args.public_contribution_root),
+            private_contribution_root=_optional_path(args.private_contribution_root),
         )
     confirmation = str(args.confirm_payload_sha or "").strip().lower()
     if args.apply:
@@ -129,6 +140,8 @@ def _run(args: argparse.Namespace) -> dict[str, object]:
         public_root=_optional_path(args.public_root),
         private_root=private_root,
         archive_root=_optional_path(args.archive_root),
+        public_contribution_root=_optional_path(args.public_contribution_root),
+        private_contribution_root=_optional_path(args.private_contribution_root),
     )
 
 

@@ -40,7 +40,10 @@ def memorial_phrase_bank_path() -> Path:
     configured = str(os.getenv("EA_MEMORIAL_PHRASE_BANK_PATH") or "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
-    return repo_root() / ".codex-design/product/MEMORIAL_PHRASE_BANK.manfred.generated.json"
+    return (
+        repo_root()
+        / ".codex-design/product/MEMORIAL_PHRASE_BANK.manfred.generated.json"
+    )
 
 
 def memorial_state_dir() -> Path:
@@ -74,8 +77,12 @@ PUBLIC_MEMORIAL_ARTIFACT_ROOT = public_memorial_artifact_root()
 PERSONAL_MEMORY_ROOT = PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_user_memory"
 VOICE_AB_ROOT = PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_voice_ab"
 VIDEO_MEETING_RUNTIME_ROOT = PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_video_meeting"
-MEMORIAL_TTS_RENDER_CACHE_ROOT = PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_tts_render_cache"
-MEMORIAL_PRESENT_WORLD_CACHE_ROOT = PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_present_world_cache"
+MEMORIAL_TTS_RENDER_CACHE_ROOT = (
+    PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_tts_render_cache"
+)
+MEMORIAL_PRESENT_WORLD_CACHE_ROOT = (
+    PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_present_world_cache"
+)
 PUBLIC_MEMORIAL_RATE_DB = PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_rate_limits.sqlite3"
 
 
@@ -109,6 +116,13 @@ def memorial_dir() -> Path:
     return memorial_dir_candidates()[0]
 
 
+def public_memorial_contribution_dir() -> Path:
+    configured = str(os.getenv("EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return memorial_dir_candidates()[0]
+
+
 def resolved_memorial_root() -> Path:
     return memorial_dir().resolve()
 
@@ -118,7 +132,9 @@ def private_profile_dir_candidates() -> list[Path]:
     configured = str(os.getenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR") or "").strip()
     if configured:
         candidates.append(Path(configured).expanduser())
-    candidates.append(memorial_data_root() / "memorial_data" / "private_memorial_profiles")
+    candidates.append(
+        memorial_data_root() / "memorial_data" / "private_memorial_profiles"
+    )
     candidates.append(memorial_data_root() / "private_memorial_profiles")
     candidates.append(Path("/mnt/pcloud/EA/private_memorial_profiles"))
     seen: set[str] = set()
@@ -140,4 +156,11 @@ def private_profile_dir() -> Path:
                     return candidate
             except OSError:
                 continue
+    return private_profile_dir_candidates()[0]
+
+
+def private_memorial_contribution_dir() -> Path:
+    configured = str(os.getenv("EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
     return private_profile_dir_candidates()[0]

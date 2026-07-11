@@ -55,6 +55,8 @@ scripts/memorial_flagship_exit_gates.sh
 - [MEMORIAL_FLAGSHIP_RUNBOOK.md](MEMORIAL_FLAGSHIP_RUNBOOK.md)
 - [MEMORIAL_GO_NO_GO_CHECKLIST.md](MEMORIAL_GO_NO_GO_CHECKLIST.md)
 
+The provider-free production candidate, immutable image build, restart proof, and read-only-source/writable-contribution data layout are documented in the runbook. Candidate success is an intermediate deployment receipt, not public launch authority or family approval.
+
 ## Archive publishing
 
 Archive generation creates contained public HTML/PDF artifacts and a public-only registry. Built, approved public HTML can be served through the memorial's internal archive route without a paid provider. FlipLink is optional and must only replace that route after it returns a real, non-placeholder HTTPS publication URL.

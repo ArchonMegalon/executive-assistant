@@ -120,6 +120,82 @@ python3 scripts/memorial_recovery_inventory.py restore \
 
 Recovered source media stays below the private profile root; the restore does not publish it or restore registry/Hub publication authority.
 
+When deployment keeps the canonical public bundle and private profile read-only, put contribution state in separate writable roots and pass all four roots explicitly. The recovery snapshot is then stored below the private contribution root.
+
+```bash
+public_root="${EA_PUBLIC_MEMORIAL_DIR:?set EA_PUBLIC_MEMORIAL_DIR}"
+private_root="${EA_PRIVATE_MEMORIAL_PROFILE_DIR:?set EA_PRIVATE_MEMORIAL_PROFILE_DIR}"
+public_contributions="${EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR:?set EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR}"
+private_contributions="${EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR:?set EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR}"
+inventory="$private_contributions/manfred/recovery_snapshots/manfred.inventory.json"
+
+python3 scripts/memorial_recovery_inventory.py materialize \
+  --slug manfred --destination "$inventory" \
+  --public-root "$public_root" --private-root "$private_root" \
+  --public-contribution-root "$public_contributions" \
+  --private-contribution-root "$private_contributions"
+
+python3 scripts/memorial_recovery_inventory.py verify \
+  --slug manfred --inventory "$inventory" \
+  --public-root "$public_root" --private-root "$private_root" \
+  --public-contribution-root "$public_contributions" \
+  --private-contribution-root "$private_contributions"
+```
+
+## Isolated production candidate
+
+Never restart the warmed `ea-api` to test a new memorial release and never build from the shared dirty checkout. The candidate lane uses an exact `git archive`, an immutable image tag and revision label, a private hash-receipted data projection outside the repository, isolated Postgres and Redis volumes, and an internal Docker network with no provider egress.
+
+```bash
+cd "$EA_REPO_ROOT"
+commit="$(git rev-parse HEAD)"
+tag="ea-runtime:manfred-${commit:0:12}"
+deploy_root="${EA_MANFRED_DEPLOY_ROOT:-$HOME/.local/share/ea-deploy/manfred-memorial}"
+
+python3 scripts/build_manfred_memorial_image.py \
+  --ref "$commit" --tag "$tag" \
+  --receipt "$deploy_root/image-build.json"
+
+python3 scripts/prepare_manfred_memorial_candidate.py \
+  --ref "$commit" --image "$tag" \
+  --deploy-root "$deploy_root" \
+  --public-base-url "${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}" \
+  --host-port 18090
+
+candidate_env="$deploy_root/candidate.env"
+candidate_compose="deploy/manfred-memorial/docker-compose.candidate.yml"
+docker compose --env-file "$candidate_env" -f "$candidate_compose" config -q
+docker compose --env-file "$candidate_env" -f "$candidate_compose" up -d --wait
+docker compose --env-file "$candidate_env" -f "$candidate_compose" exec -T redis redis-cli ping
+```
+
+The first smoke is deliberately provider-free. It uses `HEAD` for the page, exercises only public JSON/archive/PWA/share routes, denies the private audio path, and submits a synthetic private contribution. It does not prove microphone quality, speech recognition, voice identity, or family approval.
+
+```bash
+contribution_receipt="$deploy_root/candidate-contribution.json"
+python3 scripts/verify_manfred_memorial_candidate.py \
+  --base-url http://127.0.0.1:18090 \
+  --public-origin "${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}" \
+  --submit-contribution-receipt "$contribution_receipt"
+
+docker compose --env-file "$candidate_env" -f "$candidate_compose" restart api
+
+python3 scripts/verify_manfred_memorial_candidate.py \
+  --base-url http://127.0.0.1:18090 \
+  --public-origin "${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}" \
+  --withdraw-contribution-receipt "$contribution_receipt"
+```
+
+For the same sequence with live-API identity snapshots, compose isolation checks, Redis gates, permission checks, import-log checks, and one mode-`0600` runtime receipt:
+
+```bash
+python3 scripts/run_manfred_memorial_candidate.py \
+  --env-file "$candidate_env" \
+  --receipt "$deploy_root/receipts/candidate-runtime.json"
+```
+
+Promotion must reuse the exact accepted image ID; do not rebuild it. Before promotion, prove the live container identity did not change, inspect candidate logs for import failures, verify private ledger mode `0600` and public projection mode `0644`, complete the full provider-backed/browser gates with explicit quota authority, and obtain family listening/usability approval. Candidate evidence is non-authoritative until the real HTTPS origin passes the public launch gates.
+
 ## Narration cast handoff
 
 Materialize the source-exact, consent-gated cast handoff before any synthesis. The private package contains source text and must remain below the private profile root; the optional receipt is provider-safe and contains hashes and trait kinds only.
