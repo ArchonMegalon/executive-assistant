@@ -10703,7 +10703,7 @@ def _minimal_public_memorial_html(
                   <input id="memorial-contribution-recovery-code" type="password" maxlength="32768" autocomplete="off" spellcheck="false" aria-describedby="memorial-contribution-recovery-code-help">
                 </label>
                 <p class="status-note" id="memorial-contribution-recovery-code-help">Der eingefügte Schlüssel bleibt verdeckt und wird nach der Prüfung aus dem Feld entfernt.</p>
-                <button type="button" id="memorial-contribution-recovery-import-button">Beleg prüfen und hinzufügen</button>
+                <button type="button" id="memorial-contribution-recovery-import-button" aria-label="Beleg prüfen und hinzufügen">Beleg prüfen und hinzufügen</button>
                 <p class="contribution-management-message" id="memorial-contribution-recovery-import-status" role="status" aria-live="polite" aria-atomic="true" tabindex="-1"></p>
               </div>
             </details>
