@@ -479,7 +479,7 @@ def test_takedown_roundtrip_preserves_fault_state_and_blocks_future_rebuild(
             "takedowns": [
                 {
                     "contribution_id": "contribution-1",
-                    "status": "unpublished",
+                    "status": "erasure_requested",
                     "recorded_at": "2026-07-11T09:05:00Z",
                     "updated_at": "2026-07-11T09:05:00Z",
                 }
@@ -502,7 +502,10 @@ def test_takedown_roundtrip_preserves_fault_state_and_blocks_future_rebuild(
     family_state = envelope["payload"]["family_contributions"]
     assert family_state["private_payload"]["contributions"][0]["status"] == "published"
     assert family_state["public_payload"]["memory_cards"]
-    assert family_state["takedown_payload"]["takedowns"][0]["status"] == "unpublished"
+    assert (
+        family_state["takedown_payload"]["takedowns"][0]["status"]
+        == "erasure_requested"
+    )
     assert all(
         family_contributions.TAKEDOWN_FILENAME
         not in str(item.get("source_relpath") or "")

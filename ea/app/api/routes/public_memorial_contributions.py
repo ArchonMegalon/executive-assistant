@@ -26,6 +26,7 @@ from app.services.memorial_family_contributions import (
     propose_family_contribution_public_version,
     reject_family_contribution,
     reject_family_contribution_public_proposal,
+    request_family_contribution_erasure,
     submit_family_contribution,
     unpublish_family_contribution,
     withdraw_family_contribution,
@@ -66,6 +67,7 @@ def _error_status(code: str) -> int:
         "memorial_contribution_proposal_not_decidable",
         "memorial_contribution_proposal_not_approved",
         "memorial_contribution_proposal_payload_mismatch",
+        "memorial_contribution_erasure_pending",
     }:
         return 409
     if code in {
@@ -509,3 +511,55 @@ async def withdraw_public_memorial_family_contribution(
         return _contribution_error(exc)
     except OSError:
         return _public_memorial_error_response(503, "memorial_contribution_store_unavailable")
+
+
+@router.post(
+    "/memorials/{slug}/contributions/{contribution_id}/erasure-request"
+)
+async def request_public_memorial_family_contribution_erasure(
+    slug: str,
+    contribution_id: str,
+    request: Request,
+) -> JSONResponse:
+    try:
+        safe_slug = _safe_slug(slug)
+        _load_memorial(safe_slug)
+        _enforce_rate_limit(request, bucket="family_contribution_manage")
+        payload = await _read_bounded_json(request)
+        record = request_family_contribution_erasure(
+            slug=safe_slug,
+            contribution_id=contribution_id,
+            manage_token=str(
+                request.headers.get("x-memorial-contribution-token") or ""
+            ),
+            confirmation=payload.get("confirm_permanent_erasure_request"),
+            reason=payload.get("reason"),
+        )
+        erasure_request = dict(record.get("erasure_request") or {})
+        return _private_response(
+            {
+                "contribution_id": str(record.get("contribution_id") or ""),
+                "status": str(record.get("status") or ""),
+                "visibility": str(record.get("visibility") or "private"),
+                "erasure_request": {
+                    "state": str(erasure_request.get("state") or ""),
+                    "requested_at": str(
+                        erasure_request.get("requested_at") or ""
+                    ),
+                    "public_removed": erasure_request.get("public_removed")
+                    is True,
+                    "permanent_erasure_completed": erasure_request.get(
+                        "permanent_erasure_completed"
+                    )
+                    is True,
+                },
+            }
+        )
+    except HTTPException as exc:
+        return _public_memorial_error_response(exc.status_code, str(exc.detail))
+    except MemorialContributionError as exc:
+        return _contribution_error(exc)
+    except OSError:
+        return _public_memorial_error_response(
+            503, "memorial_contribution_store_unavailable"
+        )

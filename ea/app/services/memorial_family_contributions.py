@@ -35,6 +35,7 @@ PUBLIC_PROPOSAL_DECISION_SCHEMA = (
 HISTORY_COMPACTION_SCHEMA = (
     "ea.memorial_family_contribution.history_compaction.v1"
 )
+ERASURE_REQUEST_SCHEMA = "ea.memorial_family_contribution.erasure_request.v1"
 PRIVATE_FILENAME = "family_contributions.json"
 PUBLIC_FILENAME = "family_contributions.public.json"
 TAKEDOWN_FILENAME = "family_contributions.takedowns.public.json"
@@ -53,10 +54,16 @@ _CONTRIBUTION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _TAKEDOWN_STATUSES = {
     "correction_pending",
+    "erasure_requested",
     "rejected",
     "unpublished",
     "withdrawn",
 }
+_ERASURE_REQUEST_SCOPE = (
+    "contribution_private_record",
+    "publication_state",
+    "bounded_governance_history",
+)
 _STORE_LOCK = threading.RLock()
 
 
@@ -284,6 +291,48 @@ def _stored_proposal_decision(record: dict[str, object]) -> dict[str, str]:
         "proposal_sha256": proposal_sha256,
         "decided_at": decided_at,
         "contributor_note": contributor_note,
+    }
+
+
+def _stored_erasure_request(record: dict[str, object]) -> dict[str, object]:
+    raw_request = record.get("erasure_request")
+    if not raw_request:
+        return {}
+    if not isinstance(raw_request, dict) or set(raw_request) != {
+        "schema",
+        "state",
+        "requested_at",
+        "reason",
+        "scope",
+        "public_removed",
+        "permanent_erasure_completed",
+    }:
+        raise MemorialContributionError("memorial_contribution_store_invalid")
+    reason = str(raw_request.get("reason") or "")
+    requested_at = str(raw_request.get("requested_at") or "")
+    scope = raw_request.get("scope")
+    if (
+        raw_request.get("schema") != ERASURE_REQUEST_SCHEMA
+        or raw_request.get("state") != "pending_operator_review"
+        or not requested_at
+        or len(requested_at) > 80
+        or str(record.get("status") or "") != "erasure_requested"
+        or str(record.get("visibility") or "") != "private"
+        or str(record.get("erasure_requested_at") or "") != requested_at
+        or len(reason) > MAX_NOTE_CHARS
+        or scope != list(_ERASURE_REQUEST_SCOPE)
+        or raw_request.get("public_removed") is not True
+        or raw_request.get("permanent_erasure_completed") is not False
+    ):
+        raise MemorialContributionError("memorial_contribution_store_invalid")
+    return {
+        "schema": ERASURE_REQUEST_SCHEMA,
+        "state": "pending_operator_review",
+        "requested_at": requested_at,
+        "reason": reason,
+        "scope": list(_ERASURE_REQUEST_SCOPE),
+        "public_removed": True,
+        "permanent_erasure_completed": False,
     }
 
 
@@ -788,6 +837,7 @@ def get_family_contribution_for_management(
             record=record,
         )
         proposal_decision = _stored_proposal_decision(record)
+        erasure_request = _stored_erasure_request(record)
         if proposal_decision and (
             not proposal_binding
             or not hmac.compare_digest(
@@ -832,6 +882,7 @@ def get_family_contribution_for_management(
             "withdrawn_at",
             "rejected_at",
             "unpublished_at",
+            "erasure_requested_at",
         )
         if str(record.get(key) or "")
     }
@@ -852,7 +903,11 @@ def get_family_contribution_for_management(
         )
 
     has_current_proposal = bool(proposal and proposal_binding)
-    can_manage = status_value != "withdrawn"
+    can_manage = status_value not in {"withdrawn", "erasure_requested"}
+    erasure_path = (
+        f"/memorials/{safe_slug}/contributions/"
+        f"{str(record.get('contribution_id') or '')}/erasure-request"
+    )
     return {
         "contribution_id": str(record.get("contribution_id") or ""),
         "status": status_value,
@@ -861,6 +916,7 @@ def get_family_contribution_for_management(
         "submission": submission,
         "public_preview": public_preview,
         "public_proposal": proposal_payload,
+        "erasure_request": dict(erasure_request),
         "timestamps": timestamps,
         "actions": {
             "can_correct": can_manage,
@@ -871,13 +927,16 @@ def get_family_contribution_for_management(
             "can_reject_public_proposal": has_current_proposal
             and status_value
             in {"awaiting_contributor_approval", "approved_for_publication"},
+            "can_request_permanent_erasure": not erasure_request,
         },
         "retention_notice": {
             "withdrawal_removes_public_copy": True,
             "private_record_retained_for_governance": True,
             "permanent_erasure_requires_separate_request": True,
-            "permanent_erasure_self_service_available": False,
-            "data_deletion_path": "",
+            "permanent_erasure_self_service_available": True,
+            "private_record_retained_until_governed_completion": True,
+            "permanent_erasure_completed": False,
+            "data_deletion_path": erasure_path,
         },
     }
 
@@ -891,6 +950,7 @@ def get_family_contribution_status(
         _index, record = _find_record(records, contribution_id)
         _verify_manage_token(record, manage_token)
         takedown = _takedown_for_record(slug=safe_slug, record=record)
+        erasure_request = _stored_erasure_request(record)
     status_value = str(takedown.get("status") or record.get("status") or "")
     effective_visibility = "private" if takedown else str(record.get("visibility") or "private")
     timestamps = {
@@ -902,6 +962,7 @@ def get_family_contribution_status(
             "withdrawn_at",
             "rejected_at",
             "unpublished_at",
+            "erasure_requested_at",
         )
         if str(record.get(key) or "")
     }
@@ -920,8 +981,19 @@ def get_family_contribution_status(
         "publication_consent": record.get("publication_consent") is True,
         "timestamps": timestamps,
         "actions": {
-            "can_correct": status_value != "withdrawn",
-            "can_withdraw": status_value != "withdrawn",
+            "can_correct": status_value not in {"withdrawn", "erasure_requested"},
+            "can_withdraw": status_value not in {"withdrawn", "erasure_requested"},
+            "can_request_permanent_erasure": not erasure_request,
+        },
+        "erasure_request": {
+            key: erasure_request[key]
+            for key in (
+                "state",
+                "requested_at",
+                "public_removed",
+                "permanent_erasure_completed",
+            )
+            if key in erasure_request
         },
         "recovery_receipt": build_family_contribution_recovery_receipt(
             slug=safe_slug, record=receipt_record
@@ -985,6 +1057,7 @@ def submit_family_contribution(
         "published_at": "",
         "review": {},
         "public_memory": {},
+        "erasure_request": {},
         "history": [],
     }
     with _contribution_lock(safe_slug):
@@ -1399,6 +1472,10 @@ def correct_family_contribution(
         records = _records(ledger)
         index, current = _find_record(records, contribution_id)
         _verify_manage_token(current, manage_token)
+        if _stored_erasure_request(current):
+            raise MemorialContributionError(
+                "memorial_contribution_erasure_pending"
+            )
         if current.get("status") == "withdrawn":
             raise MemorialContributionError("memorial_contribution_withdrawn")
         _prior_proposal, prior_proposal_binding = _stored_public_proposal(
@@ -1504,6 +1581,10 @@ def withdraw_family_contribution(
         records = _records(ledger)
         index, current = _find_record(records, contribution_id)
         _verify_manage_token(current, manage_token)
+        if _stored_erasure_request(current):
+            raise MemorialContributionError(
+                "memorial_contribution_erasure_pending"
+            )
         if current.get("status") == "withdrawn":
             raise MemorialContributionError("memorial_contribution_withdrawn")
         now = _utc_now_iso()
@@ -1540,6 +1621,94 @@ def withdraw_family_contribution(
         )
         records[index] = updated
         ledger["contributions"] = records
+        _write_public_projection(safe_slug, records)
+        _save_private_ledger(safe_slug, ledger)
+    return _private_operator_projection(updated)
+
+
+def request_family_contribution_erasure(
+    *,
+    slug: str,
+    contribution_id: str,
+    manage_token: str,
+    confirmation: object,
+    reason: object = "",
+) -> dict[str, object]:
+    safe_slug = _safe_slug(slug)
+    with _contribution_lock(safe_slug):
+        ledger = _load_private_ledger(safe_slug)
+        records = _records(ledger)
+        index, current = _find_record(records, contribution_id)
+        _verify_manage_token(current, manage_token)
+        if confirmation is not True:
+            raise MemorialContributionError(
+                "memorial_contribution_erasure_confirmation_required"
+            )
+        request_reason = _bounded_text(
+            reason,
+            field="erasure_reason",
+            max_chars=MAX_NOTE_CHARS,
+        )
+        existing_request = _stored_erasure_request(current)
+        if existing_request:
+            _record_takedown(
+                slug=safe_slug,
+                contribution_id=str(current.get("contribution_id") or ""),
+                status_value="erasure_requested",
+                recorded_at=str(existing_request.get("requested_at") or ""),
+            )
+            _write_public_projection(safe_slug, records)
+            return _private_operator_projection(current)
+
+        now = _utc_now_iso()
+        _record_takedown(
+            slug=safe_slug,
+            contribution_id=str(current.get("contribution_id") or ""),
+            status_value="erasure_requested",
+            recorded_at=now,
+        )
+        history, history_compaction = _append_history_event(
+            current,
+            {
+                "action": "contributor_requested_permanent_erasure",
+                "from_status": str(current.get("status") or ""),
+                "to_status": "erasure_requested",
+                "reason": request_reason,
+                "prior_review": dict(current.get("review") or {}),
+                "prior_public_memory": dict(current.get("public_memory") or {}),
+                "recorded_at": now,
+            },
+        )
+        erasure_request: dict[str, object] = {
+            "schema": ERASURE_REQUEST_SCHEMA,
+            "state": "pending_operator_review",
+            "requested_at": now,
+            "reason": request_reason,
+            "scope": list(_ERASURE_REQUEST_SCOPE),
+            "public_removed": True,
+            "permanent_erasure_completed": False,
+        }
+        updated = dict(current)
+        updated.update(
+            {
+                "status": "erasure_requested",
+                "visibility": "private",
+                "updated_at": now,
+                "erasure_requested_at": now,
+                "erasure_request": erasure_request,
+                "review": {},
+                "public_memory": {},
+                "public_proposal": {},
+                "public_proposal_binding": {},
+                "public_proposal_review": {},
+                "public_proposal_decision": {},
+                "history": history,
+                "history_compaction": history_compaction,
+            }
+        )
+        records[index] = updated
+        ledger["contributions"] = records
+        # Public removal is durable before the private request state is saved.
         _write_public_projection(safe_slug, records)
         _save_private_ledger(safe_slug, ledger)
     return _private_operator_projection(updated)

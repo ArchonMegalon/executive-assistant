@@ -558,6 +558,7 @@ def test_recovery_receipt_and_token_authenticated_status_are_private_and_minimal
     assert status_payload["actions"] == {
         "can_correct": True,
         "can_withdraw": True,
+        "can_request_permanent_erasure": True,
     }
     assert "manage_token" not in status_payload["recovery_receipt"]
     assert submission_receipt["manage_token"] not in json.dumps(status_payload)
@@ -606,8 +607,12 @@ def test_management_projection_and_publication_are_bound_to_exact_contributor_ap
         "withdrawal_removes_public_copy": True,
         "private_record_retained_for_governance": True,
         "permanent_erasure_requires_separate_request": True,
-        "permanent_erasure_self_service_available": False,
-        "data_deletion_path": "",
+        "permanent_erasure_self_service_available": True,
+        "private_record_retained_until_governed_completion": True,
+        "permanent_erasure_completed": False,
+        "data_deletion_path": (
+            f"/memorials/manfred/contributions/{contribution_id}/erasure-request"
+        ),
     }
     assert "manage_token" not in json.dumps(initial_payload)
     assert "manage_token_hash" not in json.dumps(initial_payload)
@@ -720,6 +725,178 @@ def test_management_projection_and_publication_are_bound_to_exact_contributor_ap
         "title": "Exact contributor-facing title",
         "body": "Exact contributor-facing public text.",
     }
+
+
+def test_contributor_can_request_governed_permanent_erasure_without_token_leak(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client, _public_root, _private_root = _memorial_client(monkeypatch, tmp_path)
+    submission = _submit(client).json()
+    contribution_id = submission["contribution_id"]
+    manage_token = submission["manage_token"]
+    request_path = (
+        f"/memorials/manfred/contributions/{contribution_id}/erasure-request"
+    )
+    page = client.get("/memorials/manfred")
+    assert page.status_code == 200
+    assert "Dauerhafte Löschung beantragen" in page.text
+    assert '"/erasure-request"' in page.text
+    assert "mit diesem Schritt noch nicht abgeschlossen" in page.text
+    assert manage_token not in page.text
+
+    published = _approve(
+        client,
+        contribution_id,
+        manage_token=manage_token,
+    )
+    assert published.status_code == 200
+    assert len(client.get("/memorials/manfred.json").json()["memory_cards"]) == 1
+
+    missing_confirmation = client.post(
+        request_path,
+        headers={"x-memorial-contribution-token": manage_token},
+        json={"reason": "Please remove my contribution permanently."},
+    )
+    assert missing_confirmation.status_code == 400
+    assert (
+        _error_code(missing_confirmation)
+        == "memorial_contribution_erasure_confirmation_required"
+    )
+    assert len(client.get("/memorials/manfred.json").json()["memory_cards"]) == 1
+
+    denied = client.post(
+        request_path,
+        headers={"x-memorial-contribution-token": "wrong-token"},
+        json={"confirm_permanent_erasure_request": True},
+    )
+    assert denied.status_code == 403
+    assert _error_code(denied) == "memorial_contribution_unauthorized"
+    denied_without_confirmation = client.post(
+        request_path,
+        headers={"x-memorial-contribution-token": "wrong-token"},
+        json={},
+    )
+    assert denied_without_confirmation.status_code == 403
+    assert (
+        _error_code(denied_without_confirmation)
+        == "memorial_contribution_unauthorized"
+    )
+
+    requested = client.post(
+        request_path,
+        headers={"x-memorial-contribution-token": manage_token},
+        json={
+            "confirm_permanent_erasure_request": True,
+            "reason": "Please remove my contribution permanently.",
+        },
+    )
+    assert requested.status_code == 200
+    request_payload = requested.json()
+    assert request_payload["status"] == "erasure_requested"
+    assert request_payload["visibility"] == "private"
+    assert request_payload["erasure_request"]["state"] == "pending_operator_review"
+    assert request_payload["erasure_request"]["public_removed"] is True
+    assert (
+        request_payload["erasure_request"]["permanent_erasure_completed"]
+        is False
+    )
+    assert manage_token not in json.dumps(request_payload)
+    assert "RAW_PRIVATE" not in json.dumps(request_payload)
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+
+    managed = client.get(
+        f"/memorials/manfred/contributions/{contribution_id}/manage",
+        headers={"x-memorial-contribution-token": manage_token},
+    )
+    assert managed.status_code == 200
+    managed_payload = managed.json()
+    assert managed_payload["status"] == "erasure_requested"
+    assert managed_payload["actions"]["can_correct"] is False
+    assert managed_payload["actions"]["can_withdraw"] is False
+    assert managed_payload["actions"]["can_request_permanent_erasure"] is False
+    assert managed_payload["erasure_request"]["scope"] == [
+        "contribution_private_record",
+        "publication_state",
+        "bounded_governance_history",
+    ]
+    assert (
+        managed_payload["retention_notice"][
+            "private_record_retained_until_governed_completion"
+        ]
+        is True
+    )
+    assert (
+        managed_payload["retention_notice"]["permanent_erasure_completed"]
+        is False
+    )
+
+    status_payload = client.get(
+        f"/memorials/manfred/contributions/{contribution_id}/status",
+        headers={"x-memorial-contribution-token": manage_token},
+    ).json()
+    assert status_payload["erasure_request"] == {
+        "state": "pending_operator_review",
+        "requested_at": request_payload["erasure_request"]["requested_at"],
+        "public_removed": True,
+        "permanent_erasure_completed": False,
+    }
+    assert "reason" not in status_payload["erasure_request"]
+
+    repeated = client.post(
+        request_path,
+        headers={"x-memorial-contribution-token": manage_token},
+        json={
+            "confirm_permanent_erasure_request": True,
+            "reason": "A changed reason must not rewrite the accepted request.",
+        },
+    )
+    assert repeated.status_code == 200
+    assert (
+        repeated.json()["erasure_request"]["requested_at"]
+        == request_payload["erasure_request"]["requested_at"]
+    )
+
+    from app.services import memorial_family_contributions as contributions
+
+    private_ledger = json.loads(
+        contributions.private_contribution_path("manfred").read_text(
+            encoding="utf-8"
+        )
+    )
+    stored = private_ledger["contributions"][0]
+    assert stored["submission"]["body"].startswith("RAW_PRIVATE_MEMORY_SENTINEL")
+    assert stored["erasure_request"]["permanent_erasure_completed"] is False
+    assert [
+        event["action"]
+        for event in stored["history"]
+        if event.get("action") == "contributor_requested_permanent_erasure"
+    ] == ["contributor_requested_permanent_erasure"]
+    takedown = json.loads(
+        contributions.public_takedown_path("manfred").read_text(encoding="utf-8")
+    )
+    assert takedown["takedowns"] == [
+        {
+            "contribution_id": contribution_id,
+            "status": "erasure_requested",
+            "recorded_at": request_payload["erasure_request"]["requested_at"],
+            "updated_at": request_payload["erasure_request"]["requested_at"],
+        }
+    ]
+    assert "RAW_PRIVATE" not in json.dumps(takedown)
+
+    stored["status"] = "published"
+    contributions.private_contribution_path("manfred").write_text(
+        json.dumps(private_ledger),
+        encoding="utf-8",
+    )
+    tampered = client.get(
+        f"/memorials/manfred/contributions/{contribution_id}/manage",
+        headers={"x-memorial-contribution-token": manage_token},
+    )
+    assert tampered.status_code == 503
+    assert _error_code(tampered) == "memorial_contribution_store_invalid"
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
 
 
 def test_proposal_mutation_invalidates_stale_decision_and_published_version_cannot_be_reapproved(

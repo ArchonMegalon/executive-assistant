@@ -701,7 +701,13 @@ def _validate_family_takedown_payload(
         raise ValueError("memorial_recovery_inventory_family_takedown_invalid")
     normalized: list[dict[str, object]] = []
     seen_ids: set[str] = set()
-    allowed_statuses = {"correction_pending", "rejected", "unpublished", "withdrawn"}
+    allowed_statuses = {
+        "correction_pending",
+        "erasure_requested",
+        "rejected",
+        "unpublished",
+        "withdrawn",
+    }
     for raw_row in rows:
         row = dict(raw_row)
         if set(row) != {"contribution_id", "status", "recorded_at", "updated_at"}:

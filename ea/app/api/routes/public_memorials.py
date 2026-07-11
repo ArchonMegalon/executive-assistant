@@ -10672,7 +10672,7 @@ def _minimal_public_memorial_html(
         <section class="story-section contribution-panel" id="memorial-contribution" aria-labelledby="memorial-contribution-title">
           <p class="story-kicker">Familie und Wegbegleiter</p>
           <h2 id="memorial-contribution-title">Eine Erinnerung beitragen</h2>
-          <p>Dein Beitrag bleibt zunächst privat und geht in eine geschützte Prüfung. Öffentlich erscheint nur eine ausdrücklich freigegebene, redigierte Fassung. Du kannst deine Einreichung von diesem Browser aus wieder zurückziehen.</p>
+          <p>Dein Beitrag bleibt zunächst privat und geht in eine geschützte Prüfung. Öffentlich erscheint nur eine ausdrücklich freigegebene, redigierte Fassung. Du kannst deine Einreichung von diesem Browser aus zurückziehen oder eine dauerhafte Löschung beantragen.</p>
           <form class="contribution-form memorial-js-required-form" id="memorial-contribution-form" method="post" action="/memorials/{html.escape(slug)}/contributions" hidden inert aria-hidden="true" aria-disabled="true" data-js-ready="false">
             <label for="memorial-contribution-title-input">Kurze Überschrift
               <input id="memorial-contribution-title-input" name="title" type="text" maxlength="180" required autocomplete="off">
@@ -10700,7 +10700,7 @@ def _minimal_public_memorial_html(
           </form>
           <section class="contribution-management memorial-js-required-form" id="memorial-contribution-management" aria-labelledby="memorial-contribution-management-title" hidden inert aria-hidden="true" aria-disabled="true" data-js-ready="false">
             <h3 id="memorial-contribution-management-title" tabindex="-1">Meine Einreichungen</h3>
-            <p class="contribution-privacy-note">Wenn du eine Einreichung zurückziehst, wird ihre öffentliche Fassung entfernt. Ein privater Nachweis bleibt für Nachvollziehbarkeit und zum Schutz vor erneuter Veröffentlichung erhalten. Dauerhafte Löschung ist ein eigener Antrag und hier noch nicht selbst bedienbar. Gib deinen Rücknahmebeleg nie an andere weiter; er ist dein Zugang zu deiner Einreichung.</p>
+            <p class="contribution-privacy-note">Wenn du eine Einreichung zurückziehst, wird ihre öffentliche Fassung entfernt. Ein privater Nachweis bleibt für Nachvollziehbarkeit und zum Schutz vor erneuter Veröffentlichung erhalten. Eine dauerhafte Löschung kannst du hier separat beantragen; dabei wird öffentlich sofort alles entfernt, während der private Antrag bis zur geregelten Bearbeitung erhalten bleibt. Gib deinen Rücknahmebeleg nie an andere weiter; er ist dein Zugang zu deiner Einreichung.</p>
             <section class="contribution-recovery-panel" id="memorial-contribution-recovery-panel" aria-labelledby="memorial-contribution-recovery-title" tabindex="-1" hidden>
               <h4 id="memorial-contribution-recovery-title">Rücknahmebeleg sicher aufbewahren</h4>
               <p>Der Beleg enthält einen geheimen Zugangsschlüssel. Lade ihn herunter oder kopiere ihn an einen privaten, sicheren Ort. Der Schlüssel wird auf dieser Seite nicht sichtbar angezeigt.</p>
@@ -11401,6 +11401,7 @@ def _minimal_public_memorial_html(
           approved_for_publication: "Von dir zur Veröffentlichung freigegeben",
           published: "Veröffentlicht",
           correction_pending: "Korrektur wird geprüft",
+          erasure_requested: "Dauerhafte Löschung beantragt · nicht öffentlich",
           withdrawn: "Zurückgezogen · nicht öffentlich",
           rejected: "Nicht veröffentlicht",
           unpublished: "Nicht mehr öffentlich",
@@ -11456,6 +11457,7 @@ def _minimal_public_memorial_html(
           ["withdrawn_at", "Zurückgezogen"],
           ["rejected_at", "Abgelehnt"],
           ["unpublished_at", "Veröffentlichung entfernt"],
+          ["erasure_requested_at", "Dauerhafte Löschung beantragt"],
           ["takedown_recorded_at", "Schutzvermerk angelegt"],
           ["takedown_updated_at", "Schutzvermerk aktualisiert"],
         ];
@@ -11923,7 +11925,8 @@ def _minimal_public_memorial_html(
             retention.withdrawal_removes_public_copy === true
               && retention.private_record_retained_for_governance === true
               && retention.permanent_erasure_requires_separate_request === true
-              ? "Beim Zurückziehen wird die öffentliche Fassung entfernt. Ein privater Nachweis bleibt erhalten; dauerhafte Löschung ist ein eigener, hier noch nicht selbst bedienbarer Antrag."
+              && retention.permanent_erasure_self_service_available === true
+              ? "Beim Zurückziehen wird die öffentliche Fassung entfernt. Dauerhafte Löschung kannst du separat beantragen; der private Antrag bleibt bis zur geregelten Bearbeitung erhalten und gilt bis dahin noch nicht als abgeschlossen."
               : "Die Hinweise zur Aufbewahrung konnten gerade nicht vollständig geladen werden."
           )
         );
@@ -11967,6 +11970,41 @@ def _minimal_public_memorial_html(
                 );
               }}).catch(() => null).finally(() => {{
                 withdrawButton.disabled = false;
+              }});
+            }}
+          );
+        }}
+        if (permissions.can_request_permanent_erasure === true) {{
+          const erasureButton = appendContributionButton(
+            managementActions,
+            "Dauerhafte Löschung beantragen",
+            "danger",
+            () => {{
+              const confirmed = window.confirm(
+                "Dauerhafte Löschung dieser Einreichung beantragen? "
+                + "Eine öffentliche Fassung wird sofort entfernt. "
+                + "Der private Antrag bleibt bis zur geregelten Bearbeitung erhalten; "
+                + "die Löschung ist mit diesem Schritt noch nicht abgeschlossen."
+              );
+              if (!confirmed) return;
+              erasureButton.disabled = true;
+              void performContributionAction(
+                receipt,
+                "/erasure-request",
+                {{
+                  confirm_permanent_erasure_request: true,
+                  reason: "Von der beitragenden Person beantragt.",
+                }},
+                statusTarget,
+                "Die dauerhafte Löschung wurde beantragt. Öffentlich ist die Einreichung entfernt; der private Antrag wartet auf geregelte Bearbeitung."
+              ).then(() => {{
+                selectContributionReceipt(receipt);
+                setContributionMessage(
+                  contributionRecoveryStatus,
+                  "Der Löschantrag wurde gespeichert. Bewahre den Rücknahmebeleg bis zur Bestätigung der vollständigen Bearbeitung privat auf."
+                );
+              }}).catch(() => null).finally(() => {{
+                erasureButton.disabled = false;
               }});
             }}
           );
