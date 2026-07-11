@@ -169,7 +169,7 @@ docker compose --env-file "$candidate_env" -f "$candidate_compose" up -d --wait
 docker compose --env-file "$candidate_env" -f "$candidate_compose" exec -T redis redis-cli ping
 ```
 
-The first smoke is deliberately provider-free. It uses `HEAD` for the page, exercises only public JSON/archive/PWA/share routes, denies the private audio path, and submits a synthetic private contribution. It does not prove microphone quality, speech recognition, voice identity, or family approval.
+The first smoke is deliberately provider-free. With `EA_MEMORIAL_PAGE_PREWARM_ENABLED=0`, both server rendering and page JavaScript defer warmup and speech synthesis until a visitor explicitly starts a conversation. The proof uses `HEAD` for the route checks, then a real reduced-motion mobile/desktop browser load that fails on automatic provider requests, external requests, unlabeled controls, horizontal overflow, page errors, or a slow local load. It also exercises public JSON/archive/PWA/share routes, denies the private audio path, and submits a synthetic private contribution. It does not prove microphone quality, speech recognition, voice identity, or family approval.
 
 ```bash
 contribution_receipt="$deploy_root/candidate-contribution.json"

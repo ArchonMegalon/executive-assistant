@@ -3432,6 +3432,11 @@ def _memorial_pwa_install_enabled() -> bool:
     return _env_flag("EA_MEMORIAL_PWA_INSTALL_ENABLED")
 
 
+def _memorial_page_prewarm_enabled() -> bool:
+    configured = str(os.getenv("EA_MEMORIAL_PAGE_PREWARM_ENABLED") or "").strip().lower()
+    return configured not in {"0", "false", "no", "off"}
+
+
 def _memorial_video_meeting_beta_enabled() -> bool:
     return _env_flag("EA_MEMORIAL_VIDEO_AVATAR_BETA") or _env_flag("EA_MEMORIAL_VIDEO_MEETING_BETA")
 
@@ -8181,8 +8186,7 @@ def _recover_stale_memorial_voice_prewarm_for_status(
 
 
 def _prime_memorial_live_warmup_on_page_render(slug: str) -> None:
-    enabled = str(os.getenv("EA_MEMORIAL_PAGE_PREWARM_ENABLED") or "").strip().lower()
-    if enabled in {"0", "false", "no", "off"}:
+    if not _memorial_page_prewarm_enabled():
         return
     try:
         _schedule_memorial_live_warmup(slug)
@@ -10641,6 +10645,7 @@ def _minimal_public_memorial_html(
       </div>
     </aside>
     <script>
+      const memorialPagePrewarmEnabled = {json.dumps(_memorial_page_prewarm_enabled())};
       const installHint = document.getElementById("memorial-install-hint");
       const installButton = document.getElementById("memorial-install-button");
       const contributionForm = document.getElementById("memorial-contribution-form");
@@ -11314,6 +11319,7 @@ def _minimal_public_memorial_html(
       }}
 
       function recheckMemorialReadinessOnReturn(reason = "page_visible") {{
+        if (!memorialPagePrewarmEnabled) return;
         if (document.visibilityState && document.visibilityState !== "visible") return;
         if (!memorialReadyNeedsRefresh(memorialReadySnapshot)) return;
         memorialReadySnapshot = null;
@@ -12868,12 +12874,17 @@ def _minimal_public_memorial_html(
         window.__memorialMinimalBooted = true;
         syncContributionManagement();
         syncConversationButton();
-        setMemorialLandingReady(false, "Gleich kannst du mit mir reden.");
+        setMemorialLandingReady(
+          !memorialPagePrewarmEnabled,
+          memorialPagePrewarmEnabled
+            ? "Gleich kannst du mit mir reden."
+            : "Die Stimme startet erst, wenn du das Gespräch beginnst."
+        );
         updatePersonalMemoryStatusUi();
         void loadPersonalMemoryStatus();
         window.setTimeout(() => {{
           void retireLegacyMemorialServiceWorkers();
-          void ensureMemorialReady("page_load");
+          if (memorialPagePrewarmEnabled) void ensureMemorialReady("page_load");
         }}, 120);
         const isStandalone = window.matchMedia("(display-mode: standalone)").matches || Boolean(window.navigator.standalone);
         const isPwaLaunch = isStandalone || new URLSearchParams(window.location.search).get("source") === "pwa";
@@ -14929,6 +14940,7 @@ def _memorial_html(
       </div>
     </main>
     <script>
+      const memorialPagePrewarmEnabled = {json.dumps(_memorial_page_prewarm_enabled())};
       const form = document.getElementById("memorial-chat-form");
       const memorialPersonName = {person_name_js};
       const memorialPersonLabel = {person_label_js};
@@ -15823,6 +15835,7 @@ def _memorial_html(
         return !payload || !Number.isFinite(ttl) || ttl <= 90 || payload.voice_prewarm_stale === true;
       }}
       function recheckMemorialReadinessOnReturn(reason = "page_visible") {{
+        if (!memorialPagePrewarmEnabled) return;
         if (document.visibilityState && document.visibilityState !== "visible") return;
         if (!memorialReadyNeedsRefresh(memorialReadySnapshot)) return;
         memorialReadySnapshot = null;
@@ -17863,11 +17876,18 @@ def _memorial_html(
       }});
       loadVoiceConfig();
       syncConversationButtons();
-      setMemorialLandingReady(false, "Ich werde gerade bereit");
+      setMemorialLandingReady(
+        !memorialPagePrewarmEnabled,
+        memorialPagePrewarmEnabled
+          ? "Ich werde gerade bereit"
+          : "Die Stimme startet erst nach deinem Klick"
+      );
       void refreshVoiceProfileSummary();
-      window.setTimeout(() => {{
-        void primeMemorialLanding();
-      }}, 120);
+      if (memorialPagePrewarmEnabled) {{
+        window.setTimeout(() => {{
+          void primeMemorialLanding();
+        }}, 120);
+      }}
     </script>
   </body>
 </html>"""

@@ -17,7 +17,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.prepare_manfred_memorial_candidate import _parse_env  # noqa: E402
-from scripts.verify_manfred_memorial_candidate import verify_candidate  # noqa: E402
+from scripts.verify_manfred_memorial_candidate import (  # noqa: E402
+    audit_browser_surface,
+    verify_candidate,
+)
 
 
 RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_runtime.v1"
@@ -287,6 +290,7 @@ def prove_candidate(
         raise RuntimeError("manfred_candidate_restart_recreated_container")
     _assert_redis(compose)
     contribution_modes = _assert_contribution_modes(compose)
+    browser_surface = audit_browser_surface(base_url)
     _assert_logs_clean(compose)
     live_after = _live_snapshot()
     _assert_live_unchanged(live_before, live_after)
@@ -315,6 +319,7 @@ def prove_candidate(
         ),
         "first_smoke_checks": first_smoke.get("checks", []),
         "second_smoke_checks": second_smoke.get("checks", []),
+        "browser_surface": browser_surface,
         "live_ea_api_unchanged": True,
         "live_ea_api": live_after,
         "candidate_left_running_for_soak": True,

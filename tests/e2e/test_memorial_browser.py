@@ -106,6 +106,7 @@ def _source_first_memorial_payload(slug: str) -> dict[str, object]:
             {
                 "visibility": "public",
                 "public": True,
+                "approved": True,
                 "label": f"Öffentliche Quelle {index}",
                 "url": f"https://sources.example/manfred/{index}",
                 "status": "belegt",
@@ -1027,5 +1028,44 @@ def test_memorial_browser_reduced_motion_avoids_smooth_answer_scroll(
         options = page.evaluate("() => window.__memorialScrollOptions.slice()")
         assert options
         assert options[-1]["behavior"] == "auto"
+    finally:
+        context.close()
+
+
+def test_memorial_browser_can_defer_all_provider_warmup_until_user_action(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_MEMORIAL_PAGE_PREWARM_ENABLED", "0")
+    context = browser.new_context(
+        viewport={"width": 390, "height": 844},
+        reduced_motion="reduce",
+    )
+    page = context.new_page()
+    requested_urls: list[str] = []
+    page.on("request", lambda request: requested_urls.append(request.url))
+    try:
+        response = page.goto(
+            f"{memorial_browser_server['base_url']}/memorials/{memorial_browser_server['slug']}",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.status == 200
+        page.wait_for_timeout(700)
+
+        provider_work_paths = (
+            "/warmup",
+            "/warmup-status",
+            "/speech-synthesize",
+        )
+        assert not [
+            url
+            for url in requested_urls
+            if any(path in url for path in provider_work_paths)
+        ]
+        conversation = page.locator("#memorial-conversation")
+        assert conversation.is_enabled()
+        assert conversation.inner_text().strip() == "Gespräch beginnen"
+        assert page.locator("#memorial-speech-message").inner_text().strip() == "Bereit."
     finally:
         context.close()

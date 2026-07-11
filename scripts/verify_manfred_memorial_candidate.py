@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import tempfile
@@ -10,6 +11,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_smoke.v1"
@@ -89,6 +91,172 @@ def _wait_for_health(base_url: str, timeout_seconds: int) -> None:
             last_error = str(exc)[:160]
             time.sleep(2)
     raise RuntimeError(last_error)
+
+
+def audit_browser_surface(base_url: str) -> dict[str, object]:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("candidate_browser_runtime_unavailable") from exc
+
+    original_tmpdir = os.environ.get("TMPDIR")
+    os.environ["TMPDIR"] = "/tmp"
+    requested_urls: list[str] = []
+    failed_requests: list[str] = []
+    page_errors: list[str] = []
+    browser = None
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--no-proxy-server",
+                ],
+            )
+            context = browser.new_context(
+                viewport={"width": 390, "height": 844},
+                reduced_motion="reduce",
+            )
+            page = context.new_page()
+            page.on("request", lambda request: requested_urls.append(request.url))
+            page.on("requestfailed", lambda request: failed_requests.append(request.url))
+            page.on("pageerror", lambda error: page_errors.append(str(error)[:200]))
+            response = page.goto(
+                f"{base_url.rstrip('/')}/memorials/manfred",
+                wait_until="domcontentloaded",
+                timeout=30_000,
+            )
+            if response is None or response.status != 200:
+                raise RuntimeError("candidate_browser_page_unavailable")
+            page.wait_for_timeout(900)
+
+            provider_work_paths = {
+                "/memorials/manfred/warmup",
+                "/memorials/manfred/warmup-status",
+                "/memorials/manfred/speech-synthesize",
+            }
+            automatic_provider_requests = sorted(
+                {
+                    urlparse(url).path
+                    for url in requested_urls
+                    if urlparse(url).path in provider_work_paths
+                }
+            )
+            if automatic_provider_requests:
+                raise RuntimeError("candidate_browser_automatic_provider_work_detected")
+            origin = urlparse(base_url)
+            external_requests = sorted(
+                {
+                    url
+                    for url in requested_urls
+                    if (parsed := urlparse(url)).hostname != origin.hostname
+                    or parsed.port != origin.port
+                    or parsed.scheme != origin.scheme
+                }
+            )
+            if external_requests:
+                raise RuntimeError("candidate_browser_external_request_detected")
+            if failed_requests or page_errors:
+                raise RuntimeError("candidate_browser_runtime_error")
+
+            accessibility = page.evaluate(
+                """() => {
+                  const visible = (element) => {
+                    const style = getComputedStyle(element);
+                    return !element.hidden && style.display !== "none" && style.visibility !== "hidden";
+                  };
+                  const controls = Array.from(document.querySelectorAll("input, textarea, button"))
+                    .filter((element) => visible(element) && String(element.type || "") !== "hidden");
+                  const unlabeled = controls.filter((element) => {
+                    if (element.tagName === "BUTTON") {
+                      return !String(element.innerText || element.getAttribute("aria-label") || element.title || "").trim();
+                    }
+                    return !(element.labels && element.labels.length) && !String(element.getAttribute("aria-label") || "").trim();
+                  }).map((element) => element.id || element.name || element.tagName);
+                  return {
+                    lang: document.documentElement.lang,
+                    main_count: document.querySelectorAll("main").length,
+                    h1_count: document.querySelectorAll("h1").length,
+                    skip_link_count: document.querySelectorAll("a.skip-link").length,
+                    unlabeled_controls: unlabeled,
+                    consent_checked: Boolean(document.getElementById("memorial-contribution-consent")?.checked),
+                    personal_memory_checked: Boolean(document.getElementById("memorial-personal-memory-optin")?.checked),
+                    conversation_enabled: !Boolean(document.getElementById("memorial-conversation")?.disabled),
+                    conversation_label: String(document.getElementById("memorial-conversation")?.textContent || "").trim(),
+                    reduced_motion: matchMedia("(prefers-reduced-motion: reduce)").matches,
+                    horizontal_overflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
+                  };
+                }"""
+            )
+            if (
+                not str(accessibility.get("lang") or "").lower().startswith("de")
+                or accessibility.get("main_count") != 1
+                or accessibility.get("h1_count") != 1
+                or int(accessibility.get("skip_link_count") or 0) < 2
+                or accessibility.get("unlabeled_controls")
+                or accessibility.get("consent_checked") is True
+                or accessibility.get("personal_memory_checked") is True
+                or accessibility.get("conversation_enabled") is not True
+                or accessibility.get("conversation_label") != "Gespräch beginnen"
+                or accessibility.get("reduced_motion") is not True
+                or int(accessibility.get("horizontal_overflow") or 0) > 1
+            ):
+                raise RuntimeError("candidate_browser_accessibility_contract_failed")
+
+            navigation = page.evaluate(
+                """() => {
+                  const entry = performance.getEntriesByType("navigation")[0];
+                  return entry ? {
+                    dom_content_loaded_ms: Math.round(entry.domContentLoadedEventEnd),
+                    load_event_ms: Math.round(entry.loadEventEnd),
+                    transfer_bytes: Number(entry.transferSize || 0),
+                  } : {};
+                }"""
+            )
+            dom_loaded_ms = int(navigation.get("dom_content_loaded_ms") or 0)
+            load_event_ms = int(navigation.get("load_event_ms") or 0)
+            if dom_loaded_ms <= 0 or dom_loaded_ms > 5000 or load_event_ms > 7000:
+                raise RuntimeError("candidate_browser_performance_contract_failed")
+
+            page.set_viewport_size({"width": 1440, "height": 900})
+            page.wait_for_timeout(100)
+            desktop_overflow = int(
+                page.evaluate(
+                    "Math.max(0, document.documentElement.scrollWidth - window.innerWidth)"
+                )
+            )
+            if desktop_overflow > 1:
+                raise RuntimeError("candidate_browser_desktop_overflow")
+            context.close()
+            browser.close()
+            browser = None
+    finally:
+        if browser is not None:
+            with contextlib.suppress(Exception):
+                browser.close()
+        if original_tmpdir is None:
+            os.environ.pop("TMPDIR", None)
+        else:
+            os.environ["TMPDIR"] = original_tmpdir
+    return {
+        "status": "pass",
+        "mobile_viewport": "390x844",
+        "desktop_viewport": "1440x900",
+        "reduced_motion": True,
+        "horizontal_overflow_px": 0,
+        "unlabeled_controls": 0,
+        "automatic_provider_requests": 0,
+        "external_requests": 0,
+        "failed_requests": 0,
+        "page_errors": 0,
+        "dom_content_loaded_ms": dom_loaded_ms,
+        "load_event_ms": load_event_ms,
+        "transfer_bytes": int(navigation.get("transfer_bytes") or 0),
+    }
 
 
 def _atomic_private_json(path: Path, payload: dict[str, object]) -> None:
