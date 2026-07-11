@@ -187,6 +187,40 @@ def test_public_memorial_json_is_sanitized_and_raw_manifest_is_blocked(
     assert raw_manifest.headers.get("X-Content-Type-Options") == "nosniff"
 
 
+def test_memorial_chat_citations_require_public_approval_and_safe_url() -> None:
+    from app.api.routes import public_memorials
+
+    labels = public_memorials._memorial_chat_source_labels(
+        {
+            "external_sources": [
+                {
+                    "visibility": "public",
+                    "label": "Unapproved private-context source",
+                    "url": "https://private-context.example/source",
+                    "status": "research_only",
+                },
+                {
+                    "visibility": "public",
+                    "approved": True,
+                    "label": "Unsafe approved source",
+                    "url": "javascript:alert(1)",
+                    "status": "approved",
+                },
+                {
+                    "visibility": "public",
+                    "approved": True,
+                    "label": "Approved public source",
+                    "url": "https://memorial.example/source",
+                    "status": "approved",
+                },
+            ]
+        },
+        question="Was war Manfred wichtig?",
+    )
+
+    assert labels == ["Approved public source"]
+
+
 def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

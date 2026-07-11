@@ -5,6 +5,7 @@ import argparse
 import contextlib
 import json
 import os
+import shutil
 import tempfile
 import time
 import urllib.error
@@ -93,6 +94,26 @@ def _wait_for_health(base_url: str, timeout_seconds: int) -> None:
     raise RuntimeError(last_error)
 
 
+def _chromium_launch_executable(browser_type: object) -> str:
+    configured = str(
+        os.environ.get("EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE") or ""
+    ).strip()
+    if configured:
+        path = Path(configured).expanduser().resolve()
+        if not path.is_file():
+            raise RuntimeError("candidate_browser_executable_invalid")
+        return str(path)
+
+    bundled = Path(str(getattr(browser_type, "executable_path", "") or "")).expanduser()
+    if bundled.is_file():
+        return str(bundled.resolve())
+    for name in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
+        resolved = shutil.which(name)
+        if resolved:
+            return resolved
+    raise RuntimeError("candidate_browser_executable_unavailable")
+
+
 def audit_browser_surface(base_url: str) -> dict[str, object]:
     try:
         from playwright.sync_api import sync_playwright
@@ -107,15 +128,20 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
     browser = None
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
-                headless=True,
-                args=[
+            executable_path = _chromium_launch_executable(playwright.chromium)
+            launch_options: dict[str, object] = {
+                "headless": True,
+                "args": [
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
                     "--no-proxy-server",
                 ],
+            }
+            launch_options["executable_path"] = executable_path
+            browser = playwright.chromium.launch(
+                **launch_options,
             )
             context = browser.new_context(
                 viewport={"width": 390, "height": 844},

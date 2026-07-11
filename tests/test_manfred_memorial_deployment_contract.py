@@ -254,3 +254,50 @@ def test_share_verifier_rejects_real_recipient_fields_not_safety_receipts() -> N
     assert not candidate_verify._contains_forbidden_recipient_field(
         {"recipient_free": True, "sent": False}
     )
+
+
+def test_candidate_browser_uses_system_chromium_when_playwright_bundle_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrowserType:
+        executable_path = "/missing/playwright/chromium"
+
+    monkeypatch.delenv("EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE", raising=False)
+    monkeypatch.setattr(
+        candidate_verify.shutil,
+        "which",
+        lambda name: "/usr/bin/chromium" if name == "chromium" else None,
+    )
+
+    assert (
+        candidate_verify._chromium_launch_executable(BrowserType())
+        == "/usr/bin/chromium"
+    )
+
+
+def test_candidate_browser_passes_existing_playwright_executable_explicitly(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "chromium"
+    executable.write_bytes(b"binary-placeholder")
+
+    class BrowserType:
+        executable_path = str(executable)
+
+    assert candidate_verify._chromium_launch_executable(BrowserType()) == str(
+        executable.resolve()
+    )
+
+
+def test_candidate_browser_rejects_missing_configured_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrowserType:
+        executable_path = "/missing/playwright/chromium"
+
+    monkeypatch.setenv(
+        "EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE",
+        "/missing/operator/chromium",
+    )
+    with pytest.raises(RuntimeError, match="candidate_browser_executable_invalid"):
+        candidate_verify._chromium_launch_executable(BrowserType())

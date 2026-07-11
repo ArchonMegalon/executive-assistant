@@ -3766,10 +3766,15 @@ def _memorial_chat_source_labels(
 ) -> list[str]:
     if _is_memorial_live_interaction_question(question) or _is_memorial_present_world_question(question):
         return []
-    external_sources = _public_list(
-        payload.get("external_sources"),
-        allowed_keys={"label", "url", "status"},
-    )
+    external_sources = [
+        source
+        for source in _public_list(
+            payload.get("external_sources"),
+            allowed_keys={"label", "url", "status", "approved"},
+        )
+        if source.get("approved") is True
+        and _safe_public_memorial_external_url(source.get("url"))
+    ]
     preferred_audio = [
         _text(source.get("label"))
         for source in external_sources
