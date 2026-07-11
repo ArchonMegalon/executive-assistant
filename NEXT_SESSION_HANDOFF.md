@@ -1,5 +1,225 @@
 # Next Session Handoff
 
+## Priority override: flagship audiobook narration lane
+
+Date: 2026-07-11
+Owner repo: `/docker/EA`
+Implementation root: `/docker/EA/ea`
+Primary module: `ea/app/services/audiobook_epub_pipeline.py`
+
+This section overrides the older active objective below for the Codex session that
+owns EA audiobook work. Preserve the older handoff history; it remains relevant to
+the rest of EA operations. Do not mark the broader Chummer flagship goal complete.
+
+### User outcome
+
+Implement this lane, not only a design note.
+
+An uploaded EPUB or supported source document must produce an audiobook that feels
+like one continuous performance instead of a sequence of clipped sentences. When
+the source contains dialogue, listeners must actually hear a stable voice distinct
+from the narrator without requiring an operator to configure a hidden environment
+variable. Common fiction with multiple attributable speakers should retain stable
+speaker-to-voice assignments across chapters.
+
+The experience must remain minimal and automatic: source in, optional voice preview,
+finished playable audiobook out. Internal provider, segmentation, retry, and repair
+details belong in receipts/operator surfaces, not in the normal user journey.
+
+### What the current code really does
+
+The current contracts make the feature look more complete than the rendered result:
+
+- `NARRATION_PLAN_CONTRACT_NAME` is still `ea.audiobook_narration_plan.v1`.
+- `_audiobook_cinematic_narration()` defaults on, but the active Unmixr adapter is
+  short TTS and `_audiobook_cinematic_single_pass()` defaults off. Normal output is
+  therefore still a set of independent requests joined afterward.
+- `_explicit_dialogue_paragraph()` recognizes only a whole paragraph that starts
+  with a balanced quote or dialogue dash. Inline speech, several turns in one
+  paragraph, and narration around a quote are assigned incorrectly.
+- `_scene_performance_rows()` gives every detected spoken paragraph the generic
+  role `dialogue`; `_write_private_narration_plan()` exposes only the synthetic
+  `dialogue_partner` speaker id. There is no real character attribution.
+- `_configured_dialogue_voice_selection()` returns a second voice only from
+  `EA_AUDIOBOOK_UNMIXR_DIALOGUE_VOICE_ID` or a private, explicitly approved token.
+  No normal audiobook flow currently creates that approved dialogue selection, so
+  production commonly falls back to the narrator despite the dialogue contract.
+- `_write_provider_audio_file()` normalizes every generated segment independently
+  with `dynaudnorm` plus `loudnorm`, then `_merge_audio_segments_to_wav()` performs a
+  hard concat. Provider edge silence, independent loudness decisions, and missing
+  same-speaker continuation timing can make sentences sound clipped or reset.
+- Existing strengths must be retained: exact source hashes, private narration plans,
+  raw voice-id redaction, render locking, resumable segment fingerprints, throttling,
+  M4B assembly, publication STT, playback acceptance, and Telegram/WhatsApp delivery.
+
+### Required architecture
+
+#### 1. Versioned source-to-performance planning
+
+Create a versioned preprocessing contract before synthesis. A planner may live in a
+focused module if that keeps the 12k-line pipeline maintainable, but integration and
+public/private projections remain owned by `audiobook_epub_pipeline.py`.
+
+The planner must:
+
+- preserve the source verbatim; never paraphrase or silently rewrite book text
+- emit exact source spans with chapter, scene, paragraph, and character offsets
+- split narration from quoted speech inside a paragraph instead of assigning the
+  whole paragraph to one voice
+- support straight/curly German and English quotes, guillemets, and dialogue dashes
+- retain dialogue tags such as `she said`, `Anna fragte`, or `antwortete Ben` as
+  narrator text while assigning only the spoken span to the character
+- derive stable speaker ids from explicit names and conservative pronoun/context
+  evidence; uncertain attribution must be represented as uncertain, not invented
+- use a deterministic fallback for alternating unattributed turns within a scene
+- reconstruct canonical source text exactly and fail closed before synthesis on any
+  coverage, order, overlap, offset, or hash mismatch
+- cache the private plan by source hash and planner contract version
+
+An optional governed LLM enrichment pass is acceptable only for speaker labels and
+span offsets. It must return structured data, reconstruct against the immutable
+source, expose confidence/provenance, and fall back to the deterministic planner on
+timeout or invalid output. It must never return replacement prose as render input.
+
+#### 2. Automatic stable voice casting
+
+Replace the hidden-operator-only second voice with an automatic cast resolver:
+
+- explicit user-approved or operator-provided choices still win
+- otherwise select language-compatible voices from the existing ranked Unmixr
+  catalog and exclude the narrator voice
+- activate a distinct dialogue voice automatically whenever confirmed dialogue is
+  present and at least two eligible voices exist
+- for attributable recurring speakers, keep a deterministic per-book cast map and
+  reuse it across chapters and resumptions
+- use available gender/age/style tags only as ranking hints; do not claim inferred
+  identity as fact
+- cap the automatic cast to a small configurable number and use a documented stable
+  fallback for low-confidence/minor speakers
+- if a quality policy requires distinct dialogue and no second eligible voice is
+  available, report a clear actionable block instead of claiming multi-speaker audio
+- keep raw provider voice ids only in mode-0600 private state; public job data,
+  receipts, errors, callbacks, and logs may contain hashes/labels/status only
+
+The normal user must not need to know that `EA_AUDIOBOOK_UNMIXR_DIALOGUE_VOICE_ID`
+exists. Voice audition should preview narrator and cast when useful, but a skipped
+preview must still produce a sensible automatic cast.
+
+#### 3. Continuity-aware synthesis units
+
+Build performance passages, not sentence-sized requests:
+
+- group adjacent spans for the same speaker up to the provider-safe character cap
+- split only at sentence/clause boundaries; never split a word or quote pair
+- keep chapter and real scene boundaries, but do not turn every EPUB block boundary
+  into a dramatic pause
+- record boundary intent (`continuation`, `sentence`, `paragraph`, `speaker`,
+  `scene`, `chapter`) and punctuation-aware target timing in the private plan
+- add a short controlled continuation gap when a same-speaker request must split at
+  the provider limit; do not hard-concatenate two independently generated endings
+- include planner version, cast hashes, prosody settings, and boundary policy in
+  render fingerprints so legacy cached masters cannot masquerade as improved output
+
+Do not enable whole-book short-TTS requests as the default workaround. A genuine
+provider long-form API can be added as a separate capability with its own limits and
+receipts; the short-TTS path must remain bounded and resumable.
+
+#### 4. Post-processing and mastering
+
+Move quality decisions to the assembled performance:
+
+- convert provider output to one PCM format without independently mastering every
+  segment
+- conservatively trim excess provider head/tail silence while preserving breaths and
+  consonants, then add the planner's controlled boundary timing
+- normalize loudness and true peak once on the merged chapter/master track (or use a
+  measured two-pass strategy with one shared target), not a fresh dynamic-normalizer
+  decision per sentence
+- only use crossfades where listening tests prove they do not swallow phonemes;
+  controlled silence is the safe default at speaker boundaries
+- retain chapter metadata and M4B chapter marks even when a continuous master is used
+- make every post-process step resumable and signature-bound
+
+#### 5. QA, repair, and honest receipts
+
+Extend the private plan and safe receipt projection with evidence for:
+
+- exact source coverage and source-integrity status
+- dialogue span count, attributed/uncertain counts, and speaker count
+- cast completeness and `distinct_from_narrator` per active dialogue voice
+- passage sizes and any unsafe/very-short passage runs
+- boundary counts and total inserted pause by kind
+- per-segment format/energy checks plus final-track loudness, clipping, and silence
+- cache/reuse versus regenerated passages
+- publication STT coverage and playback acceptance
+
+Retry only failed passages. A failed or changed passage must not force paid
+regeneration of unaffected, fingerprint-matching audio. Never weaken source, privacy,
+publication, or playback gates to make the new lane look green.
+
+### Implementation order
+
+1. Add focused planner data structures/helpers and deterministic EN/DE dialogue-span
+   fixtures. Keep exact source reconstruction as the first invariant.
+2. Integrate stable speaker ids and an automatic distinct cast resolver. Preserve
+   explicit overrides and private voice-id storage.
+3. Change render fingerprints and narration-plan contract/version so incompatible
+   legacy audio is invalidated or explicitly migrated.
+4. Replace per-segment mastering with segment preparation plus final-track mastering;
+   add controlled boundary timing.
+5. Add receipt/quality projections, selective repair, and user-facing voice-preview
+   integration.
+6. Run a bounded live canary only after mocked tests pass and provider balance/runtime
+   readiness is checked through the existing live-ops lane. Do not purchase credit or
+   broaden delivery without user approval.
+
+### Required tests
+
+Add focused tests near:
+
+- `tests/test_telegram_epub_audiobook_pipeline.py`
+- `ea/tests/test_audiobook_epub_pipeline.py`
+- `ea/tests/test_audiobook_voice_audition.py`
+- audiobook quality/receipt tests already covering M4B and live-delivery projections
+
+At minimum prove:
+
+- English and German inline quoted speech is separated from narrator attribution
+- curly quotes, guillemets, dialogue dashes, multiple turns, and malformed quotes
+  preserve exact source coverage and fail conservatively
+- recurring named speakers receive stable ids and stable cast choices across chapters
+- confirmed dialogue automatically uses a voice distinct from the narrator when the
+  catalog contains at least two eligible voices
+- one-voice catalogs cannot produce a false `distinct_from_narrator=true` claim
+- explicit approved dialogue/cast choices override automatic choices
+- adjacent same-speaker text is batched and provider-limit splits use a continuation
+  boundary rather than a hard zero-gap concat
+- narration around quoted speech remains narrator audio
+- normalization/mastering runs on the final track, not independently per passage
+- render signatures invalidate old segmentation/mastering/cast output
+- interrupted renders reuse completed matching passages and retry only missing ones
+- narration plan and render result never expose raw voice ids
+- source tampering blocks before any paid synthesis request
+- existing M4B, STT publication, playback acceptance, Telegram, WhatsApp, cleanup,
+  throttling, and render-lock tests remain green
+
+Use mocked provider audio for the broad suite. For the final live canary, use a short
+rights-safe EN/DE fixture with at least narrator plus two dialogue turns. Listen to or
+obtain human acceptance for these points: no clipped starts/ends, no abrupt level
+reset, natural paragraph/scene timing, clearly distinct dialogue voice, stable speaker
+identity, correct words, and useful chapter navigation. Persist the canary receipt;
+do not equate waveform checks alone with perceived narration quality.
+
+### Definition of done for this EA lane
+
+The lane is done only when a fresh source can travel through the normal Telegram or
+WhatsApp intake without hidden operator setup and produce a playable M4B/public player
+reference whose current private plan and safe receipts prove exact text coverage,
+automatic distinct dialogue casting, continuity-aware mastering, publication checks,
+and human playback acceptance. A passing unit suite without a listened-to canary is
+not enough. Report any provider limitation honestly rather than silently falling back
+to chopped single-voice output.
+
 Date: 2026-07-06
 Repo: `/docker/EA`
 Head: `4496e6a1`

@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import json
 import os
 from pathlib import Path
+import struct
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
+import wave
+
+from fastapi import HTTPException
+import pytest
 
 from app.services import audiobook_epub_pipeline
 
@@ -13,6 +21,11 @@ from app.services import audiobook_epub_pipeline
 def test_audiobook_cinematic_narration_default_enabled() -> None:
     with patch.dict(os.environ, {}, clear=True):
         assert audiobook_epub_pipeline._audiobook_cinematic_narration() is True
+
+
+def test_audiobook_cinematic_single_pass_default_disabled() -> None:
+    with patch.dict(os.environ, {}, clear=True):
+        assert audiobook_epub_pipeline._audiobook_cinematic_single_pass() is False
 
 
 def _chapter_text() -> str:
@@ -83,6 +96,62 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
         target.write_bytes(b"audio-blob")
         return True
 
+    def _write_job_manifest(
+        self,
+        *,
+        job_dir: Path,
+        chapters: tuple[audiobook_epub_pipeline.EpubChapter, ...],
+        metadata: audiobook_epub_pipeline.EpubMetadata,
+    ) -> None:
+        (job_dir / "job.json").write_text(
+            json.dumps(
+                {
+                    "metadata": {
+                        "title": metadata.title,
+                        "author": metadata.author,
+                        "language": metadata.language,
+                        "source_filename": metadata.source_filename,
+                        "source_sha256": metadata.source_sha256,
+                    },
+                    "chapters": [chapter.__dict__ for chapter in chapters],
+                    "storage": {"job_dir": str(job_dir)},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def _expected_cinematic_signature(
+        self,
+        *,
+        job_dir: Path,
+        chapters: tuple[audiobook_epub_pipeline.EpubChapter, ...],
+        metadata: audiobook_epub_pipeline.EpubMetadata,
+    ) -> str:
+        chapter_inputs = audiobook_epub_pipeline._collect_cinematic_track_input(
+            job_dir=job_dir,
+            chapters=chapters,
+        )
+        render_language = audiobook_epub_pipeline._normalize_language(metadata.language)
+        exact_plan = audiobook_epub_pipeline._build_exact_narration_plan(
+            chapter_inputs=chapter_inputs,
+            render_language=render_language,
+            max_chars=audiobook_epub_pipeline._audiobook_cinematic_max_chars_per_request(),
+        )
+        speaker_cast = audiobook_epub_pipeline._resolve_speaker_cast_for_narration_plan(
+            job_dir=job_dir,
+            narration_plan=exact_plan,
+            narrator_voice_id="cinematic-voice-id",
+            render_language=render_language,
+            default_dialogue_selection={},
+        )
+        return audiobook_epub_pipeline._cinematic_track_signature(
+            chapter_inputs=chapter_inputs,
+            narrator_voice_id="cinematic-voice-id",
+            render_language=render_language,
+            planner_plan_sha256=str(exact_plan["plan_sha256"]),
+            cast_map_sha256=str(speaker_cast.get("cast_map_sha256") or ""),
+        )
+
     @contextmanager
     def _base_context(self, chapter_count: int = 1):
         with _chapter_job(chapter_count=chapter_count) as job_context:
@@ -90,11 +159,16 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 os.environ,
                 {
                     "EA_AUDIOBOOK_CINEMATIC_NARRATION": "1",
+                    "EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS": "1",
                     "EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST": "200000",
                     "EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST": "100",
                     "EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED": "1",
                     "EA_AUDIOBOOK_UNMIXR_AUTO_RENDER": "1",
                 },
+            ), patch.object(
+                audiobook_epub_pipeline,
+                "_normalize_rendered_audio_file",
+                side_effect=lambda path: path,
             ):
                 yield job_context
 
@@ -136,7 +210,10 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
 
     def test_render_unmixr_chapter_audio_prefers_cinematic_continuity(self) -> None:
         with self._base_context(chapter_count=3) as (job_dir, chapters, metadata):
-            combined_text = " ".join((job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8") for chapter in chapters)
+            combined_text = "\n\n\n".join(
+                (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
+                for chapter in chapters
+            )
             with (
                 self._voice_context(),
                 patch.object(
@@ -162,7 +239,10 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
 
     def test_render_unmixr_chapter_audio_continuous_single_pass_ignores_cinematic_split_cap(self) -> None:
         with self._base_context(chapter_count=3) as (job_dir, chapters, metadata):
-            combined_text = " ".join((job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8") for chapter in chapters)
+            combined_text = "\n\n\n".join(
+                (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
+                for chapter in chapters
+            )
             with (
                 patch.dict(os.environ, {"EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST": "10"}),
                 self._voice_context(),
@@ -189,17 +269,15 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
         self.assertEqual(synthesize.call_count, 1)
         self.assertEqual(synthesize.call_args_list[0].kwargs["text"], combined_text)
 
-    def test_render_unmixr_chapter_audio_stays_single_pass_when_forced(self) -> None:
+    def test_render_unmixr_chapter_audio_uses_semantic_scene_passes_when_single_pass_disabled(self) -> None:
         with self._base_context(chapter_count=3) as (job_dir, chapters, metadata):
-            combined_text = " ".join((job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8") for chapter in chapters)
+            chapter_texts = [
+                (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
+                for chapter in chapters
+            ]
             with (
                 patch.dict(os.environ, {"EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS": "0"}),
                 self._voice_context(),
-                patch.object(
-                    audiobook_epub_pipeline,
-                    "_chapter_text_segments",
-                    side_effect=AssertionError("legacy cinematic chunking must remain disabled"),
-                ) as segment_split,
                 patch.object(
                     audiobook_epub_pipeline,
                     "_synthesize_unmixr_with_retries",
@@ -207,6 +285,7 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 ) as synthesize,
                 patch.object(audiobook_epub_pipeline, "_rendered_audio_quality_report", return_value={"status": "pass"}),
                 patch.object(audiobook_epub_pipeline, "_write_provider_audio_file", side_effect=self._write_audio_file),
+                patch.object(audiobook_epub_pipeline, "_merge_audio_segments_to_wav", side_effect=self._merge_master),
             ):
                 result = audiobook_epub_pipeline.render_unmixr_chapter_audio(
                     job_dir=job_dir,
@@ -215,9 +294,13 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 )
 
         self.assertEqual(result["status"], "rendered")
-        self.assertEqual(synthesize.call_count, 1)
-        self.assertEqual(synthesize.call_args_list[0].kwargs["text"], combined_text)
-        self.assertEqual(segment_split.call_count, 0)
+        self.assertEqual(synthesize.call_count, 3)
+        self.assertEqual(
+            [call.kwargs["text"] for call in synthesize.call_args_list],
+            chapter_texts,
+        )
+        self.assertEqual(result["chapters"][0]["scene_pause_count"], 0)
+        self.assertEqual(result["chapters"][0]["chapter_pause_count"], 2)
 
     def test_render_unmixr_chapter_audio_regenerates_legacy_cinematic_master(self) -> None:
         with self._base_context(chapter_count=1) as (job_dir, chapters, metadata):
@@ -260,8 +343,20 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
             signature_path.write_text("stale-signature", encoding="utf-8")
             (audio_dir / "_cinematic_master.mode").write_text(audiobook_epub_pipeline._CINEMATIC_MASTER_SINGLE_PASS_MODE, encoding="utf-8")
             combined_text = (job_dir / "chapters" / chapters[0].text_path).read_text(encoding="utf-8")
+            signature_inputs = audiobook_epub_pipeline._collect_cinematic_track_input(
+                job_dir=job_dir,
+                chapters=chapters,
+            )
+            exact_plan = audiobook_epub_pipeline._build_exact_narration_plan(
+                chapter_inputs=signature_inputs,
+                render_language=audiobook_epub_pipeline._normalize_language("en-US"),
+                max_chars=audiobook_epub_pipeline._audiobook_cinematic_max_chars_per_request(),
+            )
             expected_signature = audiobook_epub_pipeline._cinematic_track_signature(
-                chapter_inputs=audiobook_epub_pipeline._collect_cinematic_track_input(job_dir=job_dir, chapters=chapters),
+                chapter_inputs=signature_inputs,
+                narrator_voice_id="cinematic-voice-id",
+                render_language="en-US",
+                planner_plan_sha256=str(exact_plan["plan_sha256"]),
             )
 
             with (
@@ -290,14 +385,10 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, {"EA_AUDIOBOOK_CINEMATIC_NARRATION": "0"}),
                 self._voice_context(),
-                patch.object(
-                    audiobook_epub_pipeline,
-                    "_chapter_text_segment_rows",
-                    return_value=[{"text": "segment-a", "paragraph_break_after": False}],
-                ) as segment_rows,
                 patch.object(audiobook_epub_pipeline, "_synthesize_unmixr_with_retries", return_value=(b"audio-blob", "audio/wav", [])),
                 patch.object(audiobook_epub_pipeline, "_rendered_audio_quality_report", return_value={"status": "pass"}),
                 patch.object(audiobook_epub_pipeline, "_write_provider_audio_file", side_effect=self._write_audio_file),
+                patch.object(audiobook_epub_pipeline, "_merge_audio_segments_to_wav", side_effect=self._merge_master),
             ):
                 result = audiobook_epub_pipeline.render_unmixr_chapter_audio(
                     job_dir=job_dir,
@@ -306,7 +397,8 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 )
 
         self.assertEqual(result["status"], "rendered")
-        self.assertEqual(segment_rows.call_count, 1)
+        self.assertGreater(result["chapters"][0]["segment_count"], 1)
+        self.assertEqual(result["narration_plan"]["contract_name"], "ea.audiobook_narration_plan.v2")
 
     def test_render_unmixr_chapter_audio_falls_back_to_segmented_cinematic_pass_when_provider_input_is_too_long(self) -> None:
         with self._base_context() as (job_dir, chapters, metadata):
@@ -336,7 +428,9 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
         self.assertGreater(synthesize_mock.call_count, 1)
         self.assertEqual(synthesize_mock.call_args_list[0].kwargs["text"], source_text)
         self.assertTrue(all(len(text) < len(source_text) for text in segment_calls))
-        self.assertEqual(result["chapters"][0]["segment_count"], len(segment_calls))
+        self.assertGreater(result["chapters"][0]["segment_count"], len(segment_calls))
+        self.assertEqual(result["chapters"][0]["regenerated_passage_count"], len(segment_calls))
+        self.assertGreater(result["chapters"][0]["reused_passage_count"], 0)
 
     def test_render_unmixr_chapter_audio_blocks_when_single_pass_fails_in_cinematic_mode(self) -> None:
         with self._base_context() as (job_dir, chapters, metadata):
@@ -361,7 +455,7 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 )
 
         self.assertEqual(result["status"], "blocked")
-        self.assertEqual(result["reason"], "provider internal failure")
+        self.assertEqual(result["reason"], "unmixr_synthesize_failed")
         self.assertEqual(synthesize_mock.call_count, 1)
 
     def test_render_unmixr_chapter_audio_blocks_for_selected_voice_author_gender_mismatch(self) -> None:
@@ -408,6 +502,7 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
 
     def test_merge_m4b_if_ready_rebuilds_continuous_cinematic_track(self) -> None:
         with self._base_context(chapter_count=4) as (job_dir, chapters, metadata):
+            self._write_job_manifest(job_dir=job_dir, chapters=chapters, metadata=metadata)
             audio_dir = job_dir / "audio"
             audio_dir.mkdir(parents=True, exist_ok=True)
             cinematic_track = audio_dir / "_cinematic_master.wav"
@@ -417,8 +512,10 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (audio_dir / "_cinematic_master.signature").write_text(
-                audiobook_epub_pipeline._cinematic_track_signature(
-                    chapter_inputs=audiobook_epub_pipeline._collect_cinematic_track_input(job_dir=job_dir, chapters=chapters),
+                self._expected_cinematic_signature(
+                    job_dir=job_dir,
+                    chapters=chapters,
+                    metadata=metadata,
                 ),
                 encoding="utf-8",
             )
@@ -436,6 +533,7 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
             }
 
             with (
+                self._voice_context(),
                 patch.object(
                     audiobook_epub_pipeline,
                     "_merge_audio_segments_to_wav",
@@ -495,7 +593,8 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
         self.assertEqual(merge_m4b.call_count, 0)
 
     def test_discover_or_build_cinematic_master_audio(self) -> None:
-        with self._base_context(chapter_count=2) as (job_dir, chapters, _metadata):
+        with self._base_context(chapter_count=2) as (job_dir, chapters, metadata):
+            self._write_job_manifest(job_dir=job_dir, chapters=chapters, metadata=metadata)
             audio_dir = job_dir / "audio"
             audio_dir.mkdir(parents=True, exist_ok=True)
             cinematic_master = audio_dir / "_cinematic_master.wav"
@@ -505,19 +604,113 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (audio_dir / "_cinematic_master.signature").write_text(
-                audiobook_epub_pipeline._cinematic_track_signature(
-                    chapter_inputs=audiobook_epub_pipeline._collect_cinematic_track_input(job_dir=job_dir, chapters=chapters),
+                self._expected_cinematic_signature(
+                    job_dir=job_dir,
+                    chapters=chapters,
+                    metadata=metadata,
                 ),
                 encoding="utf-8",
             )
 
-            cinematic_master_discovered = audiobook_epub_pipeline._discover_or_build_cinematic_master_audio(
-                job_dir=job_dir,
-                chapters=chapters,
-            )
+            with self._voice_context():
+                cinematic_master_discovered = audiobook_epub_pipeline._discover_or_build_cinematic_master_audio(
+                    job_dir=job_dir,
+                    chapters=chapters,
+                )
 
             self.assertEqual(cinematic_master_discovered, cinematic_master)
             self.assertEqual(cinematic_master_discovered is not None and cinematic_master_discovered.is_file(), True)
+
+    def test_dialogue_cinematic_master_discovery_keeps_plan_and_cast_signature(self) -> None:
+        with self._base_context(chapter_count=1) as (job_dir, chapters, metadata):
+            dialogue_text = 'Anna said, “Come now.” The corridor stayed quiet.'
+            (job_dir / "chapters" / chapters[0].text_path).write_text(
+                dialogue_text,
+                encoding="utf-8",
+            )
+            self._write_job_manifest(job_dir=job_dir, chapters=chapters, metadata=metadata)
+            voice_catalog = json.dumps(
+                [
+                    {
+                        "voice_id": "cinematic-voice-id",
+                        "label": "Cinematic Prime",
+                        "language": "en-US",
+                        "tags": ["audiobook", "narration", "warm"],
+                        "default": True,
+                    },
+                    {
+                        "voice_id": "anna-voice-id",
+                        "label": "Anna Actor",
+                        "language": "en-US",
+                        "tags": ["audiobook", "dialogue", "female", "warm"],
+                    },
+                ]
+            )
+            merged_result = {
+                "status": "m4b_ready",
+                "provider": "ffmpeg",
+                "output_file": str(job_dir / "output" / "book.m4b"),
+                "command": ["ffmpeg"],
+                "chapter_count": 1,
+            }
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {"EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON": voice_catalog},
+                ),
+                self._voice_context(),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_synthesize_unmixr_with_retries",
+                    return_value=(b"audio-blob", "audio/wav", []),
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_rendered_audio_quality_report",
+                    return_value={"status": "pass"},
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_write_provider_audio_file",
+                    side_effect=self._write_audio_file,
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_merge_audio_segments_to_wav",
+                    side_effect=self._merge_master,
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_merge_m4b_with_ffmpeg",
+                    return_value=merged_result,
+                ) as merge_m4b,
+            ):
+                rendered = audiobook_epub_pipeline.render_unmixr_chapter_audio(
+                    job_dir=job_dir,
+                    chapters=chapters,
+                    metadata=metadata,
+                )
+                discovered = audiobook_epub_pipeline._discover_or_build_cinematic_master_audio(
+                    job_dir=job_dir,
+                    chapters=chapters,
+                )
+                merged = audiobook_epub_pipeline._merge_m4b_if_ready(
+                    job_dir=job_dir,
+                    metadata=metadata,
+                    chapters=chapters,
+                    cinematic_track_path=discovered,
+                )
+
+            self.assertEqual(rendered["status"], "rendered")
+            self.assertEqual(
+                (job_dir / "audio" / "_cinematic_master.mode").read_text(encoding="utf-8"),
+                audiobook_epub_pipeline._CINEMATIC_MASTER_SEMANTIC_PASS_MODE,
+            )
+            self.assertTrue(str(rendered["speaker_cast"].get("cast_map_sha256") or ""))
+            self.assertEqual(discovered, Path(rendered["cinematic_master_audio"]))
+            self.assertEqual(merged["status"], "m4b_ready")
+            self.assertEqual(merge_m4b.call_args.kwargs["cinematic_track_path"], discovered)
 
     def test_discover_or_build_cinematic_master_audio_refuses_legacy_merge(self) -> None:
         with self._base_context(chapter_count=2) as (job_dir, chapters, _metadata):
@@ -695,6 +888,1053 @@ def test_preserve_ready_audiobookshelf_access_rejects_share_without_match_kind()
     )
 
     assert result["public_share"]["status"] == "waiting_for_audiobookshelf_scan"
+
+
+def _speaker_row(
+    pipeline,
+    label: str,
+    *,
+    traits: dict[str, object] | None = None,
+    chapter_index: int = 1,
+) -> dict[str, object]:
+    return {
+        "text": f"Dialogue spoken by {label}.",
+        "speaker_role": "dialogue",
+        "speaker_id": pipeline._speaker_id_from_label(label),
+        "speaker_label": label,
+        "attribution_provenance": "exact_span_planner",
+        "attribution_confidence": 0.98,
+        "attribution_explicit": True,
+        "traits": traits or {},
+        "source_chapter_index": chapter_index,
+    }
+
+
+def test_speaker_cast_uses_explicit_traits_as_ranking_hints_and_is_stable(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-private-id",
+                    "label": "Narrator",
+                    "language": "en-US",
+                    "tags": ["neutral", "narration"],
+                    "default": True,
+                },
+                {
+                    "voice_id": "elder-private-id",
+                    "label": "Elder Storyteller",
+                    "language": "en-US",
+                    "tags": ["female", "senior", "east_asian", "warm"],
+                },
+                {
+                    "voice_id": "young-private-id",
+                    "label": "Young Character",
+                    "language": "en-US",
+                    "tags": ["male", "young_adult", "energetic"],
+                },
+            ]
+        ),
+    )
+    job_dir = tmp_path / "stable-cast"
+    job_dir.mkdir()
+    (job_dir / "job.json").write_text(
+        json.dumps({"job_id": "stable-cast", "metadata": {"source_sha256": "book-seed"}}),
+        encoding="utf-8",
+    )
+    amala_traits = {
+        "gender_presentation": {
+            "value": "female",
+            "provenance": "source_character_sheet",
+            "confidence": 1.0,
+        },
+        "approximate_age": {
+            "value": 74,
+            "provenance": "source_character_sheet",
+            "confidence": 0.95,
+        },
+        "ethnicity": {
+            "value": "east_asian",
+            "provenance": "author_approved_character_sheet",
+            "confidence": 1.0,
+        },
+    }
+    ben_traits = {
+        "gender_presentation": {
+            "value": "male",
+            "provenance": "source_character_sheet",
+            "confidence": 1.0,
+        },
+        "approximate_age": {
+            "value": 25,
+            "provenance": "source_character_sheet",
+            "confidence": 0.9,
+        },
+    }
+    rows = (
+        _speaker_row(pipeline, "Ben", traits=ben_traits, chapter_index=1),
+        _speaker_row(pipeline, "Amala", traits=amala_traits, chapter_index=1),
+        _speaker_row(pipeline, "Amala", traits=amala_traits, chapter_index=8),
+    )
+
+    first = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=rows,
+        narrator_voice_id="narrator-private-id",
+        render_language="en-US",
+    )
+    second = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=tuple(reversed(rows)),
+        narrator_voice_id="narrator-private-id",
+        render_language="en-US",
+    )
+
+    amala_id = pipeline._speaker_id_from_label("Amala")
+    ben_id = pipeline._speaker_id_from_label("Ben")
+    assert first["status"] == "ready"
+    assert first["private"][amala_id]["voice_id"] == "elder-private-id"
+    assert first["private"][ben_id]["voice_id"] == "young-private-id"
+    assert first["cast_map_sha256"] == second["cast_map_sha256"]
+    assert first["public"]["narrator_voice_excluded"] is True
+    assert first["public"]["traits_are_ranking_hints_only"] is True
+    public_json = json.dumps(first["public"], sort_keys=True)
+    assert "narrator-private-id" not in public_json
+    assert "elder-private-id" not in public_json
+    assert "young-private-id" not in public_json
+    assert "east_asian" not in public_json
+
+
+def test_speaker_cast_approved_private_choice_wins_without_public_voice_id(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {"voice_id": "narrator-id", "label": "Narrator", "language": "de", "tags": ["narration"]},
+                {"voice_id": "auto-female-id", "label": "Auto", "language": "de", "tags": ["female", "adult"]},
+                {"voice_id": "approved-id", "label": "Director choice", "language": "de", "tags": ["male", "senior"]},
+            ]
+        ),
+    )
+    job_dir = tmp_path / "approved-cast"
+    job_dir.mkdir()
+    (job_dir / "job.json").write_text(
+        json.dumps(
+            {
+                "speaker_profiles": {
+                    "Maria": {
+                        "gender_presentation": "female",
+                        "approximate_age": "adult",
+                        "voice_selection": {
+                            "status": "approved",
+                            "approved_by_user": True,
+                            "selected_callback_token": "maria-approved-token",
+                            "voice_id_sha256": audiobook_epub_pipeline._sha256_bytes(
+                                b"approved-id"
+                            ),
+                            "label": "Director choice",
+                        },
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline._write_private_json(
+        job_dir / "voice_audition" / "private.json",
+        {
+            "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
+            "candidates": {
+                "maria-approved-token": {
+                    "voice_id": "approved-id",
+                    "voice_id_sha256": pipeline._sha256_bytes(b"approved-id"),
+                    "public": {"label": "Director choice"},
+                }
+            },
+        },
+        private_parent=True,
+    )
+
+    result = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(_speaker_row(pipeline, "Maria"),),
+        narrator_voice_id="narrator-id",
+        render_language="de",
+    )
+
+    speaker_id = pipeline._speaker_id_from_label("Maria")
+    assert result["status"] == "ready"
+    assert result["private"][speaker_id]["voice_id"] == "approved-id"
+    assert result["private"][speaker_id]["selection_source"] == "approved_private_speaker_selection"
+    rendered_public = json.dumps(result["public"], sort_keys=True)
+    assert "approved-id" not in rendered_public
+    assert "approved-id" not in (job_dir / "job.json").read_text(encoding="utf-8")
+    assert result["public"]["cast"][0]["voice_id_sha256"] == pipeline._sha256_bytes(b"approved-id")
+
+
+def test_write_job_strips_raw_speaker_voice_ids_and_keeps_private_token(
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    payload = {
+        "job_id": "speaker-override-sanitizer",
+        "provider": {
+            "speaker_voice_selections": [
+                {
+                    "speaker_label": "Maria",
+                    "voice_selection": {
+                        "status": "approved",
+                        "selected_callback_token": "private-token-ref",
+                        "voice_id": "raw-private-voice-id",
+                        "voice_id_sha256": pipeline._sha256_bytes(
+                            b"raw-private-voice-id"
+                        ),
+                    },
+                }
+            ]
+        },
+    }
+
+    pipeline._write_job(tmp_path, payload)
+
+    serialized = (tmp_path / "job.json").read_text(encoding="utf-8")
+    stored = json.loads(serialized)
+    selection_row = stored["provider"]["speaker_voice_selections"][0]
+    selection = selection_row["voice_selection"]
+    assert "raw-private-voice-id" not in serialized
+    assert selection["selected_callback_token"] == "private-token-ref"
+    assert selection["voice_id_sha256"] == pipeline._sha256_bytes(
+        b"raw-private-voice-id"
+    )
+    assert selection_row["raw_voice_id_ignored"] is True
+    assert (tmp_path / "job.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_safe_v2_cast_and_narration_receipts_keep_evidence_without_raw_ids() -> None:
+    pipeline = audiobook_epub_pipeline
+    cast_hash = "a" * 64
+    voice_hash = "b" * 64
+    label_hash = "c" * 64
+    raw_voice_id = "raw-private-dialogue-voice"
+    trait_value = "private-sensitive-trait-value"
+    cast = {
+        "status": "ready",
+        "speaker_count": 1,
+        "resolved_speaker_count": 1,
+        "distinct_dialogue_voice_count": 1,
+        "narrator_voice_excluded": True,
+        "cast_map_sha256": cast_hash,
+        "traits_are_ranking_hints_only": True,
+        "identity_or_demographics_claimed": False,
+        "trait_hints_used": True,
+        "automatic_voice_cap": 8,
+        "automatic_distinct_voice_count": 1,
+        "cast": [
+            {
+                "speaker_id": "speaker_safe",
+                "speaker_label_sha256": label_hash,
+                "voice_id_sha256": voice_hash,
+                "voice_id": raw_voice_id,
+                "matched_trait_kinds": ["approximate_age", "ethnicity"],
+                "traits": {"ethnicity": trait_value},
+                "raw_voice_id_exposed": False,
+                "identity_asserted": False,
+            }
+        ],
+    }
+    plan = {
+        "contract_name": pipeline.NARRATION_PLAN_CONTRACT_NAME,
+        "status": "ready",
+        "span_count": 7,
+        "dialogue_span_count": 2,
+        "attributed_dialogue_span_count": 1,
+        "uncertain_dialogue_span_count": 1,
+        "speaker_count": 1,
+        "boundary_policy": pipeline.BOUNDARY_POLICY_NAME,
+        "boundary_counts": {"speaker": 2, "scene": 1},
+        "total_inserted_pause_seconds": 1.72,
+        "speaker_cast": cast,
+    }
+
+    safe_cast = pipeline._safe_receipt_speaker_cast(cast)
+    safe_plan = pipeline._safe_receipt_narration_plan(plan)
+    serialized = json.dumps({"cast": safe_cast, "plan": safe_plan}, sort_keys=True)
+
+    assert safe_cast["cast_map_sha256"] == cast_hash
+    assert safe_cast["cast"][0]["voice_id_sha256"] == voice_hash
+    assert safe_plan["attributed_dialogue_span_count"] == 1
+    assert safe_plan["boundary_counts"] == {"scene": 1, "speaker": 2}
+    assert raw_voice_id not in serialized
+    assert trait_value not in serialized
+
+
+def test_continue_job_lock_timeout_returns_retryable_state_without_overwrite(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_JOB_LOCK_TIMEOUT_SECONDS", "0.1")
+    original = {
+        "job_id": "locked-job",
+        "status": "waiting_provider_throttle",
+        "next_action": "resume_after_unmixr_throttle",
+    }
+    pipeline._write_job(tmp_path, original)
+    before = (tmp_path / "job.json").read_bytes()
+
+    with pipeline._exclusive_audiobook_job_lock(tmp_path):
+        result = pipeline.continue_job(tmp_path)
+
+    assert result["status"] == "render_in_progress"
+    assert result["next_action"] == "retry_after_active_audiobook_job_transaction"
+    assert result["render_result"] == {
+        "status": "render_in_progress",
+        "reason": "audiobook_job_lock_timeout",
+        "retryable": True,
+    }
+    assert (tmp_path / "job.json").read_bytes() == before
+
+
+def test_speaker_cast_unknown_uses_neutral_distinct_voice(monkeypatch, tmp_path: Path) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {"voice_id": "narrator-id", "label": "Narrator", "language": "en", "tags": ["neutral"]},
+                {"voice_id": "neutral-dialogue-id", "label": "Neutral dialogue", "language": "en", "tags": ["neutral", "dialogue"]},
+            ]
+        ),
+    )
+    job_dir = tmp_path / "unknown-cast"
+    job_dir.mkdir()
+
+    result = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(
+            {
+                "text": "Unattributed dialogue.",
+                "speaker_role": "dialogue",
+                "speaker_id": "speaker_unknown",
+                "speaker_label": "",
+                "attribution_confidence": 0.0,
+                "attribution_provenance": "exact_span_planner",
+                "traits": {},
+            },
+        ),
+        narrator_voice_id="narrator-id",
+        render_language="en",
+    )
+
+    assert result["status"] == "ready"
+    assert result["private"]["speaker_unknown"]["voice_id"] == "neutral-dialogue-id"
+    assert result["public"]["cast"][0]["unknown_neutral_fallback"] is True
+    assert result["public"]["narrator_voice_excluded"] is True
+
+
+def test_speaker_cast_snapshot_survives_catalog_change_on_resume(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    job_dir = tmp_path / "cast-resume"
+    job_dir.mkdir()
+    speaker_id = pipeline._speaker_id_from_label("Anna")
+    plan = {
+        "contract_name": pipeline.NARRATION_PLAN_CONTRACT_NAME,
+        "plan_sha256": "a" * 64,
+        "source_aggregate_sha256": "b" * 64,
+        "passages": [
+            {
+                "speaker_role": "dialogue",
+                "speaker_id": speaker_id,
+                "speaker_label": "Anna",
+                "text": "Hello.",
+                "traits": {},
+                "attribution_provenance": "explicit_post_attribution",
+                "attribution_confidence": 0.98,
+            }
+        ],
+        "speakers": [
+            {
+                "speaker_role": "dialogue",
+                "speaker_id": speaker_id,
+                "speaker_label": "Anna",
+                "traits": {},
+                "attribution_provenance": "explicit_post_attribution",
+                "attribution_confidence": 0.98,
+            }
+        ],
+    }
+
+    def set_catalog(
+        dialogue_voice_id: str, *, narrator_voice_id: str = "narrator-id"
+    ) -> None:
+        monkeypatch.setenv(
+            "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+            json.dumps(
+                [
+                    {
+                        "voice_id": narrator_voice_id,
+                        "label": "Narrator",
+                        "language": "en-US",
+                        "tags": ["narration"],
+                    },
+                    {
+                        "voice_id": dialogue_voice_id,
+                        "label": f"Warm {dialogue_voice_id} profile",
+                        "language": "en-US",
+                        "tags": ["dialogue", "neutral"],
+                    },
+                ]
+            ),
+        )
+        pipeline._VOICE_DISCOVERY_CACHE.clear()
+
+    set_catalog("actor-a")
+    first = pipeline._resolve_speaker_cast_for_narration_plan(
+        job_dir=job_dir,
+        narration_plan=plan,
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+    set_catalog("actor-b")
+    resumed = pipeline._resolve_speaker_cast_for_narration_plan(
+        job_dir=job_dir,
+        narration_plan=plan,
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+
+    snapshot = pipeline._speaker_cast_snapshot_path(
+        job_dir,
+        plan,
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+    assert first["private"][speaker_id]["voice_id"] == "actor-a"
+    assert resumed["private"][speaker_id]["voice_id"] == "actor-a"
+    assert resumed["public"]["reused_private_snapshot"] is True
+    assert first["cast_map_sha256"] == resumed["cast_map_sha256"]
+    assert "actor-a" not in json.dumps(resumed["public"], sort_keys=True)
+    assert "actor-a" not in json.dumps(
+        pipeline._safe_receipt_speaker_cast(resumed["public"]), sort_keys=True
+    )
+    assert snapshot.stat().st_mode & 0o777 == 0o600
+    assert snapshot.parent.stat().st_mode & 0o777 == 0o700
+
+    set_catalog("actor-b", narrator_voice_id="narrator-new-id")
+    reselection = pipeline._resolve_speaker_cast_for_narration_plan(
+        job_dir=job_dir,
+        narration_plan=plan,
+        narrator_voice_id="narrator-new-id",
+        render_language="en-US",
+    )
+    assert reselection["status"] == "ready"
+    assert reselection["private"][speaker_id]["voice_id"] == "actor-b"
+    assert reselection["public"]["reused_private_snapshot"] is False
+
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": "cast-resume",
+            "speaker_profiles": {
+                "Anna": {
+                    "voice_selection": {
+                        "status": "approved",
+                        "approved_by_user": True,
+                        "selected_callback_token": "anna-approved-token",
+                    }
+                }
+            },
+        },
+    )
+    pipeline._write_private_json(
+        job_dir / "voice_audition" / "private.json",
+        {
+            "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
+            "candidates": {
+                "anna-approved-token": {
+                    "voice_id": "anna-approved-id",
+                    "voice_id_sha256": pipeline._sha256_bytes(b"anna-approved-id"),
+                    "public": {
+                        "label": "Approved Anna",
+                        "language": "en-US",
+                    },
+                }
+            },
+        },
+        private_parent=True,
+    )
+    overridden = pipeline._resolve_speaker_cast_for_narration_plan(
+        job_dir=job_dir,
+        narration_plan=plan,
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+    assert overridden["status"] == "ready"
+    assert overridden["private"][speaker_id]["voice_id"] == "anna-approved-id"
+    assert overridden["public"]["reused_private_snapshot"] is False
+    override_snapshot = pipeline._speaker_cast_snapshot_path(
+        job_dir,
+        plan,
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+    assert override_snapshot != snapshot
+
+    corrupted = json.loads(override_snapshot.read_text(encoding="utf-8"))
+    corrupted["entries"][speaker_id]["voice_id_sha256"] = "0" * 64
+    override_snapshot.write_text(json.dumps(corrupted), encoding="utf-8")
+    override_snapshot.chmod(0o600)
+    monkeypatch.setattr(
+        pipeline,
+        "load_unmixr_voice_presets",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("invalid snapshot must fail before catalog discovery")
+        ),
+    )
+    invalid = pipeline._resolve_speaker_cast_for_narration_plan(
+        job_dir=job_dir,
+        narration_plan=plan,
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+    assert invalid["status"] == "blocked"
+    assert invalid["reason"] == "speaker_cast_snapshot_invalid"
+
+
+def test_automatic_speaker_cast_cap_uses_deterministic_neutral_sharing(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv("EA_AUDIOBOOK_MAX_AUTOMATIC_SPEAKER_VOICES", "2")
+    presets = [
+        {
+            "voice_id": "narrator-id",
+            "label": "Narrator",
+            "language": "en-US",
+            "tags": ["narration"],
+        },
+        {
+            "voice_id": "neutral-id",
+            "label": "Neutral",
+            "language": "en-US",
+            "tags": ["dialogue", "neutral"],
+        },
+    ]
+    presets.extend(
+        {
+            "voice_id": f"special-{index}",
+            "label": f"Special {index}",
+            "language": "en-US",
+            "tags": ["dialogue", f"role_{index}"],
+        }
+        for index in range(1, 6)
+    )
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON", json.dumps(presets))
+    job_dir = tmp_path / "bounded-cast"
+    job_dir.mkdir()
+    rows = tuple(
+        _speaker_row(
+            pipeline,
+            f"Speaker {index}",
+            traits={
+                "role": {
+                    "value": str(index),
+                    "provenance": "approved_casting_notes",
+                    "confidence": 1.0,
+                }
+            },
+        )
+        for index in range(1, 6)
+    )
+
+    first = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=rows,
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+    second = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=tuple(reversed(rows)),
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+
+    automatic_ids = {
+        str(entry["voice_id"])
+        for entry in first["private"].values()
+        if str(entry.get("selection_source") or "").startswith("deterministic_")
+    }
+    assert first["status"] == "ready"
+    assert first["cast_map_sha256"] == second["cast_map_sha256"]
+    assert len(automatic_ids) <= 2
+    assert first["public"]["automatic_voice_cap"] == 2
+    assert first["public"]["automatic_sharing_used"] is True
+    assert first["public"]["automatic_shared_speaker_count"] >= 3
+
+
+def test_speaker_cast_one_voice_catalog_fails_honestly(monkeypatch, tmp_path: Path) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {"voice_id": "only-private-id", "label": "Only voice", "language": "en", "tags": ["neutral"]},
+            ]
+        ),
+    )
+    job_dir = tmp_path / "one-voice-cast"
+    job_dir.mkdir()
+
+    result = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(_speaker_row(pipeline, "Maria"),),
+        narrator_voice_id="only-private-id",
+        render_language="en",
+    )
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "speaker_voice_catalog_requires_distinct_language_compatible_voice"
+    public_json = json.dumps(result["public"], sort_keys=True)
+    assert "only-private-id" not in public_json
+    assert result["public"]["raw_voice_ids_exposed"] is False
+
+
+def test_unknown_approved_dialogue_voice_blocks_when_language_is_unverified(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-id",
+                    "label": "Narrator",
+                    "language": "de",
+                    "tags": ["narration"],
+                },
+                {
+                    "voice_id": "known-dialogue-id",
+                    "label": "Known dialogue",
+                    "language": "de",
+                    "tags": ["dialogue"],
+                },
+            ]
+        ),
+    )
+    job_dir = tmp_path / "unverified-approved-language"
+    job_dir.mkdir()
+
+    result = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(_speaker_row(pipeline, "Maria"),),
+        narrator_voice_id="narrator-id",
+        render_language="de",
+        default_dialogue_selection={
+            "voice_id": "unknown-private-id",
+            "source": "explicit_operator_environment",
+        },
+    )
+
+    assert result["status"] == "blocked"
+    assert (
+        result["reason"]
+        == "speaker_approved_voice_language_incompatible_or_unverified"
+    )
+    assert "unknown-private-id" not in json.dumps(result["public"], sort_keys=True)
+
+
+def test_stored_speaker_demographics_require_explicit_approval(tmp_path: Path) -> None:
+    pipeline = audiobook_epub_pipeline
+    job_dir = tmp_path / "profile-approval"
+    job_dir.mkdir()
+    unapproved = {
+        "job_id": "profile-approval",
+        "speaker_profiles": {
+            "Maria": {
+                "traits": {
+                    "gender_presentation": "female",
+                    "approximate_age": "senior",
+                    "ethnicity": "private-background",
+                }
+            }
+        },
+    }
+    pipeline._write_job(job_dir, unapproved)
+
+    rows = pipeline._speaker_profile_rows(job_dir)
+
+    assert len(rows) == 1
+    assert rows[0]["traits"] == {}
+
+    approved = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    approved["speaker_profiles"]["Maria"]["traits_approved_by_user"] = True
+    pipeline._write_job(job_dir, approved)
+    approved_rows = pipeline._speaker_profile_rows(job_dir)
+    assert set(approved_rows[0]["traits"]) == {
+        "gender_presentation",
+        "approximate_age",
+        "ethnicity",
+    }
+
+
+@pytest.mark.parametrize(
+    "error_class",
+    [
+        "authentication_failed",
+        "access_denied",
+        "invalid_request",
+        "balance_exhausted",
+        "input_too_long",
+    ],
+)
+def test_classified_provider_failures_are_not_retried(error_class: str) -> None:
+    exc = HTTPException(
+        status_code=502,
+        detail=f"unmixr_synthesize_{error_class}",
+    )
+
+    assert audiobook_epub_pipeline._unmixr_retryable_error(exc) is False
+
+
+def test_unexpected_provider_exception_never_publishes_source_text() -> None:
+    private_passage = "PRIVATE BOOK PASSAGE token-voice-secret"
+    exc = RuntimeError(f"adapter failed text={private_passage}")
+
+    reason = audiobook_epub_pipeline._public_unmixr_error_reason(exc)
+
+    assert reason == "unmixr_synthesize_failed"
+    assert private_passage not in reason
+    assert "token-voice-secret" not in reason
+
+
+def test_provider_edge_trim_preserves_soft_onset_and_controlled_padding(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_SEGMENT_EDGE_TRIM_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_SEGMENT_EDGE_TRIM_AUDIBLE_THRESHOLD", "0.0015")
+    monkeypatch.setenv("EA_AUDIOBOOK_SEGMENT_EDGE_TRIM_MIN_SILENCE_SECONDS", "0.18")
+    monkeypatch.setenv("EA_AUDIOBOOK_SEGMENT_EDGE_TRIM_PRESERVE_HEAD_SECONDS", "0.08")
+    monkeypatch.setenv("EA_AUDIOBOOK_SEGMENT_EDGE_TRIM_PRESERVE_TAIL_SECONDS", "0.12")
+    sample_rate = 1000
+    leading = [0] * 300
+    soft_onset = [80] * 20
+    speech = [1200] * 400
+    trailing = [0] * 300
+    audio_path = tmp_path / "provider.wav"
+    with wave.open(str(audio_path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(
+            b"".join(struct.pack("<h", value) for value in leading + soft_onset + speech + trailing)
+        )
+
+    original_contract = pipeline._audiobook_segment_edge_trim_contract()
+    pipeline._trim_provider_wav_edge_silence(audio_path)
+
+    with wave.open(str(audio_path), "rb") as wav_file:
+        output_frames = wav_file.getnframes()
+        output_payload = wav_file.readframes(output_frames)
+    stats = pipeline._pcm_window_stats(
+        payload=output_payload,
+        sample_width=2,
+        channels=1,
+        audible_threshold=0.0015,
+    )
+    assert 610 <= output_frames <= 630
+    assert 75 <= int(stats["first_audible_frame"]) <= 85
+    monkeypatch.setenv("EA_AUDIOBOOK_SEGMENT_EDGE_TRIM_PRESERVE_HEAD_SECONDS", "0.12")
+    assert pipeline._audiobook_segment_edge_trim_contract() != original_contract
+
+
+def test_provider_edge_trim_handles_speech_at_frame_zero(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_SEGMENT_EDGE_TRIM_ENABLED", "1")
+    sample_rate = 1000
+    audio_path = tmp_path / "frame-zero.wav"
+    with wave.open(str(audio_path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(
+            b"".join(struct.pack("<h", value) for value in ([1000] * 400 + [0] * 400))
+        )
+
+    pipeline._trim_provider_wav_edge_silence(audio_path)
+
+    with wave.open(str(audio_path), "rb") as wav_file:
+        assert 515 <= wav_file.getnframes() <= 525
+
+
+def test_external_tts_resume_consent_is_process_serialized_and_forced_off(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    consented = tmp_path / "consented"
+    unconsented = tmp_path / "unconsented"
+    pipeline._write_job(
+        consented,
+        {
+            "job_id": "consented",
+            "provider": {
+                "preferred": "unmixr_ai",
+                "raw_book_text_leaves_ea": True,
+            },
+        },
+    )
+    pipeline._write_job(
+        unconsented,
+        {
+            "job_id": "unconsented",
+            "provider": {
+                "preferred": "unmixr_ai",
+                "raw_book_text_leaves_ea": False,
+            },
+        },
+    )
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    observations: dict[str, tuple[str, str]] = {}
+
+    def fake_continue(job_dir: Path) -> dict[str, object]:
+        observations[job_dir.name] = (
+            str(os.environ.get("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED")),
+            str(os.environ.get("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER")),
+        )
+        if job_dir.name == "consented":
+            first_entered.set()
+            assert release_first.wait(timeout=3)
+        return {"job_id": job_dir.name, "status": "observed"}
+
+    monkeypatch.setattr(pipeline, "continue_job", fake_continue)
+    first = threading.Thread(
+        target=pipeline._resume_due_job_with_external_tts_consent,
+        args=(consented,),
+    )
+    second = threading.Thread(
+        target=pipeline._resume_due_job_with_external_tts_consent,
+        args=(unconsented,),
+    )
+    first.start()
+    assert first_entered.wait(timeout=3)
+    second.start()
+    time.sleep(0.1)
+    assert "unconsented" not in observations
+    release_first.set()
+    first.join(timeout=3)
+    second.join(timeout=3)
+
+    assert observations == {
+        "consented": ("1", "1"),
+        "unconsented": ("0", "0"),
+    }
+    assert os.environ["EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED"] == "1"
+    assert os.environ["EA_AUDIOBOOK_UNMIXR_AUTO_RENDER"] == "1"
+
+
+def test_direct_continue_cannot_observe_another_jobs_temporary_consent(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    consented = tmp_path / "consented-resume"
+    direct = tmp_path / "direct-continue"
+    pipeline._write_job(
+        consented,
+        {
+            "job_id": "consented-resume",
+            "provider": {
+                "preferred": "unmixr_ai",
+                "raw_book_text_leaves_ea": True,
+            },
+        },
+    )
+    pipeline._write_job(direct, {"job_id": "direct-continue"})
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "0")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "0")
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    observations: dict[str, tuple[str, str]] = {}
+
+    def fake_continue_locked(job_dir: Path) -> dict[str, object]:
+        observations[job_dir.name] = (
+            str(os.environ.get("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED")),
+            str(os.environ.get("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER")),
+        )
+        if job_dir.name == "consented-resume":
+            first_entered.set()
+            assert release_first.wait(timeout=3)
+        return {"job_id": job_dir.name, "status": "observed"}
+
+    monkeypatch.setattr(pipeline, "_continue_job_locked", fake_continue_locked)
+    first = threading.Thread(
+        target=pipeline._resume_due_job_with_external_tts_consent,
+        args=(consented,),
+    )
+    second = threading.Thread(target=pipeline.continue_job, args=(direct,))
+    first.start()
+    assert first_entered.wait(timeout=3)
+    second.start()
+    time.sleep(0.1)
+    assert "direct-continue" not in observations
+    release_first.set()
+    first.join(timeout=3)
+    second.join(timeout=3)
+
+    assert observations == {
+        "consented-resume": ("1", "1"),
+        "direct-continue": ("0", "0"),
+    }
+
+
+def test_inner_timeout_is_not_misreported_as_job_lock_contention(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    pipeline._write_job(tmp_path, {"job_id": "inner-timeout"})
+
+    def raise_inner_timeout(_job_dir: Path) -> dict[str, object]:
+        raise TimeoutError("provider_operation_timeout")
+
+    monkeypatch.setattr(pipeline, "_continue_job_locked", raise_inner_timeout)
+    with pytest.raises(TimeoutError, match="provider_operation_timeout"):
+        pipeline.continue_job(tmp_path)
+
+
+def test_inner_timeout_is_not_misreported_as_render_lock_contention(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+
+    def raise_inner_timeout(**_kwargs: object) -> dict[str, object]:
+        raise TimeoutError("audio_convert_timeout")
+
+    monkeypatch.setattr(
+        pipeline,
+        "_render_unmixr_chapter_audio_locked",
+        raise_inner_timeout,
+    )
+    with pytest.raises(TimeoutError, match="audio_convert_timeout"):
+        pipeline.render_unmixr_chapter_audio(
+            job_dir=tmp_path,
+            chapters=(),
+            metadata=pipeline.EpubMetadata(
+                title="Timeout",
+                author="",
+                language="en",
+                source_filename="timeout.epub",
+                source_sha256="a" * 64,
+            ),
+        )
+
+
+def test_voice_audition_action_respects_job_transaction_lock(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_JOB_LOCK_TIMEOUT_SECONDS", "0.1")
+    pipeline._write_job(
+        tmp_path,
+        {"job_id": "audition-locked", "status": "waiting_voice_selection"},
+    )
+    private_payload = {
+        "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
+        "candidates": {
+            "callback-token": {
+                "candidate_key": "candidate-a",
+                "voice_id": "private-id",
+                "public": {"preset_key": "candidate-a"},
+            }
+        },
+    }
+    pipeline._write_private_json(
+        tmp_path / "voice_audition" / "private.json",
+        private_payload,
+        private_parent=True,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_find_voice_audition_job_by_token",
+        lambda _token: (
+            tmp_path,
+            private_payload,
+            private_payload["candidates"]["callback-token"],
+        ),
+    )
+    before_job = (tmp_path / "job.json").read_bytes()
+    before_private = (tmp_path / "voice_audition" / "private.json").read_bytes()
+
+    with pipeline._exclusive_audiobook_job_lock(tmp_path):
+        result = pipeline.apply_audiobook_voice_audition_action(
+            callback_token="callback-token",
+            action="use",
+        )
+
+    assert result["status"] == "voice_selection_in_progress"
+    assert result["voice_selection_action"]["retryable"] is True
+    assert (tmp_path / "job.json").read_bytes() == before_job
+    assert (tmp_path / "voice_audition" / "private.json").read_bytes() == before_private
+
+
+def test_automatic_cast_receipt_counts_natural_voice_reuse() -> None:
+    pipeline = audiobook_epub_pipeline
+    reused_voice = "shared-private-voice"
+    result = pipeline._speaker_cast_result_from_private_entries(
+        {
+            "speaker_a": {
+                "speaker_id": "speaker_a",
+                "voice_id": reused_voice,
+                "voice_label": "Shared voice",
+                "selection_source": "deterministic_evidence_ranked_catalog",
+            },
+            "speaker_b": {
+                "speaker_id": "speaker_b",
+                "voice_id": reused_voice,
+                "voice_label": "Shared voice",
+                "selection_source": "deterministic_evidence_ranked_catalog",
+            },
+        },
+        narrator_voice_id="narrator-private-voice",
+        reused_private_snapshot=False,
+    )
+
+    assert result["public"]["automatic_distinct_voice_count"] == 1
+    assert result["public"]["automatic_shared_speaker_count"] == 1
+    assert result["public"]["automatic_sharing_used"] is True
 
 
 if __name__ == "__main__":

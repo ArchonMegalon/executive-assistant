@@ -43,6 +43,7 @@ _UNMIXR_LANGUAGE_ENV = "UNMIXR_LANGUAGE"
 _UNMIXR_SPEAKING_RATE_ENV = "UNMIXR_SPEAKING_RATE"
 _UNMIXR_SPEAKING_PITCH_ENV = "UNMIXR_SPEAKING_PITCH"
 _UNMIXR_SPEAKING_VOLUME_ENV = "UNMIXR_SPEAKING_VOLUME"
+_UNMIXR_PRONUNCIATION_DICT_ENV = "EA_AUDIOBOOK_UNMIXR_PRONUNCIATION_DICT_JSON"
 _UNMIXR_BASE_URL = "https://unmixr.com/api/v1"
 _VOICEWAVE_LOGIN_EMAIL_ENV = "VOICEWAVE_LOGIN_EMAIL"
 _VOICEWAVE_LOGIN_PASSWORD_ENV = "VOICEWAVE_LOGIN_PASSWORD"
@@ -69,6 +70,7 @@ _UNMIXR_RETRY_AFTER_RE = re.compile(
     r"(?:available|retry|try again)[^0-9]{0,40}(\d{1,6})\s*seconds?",
     re.IGNORECASE,
 )
+_UNMIXR_PUBLIC_ERROR_OPERATIONS = frozenset({"clone", "clone_delete", "request", "tts", "voice_lookup"})
 
 
 def openvoice_base_url() -> str:
@@ -284,6 +286,9 @@ def _record_unmixr_slot_result(
     if ok:
         item.pop("cooldown_until_epoch", None)
         item.pop("cooldown_until", None)
+        item.pop("last_error", None)
+        item.pop("last_error_body_sha256", None)
+        item.pop("last_error_code", None)
         item["last_status"] = "ok"
         state["last_slot_name"] = slot_name
     else:
@@ -295,11 +300,15 @@ def _record_unmixr_slot_result(
         item["last_status"] = "error"
         if response is not None:
             item["last_status_code"] = int(getattr(response, "status_code", 0) or 0)
-            detail = _unmixr_response_error_detail(response)
-            if detail:
-                item["last_error"] = detail[:180]
+            item.pop("last_error", None)
+            item["last_error_code"] = _unmixr_response_public_error(response)
+            body_sha256 = _unmixr_response_error_sha256(response)
+            if body_sha256:
+                item["last_error_body_sha256"] = body_sha256
         elif exception is not None:
-            item["last_error"] = type(exception).__name__
+            item.pop("last_error", None)
+            item.pop("last_error_body_sha256", None)
+            item["last_error_code"] = "unmixr_upstream_unreachable"
     slots[slot_name] = item
     state["slots"] = slots
     state["updated_at"] = item["updated_at"]
@@ -335,6 +344,32 @@ def unmixr_speaking_pitch() -> str:
 
 def unmixr_speaking_volume() -> str:
     return str(os.environ.get(_UNMIXR_SPEAKING_VOLUME_ENV) or "medium").strip() or "medium"
+
+
+def unmixr_pronunciation_dict(value: object | None = None) -> dict[str, str]:
+    source = value
+    if source is None:
+        raw = str(os.environ.get(_UNMIXR_PRONUNCIATION_DICT_ENV) or "").strip()
+        if not raw:
+            return {}
+        try:
+            source = json.loads(raw)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail="unmixr_pronunciation_dict_invalid") from exc
+    if not isinstance(source, dict):
+        raise HTTPException(status_code=409, detail="unmixr_pronunciation_dict_invalid")
+    normalized: dict[str, str] = {}
+    for raw_term, raw_pronunciation in source.items():
+        term = " ".join(str(raw_term or "").split()).strip()
+        pronunciation = " ".join(str(raw_pronunciation or "").split()).strip()
+        if not term or not pronunciation:
+            raise HTTPException(status_code=409, detail="unmixr_pronunciation_dict_invalid")
+        if len(term) > 160 or len(pronunciation) > 320:
+            raise HTTPException(status_code=409, detail="unmixr_pronunciation_dict_entry_too_long")
+        normalized[term] = pronunciation
+        if len(normalized) > 256:
+            raise HTTPException(status_code=409, detail="unmixr_pronunciation_dict_too_large")
+    return normalized
 
 
 def voicewave_login_email() -> str:
@@ -485,6 +520,62 @@ def _unmixr_response_error_detail(response: requests.Response) -> str:
     return str(getattr(response, "text", "") or "").strip()
 
 
+def _unmixr_response_error_sha256(response: requests.Response) -> str:
+    detail = _unmixr_response_error_detail(response)
+    if not detail:
+        return ""
+    return hashlib.sha256(detail.encode("utf-8")).hexdigest()
+
+
+def _unmixr_response_error_class(response: requests.Response) -> str:
+    status_code = int(getattr(response, "status_code", 0) or 0)
+    detail = _unmixr_response_error_detail(response).lower()
+    if status_code == 429 or any(
+        marker in detail
+        for marker in ("rate limit", "rate-limit", "too many requests", "throttl")
+    ):
+        return "rate_limited"
+    if status_code == 402 or any(
+        marker in detail
+        for marker in (
+            "insufficient api balance",
+            "insufficient balance",
+            "not enough credit",
+            "credit balance",
+            "quota exceeded",
+            "billing required",
+            "payment required",
+        )
+    ):
+        return "balance_exhausted"
+    if status_code == 413 or any(
+        marker in detail
+        for marker in (
+            "character limit",
+            "ensure this value has at most",
+            "exceeds maximum",
+            "input too long",
+            "max text",
+            "maximum text",
+            "payload too large",
+            "request entity too large",
+            "string should have at most",
+            "text too long",
+            "too many characters",
+        )
+    ):
+        return "input_too_long"
+    if status_code == 401:
+        return "authentication_failed"
+    if status_code == 403:
+        return "access_denied"
+    if status_code in {400, 404, 409, 422}:
+        return "invalid_request"
+    if status_code in {500, 502, 503, 504}:
+        return "upstream_unavailable"
+    return "failed"
+
+
 def _unmixr_should_try_next_slot(response: requests.Response) -> bool:
     status_code = int(response.status_code or 0)
     if status_code in {401, 402, 403, 429, 500, 502, 503, 504}:
@@ -510,8 +601,15 @@ def _unmixr_should_try_next_slot(response: requests.Response) -> bool:
     )
 
 
-def _unmixr_response_public_error(response: requests.Response) -> str:
-    return _unmixr_response_error_detail(response) or "unmixr_tts_failed"
+def _unmixr_response_public_error(response: requests.Response, *, operation: str = "request") -> str:
+    normalized_operation = operation if operation in _UNMIXR_PUBLIC_ERROR_OPERATIONS else "request"
+    error_class = _unmixr_response_error_class(response)
+    public_error = f"unmixr_{normalized_operation}_{error_class}"
+    if error_class == "rate_limited":
+        retry_after = _unmixr_retry_after_seconds_from_response(response)
+        if retry_after > 0:
+            public_error = f"{public_error}:retry_after_{retry_after}_seconds"
+    return public_error
 
 
 def _unmixr_request(
@@ -821,8 +919,8 @@ def unmixr_clone_request(*, slug: str, voice_label: str, sample_paths: list[Path
         payload = {}
     status_text = str(payload.get("status") or "").strip().upper() if isinstance(payload, dict) else ""
     if response.status_code >= 400 or not response.ok or status_text == "FAILED":
-        detail = str(payload.get("detail") or payload.get("error") or payload.get("message") or "unmixr_clone_failed").strip()
-        status_code = int(payload.get("code") or response.status_code or 502) if isinstance(payload, dict) else int(response.status_code or 502)
+        detail = _unmixr_response_public_error(response, operation="clone")
+        status_code = int(response.status_code or 0)
         raise HTTPException(status_code=502, detail=f"{detail}:{status_code}")
     voice_id = str(payload.get("voice_id") or payload.get("uuid") or "").strip()
     if not voice_id:
@@ -843,7 +941,7 @@ def unmixr_voice_metadata_request(*, voice_id: str) -> dict[str, object]:
     except Exception:
         payload = {}
     if response.status_code >= 400 or not response.ok:
-        detail = str(payload.get("detail") or payload.get("error") or payload.get("message") or "unmixr_voice_lookup_failed").strip()
+        detail = _unmixr_response_public_error(response, operation="voice_lookup")
         raise HTTPException(status_code=502, detail=f"{detail}:{response.status_code}")
     if not isinstance(payload, dict):
         raise HTTPException(status_code=502, detail="unmixr_voice_lookup_invalid_response")
@@ -869,11 +967,7 @@ def unmixr_delete_clone_profile_request(*, profile_id: str) -> dict[str, object]
     )
     if response.status_code in {200, 202, 204}:
         return {"status": "deleted", "profile_id": normalized_profile_id}
-    try:
-        payload = response.json()
-    except Exception:
-        payload = {}
-    detail = str(payload.get("detail") or payload.get("error") or payload.get("message") or "unmixr_clone_delete_failed").strip()
+    detail = _unmixr_response_public_error(response, operation="clone_delete")
     raise HTTPException(status_code=502, detail=f"{detail}:{response.status_code}")
 
 
@@ -897,37 +991,46 @@ def unmixr_synthesize_request(
     speaking_rate: str | None = None,
     speaking_pitch: str | None = None,
     speaking_volume: str | None = None,
+    pronunciation_dict: dict[str, str] | None = None,
 ) -> tuple[bytes, str]:
     normalized_voice_id = str(voice_id or "").strip()
     if not normalized_voice_id:
         raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+    request_payload: dict[str, object] = {
+        "text": text,
+        "voice_id": normalized_voice_id,
+        "language": unmixr_language(lang),
+        "response_type": "url",
+        "speaking_rate": str(speaking_rate or unmixr_speaking_rate()).strip() or unmixr_speaking_rate(),
+        "speaking_pitch": str(speaking_pitch or unmixr_speaking_pitch()).strip() or unmixr_speaking_pitch(),
+        "speaking_volume": str(speaking_volume or unmixr_speaking_volume()).strip() or unmixr_speaking_volume(),
+    }
+    effective_pronunciation_dict = (
+        unmixr_pronunciation_dict(pronunciation_dict)
+        if pronunciation_dict is not None
+        else {}
+    )
+    if effective_pronunciation_dict:
+        request_payload["pronunciation_dict"] = effective_pronunciation_dict
     response = _unmixr_request(
         method="POST",
         path="/short-tts/",
-        json_payload={
-            "text": text,
-            "voice_id": normalized_voice_id,
-            "language": unmixr_language(lang),
-            "response_type": "url",
-            "speaking_rate": str(speaking_rate or unmixr_speaking_rate()).strip() or unmixr_speaking_rate(),
-            "speaking_pitch": str(speaking_pitch or unmixr_speaking_pitch()).strip() or unmixr_speaking_pitch(),
-            "speaking_volume": str(speaking_volume or unmixr_speaking_volume()).strip() or unmixr_speaking_volume(),
-        },
+        json_payload=request_payload,
     )
     try:
         payload = response.json()
     except Exception:
         payload = {}
     if response.status_code >= 400 or not response.ok:
-        detail = _unmixr_response_public_error(response)
+        detail = _unmixr_response_public_error(response, operation="tts")
         raise HTTPException(status_code=502, detail=f"{detail}:{response.status_code}")
     audio_url = str(payload.get("audio_url") or "").strip()
     if not audio_url:
-        message = str(payload.get("message") or payload.get("detail") or payload.get("error") or "").strip()
-        detail = "unmixr_tts_no_audio_url"
-        if message:
-            detail = f"{detail}:{message[:240]}"
-        raise HTTPException(status_code=502, detail=detail)
+        error_class = _unmixr_response_error_class(response)
+        if error_class in {"balance_exhausted", "input_too_long", "rate_limited"}:
+            detail = _unmixr_response_public_error(response, operation="tts")
+            raise HTTPException(status_code=502, detail=f"{detail}:{response.status_code}")
+        raise HTTPException(status_code=502, detail=f"unmixr_tts_no_audio_url:{response.status_code}")
     try:
         audio_response = requests.get(audio_url, timeout=openvoice_timeout_seconds())
     except requests.RequestException as exc:

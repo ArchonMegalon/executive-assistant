@@ -21,6 +21,7 @@ def _write_minimal_epub(
     title: str = "Test Book",
     author: str = "A. Writer",
     language: str = "en-US",
+    chapter_one_html: str = "",
 ) -> None:
     with zipfile.ZipFile(path, "w") as book:
         book.writestr("mimetype", "application/epub+zip")
@@ -56,7 +57,8 @@ def _write_minimal_epub(
         )
         book.writestr(
             "OEBPS/chapters/chapter-1.xhtml",
-            "<html><head><title>Opening</title></head><body><h1>Opening</h1><p>Hello audiobook.</p></body></html>",
+            chapter_one_html
+            or "<html><head><title>Opening</title></head><body><h1>Opening</h1><p>Hello audiobook.</p></body></html>",
         )
         book.writestr(
             "OEBPS/chapters/chapter-2.xhtml",
@@ -211,6 +213,21 @@ def _write_tone_wav(path: Path, *, seconds: float = 0.12, sample_rate: int = 160
         wav.writeframes(b"".join(struct.pack("<h", int(value * 32767)) for value in samples))
 
 
+def _distinct_voice_wav_synthesizer(tmp_path: Path):
+    audio_by_voice: dict[str, bytes] = {}
+
+    def synthesize(**kwargs):
+        voice_id = str(kwargs.get("voice_id") or "anonymous-voice")
+        if voice_id not in audio_by_voice:
+            voice_index = len(audio_by_voice) + 1
+            path = tmp_path / f"distinct-voice-{voice_index:02d}.wav"
+            _write_tone_wav(path, seconds=0.10 + (voice_index * 0.01))
+            audio_by_voice[voice_id] = path.read_bytes()
+        return audio_by_voice[voice_id], "audio/wav"
+
+    return synthesize
+
+
 def _write_tone_with_silent_tail_wav(
     path: Path,
     *,
@@ -254,6 +271,674 @@ def test_extract_epub_chapters(tmp_path: Path) -> None:
     first_text = (tmp_path / "chapters" / chapters[0].text_path).read_text(encoding="utf-8")
     assert "Hello audiobook" in first_text
     assert chapters[0].audio_filename.startswith("001 - ")
+
+
+def test_extract_epub_chapters_preserves_source_paragraphs_scenes_and_spans(tmp_path: Path) -> None:
+    from app.services.audiobook_epub_pipeline import SOURCE_DOCUMENT_CONTRACT_NAME, extract_epub_chapters
+
+    epub = tmp_path / "structured.epub"
+    _write_minimal_epub(
+        epub,
+        chapter_one_html=(
+            "<html><head><title>Opening</title></head><body>"
+            "<h1>Opening</h1><p>First paragraph.</p><p>Second paragraph.</p>"
+            "<hr/><p>New scene begins.</p></body></html>"
+        ),
+    )
+
+    _metadata, chapters = extract_epub_chapters(
+        epub_path=epub,
+        chapter_dir=tmp_path / "chapters",
+        source_filename="structured.epub",
+    )
+
+    first = chapters[0]
+    text = (tmp_path / "chapters" / first.text_path).read_text(encoding="utf-8").strip()
+    assert "Opening\n\nFirst paragraph.\n\nSecond paragraph.\n\n\nNew scene begins." in text
+    assert first.structure_path.endswith(".source.json")
+    source_document = json.loads(
+        (tmp_path / "chapters" / first.structure_path).read_text(encoding="utf-8")
+    )
+    assert source_document["contract_name"] == SOURCE_DOCUMENT_CONTRACT_NAME
+    assert source_document["source_href"] == first.source_href
+    assert source_document["extracted_char_count"] == len(text)
+    assert source_document["extracted_text_sha256"] == first.sha256
+    assert source_document["scene_count"] == 2
+    assert source_document["raw_source_text_embedded"] is False
+    for block in source_document["blocks"]:
+        source_span = text[block["char_start"] : block["char_end"]]
+        assert len(source_span) == block["char_count"]
+        assert source_span
+
+
+def test_semantic_audiobook_chunks_prefer_complete_sentences() -> None:
+    from app.services.audiobook_epub_pipeline import _semantic_text_chunks
+
+    text = (
+        "This opening sentence establishes a calm rhythm. "
+        "The second sentence keeps the thought together. "
+        "A final sentence closes the passage cleanly."
+    )
+
+    chunks = _semantic_text_chunks(text, max_chars=72)
+
+    assert len(chunks) == 3
+    assert all(chunk.endswith(".") for chunk in chunks)
+    assert " ".join(chunks) == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '"Hello there," she said.',
+        "“Hello there,” she said.",
+        "„Guten Morgen“, sagte er.",
+        "«Bonjour», dit-elle.",
+        "— Spoken with an em dash.",
+        "– Spoken with an en dash.",
+    ],
+)
+def test_explicit_dialogue_classifier_accepts_only_balanced_explicit_dialogue(text: str) -> None:
+    from app.services.audiobook_epub_pipeline import _explicit_dialogue_paragraph
+
+    assert _explicit_dialogue_paragraph(text) is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'The narrator mentions "an inline quotation" here.',
+        '"This quotation never closes.',
+        "“This curly quotation never closes.",
+        "“Malformed same-side quote “ remains uncertain.",
+        "- A hyphen bullet is not dialogue.",
+        "— — —",
+        "Plain narration.",
+    ],
+)
+def test_explicit_dialogue_classifier_falls_back_to_narrator_on_uncertainty(text: str) -> None:
+    from app.services.audiobook_epub_pipeline import _explicit_dialogue_paragraph
+
+    assert _explicit_dialogue_paragraph(text) is False
+
+
+def test_dialogue_voice_requires_explicit_environment_or_private_approval(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    private_payload = {
+        "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
+        "candidates": {
+            "approved-token": {
+                "candidate_key": "dialogue-candidate",
+                "voice_id": "private-dialogue-voice",
+                "voice_id_sha256": pipeline._sha256_bytes(b"private-dialogue-voice"),
+            }
+        },
+    }
+    pipeline._write_voice_audition_private(job_dir, private_payload)
+    job_payload = {
+        "provider": {
+            "dialogue_voice_selection": {
+                "status": "selected_by_user",
+                "approved_by_user": True,
+                "selected_callback_token": "approved-token",
+                "voice_id": "must-not-be-read-from-public-job",
+            }
+        }
+    }
+    (job_dir / "job.json").write_text(json.dumps(job_payload), encoding="utf-8")
+
+    selected = pipeline._configured_dialogue_voice_selection(job_dir)
+
+    assert selected == {
+        "voice_id": "private-dialogue-voice",
+        "source": "approved_private_dialogue_voice_selection",
+    }
+    assert (job_dir / "voice_audition" / "private.json").stat().st_mode & 0o777 == 0o600
+    job_payload["provider"]["dialogue_voice_selection"]["status"] = "pending"
+    job_payload["provider"]["dialogue_voice_selection"]["approved_by_user"] = False
+    (job_dir / "job.json").write_text(json.dumps(job_payload), encoding="utf-8")
+    assert pipeline._configured_dialogue_voice_selection(job_dir) == {}
+
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_DIALOGUE_VOICE_ID", "operator-dialogue-voice")
+    assert pipeline._configured_dialogue_voice_selection(job_dir) == {
+        "voice_id": "operator-dialogue-voice",
+        "source": "explicit_operator_environment",
+    }
+
+
+def test_render_uses_distinct_dialogue_voice_and_private_source_complete_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+    from app.services.audiobook_epub_pipeline import EpubChapter, EpubMetadata
+
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_CINEMATIC_NARRATION", "0")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_DIALOGUE_VOICE_ID", "dialogue-voice-secret")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST", "1000")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-voice-secret",
+                    "label": "Narrator",
+                    "language": "en-US",
+                    "tags": ["audiobook", "narration", "neutral"],
+                    "default": True,
+                },
+                {
+                    "voice_id": "dialogue-voice-secret",
+                    "label": "Dialogue actor",
+                    "language": "en-US",
+                    "tags": ["audiobook", "dialogue"],
+                },
+            ]
+        ),
+    )
+    chapter_dir = tmp_path / "chapters"
+    chapter_dir.mkdir()
+    text = "\n\n".join(
+        [
+            "Narration opens the scene.",
+            '"Hello there," she said.',
+            'The narrator mentions "an inline quotation" here.',
+            "— A second speaker answers.",
+            "“This uncertain quotation never closes.",
+        ]
+    )
+    text_path = chapter_dir / "001 - Dialogue.txt"
+    text_path.write_text(text, encoding="utf-8")
+    chapter = EpubChapter(
+        index=1,
+        title="Dialogue",
+        source_href="dialogue.xhtml",
+        text_path=text_path.name,
+        audio_filename="001 - Dialogue.wav",
+        char_count=len(text),
+        sha256=pipeline._sha256_bytes(text.encode("utf-8")),
+    )
+    metadata = EpubMetadata(
+        title="Dialogue Book",
+        author="A. Writer",
+        language="en-US",
+        source_filename="dialogue.epub",
+        source_sha256="source-sha",
+    )
+    tone = tmp_path / "tone.wav"
+    _write_tone_wav(tone)
+    synthesis_calls: list[dict[str, object]] = []
+
+    def fake_synthesize_request(**kwargs):
+        synthesis_calls.append(dict(kwargs))
+        return tone.read_bytes(), "audio/wav"
+
+    def fake_write_silence(path, *, seconds, sample_rate=44100):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(tone.read_bytes())
+        return path
+
+    def fake_merge_segments(*, segment_paths, target):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(Path(segment_paths[0]).read_bytes())
+        return True
+
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", fake_synthesize_request)
+    monkeypatch.setattr(pipeline, "_write_silence_wav", fake_write_silence)
+    monkeypatch.setattr(pipeline, "_merge_audio_segments_to_wav", fake_merge_segments)
+
+    result = pipeline.render_unmixr_chapter_audio(
+        job_dir=tmp_path,
+        chapters=(chapter,),
+        metadata=metadata,
+    )
+
+    assert result["status"] == "rendered"
+    assert [row["voice_id"] for row in synthesis_calls] == [
+        "narrator-voice-secret",
+        "dialogue-voice-secret",
+        "narrator-voice-secret",
+        "dialogue-voice-secret",
+        "narrator-voice-secret",
+    ]
+    assert result["dialogue_voice_selection"]["distinct_from_narrator"] is True
+    assert result["chapters"][0]["dialogue_passage_count"] == 2
+    plan_path = tmp_path / result["narration_plan"]["path"]
+    assert plan_path.stat().st_mode & 0o777 == 0o600
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    assert plan["source_coverage"] == "complete"
+    assert plan["dialogue_passage_count"] == 2
+    assert [row["speaker_role"] for row in plan["passages"]] == [
+        "narrator",
+        "dialogue",
+        "narrator",
+        "dialogue",
+        "narrator",
+    ]
+    serialized_plan = plan_path.read_text(encoding="utf-8")
+    serialized_result = json.dumps(result, sort_keys=True)
+    for raw_voice_id in ("narrator-voice-secret", "dialogue-voice-secret"):
+        assert raw_voice_id not in serialized_plan
+        assert raw_voice_id not in serialized_result
+
+
+def test_automatic_multispeaker_cast_uses_explicit_traits_without_dialogue_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+    from app.services.audiobook_epub_pipeline import EpubChapter, EpubMetadata
+
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_CINEMATIC_NARRATION", "0")
+    monkeypatch.delenv("EA_AUDIOBOOK_UNMIXR_DIALOGUE_VOICE_ID", raising=False)
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-id",
+                    "label": "Narrator",
+                    "language": "en-US",
+                    "tags": ["narration", "neutral"],
+                    "default": True,
+                },
+                {
+                    "voice_id": "anna-id",
+                    "label": "Young Woman",
+                    "language": "en-US",
+                    "tags": ["dialogue", "female", "young_adult", "warm"],
+                },
+                {
+                    "voice_id": "ben-id",
+                    "label": "Second Actor",
+                    "language": "en-US",
+                    "tags": ["dialogue", "male", "adult", "clear"],
+                },
+            ]
+        ),
+    )
+    text = '“Come,” said Anna, a young adult woman. “Wait,” Ben replied.'
+    chapter_dir = tmp_path / "chapters"
+    chapter_dir.mkdir()
+    (chapter_dir / "001.txt").write_text(text, encoding="utf-8")
+    chapter = EpubChapter(
+        index=1,
+        title="Two Speakers",
+        source_href="chapter.xhtml",
+        text_path="001.txt",
+        audio_filename="001.wav",
+        char_count=len(text),
+        sha256=pipeline._sha256_bytes(text.encode("utf-8")),
+    )
+    metadata = EpubMetadata(
+        title="Automatic Cast",
+        author="A. Writer",
+        language="en-US",
+        source_filename="book.epub",
+        source_sha256="source-sha",
+    )
+    tone = tmp_path / "tone.wav"
+    _write_tone_wav(tone)
+    calls: list[tuple[str, str]] = []
+
+    def fake_synthesize_request(**kwargs):
+        calls.append((str(kwargs["text"]), str(kwargs["voice_id"])))
+        return tone.read_bytes(), "audio/wav"
+
+    def fake_merge(*, segment_paths, target):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(Path(segment_paths[0]).read_bytes())
+        return True
+
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", fake_synthesize_request)
+    monkeypatch.setattr(pipeline, "_merge_audio_segments_to_wav", fake_merge)
+    monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
+
+    result = pipeline.render_unmixr_chapter_audio(
+        job_dir=tmp_path,
+        chapters=(chapter,),
+        metadata=metadata,
+    )
+
+    by_text = {spoken_text: voice_id for spoken_text, voice_id in calls}
+    assert result["status"] == "rendered"
+    assert by_text["“Come,”"] == "anna-id"
+    assert by_text["“Wait,”"] == "ben-id"
+    assert result["speaker_cast"]["speaker_count"] == 2
+    assert result["speaker_cast"]["distinct_dialogue_voice_count"] == 2
+    assert result["speaker_cast"]["narrator_voice_excluded"] is True
+    public_json = json.dumps(result, sort_keys=True)
+    for raw_voice_id in ("narrator-id", "anna-id", "ben-id"):
+        assert raw_voice_id not in public_json
+
+
+def test_selective_repair_reuses_unchanged_single_passage_chapter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+    from app.services.audiobook_epub_pipeline import EpubChapter, EpubMetadata
+
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_CINEMATIC_NARRATION", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-voice",
+                    "label": "Narrator",
+                    "language": "en-US",
+                    "tags": ["audiobook", "narration", "neutral"],
+                    "default": True,
+                }
+            ]
+        ),
+    )
+    chapter_dir = tmp_path / "chapters"
+    chapter_dir.mkdir()
+    first_text = "Chapter one remains exactly unchanged."
+    second_text = "Chapter two begins with this version."
+    (chapter_dir / "001.txt").write_text(first_text, encoding="utf-8")
+    (chapter_dir / "002.txt").write_text(second_text, encoding="utf-8")
+
+    def chapter(index: int, text: str) -> EpubChapter:
+        return EpubChapter(
+            index=index,
+            title=f"Chapter {index}",
+            source_href=f"chapter-{index}.xhtml",
+            text_path=f"{index:03d}.txt",
+            audio_filename=f"{index:03d}.wav",
+            char_count=len(text),
+            sha256=pipeline._sha256_bytes(text.encode("utf-8")),
+        )
+
+    metadata = EpubMetadata(
+        title="Selective Repair",
+        author="A. Writer",
+        language="en-US",
+        source_filename="book.epub",
+        source_sha256="source-sha",
+    )
+    tone = tmp_path / "tone.wav"
+    _write_tone_wav(tone)
+    calls: list[str] = []
+
+    def fake_synthesize_request(**kwargs):
+        calls.append(str(kwargs["text"]))
+        return tone.read_bytes(), "audio/wav"
+
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", fake_synthesize_request)
+    monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
+
+    initial = pipeline.render_unmixr_chapter_audio(
+        job_dir=tmp_path,
+        chapters=(chapter(1, first_text), chapter(2, second_text)),
+        metadata=metadata,
+    )
+    assert initial["status"] == "rendered"
+    assert calls == [first_text, second_text]
+
+    changed_text = "Chapter two now contains a repaired passage."
+    (chapter_dir / "002.txt").write_text(changed_text, encoding="utf-8")
+    calls.clear()
+    repaired = pipeline.render_unmixr_chapter_audio(
+        job_dir=tmp_path,
+        chapters=(chapter(1, first_text), chapter(2, changed_text)),
+        metadata=metadata,
+    )
+
+    assert repaired["status"] == "rendered"
+    assert calls == [changed_text]
+    assert repaired["chapters"][0]["status"] == "already_present"
+    assert repaired["chapters"][1]["stale_master_rebuilt"] is True
+
+
+def test_passages_are_cached_unmastered_and_mastering_runs_once_on_chapter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+    from app.services.audiobook_epub_pipeline import EpubChapter, EpubMetadata
+
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_CINEMATIC_NARRATION", "0")
+    monkeypatch.setenv("EA_AUDIOBOOK_BATCH_PARAGRAPHS_WITH_NATURAL_PAUSES", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-voice",
+                    "label": "Narrator",
+                    "language": "en-US",
+                    "tags": ["narration", "neutral"],
+                    "default": True,
+                }
+            ]
+        ),
+    )
+    text = "First paragraph.\n\nSecond paragraph."
+    chapter_dir = tmp_path / "chapters"
+    chapter_dir.mkdir()
+    text_path = chapter_dir / "001.txt"
+    text_path.write_text(text, encoding="utf-8")
+    chapter = EpubChapter(
+        index=1,
+        title="Chapter",
+        source_href="chapter.xhtml",
+        text_path=text_path.name,
+        audio_filename="001.wav",
+        char_count=len(text),
+        sha256=pipeline._sha256_bytes(text.encode("utf-8")),
+    )
+    metadata = EpubMetadata(
+        title="Mastering Scope",
+        author="A. Writer",
+        language="en-US",
+        source_filename="book.epub",
+        source_sha256="source-sha",
+    )
+    tone = tmp_path / "tone.wav"
+    _write_tone_wav(tone)
+    passage_paths: list[Path] = []
+    mastered_paths: list[Path] = []
+
+    def fake_synthesize_request(**_kwargs):
+        return tone.read_bytes(), "audio/wav"
+
+    def fake_write_passage(*, target_wav, **_kwargs):
+        target_wav.parent.mkdir(parents=True, exist_ok=True)
+        target_wav.write_bytes(tone.read_bytes())
+        passage_paths.append(target_wav)
+        return target_wav
+
+    def fake_merge(*, segment_paths, target):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(Path(segment_paths[0]).read_bytes())
+        return True
+
+    def fake_master(path):
+        mastered_paths.append(path)
+        return path
+
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", fake_synthesize_request)
+    monkeypatch.setattr(pipeline, "_write_provider_audio_segment_file", fake_write_passage)
+    monkeypatch.setattr(pipeline, "_merge_audio_segments_to_wav", fake_merge)
+    monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", fake_master)
+
+    result = pipeline.render_unmixr_chapter_audio(
+        job_dir=tmp_path,
+        chapters=(chapter,),
+        metadata=metadata,
+    )
+
+    assert result["status"] == "rendered"
+    assert len(passage_paths) == 2
+    assert all("-parts" in str(path.parent) for path in passage_paths)
+    assert mastered_paths == [tmp_path / "audio" / "001.wav"]
+
+
+def test_mastering_failure_blocks_before_chapter_signature_publication(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+    from app.services.audiobook_epub_pipeline import EpubChapter, EpubMetadata
+
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_CINEMATIC_NARRATION", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-voice",
+                    "label": "Narrator",
+                    "language": "en-US",
+                    "tags": ["narration", "neutral"],
+                    "default": True,
+                }
+            ]
+        ),
+    )
+    text = "A chapter that must be mastered before publication."
+    chapter_dir = tmp_path / "chapters"
+    chapter_dir.mkdir()
+    (chapter_dir / "001.txt").write_text(text, encoding="utf-8")
+    chapter = EpubChapter(
+        index=1,
+        title="Chapter",
+        source_href="chapter.xhtml",
+        text_path="001.txt",
+        audio_filename="001.wav",
+        char_count=len(text),
+        sha256=pipeline._sha256_bytes(text.encode("utf-8")),
+    )
+    metadata = EpubMetadata(
+        title="Mastering Failure",
+        author="A. Writer",
+        language="en-US",
+        source_filename="book.epub",
+        source_sha256="source-sha",
+    )
+    tone = tmp_path / "tone.wav"
+    _write_tone_wav(tone)
+    monkeypatch.setattr(
+        pipeline,
+        "unmixr_synthesize_request",
+        lambda **_kwargs: (tone.read_bytes(), "audio/wav"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_normalize_rendered_audio_file",
+        lambda _path: (_ for _ in ()).throw(
+            RuntimeError("audiobook_audio_normalization_failed")
+        ),
+    )
+
+    result = pipeline.render_unmixr_chapter_audio(
+        job_dir=tmp_path,
+        chapters=(chapter,),
+        metadata=metadata,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "audiobook_final_mastering_failed"
+    assert result["mastering"]["signature_published"] is False
+    assert not (tmp_path / "audio" / "001.wav.narration.signature").exists()
+
+
+def test_source_or_structure_tamper_blocks_before_synthesis(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_CINEMATIC_NARRATION", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-voice",
+                    "label": "Narrator",
+                    "language": "en-US",
+                    "tags": ["audiobook", "narration"],
+                    "default": True,
+                }
+            ]
+        ),
+    )
+    epub = tmp_path / "book.epub"
+    _write_minimal_epub(epub)
+    metadata, chapters = pipeline.extract_epub_chapters(
+        epub_path=epub,
+        chapter_dir=tmp_path / "chapters",
+        source_filename="book.epub",
+    )
+    first_text_path = tmp_path / "chapters" / chapters[0].text_path
+    first_text_path.write_text(
+        first_text_path.read_text(encoding="utf-8") + "Tampered after extraction.\n",
+        encoding="utf-8",
+    )
+    synthesis_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        pipeline,
+        "unmixr_synthesize_request",
+        lambda **kwargs: synthesis_calls.append(dict(kwargs)),
+    )
+
+    result = pipeline.render_unmixr_chapter_audio(
+        job_dir=tmp_path,
+        chapters=chapters,
+        metadata=metadata,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "blocked_source_integrity_or_coverage_mismatch"
+    assert synthesis_calls == []
+    plan = json.loads((tmp_path / "narration_plan.json").read_text(encoding="utf-8"))
+    assert "chapter_text_hash_mismatch:1" in plan["source_integrity_issues"]
+    assert "chapter_structure_text_hash_mismatch:1" in plan["source_integrity_issues"]
+
+
+def test_chapters_from_job_retains_source_structure_path() -> None:
+    from app.services.audiobook_epub_pipeline import _chapters_from_job
+
+    chapters = _chapters_from_job(
+        {
+            "chapters": [
+                {
+                    "index": 1,
+                    "title": "Opening",
+                    "source_href": "opening.xhtml",
+                    "text_path": "001 - Opening.txt",
+                    "audio_filename": "001 - Opening.wav",
+                    "char_count": 42,
+                    "sha256": "a" * 64,
+                    "structure_path": "001 - Opening.source.json",
+                }
+            ]
+        }
+    )
+
+    assert chapters[0].structure_path == "001 - Opening.source.json"
 
 
 def test_extract_epub_chapters_filters_publisher_furniture_by_default(tmp_path: Path) -> None:
@@ -1175,10 +1860,16 @@ def test_completed_import_creates_audiobookshelf_public_share_link(monkeypatch, 
             return FakeResponse(
                 payload={
                     "results": [
-                        {
-                            "id": "library-item-1",
-                            "libraryId": "library-1",
-                            "path": "/library/A. Writer/Test Book/Test Book.m4b",
+                            {
+                                "id": "library-item-1",
+                                "libraryId": "library-1",
+                                "path": str(
+                                    tmp_path
+                                    / "audiobookshelf"
+                                    / "A. Writer"
+                                    / "Test Book"
+                                    / "Test Book.m4b"
+                                ),
                             "relPath": "A. Writer/Test Book/Test Book.m4b",
                             "mediaType": "book",
                             "media": {"id": "media-book-1", "metadata": {"title": "Test Book"}},
@@ -1417,6 +2108,12 @@ def test_continue_job_preserves_ready_public_share_when_refresh_fails(monkeypatc
             "status": "public_share_ready",
             "absolute_url": "https://abs.example.com/share/ea-test-book",
             "telegram_delivery": {"status": "sent", "message_id": 123},
+            "audiobookshelf_target_path_sha256": pipeline._sha256_bytes(
+                str(tmp_path / "audiobookshelf" / "A. Writer" / "Test Book" / "Test Book.m4b").encode(
+                    "utf-8"
+                )
+            ),
+            "audiobookshelf_item_match_kind": "exact_absolute_path",
             "token_exposed": False,
             "raw_library_path_exposed": False,
         },
@@ -2590,8 +3287,11 @@ def test_telegram_voice_dismiss_callback_retries_refill_before_responding(
         )
     )
 
-    assert decision.reply_text == "Dismissed. I sent 1 replacement audiobook voice sample."
-    assert sent == [["Voice Three"]]
+    assert decision.reply_text == (
+        "Dismissed. The replacement audiobook voice sample is already in Telegram. "
+        "Use the latest buttons, or reply with the voice name."
+    )
+    assert sent == []
 
 
 def test_telegram_voice_use_callback_sends_explicit_replacement_sample(
@@ -2791,9 +3491,12 @@ def test_telegram_voice_dismiss_callback_duplicate_dedupe_key_is_ignored(
         )
     )
 
-    assert first.reply_text == "Dismissed. I sent 1 replacement audiobook voice sample."
+    assert first.reply_text == (
+        "Dismissed. The replacement audiobook voice sample is already in Telegram. "
+        "Use the latest buttons, or reply with the voice name."
+    )
     assert second.reply_text == ""
-    assert sent == [["Voice Three"]]
+    assert sent == []
     processed = runtime.find_observation_by_dedupe(
         "telegram:42:callback:cb-dismiss-1:callback_processed",
         principal_id="principal-1",
@@ -3965,13 +4668,12 @@ def test_epub_voice_audition_use_this_renders_with_chosen_voice(monkeypatch, tmp
             ]
         ),
     )
-    tone = tmp_path / "tone.wav"
-    _write_tone_wav(tone)
+    synthesize_voice = _distinct_voice_wav_synthesizer(tmp_path)
     calls: list[str] = []
 
     def fake_synthesize_request(**kwargs):
         calls.append(str(kwargs.get("voice_id") or ""))
-        return tone.read_bytes(), "audio/wav"
+        return synthesize_voice(**kwargs)
 
     monkeypatch.setattr(pipeline, "unmixr_synthesize_request", fake_synthesize_request)
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
@@ -4412,9 +5114,7 @@ def test_epub_voice_audition_dismiss_replaces_voice_immediately(monkeypatch, tmp
             ]
         ),
     )
-    tone = tmp_path / "tone.wav"
-    _write_tone_wav(tone)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", _distinct_voice_wav_synthesizer(tmp_path))
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
     epub = tmp_path / "book.epub"
     _write_minimal_epub(epub)
@@ -4473,7 +5173,8 @@ def test_epub_voice_audition_dismiss_replacement_skips_same_display_family(monke
 
     selection = job["provider"]["voice_selection"]
     labels = [row["label"] for row in selection["pending_batch"]]
-    assert labels == ["Gretchen", "Conrad", "Florian"]
+    assert set(labels) == {"Gretchen", "Conrad", "Florian"}
+    assert len(labels) == 3
     assert "Seraphina" not in labels
     assert "label_family:seraphina" in selection["dismissed_voice_identity_keys"]
     assert selection["last_action"]["replacement_count"] == 1
@@ -4496,9 +5197,7 @@ def test_epub_voice_audition_dismiss_survives_replacement_tts_failure(monkeypatc
             ]
         ),
     )
-    tone = tmp_path / "tone.wav"
-    _write_tone_wav(tone)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", _distinct_voice_wav_synthesizer(tmp_path))
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
     epub = tmp_path / "book.epub"
     _write_minimal_epub(epub)
@@ -4582,9 +5281,7 @@ def test_epub_voice_audition_refreshes_voice_discovery_when_no_replacement_avail
         return FakeResponse(payload)
 
     monkeypatch.setattr(pipeline.urllib.request, "urlopen", fake_urlopen)
-    tone = tmp_path / "tone.wav"
-    _write_tone_wav(tone)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", _distinct_voice_wav_synthesizer(tmp_path))
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
     epub = tmp_path / "book.epub"
     _write_minimal_epub(epub)
@@ -4700,9 +5397,7 @@ def test_epub_voice_audition_expands_discovery_target_on_refill(monkeypatch, tmp
         return FakeResponse(_fake_discovery_payload(6))
 
     monkeypatch.setattr(pipeline.urllib.request, "urlopen", fake_urlopen)
-    tone = tmp_path / "tone.wav"
-    _write_tone_wav(tone)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", _distinct_voice_wav_synthesizer(tmp_path))
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
     epub = tmp_path / "book.epub"
     _write_minimal_epub(epub)
@@ -4741,9 +5436,7 @@ def test_telegram_epub_voice_dismiss_sends_replacement_sample_immediately(
             ]
         ),
     )
-    tone = tmp_path / "tone.wav"
-    _write_tone_wav(tone)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", _distinct_voice_wav_synthesizer(tmp_path))
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
     epub = tmp_path / "book.epub"
     _write_minimal_epub(epub)
@@ -4799,7 +5492,7 @@ def test_voice_audition_refill_drops_local_piper_when_replacement_offer_disabled
     tmp_path: Path,
 ) -> None:
     from app.services import audiobook_epub_pipeline as pipeline
-    from app.services.audiobook_epub_pipeline import create_job_from_epub, prepare_audiobook_voice_audition, telegram_epub_reply_text
+    from app.services.audiobook_epub_pipeline import create_job_from_epub, prepare_audiobook_voice_audition
 
     monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
     monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
@@ -4815,9 +5508,7 @@ def test_voice_audition_refill_drops_local_piper_when_replacement_offer_disabled
             ]
         ),
     )
-    tone = tmp_path / "tone.wav"
-    _write_tone_wav(tone)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", _distinct_voice_wav_synthesizer(tmp_path))
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
     epub = tmp_path / "book.epub"
     _write_minimal_epub(epub)
@@ -4871,9 +5562,7 @@ def test_voice_audition_underfilled_after_dismissals_is_explicit(
             ]
         ),
     )
-    tone = tmp_path / "tone.wav"
-    _write_tone_wav(tone)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", _distinct_voice_wav_synthesizer(tmp_path))
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
     epub = tmp_path / "book.epub"
     _write_minimal_epub(epub)
@@ -4935,9 +5624,7 @@ def test_voice_audition_refill_relaxes_language_after_all_language_matches_dismi
             ]
         ),
     )
-    tone = tmp_path / "tone.wav"
-    _write_tone_wav(tone)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", _distinct_voice_wav_synthesizer(tmp_path))
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
     epub = tmp_path / "book.epub"
     _write_minimal_epub(epub)
@@ -4983,9 +5670,7 @@ def test_voice_sample_delivery_summary_prevents_false_sent_reply(monkeypatch, tm
             ]
         ),
     )
-    tone = tmp_path / "tone.wav"
-    _write_tone_wav(tone)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", _distinct_voice_wav_synthesizer(tmp_path))
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
     epub = tmp_path / "book.epub"
     _write_minimal_epub(epub)
@@ -5028,9 +5713,7 @@ def test_telegram_send_audiobook_voice_samples_returns_per_sample_failures(monke
             ]
         ),
     )
-    tone = tmp_path / "tone.wav"
-    _write_tone_wav(tone)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", _distinct_voice_wav_synthesizer(tmp_path))
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
     monkeypatch.setattr(channels, "_telegram_send_audio", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("telegram_audio_failed")))
     epub = tmp_path / "book.epub"
@@ -5066,9 +5749,7 @@ def test_telegram_send_audiobook_voice_samples_records_inline_controls(monkeypat
             ]
         ),
     )
-    tone = tmp_path / "tone.wav"
-    _write_tone_wav(tone)
-    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", _distinct_voice_wav_synthesizer(tmp_path))
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
 
     sent_payloads: list[dict[str, object]] = []
@@ -5346,6 +6027,7 @@ def test_unmixr_render_retries_transient_missing_audio_url(monkeypatch, tmp_path
 
     monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
     monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_CINEMATIC_NARRATION", "0")
     monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_RETRY_COUNT", "2")
     monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_RETRY_BACKOFF_SECONDS", "0")
     monkeypatch.setenv(
@@ -5365,7 +6047,7 @@ def test_unmixr_render_retries_transient_missing_audio_url(monkeypatch, tmp_path
     def fake_synthesize_request(**kwargs):
         calls["count"] += 1
         if calls["count"] == 1:
-            raise HTTPException(status_code=502, detail="unmixr_tts_no_audio_url")
+            raise HTTPException(status_code=502, detail="unmixr_tts_no_audio_url voice-1")
         return tone.read_bytes(), "audio/wav"
 
     monkeypatch.setattr(pipeline, "unmixr_synthesize_request", fake_synthesize_request)
@@ -5374,7 +6056,10 @@ def test_unmixr_render_retries_transient_missing_audio_url(monkeypatch, tmp_path
 
     assert result["status"] == "rendered"
     assert calls["count"] == 2
-    assert result["chapters"][0]["retry_errors"] == ["attempt_1:unmixr_tts_no_audio_url"]
+    assert result["chapters"][0]["retry_errors"] == [
+        "attempt_1:unmixr_synthesize_upstream_unavailable"
+    ]
+    assert "voice-1" not in json.dumps(result, sort_keys=True)
     assert (tmp_path / "audio" / "001 - Test.wav").is_file()
 
 
@@ -5775,6 +6460,7 @@ def test_render_receipt_summarizes_quiet_tail_audio_quality(monkeypatch, tmp_pat
 
     monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
     monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_SEGMENT_EDGE_TRIM_ENABLED", "0")
     monkeypatch.setenv("UNMIXR_VOICE_ID", "voice-default")
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
     chapter_dir = tmp_path / "chapters"
@@ -5882,7 +6568,14 @@ def test_large_epub_render_pauses_before_unmixr_throttle(monkeypatch, tmp_path: 
         "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
         json.dumps([{"voice_id": "voice-1", "label": "Narrator", "language": "en-US", "tags": ["audiobook", "narration", "clear"], "default": True}]),
     )
-    text = ("This is a long audiobook section that should be split into multiple provider calls. " * 18 + "\n\n") * 4
+    text = "\n\n".join(
+        (
+            f"Section {section_index} is a long audiobook passage that should be split "
+            "into multiple provider calls while retaining a unique cache fingerprint. "
+        )
+        * 18
+        for section_index in range(1, 5)
+    )
     tone = tmp_path / "tone.wav"
     _write_tone_wav(tone)
     calls = {"count": 0}
@@ -6972,7 +7665,9 @@ def test_unmixr_render_inserts_silence_between_paragraphs(monkeypatch, tmp_path:
 
     monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
     monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_CINEMATIC_NARRATION", "0")
     monkeypatch.setenv("EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_BATCH_PARAGRAPHS_WITH_NATURAL_PAUSES", "0")
     monkeypatch.setenv("EA_AUDIOBOOK_PARAGRAPH_PAUSE_SECONDS", "0.35")
     monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST", "1000")
     monkeypatch.setenv(
@@ -7015,6 +7710,116 @@ def test_unmixr_render_inserts_silence_between_paragraphs(monkeypatch, tmp_path:
     assert result["chapters"][0]["segment_count"] == 2
     assert result["chapters"][0]["paragraph_pause_count"] == 1
     assert result["chapters"][0]["paragraph_pause_seconds"] == 0.35
+
+
+def test_unmixr_render_uses_longer_silence_for_scene_breaks(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+    from app.services.audiobook_epub_pipeline import EpubChapter, EpubMetadata, render_unmixr_chapter_audio
+
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_CINEMATIC_NARRATION", "0")
+    monkeypatch.setenv("EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_BATCH_PARAGRAPHS_WITH_NATURAL_PAUSES", "0")
+    monkeypatch.setenv("EA_AUDIOBOOK_PARAGRAPH_PAUSE_SECONDS", "0.35")
+    monkeypatch.setenv("EA_AUDIOBOOK_SCENE_PAUSE_SECONDS", "1.2")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST", "1000")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps([{"voice_id": "voice-1", "label": "Narrator", "language": "en-US", "tags": ["audiobook", "narration"], "default": True}]),
+    )
+    chapter_dir = tmp_path / "chapters"
+    chapter_dir.mkdir()
+    text = "Opening paragraph.\n\nFollowing paragraph.\n\n\nNew scene."
+    (chapter_dir / "001 - Test.txt").write_text(text, encoding="utf-8")
+    chapter = EpubChapter(index=1, title="Test", source_href="test.xhtml", text_path="001 - Test.txt", audio_filename="001 - Test.wav", char_count=len(text), sha256="sha")
+    metadata = EpubMetadata(title="Test Book", author="A. Writer", language="en-US", source_filename="book.epub", source_sha256="sha")
+    tone = tmp_path / "tone.wav"
+    _write_tone_wav(tone)
+    pause_durations: list[float] = []
+
+    def fake_synthesize_request(**kwargs):
+        return tone.read_bytes(), "audio/wav"
+
+    def fake_write_silence(path, *, seconds, sample_rate=44100):
+        pause_durations.append(float(seconds))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(tone.read_bytes())
+        return path
+
+    def fake_merge_segments(*, segment_paths, target):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(Path(segment_paths[0]).read_bytes())
+        return True
+
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", fake_synthesize_request)
+    monkeypatch.setattr(pipeline, "_write_silence_wav", fake_write_silence)
+    monkeypatch.setattr(pipeline, "_merge_audio_segments_to_wav", fake_merge_segments)
+
+    result = render_unmixr_chapter_audio(job_dir=tmp_path, chapters=(chapter,), metadata=metadata)
+
+    assert result["status"] == "rendered"
+    assert pause_durations == [0.35, 1.2]
+    assert result["chapters"][0]["paragraph_pause_count"] == 1
+    assert result["chapters"][0]["scene_pause_count"] == 1
+    assert result["chapters"][0]["total_pause_count"] == 2
+    assert result["chapters"][0]["scene_pause_seconds"] == 1.2
+
+
+def test_unmixr_render_can_batch_paragraphs_while_retaining_scene_silence(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+    from app.services.audiobook_epub_pipeline import EpubChapter, EpubMetadata, render_unmixr_chapter_audio
+
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_CINEMATIC_NARRATION", "0")
+    monkeypatch.setenv("EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_BATCH_PARAGRAPHS_WITH_NATURAL_PAUSES", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_SCENE_PAUSE_SECONDS", "1.2")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST", "1000")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps([{"voice_id": "voice-1", "label": "Narrator", "language": "en-US", "tags": ["audiobook", "narration"], "default": True}]),
+    )
+    chapter_dir = tmp_path / "chapters"
+    chapter_dir.mkdir()
+    text = "Opening paragraph.\n\nFollowing paragraph.\n\n\nNew scene."
+    (chapter_dir / "001 - Test.txt").write_text(text, encoding="utf-8")
+    chapter = EpubChapter(index=1, title="Test", source_href="test.xhtml", text_path="001 - Test.txt", audio_filename="001 - Test.wav", char_count=len(text), sha256="sha")
+    metadata = EpubMetadata(title="Test Book", author="A. Writer", language="en-US", source_filename="book.epub", source_sha256="sha")
+    tone = tmp_path / "tone.wav"
+    _write_tone_wav(tone)
+    tts_texts: list[str] = []
+    pause_durations: list[float] = []
+
+    def fake_synthesize_request(**kwargs):
+        tts_texts.append(str(kwargs["text"]))
+        return tone.read_bytes(), "audio/wav"
+
+    def fake_write_silence(path, *, seconds, sample_rate=44100):
+        pause_durations.append(float(seconds))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(tone.read_bytes())
+        return path
+
+    def fake_merge_segments(*, segment_paths, target):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(Path(segment_paths[0]).read_bytes())
+        return True
+
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", fake_synthesize_request)
+    monkeypatch.setattr(pipeline, "_write_silence_wav", fake_write_silence)
+    monkeypatch.setattr(pipeline, "_merge_audio_segments_to_wav", fake_merge_segments)
+
+    result = render_unmixr_chapter_audio(job_dir=tmp_path, chapters=(chapter,), metadata=metadata)
+
+    assert result["status"] == "rendered"
+    assert tts_texts == ["Opening paragraph.\n\nFollowing paragraph.", "New scene."]
+    assert pause_durations == [1.2]
+    assert result["chapters"][0]["segment_count"] == 2
+    assert result["chapters"][0]["paragraph_pause_count"] == 0
+    assert result["chapters"][0]["scene_pause_count"] == 1
+    assert result["chapters"][0]["total_pause_count"] == 1
 
 
 def test_telegram_adapter_preserves_document_mime_and_size() -> None:
@@ -8322,3 +9127,198 @@ def test_audiobook_cleanup_remove_path_tolerates_disappearing_files(monkeypatch,
 
     assert removed_bytes >= 0
     assert not target.exists()
+
+
+def test_audiobook_job_receipt_whitelists_voice_and_narration_plan_metadata(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services.audiobook_epub_pipeline import build_audiobook_job_receipt
+
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path))
+    job_dir = tmp_path / "private-receipt-boundary"
+    job_dir.mkdir()
+    narrator_hash = "a" * 64
+    dialogue_hash = "b" * 64
+    plan_hash = "c" * 64
+    job = {
+        "job_id": "private-receipt-boundary",
+        "status": "audio_ready",
+        "metadata": {"title": "Memorial", "author": "Family", "language": "de"},
+        "provider": {
+            "voice_selection": {
+                "callback_token": "narrator-callback-private-secret",
+                "selected_callback_token": "narrator-selected-token-private-secret",
+                "voice_id": "narrator-raw-id-private-secret",
+                "sample_file": "narrator-private-sample.wav",
+                "sample_path": "/private/voice/narrator-private-sample.wav",
+                "sample_sha256": "d" * 64,
+            },
+            "dialogue_voice_selection": {
+                "status": "approved",
+                "source": "approved_private_dialogue_voice_selection",
+                "enabled": True,
+                "approved_by_user": True,
+                "voice_id_sha256": dialogue_hash,
+                "selected_callback_token": "dialogue-provider-token-private-secret",
+                "voice_id": "dialogue-provider-raw-id-private-secret",
+            },
+        },
+        "render_result": {
+            "status": "rendered",
+            "provider": "unmixr",
+            "voice_selection": {
+                "status": "selected_by_user",
+                "source": "voice_audition",
+                "selected_voice_id_sha256": narrator_hash,
+                "strategy": "narrator-callback-private-secret",
+                "selected_candidate": {
+                    "voice_id": "nested-narrator-raw-id-private-secret",
+                    "callback_token": "nested-narrator-token-private-secret",
+                    "sample_path": "/private/voice/nested-narrator.wav",
+                },
+                "candidate": {
+                    "preset_key": "warm_narrator",
+                    "label": "Warm narrator",
+                    "language": "de",
+                    "voice_id_sha256": narrator_hash,
+                },
+            },
+            "dialogue_voice_selection": {
+                "selected_callback_token": "dialogue-render-token-private-secret",
+                "voice_id": "dialogue-render-raw-id-private-secret",
+                "sample_path": "/private/voice/dialogue-private-sample.wav",
+            },
+            "narration_plan": {
+                "path": "/private/plans/narration-plan.private.json",
+                "private_path": "/private/plans/narration-plan.private.json",
+                "raw_text_exposed": True,
+                "raw_voice_ids_exposed": True,
+                "passages": [
+                    {
+                        "text": "PRIVATE MANFRED PASSAGE TEXT",
+                        "voice_id": "narration-plan-raw-id-private-secret",
+                    }
+                ],
+            },
+            "pacing": {
+                "scene_pause_count": 1,
+                "total_pause_seconds": 2.5,
+                "private_note": "PRIVATE PACING PASSAGE TEXT",
+                "voice": {"voice_id": "pacing-raw-id-private-secret"},
+            },
+        },
+        "narration_plan": {
+            "contract_name": "ea.audiobook_narration_plan.v1",
+            "status": "ready",
+            "chapter_count": 1,
+            "passage_count": 2,
+            "coverage_complete": True,
+            "source_integrity_verified": True,
+            "private_plan_present": True,
+            "plan_sha256": plan_hash,
+        },
+    }
+    (job_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")
+
+    receipt = build_audiobook_job_receipt(job_dir=job_dir)
+    rendered = json.dumps(receipt, sort_keys=True)
+
+    assert receipt["render"]["voice_selection"] == {
+        "status": "selected_by_user",
+        "source": "voice_audition",
+        "selected_voice_id_sha256": narrator_hash,
+        "selected_candidate": {
+            "preset_key": "warm_narrator",
+            "label": "Warm narrator",
+            "language": "de",
+            "voice_id_sha256": narrator_hash,
+        },
+    }
+    assert receipt["render"]["dialogue_voice_selection"] == {
+        "status": "approved",
+        "source": "approved_private_dialogue_voice_selection",
+        "approved_by_user": True,
+        "voice_id_sha256": dialogue_hash,
+        "enabled": True,
+    }
+    assert receipt["render"]["narration_plan"] == {
+        "contract_name": "ea.audiobook_narration_plan.v1",
+        "status": "ready",
+        "chapter_count": 1,
+        "passage_count": 2,
+        "coverage_complete": True,
+        "source_integrity_verified": True,
+        "private_plan_present": True,
+        "plan_sha256": plan_hash,
+    }
+    assert receipt["render"]["pacing"] == {
+        "scene_pause_count": 1,
+        "total_pause_seconds": 2.5,
+    }
+    for secret in (
+        "narrator-callback-private-secret",
+        "narrator-selected-token-private-secret",
+        "narrator-raw-id-private-secret",
+        "narrator-private-sample.wav",
+        "nested-narrator-raw-id-private-secret",
+        "nested-narrator-token-private-secret",
+        "nested-narrator.wav",
+        "dialogue-provider-token-private-secret",
+        "dialogue-provider-raw-id-private-secret",
+        "dialogue-render-token-private-secret",
+        "dialogue-render-raw-id-private-secret",
+        "dialogue-private-sample.wav",
+        "narration-plan.private.json",
+        "PRIVATE MANFRED PASSAGE TEXT",
+        "PRIVATE PACING PASSAGE TEXT",
+        "pacing-raw-id-private-secret",
+        "narration-plan-raw-id-private-secret",
+        "d" * 64,
+    ):
+        assert secret not in rendered
+    assert receipt["privacy"]["dialogue_voice_id_exposed"] is False
+    assert receipt["privacy"]["voice_audition_callback_token_exposed"] is False
+    assert receipt["privacy"]["voice_sample_path_exposed"] is False
+    assert receipt["privacy"]["private_narration_plan_path_exposed"] is False
+    assert receipt["privacy"]["private_narration_plan_text_exposed"] is False
+
+
+def test_audiobook_render_lock_reports_retryable_in_progress(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_RENDER_LOCK_TIMEOUT_SECONDS", "0.1")
+    job_dir = tmp_path / "locked-render"
+
+    with pipeline._exclusive_audiobook_render_lock(job_dir):
+        result = pipeline.render_unmixr_chapter_audio(
+            job_dir=job_dir,
+            chapters=(),
+            metadata=None,  # Lock acquisition returns before metadata is inspected.
+        )
+
+    assert result == {
+        "status": "render_in_progress",
+        "reason": "audiobook_render_lock_timeout",
+        "retryable": True,
+    }
+    lock_path = job_dir / ".audiobook-render.lock"
+    assert lock_path.is_file()
+    assert lock_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_render_sensitive_detail_redacts_narrator_and_dialogue_voice_ids() -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    narrator_voice_id = "narrator-voice-private-id"
+    dialogue_voice_id = "dialogue-voice-private-id"
+    detail = pipeline._redact_render_sensitive_detail(
+        f"provider rejected {narrator_voice_id}; fallback {dialogue_voice_id}",
+        narrator_voice_id,
+        dialogue_voice_id,
+    )
+
+    assert detail == "provider rejected [voice_id_redacted]; fallback [voice_id_redacted]"
+    assert narrator_voice_id not in detail
+    assert dialogue_voice_id not in detail

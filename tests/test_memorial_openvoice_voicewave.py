@@ -5,6 +5,9 @@ import os
 from pathlib import Path
 import time
 
+import pytest
+from fastapi import HTTPException
+
 from app.services import memorial_openvoice
 
 
@@ -34,6 +37,7 @@ class _FakeResponse:
 def _clear_unmixr_key_env(monkeypatch) -> None:
     monkeypatch.delenv("UNMIXR_API_KEY", raising=False)
     monkeypatch.delenv("UNMIXR_API_KEYS", raising=False)
+    monkeypatch.delenv("EA_AUDIOBOOK_UNMIXR_PRONUNCIATION_DICT_JSON", raising=False)
     for name in list(os.environ):
         if name.startswith("UNMIXR_API_KEY_FALLBACK_"):
             monkeypatch.delenv(name, raising=False)
@@ -70,6 +74,153 @@ def test_unmixr_synthesize_rotates_to_fallback_slot_on_balance_response(monkeypa
     assert audio == b"audio-bytes"
     assert content_type == "audio/wav"
     assert seen_auth == ["Bearer primary-key", "Bearer fallback-key"]
+
+
+def test_unmixr_synthesize_redacts_provider_body_from_exception_and_slot_state(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _clear_unmixr_key_env(monkeypatch)
+    state_path = tmp_path / "unmixr-slots.json"
+    source_text = "PRIVATE BOOK PASSAGE: Manfred wartet am Fenster."
+    voice_id = "raw-provider-voice-id-77"
+    provider_detail = f"Rate limit while rendering {source_text} with voice_id={voice_id}"
+    monkeypatch.setenv("EA_UNMIXR_SLOT_SELECTOR_STATE_FILE", str(state_path))
+    monkeypatch.setenv("UNMIXR_API_KEY", "primary-key")
+
+    def fake_request(method, url, headers=None, **kwargs):  # noqa: ANN001
+        return _FakeResponse(status_code=429, payload={"detail": provider_detail})
+
+    monkeypatch.setattr(memorial_openvoice.requests, "request", fake_request)
+
+    with pytest.raises(HTTPException) as caught:
+        memorial_openvoice.unmixr_synthesize_request(
+            text=source_text,
+            voice_id=voice_id,
+            lang="de-DE",
+        )
+
+    error = caught.value
+    assert getattr(error, "status_code", None) == 502
+    assert getattr(error, "detail", None) == "unmixr_tts_rate_limited:429"
+    assert source_text not in str(error)
+    assert voice_id not in str(error)
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    slot_state = state["slots"]["UNMIXR_API_KEY"]
+    assert slot_state["last_error_code"] == "unmixr_request_rate_limited"
+    assert len(slot_state["last_error_body_sha256"]) == 64
+    rendered_state = json.dumps(state, sort_keys=True)
+    assert "last_error" not in slot_state
+    assert source_text not in rendered_state
+    assert voice_id not in rendered_state
+
+
+@pytest.mark.parametrize(
+    ("status_code", "provider_prefix", "expected_detail"),
+    (
+        (200, "Insufficient API balance", "unmixr_tts_balance_exhausted:200"),
+        (402, "Insufficient API balance", "unmixr_tts_balance_exhausted:402"),
+        (413, "Input too long", "unmixr_tts_input_too_long:413"),
+    ),
+)
+def test_unmixr_synthesize_projects_useful_provider_error_classes_without_raw_body(
+    monkeypatch,
+    tmp_path: Path,
+    status_code: int,
+    provider_prefix: str,
+    expected_detail: str,
+) -> None:
+    _clear_unmixr_key_env(monkeypatch)
+    source_text = "PRIVATE BOOK PASSAGE: Niemand darf diesen Satz sehen."
+    voice_id = "raw-provider-voice-id-88"
+    monkeypatch.setenv("EA_UNMIXR_SLOT_SELECTOR_STATE_FILE", str(tmp_path / "unmixr-slots.json"))
+    monkeypatch.setenv("UNMIXR_API_KEY", "primary-key")
+
+    def fake_request(method, url, headers=None, **kwargs):  # noqa: ANN001
+        return _FakeResponse(
+            status_code=status_code,
+            payload={"message": f"{provider_prefix}: text={source_text}; voice_id={voice_id}"},
+        )
+
+    monkeypatch.setattr(memorial_openvoice.requests, "request", fake_request)
+
+    with pytest.raises(HTTPException) as caught:
+        memorial_openvoice.unmixr_synthesize_request(
+            text=source_text,
+            voice_id=voice_id,
+            lang="de-DE",
+        )
+
+    assert getattr(caught.value, "detail", None) == expected_detail
+    assert source_text not in str(caught.value)
+    assert voice_id not in str(caught.value)
+
+
+def test_unmixr_synthesize_redacts_success_body_when_audio_url_is_missing(monkeypatch, tmp_path: Path) -> None:
+    _clear_unmixr_key_env(monkeypatch)
+    source_text = "PRIVATE BOOK PASSAGE: Ein stiller Nachmittag."
+    voice_id = "raw-provider-voice-id-99"
+    monkeypatch.setenv("EA_UNMIXR_SLOT_SELECTOR_STATE_FILE", str(tmp_path / "unmixr-slots.json"))
+    monkeypatch.setenv("UNMIXR_API_KEY", "primary-key")
+
+    def fake_request(method, url, headers=None, **kwargs):  # noqa: ANN001
+        return _FakeResponse(
+            status_code=200,
+            payload={"message": f"No audio for text={source_text}; voice_id={voice_id}"},
+        )
+
+    monkeypatch.setattr(memorial_openvoice.requests, "request", fake_request)
+
+    with pytest.raises(HTTPException) as caught:
+        memorial_openvoice.unmixr_synthesize_request(
+            text=source_text,
+            voice_id=voice_id,
+            lang="de-DE",
+        )
+
+    assert getattr(caught.value, "detail", None) == "unmixr_tts_no_audio_url:200"
+    assert source_text not in str(caught.value)
+    assert voice_id not in str(caught.value)
+
+
+def test_unmixr_synthesize_includes_validated_pronunciation_dictionary(monkeypatch, tmp_path: Path) -> None:
+    _clear_unmixr_key_env(monkeypatch)
+    monkeypatch.setenv("EA_UNMIXR_SLOT_SELECTOR_STATE_FILE", str(tmp_path / "unmixr-slots.json"))
+    monkeypatch.setenv("UNMIXR_API_KEY", "primary-key")
+    seen_payloads: list[dict[str, object]] = []
+
+    def fake_request(method, url, headers=None, **kwargs):  # noqa: ANN001
+        seen_payloads.append(dict(kwargs.get("json") or {}))
+        return _FakeResponse(status_code=200, payload={"audio_url": "https://audio.example/render.wav"})
+
+    def fake_get(url, **kwargs):  # noqa: ANN001
+        return _FakeResponse(status_code=200, content=b"audio-bytes", headers={"Content-Type": "audio/wav"})
+
+    monkeypatch.setattr(memorial_openvoice.requests, "request", fake_request)
+    monkeypatch.setattr(memorial_openvoice.requests, "get", fake_get)
+
+    audio, content_type = memorial_openvoice.unmixr_synthesize_request(
+        text="The SME uses Chummer.",
+        voice_id="voice-1",
+        lang="en-US",
+        pronunciation_dict={"SME": "Small and Medium Enterprise", "Chummer": "CHUH-mer"},
+    )
+
+    assert audio == b"audio-bytes"
+    assert content_type == "audio/wav"
+    assert seen_payloads == [
+        {
+            "text": "The SME uses Chummer.",
+            "voice_id": "voice-1",
+            "language": "en-US",
+            "response_type": "url",
+            "speaking_rate": "medium",
+            "speaking_pitch": "low",
+            "speaking_volume": "medium",
+            "pronunciation_dict": {"SME": "Small and Medium Enterprise", "Chummer": "CHUH-mer"},
+        }
+    ]
 
 
 def test_unmixr_smart_selector_discovers_dynamic_fallback_slots_and_cools_throttled_slot(
