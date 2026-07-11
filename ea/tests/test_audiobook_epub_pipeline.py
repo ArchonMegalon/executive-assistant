@@ -967,6 +967,53 @@ def test_voice_candidate_score_matches_multiword_ethnicity_hint() -> None:
     assert "ethnicity" not in miss_matched
 
 
+def test_speaker_voice_candidate_score_prefers_audiobook_capability_over_general_voice() -> None:
+    pipeline = audiobook_epub_pipeline
+    profile = {
+        "traits": {
+            "gender_presentation": {
+                "value": "masculine",
+                "provenance": "explicit_source_phrase",
+                "confidence": 0.9,
+            }
+        }
+    }
+    audiobook = audiobook_epub_pipeline.VoicePreset(
+        preset_key="audiobook_voice",
+        voice_id="audiobook-voice-id",
+        label="Audiobook voice",
+        language="de-DE",
+        tags=("male", "audiobook_voices", "audiobook", "narration", "storytelling"),
+        supported_languages=("de-DE",),
+        default=False,
+        source="unit-test",
+    )
+    general = audiobook_epub_pipeline.VoicePreset(
+        preset_key="general_voice",
+        voice_id="general-voice-id",
+        label="General voice",
+        language="de-DE",
+        tags=("male", "general", "speech"),
+        supported_languages=("de-DE",),
+        default=False,
+        source="unit-test",
+    )
+
+    audiobook_score, audiobook_matched, _ = pipeline._speaker_voice_candidate_score(
+        preset=audiobook,
+        profile=profile,
+        render_language="de-DE",
+    )
+    general_score, general_matched, _ = pipeline._speaker_voice_candidate_score(
+        preset=general,
+        profile=profile,
+        render_language="de-DE",
+    )
+
+    assert audiobook_score > general_score
+    assert audiobook_matched == general_matched == ["gender_presentation"]
+
+
 def test_speaker_cast_uses_explicit_traits_as_ranking_hints_and_is_stable(
     monkeypatch,
     tmp_path: Path,

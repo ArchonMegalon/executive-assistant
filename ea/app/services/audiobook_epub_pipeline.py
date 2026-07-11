@@ -56,7 +56,7 @@ CONTRACT_NAME = "ea.telegram_epub_to_audiobook.v1"
 SOURCE_DOCUMENT_CONTRACT_NAME = "ea.audiobook_source_document.v1"
 NARRATION_PLAN_CONTRACT_NAME = PLANNER_CONTRACT_NAME
 SPEAKER_CAST_SNAPSHOT_CONTRACT_NAME = "ea.audiobook_speaker_cast_snapshot.v1"
-SPEAKER_CAST_POLICY_NAME = "ea.audiobook_speaker_cast_policy.v2"
+SPEAKER_CAST_POLICY_NAME = "ea.audiobook_speaker_cast_policy.v3"
 PLAYER_AUDIOBOOK_ACCESS_CONTRACT_NAME = "ea.player_scoped_audiobookshelf_reference.v1"
 AUDIOBOOK_JOB_RECEIPT_CONTRACT_NAME = "ea.telegram_epub_audiobook_job_receipt.v1"
 AUDIOBOOK_RUNTIME_PREFLIGHT_CONTRACT_NAME = "ea.telegram_epub_audiobook_runtime_preflight.v1"
@@ -7204,6 +7204,18 @@ def _speaker_voice_candidate_score(
 ) -> tuple[int, list[str], list[str]]:
     score = _voice_language_score(render_language, preset.language, preset.supported_languages)
     tags = set(_split_tags(preset.tags))
+    # Prefer voices the provider explicitly exposes for narrated long-form
+    # performance. A generic speech voice may still be used when no better
+    # eligible voice exists, but it must not beat an equally compatible
+    # audiobook voice merely because both share one demographic hint.
+    if "audiobook_voices" in tags:
+        score += 14
+    if "audiobook" in tags or "audiobooks" in tags:
+        score += 10
+    if "narration" in tags:
+        score += 8
+    if tags.intersection({"storytelling", "dialogue", "character", "expressive"}):
+        score += 4
     matched: list[str] = []
     unmatched: list[str] = []
     weights = {
