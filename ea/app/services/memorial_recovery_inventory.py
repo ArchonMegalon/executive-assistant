@@ -1431,6 +1431,20 @@ def _restore_writes(
     return list(unique.values())
 
 
+def _restore_content_matches(*, path: Path, current: bytes, expected: bytes) -> bool:
+    family_names = {
+        family_contributions.PRIVATE_FILENAME,
+        family_contributions.PUBLIC_FILENAME,
+    }
+    if path.name in family_names:
+        current = _canonical_json_bytes(_decode_json_bytes(current))
+        expected = _canonical_json_bytes(_decode_json_bytes(expected))
+    return hmac.compare_digest(
+        hashlib.sha256(current).digest(),
+        hashlib.sha256(expected).digest(),
+    )
+
+
 def restore_memorial_recovery_inventory(
     *,
     inventory_path: str,
@@ -1483,8 +1497,14 @@ def restore_memorial_recovery_inventory(
     existing: list[tuple[Path, bytes, int, Path]] = []
     for write in writes:
         path, content, mode, _root = write
+        read_limit = max(len(content), 1)
+        if path.name in {
+            family_contributions.PRIVATE_FILENAME,
+            family_contributions.PUBLIC_FILENAME,
+        }:
+            read_limit = max(read_limit, _MAX_JSON_FILE_BYTES)
         try:
-            current = _read_regular_file(path, max_bytes=max(len(content), 1))
+            current = _read_regular_file(path, max_bytes=read_limit)
         except FileNotFoundError:
             to_create.append(write)
             continue
@@ -1492,9 +1512,7 @@ def restore_memorial_recovery_inventory(
             raise ValueError(
                 "memorial_recovery_inventory_restore_target_invalid"
             ) from exc
-        if not hmac.compare_digest(
-            hashlib.sha256(current).digest(), hashlib.sha256(content).digest()
-        ):
+        if not _restore_content_matches(path=path, current=current, expected=content):
             raise ValueError("memorial_recovery_inventory_restore_target_conflict")
         existing.append(write)
     result = {

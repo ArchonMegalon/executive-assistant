@@ -78,6 +78,7 @@ services:
       EA_AUDIOBOOK_UNMIXR_AUTO_RENDER: "0"
       EA_AUDIOBOOKSHELF_AUTO_IMPORT: "0"
       HOME: /home/ea
+      PYTHONPATH: /app
       TZ: Europe/Vienna
     volumes:
       - ${EA_MANFRED_RELEASE_ROOT:?prepared release root is required}/public_memorials:/data/memorial/public:ro

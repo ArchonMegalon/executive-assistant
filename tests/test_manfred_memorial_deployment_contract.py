@@ -55,6 +55,7 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
     assert environment["EA_ALLOW_LOOPBACK_NO_AUTH"] == "0"
     assert environment["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] == "0"
     assert environment["EA_TRUST_API_TOKEN_PRINCIPAL_HEADER"] == "0"
+    assert environment["PYTHONPATH"] == "/app"
 
     assert environment["EA_PUBLIC_MEMORIAL_DIR"] != environment[
         "EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR"

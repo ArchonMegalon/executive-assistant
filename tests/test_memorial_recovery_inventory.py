@@ -365,6 +365,18 @@ def test_inventory_roundtrip_keeps_source_and_contribution_roots_separate(
         public_root=source_public,
     )
     assert verified["contribution_sources_verified"] is True
+    source_dry_run = memorial_recovery_inventory.restore_memorial_recovery_inventory(
+        inventory_path=str(inventory),
+        expected_memorial_slug="manfred",
+        dry_run=True,
+        public_root=source_public,
+        private_root=source_private,
+        archive_root=source_archive,
+        public_contribution_root=source_public_contributions,
+        private_contribution_root=source_private_contributions,
+    )
+    assert source_dry_run["files_existing"] >= 2
+    assert source_dry_run["files_created"] == 0
     changed_projection = json.loads(
         source_public_contribution.read_text(encoding="utf-8")
     )
