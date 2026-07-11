@@ -6,7 +6,7 @@
   "review_status": "approved",
   "viewer_type": "smart_document",
   "version": "2026-06-05",
-  "source_owner": "Manfred Memorial Archive",
+  "source_owner": "Manfred Gedenkarchiv",
   "archive_section_title": "Familienarchiv",
   "fliplink_slug": "manfred-family-letters-v01",
   "fliplink_url": "https://archive.example.test/manfred-family-letters-v01",
@@ -15,18 +15,18 @@
     "source.md"
   ],
   "build_artifacts": {
-    "html_path": "../memorial_archive/manfred/family/manfred-family-letters-v01/build/index.html",
-    "pdf_path": "../memorial_archive/manfred/family/manfred-family-letters-v01/build/output.pdf"
+    "html_path": "build/index.html",
+    "pdf_path": "build/output.pdf"
   },
-  "sha256": "05e66b17864604e1d2204d7fff72bcfe9151ecd5246631e66a3e05d6283af6d5",
-  "description": "Kuratiertes familiennahes Material in geschuetzter Form, nicht als Rohquelle.",
-  "correction_contact": "memorial@example.test",
-  "ai_disclosure": "AI-assisted formatting, no direct speech claim unless explicitly marked as verbatim source.",
-  "contact_or_correction_path": "memorial@example.test",
+  "sha256": "c5ab2c8caaf3f9fe88cd4bee2c1cb6c924554106b98d147fdbf4d49cae1d091b",
+  "description": "Kuratiertes familiennahes Material in gesch\u00fctzter Form, nicht als Rohquelle.",
+  "correction_contact": "memorial@myexternalbrain.com",
+  "ai_disclosure": "KI-unterst\u00fctzte Formatierung; keine direkte Rede von Manfred, sofern sie nicht ausdr\u00fccklich als w\u00f6rtliche Quelle gekennzeichnet ist.",
+  "contact_or_correction_path": "memorial@myexternalbrain.com",
   "noindex": true,
   "share_with_memorial_app": false,
   "public": false,
   "published_date": "2026-06-05",
   "source_sha256": "747c84af5a8631f71a24df7f69889fa8ed407e3e60080d6456d9112a80d4d5e9",
-  "built_at": "2026-06-06T03:36:37Z"
+  "built_at": "2026-07-11T07:07:13Z"
 }

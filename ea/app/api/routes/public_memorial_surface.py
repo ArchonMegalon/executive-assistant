@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import html
 import mimetypes
 
 from fastapi import APIRouter, HTTPException, Request
@@ -25,6 +24,7 @@ from app.api.routes.public_memorial_surface_support import (
     _safe_slug,
     request_hostname,
 )
+from app.services.memorial_family_contributions import merge_public_family_contributions
 
 
 router = APIRouter(tags=["public-memorial-surface"])
@@ -59,12 +59,12 @@ _PUBLIC_MEMORIAL_ERROR_HEADERS = {
 
 
 def _public_surface_html_error_response(status_code: int, detail: str) -> HTMLResponse:
-    safe_detail = html.escape(str(detail), quote=True)
+    del detail
     return HTMLResponse(
         (
-            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            "<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-            "<title>Memorial unavailable</title>"
+            "<title>Erinnerungsseite gerade nicht erreichbar</title>"
             "<style>"
             ":root{color-scheme:light;--ink:#2d211a;--ink-soft:#67584c;--line:rgba(72,53,36,.16);--paper:rgba(255,251,246,.95);"
             "--shadow:0 28px 60px rgba(66,45,29,.12);--accent:#8c6949;}"
@@ -75,11 +75,13 @@ def _public_surface_html_error_response(status_code: int, detail: str) -> HTMLRe
             "box-shadow:var(--shadow);}h1{margin:0 0 14px;font-family:\"Iowan Old Style\",\"Palatino Linotype\",Georgia,serif;"
             "font-size:clamp(2rem,5vw,3rem);line-height:1.04;}p{margin:0 0 12px;line-height:1.6;color:var(--ink-soft);}"
             ".kicker{display:inline-block;margin-bottom:14px;font-size:.82rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);}"
-            "code{display:inline-block;padding:2px 7px;border-radius:999px;background:rgba(75,58,43,.08);color:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;}"
-            "</style></head><body><main><div class=\"kicker\">Memorial Surface</div><h1>Memorial unavailable</h1>"
-            "<p>This memorial page is not available right now.</p>"
-            f"<p>Detail: <code>{safe_detail}</code></p>"
-            "<p>If you expected this page to exist, verify the memorial slug and republish the public memorial bundle before sharing the link again.</p>"
+            ".actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}.actions a{display:inline-flex;align-items:center;min-height:44px;padding:10px 16px;"
+            "border:1px solid var(--line);border-radius:999px;color:var(--ink);font-weight:700;text-underline-offset:3px;}"
+            "</style></head><body><main><div class=\"kicker\">Erinnerungsseite</div>"
+            "<h1>Diese Seite ist gerade nicht erreichbar.</h1>"
+            "<p>Der Link kann vorübergehend nicht verfügbar sein. Private oder technische Details werden hier nicht angezeigt.</p>"
+            "<p>Versuche es bitte noch einmal. Wenn die Seite weiter fehlt, frage die Person, von der du den Link erhalten hast.</p>"
+            "<div class=\"actions\"><a href=\"\">Erneut versuchen</a><a href=\"/\">Zur Startseite</a></div>"
             "</main></body></html>"
         ),
         status_code=status_code,
@@ -95,10 +97,18 @@ def _public_surface_error_response(status_code: int, detail: str) -> JSONRespons
     )
 
 
+def _load_public_surface_memorial(slug: str) -> dict[str, object]:
+    payload = _load_memorial(slug)
+    return merge_public_family_contributions(slug=slug, memorial=payload)
+
+
 @router.get("/memorials/{slug}.json")
 def public_memorial_manifest(slug: str) -> JSONResponse:
     try:
-        return JSONResponse(_public_memorial_payload(_load_memorial(slug)), headers=dict(_PUBLIC_MEMORIAL_SUPPORT_HEADERS))
+        return JSONResponse(
+            _public_memorial_payload(_load_public_surface_memorial(slug)),
+            headers=dict(_PUBLIC_MEMORIAL_SUPPORT_HEADERS),
+        )
     except HTTPException as exc:
         return _public_surface_error_response(exc.status_code, str(exc.detail))
 
@@ -115,7 +125,7 @@ def public_memorial_archive_manifest(slug: str) -> JSONResponse:
 @router.get("/memorials/{slug}/archive")
 def public_memorial_archive_index(slug: str, request: Request) -> HTMLResponse:
     try:
-        payload = _load_memorial(slug)
+        payload = _load_public_surface_memorial(slug)
         private_profile = _load_private_profile(slug)
         _prime_memorial_live_warmup_on_page_render(slug)
         response = HTMLResponse(
@@ -244,7 +254,7 @@ def public_memorial_file(slug: str, asset_path: str) -> FileResponse:
 @router.get("/memorials/{slug}", response_class=HTMLResponse)
 def public_memorial_page(slug: str, request: Request) -> HTMLResponse:
     try:
-        payload = _load_memorial(slug)
+        payload = _load_public_surface_memorial(slug)
         private_profile = _load_private_profile(slug)
         hostname = request_hostname(request)
         _prime_memorial_live_warmup_on_page_render(slug)
@@ -265,7 +275,7 @@ def public_memorial_page(slug: str, request: Request) -> HTMLResponse:
 @router.head("/memorials/{slug}")
 def public_memorial_head(slug: str, request: Request) -> HTMLResponse:
     try:
-        payload = _load_memorial(slug)
+        payload = _load_public_surface_memorial(slug)
         private_profile = _load_private_profile(slug)
         hostname = request_hostname(request)
         response = HTMLResponse(

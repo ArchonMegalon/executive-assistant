@@ -163,7 +163,11 @@ def test_public_memorial_json_is_sanitized_and_raw_manifest_is_blocked(
         }
     ]
     assert body["memory_cards"] == [
-        {"title": "Approved memory", "body": "[stark redigiert]"},
+        {
+            "title": "Approved memory",
+            "body": "[stark redigiert]",
+            "curation_status": "strongly_redacted_preview",
+        },
     ]
     assert body["source_grounded_profile"] == [{"trait": "Approved trait"}]
     assert body["external_sources"] == []
@@ -1874,13 +1878,19 @@ def test_public_memorial_page_exposes_conversation_settings_and_memory_consent_c
     assert 'id="memorial-personal-memory-status"' in body
     assert 'id="memorial-personal-memory-forget"' in body
     assert 'id="memorial-personal-memory-forget" disabled aria-disabled="true"' in body
-    assert "Nur in diesem Browser" in body
-    assert "Dieses Browser-Gedächtnis löschen" in body
+    assert "pseudonym auf unserem Server gespeichert" in body
+    assert "Mit diesem Browser verknüpfen" in body
+    assert "Gesprächsgedächtnis löschen" in body
+    assert "Persönliche Gesprächserinnerungen bleiben nur in diesem Browser" not in body
+    assert "Nur dieses Gerät merkt sich etwas" not in body
     assert 'href="/security"' in body
     assert 'href="/data-deletion"' in body
     assert "Sicherheit" in body
     assert "Datenlöschung" in body
-    assert "Erst persönliches Gesprächsgedächtnis aktivieren" in body
+    assert "Es gibt noch kein Gesprächsgedächtnis zu löschen" in body
+    assert "KI-gestützten, synthetischen Manfred-Stimme" in body
+    assert "eingesetzte Sprachdienste verarbeiten das Audio" in body
+    assert 'href="#memorial-conversation-region">Zum Gespräch mit Manfred Hoza</a>' in body
     assert "/memorials/manfred/realtime" in body
     assert "/memorials/manfred/realtime/webrtc" not in body
     assert "RTCPeerConnection" not in body
@@ -1890,6 +1900,25 @@ def test_public_memorial_page_exposes_conversation_settings_and_memory_consent_c
     assert "ensureRealtimeSocket" in body
     assert "user_audio_start" in body
     assert "user_audio_end" in body
+    assert "personal_memory_enabled: true" not in body
+    assert "personal_memory_enabled: personalMemoryEnabled()" in body
+    assert 'params.set("personal_memory", personalMemoryEnabled() ? "1" : "0")' in body
+    assert 'conversationButton.setAttribute("aria-label", label)' in body
+    assert 'conversationButton.setAttribute("title", label)' in body
+    assert 'id="memorial-text-turn-form"' in body
+    assert 'for="memorial-text-turn-input">Oder ohne Mikrofon schreiben</label>' in body
+    assert 'type: "user_text_turn"' in body
+    assert "setMicrophoneFailureStatus" in body
+    assert "Der Mikrofonzugriff ist blockiert." in body
+    assert 'id="memorial-speech-transcript" role="log" aria-label="Gesprächsverlauf"' in body
+    assert 'aria-controls="memorial-chat-status" aria-expanded="false"' in body
+    assert 'behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth"' in body
+    assert 'id="memorial-contribution-form"' in body
+    assert "Eine Erinnerung beitragen" in body
+    assert "bleibt zunächst privat" in body
+    assert 'id="memorial-contribution-consent"' in body
+    assert 'id="memorial-contribution-withdraw" hidden' in body
+    assert 'id="memorial-contribution-token"' not in body
     assert "/memorials/manfred/conversation-turn" not in body
     assert "overflow-wrap: anywhere;" not in body
     assert ".hero-cta:not([disabled]):hover" in body
@@ -1942,7 +1971,7 @@ def test_public_memorial_personal_memory_status_is_guest_safe_without_cookie(
     }
 
 
-def test_public_memorial_personal_memory_status_and_forget_reflect_signed_guest_store(
+def test_public_memorial_personal_memory_status_and_forget_work_while_opted_out(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2007,7 +2036,7 @@ def test_public_memorial_personal_memory_status_and_forget_reflect_signed_guest_
 
     forget_response = client.delete(
         f"/memorials/{slug}/personal-memory",
-        headers={"host": "myexternalbrain.com", "x-memorial-personal-memory": "1"},
+        headers={"host": "myexternalbrain.com", "x-memorial-personal-memory": "0"},
     )
 
     assert forget_response.status_code == 200
@@ -2017,7 +2046,7 @@ def test_public_memorial_personal_memory_status_and_forget_reflect_signed_guest_
     assert forget_response.json() == {
         "status": "forgotten",
         "available": True,
-        "enabled": True,
+        "enabled": False,
         "guest_mode": True,
         "has_login": False,
         "item_count": 0,
@@ -2231,9 +2260,11 @@ def test_public_memorial_page_missing_slug_uses_hardened_html_404_response(
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.headers.get("X-Frame-Options") == "DENY"
     assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
-    assert "Memorial unavailable" in response.text
-    assert "This memorial page is not available right now." in response.text
-    assert "memorial_not_found" in response.text
+    assert '<html lang="de">' in response.text
+    assert "Diese Seite ist gerade nicht erreichbar." in response.text
+    assert "Erneut versuchen" in response.text
+    assert "Zur Startseite" in response.text
+    assert "memorial_not_found" not in response.text
 
 
 def test_public_memorial_manifest_missing_slug_uses_hardened_json_404_response(
@@ -2291,8 +2322,8 @@ def test_public_memorial_archive_publication_missing_slug_uses_hardened_html_404
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.headers.get("X-Frame-Options") == "DENY"
     assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
-    assert "Memorial unavailable" in response.text
-    assert "memorial_not_found" in response.text
+    assert "Diese Seite ist gerade nicht erreichbar." in response.text
+    assert "memorial_not_found" not in response.text
 
 
 def test_public_memorial_service_worker_missing_slug_uses_hardened_json_404_response(
@@ -2314,15 +2345,16 @@ def test_public_memorial_service_worker_missing_slug_uses_hardened_json_404_resp
     assert response.json()["detail"] == "memorial_not_found"
 
 
-def test_public_memorial_html_error_response_escapes_detail_markup() -> None:
+def test_public_memorial_html_error_response_hides_private_detail_markup() -> None:
     from app.api.routes.public_memorial_surface import _public_surface_html_error_response
 
     response = _public_surface_html_error_response(404, '<script>alert("x")</script>')
     body = response.body.decode("utf-8")
 
     assert response.status_code == 404
-    assert '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;' in body
+    assert '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;' not in body
     assert '<script>alert("x")</script>' not in body
+    assert "Private oder technische Details werden hier nicht angezeigt." in body
 
 
 def test_public_memorial_archive_manifest_missing_slug_uses_hardened_json_404_response(
@@ -2573,9 +2605,9 @@ def test_public_memorial_archive_publication_missing_uses_hardened_404_response(
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.headers.get("X-Frame-Options") == "DENY"
     assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
-    assert "Memorial unavailable" in response.text
-    assert "This memorial page is not available right now." in response.text
-    assert "memorial_archive_publication_not_found" in response.text
+    assert "Diese Seite ist gerade nicht erreichbar." in response.text
+    assert "Erneut versuchen" in response.text
+    assert "memorial_archive_publication_not_found" not in response.text
 
 
 def test_public_speech_synthesize_rejects_client_voice_overrides(
@@ -4260,6 +4292,52 @@ def test_public_memorial_operator_gold_page_requires_operator_surface_and_write_
     assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
     assert "Memorial operator access required" in response.text
     assert "memorial_write_unauthorized" in response.text
+
+
+def test_public_memorial_preserves_explicitly_approved_curated_memory_excerpt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    approved_excerpt = (
+        "Manfred hörte aufmerksam zu, fragte nach den konkreten Folgen und half dann ruhig dabei, "
+        "den nächsten verantwortbaren Schritt zu finden."
+    )
+    _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "audio_clips": [],
+            "memory_cards": [
+                {
+                    "visibility": "public",
+                    "public": True,
+                    "title": "Ruhig den nächsten Schritt finden",
+                    "body": "Unredigierter Arbeitsentwurf darf nicht erscheinen.",
+                    "public_excerpt": approved_excerpt,
+                }
+            ],
+        },
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-curated-excerpt")
+    public_json = client.get(f"/memorials/{slug}.json", headers={"host": "myexternalbrain.com"})
+    public_page = client.get(f"/memorials/{slug}", headers={"host": "myexternalbrain.com"})
+
+    assert public_json.status_code == 200
+    assert public_json.json()["memory_cards"][0]["body"] == approved_excerpt
+    assert public_json.json()["memory_cards"][0]["curation_status"] == "approved_public_excerpt"
+    assert public_page.status_code == 200
+    assert approved_excerpt in public_page.text
+    assert "Freigegebene Erinnerung" in public_page.text
+    assert "Unredigierter Arbeitsentwurf" not in public_json.text
+    assert "Unredigierter Arbeitsentwurf" not in public_page.text
 
 
 def test_difficult_memory_defaults_to_blocked_first_person_reconstruction(

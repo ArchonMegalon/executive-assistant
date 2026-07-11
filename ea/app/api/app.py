@@ -61,11 +61,15 @@ def _include_public_routes(
         app.include_router(public_tours_router)
     if settings.public_memorials_enabled:
         from app.api.routes.public_memorial_conversation import router as public_memorial_conversation_router
+        from app.api.routes.public_memorial_contributions import router as public_memorial_contributions_router
         from app.api.routes.public_memorial_operator import router as public_memorial_operator_router
         from app.api.routes.public_memorial_runtime import router as public_memorial_runtime_router
+        from app.api.routes.public_memorial_share import router as public_memorial_share_router
         from app.api.routes.public_memorial_surface import router as public_memorial_surface_router
 
         app.include_router(public_memorial_surface_router)
+        app.include_router(public_memorial_share_router)
+        app.include_router(public_memorial_contributions_router)
         app.include_router(public_memorial_conversation_router)
         app.include_router(public_memorial_runtime_router)
         app.include_router(public_memorial_operator_router)

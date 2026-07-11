@@ -394,6 +394,10 @@ def test_memorial_flagship_live_browser_measurement_passes(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "memorial-live-turn-gate.json"
+    inherited_tmpdir = tmp_path / ("deeply-nested-playwright-temp-root-" * 4)
+    inherited_tmpdir.mkdir()
+    env = dict(os.environ)
+    env["TMPDIR"] = str(inherited_tmpdir)
     python_bin = ROOT / ".venv" / "bin" / "python"
     if not python_bin.is_file():
         python_bin = Path(sys.executable)
@@ -412,7 +416,7 @@ def test_memorial_flagship_live_browser_measurement_passes(
         check=False,
         capture_output=True,
         text=True,
-        env=dict(os.environ),
+        env=env,
     )
 
     assert result.returncode == 0, result.stderr or result.stdout

@@ -1,0 +1,82 @@
+{
+  "archive_sections": [
+    {
+      "audience": "public",
+      "items": [
+        "manfred-how-this-memorial-works",
+        "manfred-life-overview",
+        "manfred-public-memory-cards-v01",
+        "manfred-source-disclosure"
+      ],
+      "title": "\u00d6ffentliches Archiv"
+    }
+  ],
+  "fliplink_publications": [
+    {
+      "audience": "public",
+      "description": "Erkl\u00e4rt Quellen, Grenzen, KI-Nutzung und den Unterschied zwischen Archiv und Gespr\u00e4ch.",
+      "id": "manfred-how-this-memorial-works",
+      "noindex": false,
+      "publication_id": "",
+      "review_status": "published",
+      "sensitivity": "PUBLIC",
+      "slug": "manfred-how-this-memorial-works",
+      "thumbnail": "",
+      "title": "So funktioniert diese Gedenkseite",
+      "type": "smart_document",
+      "url": "/memorials/manfred/archive/manfred-how-this-memorial-works",
+      "version": "2026-06-05",
+      "viewer_type": "smart_document"
+    },
+    {
+      "audience": "public",
+      "description": "Ein gepr\u00fcfter \u00dcberblick \u00fcber Leben, Quellen und zentrale Erinnerungsmuster.",
+      "id": "manfred-life-overview",
+      "noindex": false,
+      "publication_id": "",
+      "review_status": "published",
+      "sensitivity": "PUBLIC",
+      "slug": "manfred-life-overview",
+      "thumbnail": "",
+      "title": "Manfred: \u00dcberblick",
+      "type": "smart_document",
+      "url": "/memorials/manfred/archive/manfred-life-overview",
+      "version": "2026-06-05",
+      "viewer_type": "smart_document"
+    },
+    {
+      "audience": "public",
+      "description": "Kleine kuratierte Erinnerungs- und Quellenkarten f\u00fcr den \u00f6ffentlichen Einstieg.",
+      "id": "manfred-public-memory-cards-v01",
+      "noindex": false,
+      "publication_id": "",
+      "review_status": "published",
+      "sensitivity": "PUBLIC",
+      "slug": "manfred-public-memory-cards-v01",
+      "thumbnail": "",
+      "title": "Oeffentliche Erinnerungskarten",
+      "type": "flipbook",
+      "url": "/memorials/manfred/archive/manfred-public-memory-cards-v01",
+      "version": "2026-06-05",
+      "viewer_type": "flipbook"
+    },
+    {
+      "audience": "public",
+      "description": "Offenlegung zu Quellenlagen, Unsicherheiten, \u00dcberarbeitung und KI-Assistenz.",
+      "id": "manfred-source-disclosure",
+      "noindex": false,
+      "publication_id": "",
+      "review_status": "published",
+      "sensitivity": "PUBLIC",
+      "slug": "manfred-source-disclosure",
+      "thumbnail": "",
+      "title": "Quellen und AI-Hinweise",
+      "type": "smart_document",
+      "url": "/memorials/manfred/archive/manfred-source-disclosure",
+      "version": "2026-06-05",
+      "viewer_type": "smart_document"
+    }
+  ],
+  "generated_at": "2026-07-11T07:07:13Z",
+  "slug": "manfred"
+}

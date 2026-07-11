@@ -340,11 +340,15 @@ def _install_fake_audio_runtime(context) -> None:
         """
         (() => {
           navigator.mediaDevices = navigator.mediaDevices || {};
-          navigator.mediaDevices.getUserMedia = async () => ({
-            getTracks() {
-              return [{ stop() {} }];
-            },
-          });
+          window.__memorialGetUserMediaCalls = 0;
+          navigator.mediaDevices.getUserMedia = async () => {
+            window.__memorialGetUserMediaCalls += 1;
+            return {
+              getTracks() {
+                return [{ stop() {} }];
+              },
+            };
+          };
 
           class FakeMediaRecorder {
             constructor(stream, options) {
@@ -378,9 +382,11 @@ def _install_fake_audio_runtime(context) -> None:
 
           window.MediaRecorder = FakeMediaRecorder;
           window.__memorialRealtimeFrames = [];
+          window.__memorialRealtimeUrls = [];
           const OriginalWebSocket = window.WebSocket;
           if (typeof OriginalWebSocket === "function") {
             window.WebSocket = function(url, protocols) {
+              window.__memorialRealtimeUrls.push(String(url || ""));
               const socket = protocols != null ? new OriginalWebSocket(url, protocols) : new OriginalWebSocket(url);
               socket.addEventListener("message", (event) => {
                 window.__memorialRealtimeFrames.push(String((event && event.data) || ""));
@@ -488,8 +494,12 @@ def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
-        assert page.locator("#memorial-conversation").count() == 1
-        assert page.locator("#memorial-conversation").get_attribute("aria-label") == "Gespräch beginnen"
+        conversation_button = page.locator("#memorial-conversation")
+        assert conversation_button.count() == 1
+        initial_label = (conversation_button.text_content() or "").strip()
+        assert initial_label in {"Gespräch wird vorbereitet …", "Gespräch beginnen"}
+        assert conversation_button.get_attribute("aria-label") == initial_label
+        assert conversation_button.get_attribute("title") == initial_label
 
         assert page.locator("header + main#memorial-story").count() == 1
         assert page.locator("main#memorial-story + aside#memorial-conversation-region").count() == 1
@@ -655,6 +665,25 @@ def test_memorial_public_page_finishes_one_browser_turn_without_followup_overlap
             lambda: page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()"),
             timeout_ms=12000,
         )
+        active_button = page.locator("#memorial-conversation")
+        assert "Gespräch stoppen" in ((active_button.text_content() or "").strip())
+        assert active_button.get_attribute("aria-label") == "Gespräch stoppen"
+        assert active_button.get_attribute("title") == "Gespräch stoppen"
+        assert active_button.get_attribute("aria-pressed") == "true"
+        default_memory = page.evaluate(
+            """async (currentSlug) => {
+              const response = await fetch(`/memorials/${currentSlug}/personal-memory`, {
+                headers: {"x-memorial-personal-memory": "0"},
+              });
+              return response.json();
+            }""",
+            slug,
+        )
+        assert default_memory["enabled"] is False
+        assert default_memory["item_count"] == 0
+        realtime_urls = page.evaluate("() => window.__memorialRealtimeUrls.slice()")
+        assert realtime_urls
+        assert all("personal_memory=0" in str(url) for url in realtime_urls)
         page.wait_for_function(
             """() => {
               const audio = document.getElementById("memorial-speech-audio");
@@ -676,8 +705,327 @@ def test_memorial_public_page_finishes_one_browser_turn_without_followup_overlap
             timeout=7000,
         )
         assert page.locator("#memorial-retry-button").is_hidden()
-        assert "Gespräch beginnen" in ((page.locator("#memorial-conversation").text_content() or "").strip())
+        stopped_button = page.locator("#memorial-conversation")
+        assert "Gespräch beginnen" in ((stopped_button.text_content() or "").strip())
+        assert stopped_button.get_attribute("aria-label") == "Gespräch beginnen"
+        assert stopped_button.get_attribute("title") == "Gespräch beginnen"
+        assert stopped_button.get_attribute("aria-pressed") == "false"
         phase_text = page.locator("#memorial-speech-phase").text_content() or ""
         assert phase_text in {"Ich bin da.", "Bereit"}
+    finally:
+        context.close()
+
+
+def test_memorial_browser_persists_turn_only_after_personal_memory_opt_in(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_browser_server["base_url"])
+    slug = str(memorial_browser_server["slug"])
+    context = browser.new_context(viewport={"width": 430, "height": 932})
+    _install_fake_audio_runtime(context)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        _await_conversation_ready(page)
+        page.locator("details.conversation-settings > summary").click()
+        page.locator("#memorial-personal-memory-optin").check()
+        _await_realtime_turn_complete(
+            page,
+            slug,
+            lambda: page.locator("#memorial-conversation").click(),
+            timeout_ms=12000,
+        )
+        opted_in_memory = page.evaluate(
+            """async (currentSlug) => {
+              const response = await fetch(`/memorials/${currentSlug}/personal-memory`, {
+                headers: {"x-memorial-personal-memory": "1"},
+              });
+              return response.json();
+            }""",
+            slug,
+        )
+        assert opted_in_memory["enabled"] is True
+        assert opted_in_memory["item_count"] == 1
+        realtime_urls = page.evaluate("() => window.__memorialRealtimeUrls.slice()")
+        assert realtime_urls
+        assert all("personal_memory=1" in str(url) for url in realtime_urls)
+        page.locator("#memorial-conversation").click()
+        page.wait_for_function(
+            """() => {
+              const button = document.getElementById("memorial-conversation");
+              return Boolean(button && button.getAttribute("aria-pressed") === "false");
+            }""",
+            timeout=7000,
+        )
+    finally:
+        context.close()
+
+
+def test_memorial_browser_keyboard_text_turn_does_not_request_microphone(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_browser_server["base_url"])
+    slug = str(memorial_browser_server["slug"])
+    context = browser.new_context(viewport={"width": 430, "height": 932})
+    _install_fake_audio_runtime(context)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        _await_conversation_ready(page)
+        text_input = page.locator("#memorial-text-turn-input")
+        text_input.fill("Woran soll ich mich heute erinnern?")
+        text_input.press("Enter")
+        page.wait_for_function(
+            """() => {
+              const answer = document.getElementById("memorial-chat-answer");
+              const input = document.getElementById("memorial-text-turn-input");
+              return Boolean(answer && !answer.hidden && answer.textContent.trim() && input && !input.disabled);
+            }""",
+            timeout=12000,
+        )
+        assert int(page.evaluate("() => window.__memorialGetUserMediaCalls || 0")) == 0
+        assert page.locator("#memorial-conversation").get_attribute("aria-pressed") == "false"
+        assert page.locator("#memorial-chat-answer").text_content()
+    finally:
+        context.close()
+
+
+def test_memorial_browser_explains_microphone_permission_denial_and_keeps_text_fallback(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_browser_server["base_url"])
+    slug = str(memorial_browser_server["slug"])
+    context = browser.new_context(viewport={"width": 430, "height": 932})
+    _install_fake_audio_runtime(context)
+    context.add_init_script(
+        """
+        (() => {
+          navigator.mediaDevices = navigator.mediaDevices || {};
+          navigator.mediaDevices.getUserMedia = async () => {
+            window.__memorialGetUserMediaCalls = (window.__memorialGetUserMediaCalls || 0) + 1;
+            throw new DOMException("permission denied", "NotAllowedError");
+          };
+        })();
+        """
+    )
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        _await_conversation_ready(page)
+        page.locator("#memorial-conversation").click()
+        page.wait_for_function(
+            """() => {
+              const message = document.getElementById("memorial-speech-message");
+              return Boolean(message && message.textContent.includes("Mikrofonzugriff ist blockiert"));
+            }""",
+            timeout=7000,
+        )
+        assert "Browser-Einstellungen" in (page.locator("#memorial-speech-detail").text_content() or "")
+        assert page.locator("#memorial-text-turn-input").is_enabled()
+        assert page.locator("#memorial-retry-button").is_visible()
+    finally:
+        context.close()
+
+
+def test_memorial_browser_voice_warmup_failure_reaches_retry_and_text_fallback(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_live_warmup_snapshot",
+        lambda warmup_slug: {
+            "status": "failed",
+            "warm": False,
+            "inflight": False,
+            "started_at": time.time() - 2.0,
+            "completed_at": time.time() - 1.0,
+            "expires_at": 0.0,
+            "ttl_remaining_seconds": 0.0,
+            "errors": ["provider_unavailable"],
+            "voice_required": True,
+            "voice_ready": False,
+            "voice_inflight": False,
+            "voice_prewarm_state": "failed",
+            "voice_started_at": time.time() - 2.0,
+            "voice_completed_at": time.time() - 1.0,
+            "voice_expires_at": 0.0,
+            "voice_ttl_remaining_seconds": 0.0,
+            "voice_errors": ["provider_unavailable"],
+            "operator_recheck_after_seconds": 1,
+        },
+    )
+    base_url = str(memorial_browser_server["base_url"])
+    slug = str(memorial_browser_server["slug"])
+    context = browser.new_context(viewport={"width": 430, "height": 932})
+    _install_fake_audio_runtime(context)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.wait_for_function(
+            """() => {
+              const message = document.getElementById("memorial-speech-message");
+              const retry = document.getElementById("memorial-retry-button");
+              return Boolean(
+                message && message.textContent.includes("Stimme ist gerade nicht verfügbar") &&
+                retry && !retry.hidden && retry.textContent.includes("Stimme erneut prüfen")
+              );
+            }""",
+            timeout=7000,
+        )
+        assert page.locator("#memorial-conversation").is_disabled()
+        assert page.locator("#memorial-text-turn-input").is_enabled()
+        assert "Frage eintippen" in (page.locator("#memorial-speech-detail").text_content() or "")
+    finally:
+        context.close()
+
+
+def test_memorial_browser_family_contribution_stays_private_and_can_be_withdrawn(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_browser_server["base_url"])
+    slug = str(memorial_browser_server["slug"])
+    context = browser.new_context(viewport={"width": 430, "height": 932})
+    page: Page = context.new_page()
+    private_sentinel = "BROWSER_PRIVATE_FAMILY_MEMORY_MUST_NOT_ESCAPE"
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator("#memorial-contribution-title-input").fill("Ein ruhiger Familienmoment")
+        page.locator("#memorial-contribution-body").fill(private_sentinel)
+        page.locator("#memorial-contribution-name").fill("Familienmitglied")
+        page.locator("#memorial-contribution-relationship").fill("Familie")
+        page.locator("#memorial-contribution-consent").check()
+        page.locator("#memorial-contribution-submit").click()
+        page.wait_for_function(
+            """() => {
+              const status = document.getElementById("memorial-contribution-status");
+              return Boolean(status && status.textContent.includes("Der Beitrag bleibt privat"));
+            }""",
+            timeout=7000,
+        )
+        stored_receipt = page.evaluate(
+            """() => {
+              const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
+              return key ? JSON.parse(localStorage.getItem(key)) : null;
+            }"""
+        )
+        assert len(stored_receipt) == 1
+        assert stored_receipt[0]["contribution_id"]
+        assert stored_receipt[0]["manage_token"]
+        public_payload = page.evaluate(
+            """async (currentSlug) => {
+              const response = await fetch(`/memorials/${currentSlug}.json`);
+              return response.json();
+            }""",
+            slug,
+        )
+        assert private_sentinel not in json.dumps(public_payload)
+        assert page.locator("#memorial-contribution-withdraw").is_visible()
+
+        page.locator("#memorial-contribution-title-input").fill("Noch eine Erinnerung")
+        page.locator("#memorial-contribution-body").fill(
+            "SECOND_BROWSER_PRIVATE_MEMORY_MUST_NOT_ESCAPE"
+        )
+        page.locator("#memorial-contribution-consent").check()
+        page.locator("#memorial-contribution-submit").click()
+        page.wait_for_function(
+            """() => {
+              const status = document.getElementById("memorial-contribution-status");
+              return Boolean(status && status.textContent.includes("Der Beitrag bleibt privat"));
+            }""",
+            timeout=7000,
+        )
+        assert page.evaluate(
+            """() => {
+              const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
+              const receipts = key ? JSON.parse(localStorage.getItem(key)) : [];
+              return Array.isArray(receipts) ? receipts.length : 0;
+            }"""
+        ) == 2
+
+        page.locator("#memorial-contribution-withdraw").click()
+        page.wait_for_function(
+            """() => {
+              const status = document.getElementById("memorial-contribution-status");
+              return Boolean(status && status.textContent.includes("wurde zurückgezogen"));
+            }""",
+            timeout=7000,
+        )
+        assert page.locator("#memorial-contribution-withdraw").is_visible()
+        assert page.evaluate(
+            """() => {
+              const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
+              const receipts = key ? JSON.parse(localStorage.getItem(key)) : [];
+              return Array.isArray(receipts) ? receipts.length : 0;
+            }"""
+        ) == 1
+
+        page.locator("#memorial-contribution-withdraw").click()
+        page.wait_for_function(
+            """() => {
+              const button = document.getElementById("memorial-contribution-withdraw");
+              return Boolean(button && button.hidden);
+            }""",
+            timeout=7000,
+        )
+        assert page.locator("#memorial-contribution-withdraw").is_hidden()
+        assert page.evaluate(
+            """() => !Object.keys(localStorage).some((item) => item.startsWith("memorial_contribution_receipt_"))"""
+        )
+    finally:
+        context.close()
+
+
+def test_memorial_browser_reduced_motion_avoids_smooth_answer_scroll(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_browser_server["base_url"])
+    slug = str(memorial_browser_server["slug"])
+    context = browser.new_context(
+        viewport={"width": 430, "height": 932},
+        reduced_motion="reduce",
+    )
+    context.add_init_script(
+        """
+        (() => {
+          window.__memorialScrollOptions = [];
+          Element.prototype.scrollIntoView = function(options) {
+            window.__memorialScrollOptions.push(options || {});
+          };
+        })();
+        """
+    )
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.evaluate(
+            """() => {
+              const answer = document.getElementById("memorial-chat-answer");
+              const tools = document.getElementById("memorial-chat-tools");
+              const read = document.getElementById("memorial-read-answer");
+              answer.hidden = false;
+              answer.textContent = "Eine sichtbare Antwort.";
+              tools.hidden = false;
+              read.hidden = false;
+            }"""
+        )
+        page.locator("#memorial-read-answer").click()
+        options = page.evaluate("() => window.__memorialScrollOptions.slice()")
+        assert options
+        assert options[-1]["behavior"] == "auto"
     finally:
         context.close()

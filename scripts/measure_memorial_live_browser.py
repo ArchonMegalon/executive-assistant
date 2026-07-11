@@ -17,6 +17,7 @@ import time
 import urllib.error
 import urllib.request
 import wave
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -715,7 +716,9 @@ def _should_accept_visible_answer_early(
 
 def _launch_chromium_with_startup_retry(playwright, **launch_kwargs):  # type: ignore[no-untyped-def]
     launch_errors: list[str] = []
-    for attempt in (1, 2):
+    max_attempts = 4
+    retry_delays = (0.75, 1.5, 3.0)
+    for attempt in range(1, max_attempts + 1):
         try:
             return playwright.chromium.launch(**launch_kwargs), attempt, launch_errors
         except Exception as exc:
@@ -729,9 +732,9 @@ def _launch_chromium_with_startup_retry(playwright, **launch_kwargs):  # type: i
                     "signal=SIGTRAP",
                 )
             )
-            if attempt >= 2 or not retryable:
+            if attempt >= max_attempts or not retryable:
                 raise
-            time.sleep(0.25)
+            time.sleep(retry_delays[attempt - 1])
     raise RuntimeError("browser_launch_unreachable")
 
 
@@ -776,6 +779,24 @@ def _resolve_chromium_executable(playwright) -> tuple[str | None, str]:  # type:
     return None, "playwright_unresolved"
 
 
+@contextmanager
+def _short_playwright_tmpdir():  # type: ignore[no-untyped-def]
+    """Keep Chromium's generated profile below Unix-domain socket path limits."""
+    previous_tmpdir = os.environ.get("TMPDIR")
+    short_root = Path("/tmp")
+    if not short_root.is_dir() or not os.access(short_root, os.W_OK | os.X_OK):
+        short_root = Path(tempfile.gettempdir())
+    with tempfile.TemporaryDirectory(prefix="ea-pw-", dir=str(short_root)) as tmpdir:
+        os.environ["TMPDIR"] = tmpdir
+        try:
+            yield Path(tmpdir)
+        finally:
+            if previous_tmpdir is None:
+                os.environ.pop("TMPDIR", None)
+            else:
+                os.environ["TMPDIR"] = previous_tmpdir
+
+
 def _measure(
     base_url: str,
     slug: str,
@@ -791,8 +812,8 @@ def _measure(
     warmup_preflight = _prewarm_memorial_origin(base_url, slug, timeout_seconds=25.0)
     semantic_profile = _semantic_profile_for_prompt(prompt_text)
     started = time.perf_counter()
-    with tempfile.TemporaryDirectory(prefix="memorial-live-browser-capture-") as tmpdir:
-        fake_capture_path = Path(tmpdir) / "prompt.16k.wav"
+    with _short_playwright_tmpdir() as tmpdir:
+        fake_capture_path = tmpdir / "prompt.16k.wav"
         fake_capture_path.write_bytes(audio_bytes)
         with sync_playwright() as playwright:  # pragma: no cover - exercised in live runs
             chromium_executable_path, chromium_executable_source = _resolve_chromium_executable(playwright)

@@ -74,6 +74,7 @@ from app.services.memorial_memory import (
     retrieve_memorial_memory_items,
     seed_memorial_source_memories,
 )
+from app.services.memorial_private_context import merge_private_memorial_context
 from app.services.memorial_archive_registry import archive_slug_root, load_json as load_archive_json
 from app.services.memorial_archive_registry import public_registry_path, public_registry_payload
 from app.services.memorial_video_meeting import (
@@ -215,6 +216,8 @@ _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "warmup": (3, 60),
     "playback_telemetry": (30, 60),
     "voice_ab_rate": (10, 60),
+    "family_contribution_submit": (6, 60),
+    "family_contribution_manage": (12, 60),
     "operator_route_write": (25, 60),
 }
 
@@ -824,6 +827,7 @@ def _public_memorial_payload(payload: dict[str, object]) -> dict[str, object]:
         public_memorial_archive_registry=_public_memorial_archive_registry,
         memorial_video_call_avatar=_memorial_video_call_avatar,
         public_video_meeting_payload=public_video_meeting_payload,
+        approved_memory_excerpt=_approved_public_memory_excerpt,
     )
 
 
@@ -2650,7 +2654,11 @@ def _load_memorial(slug: str) -> dict[str, object]:
         raise HTTPException(status_code=500, detail="memorial_payload_invalid") from exc
     if not isinstance(payload, dict):
         raise HTTPException(status_code=500, detail="memorial_payload_invalid")
-    return payload
+    return merge_private_memorial_context(
+        public_payload=payload,
+        private_root=_private_profile_dir(),
+        slug=_safe_slug(slug),
+    )
 
 
 def _collect_memorial_write_tokens(payload: dict[str, object]) -> list[str]:
@@ -9564,6 +9572,16 @@ def _censored_memory_preview(value: object) -> str:
     return "[stark redigiert] " + compact if compact else "[stark redigiert]"
 
 
+def _approved_public_memory_excerpt(value: object) -> str:
+    normalized = _public_memorial_story_text(value, max_chars=1200)
+    if not normalized:
+        return ""
+    normalized = re.sub(r"https?://\S+", "[redigiert]", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\b[\w.+-]+@[\w.-]+\.\w+\b", "[redigiert]", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\b\d[\d\s./:-]{5,}\b", "[redigiert]", normalized)
+    return re.sub(r"\s+", " ", normalized).strip(" ,;:-")
+
+
 def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str:
     safe_slug = _safe_slug(slug)
     intro = _public_memorial_story_text(payload.get("intro"), max_chars=900)
@@ -9612,14 +9630,16 @@ def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str
     memories_html: list[str] = []
     for card in _public_list(
         payload.get("memory_cards"),
-        allowed_keys={"title", "body", "source_label"},
+        allowed_keys={"title", "body", "source_label", "public_excerpt"},
     )[:8]:
         title = _public_memorial_story_text(card.get("title"), max_chars=160) or "Erinnerung"
-        preview = _censored_memory_preview(card.get("body") or card.get("title"))
+        approved_excerpt = _approved_public_memory_excerpt(card.get("public_excerpt"))
+        preview = approved_excerpt or _censored_memory_preview(card.get("body") or card.get("title"))
+        memory_kicker = "Freigegebene Erinnerung" if approved_excerpt else "Stark redigierte Kurzfassung"
         memories_html.append(
             f"""
         <article class="story-card memory-card">
-          <p class="story-kicker">Stark redigierte Kurzfassung</p>
+          <p class="story-kicker">{memory_kicker}</p>
           <h3>{html.escape(title)}</h3>
           <p>{html.escape(preview)}</p>
         </article>"""
@@ -9938,6 +9958,42 @@ def _minimal_public_memorial_html(
       }}
       .story-card > p:not(.story-kicker) {{ margin: 10px 0 0; color: var(--muted); }}
       .story-card audio {{ display: block; width: 100%; margin-top: 16px; }}
+      .contribution-panel {{
+        margin-top: clamp(34px, 7vw, 64px);
+        padding: clamp(22px, 5vw, 34px);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        background: rgba(255,251,244,.8);
+        box-shadow: 0 16px 34px rgba(56,45,36,.07);
+      }}
+      .contribution-panel > p:not(.story-kicker) {{ max-width: 64ch; color: var(--muted); }}
+      .contribution-form {{ display: grid; gap: 14px; margin-top: 22px; }}
+      .contribution-fields {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
+      .contribution-form label {{ display: grid; gap: 6px; color: var(--ink); font: 700 13px/1.35 ui-sans-serif, system-ui, sans-serif; }}
+      .contribution-form input:not([type="checkbox"]),
+      .contribution-form textarea {{
+        width: 100%;
+        border: 1px solid rgba(72,103,126,.28);
+        border-radius: 14px;
+        padding: 10px 12px;
+        background: rgba(255,255,255,.92);
+        color: var(--ink);
+        font: 15px/1.45 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .contribution-form textarea {{ min-height: 132px; resize: vertical; }}
+      .contribution-consent {{ grid-template-columns: auto 1fr; align-items: start; font-weight: 500 !important; }}
+      .contribution-consent input {{ margin-top: 3px; }}
+      .contribution-actions {{ display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }}
+      .contribution-actions button {{
+        min-height: 44px;
+        border: 1px solid rgba(72,103,126,.28);
+        border-radius: 999px;
+        padding: 10px 16px;
+        background: var(--blue);
+        color: #fff;
+        font: 700 13px/1 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .contribution-actions button.secondary {{ background: rgba(255,255,255,.9); color: var(--blue); }}
       .archive-transcript {{ margin-top: 14px; color: var(--muted); }}
       .archive-transcript summary {{
         min-height: 38px;
@@ -9995,6 +10051,37 @@ def _minimal_public_memorial_html(
         padding: 10px 16px;
         background: rgba(255,255,255,.9);
         color: var(--blue);
+        font: 700 13px/1 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .text-turn-form {{
+        margin-top: 12px;
+        display: grid;
+        gap: 7px;
+        text-align: left;
+      }}
+      .text-turn-form label {{
+        color: var(--ink);
+        font: 700 13px/1.35 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .text-turn-controls {{ display: flex; gap: 8px; align-items: stretch; }}
+      .text-turn-controls input {{
+        min-width: 0;
+        flex: 1;
+        min-height: 44px;
+        border: 1px solid rgba(72,103,126,.28);
+        border-radius: 14px;
+        padding: 9px 12px;
+        background: rgba(255,255,255,.92);
+        color: var(--ink);
+        font: 15px/1.4 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .text-turn-controls button {{
+        min-height: 44px;
+        border: 1px solid rgba(72,103,126,.28);
+        border-radius: 14px;
+        padding: 9px 14px;
+        background: var(--blue);
+        color: #fff;
         font: 700 13px/1 ui-sans-serif, system-ui, sans-serif;
       }}
       .chat-answer {{
@@ -10098,6 +10185,9 @@ def _minimal_public_memorial_html(
         .conversation-settings-status button {{
           width: 100%;
         }}
+        .text-turn-controls {{ flex-direction: column; }}
+        .text-turn-controls button {{ width: 100%; }}
+        .contribution-fields {{ grid-template-columns: 1fr; }}
       }}
       @media (max-height: 720px) {{
         body {{ padding-bottom: 0; }}
@@ -10414,6 +10504,7 @@ def _minimal_public_memorial_html(
           <div class="hero-copy">
             <h1>{page_title}</h1>
             <p class="hero-subtitle">{safe_subtitle}</p>
+            <a class="hero-story-link" href="#memorial-conversation-region">Zum Gespräch mit {safe_person_name}</a>
             <a class="hero-story-link" href="#memorial-story">Erinnerungen und Quellen ansehen</a>
           </div>
         </div>
@@ -10422,6 +10513,36 @@ def _minimal_public_memorial_html(
     <main id="memorial-story" tabindex="-1">
       <div class="wrap story">
         {story_html}
+        <section class="story-section contribution-panel" id="memorial-contribution" aria-labelledby="memorial-contribution-title">
+          <p class="story-kicker">Familie und Wegbegleiter</p>
+          <h2 id="memorial-contribution-title">Eine Erinnerung beitragen</h2>
+          <p>Dein Beitrag bleibt zunächst privat und geht in eine geschützte Prüfung. Öffentlich erscheint nur eine ausdrücklich freigegebene, redigierte Fassung. Du kannst deine Einreichung von diesem Browser aus wieder zurückziehen.</p>
+          <form class="contribution-form" id="memorial-contribution-form">
+            <label for="memorial-contribution-title-input">Kurze Überschrift
+              <input id="memorial-contribution-title-input" name="title" type="text" maxlength="180" required autocomplete="off">
+            </label>
+            <label for="memorial-contribution-body">Deine Erinnerung
+              <textarea id="memorial-contribution-body" name="body" maxlength="6000" required></textarea>
+            </label>
+            <div class="contribution-fields">
+              <label for="memorial-contribution-name">Dein Name (optional)
+                <input id="memorial-contribution-name" name="contributor_name" type="text" maxlength="160" autocomplete="name">
+              </label>
+              <label for="memorial-contribution-relationship">Beziehung zu Manfred (optional)
+                <input id="memorial-contribution-relationship" name="relationship" type="text" maxlength="160" autocomplete="off">
+              </label>
+            </div>
+            <label class="contribution-consent" for="memorial-contribution-consent">
+              <input id="memorial-contribution-consent" name="publication_consent" type="checkbox">
+              <span>Nach redaktioneller Prüfung darf eine von mir freigegebene Fassung öffentlich erscheinen. Ohne Häkchen bleibt der Beitrag privat.</span>
+            </label>
+            <div class="contribution-actions">
+              <button type="submit" id="memorial-contribution-submit">Privat zur Prüfung senden</button>
+              <button type="button" class="secondary" id="memorial-contribution-withdraw" hidden>Letzte Einreichung zurückziehen</button>
+            </div>
+            <p class="status-note" id="memorial-contribution-status" role="status" aria-live="polite" aria-atomic="true">Noch nichts gesendet.</p>
+          </form>
+        </section>
       </div>
     </main>
     <aside class="conversation-dock" aria-label="Gespräch mit {safe_person_name}" id="memorial-conversation-region" tabindex="-1">
@@ -10430,7 +10551,15 @@ def _minimal_public_memorial_html(
         <div class="hero-actions is-readying" id="memorial-hero-actions">
           <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Gespräch beginnen" aria-label="Gespräch beginnen" aria-disabled="true" disabled>Gespräch wird vorbereitet …</button>
         </div>
-        <p class="hero-guidance">Das Mikrofon wird erst nach deinem Start verwendet. Antworten bleiben als Text sichtbar.</p>
+        <p class="hero-guidance">Du sprichst mit einer KI-gestützten, synthetischen Manfred-Stimme. Das Mikrofon startet erst nach deinem Klick; eingesetzte Sprachdienste verarbeiten das Audio. Antworten bleiben als Text sichtbar.</p>
+        <form class="text-turn-form" id="memorial-text-turn-form">
+          <label for="memorial-text-turn-input">Oder ohne Mikrofon schreiben</label>
+          <div class="text-turn-controls">
+            <input id="memorial-text-turn-input" name="question" type="text" maxlength="2000" autocomplete="off" enterkeyhint="send" placeholder="Was möchtest du Manfred fragen?">
+            <button type="submit" id="memorial-text-turn-submit">Senden</button>
+          </div>
+          <p class="status-note">Die getippte Frage wird wie ein Gespräch verarbeitet; eine Textantwort bleibt sichtbar.</p>
+        </form>
         <p class="install-hint" id="memorial-install-hint" hidden>
           Optional: Am Handy/Desktop installieren.
           <button type="button" id="memorial-install-button" hidden>Installieren</button>
@@ -10457,7 +10586,7 @@ def _minimal_public_memorial_html(
         <details class="conversation-settings">
           <summary>Gesprächseinstellungen</summary>
           <div class="conversation-settings-copy">
-            <p>Du kannst dieses Gerät auf Wunsch vorbereiten, bevor das Gespräch beginnt. Persönliche Gesprächserinnerungen bleiben nur in diesem Browser und lassen sich jederzeit wieder löschen.</p>
+            <p>Du kannst dieses Gerät auf Wunsch vorbereiten, bevor das Gespräch beginnt. Mit deiner Zustimmung werden kurze Gesprächserinnerungen pseudonym auf unserem Server gespeichert und mit diesem Browser verknüpft. Du kannst sie jederzeit wieder löschen.</p>
           </div>
           <div class="conversation-settings-grid">
             <div class="conversation-toggle">
@@ -10473,19 +10602,19 @@ def _minimal_public_memorial_html(
             <div class="conversation-toggle">
               <div class="conversation-toggle-copy">
                 <strong>Persönliches Gesprächsgedächtnis</strong>
-                <span>Damit merkt sich dieses Gerät, welche Gesprächslinie und welche Stimme für dich gut funktioniert haben.</span>
+                <span>Damit merkt sich der Dienst pseudonym, welche Gesprächslinie und welche Stimme für dich gut funktioniert haben.</span>
               </div>
               <label class="conversation-toggle-control" for="memorial-personal-memory-optin">
                 <input type="checkbox" id="memorial-personal-memory-optin">
-                <span>Nur in diesem Browser</span>
+                <span>Mit diesem Browser verknüpfen</span>
               </label>
             </div>
           </div>
           <div class="conversation-settings-status">
             <span class="status-note" id="memorial-personal-memory-status">Gastmodus · Gedächtnis aus.</span>
-            <button type="button" id="memorial-personal-memory-forget" disabled aria-disabled="true">Dieses Browser-Gedächtnis löschen</button>
+            <button type="button" id="memorial-personal-memory-forget" disabled aria-disabled="true">Gesprächsgedächtnis löschen</button>
           </div>
-          <p class="status-note">Nur dieses Gerät merkt sich etwas. Mehr zu Schutzgrenzen und Löschung steht auf <a href="/security">Sicherheit</a> und <a href="/data-deletion">Datenlöschung</a>.</p>
+          <p class="status-note">Die Browser-Kennung ist pseudonym; die gespeicherten Gesprächserinnerungen liegen auf unserem Server. Mehr zu Schutzgrenzen und Löschung steht auf <a href="/security">Sicherheit</a> und <a href="/data-deletion">Datenlöschung</a>.</p>
         </details>
         <p class="status-note" id="memorial-voice-recovery-note">Wenn die Stimme stockt, bleibt die Antwort als Text sichtbar. Du kannst ruhig unterbrechen oder noch einmal sprechen.</p>
         <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
@@ -10496,12 +10625,12 @@ def _minimal_public_memorial_html(
             <p id="memorial-speech-transcript-live-text"></p>
             <p class="status-note" id="memorial-speech-transcript-effective" hidden></p>
           </div>
-          <div class="speech-transcript" id="memorial-speech-transcript"></div>
+        <div class="speech-transcript" id="memorial-speech-transcript" role="log" aria-label="Gesprächsverlauf"></div>
         </section>
         <div class="chat-tools" id="memorial-chat-tools" hidden>
           <button type="button" class="chat-tool" id="memorial-read-answer">Antwort lesen</button>
           <button type="button" class="chat-tool" id="memorial-replay-answer" hidden>Noch einmal anhören</button>
-          <button type="button" class="chat-tool" id="memorial-toggle-status" hidden>Quellen / Status</button>
+          <button type="button" class="chat-tool" id="memorial-toggle-status" aria-controls="memorial-chat-status" aria-expanded="false" hidden>Quellen / Status</button>
         </div>
         <div class="chat-status" id="memorial-chat-status" hidden></div>
         <audio id="memorial-speech-audio" preload="none" aria-hidden="true"></audio>
@@ -10511,12 +10640,19 @@ def _minimal_public_memorial_html(
     <script>
       const installHint = document.getElementById("memorial-install-hint");
       const installButton = document.getElementById("memorial-install-button");
+      const contributionForm = document.getElementById("memorial-contribution-form");
+      const contributionSubmit = document.getElementById("memorial-contribution-submit");
+      const contributionWithdraw = document.getElementById("memorial-contribution-withdraw");
+      const contributionStatus = document.getElementById("memorial-contribution-status");
       const autostartOptin = document.getElementById("memorial-autostart-optin");
       const personalMemoryOptin = document.getElementById("memorial-personal-memory-optin");
       const personalMemoryStatus = document.getElementById("memorial-personal-memory-status");
       const personalMemoryForgetButton = document.getElementById("memorial-personal-memory-forget");
       const heroActions = document.getElementById("memorial-hero-actions");
       const conversationButton = document.getElementById("memorial-conversation");
+      const textTurnForm = document.getElementById("memorial-text-turn-form");
+      const textTurnInput = document.getElementById("memorial-text-turn-input");
+      const textTurnSubmit = document.getElementById("memorial-text-turn-submit");
       const retryButton = document.getElementById("memorial-retry-button");
       const speechAudio = document.getElementById("memorial-speech-audio");
       const speechNote = document.getElementById("memorial-speech-note");
@@ -10555,6 +10691,9 @@ def _minimal_public_memorial_html(
       }}
       const memorialAutostartStorageKey = "memorial_autostart_enabled_v1";
       const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
+      const memorialContributionStorageKey = "memorial_contribution_receipt_{html.escape(slug)}_v1";
+      let volatileContributionReceipts = [];
+      let contributionStorageUnavailable = false;
       let personalMemoryStatusPayload = {{ available: false, enabled: false, guest_mode: true, item_count: 0, frozen: false, approved_voice_choice: "" }};
       let deferredInstallPrompt = null;
       let memorialWarmupPromise = null;
@@ -10638,30 +10777,169 @@ def _minimal_public_memorial_html(
         }};
       }}
 
+      function storedContributionReceipts() {{
+        if (contributionStorageUnavailable) return volatileContributionReceipts.slice(-10);
+        try {{
+          const parsed = JSON.parse(String(window.localStorage.getItem(memorialContributionStorageKey) || "null"));
+          const candidates = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === "object" ? [parsed] : []);
+          const receipts = candidates.map((candidate) => {{
+            const contributionId = String((candidate && candidate.contribution_id) || "").trim();
+            const manageToken = String((candidate && candidate.manage_token) || "").trim();
+            return contributionId && manageToken
+              ? {{ contribution_id: contributionId, manage_token: manageToken }}
+              : null;
+          }}).filter(Boolean).slice(-10);
+          if (!receipts.length && volatileContributionReceipts.length) {{
+            return volatileContributionReceipts.slice(-10);
+          }}
+          volatileContributionReceipts = receipts;
+          return receipts;
+        }} catch (error) {{
+          contributionStorageUnavailable = true;
+          return volatileContributionReceipts.slice(-10);
+        }}
+      }}
+
+      function storedContributionReceipt() {{
+        const receipts = storedContributionReceipts();
+        return receipts.length ? receipts[receipts.length - 1] : null;
+      }}
+
+      function saveContributionReceipts(receipts) {{
+        const bounded = Array.isArray(receipts) ? receipts.slice(-10) : [];
+        volatileContributionReceipts = bounded;
+        try {{
+          if (bounded.length) {{
+            window.localStorage.setItem(memorialContributionStorageKey, JSON.stringify(bounded));
+          }} else {{
+            window.localStorage.removeItem(memorialContributionStorageKey);
+          }}
+          contributionStorageUnavailable = false;
+          return true;
+        }} catch (error) {{
+          contributionStorageUnavailable = true;
+          return false;
+        }}
+      }}
+
+      function syncContributionManagement() {{
+        if (!contributionWithdraw) return;
+        const receiptCount = storedContributionReceipts().length;
+        contributionWithdraw.hidden = receiptCount === 0;
+        contributionWithdraw.textContent = receiptCount > 1
+          ? "Letzte Einreichung zurückziehen (" + String(receiptCount) + " gespeichert)"
+          : "Letzte Einreichung zurückziehen";
+      }}
+
+      async function submitFamilyContribution(event) {{
+        if (event) event.preventDefault();
+        if (!contributionForm || !contributionSubmit) return;
+        const formData = new FormData(contributionForm);
+        const payload = {{
+          title: String(formData.get("title") || "").trim(),
+          body: String(formData.get("body") || "").trim(),
+          contributor_name: String(formData.get("contributor_name") || "").trim(),
+          relationship: String(formData.get("relationship") || "").trim(),
+          source_label: "Erinnerung aus der Familie",
+          publication_consent: Boolean(formData.get("publication_consent")),
+        }};
+        if (!payload.title || !payload.body) return;
+        if (storedContributionReceipts().length >= 10) {{
+          if (contributionStatus) contributionStatus.textContent = "Dieser Browser verwaltet bereits zehn Einreichungen. Ziehe zuerst die letzte Einreichung zurück oder kontaktiere die Kuratoren.";
+          return;
+        }}
+        contributionSubmit.disabled = true;
+        contributionForm.setAttribute("aria-busy", "true");
+        if (contributionStatus) contributionStatus.textContent = "Deine Erinnerung wird privat zur Prüfung gesendet …";
+        try {{
+          const response = await fetch("/memorials/{html.escape(slug)}/contributions", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json", "Accept": "application/json" }},
+            body: JSON.stringify(payload),
+          }});
+          const receipt = await response.json().catch(() => ({{}}));
+          if (!response.ok) throw new Error("contribution_submit_failed");
+          const contributionId = String(receipt.contribution_id || "").trim();
+          const manageToken = String(receipt.manage_token || "").trim();
+          if (!contributionId || !manageToken) throw new Error("contribution_receipt_missing");
+          const receipts = storedContributionReceipts().filter(
+            (item) => item.contribution_id !== contributionId
+          );
+          receipts.push({{ contribution_id: contributionId, manage_token: manageToken }});
+          const receiptPersisted = saveContributionReceipts(receipts);
+          contributionForm.reset();
+          syncContributionManagement();
+          if (contributionStatus && !receiptPersisted) {{
+            contributionStatus.textContent = "Der Beitrag wurde privat gespeichert. Dieser Browser konnte den Rücknahmeschlüssel nicht dauerhaft speichern; lasse diese Seite für eine mögliche Rücknahme geöffnet.";
+          }} else if (contributionStatus) {{
+            contributionStatus.textContent = payload.publication_consent
+              ? "Danke. Der Beitrag bleibt privat, bis eine redigierte Fassung geprüft und freigegeben ist."
+              : "Danke. Der Beitrag wurde privat gespeichert und darf ohne weitere Freigabe nicht veröffentlicht werden.";
+          }}
+        }} catch (error) {{
+          if (contributionStatus) contributionStatus.textContent = "Die Erinnerung konnte gerade nicht gesendet werden. Bitte versuche es später erneut.";
+        }} finally {{
+          contributionSubmit.disabled = false;
+          contributionForm.removeAttribute("aria-busy");
+        }}
+      }}
+
+      async function withdrawStoredContribution() {{
+        const receipt = storedContributionReceipt();
+        if (!receipt || !contributionWithdraw) return;
+        contributionWithdraw.disabled = true;
+        if (contributionStatus) contributionStatus.textContent = "Die Einreichung wird zurückgezogen …";
+        try {{
+          const response = await fetch(
+            "/memorials/{html.escape(slug)}/contributions/" + encodeURIComponent(receipt.contribution_id) + "/withdraw",
+            {{
+              method: "POST",
+              headers: {{
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "x-memorial-contribution-token": receipt.manage_token,
+              }},
+              body: JSON.stringify({{ reason: "Vom beitragenden Browser zurückgezogen." }}),
+            }}
+          );
+          if (!response.ok) throw new Error("contribution_withdraw_failed");
+          saveContributionReceipts(
+            storedContributionReceipts().filter(
+              (item) => item.contribution_id !== receipt.contribution_id
+                || item.manage_token !== receipt.manage_token
+            )
+          );
+          syncContributionManagement();
+          if (contributionStatus) contributionStatus.textContent = "Die Einreichung wurde zurückgezogen und ist nicht öffentlich.";
+        }} catch (error) {{
+          if (contributionStatus) contributionStatus.textContent = "Die Einreichung konnte gerade nicht zurückgezogen werden. Bitte versuche es später erneut.";
+        }} finally {{
+          contributionWithdraw.disabled = false;
+        }}
+      }}
+
       function updatePersonalMemoryStatusUi() {{
         if (!personalMemoryStatus) return;
         const enabled = personalMemoryEnabled();
         const itemCount = Number((personalMemoryStatusPayload && personalMemoryStatusPayload.item_count) || 0);
         const frozen = Boolean(personalMemoryStatusPayload && personalMemoryStatusPayload.frozen);
         if (personalMemoryForgetButton) {{
-          const canForget = enabled && itemCount > 0;
+          const canForget = itemCount > 0;
           personalMemoryForgetButton.disabled = !canForget;
           personalMemoryForgetButton.setAttribute("aria-disabled", canForget ? "false" : "true");
           personalMemoryForgetButton.title = canForget
-            ? "Dieses Browser-Gedächtnis jetzt löschen"
-            : (enabled
-              ? "Es gibt noch kein Browser-Gedächtnis zu löschen"
-              : "Erst persönliches Gesprächsgedächtnis aktivieren");
+            ? "Gesprächsgedächtnis für diesen Browser jetzt löschen"
+            : "Es gibt noch kein Gesprächsgedächtnis zu löschen";
         }}
         if (!enabled) {{
           personalMemoryStatus.textContent = "Gastmodus · Gedächtnis aus.";
           return;
         }}
         if (frozen) {{
-          personalMemoryStatus.textContent = "Nur dieser Browser · Stimme fixiert · " + String(itemCount);
+          personalMemoryStatus.textContent = "Mit diesem Browser verknüpft · Stimme fixiert · " + String(itemCount);
           return;
         }}
-        personalMemoryStatus.textContent = "Nur dieser Browser · Gedächtnis aktiv · " + String(itemCount);
+        personalMemoryStatus.textContent = "Mit diesem Browser verknüpft · Gedächtnis aktiv · " + String(itemCount);
       }}
 
       async function loadPersonalMemoryStatus() {{
@@ -10676,7 +10954,7 @@ def _minimal_public_memorial_html(
       }}
 
       async function forgetPersonalMemory() {{
-        if (!personalMemoryEnabled() || Number((personalMemoryStatusPayload && personalMemoryStatusPayload.item_count) || 0) <= 0) {{
+        if (Number((personalMemoryStatusPayload && personalMemoryStatusPayload.item_count) || 0) <= 0) {{
           updatePersonalMemoryStatusUi();
           return;
         }}
@@ -10688,7 +10966,7 @@ def _minimal_public_memorial_html(
           if (!response.ok) throw new Error("forget_failed");
           personalMemoryStatusPayload = await response.json();
           updatePersonalMemoryStatusUi();
-          setSpeechStatus("Dieses Browser-Gedächtnis ist jetzt gelöscht.", "idle", "Nur dieses Gerät wurde zurückgesetzt");
+          setSpeechStatus("Das Gesprächsgedächtnis ist jetzt gelöscht.", "idle", "Die Verknüpfung dieses Browsers wurde zurückgesetzt");
         }} catch (error) {{
           setSpeechStatus("Das Browser-Gedächtnis konnte ich gerade nicht löschen.", "error", "Bitte versuche es noch einmal");
         }}
@@ -10730,6 +11008,27 @@ def _minimal_public_memorial_html(
           }};
           setSpeechMeterLevel(ambient[state] || 0.06, state === "error" ? 0.42 : 0.78);
         }}
+      }}
+
+      function setMicrophoneFailureStatus(error) {{
+        const reason = String((error && (error.name || error.message)) || "").toLowerCase();
+        if (reason.includes("notallowed") || reason.includes("permission") || reason.includes("security")) {{
+          setSpeechStatus(
+            "Der Mikrofonzugriff ist blockiert.",
+            "error",
+            "Erlaube das Mikrofon in den Browser-Einstellungen oder nutze die Textfrage."
+          );
+          return;
+        }}
+        if (reason.includes("notfound") || reason.includes("devicesnotfound")) {{
+          setSpeechStatus("Kein Mikrofon gefunden.", "error", "Schließe ein Mikrofon an oder nutze die Textfrage.");
+          return;
+        }}
+        if (reason.includes("notreadable") || reason.includes("trackstarterror") || reason.includes("abort")) {{
+          setSpeechStatus("Das Mikrofon ist gerade nicht verfügbar.", "error", "Schließe andere Audio-Apps oder nutze die Textfrage.");
+          return;
+        }}
+        setSpeechStatus("Bitte noch einmal sprechen.", "error", "Alternativ kannst du die Frage eintippen.");
       }}
 
       function setSpeechMonitorState(state = "idle") {{
@@ -10907,14 +11206,13 @@ def _minimal_public_memorial_html(
         }} else if (requestInFlight) {{
           label = "Einen Moment …";
           disabled = true;
-        }} else if (memorialLandingReady && completedConversationTurns === 0 && !contactAcknowledgementReady) {{
-          label = "Stimme wird vorbereitet …";
-          disabled = true;
         }} else if (memorialLandingReady) {{
           label = "Gespräch beginnen";
           disabled = false;
         }}
         conversationButton.textContent = label;
+        conversationButton.setAttribute("aria-label", label);
+        conversationButton.setAttribute("title", label);
         conversationButton.disabled = disabled;
         conversationButton.setAttribute("aria-disabled", disabled ? "true" : "false");
         conversationButton.setAttribute("aria-pressed", conversationSessionActive ? "true" : "false");
@@ -10924,6 +11222,10 @@ def _minimal_public_memorial_html(
 
       function setMemorialLandingReady(ready, detail = "") {{
         memorialLandingReady = Boolean(ready);
+        if (memorialLandingReady && retryButton && retryButton.dataset.action === "voice-readiness") {{
+          delete retryButton.dataset.action;
+          retryButton.textContent = "Bitte noch einmal sprechen";
+        }}
         syncConversationButton();
         if (!recordingActive && !requestInFlight) {{
           if (memorialLandingReady) setSpeechStatus("Bereit.", "idle", detail || "");
@@ -11031,6 +11333,14 @@ def _minimal_public_memorial_html(
             if (payload && payload.voice_prewarm_stale === true) {{
               await requestMemorialWarmup("voice_stale_retry");
             }}
+            const warmupStatus = String((payload && payload.status) || "").trim().toLowerCase();
+            if (
+              payload &&
+              payload.inflight !== true &&
+              (warmupStatus === "failed" || warmupStatus === "blocked" || warmupStatus === "unavailable")
+            ) {{
+              return payload;
+            }}
           }} catch (error) {{}}
           await new Promise((resolve) => window.setTimeout(resolve, memorialWarmupPollDelayMs(payload)));
         }}
@@ -11044,7 +11354,7 @@ def _minimal_public_memorial_html(
         memorialReadyPromise = (async () => {{
           try {{
             await requestMemorialWarmup(reason);
-            memorialReadySnapshot = await waitForMemorialVoiceReady(30000);
+            memorialReadySnapshot = await waitForMemorialVoiceReady(12000);
           }} catch (error) {{}}
           if (memorialReadySnapshot && memorialReadySnapshot.warm && (memorialReadySnapshot.voice_required === false || memorialReadySnapshot.voice_ready === true)) {{
             scheduleMemorialReadyRefresh(memorialReadySnapshot);
@@ -11053,17 +11363,19 @@ def _minimal_public_memorial_html(
               setMemorialLandingReady(true, "");
             }} catch (error) {{
               contactAcknowledgementReady = false;
-              setMemorialLandingReady(false, "Ich bereite meine Stimme noch kurz vor.");
-              window.setTimeout(() => {{
-                if (!memorialLandingReady || !contactAcknowledgementReady) void ensureMemorialReady("contact_ack_retry");
-              }}, 1200);
+              setMemorialLandingReady(true, "Die kurze Begrüßung ist nicht vorgeladen; das Gespräch bleibt verfügbar.");
             }}
           }} else {{
-            setMemorialLandingReady(false, "Ich bin gleich bereit.");
-            const retryMs = memorialWarmupPollDelayMs(memorialLastWarmupStatus);
-            window.setTimeout(() => {{
-              if (!memorialLandingReady) void ensureMemorialReady("warmup_retry");
-            }}, retryMs);
+            setMemorialLandingReady(false, "");
+            if (retryButton) {{
+              retryButton.dataset.action = "voice-readiness";
+              retryButton.textContent = "Stimme erneut prüfen";
+            }}
+            setSpeechStatus(
+              "Die Stimme ist gerade nicht verfügbar.",
+              "error",
+              "Du kannst die Frage eintippen oder die Stimme später erneut prüfen."
+            );
           }}
           return memorialReadySnapshot;
         }})().finally(() => {{
@@ -11872,7 +12184,7 @@ def _minimal_public_memorial_html(
               turn_id: turnId,
               content_type: "audio/pcm;rate=16000",
               transport: "gemini_live",
-              personal_memory_enabled: true,
+              personal_memory_enabled: personalMemoryEnabled(),
               browser_language: browserPreferredLanguage
             }}));
             for (const bufferedChunk of preSpeechChunks) {{
@@ -12093,7 +12405,7 @@ def _minimal_public_memorial_html(
           type: "user_audio_start",
           turn_id: turnId,
           content_type: contentType || "application/octet-stream",
-          personal_memory_enabled: true,
+          personal_memory_enabled: personalMemoryEnabled(),
           browser_language: browserPreferredLanguage
         }}));
         return {{
@@ -12128,6 +12440,86 @@ def _minimal_public_memorial_html(
         }};
       }}
 
+      async function sendRealtimeTextTurn(text, generation) {{
+        const normalizedText = String(text || "").trim();
+        if (!normalizedText) throw new Error("text_required");
+        const turnId = "turn_" + String(Date.now()) + "_" + String(++conversationTurnCounter);
+        const socket = await ensureRealtimeSocket();
+        if (generation !== activeGeneration) throw new Error("turn_superseded");
+        return await new Promise((resolve, reject) => {{
+          const payload = {{ answer: "", audio_base64: "", audio_chunks: [], audio_content_type: "audio/wav", sources: [], llm_model: "" }};
+          const timeoutId = window.setTimeout(() => {{
+            socket.removeEventListener("message", onMessage);
+            reject(new Error("realtime_text_turn_timeout"));
+          }}, 90000);
+          const finish = () => {{
+            window.clearTimeout(timeoutId);
+            socket.removeEventListener("message", onMessage);
+            if (!payload.audio_base64 && payload.audio_chunks.length) payload.audio_base64 = payload.audio_chunks.join("");
+            resolve(payload);
+          }};
+          function onMessage(event) {{
+            let message = null;
+            try {{ message = JSON.parse(String(event.data || "")); }} catch (error) {{ return; }}
+            if (!message || typeof message !== "object") return;
+            const type = String(message.type || "");
+            const messageTurnId = String(message.turn_id || "");
+            if (messageTurnId && messageTurnId !== turnId) return;
+            pushMemorialRealtimeFrame(message);
+            if (type === "ready") return;
+            if (type === "phase") {{
+              const phase = String(message.phase || "");
+              const detail = String(message.detail || "");
+              if (phase === "thinking") setSpeechStatus("Ich antworte gleich.", "working", detail || "");
+              else if (phase === "speaking") setSpeechStatus("Ich spreche.", "playing", detail || "");
+              return;
+            }}
+            if (type === "transcript") {{
+              payload.transcript_text = String(message.text || "").trim();
+              payload.transcript_effective_text = String(message.effective_text || payload.transcript_text || "").trim();
+              return;
+            }}
+            if (type === "answer") {{
+              payload.answer = String(message.text || "").trim();
+              payload.sources = Array.isArray(message.sources) ? message.sources : [];
+              payload.llm_model = String(message.llm_model || "");
+              showAnswerText(payload.answer);
+              return;
+            }}
+            if (type === "audio") {{
+              payload.audio_base64 = String(message.audio_base64 || "").trim();
+              payload.audio_content_type = String(message.content_type || "audio/wav");
+              return;
+            }}
+            if (type === "audio_chunk") {{
+              const chunk = String(message.audio_base64 || "").trim();
+              if (chunk) payload.audio_chunks.push(chunk);
+              payload.audio_content_type = String(message.content_type || payload.audio_content_type || "audio/wav");
+              return;
+            }}
+            if (type === "audio_complete") {{
+              payload.audio_content_type = String(message.content_type || payload.audio_content_type || "audio/wav");
+              payload.audio_base64 = payload.audio_chunks.join("");
+              return;
+            }}
+            if (type === "turn_complete") {{ finish(); return; }}
+            if (type === "error" || type === "cancelled") {{
+              window.clearTimeout(timeoutId);
+              socket.removeEventListener("message", onMessage);
+              reject(new Error(String(message.message || type || "realtime_failed")));
+            }}
+          }}
+          socket.addEventListener("message", onMessage);
+          socket.send(JSON.stringify({{
+            type: "user_text_turn",
+            turn_id: turnId,
+            text: normalizedText,
+            personal_memory_enabled: personalMemoryEnabled(),
+            browser_language: browserPreferredLanguage
+          }}));
+        }});
+      }}
+
       function cancelRealtimeAudioTurn(turn) {{
         if (!turn || typeof turn.cancel !== "function") return;
         turn.cancel();
@@ -12153,7 +12545,7 @@ def _minimal_public_memorial_html(
       function realtimeSocketUrl() {{
         const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
         const params = new URLSearchParams();
-        params.set("personal_memory", "1");
+        params.set("personal_memory", personalMemoryEnabled() ? "1" : "0");
         return scheme + "//" + window.location.host + "/memorials/{html.escape(slug)}/realtime?" + params.toString();
       }}
 
@@ -12213,13 +12605,13 @@ def _minimal_public_memorial_html(
           }}
         }}
         activeRecordingPromise = beginConversationRecording(generation);
-        activeRecordingPromise.catch(() => {{
+        activeRecordingPromise.catch((error) => {{
           if (generation !== activeGeneration) return;
           conversationSessionActive = false;
           recordingActive = false;
           activeRecordingPromise = null;
           syncConversationButton();
-          setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+          setMicrophoneFailureStatus(error);
         }});
       }}
 
@@ -12255,13 +12647,13 @@ def _minimal_public_memorial_html(
             syncConversationButton();
             setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach weiter");
             activeRecordingPromise = beginConversationRecording(generation);
-            activeRecordingPromise.catch(() => {{
+            activeRecordingPromise.catch((error) => {{
               if (generation !== activeGeneration) return;
               conversationSessionActive = false;
               recordingActive = false;
               activeRecordingPromise = null;
               syncConversationButton();
-              setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+              setMicrophoneFailureStatus(error);
             }});
             return;
           }}
@@ -12275,6 +12667,44 @@ def _minimal_public_memorial_html(
           if (generation === activeGeneration) {{
             requestInFlight = false;
             if (!conversationSessionActive) recordingActive = false;
+            syncConversationButton();
+          }}
+        }}
+      }}
+
+      async function submitTextConversation(event) {{
+        if (event) event.preventDefault();
+        const question = String((textTurnInput && textTurnInput.value) || "").trim();
+        if (!question || requestInFlight) return;
+        if (conversationSessionActive || recordingActive) abortActiveTurn();
+        if (!memorialLandingReady) void ensureMemorialReady("text_turn");
+        stopSpeechPlayback();
+        activeGeneration += 1;
+        const generation = activeGeneration;
+        requestInFlight = true;
+        if (textTurnInput) textTurnInput.disabled = true;
+        if (textTurnSubmit) textTurnSubmit.disabled = true;
+        syncConversationButton();
+        setSpeechStatus("Ich antworte gleich.", "working", "Getippte Frage");
+        try {{
+          const payload = await sendRealtimeTextTurn(question, generation);
+          if (generation !== activeGeneration) return;
+          showAnswerText(payload && payload.answer);
+          const audioBlob = decodeAudioPayload(payload);
+          if (audioBlob) await playMemorialAudio(audioBlob, generation, String((payload && payload.answer) || ""));
+          if (generation !== activeGeneration) return;
+          completedConversationTurns += 1;
+          if (textTurnInput) textTurnInput.value = "";
+          setSpeechStatus("Bereit.", "idle", "Du kannst weiter schreiben oder sprechen");
+        }} catch (error) {{
+          if (generation === activeGeneration) {{
+            setSpeechStatus("Die Textfrage konnte ich gerade nicht beantworten.", "error", "Bitte versuche es noch einmal");
+          }}
+        }} finally {{
+          if (generation === activeGeneration) {{
+            requestInFlight = false;
+            if (textTurnInput) textTurnInput.disabled = false;
+            if (textTurnSubmit) textTurnSubmit.disabled = false;
             syncConversationButton();
           }}
         }}
@@ -12296,13 +12726,19 @@ def _minimal_public_memorial_html(
       if (retryButton) {{
         retryButton.addEventListener("click", () => {{
           retryButton.hidden = true;
+          if (retryButton.dataset.action === "voice-readiness") {{
+            delete retryButton.dataset.action;
+            retryButton.textContent = "Bitte noch einmal sprechen";
+            void ensureMemorialReady("manual_retry");
+            return;
+          }}
           void startConversationSession();
         }});
       }}
       if (readAnswerButton) {{
         readAnswerButton.addEventListener("click", () => {{
           if (!answer || answer.hidden) return;
-          answer.scrollIntoView({{ block: "nearest", behavior: "smooth" }});
+          answer.scrollIntoView({{ block: "nearest", behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth" }});
         }});
       }}
       if (replayAnswerButton) {{
@@ -12316,12 +12752,28 @@ def _minimal_public_memorial_html(
           if (!answerStatus || !lastAnswerStatusText) return;
           answerStatus.textContent = lastAnswerStatusText;
           answerStatus.hidden = !answerStatus.hidden;
+          toggleStatusButton.setAttribute("aria-expanded", answerStatus.hidden ? "false" : "true");
         }});
       }}
       if (conversationButton) {{
         conversationButton.addEventListener("click", (event) => {{
           event.preventDefault();
           toggleConversation();
+        }});
+      }}
+      if (textTurnForm) {{
+        textTurnForm.addEventListener("submit", (event) => {{
+          void submitTextConversation(event);
+        }});
+      }}
+      if (contributionForm) {{
+        contributionForm.addEventListener("submit", (event) => {{
+          void submitFamilyContribution(event);
+        }});
+      }}
+      if (contributionWithdraw) {{
+        contributionWithdraw.addEventListener("click", () => {{
+          void withdrawStoredContribution();
         }});
       }}
 
@@ -12411,6 +12863,7 @@ def _minimal_public_memorial_html(
 
       if (!window.__memorialMinimalBooted) {{
         window.__memorialMinimalBooted = true;
+        syncContributionManagement();
         syncConversationButton();
         setMemorialLandingReady(false, "Gleich kannst du mit mir reden.");
         updatePersonalMemoryStatusUi();

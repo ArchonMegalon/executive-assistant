@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +11,8 @@ import pytest
 def _clean_source_worktree(monkeypatch):
     import scripts.verify_memorial_gold_readiness as readiness
 
+    monkeypatch.delenv("MEMORIAL_DIAGNOSTIC_SKIP_MEANINGFUL_BROWSER_RECEIPT", raising=False)
+    monkeypatch.setattr(readiness, "_source_fingerprint", lambda: "unit-source-state")
     monkeypatch.setattr(
         readiness,
         "source_worktree_metadata",
@@ -28,7 +31,10 @@ def _voice_receipt(*, base_url: str = "https://memorial.example.test", slow: boo
         "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
         "git_head": "HEAD",
         "source_git_head": "HEAD",
+        "head_semantics": "source_state",
         "source_tree_fingerprint": "unit-source-tree",
+        "source_state_fingerprint": "unit-source-state",
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "dirty_worktree": False,
         "status": "pass",
         "base_url": base_url,
@@ -52,7 +58,10 @@ def _browser_receipt(*, base_url: str = "https://memorial.example.test", mode: s
         "contract_name": "ea.memorial_realtime_browser_exit_gate",
         "git_head": "HEAD",
         "source_git_head": "HEAD",
+        "head_semantics": "source_state",
         "source_tree_fingerprint": "unit-source-tree",
+        "source_state_fingerprint": "unit-source-state",
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "dirty_worktree": False,
         "status": "pass",
         "base_url": base_url,
@@ -75,7 +84,10 @@ def _room_receipt(*, base_url: str = "https://memorial.example.test") -> dict[st
         "contract_name": "ea.memorial_room_audio_public_origin",
         "git_head": "HEAD",
         "source_git_head": "HEAD",
+        "head_semantics": "source_state",
         "source_tree_fingerprint": "unit-source-tree",
+        "source_state_fingerprint": "unit-source-state",
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "dirty_worktree": False,
         "status": "pass",
         "proof_type": "manual_room_attestation",
@@ -128,6 +140,36 @@ def test_memorial_gold_readiness_passes_with_public_voice_and_browser_receipts(t
     local_path = tmp_path / "local.json"
     public_path = tmp_path / "public.json"
     browser_path = tmp_path / "browser.json"
+    meaningful_browser_path = tmp_path / "meaningful-browser.json"
+    room_path = tmp_path / "room.json"
+    local_path.write_text(json.dumps(_voice_receipt(base_url="http://127.0.0.1:8090")), encoding="utf-8")
+    public_path.write_text(json.dumps(_voice_receipt()), encoding="utf-8")
+    browser_path.write_text(json.dumps(_browser_receipt()), encoding="utf-8")
+    meaningful_browser_path.write_text(json.dumps(_browser_receipt(mode="text_prompt")), encoding="utf-8")
+    room_path.write_text(json.dumps(_room_receipt()), encoding="utf-8")
+
+    monkeypatch.setattr(readiness, "LOCAL_RECEIPT", local_path)
+    monkeypatch.setattr(readiness, "PUBLIC_RECEIPT", public_path)
+    monkeypatch.setattr(readiness, "BROWSER_RECEIPT", browser_path)
+    monkeypatch.setattr(readiness, "MEANINGFUL_BROWSER_RECEIPT", meaningful_browser_path)
+    monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
+    monkeypatch.setattr(readiness, "_git_head", lambda: "HEAD")
+    monkeypatch.setattr(readiness, "_run_script_json", lambda script_args: {"status": "pass", "mode": "memorial"})
+
+    assert readiness.main() == 0
+
+
+def test_memorial_gold_readiness_requires_meaningful_browser_receipt_by_default(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    local_path = tmp_path / "local.json"
+    public_path = tmp_path / "public.json"
+    browser_path = tmp_path / "browser.json"
+    meaningful_browser_path = tmp_path / "meaningful-browser.json"
     room_path = tmp_path / "room.json"
     local_path.write_text(json.dumps(_voice_receipt(base_url="http://127.0.0.1:8090")), encoding="utf-8")
     public_path.write_text(json.dumps(_voice_receipt()), encoding="utf-8")
@@ -137,11 +179,21 @@ def test_memorial_gold_readiness_passes_with_public_voice_and_browser_receipts(t
     monkeypatch.setattr(readiness, "LOCAL_RECEIPT", local_path)
     monkeypatch.setattr(readiness, "PUBLIC_RECEIPT", public_path)
     monkeypatch.setattr(readiness, "BROWSER_RECEIPT", browser_path)
+    monkeypatch.setattr(readiness, "MEANINGFUL_BROWSER_RECEIPT", meaningful_browser_path)
     monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
     monkeypatch.setattr(readiness, "_git_head", lambda: "HEAD")
     monkeypatch.setattr(readiness, "_run_script_json", lambda script_args: {"status": "pass", "mode": "memorial"})
 
+    assert readiness.main() == 1
+    default_payload = json.loads(capsys.readouterr().out)
+    assert default_payload["public_meaningful_browser_gold_required"] is True
+    assert default_payload["memorial_voice_gold_claim_allowed"] is False
+
+    monkeypatch.setenv("MEMORIAL_DIAGNOSTIC_SKIP_MEANINGFUL_BROWSER_RECEIPT", "1")
     assert readiness.main() == 0
+    diagnostic_payload = json.loads(capsys.readouterr().out)
+    assert diagnostic_payload["public_meaningful_browser_diagnostic_override"] is True
+    assert diagnostic_payload["memorial_voice_gold_claim_allowed"] is False
 
 
 def test_memorial_gold_readiness_blocks_slow_public_voice_receipt(tmp_path: Path, monkeypatch) -> None:
@@ -212,22 +264,26 @@ def test_memorial_gold_readiness_uses_source_git_head_before_receipt_commit_head
     local_path = tmp_path / "local.json"
     public_path = tmp_path / "public.json"
     browser_path = tmp_path / "browser.json"
+    meaningful_browser_path = tmp_path / "meaningful-browser.json"
     room_path = tmp_path / "room.json"
     local = _voice_receipt(base_url="http://127.0.0.1:8090")
     public = _voice_receipt()
     browser = _browser_receipt()
+    meaningful_browser = _browser_receipt(mode="text_prompt")
     room = _room_receipt()
-    for payload in (local, public, browser, room):
+    for payload in (local, public, browser, meaningful_browser, room):
         payload["git_head"] = "RECEIPT_COMMIT"
         payload["source_git_head"] = "SOURCE_HEAD"
     local_path.write_text(json.dumps(local), encoding="utf-8")
     public_path.write_text(json.dumps(public), encoding="utf-8")
     browser_path.write_text(json.dumps(browser), encoding="utf-8")
+    meaningful_browser_path.write_text(json.dumps(meaningful_browser), encoding="utf-8")
     room_path.write_text(json.dumps(room), encoding="utf-8")
 
     monkeypatch.setattr(readiness, "LOCAL_RECEIPT", local_path)
     monkeypatch.setattr(readiness, "PUBLIC_RECEIPT", public_path)
     monkeypatch.setattr(readiness, "BROWSER_RECEIPT", browser_path)
+    monkeypatch.setattr(readiness, "MEANINGFUL_BROWSER_RECEIPT", meaningful_browser_path)
     monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
     monkeypatch.setattr(readiness, "_git_head", lambda: "SOURCE_HEAD")
     monkeypatch.setattr(readiness, "_run_script_json", lambda script_args: {"status": "pass", "mode": "memorial"})
@@ -241,29 +297,96 @@ def test_memorial_gold_readiness_allows_generated_only_receipt_commit_delta(tmp_
     local_path = tmp_path / "local.json"
     public_path = tmp_path / "public.json"
     browser_path = tmp_path / "browser.json"
+    meaningful_browser_path = tmp_path / "meaningful-browser.json"
     room_path = tmp_path / "room.json"
     local = _voice_receipt(base_url="http://127.0.0.1:8090")
     public = _voice_receipt()
     browser = _browser_receipt()
+    meaningful_browser = _browser_receipt(mode="text_prompt")
     room = _room_receipt()
-    for payload in (local, public, browser, room):
+    for payload in (local, public, browser, meaningful_browser, room):
         payload["git_head"] = "RECEIPT_COMMIT"
         payload["source_git_head"] = "SOURCE_HEAD"
         payload["dirty_worktree"] = True
     local_path.write_text(json.dumps(local), encoding="utf-8")
     public_path.write_text(json.dumps(public), encoding="utf-8")
     browser_path.write_text(json.dumps(browser), encoding="utf-8")
+    meaningful_browser_path.write_text(json.dumps(meaningful_browser), encoding="utf-8")
     room_path.write_text(json.dumps(room), encoding="utf-8")
 
     monkeypatch.setattr(readiness, "LOCAL_RECEIPT", local_path)
     monkeypatch.setattr(readiness, "PUBLIC_RECEIPT", public_path)
     monkeypatch.setattr(readiness, "BROWSER_RECEIPT", browser_path)
+    monkeypatch.setattr(readiness, "MEANINGFUL_BROWSER_RECEIPT", meaningful_browser_path)
     monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
     monkeypatch.setattr(readiness, "_git_head", lambda: "CURRENT_HEAD")
     monkeypatch.setattr(readiness, "_fresh_enough", lambda recorded_head, current_head: recorded_head == "SOURCE_HEAD" and current_head == "CURRENT_HEAD")
     monkeypatch.setattr(readiness, "_run_script_json", lambda script_args: {"status": "pass", "mode": "memorial"})
 
     assert readiness.main() == 0
+
+
+@pytest.mark.parametrize(
+    "changed_path",
+    [
+        "memorial_data/public_memorials/manfred/memorial.json",
+        "ea/app/repositories/memorial_memory_repository.py",
+        "ea/app/services/memorial_memory_runtime.py",
+        "ea/app/templates/admin_memorial_gold.html",
+        "ea/scripts/memorial_flagship_preflight.py",
+    ],
+)
+def test_memorial_gold_readiness_rejects_any_source_commit_delta(
+    changed_path: str,
+    monkeypatch,
+) -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    monkeypatch.setattr(
+        readiness.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=f"{changed_path}\n"),
+    )
+
+    assert readiness._fresh_enough("RECORDED_HEAD", current_head="CURRENT_HEAD") is False
+
+
+def test_memorial_gold_readiness_allows_only_named_generated_receipt_delta(monkeypatch) -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    generated_path = ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
+    monkeypatch.setattr(
+        readiness.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=f"{generated_path}\n"),
+    )
+
+    assert readiness._fresh_enough("RECORDED_HEAD", current_head="CURRENT_HEAD") is True
+
+
+def test_memorial_gold_readiness_requires_exact_current_source_fingerprint() -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    receipt = _voice_receipt()
+    assert readiness._receipt_source_state_current(
+        receipt,
+        current_head="HEAD",
+        current_fingerprint="unit-source-state",
+    )
+
+    receipt["source_state_fingerprint"] = "stale-source-state"
+    assert not readiness._receipt_source_state_current(
+        receipt,
+        current_head="HEAD",
+        current_fingerprint="unit-source-state",
+    )
+
+    receipt.pop("source_state_fingerprint")
+    assert not readiness._receipt_source_state_current(
+        receipt,
+        current_head="HEAD",
+        current_fingerprint="unit-source-state",
+    )
 
 
 def test_memorial_gold_readiness_requires_memorial_surface_contract(tmp_path: Path, monkeypatch) -> None:

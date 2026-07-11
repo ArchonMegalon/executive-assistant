@@ -11,12 +11,16 @@ from typing import Any
 try:
     from scripts.inspect_source_dirty_groups import PRIORITY_CATEGORY_REASONS
     from scripts.materialize_memorial_operator_status import _source_dirty_summary
-    from scripts.source_state_head import resolve_source_state_head, source_worktree_metadata
+    from scripts.source_state_head import (
+        resolve_source_state_head,
+        resolve_source_worktree_fingerprint,
+        source_worktree_metadata,
+    )
     from scripts.verify_source_dirty_groups import VERIFY_CONTRACT_NAME, _validate_report as _validate_source_dirty_report
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from inspect_source_dirty_groups import PRIORITY_CATEGORY_REASONS
     from materialize_memorial_operator_status import _source_dirty_summary
-    from source_state_head import resolve_source_state_head, source_worktree_metadata
+    from source_state_head import resolve_source_state_head, resolve_source_worktree_fingerprint, source_worktree_metadata
     from verify_source_dirty_groups import VERIFY_CONTRACT_NAME, _validate_report as _validate_source_dirty_report
 
 
@@ -41,17 +45,7 @@ GENERATED_RECEIPT_PATHS = {
     ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
     ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
 }
-MEMORIAL_SOURCE_SCOPE_PREFIXES = (
-    "ea/app/api/routes/public_memorial",
-    "ea/app/domain/memorial/",
-    "ea/app/services/memorial",
-    "ea/app/product/service.py",
-    "ea/app/templates/public_memorial",
-    "ea/memorial_data/",
-    "scripts/materialize_memorial",
-    "scripts/measure_memorial",
-    "scripts/verify_memorial",
-)
+SOURCE_STATE_FINGERPRINT_SEMANTICS = "worktree_source_files_sha256_excluding_generated_only_paths"
 
 
 def _display_path(path: Path) -> str:
@@ -97,6 +91,10 @@ def _git_head() -> str:
     return resolve_source_state_head(ROOT)
 
 
+def _source_fingerprint() -> str:
+    return resolve_source_worktree_fingerprint(ROOT)
+
+
 def _fresh_enough(recorded_head: str, *, current_head: str) -> bool:
     recorded = str(recorded_head or "").strip()
     if not recorded or not current_head:
@@ -116,11 +114,7 @@ def _fresh_enough(recorded_head: str, *, current_head: str) -> bool:
     if proc.returncode != 0:
         return False
     changed = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
-    if not changed:
-        return False
-    if changed <= GENERATED_RECEIPT_PATHS:
-        return True
-    return not any(path.startswith(MEMORIAL_SOURCE_SCOPE_PREFIXES) for path in changed)
+    return bool(changed) and changed <= GENERATED_RECEIPT_PATHS
 
 
 def _is_local_base_url(value: str) -> bool:
@@ -139,8 +133,34 @@ def _receipt_source_head(receipt: dict[str, Any]) -> str:
     return str(receipt.get("source_git_head") or receipt.get("git_head") or "")
 
 
-def _generated_only_receipt_delta_ok(receipt: dict[str, Any], *, current_head: str) -> bool:
-    return _fresh_enough(_receipt_source_head(receipt), current_head=current_head)
+def _receipt_source_state_current(
+    receipt: dict[str, Any],
+    *,
+    current_head: str,
+    current_fingerprint: str,
+) -> bool:
+    recorded_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    return bool(
+        receipt.get("head_semantics") == "source_state"
+        and receipt.get("source_state_fingerprint_semantics") == SOURCE_STATE_FINGERPRINT_SEMANTICS
+        and recorded_fingerprint
+        and current_fingerprint
+        and recorded_fingerprint == current_fingerprint
+        and _fresh_enough(_receipt_source_head(receipt), current_head=current_head)
+    )
+
+
+def _generated_only_receipt_delta_ok(
+    receipt: dict[str, Any],
+    *,
+    current_head: str,
+    current_fingerprint: str,
+) -> bool:
+    return _receipt_source_state_current(
+        receipt,
+        current_head=current_head,
+        current_fingerprint=current_fingerprint,
+    )
 
 
 def _float_env(name: str, default: float) -> float:
@@ -154,6 +174,7 @@ def _check_receipt(
     receipt: dict[str, Any],
     *,
     current_head: str,
+    current_fingerprint: str,
     public_required: bool,
     direct_min_f1: float,
     conversation_min_f1: float,
@@ -167,9 +188,17 @@ def _check_receipt(
         issues.append("contract_name_invalid")
     if str(receipt.get("status") or "").strip().lower() != "pass":
         issues.append("receipt_status_not_pass")
-    if current_head and not _fresh_enough(_receipt_source_head(receipt), current_head=current_head):
+    if current_head and not _receipt_source_state_current(
+        receipt,
+        current_head=current_head,
+        current_fingerprint=current_fingerprint,
+    ):
         issues.append("receipt_stale_relative_to_current_head")
-    if bool(receipt.get("dirty_worktree")) and not _generated_only_receipt_delta_ok(receipt, current_head=current_head):
+    if bool(receipt.get("dirty_worktree")) and not _generated_only_receipt_delta_ok(
+        receipt,
+        current_head=current_head,
+        current_fingerprint=current_fingerprint,
+    ):
         issues.append("receipt_generated_from_dirty_worktree")
     if receipt.get("failed_codes"):
         issues.append("receipt_failed_codes_present")
@@ -206,6 +235,7 @@ def _check_browser_receipt(
     receipt: dict[str, Any],
     *,
     current_head: str,
+    current_fingerprint: str,
     max_first_answer_ms: float,
     require_live_stt: bool = True,
 ) -> list[str]:
@@ -216,9 +246,17 @@ def _check_browser_receipt(
         issues.append("browser_contract_name_invalid")
     if str(receipt.get("status") or "").strip().lower() != "pass":
         issues.append("browser_receipt_status_not_pass")
-    if current_head and not _fresh_enough(_receipt_source_head(receipt), current_head=current_head):
+    if current_head and not _receipt_source_state_current(
+        receipt,
+        current_head=current_head,
+        current_fingerprint=current_fingerprint,
+    ):
         issues.append("browser_receipt_stale_relative_to_current_head")
-    if bool(receipt.get("dirty_worktree")) and not _generated_only_receipt_delta_ok(receipt, current_head=current_head):
+    if bool(receipt.get("dirty_worktree")) and not _generated_only_receipt_delta_ok(
+        receipt,
+        current_head=current_head,
+        current_fingerprint=current_fingerprint,
+    ):
         issues.append("browser_receipt_generated_from_dirty_worktree")
     if _is_local_base_url(str(receipt.get("base_url") or "")):
         issues.append("browser_public_origin_required_not_localhost")
@@ -254,6 +292,7 @@ def _check_room_receipt(
     receipt: dict[str, Any],
     *,
     current_head: str,
+    current_fingerprint: str,
 ) -> list[str]:
     issues: list[str] = []
     if not receipt:
@@ -262,9 +301,17 @@ def _check_room_receipt(
         issues.append("room_contract_name_invalid")
     if str(receipt.get("status") or "").strip().lower() != "pass":
         issues.append("room_receipt_status_not_pass")
-    if current_head and not _fresh_enough(_receipt_source_head(receipt), current_head=current_head):
+    if current_head and not _receipt_source_state_current(
+        receipt,
+        current_head=current_head,
+        current_fingerprint=current_fingerprint,
+    ):
         issues.append("room_receipt_stale_relative_to_current_head")
-    if bool(receipt.get("dirty_worktree")) and not _generated_only_receipt_delta_ok(receipt, current_head=current_head):
+    if bool(receipt.get("dirty_worktree")) and not _generated_only_receipt_delta_ok(
+        receipt,
+        current_head=current_head,
+        current_fingerprint=current_fingerprint,
+    ):
         issues.append("room_receipt_generated_from_dirty_worktree")
     if _is_local_base_url(str(receipt.get("base_url") or "")):
         issues.append("room_public_origin_required_not_localhost")
@@ -645,8 +692,15 @@ def _should_require_truthy(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _meaningful_browser_receipt_required() -> bool:
+    return not _should_require_truthy(
+        os.getenv("MEMORIAL_DIAGNOSTIC_SKIP_MEANINGFUL_BROWSER_RECEIPT")
+    )
+
+
 def main() -> int:
     current_head = _git_head()
+    current_fingerprint = _source_fingerprint()
     max_conversation_turn_ms = _float_env("MEMORIAL_GOLD_MAX_CONVERSATION_TURN_MS", 4500.0)
     max_speech_transcribe_ms = _float_env("MEMORIAL_GOLD_MAX_SPEECH_TRANSCRIBE_MS", 2500.0)
     max_browser_first_answer_ms = _float_env("MEMORIAL_GOLD_MAX_BROWSER_FIRST_ANSWER_MS", 4500.0)
@@ -654,6 +708,7 @@ def main() -> int:
     local_issues = _check_receipt(
         local,
         current_head=current_head,
+        current_fingerprint=current_fingerprint,
         public_required=False,
         direct_min_f1=0.90,
         conversation_min_f1=0.90,
@@ -664,6 +719,7 @@ def main() -> int:
     public_issues = _check_receipt(
         public,
         current_head=current_head,
+        current_fingerprint=current_fingerprint,
         public_required=True,
         direct_min_f1=0.92,
         conversation_min_f1=0.90,
@@ -675,16 +731,19 @@ def main() -> int:
     browser_issues = _check_browser_receipt(
         browser,
         current_head=current_head,
+        current_fingerprint=current_fingerprint,
         max_first_answer_ms=max_browser_first_answer_ms,
     )
 
     meaningful_browser_issues: list[str] = []
     meaningful_browser_receipt_path = Path(os.getenv("MEMORIAL_PUBLIC_MEANINGFUL_BROWSER_RECEIPT") or MEANINGFUL_BROWSER_RECEIPT)
-    if _should_require_truthy(os.getenv("MEMORIAL_REQUIRE_MEANINGFUL_BROWSER_RECEIPT")):
+    meaningful_browser_required = _meaningful_browser_receipt_required()
+    if meaningful_browser_required:
         meaningful_browser_receipt = _json(meaningful_browser_receipt_path)
         meaningful_browser_issues = _check_browser_receipt(
             meaningful_browser_receipt,
             current_head=current_head,
+            current_fingerprint=current_fingerprint,
             max_first_answer_ms=_float_env(
                 "MEMORIAL_GOLD_MAX_MEANINGFUL_BROWSER_FIRST_ANSWER_MS",
                 8000.0,
@@ -696,6 +755,7 @@ def main() -> int:
     room_issues = _check_room_receipt(
         room,
         current_head=current_head,
+        current_fingerprint=current_fingerprint,
     )
     memorial_surface_contract = _run_script_json(["scripts/verify_project_mode_runtime.py", "--mode", "memorial"])
     memorial_surface_contract_issues = _check_memorial_surface_contract(memorial_surface_contract)
@@ -759,6 +819,8 @@ def main() -> int:
         "public_browser_gold_receipt": _display_path(browser_receipt_path),
         "public_browser_gold_issues": browser_issues,
         "public_meaningful_browser_gold_receipt": _display_path(meaningful_browser_receipt_path),
+        "public_meaningful_browser_gold_required": meaningful_browser_required,
+        "public_meaningful_browser_diagnostic_override": not meaningful_browser_required,
         "public_meaningful_browser_gold_issues": meaningful_browser_issues,
         "memorial_surface_contract": "scripts/verify_project_mode_runtime.py --mode memorial",
         "memorial_surface_contract_issues": memorial_surface_contract_issues,
@@ -782,7 +844,7 @@ def main() -> int:
             "speech_transcribe_ms_max": max_speech_transcribe_ms,
             "browser_first_answer_ms_max": max_browser_first_answer_ms,
         },
-        "memorial_voice_gold_claim_allowed": status == "pass",
+        "memorial_voice_gold_claim_allowed": status == "pass" and meaningful_browser_required,
         "labels": {
             "local_receipt": "Memorial voice release-candidate proof",
             "public_receipt": "Memorial public voice provenance proof",

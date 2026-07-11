@@ -41,6 +41,7 @@ def _public_memorial_payload(
     public_memorial_archive_registry: Callable[[str], dict[str, object]],
     memorial_video_call_avatar: Callable[[dict[str, object], str], dict[str, object]],
     public_video_meeting_payload: Callable[..., dict[str, object]],
+    approved_memory_excerpt: Callable[[object], str] | None = None,
 ) -> dict[str, object]:
     public_payload: dict[str, object] = {}
     top_level_text_limits = {
@@ -89,12 +90,18 @@ def _public_memorial_payload(
     public_memories: list[dict[str, object]] = []
     for item in public_list(
         payload.get("memory_cards"),
-        {"source_label", "title", "body"},
+        {"source_label", "title", "body", "public_excerpt"},
     )[:12]:
+        curated_excerpt = (
+            approved_memory_excerpt(item.get("public_excerpt"))
+            if approved_memory_excerpt is not None and item.get("public_excerpt")
+            else ""
+        )
         memory = {
             "source_label": story_text(item.get("source_label"), max_chars=160),
             "title": story_text(item.get("title"), max_chars=180),
-            "body": censored_memory_preview(item.get("body") or item.get("title")),
+            "body": curated_excerpt or censored_memory_preview(item.get("body") or item.get("title")),
+            "curation_status": "approved_public_excerpt" if curated_excerpt else "strongly_redacted_preview",
         }
         public_memories.append({key: value for key, value in memory.items() if value})
     public_payload["memory_cards"] = public_memories
@@ -196,8 +203,10 @@ def _public_memorial_payload(
     public_sources: list[dict[str, object]] = []
     for item in public_list(
         payload.get("external_sources"),
-        {"label", "url", "status"},
+        {"label", "url", "status", "approved"},
     )[:24]:
+        if item.get("approved") is not True:
+            continue
         url = safe_external_url(item.get("url"))
         if not url:
             continue

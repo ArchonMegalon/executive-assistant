@@ -1,13 +1,13 @@
 {
   "document_id": "manfred-life-overview",
-  "title": "Manfred: Ueberblick",
+  "title": "Manfred: \u00dcberblick",
   "audience": "public",
   "sensitivity": "PUBLIC",
   "review_status": "approved",
   "viewer_type": "smart_document",
   "version": "2026-06-05",
-  "source_owner": "Manfred Memorial Archive",
-  "archive_section_title": "Oeffentliches Archiv",
+  "source_owner": "Manfred Gedenkarchiv",
+  "archive_section_title": "\u00d6ffentliches Archiv",
   "fliplink_slug": "manfred-life-overview",
   "fliplink_url": "https://archive.example.test/manfred-life-overview",
   "approved": true,
@@ -15,18 +15,18 @@
     "source.md"
   ],
   "build_artifacts": {
-    "html_path": "../memorial_archive/manfred/public/manfred-life-overview/build/index.html",
-    "pdf_path": "../memorial_archive/manfred/public/manfred-life-overview/build/output.pdf"
+    "html_path": "build/index.html",
+    "pdf_path": "build/output.pdf"
   },
-  "sha256": "3d07ce3ccda21b93f7ba27ff2741e344f3edf03a9bf1c3ef62a6aff0d510df27",
-  "description": "Ein gepruefter Ueberblick ueber Leben, Quellen und zentrale Erinnerungsmuster.",
-  "correction_contact": "memorial@example.test",
-  "ai_disclosure": "AI-assisted formatting, no direct speech claim unless explicitly marked as verbatim source.",
-  "contact_or_correction_path": "memorial@example.test",
+  "sha256": "554be399353adb9e5befd41463a472a99b31b59361872c05b14056505d3d0f98",
+  "description": "Ein gepr\u00fcfter \u00dcberblick \u00fcber Leben, Quellen und zentrale Erinnerungsmuster.",
+  "correction_contact": "memorial@myexternalbrain.com",
+  "ai_disclosure": "KI-unterst\u00fctzte Formatierung; keine direkte Rede von Manfred, sofern sie nicht ausdr\u00fccklich als w\u00f6rtliche Quelle gekennzeichnet ist.",
+  "contact_or_correction_path": "memorial@myexternalbrain.com",
   "noindex": false,
   "share_with_memorial_app": true,
   "public": true,
   "published_date": "2026-06-05",
   "source_sha256": "3d08a52ae88ffe3d17b2eb01c524055f19be02593a6de25b05fd1425cbb10eaf",
-  "built_at": "2026-06-06T03:36:37Z"
+  "built_at": "2026-07-11T07:07:13Z"
 }

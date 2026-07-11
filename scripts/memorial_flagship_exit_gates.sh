@@ -11,17 +11,29 @@ export TMPDIR
 
 cd "$ROOT"
 export MEMORIAL_FLAGSHIP_EXIT_GATES_RUNNING=1
-pytest -q \
+PYTHONPATH="$ROOT/ea${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" -m pytest -q --import-mode=importlib \
   tests/test_memorial_archive_registry_public.py \
   tests/test_memorial_audio_probe_contracts.py \
   tests/test_memorial_demo_rehearsal_contracts.py \
   tests/test_memorial_flagship_preflight.py \
+  tests/test_memorial_fliplink_publisher.py \
+  tests/test_memorial_family_contributions.py \
+  tests/test_memorial_private_context.py \
+  tests/test_memorial_recovery_inventory.py \
+  tests/test_memorial_recovery_inventory_cli.py \
+  tests/test_memorial_share_packet.py \
+  ea/tests/test_memorial_narration_work_package.py \
+  tests/test_measure_memorial_live_browser.py \
   tests/test_memorial_room_ready_contracts.py \
   tests/test_memorial_security_contracts.py \
   tests/test_validate_memorial_voice_loop.py \
   tests/test_providers_api_contracts.py \
   tests/test_memorial_showtime_contracts.py \
   -k 'memorial'
+
+PYTHONPATH="$ROOT/ea${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" -m pytest -q --import-mode=importlib \
+  ea/tests/test_audiobook_epub_pipeline.py \
+  ea/tests/test_audiobook_narration_planner.py
 
 if [[ -n "${PYTEST_CURRENT_TEST:-}" ]]; then
   "$PYTHON_BIN" -m pytest -q \
@@ -34,28 +46,28 @@ else
     tests/e2e/test_memorial_showtime_cli.py
 fi
 
-cd "$ROOT/ea"
+cd "$ROOT"
 preflight_args=("manfred")
 if [[ -n "${MEMORIAL_FLAGSHIP_BASE_URL:-}" ]]; then
   preflight_args+=("--base-url" "$MEMORIAL_FLAGSHIP_BASE_URL")
 fi
-python3 scripts/memorial_flagship_preflight.py "${preflight_args[@]}"
+"$PYTHON_BIN" scripts/memorial_flagship_preflight.py "${preflight_args[@]}"
 
 if [[ -n "${MEMORIAL_FLAGSHIP_BASE_URL:-}" ]]; then
   avatar_mode="--avatar-optional"
   if [[ "${MEMORIAL_FLAGSHIP_AVATAR_REQUIRED:-0}" == "1" ]]; then
     avatar_mode="--avatar-required"
   fi
-  python3 scripts/memorial_room_ready.py \
+  "$PYTHON_BIN" ea/scripts/memorial_room_ready.py \
     --slug manfred \
     --base-url "$MEMORIAL_FLAGSHIP_BASE_URL" \
-    --questions ../examples/demo_questions.manfred.json \
+    --questions examples/demo_questions.manfred.json \
     --output-dir "$TMPDIR/manfred_room_ready_exit_gate" \
     --launch-mode \
     "$avatar_mode" \
     --skip-exit-gates
 
-  python3 - <<'PY'
+  "$PYTHON_BIN" - <<'PY'
 import json
 import os
 from pathlib import Path

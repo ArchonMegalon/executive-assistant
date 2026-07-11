@@ -302,6 +302,50 @@ def test_wait_for_realtime_turn_tolerates_contexts_without_off() -> None:
     assert result["turn_id"] == "turn_1"
 
 
+def test_chromium_startup_retry_survives_transient_target_closed_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    attempts = 0
+    delays: list[float] = []
+
+    class FakeChromium:
+        def launch(self, **kwargs):  # type: ignore[no-untyped-def]
+            nonlocal attempts
+            attempts += 1
+            if attempts < 4:
+                raise RuntimeError("TargetClosedError: signal=SIGTRAP")
+            return {"browser": "ready", "kwargs": kwargs}
+
+    fake_playwright = type("FakePlaywright", (), {"chromium": FakeChromium()})()
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: delays.append(seconds))
+
+    browser, successful_attempt, launch_errors = module._launch_chromium_with_startup_retry(
+        fake_playwright,
+        headless=True,
+    )
+
+    assert browser["browser"] == "ready"
+    assert successful_attempt == 4
+    assert len(launch_errors) == 3
+    assert delays == [0.75, 1.5, 3.0]
+
+
+def test_short_playwright_tmpdir_avoids_long_inherited_path_and_restores_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    inherited = "/tmp/pytest-of-tibor/" + ("deeply-nested-exit-gate/" * 6)
+    monkeypatch.setenv("TMPDIR", inherited)
+
+    with module._short_playwright_tmpdir() as browser_tmpdir:
+        assert str(browser_tmpdir).startswith("/tmp/ea-pw-")
+        assert len(str(browser_tmpdir)) < 64
+        assert module.os.environ["TMPDIR"] == str(browser_tmpdir)
+
+    assert module.os.environ["TMPDIR"] == inherited
+
+
 def test_preferred_answer_preview_prefers_final_payload_answer_over_streamed_draft() -> None:
     module = _load_module()
 

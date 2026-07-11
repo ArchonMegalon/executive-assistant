@@ -1,17 +1,19 @@
 # Manfred Memorial Flagship Launch
 
-This launch note tracks the current memorial flagship state after the public page was reduced to a conversation-only surface.
+This launch note tracks the source-first memorial flagship and its accessible conversation surface.
 
 ## Current public flagship
 
-The public memorial now intentionally centers on:
+The public memorial intentionally combines:
 
-- `Sprich mit der Erinnerung`
-- the minimal interaction hint
-- install support
-- the live conversation loop
+- curated, explicitly public memories and sources
+- a visible synthetic-voice and audio-processing disclosure
+- microphone conversation with interruption and recovery
+- a keyboard-only text conversation fallback
+- a private-by-default family contribution and withdrawal journey
+- install support and a discoverable public document archive
 
-It intentionally does **not** surface archive browsing, public recordings, source profile panels, or public voice A/B tooling on the landing page.
+Private recordings, family notes, raw transcripts, provider identifiers, consent records, and operator voice-review tooling are never projected onto the public page.
 
 ## Preflight and exit gates
 
@@ -55,17 +57,17 @@ scripts/memorial_flagship_exit_gates.sh
 
 ## Archive publishing
 
-Archive generation and FlipLink publishing still exist, but they are now supporting infrastructure rather than part of the public landing-page demo.
+Archive generation creates contained public HTML/PDF artifacts and a public-only registry. Built, approved public HTML can be served through the memorial's internal archive route without a paid provider. FlipLink is optional and must only replace that route after it returns a real, non-placeholder HTTPS publication URL.
 
 Build archive documents:
 
 ```bash
 cd "$EA_REPO_ROOT"
-python3 scripts/build_memorial_archive_documents.py manfred
+python3 ea/scripts/build_memorial_archive_documents.py manfred
 ```
 
 Publish approved public documents:
 
 ```bash
-python3 scripts/publish_memorial_fliplink_publications.py manfred --public-only
+python3 ea/scripts/publish_memorial_fliplink_publications.py manfred --public-only
 ```

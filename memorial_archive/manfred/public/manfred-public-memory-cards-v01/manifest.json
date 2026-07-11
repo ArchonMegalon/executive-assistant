@@ -6,8 +6,8 @@
   "review_status": "approved",
   "viewer_type": "flipbook",
   "version": "2026-06-05",
-  "source_owner": "Manfred Memorial Archive",
-  "archive_section_title": "Oeffentliches Archiv",
+  "source_owner": "Manfred Gedenkarchiv",
+  "archive_section_title": "\u00d6ffentliches Archiv",
   "fliplink_slug": "manfred-public-memory-cards-v01",
   "fliplink_url": "https://archive.example.test/manfred-public-memory-cards-v01",
   "approved": true,
@@ -15,18 +15,18 @@
     "source.md"
   ],
   "build_artifacts": {
-    "html_path": "../memorial_archive/manfred/public/manfred-public-memory-cards-v01/build/index.html",
-    "pdf_path": "../memorial_archive/manfred/public/manfred-public-memory-cards-v01/build/output.pdf"
+    "html_path": "build/index.html",
+    "pdf_path": "build/output.pdf"
   },
-  "sha256": "3c6035e115bbeb4607d67aaf302c8244b3a2d60b1cd3bfdc0293db60ee844d49",
-  "description": "Kleine kuratierte Erinnerungs- und Quellenkarten fuer den oeffentlichen Einstieg.",
-  "correction_contact": "memorial@example.test",
-  "ai_disclosure": "AI-assisted formatting, no direct speech claim unless explicitly marked as verbatim source.",
-  "contact_or_correction_path": "memorial@example.test",
+  "sha256": "a63681ec21612b32e3edbf8ad7e71dce51b250790d31309b4aeb79dca0c06888",
+  "description": "Kleine kuratierte Erinnerungs- und Quellenkarten f\u00fcr den \u00f6ffentlichen Einstieg.",
+  "correction_contact": "memorial@myexternalbrain.com",
+  "ai_disclosure": "KI-unterst\u00fctzte Formatierung; keine direkte Rede von Manfred, sofern sie nicht ausdr\u00fccklich als w\u00f6rtliche Quelle gekennzeichnet ist.",
+  "contact_or_correction_path": "memorial@myexternalbrain.com",
   "noindex": false,
   "share_with_memorial_app": true,
   "public": true,
   "published_date": "2026-06-05",
   "source_sha256": "cbe284ff259dd41f0dc878d0dfd5f235832c35de235f6450f890f6085597dd28",
-  "built_at": "2026-06-06T03:36:37Z"
+  "built_at": "2026-07-11T07:07:13Z"
 }

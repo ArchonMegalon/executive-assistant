@@ -11,63 +11,126 @@
   --blue-gray: #48677E;
   --gold: #B48D51;
   --wine: #7D4851;
+  --paper-shadow: rgba(43,39,35,.12);
+  --panel: rgba(255,255,255,.62);
+  --panel-strong: rgba(255,255,255,.78);
   --line: rgba(43,39,35,.14);
+}
+html {
+  background:
+    radial-gradient(circle at top left, rgba(180,141,81,.18), transparent 32%),
+    radial-gradient(circle at top right, rgba(72,103,126,.16), transparent 28%),
+    linear-gradient(180deg, #f5ecda 0%, #efe3cb 100%);
 }
 body {
   margin: 0;
   font: 16px/1.6 Georgia, "Libre Baskerville", serif;
   color: var(--ink);
-  background: var(--paper);
+  background:
+    linear-gradient(rgba(255,255,255,.1), rgba(255,255,255,.1)),
+    var(--paper);
 }
 main {
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 48px 28px 72px;
+  max-width: 920px;
+  margin: 32px auto;
+  padding: 56px 42px 80px;
+  background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+  border: 1px solid rgba(43,39,35,.08);
+  box-shadow:
+    0 22px 44px var(--paper-shadow),
+    inset 0 1px 0 rgba(255,255,255,.55);
+  position: relative;
+}
+main::before {
+  content: "";
+  position: absolute;
+  inset: 14px;
+  border: 1px solid rgba(72,103,126,.12);
+  pointer-events: none;
 }
 header {
-  margin-bottom: 36px;
-  padding-bottom: 20px;
+  margin-bottom: 42px;
+  padding-bottom: 24px;
   border-bottom: 1px solid var(--line);
 }
 .kicker {
   color: var(--wine);
-  font: 700 12px/1.2 "Trebuchet MS", system-ui, sans-serif;
-  letter-spacing: .14em;
+  font: 700 11px/1.2 "Trebuchet MS", system-ui, sans-serif;
+  letter-spacing: .18em;
   text-transform: uppercase;
 }
 h1 {
-  margin: 10px 0 14px;
-  font-size: 2.8rem;
-  line-height: 1.05;
+  margin: 12px 0 16px;
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  line-height: 0.98;
+  max-width: 11ch;
 }
 h2 {
-  margin-top: 32px;
-  font-size: 1.55rem;
+  margin-top: 36px;
+  margin-bottom: 10px;
+  font-size: 1.45rem;
   line-height: 1.12;
+  color: var(--blue-gray);
+}
+p {
+  margin: 0 0 1rem;
+  max-width: 68ch;
+}
+ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+li + li {
+  margin-top: .55rem;
 }
 p, li {
   color: var(--ink);
 }
 .meta {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px 16px;
-  margin-top: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px 16px;
+  margin-top: 26px;
   color: var(--muted);
-  font-size: .95rem;
+  font-size: .94rem;
+}
+.meta div {
+  padding: 12px 14px;
+  background: rgba(255,255,255,.42);
+  border: 1px solid rgba(43,39,35,.06);
+  min-height: 72px;
 }
 .meta strong {
   color: var(--ink);
+  display: inline-block;
+  margin-bottom: 4px;
+  font-size: .74rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
 }
 .callout {
-  margin: 24px 0;
-  padding: 16px 18px;
+  margin: 28px 0 34px;
+  padding: 18px 20px;
   border-left: 4px solid var(--gold);
-  background: rgba(255,255,255,.46);
+  background: rgba(255,255,255,.52);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.45);
+}
+.doc-section {
+  margin-top: 10px;
+  padding-top: 4px;
+}
+.doc-section h2::before {
+  content: "";
+  display: inline-block;
+  width: 32px;
+  height: 1px;
+  margin: 0 12px 6px 0;
+  background: rgba(180,141,81,.75);
+  vertical-align: middle;
 }
 footer {
-  margin-top: 48px;
-  padding-top: 18px;
+  margin-top: 52px;
+  padding-top: 20px;
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: .92rem;
@@ -77,45 +140,63 @@ hr {
   border-top: 1px solid var(--line);
   margin: 30px 0;
 }
+@media (max-width: 720px) {
+  main {
+    margin: 0;
+    padding: 28px 18px 44px;
+    border-left: 0;
+    border-right: 0;
+    box-shadow: none;
+  }
+  main::before {
+    inset: 8px;
+  }
+  .meta {
+    grid-template-columns: 1fr;
+  }
+  h1 {
+    max-width: none;
+  }
+}
 </style>
   </head>
   <body>
     <main>
       <header>
-        <div class="kicker">Manfred Memorial Archive</div>
+        <div class="kicker">Manfred Gedenkarchiv</div>
         <h1>Familienbriefe Band I</h1>
         <div class="meta">
-          <div><strong>Audience</strong><br>family</div>
+          <div><strong>Publikum</strong><br>family</div>
           <div><strong>Version</strong><br>2026-06-05</div>
-          <div><strong>Published</strong><br>2026-06-05</div>
-          <div><strong>Source owner</strong><br>Manfred Memorial Archive</div>
-          <div><strong>Review status</strong><br>approved</div>
-          <div><strong>Sensitivity</strong><br>FAMILY</div>
-          <div><strong>AI disclosure</strong><br>AI-assisted formatting, no direct speech claim unless explicitly marked as verbatim source.</div>
-          <div><strong>Corrections</strong><br>memorial@example.test</div>
+          <div><strong>Veröffentlicht</strong><br>2026-06-05</div>
+          <div><strong>Quellenverantwortung</strong><br>Manfred Gedenkarchiv</div>
+          <div><strong>Prüfstatus</strong><br>approved</div>
+          <div><strong>Sensibilität</strong><br>FAMILY</div>
+          <div><strong>KI-Hinweis</strong><br>KI-unterstützte Formatierung; keine direkte Rede von Manfred, sofern sie nicht ausdrücklich als wörtliche Quelle gekennzeichnet ist.</div>
+          <div><strong>Korrekturen</strong><br>memorial@myexternalbrain.com</div>
         </div>
       </header>
-      <div class="callout">This document is part of a memorial archive. It may include original sources, family recollections, and AI-assisted formatting. AI-generated text is not direct speech from Manfred unless explicitly marked as a verbatim source. Sensitive or uncertain material is labeled accordingly.</div>
+      <div class="callout">Dieses Dokument gehört zu einem kuratierten Gedenkarchiv. Es kann Originalquellen, Familienerinnerungen und KI-unterstützte Formatierung enthalten. KI-formulierter Text ist keine direkte Rede von Manfred, sofern er nicht ausdrücklich als wörtliche Quelle gekennzeichnet ist. Sensible oder unsichere Inhalte sind entsprechend markiert.</div>
       <h1>Familienbriefe Band I</h1>
-<h2>Publikum</h2>
-<p>Familie</p>
-<h2>Einordnung</h2>
-<p>Dieses Dokument ist kein Rohmail-Archiv. Es verdichtet Ton, Muster und wiederkehrende Themen aus ausgewählten familiären Quellen in lesbarer und geschützter Form.</p>
-<h2>Leitlinien</h2>
+<section class="doc-section"><h2>Publikum</h2>
+<p>Familie</p></section>
+<section class="doc-section"><h2>Einordnung</h2>
+<p>Dieses Dokument ist kein Rohmail-Archiv. Es verdichtet Ton, Muster und wiederkehrende Themen aus ausgewählten familiären Quellen in lesbarer und geschützter Form.</p></section>
+<section class="doc-section"><h2>Leitlinien</h2>
 <ul>
 <li>keine Rohbetreffe</li>
 <li>keine Datums- und Header-Vorlesung</li>
 <li>keine direkte Veröffentlichung sensibler Adressen oder Kontaktdaten</li>
 <li>Zuspitzung nur, wenn die Quelle das trägt</li>
-</ul>
-<h2>Kernthemen</h2>
+</ul></section>
+<section class="doc-section"><h2>Kernthemen</h2>
 <ul>
 <li>praktische Koordination</li>
 <li>Korrektur und Zuständigkeit</li>
 <li>Reise- und Verwaltungsfragen</li>
 <li>Nähe eher über Pflicht und Arrangement als über weiche Selbstauskunft</li>
-</ul>
-      <footer>Manfred Memorial Archive · Version 2026-06-05 · Source status: approved</footer>
+</ul></section>
+      <footer>Manfred Gedenkarchiv · Version 2026-06-05 · Quellenstatus: approved</footer>
     </main>
   </body>
 </html>

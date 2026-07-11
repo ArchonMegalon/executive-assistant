@@ -6,8 +6,8 @@
   "review_status": "approved",
   "viewer_type": "smart_document",
   "version": "2026-06-05",
-  "source_owner": "Manfred Memorial Archive",
-  "archive_section_title": "Oeffentliches Archiv",
+  "source_owner": "Manfred Gedenkarchiv",
+  "archive_section_title": "\u00d6ffentliches Archiv",
   "fliplink_slug": "manfred-how-this-memorial-works",
   "fliplink_url": "https://archive.example.test/manfred-how-this-memorial-works",
   "approved": true,
@@ -15,18 +15,18 @@
     "source.md"
   ],
   "build_artifacts": {
-    "html_path": "../memorial_archive/manfred/public/manfred-how-this-memorial-works/build/index.html",
-    "pdf_path": "../memorial_archive/manfred/public/manfred-how-this-memorial-works/build/output.pdf"
+    "html_path": "build/index.html",
+    "pdf_path": "build/output.pdf"
   },
-  "sha256": "d749e8c9a29f9745f0b2ce3198b5668f45d19730b97fd1eb3ea18dbb85e5366f",
-  "description": "Erklaert Quellen, Grenzen, AI-Nutzung und den Unterschied zwischen Archiv und Gespraech.",
-  "correction_contact": "memorial@example.test",
-  "ai_disclosure": "AI-assisted formatting, no direct speech claim unless explicitly marked as verbatim source.",
-  "contact_or_correction_path": "memorial@example.test",
+  "sha256": "67e6f91e363cfd97617c733eb8abfbdd25fd9e162be770d6850862ddf86e4663",
+  "description": "Erkl\u00e4rt Quellen, Grenzen, KI-Nutzung und den Unterschied zwischen Archiv und Gespr\u00e4ch.",
+  "correction_contact": "memorial@myexternalbrain.com",
+  "ai_disclosure": "KI-unterst\u00fctzte Formatierung; keine direkte Rede von Manfred, sofern sie nicht ausdr\u00fccklich als w\u00f6rtliche Quelle gekennzeichnet ist.",
+  "contact_or_correction_path": "memorial@myexternalbrain.com",
   "noindex": false,
   "share_with_memorial_app": true,
   "public": true,
   "published_date": "2026-06-05",
   "source_sha256": "1aca176b275ed8315cc2ac3b688116aaeb63c3cfbf15d82d3be5b3f498573a62",
-  "built_at": "2026-06-06T03:36:37Z"
+  "built_at": "2026-07-11T07:07:13Z"
 }
