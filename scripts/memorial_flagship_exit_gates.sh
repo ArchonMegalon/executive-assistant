@@ -17,6 +17,10 @@ Usage:
 
 The default mode is real-public. MEMORIAL_FLAGSHIP_GATE_MODE and
 MEMORIAL_FLAGSHIP_BASE_URL may be used instead of the corresponding arguments.
+For a clean worktree checking a separately projected runtime, set
+MEMORIAL_FLAGSHIP_PREFLIGHT_PUBLIC_MEMORIAL_DIR and/or
+MEMORIAL_FLAGSHIP_PREFLIGHT_PRIVATE_PROFILE_DIR. These bindings are applied
+only to post-test runtime checks and are not inherited by the test suites.
 EOF
 }
 
@@ -157,6 +161,14 @@ PY
 export MEMORIAL_FLAGSHIP_GATE_MODE="$gate_mode"
 export MEMORIAL_FLAGSHIP_BASE_URL="${base_url%/}"
 
+# Runtime profile roots are legitimate final-preflight inputs, but leaking them
+# into pytest breaks isolation and can make tests read or write operator data.
+# Preserve backwards compatibility with the EA_* names while confining either
+# form to post-test runtime subprocesses.
+preflight_public_memorial_dir="${MEMORIAL_FLAGSHIP_PREFLIGHT_PUBLIC_MEMORIAL_DIR:-${EA_PUBLIC_MEMORIAL_DIR:-}}"
+preflight_private_profile_dir="${MEMORIAL_FLAGSHIP_PREFLIGHT_PRIVATE_PROFILE_DIR:-${EA_PRIVATE_MEMORIAL_PROFILE_DIR:-}}"
+unset EA_PUBLIC_MEMORIAL_DIR EA_PRIVATE_MEMORIAL_PROFILE_DIR
+
 if [[ "$gate_mode" == "real-public" ]]; then
   case "${MEMORIAL_DIAGNOSTIC_SKIP_MEANINGFUL_BROWSER_RECEIPT:-}" in
     1|true|TRUE|yes|YES|on|ON)
@@ -205,7 +217,14 @@ fi
 
 cd "$ROOT"
 preflight_args=("manfred" "--base-url" "$MEMORIAL_FLAGSHIP_BASE_URL")
-"$PYTHON_BIN" scripts/memorial_flagship_preflight.py "${preflight_args[@]}"
+preflight_env=()
+if [[ -n "$preflight_public_memorial_dir" ]]; then
+  preflight_env+=("EA_PUBLIC_MEMORIAL_DIR=$preflight_public_memorial_dir")
+fi
+if [[ -n "$preflight_private_profile_dir" ]]; then
+  preflight_env+=("EA_PRIVATE_MEMORIAL_PROFILE_DIR=$preflight_private_profile_dir")
+fi
+env "${preflight_env[@]}" "$PYTHON_BIN" scripts/memorial_flagship_preflight.py "${preflight_args[@]}"
 
 if [[ "$gate_mode" == "provider-free-local" ]]; then
   echo "PROVIDER_FREE_LOCAL_GATE_PASS: local tests and live privacy preflight passed; no real voice, microphone, provider, or public-launch proof was attempted"
@@ -216,7 +235,7 @@ avatar_mode="--avatar-optional"
 if [[ "${MEMORIAL_FLAGSHIP_AVATAR_REQUIRED:-0}" == "1" ]]; then
   avatar_mode="--avatar-required"
 fi
-"$PYTHON_BIN" ea/scripts/memorial_room_ready.py \
+env "${preflight_env[@]}" "$PYTHON_BIN" ea/scripts/memorial_room_ready.py \
   --slug manfred \
   --base-url "$MEMORIAL_FLAGSHIP_BASE_URL" \
   --questions examples/demo_questions.manfred.json \

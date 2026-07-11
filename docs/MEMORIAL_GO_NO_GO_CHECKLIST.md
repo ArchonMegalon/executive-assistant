@@ -41,6 +41,7 @@
 
 ## Exit gates
 
+- [ ] When the exact clean worktree checks a separately projected runtime, pass its roots with `MEMORIAL_FLAGSHIP_PREFLIGHT_PUBLIC_MEMORIAL_DIR` and `MEMORIAL_FLAGSHIP_PREFLIGHT_PRIVATE_PROFILE_DIR`; do not export the `EA_*` profile roots across pytest.
 - [ ] `pytest -q tests/test_memorial_archive_registry_public.py tests/test_memorial_flagship_preflight.py tests/test_memorial_security_contracts.py tests/test_providers_api_contracts.py -k 'memorial'`
 - [ ] `.venv/bin/pytest -q tests/e2e/test_memorial_browser.py tests/e2e/test_memorial_flagship_exit_gates.py tests/e2e/test_memorial_flagship_operator_tools.py tests/e2e/test_memorial_showtime_cli.py`
 - [ ] `pytest -q tests/test_memorial_audio_probe_contracts.py tests/test_memorial_room_ready_contracts.py`

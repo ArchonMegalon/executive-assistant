@@ -615,6 +615,11 @@ def test_memorial_flagship_exit_gate_script_wires_truthful_launch_modes() -> Non
     )
 
     assert 'gate_mode="${MEMORIAL_FLAGSHIP_GATE_MODE:-real-public}"' in source
+    assert "MEMORIAL_FLAGSHIP_PREFLIGHT_PUBLIC_MEMORIAL_DIR" in source
+    assert "MEMORIAL_FLAGSHIP_PREFLIGHT_PRIVATE_PROFILE_DIR" in source
+    assert "unset EA_PUBLIC_MEMORIAL_DIR EA_PRIVATE_MEMORIAL_PROFILE_DIR" in source
+    assert 'env "${preflight_env[@]}" "$PYTHON_BIN" scripts/memorial_flagship_preflight.py' in source
+    assert 'env "${preflight_env[@]}" "$PYTHON_BIN" ea/scripts/memorial_room_ready.py' in source
     assert "--provider-free-local" in source
     assert "--real-public" in source
     assert "--real-stt" in source
