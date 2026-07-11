@@ -216,6 +216,39 @@ def test_telegram_audiobook_live_readiness_can_use_runtime_container_preflight(t
     assert verification["issues"] == []
 
 
+def test_telegram_audiobook_live_readiness_cli_defaults_to_runtime_container(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    materializer = _load_script("materialize_telegram_audiobook_live_readiness")
+    receipt_path = tmp_path / "default-runtime.generated.json"
+    captured: dict[str, object] = {}
+
+    def fake_materialize(**kwargs):
+        captured.update(kwargs)
+        return {"status": "ready_for_live_epub_delivery_test"}
+
+    monkeypatch.setattr(
+        materializer,
+        "materialize_telegram_audiobook_live_readiness",
+        fake_materialize,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "materialize_telegram_audiobook_live_readiness.py",
+            "--receipt",
+            str(receipt_path),
+        ],
+    )
+
+    assert materializer.main() == 0
+    assert captured["runtime_container"] == "ea-api"
+    assert json.loads(capsys.readouterr().out)["status"] == "ready_for_live_epub_delivery_test"
+
+
 def test_telegram_audiobook_live_readiness_verifier_rejects_overclaims(tmp_path: Path) -> None:
     materializer = _load_script("materialize_telegram_audiobook_live_readiness")
     verifier = _load_script("verify_telegram_audiobook_live_readiness")

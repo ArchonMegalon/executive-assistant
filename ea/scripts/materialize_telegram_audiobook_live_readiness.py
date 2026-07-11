@@ -16,6 +16,7 @@ from typing import Callable, Sequence
 ROOT = Path(__file__).resolve().parents[2]
 EA_ROOT = ROOT / "ea"
 DEFAULT_RECEIPT = ROOT / ".codex-studio" / "published" / "telegram_audiobook_live_readiness.generated.json"
+DEFAULT_RUNTIME_CONTAINER = "ea-api"
 CONTRACT_NAME = "ea.telegram_audiobook_live_readiness_checklist.v1"
 RUNTIME_PREFLIGHT_CONTRACT_NAME = "ea.telegram_epub_audiobook_runtime_preflight.v1"
 
@@ -621,7 +622,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--receipt", "--out", dest="receipt", type=Path, default=DEFAULT_RECEIPT)
     parser.add_argument("--generated-at", default="")
-    parser.add_argument("--runtime-container", default="")
+    parser.add_argument(
+        "--runtime-container",
+        default=DEFAULT_RUNTIME_CONTAINER,
+        help=(
+            "Runtime container used for authoritative preflight evidence "
+            f"(default: {DEFAULT_RUNTIME_CONTAINER}). Pass an empty value only for an explicit host-env diagnostic."
+        ),
+    )
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
     receipt = materialize_telegram_audiobook_live_readiness(
