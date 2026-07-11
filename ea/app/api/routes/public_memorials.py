@@ -10719,7 +10719,7 @@ def _minimal_public_memorial_html(
         <div class="hero-actions is-readying" id="memorial-hero-actions">
           <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Gespräch beginnen" aria-label="Gespräch beginnen" aria-disabled="true" disabled>Gespräch wird vorbereitet …</button>
         </div>
-        <p class="hero-guidance">Du sprichst mit einer KI-gestützten, synthetischen Manfred-Stimme. Das Mikrofon startet erst nach deinem Klick; eingesetzte Sprachdienste verarbeiten das Audio. Antworten bleiben als Text sichtbar.</p>
+        <p class="hero-guidance">Du sprichst mit einer KI-gestützten, synthetischen Manfred-Stimme. Das Mikrofon wird erst nach deinem Start verwendet; eingesetzte Sprachdienste verarbeiten das Audio. Antworten bleiben als Text sichtbar.</p>
         <form class="text-turn-form memorial-js-required-form" id="memorial-text-turn-form" method="post" action="/memorials/{html.escape(slug)}/chat" hidden inert aria-hidden="true" aria-disabled="true" data-js-ready="false">
           <label for="memorial-text-turn-input">Oder ohne Mikrofon schreiben</label>
           <div class="text-turn-controls">
@@ -14099,7 +14099,7 @@ def _minimal_public_memorial_html(
           !memorialPagePrewarmEnabled,
           memorialPagePrewarmEnabled
             ? "Gleich kannst du mit mir reden."
-            : "Die Stimme startet erst, wenn du das Gespräch beginnst."
+            : "Das Mikrofon wird erst nach deinem Start verwendet."
         );
         updatePersonalMemoryStatusUi();
         void loadPersonalMemoryStatus();
@@ -19101,7 +19101,7 @@ def _memorial_html(
         !memorialPagePrewarmEnabled,
         memorialPagePrewarmEnabled
           ? "Ich werde gerade bereit"
-          : "Die Stimme startet erst nach deinem Klick"
+          : "Das Mikrofon wird erst nach deinem Start verwendet."
       );
       void refreshVoiceProfileSummary();
       if (memorialPagePrewarmEnabled) {{
