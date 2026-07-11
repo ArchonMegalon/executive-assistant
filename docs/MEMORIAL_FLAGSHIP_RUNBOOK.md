@@ -144,7 +144,7 @@ python3 scripts/memorial_recovery_inventory.py verify \
 
 ## Isolated production candidate
 
-Never restart the warmed `ea-api` to test a new memorial release and never build from the shared dirty checkout. The candidate lane uses an exact `git archive`, an immutable image tag and revision label, a private hash-receipted data projection outside the repository, isolated Postgres and Redis volumes, and an internal Docker network with no provider egress.
+Never restart the warmed `ea-api` to test a new memorial release and never build from the shared dirty checkout. The candidate lane uses an exact `git archive`, an immutable image tag and revision label, a private hash-receipted data projection outside the repository, isolated Postgres and Redis volumes, and an internal backend network with no provider egress. A fixed-target, no-secret TCP gateway is the only service attached to the loopback ingress network; the API itself remains internal-only.
 
 ```bash
 cd "$EA_REPO_ROOT"

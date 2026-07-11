@@ -28,10 +28,19 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
     assert api["read_only"] is True
     assert api["cap_drop"] == ["ALL"]
     assert api["security_opt"] == ["no-new-privileges:true"]
-    assert api["ports"] == ["127.0.0.1:${EA_MANFRED_HOST_PORT:-18090}:8090"]
-    assert api["networks"] == ["candidate"]
-    assert payload["networks"]["candidate"]["internal"] is True
-    assert all("external" not in config for config in payload["networks"].values())
+    assert "ports" not in api
+    assert api["networks"] == ["backend"]
+    assert payload["networks"]["backend"]["internal"] is True
+    assert payload["networks"]["ingress"] is None
+
+    gateway = services["gateway"]
+    assert gateway["image"] == api["image"]
+    assert "env_file" not in gateway
+    assert "environment" not in gateway
+    assert gateway["networks"] == ["backend", "ingress"]
+    assert gateway["ports"] == [
+        "127.0.0.1:${EA_MANFRED_HOST_PORT:-18090}:18090"
+    ]
 
     environment = api["environment"]
     assert environment["EA_RUNTIME_MODE"] == "prod"
@@ -127,6 +136,8 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
     assert second["EA_MANFRED_POSTGRES_PASSWORD"] == first[
         "EA_MANFRED_POSTGRES_PASSWORD"
     ]
+    assert second["DATABASE_URL"].startswith("postgresql://ea:")
+    assert "+psycopg" not in second["DATABASE_URL"]
     assert not {
         "UNMIXR_API_KEY",
         "OPENAI_API_KEY",
@@ -134,6 +145,22 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
         "EA_PUBLIC_MEMORIAL_WRITE_TOKEN",
     } & second.keys()
     assert set(second) == candidate_runner.ALLOWED_ENV_KEYS
+
+    candidate_prep._write_env(
+        path=env_path,
+        image="ea-runtime:manfred-abcdef123456",
+        release_root=release_root,
+        runtime_root=runtime_root,
+        public_base_url="https://memorial.example.at",
+        host_port=18090,
+        rotate_secrets=True,
+    )
+    rotated = candidate_prep._parse_env(env_path)
+    assert rotated["EA_API_TOKEN"] != second["EA_API_TOKEN"]
+    assert rotated["EA_SIGNING_SECRET"] != second["EA_SIGNING_SECRET"]
+    assert rotated["EA_MANFRED_POSTGRES_PASSWORD"] != second[
+        "EA_MANFRED_POSTGRES_PASSWORD"
+    ]
 
 
 def test_runtime_runner_rejects_live_bind_or_external_network() -> None:
@@ -145,13 +172,30 @@ def test_runtime_runner_rejects_live_bind_or_external_network() -> None:
                 "read_only": True,
                 "user": "10001:10001",
                 "volumes": [],
-            }
+                "networks": {"backend": None},
+            },
+            "gateway": {
+                "image": "ea-runtime:manfred-abcdef123456",
+                "pull_policy": "never",
+                "read_only": True,
+                "user": "10001:10001",
+                "volumes": [],
+                "networks": {"backend": None, "ingress": None},
+                "ports": [
+                    {"host_ip": "127.0.0.1", "published": "18090", "target": 18090}
+                ],
+            },
+            "postgres": {"networks": {"backend": None}},
+            "redis": {"networks": {"backend": None}},
         },
-        "networks": {"candidate": {"internal": True}},
+        "networks": {"backend": {"internal": True}, "ingress": {}},
     }
     candidate_runner._assert_compose_isolation(
         base,
-        env={"EA_MANFRED_IMAGE": "ea-runtime:manfred-abcdef123456"},
+        env={
+            "EA_MANFRED_IMAGE": "ea-runtime:manfred-abcdef123456",
+            "EA_MANFRED_HOST_PORT": "18090",
+        },
     )
 
     base["services"]["api"]["volumes"] = [
@@ -160,7 +204,10 @@ def test_runtime_runner_rejects_live_bind_or_external_network() -> None:
     with pytest.raises(RuntimeError, match="manfred_candidate_compose_live_bind_forbidden"):
         candidate_runner._assert_compose_isolation(
             base,
-            env={"EA_MANFRED_IMAGE": "ea-runtime:manfred-abcdef123456"},
+            env={
+                "EA_MANFRED_IMAGE": "ea-runtime:manfred-abcdef123456",
+                "EA_MANFRED_HOST_PORT": "18090",
+            },
         )
 
 

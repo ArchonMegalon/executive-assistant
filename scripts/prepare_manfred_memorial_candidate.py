@@ -347,11 +347,18 @@ def _write_env(
     runtime_root: Path,
     public_base_url: str,
     host_port: int,
+    rotate_secrets: bool = False,
 ) -> None:
     current = _parse_env(path)
-    postgres_password = current.get("EA_MANFRED_POSTGRES_PASSWORD") or secrets.token_hex(32)
-    api_token = current.get("EA_API_TOKEN") or secrets.token_urlsafe(48)
-    signing_secret = current.get("EA_SIGNING_SECRET") or secrets.token_urlsafe(64)
+    postgres_password = (
+        "" if rotate_secrets else current.get("EA_MANFRED_POSTGRES_PASSWORD", "")
+    ) or secrets.token_hex(32)
+    api_token = (
+        "" if rotate_secrets else current.get("EA_API_TOKEN", "")
+    ) or secrets.token_urlsafe(48)
+    signing_secret = (
+        "" if rotate_secrets else current.get("EA_SIGNING_SECRET", "")
+    ) or secrets.token_urlsafe(64)
     values = {
         "EA_MANFRED_COMPOSE_PROJECT": "ea-manfred-candidate",
         "EA_MANFRED_IMAGE": image,
@@ -360,7 +367,7 @@ def _write_env(
         "EA_MANFRED_RUNTIME_ROOT": str(runtime_root.resolve()),
         "EA_MANFRED_HOST_PORT": str(host_port),
         "EA_MANFRED_POSTGRES_PASSWORD": postgres_password,
-        "DATABASE_URL": f"postgresql+psycopg://ea:{postgres_password}@postgres:5432/ea",
+        "DATABASE_URL": f"postgresql://ea:{postgres_password}@postgres:5432/ea",
         "EA_API_TOKEN": api_token,
         "EA_SIGNING_SECRET": signing_secret,
         "EA_PUBLIC_APP_BASE_URL": public_base_url,
@@ -412,6 +419,7 @@ def prepare_candidate(
     host_port: int,
     runtime_uid: int = 10001,
     runtime_gid: int = 10001,
+    rotate_secrets: bool = False,
 ) -> dict[str, object]:
     source_root = source_root.expanduser().resolve()
     deploy_root = deploy_root.expanduser().resolve()
@@ -549,6 +557,7 @@ def prepare_candidate(
             runtime_root=runtime_root,
             public_base_url=public_base_url,
             host_port=host_port,
+            rotate_secrets=rotate_secrets,
         )
         created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         receipt = {
@@ -571,6 +580,7 @@ def prepare_candidate(
             "tracked_public_archive_only": True,
             "private_context_in_image": False,
             "provider_credentials_in_candidate_env": False,
+            "candidate_secrets_rotated": rotate_secrets,
             "runtime_uid": runtime_uid,
             "runtime_gid": runtime_gid,
             "spatial_handoff_included": False,
@@ -596,6 +606,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--public-base-url", required=True)
     parser.add_argument("--host-port", type=int, default=18090)
+    parser.add_argument("--rotate-secrets", action="store_true")
     return parser
 
 
@@ -609,6 +620,7 @@ def main(argv: list[str] | None = None) -> int:
             deploy_root=Path(args.deploy_root),
             public_base_url=args.public_base_url,
             host_port=args.host_port,
+            rotate_secrets=args.rotate_secrets,
         )
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
         print(

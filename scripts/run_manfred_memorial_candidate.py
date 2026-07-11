@@ -118,6 +118,7 @@ def _assert_compose_isolation(
 ) -> None:
     services = dict(payload.get("services") or {})
     api = dict(services.get("api") or {})
+    gateway = dict(services.get("gateway") or {})
     if api.get("build") or api.get("container_name"):
         raise RuntimeError("manfred_candidate_compose_not_image_pure")
     if str(api.get("image") or "") != env["EA_MANFRED_IMAGE"]:
@@ -127,11 +128,46 @@ def _assert_compose_isolation(
     if api.get("read_only") is not True or str(api.get("user") or "") != "10001:10001":
         raise RuntimeError("manfred_candidate_compose_runtime_hardening_invalid")
     networks = dict(payload.get("networks") or {})
-    if len(networks) != 1:
+    if set(networks) != {"backend", "ingress"}:
         raise RuntimeError("manfred_candidate_compose_network_invalid")
-    network = dict(next(iter(networks.values())) or {})
-    if network.get("internal") is not True or network.get("external") is True:
+    backend = dict(networks.get("backend") or {})
+    ingress = dict(networks.get("ingress") or {})
+    if backend.get("internal") is not True or backend.get("external") is True:
         raise RuntimeError("manfred_candidate_compose_network_not_isolated")
+    if ingress.get("internal") is True or ingress.get("external") is True:
+        raise RuntimeError("manfred_candidate_compose_ingress_invalid")
+
+    def network_names(service: dict[str, object]) -> set[str]:
+        configured = service.get("networks") or {}
+        if isinstance(configured, dict):
+            return {str(name) for name in configured}
+        if isinstance(configured, list):
+            return {str(name) for name in configured}
+        return set()
+
+    if network_names(api) != {"backend"}:
+        raise RuntimeError("manfred_candidate_api_egress_not_isolated")
+    if network_names(dict(services.get("postgres") or {})) != {"backend"}:
+        raise RuntimeError("manfred_candidate_postgres_network_invalid")
+    if network_names(dict(services.get("redis") or {})) != {"backend"}:
+        raise RuntimeError("manfred_candidate_redis_network_invalid")
+    if network_names(gateway) != {"backend", "ingress"}:
+        raise RuntimeError("manfred_candidate_gateway_network_invalid")
+    if str(gateway.get("image") or "") != env["EA_MANFRED_IMAGE"]:
+        raise RuntimeError("manfred_candidate_gateway_image_mismatch")
+    if gateway.get("env_file") or gateway.get("environment"):
+        raise RuntimeError("manfred_candidate_gateway_secret_scope_invalid")
+    gateway_ports = list(gateway.get("ports") or [])
+    if len(gateway_ports) != 1 or not isinstance(gateway_ports[0], dict):
+        raise RuntimeError("manfred_candidate_gateway_port_invalid")
+    gateway_port = gateway_ports[0]
+    if (
+        str(gateway_port.get("host_ip") or "") != "127.0.0.1"
+        or int(gateway_port.get("target") or 0) != 18090
+        or int(gateway_port.get("published") or 0)
+        != int(env["EA_MANFRED_HOST_PORT"])
+    ):
+        raise RuntimeError("manfred_candidate_gateway_port_invalid")
     for service in services.values():
         service_payload = dict(service or {})
         if service_payload.get("build") or service_payload.get("container_name"):
@@ -177,7 +213,10 @@ def _assert_contribution_modes(compose: list[str]) -> dict[str, str]:
 
 
 def _assert_logs_clean(compose: list[str]) -> None:
-    logs = _run([*compose, "logs", "--no-color", "--tail", "1000", "api"], timeout=60)
+    logs = _run(
+        [*compose, "logs", "--no-color", "--tail", "1000", "api", "gateway"],
+        timeout=60,
+    )
     text = logs.decode("utf-8", errors="replace")
     if any(marker in text for marker in FORBIDDEN_LOG_MARKERS):
         raise RuntimeError("manfred_candidate_import_failure_in_logs")
@@ -265,7 +304,8 @@ def prove_candidate(
         "image_id": image_id,
         "candidate_api_container_id": api_after_restart,
         "candidate_port": int(env["EA_MANFRED_HOST_PORT"]),
-        "network_internal": True,
+        "api_network_internal": True,
+        "gateway_has_runtime_secrets": False,
         "provider_credentials_present": False,
         "provider_calls_performed": False,
         "redis_ping": "PONG",
