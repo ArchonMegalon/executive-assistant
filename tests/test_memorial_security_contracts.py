@@ -155,6 +155,7 @@ def test_public_memorial_json_is_sanitized_and_raw_manifest_is_blocked(
     body = response.json()
     assert "write_token" not in body
     assert body.get("character_notes") == []
+    assert "candidate_recordings" not in body
     assert body["audio_clips"] == [
         {
             "title": "Approved clip",

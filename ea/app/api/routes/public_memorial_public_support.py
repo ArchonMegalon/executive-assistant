@@ -117,7 +117,8 @@ def _public_memorial_payload(
             "status": story_text(item.get("status"), max_chars=360),
         }
         public_candidates.append({key: value for key, value in candidate.items() if value})
-    public_payload["candidate_recordings"] = public_candidates
+    if public_candidates:
+        public_payload["candidate_recordings"] = public_candidates
     raw_prompts = payload.get("suggested_prompts")
     public_payload["suggested_prompts"] = [
         item.strip()[:180]
