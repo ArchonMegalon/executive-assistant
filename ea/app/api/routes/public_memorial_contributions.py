@@ -4,6 +4,7 @@ import json
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.api.routes import public_memorials as shared_memorials
 from app.api.routes.public_memorial_operator_support import (
@@ -119,9 +120,17 @@ async def submit_public_memorial_family_contribution(slug: str, request: Request
     try:
         safe_slug = _safe_slug(slug)
         _load_memorial(safe_slug)
-        _enforce_rate_limit(request, bucket="family_contribution_submit")
+        await run_in_threadpool(
+            _enforce_rate_limit,
+            request,
+            bucket="family_contribution_submit",
+        )
         payload = await _read_bounded_json(request)
-        record, manage_token = submit_family_contribution(slug=safe_slug, payload=payload)
+        record, manage_token = await run_in_threadpool(
+            submit_family_contribution,
+            slug=safe_slug,
+            payload=payload,
+        )
         recovery_receipt = build_family_contribution_recovery_receipt(
             slug=safe_slug,
             record=record,
@@ -227,9 +236,14 @@ async def propose_public_memorial_family_contribution_version(
     try:
         safe_slug = _safe_slug(slug)
         _require_operator(safe_slug, request)
-        _enforce_rate_limit(request, bucket="operator_route_write")
+        await run_in_threadpool(
+            _enforce_rate_limit,
+            request,
+            bucket="operator_route_write",
+        )
         payload = await _read_bounded_json(request)
-        record = propose_family_contribution_public_version(
+        record = await run_in_threadpool(
+            propose_family_contribution_public_version,
             slug=safe_slug,
             contribution_id=contribution_id,
             payload=payload,
@@ -302,14 +316,19 @@ async def _decide_public_memorial_family_contribution_proposal(
     try:
         safe_slug = _safe_slug(slug)
         _load_memorial(safe_slug)
-        _enforce_rate_limit(request, bucket="family_contribution_manage")
+        await run_in_threadpool(
+            _enforce_rate_limit,
+            request,
+            bucket="family_contribution_manage",
+        )
         payload = await _read_bounded_json(request)
         decide = (
             approve_family_contribution_public_proposal
             if decision == "approved"
             else reject_family_contribution_public_proposal
         )
-        record = decide(
+        record = await run_in_threadpool(
+            decide,
             slug=safe_slug,
             contribution_id=contribution_id,
             manage_token=str(
@@ -348,9 +367,14 @@ async def approve_public_memorial_family_contribution(
     try:
         safe_slug = _safe_slug(slug)
         _require_operator(safe_slug, request)
-        _enforce_rate_limit(request, bucket="operator_route_write")
+        await run_in_threadpool(
+            _enforce_rate_limit,
+            request,
+            bucket="operator_route_write",
+        )
         payload = await _read_bounded_json(request)
-        record = approve_family_contribution(
+        record = await run_in_threadpool(
+            approve_family_contribution,
             slug=safe_slug,
             contribution_id=contribution_id,
             payload=payload,
@@ -386,9 +410,14 @@ async def correct_public_memorial_family_contribution(
     try:
         safe_slug = _safe_slug(slug)
         _load_memorial(safe_slug)
-        _enforce_rate_limit(request, bucket="family_contribution_manage")
+        await run_in_threadpool(
+            _enforce_rate_limit,
+            request,
+            bucket="family_contribution_manage",
+        )
         payload = await _read_bounded_json(request)
-        record = correct_family_contribution(
+        record = await run_in_threadpool(
+            correct_family_contribution,
             slug=safe_slug,
             contribution_id=contribution_id,
             manage_token=str(request.headers.get("x-memorial-contribution-token") or ""),
@@ -419,9 +448,14 @@ async def reject_public_memorial_family_contribution(
     try:
         safe_slug = _safe_slug(slug)
         _require_operator(safe_slug, request)
-        _enforce_rate_limit(request, bucket="operator_route_write")
+        await run_in_threadpool(
+            _enforce_rate_limit,
+            request,
+            bucket="operator_route_write",
+        )
         payload = await _read_bounded_json(request)
-        record = reject_family_contribution(
+        record = await run_in_threadpool(
+            reject_family_contribution,
             slug=safe_slug,
             contribution_id=contribution_id,
             payload=payload,
@@ -454,9 +488,14 @@ async def unpublish_public_memorial_family_contribution(
     try:
         safe_slug = _safe_slug(slug)
         _require_operator(safe_slug, request)
-        _enforce_rate_limit(request, bucket="operator_route_write")
+        await run_in_threadpool(
+            _enforce_rate_limit,
+            request,
+            bucket="operator_route_write",
+        )
         payload = await _read_bounded_json(request)
-        record = unpublish_family_contribution(
+        record = await run_in_threadpool(
+            unpublish_family_contribution,
             slug=safe_slug,
             contribution_id=contribution_id,
             payload=payload,
@@ -489,9 +528,14 @@ async def withdraw_public_memorial_family_contribution(
     try:
         safe_slug = _safe_slug(slug)
         _load_memorial(safe_slug)
-        _enforce_rate_limit(request, bucket="family_contribution_manage")
+        await run_in_threadpool(
+            _enforce_rate_limit,
+            request,
+            bucket="family_contribution_manage",
+        )
         payload = await _read_bounded_json(request)
-        record = withdraw_family_contribution(
+        record = await run_in_threadpool(
+            withdraw_family_contribution,
             slug=safe_slug,
             contribution_id=contribution_id,
             manage_token=str(request.headers.get("x-memorial-contribution-token") or ""),
@@ -524,9 +568,14 @@ async def request_public_memorial_family_contribution_erasure(
     try:
         safe_slug = _safe_slug(slug)
         _load_memorial(safe_slug)
-        _enforce_rate_limit(request, bucket="family_contribution_manage")
+        await run_in_threadpool(
+            _enforce_rate_limit,
+            request,
+            bucket="family_contribution_manage",
+        )
         payload = await _read_bounded_json(request)
-        record = request_family_contribution_erasure(
+        record = await run_in_threadpool(
+            request_family_contribution_erasure,
             slug=safe_slug,
             contribution_id=contribution_id,
             manage_token=str(

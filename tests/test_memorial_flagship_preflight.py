@@ -1318,6 +1318,15 @@ def test_preflight_live_accepts_internal_archive_evidence_without_external_sourc
     preflight.check_live("manfred", report, "https://example.test")
 
     assert report.failed is False
+    assert any(
+        item.code == "live_public_payload_private_shapes_omitted"
+        and item.status == "pass"
+        for item in report.findings
+    )
+    assert not any(
+        item.code == "live_public_payload_empty_private_fields"
+        for item in report.findings
+    )
     finding = next(
         item for item in report.findings if item.code == "live_public_page_source_first"
     )

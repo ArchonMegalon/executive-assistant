@@ -689,6 +689,7 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
         return
     public_json = decoded_payloads["public_json"]
     voice_config = decoded_payloads["voice_config"]
+    empty_private_shape_count = 0
     for route_name, decoded in (
         ("public_json", public_json),
         ("voice_config", voice_config),
@@ -705,6 +706,7 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
             )
         empty_private_paths = _empty_private_field_paths(decoded)
         if empty_private_paths:
+            empty_private_shape_count += len(empty_private_paths)
             report.add(
                 "warn",
                 "live_public_payload_empty_private_fields",
@@ -712,6 +714,12 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
                 fields=empty_private_paths[:20],
                 omitted_count=max(0, len(empty_private_paths) - 20),
             )
+    if empty_private_shape_count == 0:
+        report.add(
+            "pass",
+            "live_public_payload_private_shapes_omitted",
+            routes=["archive_json", "public_json", "voice_config"],
+        )
     if report.failed:
         return
     public_page = payloads["public_page"][1]

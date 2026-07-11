@@ -341,7 +341,8 @@ def test_memorial_flagship_preflight_cli_passes_against_runtime(memorial_flagshi
     assert "live_public_page_source_first" in codes
     assert "live_public_tts_rejects_override" in codes
     assert "archive_registry_public_only" in codes
-    assert "live_public_payload_empty_private_fields" in codes
+    assert "live_public_payload_private_shapes_omitted" in codes
+    assert "live_public_payload_empty_private_fields" not in codes
 
 
 def test_memorial_flagship_http_surface_is_source_first_and_private_by_default(

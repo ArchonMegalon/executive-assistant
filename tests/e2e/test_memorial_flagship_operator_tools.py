@@ -114,6 +114,16 @@ def memorial_operator_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
                 "intro": "Eine reduzierte Seite fuer das Gespraech.",
                 "disclosure": "Diese Seite bleibt auf dem Gespraech fokussiert.",
                 "audio_clips": [{"asset_relpath": "audio/clip.mp3"}],
+                "memory_cards": [
+                    {
+                        "visibility": "public",
+                        "public": True,
+                        "title": "Freigegebene Erinnerung",
+                        "body": "[stark redigiert] Eine behutsam freigegebene Erinnerung.",
+                        "curation_status": "approved_public_excerpt",
+                    }
+                ],
+                "suggested_prompts": ["Was ist belegt?"],
                 "pwa_app_name": "Manfred Gedenkseite",
                 "pwa_short_name": "Manfred",
                 "pwa_icon": {
@@ -175,14 +185,6 @@ def memorial_operator_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
                         "audience": "public",
                         "viewer_type": "smart_document",
                         "url": "https://archive.example/public",
-                        "review_status": "published",
-                    },
-                    {
-                        "id": "doc-family",
-                        "title": "Family Doc",
-                        "audience": "family",
-                        "viewer_type": "smart_document",
-                        "url": "https://archive.example/family",
                         "review_status": "published",
                     },
                 ],

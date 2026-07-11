@@ -12143,7 +12143,7 @@ def _minimal_public_memorial_html(
               ? "Der geprüfte Rücknahmebeleg ist auf diesem Gerät verfügbar."
               : "Dieser Browser konnte den Beleg nicht dauerhaft speichern. Kopiere oder lade ihn jetzt herunter."
           );
-          await refreshContributionManagement();
+          void refreshContributionManagement();
         }} catch (error) {{
           if (contributionRecoveryFile) contributionRecoveryFile.value = "";
           if (contributionRecoveryCode) contributionRecoveryCode.value = "";
