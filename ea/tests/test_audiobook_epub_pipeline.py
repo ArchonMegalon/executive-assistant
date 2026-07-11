@@ -910,6 +910,60 @@ def _speaker_row(
     }
 
 
+def test_speaker_trait_value_normalizes_approximate_age_aliases() -> None:
+    pipeline = audiobook_epub_pipeline
+    assert pipeline._speaker_trait_value("approximate_age", "middle-aged") == "mature"
+    assert pipeline._speaker_trait_value("approximate_age", "younger adult") == "young_adult"
+    assert pipeline._speaker_trait_value("approximate_age", "older adult") == "senior"
+
+
+def test_voice_candidate_score_matches_multiword_ethnicity_hint() -> None:
+    pipeline = audiobook_epub_pipeline
+    profile = {
+        "traits": {
+            "ethnicity": {
+                "value": "Austrian Nigerian",
+                "provenance": "unit_test",
+                "confidence": 1.0,
+            }
+        },
+    }
+    preset_match = audiobook_epub_pipeline.VoicePreset(
+        preset_key="voice_match",
+        voice_id="female-nigerian-id",
+        label="Match",
+        language="en-US",
+        tags=("female", "nigerian", "warm"),
+        supported_languages=("en-US",),
+        default=False,
+        source="unit-test",
+    )
+    preset_miss = audiobook_epub_pipeline.VoicePreset(
+        preset_key="voice_miss",
+        voice_id="female-german-id",
+        label="Miss",
+        language="en-US",
+        tags=("female", "slovenian", "warm"),
+        supported_languages=("en-US",),
+        default=False,
+        source="unit-test",
+    )
+
+    match_score, match_matched, _ = pipeline._speaker_voice_candidate_score(
+        preset=preset_match,
+        profile=profile,
+        render_language="en-US",
+    )
+    miss_score, miss_matched, _ = pipeline._speaker_voice_candidate_score(
+        preset=preset_miss,
+        profile=profile,
+        render_language="en-US",
+    )
+    assert match_score > miss_score
+    assert "ethnicity" in match_matched
+    assert "ethnicity" not in miss_matched
+
+
 def test_speaker_cast_uses_explicit_traits_as_ranking_hints_and_is_stable(
     monkeypatch,
     tmp_path: Path,

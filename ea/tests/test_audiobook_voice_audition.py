@@ -538,7 +538,7 @@ def test_prepare_audiobook_voice_audition_diversifies_unknown_author_gender_batc
     assert dict(voice_selection.get("book_profile") or {}).get("author_gender_signal") == ""
 
 
-def test_selected_unmixr_voice_for_job_backfills_legacy_author_gender_signal() -> None:
+def test_selected_unmixr_voice_for_job_does_not_backfill_gender_from_author_name() -> None:
     current_selection = {
         "status": "selected_by_user",
         "selected": {
@@ -582,13 +582,13 @@ def test_selected_unmixr_voice_for_job_backfills_legacy_author_gender_signal() -
         selection = audiobook_epub_pipeline.selected_unmixr_voice_for_job(job_dir)
 
     public = dict(selection.get("public") or {})
-    assert dict(public.get("book_profile") or {}).get("author_gender_signal") == "male"
+    assert dict(public.get("book_profile") or {}).get("author_gender_signal") == ""
     write_receipt.assert_called_once_with(job_dir)
     stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
     stored_selection = dict(dict(stored_job.get("provider") or {}).get("voice_selection") or {})
-    assert dict(stored_selection.get("book_profile") or {}).get("author_gender_signal") == "male"
+    assert dict(stored_selection.get("book_profile") or {}).get("author_gender_signal") == ""
     render_voice_selection = dict(dict(stored_job.get("render_result") or {}).get("voice_selection") or {})
-    assert dict(render_voice_selection.get("book_profile") or {}).get("author_gender_signal") == "male"
+    assert dict(render_voice_selection.get("book_profile") or {}).get("author_gender_signal") == ""
 
 
 def test_selected_unmixr_voice_for_job_syncs_stale_render_result_voice_selection() -> None:
@@ -712,7 +712,10 @@ def test_reopen_audiobook_voice_selection_for_author_gender_mismatch_stages_matc
         },
         "selected_callback_token": "callback-token-seraphina",
         "selected_candidate_key": "unmixr_seraphina_express_9827708d",
-        "book_profile": {"author_gender_signal": "male"},
+        "book_profile": {
+            "author_gender_signal": "male",
+            "author_gender_signal_provenance": "explicit_approved_metadata",
+        },
         "dismissed_candidate_keys": ["unmixr_jurgen_2ab157a8"],
         "replacement_candidate_keys": ["unmixr_seraphina_express_9827708d"],
     }
@@ -808,7 +811,10 @@ def test_apply_audiobook_voice_audition_action_marks_explicit_author_gender_over
         },
         "selected_callback_token": "callback-token-seraphina",
         "selected_candidate_key": "unmixr_seraphina_express_9827708d",
-        "book_profile": {"author_gender_signal": "male"},
+        "book_profile": {
+            "author_gender_signal": "male",
+            "author_gender_signal_provenance": "explicit_approved_metadata",
+        },
     }
     job_dir = _create_job_dir(current_voice_selection=current_selection)
     private_payload = {
@@ -880,7 +886,10 @@ def test_recover_audiobook_job_without_external_side_effects_reopens_stale_autho
         },
         "selected_callback_token": "callback-token-seraphina",
         "selected_candidate_key": "unmixr_seraphina_express_9827708d",
-        "book_profile": {"author_gender_signal": "male"},
+        "book_profile": {
+            "author_gender_signal": "male",
+            "author_gender_signal_provenance": "explicit_approved_metadata",
+        },
     }
     job_dir = _create_job_dir(current_voice_selection=current_selection)
     stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
@@ -946,7 +955,10 @@ def test_resume_due_audiobook_jobs_counts_safe_recovery_before_skip() -> None:
         },
         "selected_callback_token": "callback-token-seraphina",
         "selected_candidate_key": "unmixr_seraphina_express_9827708d",
-        "book_profile": {"author_gender_signal": "male"},
+        "book_profile": {
+            "author_gender_signal": "male",
+            "author_gender_signal_provenance": "explicit_approved_metadata",
+        },
     }
     job_dir = _create_job_dir(current_voice_selection=current_selection)
     root_dir = job_dir.parent
@@ -1583,7 +1595,10 @@ def test_send_telegram_audiobook_status_delivers_reopened_replacement_samples() 
         },
         "selected_callback_token": "callback-token-seraphina",
         "selected_candidate_key": "unmixr_seraphina_express_9827708d",
-        "book_profile": {"author_gender_signal": "male"},
+        "book_profile": {
+            "author_gender_signal": "male",
+            "author_gender_signal_provenance": "explicit_approved_metadata",
+        },
     }
     job_dir = _create_job_dir(current_voice_selection=current_selection)
     stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
@@ -1699,15 +1714,18 @@ def test_send_telegram_audiobook_status_delivers_reopened_replacement_samples() 
     assert updated_delivery["sent_count"] == expected_sample_count
 
 
-def test_infer_author_gender_handles_common_english_and_international_names() -> None:
-    assert audiobook_epub_pipeline._infer_author_gender("Stephen King") == "male"  # noqa: SLF001
-    assert audiobook_epub_pipeline._infer_author_gender("James Clear") == "male"  # noqa: SLF001
-    assert audiobook_epub_pipeline._infer_author_gender("Yuval Noah Harari") == "male"  # noqa: SLF001
-    assert audiobook_epub_pipeline._infer_author_gender("Le Guin, Ursula") == "female"  # noqa: SLF001
-    assert audiobook_epub_pipeline._infer_author_gender("Meyer, Hans-Peter") == "male"  # noqa: SLF001
+def test_infer_author_gender_does_not_treat_names_as_demographic_evidence() -> None:
+    for author in (
+        "Stephen King",
+        "James Clear",
+        "Yuval Noah Harari",
+        "Le Guin, Ursula",
+        "Meyer, Hans-Peter",
+    ):
+        assert audiobook_epub_pipeline._infer_author_gender(author) == ""  # noqa: SLF001
 
 
-def test_voice_preset_from_unmixr_row_infers_gender_from_character_name_when_missing() -> None:
+def test_voice_preset_from_unmixr_row_uses_explicit_gender_fields() -> None:
     male = audiobook_epub_pipeline._voice_preset_from_unmixr_row(  # noqa: SLF001
         {
             "uuid": "voice-hans",
@@ -1715,6 +1733,7 @@ def test_voice_preset_from_unmixr_row_infers_gender_from_character_name_when_mis
             "language": "de-DE",
             "supported_locales": ["de-DE"],
             "description": "Warm audiobook voice",
+            "gender": "male",
         },
         use_case="audiobook-voices",
         index=1,
@@ -1726,6 +1745,7 @@ def test_voice_preset_from_unmixr_row_infers_gender_from_character_name_when_mis
             "language": "en-US",
             "supported_locales": ["en-US"],
             "description": "Warm storytelling voice",
+            "gender": "female",
         },
         use_case="audiobook-voices",
         index=2,
@@ -1737,7 +1757,7 @@ def test_voice_preset_from_unmixr_row_infers_gender_from_character_name_when_mis
     assert "female" in female.tags
 
 
-def test_load_voice_presets_from_value_infers_gender_from_label_without_explicit_tags() -> None:
+def test_load_voice_presets_from_value_uses_explicit_gender_without_name_inference() -> None:
     presets = audiobook_epub_pipeline._load_voice_presets_from_value(  # noqa: SLF001
         [
             {
@@ -1745,6 +1765,7 @@ def test_load_voice_presets_from_value_infers_gender_from_label_without_explicit
                 "label": "Robert",
                 "language": "en-US",
                 "tags": ["audiobook", "narration", "warm"],
+                "gender": "male",
             }
         ],
         source="test",

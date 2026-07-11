@@ -1074,9 +1074,10 @@ def _voice_tags_with_inferred_gender(
     label: object = "",
     gender_hint: object = "",
 ) -> tuple[str, ...]:
-    # Voice and speaker names are not demographic evidence. Keep ``label`` in
-    # the signature for compatibility with catalog callers, but only accept an
-    # explicit catalog gender field or an explicit tag.
+    # Provider labels and person names are not demographic evidence. Keep
+    # ``label`` in the signature for compatibility, but only use explicit
+    # catalog fields/tags when ranking a voice by gender presentation.
+    del label
     normalized = list(_split_tags(tags))
     canonical_gender_tags = {
         _speaker_trait_value(
@@ -2344,8 +2345,7 @@ def _book_topic_from_profile(*, signal_scores: dict[str, int], fiction_score: in
 
 def _infer_author_gender(author: str) -> str:
     # An author's name is not reliable or consented demographic evidence.
-    # Keep this compatibility hook neutral unless the book format eventually
-    # supplies a separate, explicitly approved metadata field.
+    # A future explicit, approved metadata field may provide this signal.
     del author
     return ""
 
@@ -6695,6 +6695,18 @@ def _public_dialogue_voice_selection(
     }
 
 
+def _split_trait_components(value: str) -> tuple[str, ...]:
+    normalized = _normalize_tag(value)
+    if not normalized:
+        return ()
+    parts: list[str] = []
+    for part in re.split(r"[_\-]+|\s+", normalized):
+        cleaned = str(part or "").strip()
+        if cleaned and cleaned not in parts:
+            parts.append(cleaned)
+    return tuple(parts)
+
+
 def _speaker_trait_value(kind: str, value: object) -> str:
     normalized = _normalize_tag(value)
     if kind == "gender_presentation":
@@ -6741,6 +6753,8 @@ def _speaker_trait_value(kind: str, value: object) -> str:
             "kid": "child",
             "young": "young_adult",
             "youngadult": "young_adult",
+            "mature_adult": "mature",
+            "younger_adult": "young_adult",
             "middle_age": "mature",
             "middle_aged": "mature",
             "older_adult": "senior",
@@ -7152,15 +7166,33 @@ def _voice_tag_match(tags: set[str], *, kind: str, value: str) -> bool:
     normalized = _speaker_trait_value(kind, value)
     if not normalized:
         return False
-    candidates = {normalized, f"{kind}_{normalized}"}
+    components = _split_trait_components(normalized)
+    candidates = {normalized, f"{kind}_{normalized}", *components}
+    candidates.update(f"{kind}_{part}" for part in components)
     if kind == "gender_presentation":
         candidates.add(f"gender_{normalized}")
     elif kind == "approximate_age":
         candidates.update({f"age_{normalized}", normalized.replace("_", "")})
+        candidates.update(
+            f"age_{part}"
+            for part in components
+            if part and part not in {"age", "child", "teen", "young", "adult", "mature", "senior"}
+        )
     elif kind == "accent":
         candidates.add(f"accent_{normalized}")
+        candidates.update(f"accent_{part}" for part in components)
     elif kind == "ethnicity":
         candidates.update({f"ethnicity_{normalized}", f"cultural_background_{normalized}"})
+        candidates.update(
+            f"ethnicity_{part}"
+            for part in components
+            if part and part not in {"other", "unknown"}
+        )
+        candidates.update(
+            f"cultural_background_{part}"
+            for part in components
+            if part and part not in {"other", "unknown"}
+        )
     return bool(tags.intersection(candidates))
 
 
