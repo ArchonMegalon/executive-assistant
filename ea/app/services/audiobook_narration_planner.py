@@ -8,7 +8,7 @@ import unicodedata
 from collections.abc import Mapping, Sequence
 
 
-PLANNER_CONTRACT_NAME = "ea.audiobook_narration_plan.v2"
+PLANNER_CONTRACT_NAME = "ea.audiobook_narration_plan.v3"
 BOUNDARY_POLICY_NAME = "ea.audiobook_boundary_policy.v2"
 
 _QUOTE_PAIRS = {
@@ -208,9 +208,14 @@ def _source_traits(context: str, *, pronoun: str = "") -> dict[str, dict[str, ob
         )
 
     age_rules = (
-        (r"\b(?:child|kid|kind|mädchen|junge)\b", "child"),
+        (
+            r"\b(?:young adult|junge erwachsene|junger erwachsener|"
+            r"young(?:\s+[\wÀ-ÿ'’-]+){0,4}\s+(?:woman|man)|"
+            r"jung(?:e|er|en)?(?:\s+[\wÀ-ÿ'’-]+){0,4}\s+(?:frau|mann))\b",
+            "young_adult",
+        ),
+        (r"\b(?:child|kid|kind|mädchen|(?:ein|der)\s+junge)\b", "child"),
         (r"\b(?:teen|teenage|teenager|jugendlich(?:e|er|en)?)\b", "teen"),
-        (r"\b(?:young adult|junge erwachsene|junger erwachsener)\b", "young_adult"),
         (r"\b(?:elderly|older adult|senior|betagt(?:e|er|en)?|ältere[nr]?)\b", "older_adult"),
         (r"\b(?:middle[- ]aged|mittleren alters)\b", "middle_aged"),
     )
@@ -257,6 +262,45 @@ def _source_traits(context: str, *, pronoun: str = "") -> dict[str, dict[str, ob
             traits["style"] = _trait(value, provenance="explicit_source_phrase", confidence=0.8)
             break
     return traits
+
+
+def _speaker_descriptor_context(paragraph: str, subject: str) -> str:
+    """Return only a descriptor grammatically tied to the exact named speaker."""
+    normalized_subject = _normalized_label(subject)
+    if not normalized_subject:
+        return ""
+    escaped_subject = re.escape(normalized_subject)
+    name_start = r"(?<![\wÀ-ÿ'’-])"
+    name_end = r"(?![\wÀ-ÿ'’-])"
+    token = r"[\wÀ-ÿ'’-]+"
+    article = r"(?:the|a|an|die|der|den|dem|das|ein|eine|einer|einem|einen)"
+    gender_noun = r"(?:woman|man|frau|mann)"
+
+    preceding = re.search(
+        rf"(?P<descriptor>\b{article}\b\s+(?:{token}\s+){{0,7}}{gender_noun})\s+"
+        rf"{name_start}{escaped_subject}{name_end}",
+        paragraph,
+        re.IGNORECASE,
+    )
+    if preceding is not None:
+        return _normalized_label(preceding.group("descriptor"))
+
+    appositive = re.search(
+        rf"{name_start}{escaped_subject}{name_end}\s*,\s*"
+        rf"(?P<descriptor>\b{article}\b[^.!?…]{{0,180}})",
+        paragraph,
+        re.IGNORECASE,
+    )
+    if appositive is None:
+        return ""
+    descriptor = _normalized_label(appositive.group("descriptor"))
+    if not re.search(
+        r"\b(?:woman|man|frau|mann|descent|heritage|ethnicity|abstammung|herkunft)\b",
+        descriptor,
+        re.IGNORECASE,
+    ):
+        return ""
+    return descriptor
 
 
 def _quote_regions(paragraph: str) -> list[tuple[int, int]] | None:
@@ -329,17 +373,24 @@ def _attribution(paragraph: str, start: int, end: int) -> dict[str, object]:
             continue
         subject = _normalized_label(candidate.group("subject"))
         pronoun = subject.casefold() if subject.casefold() in _PRONOUN_GENDER else ""
+        attribution_context = (
+            _post_attribution_trait_context(candidate, after)
+            if position == "post"
+            else _normalized_label(candidate.group(0))
+        )
+        if not pronoun:
+            descriptor_context = _speaker_descriptor_context(paragraph, subject)
+            if descriptor_context and descriptor_context not in attribution_context:
+                attribution_context = _normalized_label(
+                    f"{attribution_context}, {descriptor_context}"
+                )
         return {
             "subject": subject,
             "pronoun": pronoun,
             "provenance": provenance if not pronoun else f"{provenance}_pronoun",
             "confidence": 0.98 if not pronoun else 0.75,
             "evidence": _normalized_label(candidate.group(0))[:160],
-            "context": (
-                _post_attribution_trait_context(candidate, after)
-                if position == "post"
-                else _normalized_label(candidate.group(0))
-            ),
+            "context": attribution_context,
         }
     return {
         "subject": "",
@@ -990,13 +1041,27 @@ def plan_narration(
             for span in spans
         ],
         "passage_fingerprints": [passage["passage_fingerprint"] for passage in passages],
+        "speaker_evidence_fingerprints": [
+            {
+                "speaker_id": speaker_id,
+                "attribution_provenance": str(
+                    (speakers.get(speaker_id) or {}).get("attribution_provenance") or ""
+                ),
+                "attribution_confidence": float(
+                    (speakers.get(speaker_id) or {}).get("attribution_confidence") or 0.0
+                ),
+                "traits": dict((speakers.get(speaker_id) or {}).get("traits") or {}),
+            }
+            for speaker_id in sorted(speakers)
+            if speaker_id != "narrator"
+        ],
         "pause_policy": policy,
         "batch_paragraphs_with_natural_pauses": batch_paragraphs_with_natural_pauses,
     }
     plan_sha256 = _stable_json_sha256(structural_payload)
     return {
         "contract_name": PLANNER_CONTRACT_NAME,
-        "version": 2,
+        "version": 3,
         "status": "ready" if not issues else "blocked_source_integrity_or_planning",
         "language": language,
         "max_chars": max_chars,

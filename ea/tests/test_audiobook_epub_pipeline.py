@@ -398,7 +398,10 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "rendered")
         self.assertGreater(result["chapters"][0]["segment_count"], 1)
-        self.assertEqual(result["narration_plan"]["contract_name"], "ea.audiobook_narration_plan.v2")
+        self.assertEqual(
+            result["narration_plan"]["contract_name"],
+            audiobook_epub_pipeline.NARRATION_PLAN_CONTRACT_NAME,
+        )
 
     def test_render_unmixr_chapter_audio_falls_back_to_segmented_cinematic_pass_when_provider_input_is_too_long(self) -> None:
         with self._base_context() as (job_dir, chapters, metadata):

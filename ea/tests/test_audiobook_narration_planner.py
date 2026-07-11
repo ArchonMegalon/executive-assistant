@@ -180,6 +180,58 @@ def test_nearby_person_traits_do_not_leak_into_the_speaker_cast() -> None:
     assert anna["traits"] == {}
 
 
+def test_named_appositives_elsewhere_in_paragraph_are_source_grounded_cast_hints() -> None:
+    text = (
+        "Anna, a young adult woman of Nigerian descent, waited by the door. "
+        "Ben, an older adult man of Austrian heritage, checked the clock. "
+        "“Ready,” Anna said. “Ready,” Ben answered."
+    )
+
+    plan = plan_narration((_chapter(1, text),), language="en", max_chars=240)
+
+    anna = next(speaker for speaker in plan["speakers"] if speaker["speaker_label"] == "Anna")
+    ben = next(speaker for speaker in plan["speakers"] if speaker["speaker_label"] == "Ben")
+    assert anna["traits"]["gender_presentation"]["value"] == "feminine"
+    assert anna["traits"]["age_band"]["value"] == "young_adult"
+    assert anna["traits"]["cultural_or_ethnic_background"]["value"] == "Nigerian"
+    assert anna["traits"]["cultural_or_ethnic_background"]["sensitive_hint"] is True
+    assert ben["traits"]["gender_presentation"]["value"] == "masculine"
+    assert ben["traits"]["age_band"]["value"] == "older_adult"
+    assert ben["traits"]["cultural_or_ethnic_background"]["value"] == "Austrian"
+    assert all(speaker["identity_claimed"] is False for speaker in (anna, ben))
+
+
+def test_german_attributive_age_and_gender_description_is_not_misread_as_child() -> None:
+    text = "Die junge Frau Anna wartete am Fenster. „Ich bin bereit“, sagte Anna."
+
+    plan = plan_narration((_chapter(1, text),), language="de-AT", max_chars=180)
+
+    anna = next(speaker for speaker in plan["speakers"] if speaker["speaker_label"] == "Anna")
+    assert anna["traits"]["gender_presentation"]["value"] == "feminine"
+    assert anna["traits"]["age_band"]["value"] == "young_adult"
+    assert anna["identity_claimed"] is False
+
+
+def test_approved_speaker_trait_change_invalidates_plan_hash() -> None:
+    text = 'Anna said, “Hello.”'
+    warm = plan_narration(
+        (_chapter(1, text),),
+        language="en-US",
+        max_chars=180,
+        approved_speaker_profiles={"Anna": {"style": "warm"}},
+    )
+    calm = plan_narration(
+        (_chapter(1, text),),
+        language="en-US",
+        max_chars=180,
+        approved_speaker_profiles={"Anna": {"style": "calm"}},
+    )
+
+    assert warm["version"] == 3
+    assert calm["version"] == 3
+    assert warm["plan_sha256"] != calm["plan_sha256"]
+
+
 def test_dialogue_dash_keeps_trailing_attribution_with_the_narrator() -> None:
     text = "— Come now, said Anna."
 
