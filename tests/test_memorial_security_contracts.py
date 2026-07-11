@@ -1883,10 +1883,10 @@ def test_public_memorial_page_exposes_conversation_settings_and_memory_consent_c
     assert "Gesprächsgedächtnis löschen" in body
     assert "Persönliche Gesprächserinnerungen bleiben nur in diesem Browser" not in body
     assert "Nur dieses Gerät merkt sich etwas" not in body
-    assert 'href="/security"' in body
-    assert 'href="/data-deletion"' in body
-    assert "Sicherheit" in body
-    assert "Datenlöschung" in body
+    assert 'href="/security"' not in body
+    assert 'href="/data-deletion"' not in body
+    assert 'href="#memorial-contribution-management"' in body
+    assert "Private Einreichungen und ihre Rücknahmebelege" in body
     assert "Es gibt noch kein Gesprächsgedächtnis zu löschen" in body
     assert "KI-gestützten, synthetischen Manfred-Stimme" in body
     assert "eingesetzte Sprachdienste verarbeiten das Audio" in body
@@ -1917,10 +1917,14 @@ def test_public_memorial_page_exposes_conversation_settings_and_memory_consent_c
     assert "Eine Erinnerung beitragen" in body
     assert "bleibt zunächst privat" in body
     assert 'id="memorial-contribution-consent"' in body
-    assert 'id="memorial-contribution-withdraw" hidden' in body
+    assert 'id="memorial-contribution-management-jump" hidden' in body
+    assert 'id="memorial-contribution-management"' in body
+    assert 'data-js-ready="false"' in body
+    assert "Rücknahmebeleg sicher aufbewahren" in body
     assert 'id="memorial-contribution-token"' not in body
     assert "/memorials/manfred/conversation-turn" not in body
-    assert "overflow-wrap: anywhere;" not in body
+    assert ".contribution-management-section dd" in body
+    assert "overflow-wrap: anywhere;" in body
     assert ".hero-cta:not([disabled]):hover" in body
     assert "min-height: 100dvh;" in body
     assert "position: fixed;" in body
@@ -4397,3 +4401,170 @@ def test_difficult_family_question_prefers_difficult_memory_guardrail_over_trans
     body = response.json()
     assert body["fallback_reason"] == "difficult_memory_guardrail"
     assert "keine Ich-Form-Rekonstruktion" in body["answer"]
+
+
+def test_family_contribution_management_and_proposal_routes_keep_auth_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES", "1")
+    monkeypatch.setenv(
+        "EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR",
+        str(tmp_path / "contributions" / "public"),
+    )
+    monkeypatch.setenv(
+        "EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR",
+        str(tmp_path / "contributions" / "private"),
+    )
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "audio_clips": [],
+            "write_token": "unit-write-token",
+        },
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+    client = _client(principal_id="exec-memorial-family-management-auth")
+
+    submitted = client.post(
+        f"/memorials/{slug}/contributions",
+        json={
+            "title": "PRIVATE_FAMILY_TITLE_SENTINEL",
+            "body": "PRIVATE_FAMILY_BODY_SENTINEL",
+            "contributor_name": "PRIVATE_FAMILY_NAME_SENTINEL",
+            "relationship": "PRIVATE_FAMILY_RELATIONSHIP_SENTINEL",
+            "publication_consent": True,
+        },
+    )
+    assert submitted.status_code == 201
+    receipt = submitted.json()
+    contribution_id = receipt["contribution_id"]
+    manage_path = f"/memorials/{slug}/contributions/{contribution_id}/manage"
+
+    denied_management = client.get(manage_path)
+    assert denied_management.status_code == 403
+    assert denied_management.headers["cache-control"] == "no-store"
+    assert denied_management.headers["referrer-policy"] == "no-referrer"
+    assert "PRIVATE_FAMILY" not in denied_management.text
+
+    allowed_management = client.get(
+        manage_path,
+        headers={"x-memorial-contribution-token": receipt["manage_token"]},
+    )
+    assert allowed_management.status_code == 200
+    assert allowed_management.headers["cache-control"] == "no-store"
+    management_payload = allowed_management.json()
+    assert management_payload["submission"]["body"] == (
+        "PRIVATE_FAMILY_BODY_SENTINEL"
+    )
+    serialized_management = json.dumps(management_payload)
+    assert receipt["manage_token"] not in serialized_management
+    assert "manage_token_hash" not in serialized_management
+    assert "history" not in management_payload
+    assert "review" not in management_payload
+
+    unauthorized_proposal = client.post(
+        f"/memorials/{slug}/contributions/{contribution_id}/propose",
+        json={
+            "reviewer": "Unauthorized curator",
+            "title": "Safe public title",
+            "body": "Safe public body",
+        },
+    )
+    assert unauthorized_proposal.status_code == 403
+    assert "PRIVATE_FAMILY" not in unauthorized_proposal.text
+
+    proposed = client.post(
+        f"/memorials/{slug}/contributions/{contribution_id}/propose",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "reviewer": "Authorized curator",
+            "review_note": "PRIVATE_OPERATOR_NOTE_SENTINEL",
+            "title": "Safe public title",
+            "body": "Safe public body",
+        },
+    )
+    assert proposed.status_code == 200
+    proposal_sha256 = proposed.json()["public_proposal"]["sha256"]
+
+    denied_decision = client.post(
+        f"/memorials/{slug}/contributions/{contribution_id}/proposal/approve",
+        json={"proposal_sha256": proposal_sha256},
+    )
+    assert denied_decision.status_code == 403
+    assert "PRIVATE_FAMILY" not in denied_decision.text
+    assert "PRIVATE_OPERATOR_NOTE" not in denied_decision.text
+
+    managed_proposal = client.get(
+        manage_path,
+        headers={"x-memorial-contribution-token": receipt["manage_token"]},
+    )
+    assert managed_proposal.status_code == 200
+    assert managed_proposal.json()["public_proposal"]["sha256"] == (
+        proposal_sha256
+    )
+    assert "PRIVATE_OPERATOR_NOTE" not in managed_proposal.text
+    assert "Authorized curator" not in managed_proposal.text
+
+
+def test_family_public_proposal_route_is_disabled_with_operator_surface_off(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES", "0")
+    monkeypatch.setenv(
+        "EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR",
+        str(tmp_path / "contributions" / "public"),
+    )
+    monkeypatch.setenv(
+        "EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR",
+        str(tmp_path / "contributions" / "private"),
+    )
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "audio_clips": [],
+            "write_token": "unit-write-token",
+        },
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+    client = _client(principal_id="exec-memorial-proposal-surface-off")
+    submitted = client.post(
+        f"/memorials/{slug}/contributions",
+        json={
+            "title": "Private title",
+            "body": "Private body",
+            "publication_consent": True,
+        },
+    )
+    assert submitted.status_code == 201
+
+    blocked = client.post(
+        (
+            f"/memorials/{slug}/contributions/"
+            f"{submitted.json()['contribution_id']}/propose"
+        ),
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "reviewer": "Curator",
+            "title": "Public title",
+            "body": "Public body",
+        },
+    )
+    assert blocked.status_code == 404
+    assert _error_code(blocked) == "memorial_operator_surface_disabled"
+    assert blocked.headers["cache-control"] == "no-store"

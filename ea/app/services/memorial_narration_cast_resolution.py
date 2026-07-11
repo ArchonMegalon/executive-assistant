@@ -13,6 +13,8 @@ import tempfile
 import unicodedata
 
 from app.services.memorial_narration_work_package import (
+    RECEIPT_CONTRACT_NAME,
+    REQUIRED_NARRATION_SOURCE_SCOPE,
     WORK_PACKAGE_CONTRACT_NAME,
 )
 
@@ -307,13 +309,28 @@ def _work_package_bindings(
         if isinstance(work_package.get("cast_handoff"), Mapping)
         else {}
     )
+    source_policy = (
+        dict(work_package.get("source_policy") or {})
+        if isinstance(work_package.get("source_policy"), Mapping)
+        else {}
+    )
+    raw_source_rows = work_package.get("sources")
+    source_rows: list[dict[str, object]] = []
+    if not isinstance(raw_source_rows, list):
+        issues.append("work_package_sources_invalid")
+    else:
+        for raw_source_row in raw_source_rows:
+            if not isinstance(raw_source_row, Mapping):
+                issues.append("work_package_source_entry_invalid")
+                continue
+            source_rows.append(dict(raw_source_row))
     calculated_work_package_sha256 = _stable_json_sha256(
         _work_package_payload(work_package)
     )
     calculated_cast_handoff_sha256 = _stable_json_sha256(cast_handoff)
     if work_package.get("contract_name") != WORK_PACKAGE_CONTRACT_NAME:
         issues.append("work_package_contract_mismatch")
-    if int(work_package.get("version") or 0) != 2:
+    if int(work_package.get("version") or 0) != 3:
         issues.append("work_package_version_mismatch")
     if work_package.get("private_payload") is not True:
         issues.append("work_package_private_contract_missing")
@@ -329,6 +346,72 @@ def _work_package_bindings(
         issues.append("work_package_provider_call_claim_invalid")
     if work_package.get("synthesis_requested") is not False:
         issues.append("work_package_synthesis_request_claim_invalid")
+    if source_policy.get("purpose_specific_narration_review_required") is not True:
+        issues.append("work_package_narration_review_policy_missing")
+    if source_policy.get("narration_review_scope_array_required") is not True:
+        issues.append("work_package_narration_scope_shape_policy_missing")
+    if str(source_policy.get("required_narration_source_scope") or "") != (
+        REQUIRED_NARRATION_SOURCE_SCOPE
+    ):
+        issues.append("work_package_narration_scope_policy_mismatch")
+    if source_policy.get("exact_source_hash_binding_required") is not True:
+        issues.append("work_package_narration_source_hash_policy_missing")
+    if not source_rows:
+        issues.append("work_package_sources_missing")
+    permission_evidence_rows: list[dict[str, object]] = []
+    source_hrefs: set[str] = set()
+    for row in source_rows:
+        source_href = str(row.get("source_href") or "")
+        kind = str(row.get("kind") or "")
+        evidence_sha256 = str(
+            row.get("narration_review_evidence_sha256") or ""
+        )
+        text_sha256 = str(row.get("text_sha256") or "")
+        if not source_href:
+            issues.append("work_package_source_href_missing")
+        elif source_href in source_hrefs:
+            issues.append("work_package_source_href_duplicate")
+        source_hrefs.add(source_href)
+        if not kind:
+            issues.append("work_package_source_kind_missing")
+        if row.get("visibility") != "public":
+            issues.append("work_package_source_visibility_invalid")
+        if re.fullmatch(r"[0-9a-f]{64}", text_sha256) is None:
+            issues.append("work_package_source_text_sha256_invalid")
+        if re.fullmatch(r"[0-9a-f]{64}", evidence_sha256) is None:
+            issues.append("work_package_narration_permission_evidence_invalid")
+        permission_evidence_rows.append(
+            {
+                "source_href": source_href,
+                "kind": kind,
+                "text_sha256": text_sha256,
+                "narration_review_evidence_sha256": evidence_sha256,
+            }
+        )
+    if receipt.get("contract_name") != RECEIPT_CONTRACT_NAME:
+        issues.append("receipt_contract_mismatch")
+    if receipt.get("purpose_specific_narration_review_required") is not True:
+        issues.append("receipt_narration_review_policy_missing")
+    if receipt.get("narration_review_scope_array_required") is not True:
+        issues.append("receipt_narration_scope_shape_policy_missing")
+    if str(receipt.get("required_narration_source_scope") or "") != (
+        REQUIRED_NARRATION_SOURCE_SCOPE
+    ):
+        issues.append("receipt_narration_scope_mismatch")
+    if int(receipt.get("approved_narration_permission_count") or 0) != len(
+        source_rows
+    ):
+        issues.append("receipt_narration_permission_count_mismatch")
+    if int(receipt.get("approved_public_source_count") or 0) != len(source_rows):
+        issues.append("receipt_approved_source_count_mismatch")
+    if str(receipt.get("source_aggregate_sha256") or "") != (
+        _stable_json_sha256(source_rows)
+    ):
+        issues.append("receipt_source_aggregate_mismatch")
+    if str(receipt.get("narration_permission_evidence_aggregate_sha256") or "") != (
+        _stable_json_sha256(permission_evidence_rows)
+    ):
+        issues.append("receipt_narration_permission_evidence_mismatch")
     if str(receipt.get("work_package_sha256") or "") != (
         calculated_work_package_sha256
     ):

@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -16,9 +17,10 @@ import unicodedata
 from app.services.audiobook_narration_planner import PlannerChapter, plan_narration
 
 
-WORK_PACKAGE_CONTRACT_NAME = "ea.memorial_narration_work_package.v2"
+WORK_PACKAGE_CONTRACT_NAME = "ea.memorial_narration_work_package.v3"
 CAST_HANDOFF_CONTRACT_NAME = "ea.audiobook_speaker_cast_handoff.v2"
-RECEIPT_CONTRACT_NAME = "ea.memorial_narration_work_package_receipt.v2"
+RECEIPT_CONTRACT_NAME = "ea.memorial_narration_work_package_receipt.v3"
+REQUIRED_NARRATION_SOURCE_SCOPE = "memorial_audiobook_narration"
 
 _APPROVED_REVIEW_STATUSES = frozenset({"approved", "published"})
 _ARCHIVE_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,127}")
@@ -56,6 +58,7 @@ class _ApprovedSource:
     text: str
     kind: str
     review_status: str
+    narration_review_evidence_sha256: str
 
 
 def _stable_json_sha256(value: object) -> str:
@@ -83,6 +86,44 @@ def _approved_review_status(value: object, *, allow_empty: bool) -> bool:
     return (allow_empty and not status) or status in _APPROVED_REVIEW_STATUSES
 
 
+def _narration_review_decision(
+    value: object,
+    *,
+    source_text: str,
+    exclusion_prefix: str,
+) -> tuple[str, str]:
+    if not isinstance(value, Mapping):
+        return "", f"{exclusion_prefix}_narration_review_missing"
+    review = dict(value)
+    if str(review.get("status") or "").strip().casefold() != "approved":
+        return "", f"{exclusion_prefix}_narration_review_not_approved"
+    raw_scope = review.get("scope")
+    scopes = (
+        [str(item or "").strip() for item in raw_scope]
+        if isinstance(raw_scope, list)
+        else []
+    )
+    if scopes != [REQUIRED_NARRATION_SOURCE_SCOPE]:
+        return "", f"{exclusion_prefix}_narration_scope_invalid"
+    if review.get("revoked") is True:
+        return "", f"{exclusion_prefix}_narration_review_revoked"
+    if review.get("revoked") is not False:
+        return "", f"{exclusion_prefix}_narration_revocation_state_missing"
+    expected_source_sha256 = _text_sha256(source_text)
+    reviewed_source_sha256 = str(review.get("source_text_sha256") or "").strip()
+    if re.fullmatch(r"[0-9a-f]{64}", reviewed_source_sha256) is None:
+        return "", f"{exclusion_prefix}_narration_source_sha256_invalid"
+    if not hmac.compare_digest(reviewed_source_sha256, expected_source_sha256):
+        return "", f"{exclusion_prefix}_narration_source_sha256_mismatch"
+    safe_evidence = {
+        "status": "approved",
+        "scope": [REQUIRED_NARRATION_SOURCE_SCOPE],
+        "revoked": False,
+        "source_text_sha256": expected_source_sha256,
+    }
+    return _stable_json_sha256(safe_evidence), ""
+
+
 def _card_source(
     raw: Mapping[str, object],
     *,
@@ -104,6 +145,15 @@ def _card_source(
     )
     if not isinstance(text_value, str) or not text_value.strip():
         return None, "memorial_card_text_missing"
+    narration_review_evidence_sha256, narration_reason = (
+        _narration_review_decision(
+            raw.get("narration_review"),
+            source_text=text_value,
+            exclusion_prefix="memorial_card",
+        )
+    )
+    if narration_reason:
+        return None, narration_reason
 
     explicit_id = _normalized_text(raw.get("id"))
     token = (
@@ -117,6 +167,7 @@ def _card_source(
             text=text_value,
             kind="public_memory_card",
             review_status=str(raw.get("review_status") or "public_manifest_curated"),
+            narration_review_evidence_sha256=narration_review_evidence_sha256,
         ),
         "",
     )
@@ -229,12 +280,22 @@ def _archive_source(
         return None, "archive_document_source_missing_or_unsafe"
     if not source_text.strip():
         return None, "archive_document_source_empty"
+    narration_review_evidence_sha256, narration_reason = (
+        _narration_review_decision(
+            document_manifest.get("narration_review"),
+            source_text=source_text,
+            exclusion_prefix="archive_document",
+        )
+    )
+    if narration_reason:
+        return None, narration_reason
     return (
         _ApprovedSource(
             href=f"archive://{slug}/{publication_slug}/source.md",
             text=source_text,
             kind="approved_public_archive_document",
             review_status=str(document_manifest.get("review_status") or "approved"),
+            narration_review_evidence_sha256=narration_review_evidence_sha256,
         ),
         "",
     )
@@ -620,8 +681,22 @@ def build_memorial_narration_work_package(
             "kind": source.kind,
             "review_status": source.review_status,
             "text_sha256": _text_sha256(source.text),
+            "narration_review_evidence_sha256": (
+                source.narration_review_evidence_sha256
+            ),
             "char_count": len(source.text),
             "visibility": "public",
+        }
+        for source in sources
+    ]
+    narration_review_evidence_rows = [
+        {
+            "source_href": source.href,
+            "kind": source.kind,
+            "text_sha256": _text_sha256(source.text),
+            "narration_review_evidence_sha256": (
+                source.narration_review_evidence_sha256
+            ),
         }
         for source in sources
     ]
@@ -648,6 +723,15 @@ def build_memorial_narration_work_package(
         "planner_contract_name": str(plan.get("contract_name") or ""),
         "plan_sha256": str(plan.get("plan_sha256") or ""),
         "source_aggregate_sha256": _stable_json_sha256(source_rows),
+        "purpose_specific_narration_review_required": True,
+        "narration_review_scope_array_required": True,
+        "required_narration_source_scope": REQUIRED_NARRATION_SOURCE_SCOPE,
+        "approved_narration_permission_count": len(
+            narration_review_evidence_rows
+        ),
+        "narration_permission_evidence_aggregate_sha256": (
+            _stable_json_sha256(narration_review_evidence_rows)
+        ),
         "approved_public_source_count": len(sources),
         "approved_public_source_kind_counts": source_kind_counts,
         "excluded_source_count": sum(excluded.values()),
@@ -688,7 +772,7 @@ def build_memorial_narration_work_package(
     }
     package_without_receipt = {
         "contract_name": WORK_PACKAGE_CONTRACT_NAME,
-        "version": 2,
+        "version": 3,
         "status": status,
         "reason": reason,
         "slug": normalized_slug,
@@ -696,6 +780,10 @@ def build_memorial_narration_work_package(
         "source_policy": {
             "public_visibility_required": True,
             "approved_review_required_for_archive": True,
+            "purpose_specific_narration_review_required": True,
+            "narration_review_scope_array_required": True,
+            "required_narration_source_scope": REQUIRED_NARRATION_SOURCE_SCOPE,
+            "exact_source_hash_binding_required": True,
             "private_sources_excluded_by_default": True,
         },
         "sources": source_rows,

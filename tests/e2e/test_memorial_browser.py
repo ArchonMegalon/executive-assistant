@@ -195,6 +195,14 @@ def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
     monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    monkeypatch.setenv(
+        "EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR",
+        str(artifacts_root / "family_contributions" / "public"),
+    )
+    monkeypatch.setenv(
+        "EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR",
+        str(artifacts_root / "family_contributions" / "private"),
+    )
     public_memorials._PERSONAL_MEMORY_ROOT = artifacts_root / "memorial_user_memory"
     public_memorials._VOICE_AB_ROOT = artifacts_root / "memorial_voice_ab"
     public_memorials._PUBLIC_MEMORIAL_RATE_DB = artifacts_root / "memorial_rate_limits.sqlite3"
@@ -523,6 +531,22 @@ def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
         assert page.locator("a.skip-link").evaluate_all(
             "links => links.map((link) => link.getAttribute('href'))"
         ) == ["#memorial-story", "#memorial-conversation-region"]
+        protected_forms = (
+            (
+                page.locator("#memorial-contribution-form"),
+                f"/memorials/{slug}/contributions",
+            ),
+            (page.locator("#memorial-text-turn-form"), f"/memorials/{slug}/chat"),
+        )
+        for protected_form, expected_action in protected_forms:
+            assert protected_form.get_attribute("method") == "post"
+            assert protected_form.get_attribute("action") == expected_action
+            assert protected_form.get_attribute("data-js-ready") == "true"
+            assert protected_form.get_attribute("hidden") is None
+            assert protected_form.get_attribute("inert") is None
+            assert protected_form.get_attribute("aria-hidden") is None
+            assert protected_form.get_attribute("aria-disabled") is None
+            assert protected_form.is_visible()
         page.locator('a.skip-link[href="#memorial-story"]').focus()
         page.keyboard.press("Enter")
         assert page.evaluate("() => document.activeElement && document.activeElement.id") == "memorial-story"
@@ -599,6 +623,67 @@ def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
         assert page.locator("#memorial-voice-ab-wrap").count() == 0
         assert page.get_by_text("Tippen, sprechen, kurz warten, einfach weiterreden.").count() == 0
         assert page.get_by_text("Manfred Hennig").count() == 0
+    finally:
+        context.close()
+
+
+def test_memorial_no_javascript_forms_fail_closed_without_leaking_private_text(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_browser_server["base_url"])
+    slug = str(memorial_browser_server["slug"])
+    context = browser.new_context(
+        viewport={"width": 390, "height": 844},
+        java_script_enabled=False,
+    )
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        assert page.url == f"{base_url}/memorials/{slug}"
+
+        notice = page.get_by_role(
+            "region",
+            name="Private Eingaben sind geschützt",
+            exact=True,
+        )
+        assert notice.count() == 1
+        assert notice.is_visible()
+        assert "Formulare für private Erinnerungen und Fragen deaktiviert" in notice.inner_text()
+        assert "es wurde nichts gesendet" in notice.inner_text()
+        assert "Aktiviere JavaScript" in notice.inner_text()
+
+        protected_forms = (
+            (
+                page.locator("#memorial-contribution-form"),
+                f"/memorials/{slug}/contributions",
+            ),
+            (page.locator("#memorial-text-turn-form"), f"/memorials/{slug}/chat"),
+        )
+        for protected_form, expected_action in protected_forms:
+            assert protected_form.get_attribute("method") == "post"
+            assert protected_form.get_attribute("action") == expected_action
+            assert protected_form.get_attribute("data-js-ready") == "false"
+            assert protected_form.get_attribute("hidden") == ""
+            assert protected_form.get_attribute("inert") == ""
+            assert protected_form.get_attribute("aria-hidden") == "true"
+            assert protected_form.get_attribute("aria-disabled") == "true"
+            assert protected_form.is_hidden()
+            assert protected_form.locator("input, textarea, button").evaluate_all(
+                """controls => controls.every((control) => {
+                  control.focus();
+                  return document.activeElement !== control;
+                })"""
+            )
+        protected_management = page.locator("#memorial-contribution-management")
+        assert protected_management.get_attribute("data-js-ready") == "false"
+        assert protected_management.get_attribute("hidden") == ""
+        assert protected_management.get_attribute("inert") == ""
+        assert protected_management.get_attribute("aria-hidden") == "true"
+        assert protected_management.get_attribute("aria-disabled") == "true"
+        assert protected_management.is_hidden()
+        assert page.url == f"{base_url}/memorials/{slug}"
     finally:
         context.close()
 
@@ -904,7 +989,7 @@ def test_memorial_browser_voice_warmup_failure_reaches_retry_and_text_fallback(
         context.close()
 
 
-def test_memorial_browser_family_contribution_stays_private_and_can_be_withdrawn(
+def test_memorial_browser_family_contributions_have_portable_exact_review_control(
     browser: Browser,
     memorial_browser_server: dict[str, object],
 ) -> None:
@@ -916,28 +1001,46 @@ def test_memorial_browser_family_contribution_stays_private_and_can_be_withdrawn
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
-        page.locator("#memorial-contribution-title-input").fill("Ein ruhiger Familienmoment")
-        page.locator("#memorial-contribution-body").fill(private_sentinel)
-        page.locator("#memorial-contribution-name").fill("Familienmitglied")
-        page.locator("#memorial-contribution-relationship").fill("Familie")
-        page.locator("#memorial-contribution-consent").check()
-        page.locator("#memorial-contribution-submit").click()
-        page.wait_for_function(
-            """() => {
-              const status = document.getElementById("memorial-contribution-status");
-              return Boolean(status && status.textContent.includes("Der Beitrag bleibt privat"));
-            }""",
-            timeout=7000,
-        )
+
+        def submit(title: str, body: str) -> None:
+            page.locator("#memorial-contribution-title-input").fill(title)
+            page.locator("#memorial-contribution-body").fill(body)
+            page.locator("#memorial-contribution-name").fill("Familienmitglied")
+            page.locator("#memorial-contribution-relationship").fill("Familie")
+            page.locator("#memorial-contribution-consent").check()
+            page.locator("#memorial-contribution-submit").click()
+            page.wait_for_function(
+                """() => {
+                  const status = document.getElementById("memorial-contribution-status");
+                  return Boolean(status && status.textContent.includes("Der Beitrag bleibt privat"));
+                }""",
+                timeout=7000,
+            )
+
+        submit("Ein ruhiger Familienmoment", private_sentinel)
+        submit("Noch eine Erinnerung", "SECOND_BROWSER_PRIVATE_MEMORY_MUST_NOT_ESCAPE")
         stored_receipt = page.evaluate(
             """() => {
               const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
               return key ? JSON.parse(localStorage.getItem(key)) : null;
             }"""
         )
-        assert len(stored_receipt) == 1
+        assert len(stored_receipt) == 2
+        assert all(
+            row["schema_version"]
+            == "ea.memorial_family_contribution.recovery_receipt.v1"
+            for row in stored_receipt
+        )
+        assert all(row["slug"] == slug for row in stored_receipt)
+        assert all(row["status_path"].endswith("/status") for row in stored_receipt)
         assert stored_receipt[0]["contribution_id"]
         assert stored_receipt[0]["manage_token"]
+        first_receipt = stored_receipt[0]
+        assert first_receipt["manage_token"] not in page.locator("body").inner_text()
+        assert page.locator("#memorial-contribution-recovery-panel").is_visible()
+        assert page.locator("#memorial-contribution-recovery-download").is_enabled()
+        assert page.locator("#memorial-contribution-recovery-copy").is_enabled()
+        assert page.locator(".contribution-management-card").count() == 2
         public_payload = page.evaluate(
             """async (currentSlug) => {
               const response = await fetch(`/memorials/${currentSlug}.json`);
@@ -946,60 +1049,287 @@ def test_memorial_browser_family_contribution_stays_private_and_can_be_withdrawn
             slug,
         )
         assert private_sentinel not in json.dumps(public_payload)
-        assert page.locator("#memorial-contribution-withdraw").is_visible()
 
-        page.locator("#memorial-contribution-title-input").fill("Noch eine Erinnerung")
-        page.locator("#memorial-contribution-body").fill(
-            "SECOND_BROWSER_PRIVATE_MEMORY_MUST_NOT_ESCAPE"
+        from app.services.memorial_family_contributions import (
+            propose_family_contribution_public_version,
         )
-        page.locator("#memorial-contribution-consent").check()
-        page.locator("#memorial-contribution-submit").click()
-        page.wait_for_function(
+
+        proposed = propose_family_contribution_public_version(
+            slug=slug,
+            contribution_id=str(first_receipt["contribution_id"]),
+            payload={
+                "reviewer": "Browser curator",
+                "title": "Exakt geprüfte öffentliche Überschrift",
+                "body": "Exakt geprüfter öffentlicher Text.",
+                "source_label": "Erinnerung aus der Familie",
+            },
+        )
+        proposal_sha256 = proposed["public_proposal_binding"]["sha256"]
+        decision_requests: list[dict[str, object]] = []
+
+        def remember_decision(request) -> None:  # type: ignore[no-untyped-def]
+            if "/proposal/" not in request.url or request.method != "POST":
+                return
+            decision_requests.append(request.post_data_json)
+
+        page.on("request", remember_decision)
+        page.locator("#memorial-contribution-management-jump").click()
+        first_card = page.locator(".contribution-management-card").filter(
+            has_text="Ein ruhiger Familienmoment"
+        )
+        first_card.get_by_text("Exakt geprüfte öffentliche Überschrift", exact=True).wait_for()
+        assert "Exakt geprüfter öffentlicher Text." in first_card.inner_text()
+        first_card.get_by_role("button", name="Genau diese Fassung freigeben").click()
+        first_card.get_by_text("Von dir zur Veröffentlichung freigegeben", exact=True).wait_for()
+        assert decision_requests[-1] == {"proposal_sha256": proposal_sha256}
+        first_card = page.locator(".contribution-management-card").filter(
+            has_text="Ein ruhiger Familienmoment"
+        )
+        first_card.get_by_role("button", name="Änderungen wünschen").click()
+        first_card.get_by_text("Änderungswunsch gesendet", exact=True).wait_for()
+        assert decision_requests[-1] == {"proposal_sha256": proposal_sha256}
+
+        first_card = page.locator(".contribution-management-card").filter(
+            has_text="Ein ruhiger Familienmoment"
+        )
+        first_card.get_by_text("Einreichung korrigieren", exact=True).click()
+        corrected_body = "PRIVATE_CORRECTED_BROWSER_MEMORY_MUST_NOT_ESCAPE"
+        first_card.locator('textarea[name="body"]').fill(corrected_body)
+        first_card.get_by_role("button", name="Korrektur privat speichern").click()
+        first_card.get_by_text("Korrektur wird geprüft", exact=True).wait_for()
+
+        first_card = page.locator(".contribution-management-card").filter(
+            has_text="Ein ruhiger Familienmoment"
+        )
+        page.once("dialog", lambda dialog: dialog.accept())
+        first_card.get_by_role("button", name="Einreichung zurückziehen").click()
+        first_card.get_by_text("Zurückgezogen · nicht öffentlich", exact=True).wait_for()
+        retained_receipts = page.evaluate(
             """() => {
-              const status = document.getElementById("memorial-contribution-status");
-              return Boolean(status && status.textContent.includes("Der Beitrag bleibt privat"));
-            }""",
-            timeout=7000,
+              const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
+              return key ? JSON.parse(localStorage.getItem(key)) : [];
+            }"""
         )
-        assert page.evaluate(
+        assert len(retained_receipts) == 2
+        assert any(
+            item["contribution_id"] == first_receipt["contribution_id"]
+            for item in retained_receipts
+        )
+        assert first_receipt["manage_token"] not in page.locator("body").inner_text()
+
+        first_card = page.locator(".contribution-management-card").filter(
+            has_text="Ein ruhiger Familienmoment"
+        )
+        page.once("dialog", lambda dialog: dialog.accept())
+        first_card.get_by_role(
+            "button", name="Beleg nur von diesem Gerät entfernen"
+        ).click()
+        page.wait_for_function(
             """() => {
               const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
               const receipts = key ? JSON.parse(localStorage.getItem(key)) : [];
-              return Array.isArray(receipts) ? receipts.length : 0;
-            }"""
-        ) == 2
-
-        page.locator("#memorial-contribution-withdraw").click()
-        page.wait_for_function(
-            """() => {
-              const status = document.getElementById("memorial-contribution-status");
-              return Boolean(status && status.textContent.includes("wurde zurückgezogen"));
+              return Array.isArray(receipts) && receipts.length === 1;
             }""",
             timeout=7000,
-        )
-        assert page.locator("#memorial-contribution-withdraw").is_visible()
-        assert page.evaluate(
-            """() => {
-              const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
-              const receipts = key ? JSON.parse(localStorage.getItem(key)) : [];
-              return Array.isArray(receipts) ? receipts.length : 0;
-            }"""
-        ) == 1
-
-        page.locator("#memorial-contribution-withdraw").click()
-        page.wait_for_function(
-            """() => {
-              const button = document.getElementById("memorial-contribution-withdraw");
-              return Boolean(button && button.hidden);
-            }""",
-            timeout=7000,
-        )
-        assert page.locator("#memorial-contribution-withdraw").is_hidden()
-        assert page.evaluate(
-            """() => !Object.keys(localStorage).some((item) => item.startsWith("memorial_contribution_receipt_"))"""
         )
     finally:
         context.close()
+
+
+def test_memorial_browser_recovery_import_and_storage_failure_keep_token_portable(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_browser_server["base_url"])
+    slug = str(memorial_browser_server["slug"])
+    context = browser.new_context(viewport={"width": 430, "height": 932})
+
+    def submit_direct(title: str) -> dict[str, object]:
+        response = context.request.post(
+            f"{base_url}/memorials/{slug}/contributions",
+            data={
+                "title": title,
+                "body": f"Private recovery body for {title}",
+                "publication_consent": True,
+            },
+        )
+        assert response.ok
+        return dict(response.json())
+
+    def portable_receipt(submission: dict[str, object]) -> dict[str, object]:
+        receipt = dict(submission["recovery_receipt"])
+        receipt.update(
+            {
+                "slug": slug,
+                "contribution_id": submission["contribution_id"],
+                "manage_token": submission["manage_token"],
+            }
+        )
+        return receipt
+
+    first = submit_direct("Importierter Beleg eins")
+    second = submit_direct("Importierter Altbeleg")
+    third = submit_direct("Importierte JSON-Datei")
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator("#memorial-contribution-recovery-import > summary").click()
+        code_input = page.locator("#memorial-contribution-recovery-code")
+        import_button = page.locator("#memorial-contribution-recovery-import-button")
+        invalid = portable_receipt(first)
+        invalid["slug"] = "another-memorial"
+        code_input.fill(json.dumps(invalid))
+        import_button.click()
+        page.get_by_text(
+            "Dieser Beleg ist ungültig oder gehört nicht zu dieser Gedenkseite. Es wurde nichts gespeichert.",
+            exact=True,
+        ).wait_for()
+        assert page.evaluate(
+            """() => !Object.keys(localStorage).some((key) => key.startsWith("memorial_contribution_receipt_"))"""
+        )
+
+        first_portable = portable_receipt(first)
+        code_input.fill(json.dumps(first_portable))
+        import_button.click()
+        page.get_by_text(
+            "Der Rücknahmebeleg wurde geprüft und auf diesem Gerät hinzugefügt.",
+            exact=True,
+        ).wait_for()
+        page.get_by_role("heading", name="Importierter Beleg eins", exact=True).wait_for()
+
+        legacy = {
+            "contribution_id": second["contribution_id"],
+            "manage_token": second["manage_token"],
+        }
+        code_input.fill(json.dumps(legacy))
+        import_button.click()
+        page.wait_for_function(
+            """() => {
+              const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
+              const receipts = key ? JSON.parse(localStorage.getItem(key)) : [];
+              return Array.isArray(receipts)
+                && receipts.length === 2
+                && receipts.every((receipt) => receipt.schema_version === "ea.memorial_family_contribution.recovery_receipt.v1");
+            }""",
+            timeout=7000,
+        )
+
+        third_portable = portable_receipt(third)
+        page.locator("#memorial-contribution-recovery-file").set_input_files(
+            {
+                "name": "manfred-ruecknahmebeleg.json",
+                "mimeType": "application/json",
+                "buffer": json.dumps(third_portable).encode("utf-8"),
+            }
+        )
+        import_button.click()
+        page.wait_for_function(
+            """() => {
+              const key = Object.keys(localStorage).find((item) => item.startsWith("memorial_contribution_receipt_"));
+              const receipts = key ? JSON.parse(localStorage.getItem(key)) : [];
+              return Array.isArray(receipts) && receipts.length === 3;
+            }""",
+            timeout=7000,
+        )
+        for submission in (first, second, third):
+            assert str(submission["manage_token"]) not in page.locator("body").inner_text()
+    finally:
+        context.close()
+
+    volatile_context = browser.new_context(
+        viewport={"width": 430, "height": 932},
+        accept_downloads=True,
+    )
+    volatile_context.add_init_script(
+        """
+        (() => {
+          const originalGet = Storage.prototype.getItem;
+          const originalSet = Storage.prototype.setItem;
+          const originalRemove = Storage.prototype.removeItem;
+          const guarded = (key) => String(key || "").startsWith("memorial_contribution_receipt_");
+          Storage.prototype.getItem = function(key) {
+            if (guarded(key)) throw new DOMException("storage blocked", "SecurityError");
+            return originalGet.call(this, key);
+          };
+          Storage.prototype.setItem = function(key, value) {
+            if (guarded(key)) throw new DOMException("storage blocked", "SecurityError");
+            return originalSet.call(this, key, value);
+          };
+          Storage.prototype.removeItem = function(key) {
+            if (guarded(key)) throw new DOMException("storage blocked", "SecurityError");
+            return originalRemove.call(this, key);
+          };
+          Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: {
+              writeText: async (value) => { window.__memorialCopiedRecoveryReceipt = String(value || ""); },
+            },
+          });
+        })();
+        """
+    )
+    volatile_page: Page = volatile_context.new_page()
+    captured_submission: dict[str, object] = {}
+
+    def capture_submission(response) -> None:  # type: ignore[no-untyped-def]
+        if response.request.method != "POST" or not response.url.endswith(
+            f"/memorials/{slug}/contributions"
+        ):
+            return
+        if response.ok:
+            captured_submission.update(response.json())
+
+    volatile_page.on("response", capture_submission)
+    try:
+        response = volatile_page.goto(
+            f"{base_url}/memorials/{slug}", wait_until="domcontentloaded"
+        )
+        assert response is not None and response.ok
+        volatile_page.locator("#memorial-contribution-title-input").fill(
+            "Beleg ohne Browserspeicher"
+        )
+        volatile_page.locator("#memorial-contribution-body").fill(
+            "PRIVATE_VOLATILE_RECOVERY_BODY"
+        )
+        volatile_page.locator("#memorial-contribution-submit").click()
+        volatile_page.get_by_text(
+            "Der Beitrag wurde privat gespeichert. Sichere den Rücknahmebeleg jetzt, weil dieser Browser ihn nicht dauerhaft speichern konnte.",
+            exact=True,
+        ).wait_for()
+        assert captured_submission["manage_token"]
+        token = str(captured_submission["manage_token"])
+        assert token not in volatile_page.locator("body").inner_text()
+        assert volatile_page.locator("#memorial-contribution-recovery-panel").is_visible()
+
+        with volatile_page.expect_download() as download_info:
+            volatile_page.locator("#memorial-contribution-recovery-download").click()
+        download = download_info.value
+        assert download.suggested_filename.startswith(f"{slug}-ruecknahmebeleg-")
+        downloaded_receipt = json.loads(Path(download.path()).read_text(encoding="utf-8"))
+        assert downloaded_receipt["manage_token"] == token
+        assert downloaded_receipt["slug"] == slug
+
+        volatile_page.locator("#memorial-contribution-recovery-copy").click()
+        volatile_page.wait_for_function(
+            "() => Boolean(window.__memorialCopiedRecoveryReceipt)", timeout=7000
+        )
+        copied_receipt = json.loads(
+            volatile_page.evaluate("() => window.__memorialCopiedRecoveryReceipt")
+        )
+        assert copied_receipt["manage_token"] == token
+        assert volatile_page.evaluate(
+            """() => {
+              try {
+                localStorage.getItem("memorial_contribution_receipt_manfred_v1");
+                return false;
+              } catch (error) {
+                return true;
+              }
+            }"""
+        )
+    finally:
+        volatile_context.close()
 
 
 def test_memorial_browser_reduced_motion_avoids_smooth_answer_scroll(

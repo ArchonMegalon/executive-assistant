@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -37,8 +38,26 @@ def _manifest(text: str) -> dict[str, object]:
                 "visibility": "public",
                 "approved": True,
                 "review_status": "approved",
+                "narration_review": _narration_review(text),
             }
         ],
+    }
+
+
+def _narration_review(
+    text: str,
+    *,
+    status: str = "approved",
+    scope: object | None = None,
+    revoked: object = False,
+    source_text_sha256: str = "",
+) -> dict[str, object]:
+    return {
+        "status": status,
+        "scope": ["memorial_audiobook_narration"] if scope is None else scope,
+        "revoked": revoked,
+        "source_text_sha256": source_text_sha256
+        or hashlib.sha256(text.encode("utf-8")).hexdigest(),
     }
 
 
@@ -88,27 +107,29 @@ def test_excludes_private_memorial_and_archive_sources_by_default(
     archive_root = tmp_path / "archive"
     public_document = archive_root / "public" / "approved-publication"
     public_document.mkdir(parents=True)
+    archive_text = "Approved archive remembrance."
     (public_document / "manifest.json").write_text(
         json.dumps(
             {
                 "audience": "public",
                 "approved": True,
                 "review_status": "approved",
+                "narration_review": _narration_review(archive_text),
             }
         ),
         encoding="utf-8",
     )
-    (public_document / "source.md").write_text(
-        "Approved archive remembrance.", encoding="utf-8"
-    )
+    (public_document / "source.md").write_text(archive_text, encoding="utf-8")
+    card_text = "Approved public card."
     manifest = {
         "memory_cards": [
             {
                 "title": "Public",
-                "body": "Approved public card.",
+                "body": card_text,
                 "visibility": "public",
                 "approved": True,
                 "review_status": "approved",
+                "narration_review": _narration_review(card_text),
             },
             {
                 "title": "Private",
@@ -150,6 +171,9 @@ def test_excludes_private_memorial_and_archive_sources_by_default(
     assert "PRIVATE_CARD_SENTINEL" not in serialized
     assert "PRIVATE_ARCHIVE_SENTINEL" not in serialized
     assert receipt["approved_public_source_count"] == 2
+    assert receipt["approved_narration_permission_count"] == 2
+    assert receipt["purpose_specific_narration_review_required"] is True
+    assert len(receipt["narration_permission_evidence_aggregate_sha256"]) == 64
     assert receipt["excluded_source_count"] == 2
     assert receipt["private_sources_excluded_by_default"] is True
 
@@ -166,6 +190,9 @@ def test_archive_source_symlink_cannot_escape_the_approved_public_document(
                 "audience": "public",
                 "approved": True,
                 "review_status": "approved",
+                "narration_review": _narration_review(
+                    "PRIVATE_ARCHIVE_SYMLINK_SENTINEL"
+                ),
             }
         ),
         encoding="utf-8",
@@ -238,6 +265,217 @@ def test_public_card_requires_explicit_approval_and_review() -> None:
     assert provider_safe_receipt(approved_without_review)[
         "excluded_source_reason_counts"
     ] == {"memorial_card_review_not_approved": 1}
+
+
+@pytest.mark.parametrize(
+    ("review", "reason"),
+    [
+        (None, "memorial_card_narration_review_missing"),
+        (
+            _narration_review("Scoped card.", scope="public_web_publication"),
+            "memorial_card_narration_scope_invalid",
+        ),
+        (
+            _narration_review(
+                "Scoped card.", scope="memorial_audiobook_narration"
+            ),
+            "memorial_card_narration_scope_invalid",
+        ),
+        (
+            _narration_review(
+                "Scoped card.",
+                scope=[
+                    "memorial_audiobook_narration",
+                    "public_web_publication",
+                ],
+            ),
+            "memorial_card_narration_scope_invalid",
+        ),
+        (
+            _narration_review("Scoped card.", revoked=True),
+            "memorial_card_narration_review_revoked",
+        ),
+        (
+            _narration_review("Different text."),
+            "memorial_card_narration_source_sha256_mismatch",
+        ),
+    ],
+)
+def test_publication_approval_alone_never_authorizes_card_narration(
+    review: dict[str, object] | None,
+    reason: str,
+) -> None:
+    card: dict[str, object] = {
+        "body": "Scoped card.",
+        "visibility": "public",
+        "approved": True,
+        "review_status": "approved",
+    }
+    if review is not None:
+        card["narration_review"] = review
+
+    package = build_memorial_narration_work_package(
+        slug="manfred",
+        memorial_manifest={"memory_cards": [card]},
+        voice_profile=_voice_profile(),
+        max_chars=256,
+    )
+
+    assert package["contract_name"].endswith(".v3")
+    assert package["version"] == 3
+    assert package["status"] == "blocked_no_approved_public_sources"
+    assert provider_safe_receipt(package)["excluded_source_reason_counts"] == {
+        reason: 1
+    }
+
+
+def test_scoped_card_review_binds_exact_selected_excerpt_without_identity_leak() -> (
+    None
+):
+    selected_text = "Only this reviewed excerpt may be narrated."
+    private_reviewer = "PRIVATE_FAMILY_REVIEWER_SENTINEL"
+    review = {
+        **_narration_review(selected_text),
+        "reviewer": private_reviewer,
+        "note": "PRIVATE_REVIEW_NOTE_SENTINEL",
+    }
+    package = build_memorial_narration_work_package(
+        slug="manfred",
+        memorial_manifest={
+            "memory_cards": [
+                {
+                    "body": "A different full body.",
+                    "public_excerpt": selected_text,
+                    "visibility": "public",
+                    "approved": True,
+                    "review_status": "approved",
+                    "narration_review": review,
+                }
+            ]
+        },
+        voice_profile=_voice_profile(),
+        max_chars=256,
+    )
+
+    receipt = provider_safe_receipt(package)
+    serialized_package = json.dumps(package, sort_keys=True)
+    serialized_receipt = json.dumps(receipt, sort_keys=True)
+    assert package["status"] == "ready_for_private_cast_resolution"
+    assert receipt["approved_narration_permission_count"] == 1
+    assert receipt["required_narration_source_scope"] == (
+        "memorial_audiobook_narration"
+    )
+    assert private_reviewer not in serialized_package
+    assert private_reviewer not in serialized_receipt
+    assert "PRIVATE_REVIEW_NOTE_SENTINEL" not in serialized_package
+    assert "PRIVATE_REVIEW_NOTE_SENTINEL" not in serialized_receipt
+
+
+def test_narration_permission_aggregate_binds_stable_source_identity() -> None:
+    text = "The same reviewed words with two distinct source identities."
+
+    def _with_id(source_id: str) -> dict[str, object]:
+        manifest = _manifest(text)
+        manifest["memory_cards"][0]["id"] = source_id
+        return build_memorial_narration_work_package(
+            slug="manfred",
+            memorial_manifest=manifest,
+            voice_profile=_voice_profile(),
+            max_chars=256,
+        )
+
+    first_receipt = provider_safe_receipt(_with_id("family-letter-one"))
+    second_receipt = provider_safe_receipt(_with_id("family-letter-two"))
+
+    assert first_receipt["narration_permission_evidence_aggregate_sha256"] != (
+        second_receipt["narration_permission_evidence_aggregate_sha256"]
+    )
+    assert first_receipt["source_aggregate_sha256"] != second_receipt[
+        "source_aggregate_sha256"
+    ]
+
+
+def test_archive_publication_requires_exact_scoped_narration_review(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    document_root = archive_root / "public" / "scoped-publication"
+    document_root.mkdir(parents=True)
+    source_text = "Exact archive source."
+    (document_root / "source.md").write_text(source_text, encoding="utf-8")
+    registry = {
+        "fliplink_publications": [
+            {
+                "slug": "scoped-publication",
+                "audience": "public",
+                "approved": True,
+                "review_status": "published",
+            }
+        ]
+    }
+    base_manifest = {
+        "audience": "public",
+        "approved": True,
+        "review_status": "approved",
+    }
+
+    (document_root / "manifest.json").write_text(
+        json.dumps(base_manifest), encoding="utf-8"
+    )
+    missing = build_memorial_narration_work_package(
+        slug="manfred",
+        memorial_manifest={"memory_cards": []},
+        voice_profile=_voice_profile(),
+        archive_registry=registry,
+        archive_root=archive_root,
+        max_chars=256,
+    )
+    assert provider_safe_receipt(missing)["excluded_source_reason_counts"] == {
+        "archive_document_narration_review_missing": 1
+    }
+
+    (document_root / "manifest.json").write_text(
+        json.dumps(
+            {
+                **base_manifest,
+                "narration_review": _narration_review("Changed archive source."),
+            }
+        ),
+        encoding="utf-8",
+    )
+    changed = build_memorial_narration_work_package(
+        slug="manfred",
+        memorial_manifest={"memory_cards": []},
+        voice_profile=_voice_profile(),
+        archive_registry=registry,
+        archive_root=archive_root,
+        max_chars=256,
+    )
+    assert provider_safe_receipt(changed)["excluded_source_reason_counts"] == {
+        "archive_document_narration_source_sha256_mismatch": 1
+    }
+
+    (document_root / "manifest.json").write_text(
+        json.dumps(
+            {
+                **base_manifest,
+                "narration_review": _narration_review(source_text),
+            }
+        ),
+        encoding="utf-8",
+    )
+    approved = build_memorial_narration_work_package(
+        slug="manfred",
+        memorial_manifest={"memory_cards": []},
+        voice_profile=_voice_profile(),
+        archive_registry=registry,
+        archive_root=archive_root,
+        max_chars=256,
+    )
+    assert approved["status"] == "ready_for_private_cast_resolution"
+    assert provider_safe_receipt(approved)[
+        "approved_narration_permission_count"
+    ] == 1
 
 
 def test_speaker_demographics_require_purpose_specific_casting_approval() -> None:

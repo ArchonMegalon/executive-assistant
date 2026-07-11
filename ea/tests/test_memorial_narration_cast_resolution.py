@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -51,6 +52,12 @@ def _package(
     *,
     speaker_profiles: dict[str, dict[str, object]] | None = None,
 ) -> dict[str, object]:
+    narration_review = {
+        "status": "approved",
+        "scope": ["memorial_audiobook_narration"],
+        "revoked": False,
+        "source_text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+    }
     return build_memorial_narration_work_package(
         slug="manfred",
         memorial_manifest={
@@ -62,6 +69,7 @@ def _package(
                     "visibility": "public",
                     "approved": True,
                     "review_status": "approved",
+                    "narration_review": narration_review,
                 }
             ],
         },
@@ -135,6 +143,79 @@ def test_narrator_only_mapping_review_still_requires_audition_before_synthesis()
     serialized = json.dumps(receipt, ensure_ascii=False, sort_keys=True)
     assert "raw-private-narrator-voice-id" not in serialized
     assert "family-reviewer-private-id" not in serialized
+
+
+def test_stale_v2_work_package_is_rejected_before_cast_resolution() -> None:
+    package = _package("A purpose-reviewed source.")
+    package["contract_name"] = "ea.memorial_narration_work_package.v2"
+    package["version"] = 2
+
+    resolution = resolve_memorial_narration_cast(
+        work_package=package,
+        voice_profile=_voice_profile(),
+        now=datetime(2026, 7, 11, 9, 59, tzinfo=UTC),
+    )
+
+    assert resolution["status"] == "blocked"
+    assert resolution["synthesis_authorized"] is False
+    assert "work_package_contract_mismatch" in resolution["issues"]
+    assert "work_package_version_mismatch" in resolution["issues"]
+
+
+def test_cast_resolution_rejects_malformed_and_duplicate_source_rows() -> None:
+    package = _package("A purpose-reviewed source.")
+
+    malformed = deepcopy(package)
+    malformed["sources"].append("not-a-source-object")
+    malformed_resolution = resolve_memorial_narration_cast(
+        work_package=malformed,
+        voice_profile=_voice_profile(),
+        now=datetime(2026, 7, 11, 9, 59, tzinfo=UTC),
+    )
+
+    duplicate = deepcopy(package)
+    duplicate["sources"].append(deepcopy(duplicate["sources"][0]))
+    duplicate_resolution = resolve_memorial_narration_cast(
+        work_package=duplicate,
+        voice_profile=_voice_profile(),
+        now=datetime(2026, 7, 11, 9, 59, tzinfo=UTC),
+    )
+
+    assert malformed_resolution["status"] == "blocked"
+    assert "work_package_source_entry_invalid" in malformed_resolution["issues"]
+    assert duplicate_resolution["status"] == "blocked"
+    assert "work_package_source_href_duplicate" in duplicate_resolution["issues"]
+
+
+def test_cast_resolution_rejects_legacy_permission_aggregate_without_source_id() -> (
+    None
+):
+    package = _package("A purpose-reviewed source.")
+    source = dict(package["sources"][0])
+    package["provider_safe_receipt"][
+        "narration_permission_evidence_aggregate_sha256"
+    ] = cast_resolution_service._stable_json_sha256(
+        [
+            {
+                "kind": source["kind"],
+                "text_sha256": source["text_sha256"],
+                "narration_review_evidence_sha256": source[
+                    "narration_review_evidence_sha256"
+                ],
+            }
+        ]
+    )
+
+    resolution = resolve_memorial_narration_cast(
+        work_package=package,
+        voice_profile=_voice_profile(),
+        now=datetime(2026, 7, 11, 9, 59, tzinfo=UTC),
+    )
+
+    assert resolution["status"] == "blocked"
+    assert "receipt_narration_permission_evidence_mismatch" in resolution[
+        "issues"
+    ]
 
 
 def test_current_consent_revocation_invalidates_a_previously_approved_review() -> None:

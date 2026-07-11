@@ -217,7 +217,11 @@ _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "playback_telemetry": (30, 60),
     "voice_ab_rate": (10, 60),
     "family_contribution_submit": (6, 60),
-    "family_contribution_manage": (12, 60),
+    # A page may legitimately restore and refresh up to ten token-bound
+    # receipts, then make an exact proposal decision or correction. Tokens
+    # are high-entropy capabilities; this bucket limits abuse without making
+    # the supported multi-entry journey throttle itself.
+    "family_contribution_manage": (60, 60),
     "operator_route_write": (25, 60),
 }
 
@@ -9975,6 +9979,19 @@ def _minimal_public_memorial_html(
       }}
       .contribution-panel > p:not(.story-kicker) {{ max-width: 64ch; color: var(--muted); }}
       .contribution-form {{ display: grid; gap: 14px; margin-top: 22px; }}
+      .memorial-js-required-form[hidden] {{ display: none !important; }}
+      .memorial-noscript-notice {{
+        position: relative;
+        z-index: 2;
+        margin: 0 auto clamp(30px, 6vw, 54px);
+        padding: clamp(20px, 4vw, 28px);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: rgba(255, 251, 244, .92);
+        box-shadow: 0 14px 30px rgba(56, 45, 36, .07);
+      }}
+      .memorial-noscript-notice h2 {{ margin: 0; color: var(--ink); font-size: 1.35rem; }}
+      .memorial-noscript-notice p {{ margin: 10px 0 0; max-width: 62ch; color: var(--muted); }}
       .contribution-fields {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
       .contribution-form label {{ display: grid; gap: 6px; color: var(--ink); font: 700 13px/1.35 ui-sans-serif, system-ui, sans-serif; }}
       .contribution-form input:not([type="checkbox"]),
@@ -10001,6 +10018,122 @@ def _minimal_public_memorial_html(
         font: 700 13px/1 ui-sans-serif, system-ui, sans-serif;
       }}
       .contribution-actions button.secondary {{ background: rgba(255,255,255,.9); color: var(--blue); }}
+      .contribution-management {{
+        margin-top: 30px;
+        padding-top: 28px;
+        border-top: 1px solid var(--line);
+      }}
+      .contribution-management h3,
+      .contribution-management h4 {{ color: var(--ink); }}
+      .contribution-management h3 {{ margin: 0; font-size: 1.4rem; }}
+      .contribution-management h4 {{ margin: 0; font-size: 1rem; }}
+      .contribution-privacy-note {{
+        margin: 12px 0 0;
+        max-width: 68ch;
+        color: var(--muted);
+        font: 14px/1.6 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .contribution-recovery-panel,
+      .contribution-recovery-import,
+      .contribution-management-card {{
+        margin-top: 18px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255,255,255,.68);
+      }}
+      .contribution-recovery-panel {{ padding: 18px; }}
+      .contribution-recovery-panel:focus {{ outline: 3px solid rgba(72,103,126,.72); outline-offset: 3px; }}
+      .contribution-recovery-panel > p {{ margin: 8px 0 0; color: var(--muted); }}
+      .contribution-recovery-actions,
+      .contribution-management-actions {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 14px;
+      }}
+      .contribution-recovery-actions button,
+      .contribution-management-actions button,
+      .contribution-recovery-import button,
+      .contribution-correction-form button {{
+        min-height: 42px;
+        border: 1px solid rgba(72,103,126,.28);
+        border-radius: 999px;
+        padding: 9px 14px;
+        background: var(--blue);
+        color: #fff;
+        font: 700 13px/1.2 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .contribution-management-actions button.secondary,
+      .contribution-recovery-actions button.secondary {{
+        background: rgba(255,255,255,.94);
+        color: var(--blue);
+      }}
+      .contribution-management-actions button.danger {{
+        background: rgba(255,255,255,.94);
+        color: #7c3744;
+        border-color: rgba(124,55,68,.3);
+      }}
+      .contribution-recovery-import {{ padding: 0 16px 16px; }}
+      .contribution-recovery-import summary {{
+        min-height: 48px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        color: var(--ink);
+        font: 700 14px/1.3 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .contribution-recovery-import-fields {{ display: grid; gap: 12px; }}
+      .contribution-recovery-import label,
+      .contribution-correction-form label {{
+        display: grid;
+        gap: 6px;
+        color: var(--ink);
+        font: 700 13px/1.35 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .contribution-recovery-import input,
+      .contribution-correction-form input:not([type="checkbox"]),
+      .contribution-correction-form textarea {{
+        width: 100%;
+        border: 1px solid rgba(72,103,126,.28);
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: rgba(255,255,255,.96);
+        color: var(--ink);
+        font: 15px/1.4 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .contribution-management-summary {{ margin: 18px 0 0; color: var(--muted); }}
+      .contribution-management-cards {{ display: grid; gap: 16px; margin-top: 12px; }}
+      .contribution-management-card {{ padding: 18px; min-width: 0; }}
+      .contribution-management-card:focus {{ outline: 3px solid rgba(72,103,126,.72); outline-offset: 3px; }}
+      .contribution-management-card-header {{ display: grid; gap: 6px; }}
+      .contribution-management-card-status {{ margin: 0; color: var(--blue); font-weight: 700; }}
+      .contribution-management-section {{ margin-top: 18px; }}
+      .contribution-management-section dl {{ margin: 10px 0 0; display: grid; gap: 10px; }}
+      .contribution-management-section dt {{ color: var(--muted); font: 700 12px/1.3 ui-sans-serif, system-ui, sans-serif; }}
+      .contribution-management-section dd {{ margin: 2px 0 0; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }}
+      .contribution-management-timestamps {{ margin: 14px 0 0; padding-left: 1.2rem; color: var(--muted); font-size: 13px; }}
+      .contribution-proposal {{
+        padding: 16px;
+        border: 1px solid rgba(72,103,126,.2);
+        border-radius: 16px;
+        background: rgba(238,244,248,.68);
+      }}
+      .contribution-proposal-note {{ margin-top: 14px; }}
+      .contribution-proposal-note input {{
+        width: 100%;
+        border: 1px solid rgba(72,103,126,.28);
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: #fff;
+        color: var(--ink);
+      }}
+      .contribution-correction {{ margin-top: 16px; }}
+      .contribution-correction summary {{ cursor: pointer; min-height: 42px; color: var(--blue); font-weight: 700; }}
+      .contribution-correction-form {{ display: grid; gap: 12px; padding-top: 10px; }}
+      .contribution-correction-form textarea {{ min-height: 110px; resize: vertical; }}
+      .contribution-correction-consent {{ grid-template-columns: auto 1fr; align-items: start; font-weight: 500 !important; }}
+      .contribution-management-message {{ margin: 12px 0 0; color: var(--muted); }}
+      .contribution-management-message:focus {{ outline: 2px solid rgba(72,103,126,.7); outline-offset: 2px; }}
       .archive-transcript {{ margin-top: 14px; color: var(--muted); }}
       .archive-transcript summary {{
         min-height: 38px;
@@ -10188,6 +10321,10 @@ def _minimal_public_memorial_html(
         .text-turn-controls {{ flex-direction: column; }}
         .text-turn-controls button {{ width: 100%; }}
         .contribution-fields {{ grid-template-columns: 1fr; }}
+        .contribution-recovery-actions,
+        .contribution-management-actions {{ flex-direction: column; align-items: stretch; }}
+        .contribution-recovery-actions button,
+        .contribution-management-actions button {{ width: 100%; }}
       }}
       @media (max-height: 720px) {{
         .conversation-dock {{
@@ -10507,13 +10644,19 @@ def _minimal_public_memorial_html(
       </div>
     </header>
     <main id="memorial-story" tabindex="-1">
+      <noscript>
+        <section class="wrap memorial-noscript-notice" aria-labelledby="memorial-noscript-title">
+          <h2 id="memorial-noscript-title">Private Eingaben sind geschützt</h2>
+          <p>JavaScript ist ausgeschaltet. Deshalb bleiben die Formulare für private Erinnerungen und Fragen deaktiviert; es wurde nichts gesendet. Aktiviere JavaScript und lade diese Seite neu, um sie sicher zu verwenden.</p>
+        </section>
+      </noscript>
       <div class="wrap story">
         {story_html}
         <section class="story-section contribution-panel" id="memorial-contribution" aria-labelledby="memorial-contribution-title">
           <p class="story-kicker">Familie und Wegbegleiter</p>
           <h2 id="memorial-contribution-title">Eine Erinnerung beitragen</h2>
           <p>Dein Beitrag bleibt zunächst privat und geht in eine geschützte Prüfung. Öffentlich erscheint nur eine ausdrücklich freigegebene, redigierte Fassung. Du kannst deine Einreichung von diesem Browser aus wieder zurückziehen.</p>
-          <form class="contribution-form" id="memorial-contribution-form">
+          <form class="contribution-form memorial-js-required-form" id="memorial-contribution-form" method="post" action="/memorials/{html.escape(slug)}/contributions" hidden inert aria-hidden="true" aria-disabled="true" data-js-ready="false">
             <label for="memorial-contribution-title-input">Kurze Überschrift
               <input id="memorial-contribution-title-input" name="title" type="text" maxlength="180" required autocomplete="off">
             </label>
@@ -10534,10 +10677,39 @@ def _minimal_public_memorial_html(
             </label>
             <div class="contribution-actions">
               <button type="submit" id="memorial-contribution-submit">Privat zur Prüfung senden</button>
-              <button type="button" class="secondary" id="memorial-contribution-withdraw" hidden>Letzte Einreichung zurückziehen</button>
+              <button type="button" class="secondary" id="memorial-contribution-management-jump" hidden>Meine Einreichungen verwalten</button>
             </div>
             <p class="status-note" id="memorial-contribution-status" role="status" aria-live="polite" aria-atomic="true">Noch nichts gesendet.</p>
           </form>
+          <section class="contribution-management memorial-js-required-form" id="memorial-contribution-management" aria-labelledby="memorial-contribution-management-title" hidden inert aria-hidden="true" aria-disabled="true" data-js-ready="false">
+            <h3 id="memorial-contribution-management-title" tabindex="-1">Meine Einreichungen</h3>
+            <p class="contribution-privacy-note">Wenn du eine Einreichung zurückziehst, wird ihre öffentliche Fassung entfernt. Ein privater Nachweis bleibt für Nachvollziehbarkeit und zum Schutz vor erneuter Veröffentlichung erhalten. Dauerhafte Löschung ist ein eigener Antrag und hier noch nicht selbst bedienbar. Gib deinen Rücknahmebeleg nie an andere weiter; er ist dein Zugang zu deiner Einreichung.</p>
+            <section class="contribution-recovery-panel" id="memorial-contribution-recovery-panel" aria-labelledby="memorial-contribution-recovery-title" tabindex="-1" hidden>
+              <h4 id="memorial-contribution-recovery-title">Rücknahmebeleg sicher aufbewahren</h4>
+              <p>Der Beleg enthält einen geheimen Zugangsschlüssel. Lade ihn herunter oder kopiere ihn an einen privaten, sicheren Ort. Der Schlüssel wird auf dieser Seite nicht sichtbar angezeigt.</p>
+              <div class="contribution-recovery-actions">
+                <button type="button" id="memorial-contribution-recovery-download">Beleg herunterladen</button>
+                <button type="button" class="secondary" id="memorial-contribution-recovery-copy">Beleg kopieren</button>
+              </div>
+              <p class="contribution-management-message" id="memorial-contribution-recovery-status" role="status" aria-live="polite" aria-atomic="true" tabindex="-1"></p>
+            </section>
+            <details class="contribution-recovery-import" id="memorial-contribution-recovery-import">
+              <summary>Gespeicherten Rücknahmebeleg hinzufügen</summary>
+              <div class="contribution-recovery-import-fields">
+                <label for="memorial-contribution-recovery-file">JSON-Datei auswählen
+                  <input id="memorial-contribution-recovery-file" type="file" accept="application/json,.json">
+                </label>
+                <label for="memorial-contribution-recovery-code">Oder Beleg-Code einfügen
+                  <input id="memorial-contribution-recovery-code" type="password" maxlength="32768" autocomplete="off" spellcheck="false" aria-describedby="memorial-contribution-recovery-code-help">
+                </label>
+                <p class="status-note" id="memorial-contribution-recovery-code-help">Der eingefügte Schlüssel bleibt verdeckt und wird nach der Prüfung aus dem Feld entfernt.</p>
+                <button type="button" id="memorial-contribution-recovery-import-button">Beleg prüfen und hinzufügen</button>
+                <p class="contribution-management-message" id="memorial-contribution-recovery-import-status" role="status" aria-live="polite" aria-atomic="true" tabindex="-1"></p>
+              </div>
+            </details>
+            <p class="contribution-management-summary" id="memorial-contribution-management-summary" role="status" aria-live="polite" aria-atomic="true">Auf diesem Gerät ist noch kein Rücknahmebeleg gespeichert.</p>
+            <div class="contribution-management-cards" id="memorial-contribution-management-cards" aria-label="Gespeicherte Einreichungen"></div>
+          </section>
         </section>
       </div>
     </main>
@@ -10548,7 +10720,7 @@ def _minimal_public_memorial_html(
           <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Gespräch beginnen" aria-label="Gespräch beginnen" aria-disabled="true" disabled>Gespräch wird vorbereitet …</button>
         </div>
         <p class="hero-guidance">Du sprichst mit einer KI-gestützten, synthetischen Manfred-Stimme. Das Mikrofon startet erst nach deinem Klick; eingesetzte Sprachdienste verarbeiten das Audio. Antworten bleiben als Text sichtbar.</p>
-        <form class="text-turn-form" id="memorial-text-turn-form">
+        <form class="text-turn-form memorial-js-required-form" id="memorial-text-turn-form" method="post" action="/memorials/{html.escape(slug)}/chat" hidden inert aria-hidden="true" aria-disabled="true" data-js-ready="false">
           <label for="memorial-text-turn-input">Oder ohne Mikrofon schreiben</label>
           <div class="text-turn-controls">
             <input id="memorial-text-turn-input" name="question" type="text" maxlength="2000" autocomplete="off" enterkeyhint="send" placeholder="Was möchtest du Manfred fragen?">
@@ -10610,7 +10782,7 @@ def _minimal_public_memorial_html(
             <span class="status-note" id="memorial-personal-memory-status">Gastmodus · Gedächtnis aus.</span>
             <button type="button" id="memorial-personal-memory-forget" disabled aria-disabled="true">Gesprächsgedächtnis löschen</button>
           </div>
-          <p class="status-note">Die Browser-Kennung ist pseudonym; die gespeicherten Gesprächserinnerungen liegen auf unserem Server. Mehr zu Schutzgrenzen und Löschung steht auf <a href="/security">Sicherheit</a> und <a href="/data-deletion">Datenlöschung</a>.</p>
+          <p class="status-note">Die Browser-Kennung ist pseudonym; die gespeicherten Gesprächserinnerungen liegen auf unserem Server. Mit „Gesprächsgedächtnis löschen“ entfernst du sie für diesen Browser. Private Einreichungen und ihre Rücknahmebelege verwaltest du unter <a href="#memorial-contribution-management">Meine Einreichungen</a>.</p>
         </details>
         <p class="status-note" id="memorial-voice-recovery-note">Wenn die Stimme stockt, bleibt die Antwort als Text sichtbar. Du kannst ruhig unterbrechen oder noch einmal sprechen.</p>
         <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
@@ -10639,8 +10811,20 @@ def _minimal_public_memorial_html(
       const installButton = document.getElementById("memorial-install-button");
       const contributionForm = document.getElementById("memorial-contribution-form");
       const contributionSubmit = document.getElementById("memorial-contribution-submit");
-      const contributionWithdraw = document.getElementById("memorial-contribution-withdraw");
+      const contributionManagementJump = document.getElementById("memorial-contribution-management-jump");
       const contributionStatus = document.getElementById("memorial-contribution-status");
+      const contributionManagement = document.getElementById("memorial-contribution-management");
+      const contributionManagementTitle = document.getElementById("memorial-contribution-management-title");
+      const contributionManagementSummary = document.getElementById("memorial-contribution-management-summary");
+      const contributionManagementCards = document.getElementById("memorial-contribution-management-cards");
+      const contributionRecoveryPanel = document.getElementById("memorial-contribution-recovery-panel");
+      const contributionRecoveryDownload = document.getElementById("memorial-contribution-recovery-download");
+      const contributionRecoveryCopy = document.getElementById("memorial-contribution-recovery-copy");
+      const contributionRecoveryStatus = document.getElementById("memorial-contribution-recovery-status");
+      const contributionRecoveryFile = document.getElementById("memorial-contribution-recovery-file");
+      const contributionRecoveryCode = document.getElementById("memorial-contribution-recovery-code");
+      const contributionRecoveryImportButton = document.getElementById("memorial-contribution-recovery-import-button");
+      const contributionRecoveryImportStatus = document.getElementById("memorial-contribution-recovery-import-status");
       const autostartOptin = document.getElementById("memorial-autostart-optin");
       const personalMemoryOptin = document.getElementById("memorial-personal-memory-optin");
       const personalMemoryStatus = document.getElementById("memorial-personal-memory-status");
@@ -10689,8 +10873,15 @@ def _minimal_public_memorial_html(
       const memorialAutostartStorageKey = "memorial_autostart_enabled_v1";
       const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
       const memorialContributionStorageKey = "memorial_contribution_receipt_{html.escape(slug)}_v1";
+      const memorialContributionSlug = {json.dumps(slug)};
+      const memorialContributionRecoverySchema = "ea.memorial_family_contribution.recovery_receipt.v1";
+      const memorialContributionReceiptLimit = 10;
+      const memorialContributionReceiptMaxChars = 32768;
+      const memorialContributionStorageMaxChars = 262144;
       let volatileContributionReceipts = [];
       let contributionStorageUnavailable = false;
+      let activeContributionReceipt = null;
+      let contributionManagementGeneration = 0;
       let personalMemoryStatusPayload = {{ available: false, enabled: false, guest_mode: true, item_count: 0, frozen: false, approved_voice_choice: "" }};
       let deferredInstallPrompt = null;
       let memorialWarmupPromise = null;
@@ -10771,40 +10962,193 @@ def _minimal_public_memorial_html(
         }};
       }}
 
+      function isPlainContributionObject(value) {{
+        return Boolean(value && typeof value === "object" && !Array.isArray(value));
+      }}
+
+      function contributionReceiptError(code) {{
+        const error = new Error(String(code || "receipt_invalid"));
+        error.name = "ContributionReceiptError";
+        return error;
+      }}
+
+      function normalizeContributionReceipt(candidate, options = {{}}) {{
+        const allowLegacy = options && options.allowLegacy === true;
+        if (!isPlainContributionObject(candidate)) throw contributionReceiptError("receipt_not_object");
+        const serialized = JSON.stringify(candidate);
+        if (!serialized || serialized.length > memorialContributionReceiptMaxChars) {{
+          throw contributionReceiptError("receipt_too_large");
+        }}
+        const keys = Object.keys(candidate);
+        if (keys.some((key) => key === "__proto__" || key === "prototype" || key === "constructor")) {{
+          throw contributionReceiptError("receipt_key_invalid");
+        }}
+        const schema = String(candidate.schema_version || "").trim();
+        const legacy = !schema;
+        if (legacy && !allowLegacy) throw contributionReceiptError("receipt_schema_missing");
+        if (!legacy && schema !== memorialContributionRecoverySchema) {{
+          throw contributionReceiptError("receipt_schema_invalid");
+        }}
+        if (legacy) {{
+          const allowedLegacyKeys = new Set([
+            "slug",
+            "contribution_id",
+            "manage_token",
+            "id",
+            "token",
+          ]);
+          if (keys.some((key) => !allowedLegacyKeys.has(key))) {{
+            throw contributionReceiptError("receipt_legacy_shape_invalid");
+          }}
+        }} else {{
+          const allowedReceiptKeys = new Set([
+            "schema_version",
+            "slug",
+            "contribution_id",
+            "status",
+            "visibility",
+            "manage_token",
+            "manage_token_header",
+            "status_path",
+            "token_recoverable",
+          ]);
+          if (keys.some((key) => !allowedReceiptKeys.has(key))) {{
+            throw contributionReceiptError("receipt_shape_invalid");
+          }}
+          if (typeof candidate.slug !== "string" || !candidate.slug.trim()) {{
+            throw contributionReceiptError("receipt_slug_missing");
+          }}
+        }}
+        const receiptSlug = String(candidate.slug || memorialContributionSlug).trim();
+        if (
+          receiptSlug !== memorialContributionSlug
+          || !/^[A-Za-z0-9_-]{{1,80}}$/.test(receiptSlug)
+        ) {{
+          throw contributionReceiptError("receipt_slug_invalid");
+        }}
+        const contributionId = String(
+          candidate.contribution_id || candidate.id || ""
+        ).trim().toLowerCase();
+        if (
+          !/^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[1-5][0-9a-f]{{3}}-[89ab][0-9a-f]{{3}}-[0-9a-f]{{12}}$/i.test(
+            contributionId
+          )
+        ) {{
+          throw contributionReceiptError("receipt_id_invalid");
+        }}
+        const manageToken = String(candidate.manage_token || candidate.token || "").trim();
+        if (!/^[A-Za-z0-9_-]{{32,256}}$/.test(manageToken)) {{
+          throw contributionReceiptError("receipt_token_invalid");
+        }}
+        const expectedStatusPath = "/memorials/"
+          + encodeURIComponent(receiptSlug)
+          + "/contributions/"
+          + encodeURIComponent(contributionId)
+          + "/status";
+        if (!legacy) {{
+          if (String(candidate.status_path || "") !== expectedStatusPath) {{
+            throw contributionReceiptError("receipt_path_invalid");
+          }}
+          if (
+            String(candidate.manage_token_header || "")
+            !== "x-memorial-contribution-token"
+          ) {{
+            throw contributionReceiptError("receipt_header_invalid");
+          }}
+          if (candidate.token_recoverable !== false) {{
+            throw contributionReceiptError("receipt_recovery_flag_invalid");
+          }}
+        }}
+        const normalized = {{}};
+        if (!legacy) {{
+          for (const [key, value] of Object.entries(candidate)) {{
+            normalized[key] = value;
+          }}
+        }}
+        normalized.schema_version = memorialContributionRecoverySchema;
+        normalized.slug = receiptSlug;
+        normalized.contribution_id = contributionId;
+        normalized.manage_token = manageToken;
+        normalized.manage_token_header = "x-memorial-contribution-token";
+        normalized.status_path = expectedStatusPath;
+        normalized.token_recoverable = false;
+        delete normalized.id;
+        delete normalized.token;
+        return normalized;
+      }}
+
+      function receiptFromSubmissionResponse(payload) {{
+        if (!isPlainContributionObject(payload)) {{
+          throw contributionReceiptError("receipt_response_invalid");
+        }}
+        const contributionId = String(payload.contribution_id || "").trim();
+        const manageToken = String(payload.manage_token || "").trim();
+        const returnedReceipt = payload.recovery_receipt;
+        if (!isPlainContributionObject(returnedReceipt)) {{
+          return normalizeContributionReceipt(
+            {{ contribution_id: contributionId, manage_token: manageToken }},
+            {{ allowLegacy: true }}
+          );
+        }}
+        const portable = {{}};
+        for (const [key, value] of Object.entries(returnedReceipt)) portable[key] = value;
+        portable.slug = memorialContributionSlug;
+        portable.contribution_id = contributionId;
+        portable.manage_token = manageToken;
+        return normalizeContributionReceipt(portable);
+      }}
+
+      function deduplicateContributionReceipts(receipts) {{
+        const byId = new Map();
+        for (const candidate of Array.isArray(receipts) ? receipts : []) {{
+          try {{
+            const normalized = normalizeContributionReceipt(
+              candidate,
+              {{ allowLegacy: true }}
+            );
+            byId.set(normalized.contribution_id, normalized);
+          }} catch (error) {{}}
+        }}
+        return Array.from(byId.values()).slice(-memorialContributionReceiptLimit);
+      }}
+
       function storedContributionReceipts() {{
-        if (contributionStorageUnavailable) return volatileContributionReceipts.slice(-10);
+        if (contributionStorageUnavailable) {{
+          return volatileContributionReceipts.slice(-memorialContributionReceiptLimit);
+        }}
         try {{
-          const parsed = JSON.parse(String(window.localStorage.getItem(memorialContributionStorageKey) || "null"));
-          const candidates = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === "object" ? [parsed] : []);
-          const receipts = candidates.map((candidate) => {{
-            const contributionId = String((candidate && candidate.contribution_id) || "").trim();
-            const manageToken = String((candidate && candidate.manage_token) || "").trim();
-            return contributionId && manageToken
-              ? {{ contribution_id: contributionId, manage_token: manageToken }}
-              : null;
-          }}).filter(Boolean).slice(-10);
+          const raw = String(
+            window.localStorage.getItem(memorialContributionStorageKey) || ""
+          );
+          if (raw.length > memorialContributionStorageMaxChars) {{
+            throw contributionReceiptError("receipt_storage_too_large");
+          }}
+          const parsed = raw ? JSON.parse(raw) : null;
+          const candidates = Array.isArray(parsed)
+            ? parsed
+            : (isPlainContributionObject(parsed) ? [parsed] : []);
+          const receipts = deduplicateContributionReceipts(candidates);
           if (!receipts.length && volatileContributionReceipts.length) {{
-            return volatileContributionReceipts.slice(-10);
+            return volatileContributionReceipts.slice(-memorialContributionReceiptLimit);
           }}
           volatileContributionReceipts = receipts;
-          return receipts;
+          return receipts.slice();
         }} catch (error) {{
           contributionStorageUnavailable = true;
-          return volatileContributionReceipts.slice(-10);
+          return volatileContributionReceipts.slice(-memorialContributionReceiptLimit);
         }}
       }}
 
-      function storedContributionReceipt() {{
-        const receipts = storedContributionReceipts();
-        return receipts.length ? receipts[receipts.length - 1] : null;
-      }}
-
       function saveContributionReceipts(receipts) {{
-        const bounded = Array.isArray(receipts) ? receipts.slice(-10) : [];
+        const bounded = deduplicateContributionReceipts(receipts);
         volatileContributionReceipts = bounded;
         try {{
+          const serialized = JSON.stringify(bounded);
+          if (serialized.length > memorialContributionStorageMaxChars) {{
+            throw contributionReceiptError("receipt_storage_too_large");
+          }}
           if (bounded.length) {{
-            window.localStorage.setItem(memorialContributionStorageKey, JSON.stringify(bounded));
+            window.localStorage.setItem(memorialContributionStorageKey, serialized);
           }} else {{
             window.localStorage.removeItem(memorialContributionStorageKey);
           }}
@@ -10816,13 +11160,158 @@ def _minimal_public_memorial_html(
         }}
       }}
 
+      function upsertContributionReceipt(candidate) {{
+        const normalized = normalizeContributionReceipt(
+          candidate,
+          {{ allowLegacy: true }}
+        );
+        const receipts = storedContributionReceipts();
+        const existing = receipts.findIndex(
+          (item) => item.contribution_id === normalized.contribution_id
+        );
+        if (existing < 0 && receipts.length >= memorialContributionReceiptLimit) {{
+          throw contributionReceiptError("receipt_limit_reached");
+        }}
+        if (existing >= 0) receipts.splice(existing, 1);
+        receipts.push(normalized);
+        const persisted = saveContributionReceipts(receipts);
+        activeContributionReceipt = normalized;
+        return {{ receipt: normalized, persisted }};
+      }}
+
+      function removeContributionReceipt(candidate) {{
+        const remaining = storedContributionReceipts().filter(
+          (item) => item.contribution_id !== candidate.contribution_id
+        );
+        const persisted = saveContributionReceipts(remaining);
+        if (
+          activeContributionReceipt
+          && activeContributionReceipt.contribution_id === candidate.contribution_id
+        ) {{
+          activeContributionReceipt = remaining.length
+            ? remaining[remaining.length - 1]
+            : null;
+        }}
+        return persisted;
+      }}
+
+      function setContributionMessage(target, message, focus = false) {{
+        if (!target) return;
+        target.textContent = String(message || "");
+        if (focus) target.focus();
+      }}
+
+      function portableContributionReceiptJson(receipt) {{
+        const normalized = normalizeContributionReceipt(
+          receipt,
+          {{ allowLegacy: true }}
+        );
+        return JSON.stringify(normalized, null, 2);
+      }}
+
+      function downloadContributionReceipt(receipt, statusTarget) {{
+        try {{
+          const normalized = normalizeContributionReceipt(
+            receipt,
+            {{ allowLegacy: true }}
+          );
+          const blob = new Blob(
+            [portableContributionReceiptJson(normalized)],
+            {{ type: "application/json" }}
+          );
+          const objectUrl = URL.createObjectURL(blob);
+          const anchor = document.createElement("a");
+          anchor.href = objectUrl;
+          anchor.download = memorialContributionSlug + "-ruecknahmebeleg-"
+            + normalized.contribution_id.slice(0, 8)
+            + ".json";
+          anchor.hidden = true;
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+          setContributionMessage(
+            statusTarget,
+            "Der Rücknahmebeleg wurde als JSON-Datei bereitgestellt."
+          );
+          return true;
+        }} catch (error) {{
+          setContributionMessage(
+            statusTarget,
+            "Der Rücknahmebeleg konnte nicht heruntergeladen werden. Bitte versuche es erneut.",
+            true
+          );
+          return false;
+        }}
+      }}
+
+      async function copyContributionReceipt(receipt, statusTarget) {{
+        try {{
+          if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {{
+            throw contributionReceiptError("clipboard_unavailable");
+          }}
+          await navigator.clipboard.writeText(portableContributionReceiptJson(receipt));
+          setContributionMessage(
+            statusTarget,
+            "Der geheime Rücknahmebeleg wurde kopiert. Bewahre ihn privat auf."
+          );
+          return true;
+        }} catch (error) {{
+          setContributionMessage(
+            statusTarget,
+            "Kopieren ist in diesem Browser nicht verfügbar. Lade den Beleg stattdessen herunter.",
+            true
+          );
+          return false;
+        }}
+      }}
+
+      function selectContributionReceipt(receipt, options = {{}}) {{
+        activeContributionReceipt = receipt
+          ? normalizeContributionReceipt(receipt, {{ allowLegacy: true }})
+          : null;
+        if (contributionRecoveryPanel) {{
+          contributionRecoveryPanel.hidden = !activeContributionReceipt;
+          if (activeContributionReceipt && options.focus === true) {{
+            contributionRecoveryPanel.focus();
+          }}
+        }}
+        if (contributionRecoveryDownload) {{
+          contributionRecoveryDownload.disabled = !activeContributionReceipt;
+        }}
+        if (contributionRecoveryCopy) {{
+          contributionRecoveryCopy.disabled = !activeContributionReceipt;
+        }}
+      }}
+
       function syncContributionManagement() {{
-        if (!contributionWithdraw) return;
-        const receiptCount = storedContributionReceipts().length;
-        contributionWithdraw.hidden = receiptCount === 0;
-        contributionWithdraw.textContent = receiptCount > 1
-          ? "Letzte Einreichung zurückziehen (" + String(receiptCount) + " gespeichert)"
-          : "Letzte Einreichung zurückziehen";
+        const receipts = storedContributionReceipts();
+        const receiptCount = receipts.length;
+        if (contributionManagement) {{
+          contributionManagement.dataset.receiptCount = String(receiptCount);
+        }}
+        if (contributionManagementJump) {{
+          contributionManagementJump.hidden = receiptCount === 0;
+          contributionManagementJump.textContent = receiptCount > 1
+            ? "Meine Einreichungen verwalten (" + String(receiptCount) + ")"
+            : "Meine Einreichung verwalten";
+        }}
+        if (contributionManagementSummary) {{
+          contributionManagementSummary.textContent = receiptCount === 0
+            ? "Auf diesem Gerät ist noch kein Rücknahmebeleg gespeichert."
+            : receiptCount === 1
+              ? "Auf diesem Gerät ist ein Rücknahmebeleg gespeichert."
+              : "Auf diesem Gerät sind " + String(receiptCount) + " Rücknahmebelege gespeichert.";
+        }}
+        if (activeContributionReceipt) {{
+          activeContributionReceipt = receipts.find(
+            (item) => item.contribution_id === activeContributionReceipt.contribution_id
+          ) || null;
+        }}
+        if (!activeContributionReceipt && receipts.length) {{
+          activeContributionReceipt = receipts[receipts.length - 1];
+        }}
+        selectContributionReceipt(activeContributionReceipt);
       }}
 
       async function submitFamilyContribution(event) {{
@@ -10838,8 +11327,10 @@ def _minimal_public_memorial_html(
           publication_consent: Boolean(formData.get("publication_consent")),
         }};
         if (!payload.title || !payload.body) return;
-        if (storedContributionReceipts().length >= 10) {{
-          if (contributionStatus) contributionStatus.textContent = "Dieser Browser verwaltet bereits zehn Einreichungen. Ziehe zuerst die letzte Einreichung zurück oder kontaktiere die Kuratoren.";
+        if (storedContributionReceipts().length >= memorialContributionReceiptLimit) {{
+          if (contributionStatus) {{
+            contributionStatus.textContent = "Dieser Browser verwaltet bereits zehn Rücknahmebelege. Sichere und entferne zuerst einen lokalen Beleg; dadurch wird die Einreichung nicht zurückgezogen.";
+          }}
           return;
         }}
         contributionSubmit.disabled = true;
@@ -10851,25 +11342,32 @@ def _minimal_public_memorial_html(
             headers: {{ "Content-Type": "application/json", "Accept": "application/json" }},
             body: JSON.stringify(payload),
           }});
-          const receipt = await response.json().catch(() => ({{}}));
+          const result = await response.json().catch(() => ({{}}));
           if (!response.ok) throw new Error("contribution_submit_failed");
-          const contributionId = String(receipt.contribution_id || "").trim();
-          const manageToken = String(receipt.manage_token || "").trim();
-          if (!contributionId || !manageToken) throw new Error("contribution_receipt_missing");
-          const receipts = storedContributionReceipts().filter(
-            (item) => item.contribution_id !== contributionId
-          );
-          receipts.push({{ contribution_id: contributionId, manage_token: manageToken }});
-          const receiptPersisted = saveContributionReceipts(receipts);
+          const portableReceipt = receiptFromSubmissionResponse(result);
+          const saved = upsertContributionReceipt(portableReceipt);
           contributionForm.reset();
           syncContributionManagement();
-          if (contributionStatus && !receiptPersisted) {{
-            contributionStatus.textContent = "Der Beitrag wurde privat gespeichert. Dieser Browser konnte den Rücknahmeschlüssel nicht dauerhaft speichern; lasse diese Seite für eine mögliche Rücknahme geöffnet.";
+          selectContributionReceipt(saved.receipt, {{ focus: true }});
+          if (!saved.persisted) {{
+            setContributionMessage(
+              contributionRecoveryStatus,
+              "Dieser Browser konnte den Beleg nicht dauerhaft speichern. Kopiere oder lade ihn jetzt herunter; bis dahin bleibt er nur in dieser geöffneten Seite verfügbar."
+            );
+          }} else {{
+            setContributionMessage(
+              contributionRecoveryStatus,
+              "Sichere diesen geheimen Beleg jetzt zusätzlich als Datei oder private Kopie."
+            );
+          }}
+          if (contributionStatus && !saved.persisted) {{
+            contributionStatus.textContent = "Der Beitrag wurde privat gespeichert. Sichere den Rücknahmebeleg jetzt, weil dieser Browser ihn nicht dauerhaft speichern konnte.";
           }} else if (contributionStatus) {{
             contributionStatus.textContent = payload.publication_consent
               ? "Danke. Der Beitrag bleibt privat, bis eine redigierte Fassung geprüft und freigegeben ist."
               : "Danke. Der Beitrag wurde privat gespeichert und darf ohne weitere Freigabe nicht veröffentlicht werden.";
           }}
+          await refreshContributionManagement();
         }} catch (error) {{
           if (contributionStatus) contributionStatus.textContent = "Die Erinnerung konnte gerade nicht gesendet werden. Bitte versuche es später erneut.";
         }} finally {{
@@ -10878,37 +11376,730 @@ def _minimal_public_memorial_html(
         }}
       }}
 
-      async function withdrawStoredContribution() {{
-        const receipt = storedContributionReceipt();
-        if (!receipt || !contributionWithdraw) return;
-        contributionWithdraw.disabled = true;
-        if (contributionStatus) contributionStatus.textContent = "Die Einreichung wird zurückgezogen …";
+      function contributionStatusLabel(value) {{
+        const labels = {{
+          pending_review: "Privat · wartet auf Prüfung",
+          awaiting_contributor_approval: "Deine Freigabe ist nötig",
+          proposal_rejected: "Änderungswunsch gesendet",
+          approved_for_publication: "Von dir zur Veröffentlichung freigegeben",
+          published: "Veröffentlicht",
+          correction_pending: "Korrektur wird geprüft",
+          withdrawn: "Zurückgezogen · nicht öffentlich",
+          rejected: "Nicht veröffentlicht",
+          unpublished: "Nicht mehr öffentlich",
+        }};
+        return labels[String(value || "")] || "Status wird geprüft";
+      }}
+
+      function contributionVisibilityLabel(value) {{
+        return String(value || "") === "public" ? "Öffentlich" : "Privat";
+      }}
+
+      function createContributionElement(tagName, className = "", text = "") {{
+        const element = document.createElement(tagName);
+        if (className) element.className = className;
+        if (text !== "") element.textContent = String(text);
+        return element;
+      }}
+
+      function appendContributionValues(parent, headingText, payload, fields, extraClass = "") {{
+        if (!isPlainContributionObject(payload)) return null;
+        const section = createContributionElement(
+          "section",
+          "contribution-management-section" + (extraClass ? " " + extraClass : "")
+        );
+        section.appendChild(createContributionElement("h4", "", headingText));
+        const list = document.createElement("dl");
+        for (const [label, key] of fields) {{
+          const term = createContributionElement("dt", "", label);
+          const rawValue = payload[key];
+          const value = rawValue === undefined || rawValue === null
+            ? ""
+            : String(rawValue);
+          const description = createContributionElement(
+            "dd",
+            key === "body" ? "contribution-management-long-text" : "",
+            value || "Nicht angegeben"
+          );
+          list.append(term, description);
+        }}
+        section.appendChild(list);
+        parent.appendChild(section);
+        return section;
+      }}
+
+      function appendContributionTimestamps(parent, timestamps) {{
+        if (!isPlainContributionObject(timestamps)) return;
+        const timestampLabels = [
+          ["submitted_at", "Eingereicht"],
+          ["updated_at", "Zuletzt geändert"],
+          ["proposed_at", "Öffentliche Fassung vorgeschlagen"],
+          ["proposal_decided_at", "Über Vorschlag entschieden"],
+          ["published_at", "Veröffentlicht"],
+          ["withdrawn_at", "Zurückgezogen"],
+          ["rejected_at", "Abgelehnt"],
+          ["unpublished_at", "Veröffentlichung entfernt"],
+          ["takedown_recorded_at", "Schutzvermerk angelegt"],
+          ["takedown_updated_at", "Schutzvermerk aktualisiert"],
+        ];
+        const list = createContributionElement(
+          "ul",
+          "contribution-management-timestamps"
+        );
+        let count = 0;
+        for (const [key, label] of timestampLabels) {{
+          const value = String(timestamps[key] || "").trim();
+          if (!value) continue;
+          list.appendChild(
+            createContributionElement("li", "", label + ": " + value)
+          );
+          count += 1;
+        }}
+        if (count) parent.appendChild(list);
+      }}
+
+      function contributionManagementPath(receipt, suffix) {{
+        return "/memorials/"
+          + encodeURIComponent(memorialContributionSlug)
+          + "/contributions/"
+          + encodeURIComponent(receipt.contribution_id)
+          + String(suffix || "");
+      }}
+
+      async function requestContributionManagement(
+        receipt,
+        suffix = "/manage",
+        method = "GET",
+        payload = null
+      ) {{
+        const headers = {{
+          "Accept": "application/json",
+          "x-memorial-contribution-token": receipt.manage_token,
+        }};
+        const options = {{
+          method,
+          headers,
+          cache: "no-store",
+        }};
+        if (payload !== null) {{
+          headers["Content-Type"] = "application/json";
+          options.body = JSON.stringify(payload);
+        }}
+        const response = await fetch(
+          contributionManagementPath(receipt, suffix),
+          options
+        );
+        const result = await response.json().catch(() => ({{}}));
+        if (!response.ok) {{
+          const error = new Error("contribution_management_failed");
+          error.status = response.status;
+          throw error;
+        }}
+        if (!isPlainContributionObject(result)) {{
+          const error = new Error("contribution_management_invalid");
+          error.status = 502;
+          throw error;
+        }}
+        if (
+          String(result.contribution_id || "").trim().toLowerCase()
+          !== String(receipt.contribution_id || "").trim().toLowerCase()
+        ) {{
+          const error = new Error("contribution_management_binding_mismatch");
+          error.status = 502;
+          throw error;
+        }}
+        return result;
+      }}
+
+      function contributionRequestErrorText(error) {{
+        const status = Number(error && error.status || 0);
+        if (status === 401 || status === 403) {{
+          return "Dieser Rücknahmebeleg wurde nicht erkannt. Prüfe, ob du den richtigen Beleg verwendet hast.";
+        }}
+        if (status === 404) return "Diese Einreichung wurde nicht gefunden.";
+        if (status === 409) return "Der Stand hat sich geändert. Lade die Einreichung neu und prüfe sie noch einmal.";
+        if (status === 429) return "Bitte warte kurz und versuche es dann erneut.";
+        return "Die Einreichung konnte gerade nicht geladen oder geändert werden. Bitte versuche es erneut.";
+      }}
+
+      function appendContributionButton(container, label, className, handler) {{
+        const button = createContributionElement("button", className || "", label);
+        button.type = "button";
+        button.addEventListener("click", handler);
+        container.appendChild(button);
+        return button;
+      }}
+
+      async function performContributionAction(
+        receipt,
+        suffix,
+        payload,
+        statusTarget,
+        successMessage
+      ) {{
+        setContributionMessage(statusTarget, "Änderung wird sicher gespeichert …");
         try {{
-          const response = await fetch(
-            "/memorials/{html.escape(slug)}/contributions/" + encodeURIComponent(receipt.contribution_id) + "/withdraw",
+          const result = await requestContributionManagement(
+            receipt,
+            suffix,
+            "POST",
+            payload
+          );
+          setContributionMessage(statusTarget, successMessage);
+          await refreshContributionManagement();
+          return result;
+        }} catch (error) {{
+          setContributionMessage(
+            statusTarget,
+            contributionRequestErrorText(error),
+            true
+          );
+          throw error;
+        }}
+      }}
+
+      function appendReceiptProofActions(container, receipt, statusTarget) {{
+        const actions = createContributionElement(
+          "div",
+          "contribution-management-actions"
+        );
+        appendContributionButton(
+          actions,
+          "Beleg herunterladen",
+          "",
+          () => downloadContributionReceipt(receipt, statusTarget)
+        );
+        appendContributionButton(
+          actions,
+          "Beleg kopieren",
+          "secondary",
+          () => void copyContributionReceipt(receipt, statusTarget)
+        );
+        appendContributionButton(
+          actions,
+          "Beleg nur von diesem Gerät entfernen",
+          "danger",
+          () => {{
+            const confirmed = window.confirm(
+              "Diesen Rücknahmebeleg nur von diesem Gerät entfernen? "
+              + "Die Einreichung wird dadurch nicht zurückgezogen. "
+              + "Stelle vorher sicher, dass du den Beleg privat gespeichert hast."
+            );
+            if (!confirmed) return;
+            const persisted = removeContributionReceipt(receipt);
+            syncContributionManagement();
+            setContributionMessage(
+              contributionStatus,
+              persisted
+                ? "Der Beleg wurde nur von diesem Gerät entfernt. Die Einreichung selbst wurde nicht zurückgezogen."
+                : "Der Beleg wurde aus dieser Sitzung entfernt. Die Einreichung selbst wurde nicht zurückgezogen."
+            );
+            void refreshContributionManagement();
+          }}
+        );
+        container.appendChild(actions);
+      }}
+
+      function appendCorrectionControls(
+        card,
+        receipt,
+        management,
+        submission,
+        statusTarget,
+        index
+      ) {{
+        const permissions = isPlainContributionObject(management.actions)
+          ? management.actions
+          : {{}};
+        if (permissions.can_correct !== true) return;
+        const details = createContributionElement(
+          "details",
+          "contribution-correction"
+        );
+        details.appendChild(
+          createContributionElement("summary", "", "Einreichung korrigieren")
+        );
+        const form = createContributionElement(
+          "form",
+          "contribution-correction-form"
+        );
+        form.method = "post";
+        form.action = contributionManagementPath(receipt, "/correct");
+
+        function addTextControl(labelText, key, multiline, maxLength, required) {{
+          const label = document.createElement("label");
+          const controlId = "memorial-contribution-correction-"
+            + String(index)
+            + "-"
+            + key;
+          label.htmlFor = controlId;
+          label.appendChild(document.createTextNode(labelText));
+          const control = document.createElement(multiline ? "textarea" : "input");
+          if (!multiline) control.type = "text";
+          control.id = controlId;
+          control.name = key;
+          control.maxLength = maxLength;
+          control.required = required === true;
+          control.value = String(submission[key] || "");
+          label.appendChild(control);
+          form.appendChild(label);
+          return control;
+        }}
+
+        const titleInput = addTextControl("Kurze Überschrift", "title", false, 180, true);
+        const bodyInput = addTextControl("Deine Erinnerung", "body", true, 6000, true);
+        const nameInput = addTextControl("Dein Name (optional)", "contributor_name", false, 160, false);
+        const relationshipInput = addTextControl("Beziehung zu Manfred (optional)", "relationship", false, 160, false);
+        const consentLabel = createContributionElement(
+          "label",
+          "contribution-correction-consent"
+        );
+        const consentInput = document.createElement("input");
+        consentInput.type = "checkbox";
+        consentInput.checked = management.publication_consent === true;
+        consentLabel.append(
+          consentInput,
+          document.createTextNode(
+            " Eine von mir geprüfte Fassung darf nach meiner Freigabe öffentlich erscheinen."
+          )
+        );
+        form.appendChild(consentLabel);
+        const reasonInput = addTextControl(
+          "Hinweis zur Korrektur (optional)",
+          "correction_reason",
+          true,
+          1000,
+          false
+        );
+        const submit = createContributionElement(
+          "button",
+          "",
+          "Korrektur privat speichern"
+        );
+        submit.type = "submit";
+        form.appendChild(submit);
+        form.addEventListener("submit", (event) => {{
+          event.preventDefault();
+          const title = titleInput.value.trim();
+          const body = bodyInput.value.trim();
+          if (!title || !body) {{
+            setContributionMessage(
+              statusTarget,
+              "Überschrift und Erinnerung dürfen nicht leer sein.",
+              true
+            );
+            (!title ? titleInput : bodyInput).focus();
+            return;
+          }}
+          submit.disabled = true;
+          void performContributionAction(
+            receipt,
+            "/correct",
             {{
-              method: "POST",
-              headers: {{
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "x-memorial-contribution-token": receipt.manage_token,
-              }},
-              body: JSON.stringify({{ reason: "Vom beitragenden Browser zurückgezogen." }}),
+              title,
+              body,
+              contributor_name: nameInput.value.trim(),
+              relationship: relationshipInput.value.trim(),
+              publication_consent: consentInput.checked,
+              correction_reason: reasonInput.value.trim(),
+            }},
+            statusTarget,
+            "Die Korrektur wurde privat gespeichert und wird erneut geprüft."
+          ).catch(() => null).finally(() => {{
+            submit.disabled = false;
+          }});
+        }});
+        details.appendChild(form);
+        card.appendChild(details);
+      }}
+
+      function renderContributionManagementCard(card, receipt, management, index) {{
+        card.replaceChildren();
+        const submission = isPlainContributionObject(management.submission)
+          ? management.submission
+          : {{}};
+        const cardHeader = createContributionElement(
+          "div",
+          "contribution-management-card-header"
+        );
+        const title = createContributionElement(
+          "h4",
+          "",
+          String(submission.title || "") || "Einreichung " + String(index + 1)
+        );
+        title.id = "memorial-contribution-management-card-title-" + String(index);
+        card.setAttribute("aria-labelledby", title.id);
+        cardHeader.append(
+          title,
+          createContributionElement(
+            "p",
+            "contribution-management-card-status",
+            contributionStatusLabel(management.status)
+          ),
+          createContributionElement(
+            "p",
+            "status-note",
+            "Sichtbarkeit: " + contributionVisibilityLabel(management.visibility)
+          )
+        );
+        card.appendChild(cardHeader);
+
+        appendContributionValues(
+          card,
+          "Deine ursprüngliche Einreichung",
+          submission,
+          [
+            ["Überschrift", "title"],
+            ["Erinnerung", "body"],
+            ["Name", "contributor_name"],
+            ["Beziehung zu Manfred", "relationship"],
+          ]
+        );
+
+        const publicPreview = isPlainContributionObject(management.public_preview)
+          ? management.public_preview
+          : {{}};
+        if (Object.keys(publicPreview).length) {{
+          appendContributionValues(
+            card,
+            "Derzeit öffentlich",
+            publicPreview,
+            [
+              ["Überschrift", "title"],
+              ["Öffentlicher Text", "body"],
+              ["Quellenhinweis", "source_label"],
+            ]
+          );
+        }}
+
+        const proposal = isPlainContributionObject(management.public_proposal)
+          ? management.public_proposal
+          : {{}};
+        const proposalHash = String(proposal.sha256 || "").trim();
+        const permissions = isPlainContributionObject(management.actions)
+          ? management.actions
+          : {{}};
+        const statusTarget = createContributionElement(
+          "p",
+          "contribution-management-message"
+        );
+        statusTarget.setAttribute("role", "status");
+        statusTarget.setAttribute("aria-live", "polite");
+        statusTarget.setAttribute("aria-atomic", "true");
+        statusTarget.tabIndex = -1;
+
+        if (Object.keys(proposal).length) {{
+          const proposalSection = appendContributionValues(
+            card,
+            "Vorgeschlagene öffentliche Fassung · genau so würde sie erscheinen",
+            proposal,
+            [
+              ["Überschrift", "title"],
+              ["Öffentlicher Text", "body"],
+              ["Quellenhinweis", "source_label"],
+            ],
+            "contribution-proposal"
+          );
+          if (proposalSection) {{
+            proposalSection.appendChild(
+              createContributionElement(
+                "p",
+                "status-note",
+                "Deine Entscheidung: "
+                  + (String(proposal.decision || "pending") === "approved"
+                    ? "freigegeben"
+                    : String(proposal.decision || "pending") === "rejected"
+                      ? "Änderungen gewünscht"
+                      : "noch offen")
+              )
+            );
+            const canApprove = permissions.can_approve_public_proposal === true;
+            const canReject = permissions.can_reject_public_proposal === true;
+            if (
+              (canApprove || canReject)
+              && /^[0-9a-f]{{64}}$/.test(proposalHash)
+            ) {{
+              const noteLabel = createContributionElement(
+                "label",
+                "contribution-proposal-note",
+                "Hinweis an die Redaktion (optional)"
+              );
+              const noteInput = document.createElement("input");
+              noteInput.type = "text";
+              noteInput.maxLength = 1000;
+              noteInput.autocomplete = "off";
+              noteInput.setAttribute(
+                "aria-label",
+                "Hinweis zur vorgeschlagenen öffentlichen Fassung"
+              );
+              noteLabel.appendChild(noteInput);
+              proposalSection.appendChild(noteLabel);
+              const proposalActions = createContributionElement(
+                "div",
+                "contribution-management-actions"
+              );
+              const decisionPayload = () => {{
+                const payload = {{ proposal_sha256: proposalHash }};
+                const note = noteInput.value.trim();
+                if (note) payload.contributor_note = note;
+                return payload;
+              }};
+              if (canApprove) {{
+                const approveButton = appendContributionButton(
+                  proposalActions,
+                  "Genau diese Fassung freigeben",
+                  "",
+                  () => {{
+                    approveButton.disabled = true;
+                    void performContributionAction(
+                      receipt,
+                      "/proposal/approve",
+                      decisionPayload(),
+                      statusTarget,
+                      "Genau diese Fassung wurde von dir freigegeben."
+                    ).catch(() => null).finally(() => {{
+                      approveButton.disabled = false;
+                    }});
+                  }}
+                );
+              }}
+              if (canReject) {{
+                const rejectButton = appendContributionButton(
+                  proposalActions,
+                  "Änderungen wünschen",
+                  "secondary",
+                  () => {{
+                    rejectButton.disabled = true;
+                    void performContributionAction(
+                      receipt,
+                      "/proposal/reject",
+                      decisionPayload(),
+                      statusTarget,
+                      "Dein Änderungswunsch wurde privat gespeichert."
+                    ).catch(() => null).finally(() => {{
+                      rejectButton.disabled = false;
+                    }});
+                  }}
+                );
+              }}
+              proposalSection.appendChild(proposalActions);
+            }} else if (canApprove || canReject) {{
+              proposalSection.appendChild(
+                createContributionElement(
+                  "p",
+                  "contribution-management-message",
+                  "Diese Fassung kann gerade nicht sicher entschieden werden. Bitte lade sie neu."
+                )
+              );
+            }}
+          }}
+        }}
+
+        appendContributionTimestamps(card, management.timestamps);
+        const retention = isPlainContributionObject(management.retention_notice)
+          ? management.retention_notice
+          : {{}};
+        card.appendChild(
+          createContributionElement(
+            "p",
+            "contribution-privacy-note",
+            retention.withdrawal_removes_public_copy === true
+              && retention.private_record_retained_for_governance === true
+              && retention.permanent_erasure_requires_separate_request === true
+              ? "Beim Zurückziehen wird die öffentliche Fassung entfernt. Ein privater Nachweis bleibt erhalten; dauerhafte Löschung ist ein eigener, hier noch nicht selbst bedienbarer Antrag."
+              : "Die Hinweise zur Aufbewahrung konnten gerade nicht vollständig geladen werden."
+          )
+        );
+
+        appendCorrectionControls(
+          card,
+          receipt,
+          management,
+          submission,
+          statusTarget,
+          index
+        );
+        const managementActions = createContributionElement(
+          "div",
+          "contribution-management-actions"
+        );
+        if (permissions.can_withdraw === true) {{
+          const withdrawButton = appendContributionButton(
+            managementActions,
+            "Einreichung zurückziehen",
+            "danger",
+            () => {{
+              const confirmed = window.confirm(
+                "Diese Einreichung wirklich zurückziehen? "
+                + "Eine öffentliche Fassung wird entfernt. "
+                + "Der private Nachweis und dein Rücknahmebeleg bleiben erhalten."
+              );
+              if (!confirmed) return;
+              withdrawButton.disabled = true;
+              void performContributionAction(
+                receipt,
+                "/withdraw",
+                {{ reason: "Von der beitragenden Person zurückgezogen." }},
+                statusTarget,
+                "Die Einreichung wurde zurückgezogen und ist nicht öffentlich. Der Rücknahmebeleg bleibt erhalten."
+              ).then(() => {{
+                selectContributionReceipt(receipt);
+                setContributionMessage(
+                  contributionRecoveryStatus,
+                  "Die Einreichung ist zurückgezogen. Bewahre den Rücknahmebeleg weiterhin privat auf."
+                );
+              }}).catch(() => null).finally(() => {{
+                withdrawButton.disabled = false;
+              }});
             }}
           );
-          if (!response.ok) throw new Error("contribution_withdraw_failed");
-          saveContributionReceipts(
-            storedContributionReceipts().filter(
-              (item) => item.contribution_id !== receipt.contribution_id
-                || item.manage_token !== receipt.manage_token
+        }}
+        card.appendChild(managementActions);
+        appendReceiptProofActions(card, receipt, statusTarget);
+        card.appendChild(statusTarget);
+      }}
+
+      function renderUnavailableContributionCard(card, receipt, index, error) {{
+        card.replaceChildren();
+        const title = createContributionElement(
+          "h4",
+          "",
+          "Einreichung " + String(index + 1)
+        );
+        title.id = "memorial-contribution-management-card-title-" + String(index);
+        card.setAttribute("aria-labelledby", title.id);
+        const statusTarget = createContributionElement(
+          "p",
+          "contribution-management-message",
+          contributionRequestErrorText(error)
+        );
+        statusTarget.setAttribute("role", "status");
+        statusTarget.setAttribute("aria-live", "polite");
+        statusTarget.tabIndex = -1;
+        card.append(title, statusTarget);
+        appendReceiptProofActions(card, receipt, statusTarget);
+      }}
+
+      async function refreshContributionManagement() {{
+        const generation = ++contributionManagementGeneration;
+        const receipts = storedContributionReceipts();
+        syncContributionManagement();
+        if (!contributionManagementCards) return;
+        contributionManagement.setAttribute("aria-busy", "true");
+        contributionManagementCards.replaceChildren();
+        const cardEntries = receipts.map((receipt, index) => {{
+          const card = createContributionElement(
+            "article",
+            "contribution-management-card"
+          );
+          card.tabIndex = -1;
+          card.appendChild(
+            createContributionElement(
+              "p",
+              "contribution-management-message",
+              "Einreichung " + String(index + 1) + " wird geladen …"
             )
           );
+          contributionManagementCards.appendChild(card);
+          return {{ card, receipt, index }};
+        }});
+        for (const entry of cardEntries) {{
+          if (generation !== contributionManagementGeneration) return;
+          try {{
+            const management = await requestContributionManagement(
+              entry.receipt,
+              "/manage"
+            );
+            if (generation !== contributionManagementGeneration) return;
+            renderContributionManagementCard(
+              entry.card,
+              entry.receipt,
+              management,
+              entry.index
+            );
+          }} catch (error) {{
+            if (generation !== contributionManagementGeneration) return;
+            renderUnavailableContributionCard(
+              entry.card,
+              entry.receipt,
+              entry.index,
+              error
+            );
+          }}
+        }}
+        if (generation === contributionManagementGeneration) {{
+          contributionManagement.removeAttribute("aria-busy");
+        }}
+      }}
+
+      async function importContributionReceipt() {{
+        if (!contributionRecoveryImportButton) return;
+        contributionRecoveryImportButton.disabled = true;
+        setContributionMessage(
+          contributionRecoveryImportStatus,
+          "Der Rücknahmebeleg wird geprüft …"
+        );
+        try {{
+          const selectedFile = contributionRecoveryFile
+            && contributionRecoveryFile.files
+            && contributionRecoveryFile.files.length
+            ? contributionRecoveryFile.files[0]
+            : null;
+          const pasted = String(
+            contributionRecoveryCode && contributionRecoveryCode.value || ""
+          ).trim();
+          if (selectedFile && pasted) {{
+            throw contributionReceiptError("receipt_choose_one_source");
+          }}
+          if (!selectedFile && !pasted) {{
+            throw contributionReceiptError("receipt_source_missing");
+          }}
+          let raw = pasted;
+          if (selectedFile) {{
+            if (selectedFile.size > memorialContributionReceiptMaxChars) {{
+              throw contributionReceiptError("receipt_too_large");
+            }}
+            raw = await selectedFile.text();
+          }}
+          if (!raw || raw.length > memorialContributionReceiptMaxChars) {{
+            throw contributionReceiptError("receipt_too_large");
+          }}
+          const parsed = JSON.parse(raw);
+          const normalized = normalizeContributionReceipt(
+            parsed,
+            {{ allowLegacy: true }}
+          );
+          const saved = upsertContributionReceipt(normalized);
+          if (contributionRecoveryFile) contributionRecoveryFile.value = "";
+          if (contributionRecoveryCode) contributionRecoveryCode.value = "";
           syncContributionManagement();
-          if (contributionStatus) contributionStatus.textContent = "Die Einreichung wurde zurückgezogen und ist nicht öffentlich.";
+          selectContributionReceipt(saved.receipt, {{ focus: true }});
+          setContributionMessage(
+            contributionRecoveryImportStatus,
+            saved.persisted
+              ? "Der Rücknahmebeleg wurde geprüft und auf diesem Gerät hinzugefügt."
+              : "Der Beleg ist gültig, konnte aber nicht dauerhaft gespeichert werden. Kopiere oder lade ihn jetzt herunter."
+          );
+          setContributionMessage(
+            contributionRecoveryStatus,
+            saved.persisted
+              ? "Der geprüfte Rücknahmebeleg ist auf diesem Gerät verfügbar."
+              : "Dieser Browser konnte den Beleg nicht dauerhaft speichern. Kopiere oder lade ihn jetzt herunter."
+          );
+          await refreshContributionManagement();
         }} catch (error) {{
-          if (contributionStatus) contributionStatus.textContent = "Die Einreichung konnte gerade nicht zurückgezogen werden. Bitte versuche es später erneut.";
+          if (contributionRecoveryFile) contributionRecoveryFile.value = "";
+          if (contributionRecoveryCode) contributionRecoveryCode.value = "";
+          const message = error && error.message === "receipt_limit_reached"
+            ? "Auf diesem Gerät können höchstens zehn Rücknahmebelege verwaltet werden."
+            : "Dieser Beleg ist ungültig oder gehört nicht zu dieser Gedenkseite. Es wurde nichts gespeichert.";
+          setContributionMessage(
+            contributionRecoveryImportStatus,
+            message,
+            true
+          );
         }} finally {{
-          contributionWithdraw.disabled = false;
+          contributionRecoveryImportButton.disabled = false;
         }}
       }}
 
@@ -12756,19 +13947,62 @@ def _minimal_public_memorial_html(
           toggleConversation();
         }});
       }}
+      function activateProtectedForm(form) {{
+        if (!form) return;
+        form.hidden = false;
+        form.removeAttribute("inert");
+        form.removeAttribute("aria-hidden");
+        form.removeAttribute("aria-disabled");
+        form.dataset.jsReady = "true";
+      }}
       if (textTurnForm) {{
         textTurnForm.addEventListener("submit", (event) => {{
           void submitTextConversation(event);
         }});
+        activateProtectedForm(textTurnForm);
       }}
       if (contributionForm) {{
         contributionForm.addEventListener("submit", (event) => {{
           void submitFamilyContribution(event);
         }});
+        activateProtectedForm(contributionForm);
       }}
-      if (contributionWithdraw) {{
-        contributionWithdraw.addEventListener("click", () => {{
-          void withdrawStoredContribution();
+      if (contributionManagement) {{
+        activateProtectedForm(contributionManagement);
+      }}
+      if (contributionManagementJump) {{
+        contributionManagementJump.addEventListener("click", () => {{
+          if (contributionManagement) {{
+            contributionManagement.scrollIntoView({{
+              block: "start",
+              behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth",
+            }});
+          }}
+          if (contributionManagementTitle) contributionManagementTitle.focus();
+          void refreshContributionManagement();
+        }});
+      }}
+      if (contributionRecoveryDownload) {{
+        contributionRecoveryDownload.addEventListener("click", () => {{
+          if (!activeContributionReceipt) return;
+          downloadContributionReceipt(
+            activeContributionReceipt,
+            contributionRecoveryStatus
+          );
+        }});
+      }}
+      if (contributionRecoveryCopy) {{
+        contributionRecoveryCopy.addEventListener("click", () => {{
+          if (!activeContributionReceipt) return;
+          void copyContributionReceipt(
+            activeContributionReceipt,
+            contributionRecoveryStatus
+          );
+        }});
+      }}
+      if (contributionRecoveryImportButton) {{
+        contributionRecoveryImportButton.addEventListener("click", () => {{
+          void importContributionReceipt();
         }});
       }}
 
@@ -12859,6 +14093,7 @@ def _minimal_public_memorial_html(
       if (!window.__memorialMinimalBooted) {{
         window.__memorialMinimalBooted = true;
         syncContributionManagement();
+        void refreshContributionManagement();
         syncConversationButton();
         setMemorialLandingReady(
           !memorialPagePrewarmEnabled,

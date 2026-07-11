@@ -88,7 +88,7 @@ def _submit(
     )
 
 
-def _approve(
+def _propose(
     client: TestClient,
     contribution_id: str,
     *,
@@ -96,7 +96,7 @@ def _approve(
     body: str = "Manfred made time for a patient conversation.",
 ):  # type: ignore[no-untyped-def]
     return client.post(
-        f"/memorials/manfred/contributions/{contribution_id}/approve",
+        f"/memorials/manfred/contributions/{contribution_id}/propose",
         headers={"x-memorial-write-token": "unit-write-token"},
         json={
             "reviewer": "Memorial curator",
@@ -104,6 +104,52 @@ def _approve(
             "source_label": "Erinnerung aus der Familie",
             "title": title,
             "body": body,
+        },
+    )
+
+
+def _decide_proposal(
+    client: TestClient,
+    contribution_id: str,
+    *,
+    manage_token: str,
+    proposal_sha256: str,
+    decision: str = "approve",
+):  # type: ignore[no-untyped-def]
+    return client.post(
+        f"/memorials/manfred/contributions/{contribution_id}/proposal/{decision}",
+        headers={"x-memorial-contribution-token": manage_token},
+        json={"proposal_sha256": proposal_sha256},
+    )
+
+
+def _approve(
+    client: TestClient,
+    contribution_id: str,
+    *,
+    manage_token: str,
+    title: str = "A carefully curated memory",
+    body: str = "Manfred made time for a patient conversation.",
+):  # type: ignore[no-untyped-def]
+    proposed = _propose(client, contribution_id, title=title, body=body)
+    if proposed.status_code != 200:
+        return proposed
+    proposal_sha256 = proposed.json()["public_proposal"]["sha256"]
+    decided = _decide_proposal(
+        client,
+        contribution_id,
+        manage_token=manage_token,
+        proposal_sha256=proposal_sha256,
+    )
+    if decided.status_code != 200:
+        return decided
+    return client.post(
+        f"/memorials/manfred/contributions/{contribution_id}/approve",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "reviewer": "Memorial curator",
+            "review_note": "Contributor approved the exact bound proposal.",
+            "proposal_sha256": proposal_sha256,
         },
     )
 
@@ -187,7 +233,11 @@ def test_operator_approval_publishes_only_explicit_curated_excerpt(
     assert unauthorized.status_code == 403
     assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
 
-    approved = _approve(client, contribution_id)
+    approved = _approve(
+        client,
+        contribution_id,
+        manage_token=submitted["manage_token"],
+    )
 
     assert approved.status_code == 200
     assert approved.json()["status"] == "published"
@@ -241,8 +291,16 @@ def test_contribution_roots_are_writable_and_source_roots_remain_unchanged(
 
     submitted = _submit(client)
     assert submitted.status_code == 201
-    contribution_id = submitted.json()["contribution_id"]
-    assert _approve(client, contribution_id).status_code == 200
+    submission_receipt = submitted.json()
+    contribution_id = submission_receipt["contribution_id"]
+    assert (
+        _approve(
+            client,
+            contribution_id,
+            manage_token=submission_receipt["manage_token"],
+        ).status_code
+        == 200
+    )
 
     private_ledger = private_contributions / "manfred" / "family_contributions.json"
     public_projection = (
@@ -301,7 +359,10 @@ def test_correction_and_withdrawal_remove_public_memory_until_reapproved(
     receipt = _submit(client).json()
     contribution_id = receipt["contribution_id"]
     manage_token = receipt["manage_token"]
-    assert _approve(client, contribution_id).status_code == 200
+    assert (
+        _approve(client, contribution_id, manage_token=manage_token).status_code
+        == 200
+    )
 
     denied_correction = client.post(
         f"/memorials/manfred/contributions/{contribution_id}/correct",
@@ -338,6 +399,7 @@ def test_correction_and_withdrawal_remove_public_memory_until_reapproved(
     reapproved = _approve(
         client,
         contribution_id,
+        manage_token=manage_token,
         title="The corrected public memory",
         body="The family approved this corrected public account.",
     )
@@ -389,7 +451,12 @@ def test_contribution_mutations_are_json_only_bounded_and_require_publication_co
 
     no_consent = _submit(client, publication_consent=False)
     assert no_consent.status_code == 201
-    approval = _approve(client, no_consent.json()["contribution_id"])
+    no_consent_receipt = no_consent.json()
+    approval = _approve(
+        client,
+        no_consent_receipt["contribution_id"],
+        manage_token=no_consent_receipt["manage_token"],
+    )
     assert approval.status_code == 409
     assert _error_code(approval) == "memorial_contribution_publication_consent_required"
     assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
@@ -501,6 +568,432 @@ def test_recovery_receipt_and_token_authenticated_status_are_private_and_minimal
     assert status.headers["referrer-policy"] == "no-referrer"
 
 
+def test_management_projection_and_publication_are_bound_to_exact_contributor_approval(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client, _public_root, _private_root = _memorial_client(monkeypatch, tmp_path)
+    submission = _submit(client).json()
+    contribution_id = submission["contribution_id"]
+    manage_token = submission["manage_token"]
+    manage_path = f"/memorials/manfred/contributions/{contribution_id}/manage"
+
+    denied = client.get(
+        manage_path,
+        headers={"x-memorial-contribution-token": "wrong-token"},
+    )
+    assert denied.status_code == 403
+    assert "RAW_PRIVATE" not in denied.text
+
+    initial = client.get(
+        manage_path,
+        headers={"x-memorial-contribution-token": manage_token},
+    )
+    assert initial.status_code == 200
+    assert initial.headers["cache-control"] == "no-store"
+    assert initial.headers["referrer-policy"] == "no-referrer"
+    initial_payload = initial.json()
+    assert initial_payload["submission"] == {
+        "title": "RAW_PRIVATE_TITLE_SENTINEL",
+        "body": "RAW_PRIVATE_MEMORY_SENTINEL from a family afternoon.",
+        "source_label": "RAW_PRIVATE_SOURCE_SENTINEL",
+        "contributor_name": "RAW_PRIVATE_NAME_SENTINEL",
+        "relationship": "RAW_PRIVATE_RELATIONSHIP_SENTINEL",
+    }
+    assert initial_payload["public_preview"] == {}
+    assert initial_payload["public_proposal"] == {}
+    assert initial_payload["retention_notice"] == {
+        "withdrawal_removes_public_copy": True,
+        "private_record_retained_for_governance": True,
+        "permanent_erasure_requires_separate_request": True,
+        "permanent_erasure_self_service_available": False,
+        "data_deletion_path": "",
+    }
+    assert "manage_token" not in json.dumps(initial_payload)
+    assert "manage_token_hash" not in json.dumps(initial_payload)
+    assert "history" not in initial_payload
+    assert "review" not in initial_payload
+
+    proposed = _propose(
+        client,
+        contribution_id,
+        title="Exact contributor-facing title",
+        body="Exact contributor-facing public text.",
+    )
+    assert proposed.status_code == 200
+    proposal = proposed.json()["public_proposal"]
+    proposal_sha256 = proposal["sha256"]
+    assert len(proposal_sha256) == 64
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+
+    before_decision = client.post(
+        f"/memorials/manfred/contributions/{contribution_id}/approve",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "reviewer": "Memorial curator",
+            "proposal_sha256": proposal_sha256,
+        },
+    )
+    assert before_decision.status_code == 409
+    assert _error_code(before_decision) == "memorial_contribution_not_reviewable"
+
+    managed_proposal = client.get(
+        manage_path,
+        headers={"x-memorial-contribution-token": manage_token},
+    ).json()
+    assert managed_proposal["status"] == "awaiting_contributor_approval"
+    assert managed_proposal["visibility"] == "private"
+    assert managed_proposal["public_proposal"] == {
+        "source_label": "Erinnerung aus der Familie",
+        "title": "Exact contributor-facing title",
+        "body": "Exact contributor-facing public text.",
+        "sha256": proposal_sha256,
+        "proposed_at": proposal["proposed_at"],
+        "decision": "pending",
+        "decided_at": "",
+    }
+    serialized_management = json.dumps(managed_proposal)
+    assert "Memorial curator" not in serialized_management
+    assert "Names and private circumstances removed" not in serialized_management
+
+    wrong_token_decision = _decide_proposal(
+        client,
+        contribution_id,
+        manage_token="wrong-token",
+        proposal_sha256=proposal_sha256,
+    )
+    assert wrong_token_decision.status_code == 403
+    decided = _decide_proposal(
+        client,
+        contribution_id,
+        manage_token=manage_token,
+        proposal_sha256=proposal_sha256,
+    )
+    assert decided.status_code == 200
+    assert decided.json()["status"] == "approved_for_publication"
+    assert decided.json()["visibility"] == "private"
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+
+    payload_swap = client.post(
+        f"/memorials/manfred/contributions/{contribution_id}/approve",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "reviewer": "Memorial curator",
+            "proposal_sha256": proposal_sha256,
+            "title": "ATTACKER-SWAPPED TITLE",
+            "body": "ATTACKER-SWAPPED BODY",
+        },
+    )
+    assert payload_swap.status_code == 409
+    assert (
+        _error_code(payload_swap)
+        == "memorial_contribution_proposal_payload_mismatch"
+    )
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+
+    published = client.post(
+        f"/memorials/manfred/contributions/{contribution_id}/approve",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "reviewer": "Memorial curator",
+            "proposal_sha256": proposal_sha256,
+        },
+    )
+    assert published.status_code == 200
+    public_memory = client.get("/memorials/manfred.json").json()["memory_cards"]
+    assert public_memory == [
+        {
+            "source_label": "Erinnerung aus der Familie",
+            "title": "Exact contributor-facing title",
+            "body": "Exact contributor-facing public text.",
+            "curation_status": "approved_public_excerpt",
+        }
+    ]
+    assert "ATTACKER-SWAPPED" not in json.dumps(public_memory)
+    managed_published = client.get(
+        manage_path,
+        headers={"x-memorial-contribution-token": manage_token},
+    ).json()
+    assert managed_published["status"] == "published"
+    assert managed_published["public_preview"] == {
+        "source_label": "Erinnerung aus der Familie",
+        "title": "Exact contributor-facing title",
+        "body": "Exact contributor-facing public text.",
+    }
+
+
+def test_proposal_mutation_invalidates_stale_decision_and_published_version_cannot_be_reapproved(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client, _public_root, _private_root = _memorial_client(monkeypatch, tmp_path)
+    submission = _submit(client).json()
+    contribution_id = submission["contribution_id"]
+    manage_token = submission["manage_token"]
+
+    first = _propose(client, contribution_id, title="Version A", body="Body A")
+    first_sha256 = first.json()["public_proposal"]["sha256"]
+    assert _decide_proposal(
+        client,
+        contribution_id,
+        manage_token=manage_token,
+        proposal_sha256=first_sha256,
+    ).status_code == 200
+
+    second = _propose(client, contribution_id, title="Version B", body="Body B")
+    assert second.status_code == 200
+    second_sha256 = second.json()["public_proposal"]["sha256"]
+    assert second_sha256 != first_sha256
+    stale_decision = _decide_proposal(
+        client,
+        contribution_id,
+        manage_token=manage_token,
+        proposal_sha256=first_sha256,
+    )
+    assert stale_decision.status_code == 409
+    assert _error_code(stale_decision) == "memorial_contribution_proposal_stale"
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+
+    assert _decide_proposal(
+        client,
+        contribution_id,
+        manage_token=manage_token,
+        proposal_sha256=second_sha256,
+    ).status_code == 200
+    published = client.post(
+        f"/memorials/manfred/contributions/{contribution_id}/approve",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "reviewer": "Memorial curator",
+            "proposal_sha256": second_sha256,
+        },
+    )
+    assert published.status_code == 200
+    assert client.get("/memorials/manfred.json").json()["memory_cards"][0][
+        "title"
+    ] == "Version B"
+
+    repropose_while_published = _propose(
+        client,
+        contribution_id,
+        title="Version C",
+        body="Body C",
+    )
+    assert repropose_while_published.status_code == 409
+    assert (
+        _error_code(repropose_while_published)
+        == "memorial_contribution_not_proposable"
+    )
+    republish = client.post(
+        f"/memorials/manfred/contributions/{contribution_id}/approve",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "reviewer": "Memorial curator",
+            "proposal_sha256": second_sha256,
+        },
+    )
+    assert republish.status_code == 409
+    assert _error_code(republish) == "memorial_contribution_not_reviewable"
+
+    assert _unpublish(client, contribution_id).status_code == 200
+    third = _propose(
+        client,
+        contribution_id,
+        title="Version C",
+        body="Body C",
+    )
+    assert third.status_code == 200
+    assert third.json()["status"] == "awaiting_contributor_approval"
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+
+
+def test_no_consent_blocks_proposal_and_contributor_rejection_stays_private(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client, _public_root, _private_root = _memorial_client(monkeypatch, tmp_path)
+    no_consent = _submit(client, publication_consent=False).json()
+    blocked = _propose(client, no_consent["contribution_id"])
+    assert blocked.status_code == 409
+    assert (
+        _error_code(blocked)
+        == "memorial_contribution_publication_consent_required"
+    )
+
+    submission = _submit(
+        client,
+        body="A separate private memory awaiting a proposal.",
+    ).json()
+    contribution_id = submission["contribution_id"]
+    proposal = _propose(client, contribution_id)
+    proposal_sha256 = proposal.json()["public_proposal"]["sha256"]
+    rejected = _decide_proposal(
+        client,
+        contribution_id,
+        manage_token=submission["manage_token"],
+        proposal_sha256=proposal_sha256,
+        decision="reject",
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "proposal_rejected"
+    assert rejected.json()["visibility"] == "private"
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+    managed = client.get(
+        f"/memorials/manfred/contributions/{contribution_id}/manage",
+        headers={
+            "x-memorial-contribution-token": submission["manage_token"]
+        },
+    ).json()
+    assert managed["public_proposal"]["decision"] == "rejected"
+    assert managed["actions"]["can_approve_public_proposal"] is True
+    publish_rejected = client.post(
+        f"/memorials/manfred/contributions/{contribution_id}/approve",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "reviewer": "Memorial curator",
+            "proposal_sha256": proposal_sha256,
+        },
+    )
+    assert publish_rejected.status_code == 409
+    assert _error_code(publish_rejected) == "memorial_contribution_not_reviewable"
+
+
+@pytest.mark.parametrize("takedown_status", ["rejected", "withdrawn"])
+def test_partial_terminal_takedown_blocks_proposal_even_if_private_write_lagged(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    takedown_status: str,
+) -> None:
+    client, _public_root, _private_root = _memorial_client(monkeypatch, tmp_path)
+    submission = _submit(client).json()
+
+    from app.services import memorial_family_contributions
+
+    memorial_family_contributions._record_takedown(
+        slug="manfred",
+        contribution_id=submission["contribution_id"],
+        status_value=takedown_status,
+        recorded_at="2026-07-11T12:00:00Z",
+    )
+
+    proposed = _propose(client, submission["contribution_id"])
+
+    assert proposed.status_code == 409
+    assert _error_code(proposed) == "memorial_contribution_not_proposable"
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+
+
+def test_management_fails_closed_when_proposal_decision_binding_is_tampered(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client, _public_root, private_root = _memorial_client(monkeypatch, tmp_path)
+    submission = _submit(client).json()
+    contribution_id = submission["contribution_id"]
+    proposed = _propose(client, contribution_id)
+    proposal_sha256 = proposed.json()["public_proposal"]["sha256"]
+    assert _decide_proposal(
+        client,
+        contribution_id,
+        manage_token=submission["manage_token"],
+        proposal_sha256=proposal_sha256,
+    ).status_code == 200
+
+    ledger_path = private_root / "manfred" / "family_contributions.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger["contributions"][0]["public_proposal_decision"][
+        "proposal_sha256"
+    ] = "0" * 64
+    ledger_path.write_text(
+        json.dumps(ledger, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    ledger_path.chmod(0o600)
+
+    managed = client.get(
+        f"/memorials/manfred/contributions/{contribution_id}/manage",
+        headers={"x-memorial-contribution-token": submission["manage_token"]},
+    )
+
+    assert managed.status_code == 503
+    assert _error_code(managed) == "memorial_contribution_store_invalid"
+    assert "RAW_PRIVATE" not in managed.text
+
+
+def test_legacy_published_record_remains_readable_but_requires_unpublish_and_new_proposal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client, _public_root, private_root = _memorial_client(monkeypatch, tmp_path)
+    submission = _submit(client).json()
+    contribution_id = submission["contribution_id"]
+    ledger_path = private_root / "manfred" / "family_contributions.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    record = ledger["contributions"][0]
+    record.update(
+        {
+            "status": "published",
+            "visibility": "public",
+            "published_at": "2026-07-11T08:00:00Z",
+            "public_memory": {
+                "source_label": "Legacy family publication",
+                "title": "Legacy published title",
+                "body": "Legacy published body remains readable.",
+            },
+        }
+    )
+    for key in (
+        "public_proposal",
+        "public_proposal_binding",
+        "public_proposal_review",
+        "public_proposal_decision",
+    ):
+        record.pop(key, None)
+    ledger_path.write_text(
+        json.dumps(ledger, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    ledger_path.chmod(0o600)
+
+    from app.services import memorial_family_contributions
+
+    memorial_family_contributions._write_public_projection("manfred", [record])
+    public_payload = client.get("/memorials/manfred.json").json()
+    assert public_payload["memory_cards"][0]["title"] == "Legacy published title"
+    managed = client.get(
+        f"/memorials/manfred/contributions/{contribution_id}/manage",
+        headers={
+            "x-memorial-contribution-token": submission["manage_token"]
+        },
+    )
+    assert managed.status_code == 200
+    assert managed.json()["public_preview"]["body"] == (
+        "Legacy published body remains readable."
+    )
+    assert managed.json()["public_proposal"] == {}
+
+    direct_reapproval = client.post(
+        f"/memorials/manfred/contributions/{contribution_id}/approve",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "reviewer": "Memorial curator",
+            "proposal_sha256": "0" * 64,
+        },
+    )
+    assert direct_reapproval.status_code == 409
+    assert _error_code(direct_reapproval) == "memorial_contribution_not_reviewable"
+    assert _unpublish(client, contribution_id).status_code == 200
+    proposed = _propose(
+        client,
+        contribution_id,
+        title="Replacement proposal",
+        body="Replacement requires a fresh family decision.",
+    )
+    assert proposed.status_code == 200
+    assert proposed.json()["status"] == "awaiting_contributor_approval"
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+
+
 def test_operator_can_reject_pending_contribution_with_private_audit_history(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -596,7 +1089,14 @@ def test_operator_unpublish_tombstone_survives_restart_and_stale_projection_rebu
         _error_code(invalid_pending_takedown)
         == "memorial_contribution_not_unpublishable"
     )
-    assert _approve(client, contribution_id).status_code == 200
+    assert (
+        _approve(
+            client,
+            contribution_id,
+            manage_token=submission["manage_token"],
+        ).status_code
+        == 200
+    )
     published_record = client.get(
         "/memorials/manfred/contributions/operator",
         headers={"x-memorial-write-token": "unit-write-token"},
@@ -646,7 +1146,14 @@ def test_operator_takedown_remains_hidden_across_individual_write_faults(
     client, _public_root, _private_root = _memorial_client(monkeypatch, tmp_path)
     submission = _submit(client).json()
     contribution_id = submission["contribution_id"]
-    assert _approve(client, contribution_id).status_code == 200
+    assert (
+        _approve(
+            client,
+            contribution_id,
+            manage_token=submission["manage_token"],
+        ).status_code
+        == 200
+    )
     assert client.get("/memorials/manfred.json").json()["memory_cards"]
 
     from app.services import memorial_family_contributions
@@ -709,7 +1216,14 @@ def test_saturated_history_compacts_without_blocking_public_removal(
     client, _public_root, private_root = _memorial_client(monkeypatch, tmp_path)
     submission = _submit(client).json()
     contribution_id = submission["contribution_id"]
-    assert _approve(client, contribution_id).status_code == 200
+    assert (
+        _approve(
+            client,
+            contribution_id,
+            manage_token=submission["manage_token"],
+        ).status_code
+        == 200
+    )
     assert client.get("/memorials/manfred.json").json()["memory_cards"]
 
     ledger_path = private_root / "manfred" / "family_contributions.json"
@@ -779,8 +1293,16 @@ def test_invalid_takedown_ledger_fails_closed_without_leaking_public_memory(
     tmp_path: Path,
 ) -> None:
     client, public_root, _private_root = _memorial_client(monkeypatch, tmp_path)
-    contribution_id = _submit(client).json()["contribution_id"]
-    assert _approve(client, contribution_id).status_code == 200
+    submission = _submit(client).json()
+    contribution_id = submission["contribution_id"]
+    assert (
+        _approve(
+            client,
+            contribution_id,
+            manage_token=submission["manage_token"],
+        ).status_code
+        == 200
+    )
     assert client.get("/memorials/manfred.json").json()["memory_cards"]
 
     tombstone_path = (

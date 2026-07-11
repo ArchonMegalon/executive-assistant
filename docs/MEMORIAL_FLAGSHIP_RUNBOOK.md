@@ -131,6 +131,14 @@ python3 scripts/memorial_recovery_inventory.py restore \
 
 Recovered source media stays below the private profile root; the restore does not publish it or restore registry/Hub publication authority.
 
+## Family contribution consent and recovery
+
+A family submission is private personal content. Its recovery receipt contains the only management token and must remain private; never paste that token into email, chat, logs, screenshots, URLs, or operator notes. The token-authenticated management response is `no-store` and exposes only the contributor's submission, a current public preview, an exact edited proposal, bounded timestamps/actions, and retention facts. It excludes token hashes, operator identity/notes, and history.
+
+The initial publication checkbox permits a curator to prepare a proposal; it is never publication approval. The required state sequence is: operator prepares one bounded public version, the contributor reviews and approves or rejects that exact SHA-256-bound version, and only then may an operator publish those stored bytes. A replacement proposal invalidates the earlier decision. A published version must be unpublished before a new proposal and decision. Never create a contributor decision or purpose-specific narration approval on somebody else's behalf.
+
+Correction, rejection, unpublish, and withdrawal write a public-safe takedown first so stale projections stay hidden. Withdrawal removes any public copy but retains the private governance record and minimal takedown evidence. Permanent erasure is a separate workflow and is not yet self-service; do not redirect memorial families to the generic Executive Assistant deletion page or ask them to transmit a management token. Treat that missing memorial-specific erasure path as an explicit launch follow-up, not as a completed capability.
+
 When deployment keeps the canonical public bundle and private profile read-only, put contribution state in separate writable roots and pass all four roots explicitly. The recovery snapshot is then stored below the private contribution root.
 
 ```bash
@@ -209,7 +217,7 @@ Promotion must reuse the exact accepted image ID; do not rebuild it. The immutab
 
 ## Narration cast handoff
 
-Materialize the source-exact, consent-gated cast handoff before any synthesis. The private package contains source text and must remain below the private profile root. Its optional receipt contains only bounded counts, opaque SHA-256 bindings, and policy state; it exposes no raw voice or profile IDs and no trait values. The receipt is informational and never an authorization capability.
+Materialize the source-exact, consent-gated v3 cast handoff before any synthesis. The private package contains source text and must remain below the private profile root. Its optional receipt contains only bounded counts, opaque SHA-256 bindings, and policy state; it exposes no raw voice or profile IDs, reviewer identity or notes, or trait values. The receipt is informational and never an authorization capability.
 
 ```bash
 private_root="${EA_PRIVATE_MEMORIAL_PROFILE_DIR:?set EA_PRIVATE_MEMORIAL_PROFILE_DIR}"
@@ -226,7 +234,9 @@ python3 scripts/resolve_memorial_narration_cast.py resolve \
   --receipt-output /tmp/manfred-cast-resolution-receipt.json
 ```
 
-These commands never call a speech provider. They block when consent is absent or revoked. Current evidence resolves four explicitly published archive documents to the approved private Manfred clone profile, with no attributed dialogue. Six public memory cards remain excluded until they receive an explicit narration review status.
+These commands never call a speech provider. They block when consent is absent or revoked. Publication approval is not narration permission. Every selected card and archive document must also carry a purpose-specific `narration_review` with status `approved`, the exact one-item scope array `["memorial_audiobook_narration"]`, `revoked: false`, and `source_text_sha256` bound to the exact selected card excerpt or archive source text. A source edit invalidates that decision. Do not add this record or compute its approval hash on behalf of a family reviewer.
+
+Current Manfred evidence is intentionally `blocked_no_approved_public_sources`: the four published archive documents have no purpose-specific narration review, and the six memory cards have not completed their publication/narration review. This is the expected safe state until explicit scoped decisions are recorded. Regenerate every v2 work package and receipt; the v3 resolver rejects them as stale.
 
 The mapping review is a separate private, HMAC-bound artifact with a maximum seven-day lifetime. Its HMAC authenticates possession of the private signing secret and records a decision bound to the cast resolution; it does not authenticate reviewer identity. It does not prove provider availability, voice rights, audition playback, family listening approval, or source freshness. Even a passing mapping receipt leaves `audition_authorized`, `render_authorized`, and `synthesis_authorized` false. Do not run `review` or any provider preflight on behalf of a family reviewer; obtain their explicit decision first. A later provider preflight must bind authoritative catalog/clone capability and rights evidence, then a separate listening review must bind the exact audition sample hashes before synthesis can be enabled.
 

@@ -17,11 +17,15 @@ from app.api.routes.public_memorial_operator_support import (
 from app.services.memorial_family_contributions import (
     MemorialContributionError,
     approve_family_contribution,
+    approve_family_contribution_public_proposal,
     build_family_contribution_recovery_receipt,
     correct_family_contribution,
+    get_family_contribution_for_management,
     get_family_contribution_status,
     list_family_contributions_for_operator,
+    propose_family_contribution_public_version,
     reject_family_contribution,
+    reject_family_contribution_public_proposal,
     submit_family_contribution,
     unpublish_family_contribution,
     withdraw_family_contribution,
@@ -56,6 +60,12 @@ def _error_status(code: str) -> int:
         "memorial_contribution_store_full",
         "memorial_contribution_history_full",
         "memorial_contribution_withdrawn",
+        "memorial_contribution_not_proposable",
+        "memorial_contribution_proposal_missing",
+        "memorial_contribution_proposal_stale",
+        "memorial_contribution_proposal_not_decidable",
+        "memorial_contribution_proposal_not_approved",
+        "memorial_contribution_proposal_payload_mismatch",
     }:
         return 409
     if code in {
@@ -163,6 +173,34 @@ def public_memorial_family_contribution_status(
         )
 
 
+@router.get("/memorials/{slug}/contributions/{contribution_id}/manage")
+def manage_public_memorial_family_contribution(
+    slug: str,
+    contribution_id: str,
+    request: Request,
+) -> JSONResponse:
+    try:
+        safe_slug = _safe_slug(slug)
+        _load_memorial(safe_slug)
+        _enforce_rate_limit(request, bucket="family_contribution_manage")
+        management = get_family_contribution_for_management(
+            slug=safe_slug,
+            contribution_id=contribution_id,
+            manage_token=str(
+                request.headers.get("x-memorial-contribution-token") or ""
+            ),
+        )
+        return _private_response(management)
+    except HTTPException as exc:
+        return _public_memorial_error_response(exc.status_code, str(exc.detail))
+    except MemorialContributionError as exc:
+        return _contribution_error(exc)
+    except OSError:
+        return _public_memorial_error_response(
+            503, "memorial_contribution_store_unavailable"
+        )
+
+
 @router.get("/memorials/{slug}/contributions/operator")
 def review_public_memorial_family_contributions(slug: str, request: Request) -> JSONResponse:
     try:
@@ -176,6 +214,127 @@ def review_public_memorial_family_contributions(slug: str, request: Request) -> 
         return _contribution_error(exc)
     except OSError:
         return _public_memorial_error_response(503, "memorial_contribution_store_unavailable")
+
+
+@router.post("/memorials/{slug}/contributions/{contribution_id}/propose")
+async def propose_public_memorial_family_contribution_version(
+    slug: str,
+    contribution_id: str,
+    request: Request,
+) -> JSONResponse:
+    try:
+        safe_slug = _safe_slug(slug)
+        _require_operator(safe_slug, request)
+        _enforce_rate_limit(request, bucket="operator_route_write")
+        payload = await _read_bounded_json(request)
+        record = propose_family_contribution_public_version(
+            slug=safe_slug,
+            contribution_id=contribution_id,
+            payload=payload,
+        )
+        proposal = dict(record.get("public_proposal") or {})
+        binding = dict(record.get("public_proposal_binding") or {})
+        return _private_response(
+            {
+                "contribution_id": str(record.get("contribution_id") or ""),
+                "status": str(record.get("status") or ""),
+                "visibility": str(record.get("visibility") or ""),
+                "public_proposal": {
+                    "source_label": str(proposal.get("source_label") or ""),
+                    "title": str(proposal.get("title") or ""),
+                    "body": str(proposal.get("body") or ""),
+                    "sha256": str(binding.get("sha256") or ""),
+                    "proposed_at": str(binding.get("proposed_at") or ""),
+                },
+            }
+        )
+    except HTTPException as exc:
+        return _public_memorial_error_response(exc.status_code, str(exc.detail))
+    except MemorialContributionError as exc:
+        return _contribution_error(exc)
+    except OSError:
+        return _public_memorial_error_response(
+            503, "memorial_contribution_store_unavailable"
+        )
+
+
+@router.post(
+    "/memorials/{slug}/contributions/{contribution_id}/proposal/approve"
+)
+async def approve_public_memorial_family_contribution_proposal(
+    slug: str,
+    contribution_id: str,
+    request: Request,
+) -> JSONResponse:
+    return await _decide_public_memorial_family_contribution_proposal(
+        slug=slug,
+        contribution_id=contribution_id,
+        request=request,
+        decision="approved",
+    )
+
+
+@router.post(
+    "/memorials/{slug}/contributions/{contribution_id}/proposal/reject"
+)
+async def reject_public_memorial_family_contribution_proposal(
+    slug: str,
+    contribution_id: str,
+    request: Request,
+) -> JSONResponse:
+    return await _decide_public_memorial_family_contribution_proposal(
+        slug=slug,
+        contribution_id=contribution_id,
+        request=request,
+        decision="rejected",
+    )
+
+
+async def _decide_public_memorial_family_contribution_proposal(
+    *,
+    slug: str,
+    contribution_id: str,
+    request: Request,
+    decision: str,
+) -> JSONResponse:
+    try:
+        safe_slug = _safe_slug(slug)
+        _load_memorial(safe_slug)
+        _enforce_rate_limit(request, bucket="family_contribution_manage")
+        payload = await _read_bounded_json(request)
+        decide = (
+            approve_family_contribution_public_proposal
+            if decision == "approved"
+            else reject_family_contribution_public_proposal
+        )
+        record = decide(
+            slug=safe_slug,
+            contribution_id=contribution_id,
+            manage_token=str(
+                request.headers.get("x-memorial-contribution-token") or ""
+            ),
+            payload=payload,
+        )
+        binding = dict(record.get("public_proposal_binding") or {})
+        stored_decision = dict(record.get("public_proposal_decision") or {})
+        return _private_response(
+            {
+                "contribution_id": str(record.get("contribution_id") or ""),
+                "status": str(record.get("status") or ""),
+                "visibility": str(record.get("visibility") or ""),
+                "proposal_sha256": str(binding.get("sha256") or ""),
+                "decision": str(stored_decision.get("decision") or ""),
+                "decided_at": str(stored_decision.get("decided_at") or ""),
+            }
+        )
+    except HTTPException as exc:
+        return _public_memorial_error_response(exc.status_code, str(exc.detail))
+    except MemorialContributionError as exc:
+        return _contribution_error(exc)
+    except OSError:
+        return _public_memorial_error_response(
+            503, "memorial_contribution_store_unavailable"
+        )
 
 
 @router.post("/memorials/{slug}/contributions/{contribution_id}/approve")
@@ -200,6 +359,12 @@ async def approve_public_memorial_family_contribution(
                 "status": str(record.get("status") or ""),
                 "visibility": str(record.get("visibility") or ""),
                 "published_at": str(record.get("published_at") or ""),
+                "proposal_sha256": str(
+                    dict(record.get("public_proposal_binding") or {}).get(
+                        "sha256"
+                    )
+                    or ""
+                ),
             }
         )
     except HTTPException as exc:

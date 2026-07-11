@@ -26,6 +26,12 @@ PRIVATE_SCHEMA = "ea.memorial_family_contributions.private.v1"
 PUBLIC_SCHEMA = "ea.memorial_family_contributions.public.v1"
 TAKEDOWN_SCHEMA = "ea.memorial_family_contributions.takedowns.public.v1"
 RECOVERY_RECEIPT_SCHEMA = "ea.memorial_family_contribution.recovery_receipt.v1"
+PUBLIC_PROPOSAL_BINDING_SCHEMA = (
+    "ea.memorial_family_contribution.public_proposal_binding.v1"
+)
+PUBLIC_PROPOSAL_DECISION_SCHEMA = (
+    "ea.memorial_family_contribution.public_proposal_decision.v1"
+)
 HISTORY_COMPACTION_SCHEMA = (
     "ea.memorial_family_contribution.history_compaction.v1"
 )
@@ -44,6 +50,7 @@ _EMPTY_HISTORY_DIGEST = "0" * 64
 
 _SLUG_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 _CONTRIBUTION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _TAKEDOWN_STATUSES = {
     "correction_pending",
     "rejected",
@@ -147,6 +154,137 @@ def _bounded_text(
     if len(text) > max_chars:
         raise MemorialContributionError(f"memorial_contribution_{field}_too_long")
     return text
+
+
+def _bounded_public_version(payload: dict[str, object]) -> dict[str, str]:
+    return {
+        "source_label": _bounded_text(
+            payload.get("source_label"),
+            field="source_label",
+            max_chars=MAX_SOURCE_LABEL_CHARS,
+        )
+        or "Erinnerung aus der Familie",
+        "title": _bounded_text(
+            payload.get("title"),
+            field="title",
+            max_chars=MAX_TITLE_CHARS,
+            required=True,
+        ),
+        "body": _bounded_text(
+            payload.get("body"),
+            field="body",
+            max_chars=MAX_BODY_CHARS,
+            required=True,
+        ),
+    }
+
+
+def _public_proposal_sha256(
+    *,
+    slug: str,
+    contribution_id: str,
+    public_version: dict[str, str],
+) -> str:
+    binding_payload = {
+        "schema": PUBLIC_PROPOSAL_BINDING_SCHEMA,
+        "slug": _safe_slug(slug),
+        "contribution_id": str(contribution_id or ""),
+        "public_version": {
+            "body": str(public_version.get("body") or ""),
+            "source_label": str(public_version.get("source_label") or ""),
+            "title": str(public_version.get("title") or ""),
+        },
+    }
+    return hashlib.sha256(
+        json.dumps(
+            binding_payload,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _stored_public_proposal(
+    *,
+    slug: str,
+    record: dict[str, object],
+    required: bool = False,
+) -> tuple[dict[str, str], dict[str, str]]:
+    raw_proposal = record.get("public_proposal")
+    raw_binding = record.get("public_proposal_binding")
+    if not raw_proposal and not raw_binding:
+        if required:
+            raise MemorialContributionError(
+                "memorial_contribution_proposal_missing"
+            )
+        return {}, {}
+    if not isinstance(raw_proposal, dict) or not isinstance(raw_binding, dict):
+        raise MemorialContributionError("memorial_contribution_store_invalid")
+    try:
+        proposal = _bounded_public_version(dict(raw_proposal))
+    except MemorialContributionError as exc:
+        raise MemorialContributionError(
+            "memorial_contribution_store_invalid"
+        ) from exc
+    if set(raw_proposal) != {"source_label", "title", "body"}:
+        raise MemorialContributionError("memorial_contribution_store_invalid")
+    if set(raw_binding) != {"schema", "sha256", "proposed_at"}:
+        raise MemorialContributionError("memorial_contribution_store_invalid")
+    proposal_sha256 = str(raw_binding.get("sha256") or "")
+    proposed_at = str(raw_binding.get("proposed_at") or "")
+    expected_sha256 = _public_proposal_sha256(
+        slug=slug,
+        contribution_id=str(record.get("contribution_id") or ""),
+        public_version=proposal,
+    )
+    if (
+        raw_binding.get("schema") != PUBLIC_PROPOSAL_BINDING_SCHEMA
+        or _SHA256_RE.fullmatch(proposal_sha256) is None
+        or not hmac.compare_digest(proposal_sha256, expected_sha256)
+        or not proposed_at
+        or len(proposed_at) > 80
+    ):
+        raise MemorialContributionError("memorial_contribution_store_invalid")
+    return proposal, {
+        "schema": PUBLIC_PROPOSAL_BINDING_SCHEMA,
+        "sha256": proposal_sha256,
+        "proposed_at": proposed_at,
+    }
+
+
+def _stored_proposal_decision(record: dict[str, object]) -> dict[str, str]:
+    raw_decision = record.get("public_proposal_decision")
+    if not raw_decision:
+        return {}
+    if not isinstance(raw_decision, dict) or set(raw_decision) != {
+        "schema",
+        "decision",
+        "proposal_sha256",
+        "decided_at",
+        "contributor_note",
+    }:
+        raise MemorialContributionError("memorial_contribution_store_invalid")
+    decision = str(raw_decision.get("decision") or "")
+    proposal_sha256 = str(raw_decision.get("proposal_sha256") or "")
+    decided_at = str(raw_decision.get("decided_at") or "")
+    contributor_note = str(raw_decision.get("contributor_note") or "")
+    if (
+        raw_decision.get("schema") != PUBLIC_PROPOSAL_DECISION_SCHEMA
+        or decision not in {"approved", "rejected"}
+        or _SHA256_RE.fullmatch(proposal_sha256) is None
+        or not decided_at
+        or len(decided_at) > 80
+        or len(contributor_note) > MAX_NOTE_CHARS
+    ):
+        raise MemorialContributionError("memorial_contribution_store_invalid")
+    return {
+        "schema": PUBLIC_PROPOSAL_DECISION_SCHEMA,
+        "decision": decision,
+        "proposal_sha256": proposal_sha256,
+        "decided_at": decided_at,
+        "contributor_note": contributor_note,
+    }
 
 
 def _token_hash(token: str) -> str:
@@ -578,6 +716,172 @@ def build_family_contribution_recovery_receipt(
     return receipt
 
 
+def _takedown_for_record(
+    *, slug: str, record: dict[str, object]
+) -> dict[str, object]:
+    contribution_id = str(record.get("contribution_id") or "")
+    return next(
+        (
+            dict(row)
+            for row in list(_load_takedown_ledger(slug).get("takedowns") or [])
+            if isinstance(row, dict)
+            and hmac.compare_digest(
+                str(row.get("contribution_id") or ""), contribution_id
+            )
+        ),
+        {},
+    )
+
+
+def _safe_submission_for_management(record: dict[str, object]) -> dict[str, str]:
+    raw_submission = record.get("submission")
+    if not isinstance(raw_submission, dict):
+        raise MemorialContributionError("memorial_contribution_store_invalid")
+    try:
+        return {
+            "title": _bounded_text(
+                raw_submission.get("title"),
+                field="title",
+                max_chars=MAX_TITLE_CHARS,
+                required=True,
+            ),
+            "body": _bounded_text(
+                raw_submission.get("body"),
+                field="body",
+                max_chars=MAX_BODY_CHARS,
+                required=True,
+            ),
+            "source_label": _bounded_text(
+                raw_submission.get("source_label"),
+                field="source_label",
+                max_chars=MAX_SOURCE_LABEL_CHARS,
+            ),
+            "contributor_name": _bounded_text(
+                raw_submission.get("contributor_name"),
+                field="contributor_name",
+                max_chars=MAX_PERSON_CHARS,
+            ),
+            "relationship": _bounded_text(
+                raw_submission.get("relationship"),
+                field="relationship",
+                max_chars=MAX_RELATIONSHIP_CHARS,
+            ),
+        }
+    except MemorialContributionError as exc:
+        raise MemorialContributionError(
+            "memorial_contribution_store_invalid"
+        ) from exc
+
+
+def get_family_contribution_for_management(
+    *, slug: str, contribution_id: str, manage_token: str
+) -> dict[str, object]:
+    safe_slug = _safe_slug(slug)
+    with _contribution_lock(safe_slug):
+        records = _records(_load_private_ledger(safe_slug))
+        _index, record = _find_record(records, contribution_id)
+        _verify_manage_token(record, manage_token)
+        takedown = _takedown_for_record(slug=safe_slug, record=record)
+        submission = _safe_submission_for_management(record)
+        proposal, proposal_binding = _stored_public_proposal(
+            slug=safe_slug,
+            record=record,
+        )
+        proposal_decision = _stored_proposal_decision(record)
+        if proposal_decision and (
+            not proposal_binding
+            or not hmac.compare_digest(
+                str(proposal_decision.get("proposal_sha256") or ""),
+                str(proposal_binding.get("sha256") or ""),
+            )
+        ):
+            raise MemorialContributionError("memorial_contribution_store_invalid")
+
+    status_value = str(takedown.get("status") or record.get("status") or "")
+    effective_visibility = (
+        "private" if takedown else str(record.get("visibility") or "private")
+    )
+    public_preview: dict[str, str] = {}
+    if status_value == "published" and effective_visibility == "public":
+        raw_public_memory = record.get("public_memory")
+        if not isinstance(raw_public_memory, dict):
+            raise MemorialContributionError("memorial_contribution_store_invalid")
+        try:
+            public_preview = _bounded_public_version(dict(raw_public_memory))
+        except MemorialContributionError as exc:
+            raise MemorialContributionError(
+                "memorial_contribution_store_invalid"
+            ) from exc
+
+    proposal_payload: dict[str, object] = {}
+    if proposal:
+        proposal_payload = {
+            **proposal,
+            "sha256": str(proposal_binding.get("sha256") or ""),
+            "proposed_at": str(proposal_binding.get("proposed_at") or ""),
+            "decision": str(proposal_decision.get("decision") or "pending"),
+            "decided_at": str(proposal_decision.get("decided_at") or ""),
+        }
+
+    timestamps = {
+        key: str(record.get(key) or "")
+        for key in (
+            "submitted_at",
+            "updated_at",
+            "published_at",
+            "withdrawn_at",
+            "rejected_at",
+            "unpublished_at",
+        )
+        if str(record.get(key) or "")
+    }
+    if takedown:
+        timestamps["takedown_recorded_at"] = str(
+            takedown.get("recorded_at") or ""
+        )
+        timestamps["takedown_updated_at"] = str(
+            takedown.get("updated_at") or ""
+        )
+    if proposal_binding:
+        timestamps["proposed_at"] = str(
+            proposal_binding.get("proposed_at") or ""
+        )
+    if proposal_decision:
+        timestamps["proposal_decided_at"] = str(
+            proposal_decision.get("decided_at") or ""
+        )
+
+    has_current_proposal = bool(proposal and proposal_binding)
+    can_manage = status_value != "withdrawn"
+    return {
+        "contribution_id": str(record.get("contribution_id") or ""),
+        "status": status_value,
+        "visibility": effective_visibility,
+        "publication_consent": record.get("publication_consent") is True,
+        "submission": submission,
+        "public_preview": public_preview,
+        "public_proposal": proposal_payload,
+        "timestamps": timestamps,
+        "actions": {
+            "can_correct": can_manage,
+            "can_withdraw": can_manage,
+            "can_approve_public_proposal": has_current_proposal
+            and status_value
+            in {"awaiting_contributor_approval", "proposal_rejected"},
+            "can_reject_public_proposal": has_current_proposal
+            and status_value
+            in {"awaiting_contributor_approval", "approved_for_publication"},
+        },
+        "retention_notice": {
+            "withdrawal_removes_public_copy": True,
+            "private_record_retained_for_governance": True,
+            "permanent_erasure_requires_separate_request": True,
+            "permanent_erasure_self_service_available": False,
+            "data_deletion_path": "",
+        },
+    }
+
+
 def get_family_contribution_status(
     *, slug: str, contribution_id: str, manage_token: str
 ) -> dict[str, object]:
@@ -586,21 +890,8 @@ def get_family_contribution_status(
         records = _records(_load_private_ledger(safe_slug))
         _index, record = _find_record(records, contribution_id)
         _verify_manage_token(record, manage_token)
-        takedown = next(
-            (
-                dict(row)
-                for row in list(
-                    _load_takedown_ledger(safe_slug).get("takedowns") or []
-                )
-                if isinstance(row, dict)
-                and hmac.compare_digest(
-                    str(row.get("contribution_id") or ""),
-                    str(record.get("contribution_id") or ""),
-                )
-            ),
-            None,
-        )
-    status_value = str((takedown or {}).get("status") or record.get("status") or "")
+        takedown = _takedown_for_record(slug=safe_slug, record=record)
+    status_value = str(takedown.get("status") or record.get("status") or "")
     effective_visibility = "private" if takedown else str(record.get("visibility") or "private")
     timestamps = {
         key: str(record.get(key) or "")
@@ -718,6 +1009,261 @@ def list_family_contributions_for_operator(*, slug: str) -> list[dict[str, objec
     return [_private_operator_projection(row) for row in records]
 
 
+def _required_proposal_sha256(payload: dict[str, object]) -> str:
+    proposal_sha256 = _bounded_text(
+        payload.get("proposal_sha256"),
+        field="proposal_sha256",
+        max_chars=64,
+        required=True,
+    )
+    if _SHA256_RE.fullmatch(proposal_sha256) is None:
+        raise MemorialContributionError(
+            "memorial_contribution_proposal_sha256_invalid"
+        )
+    return proposal_sha256
+
+
+def propose_family_contribution_public_version(
+    *,
+    slug: str,
+    contribution_id: str,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    safe_slug = _safe_slug(slug)
+    public_proposal = _bounded_public_version(payload)
+    reviewer = _bounded_text(
+        payload.get("reviewer"),
+        field="reviewer",
+        max_chars=MAX_PERSON_CHARS,
+        required=True,
+    )
+    review_note = _bounded_text(
+        payload.get("review_note"),
+        field="review_note",
+        max_chars=MAX_NOTE_CHARS,
+    )
+    with _contribution_lock(safe_slug):
+        ledger = _load_private_ledger(safe_slug)
+        records = _records(ledger)
+        index, current = _find_record(records, contribution_id)
+        if current.get("publication_consent") is not True:
+            raise MemorialContributionError(
+                "memorial_contribution_publication_consent_required"
+            )
+        takedown_status = str(
+            _takedown_for_record(slug=safe_slug, record=current).get("status")
+            or ""
+        )
+        if takedown_status and takedown_status not in {
+            "correction_pending",
+            "unpublished",
+        }:
+            raise MemorialContributionError(
+                "memorial_contribution_not_proposable"
+            )
+        if str(current.get("status") or "") not in {
+            "pending_review",
+            "correction_pending",
+            "awaiting_contributor_approval",
+            "approved_for_publication",
+            "proposal_rejected",
+            "unpublished",
+        }:
+            raise MemorialContributionError(
+                "memorial_contribution_not_proposable"
+            )
+        _prior_proposal, prior_binding = _stored_public_proposal(
+            slug=safe_slug,
+            record=current,
+        )
+        now = _utc_now_iso()
+        proposal_sha256 = _public_proposal_sha256(
+            slug=safe_slug,
+            contribution_id=str(current.get("contribution_id") or ""),
+            public_version=public_proposal,
+        )
+        history, history_compaction = _append_history_event(
+            current,
+            {
+                "action": "operator_proposed_public_version",
+                "from_status": str(current.get("status") or ""),
+                "to_status": "awaiting_contributor_approval",
+                "reviewer": reviewer,
+                "reason": review_note,
+                "proposal_sha256": proposal_sha256,
+                "prior_proposal_sha256": str(
+                    prior_binding.get("sha256") or ""
+                ),
+                "recorded_at": now,
+            },
+        )
+        updated = dict(current)
+        updated.update(
+            {
+                "status": "awaiting_contributor_approval",
+                "visibility": "private",
+                "updated_at": now,
+                "review": {},
+                "public_memory": {},
+                "public_proposal": public_proposal,
+                "public_proposal_binding": {
+                    "schema": PUBLIC_PROPOSAL_BINDING_SCHEMA,
+                    "sha256": proposal_sha256,
+                    "proposed_at": now,
+                },
+                "public_proposal_review": {
+                    "reviewer": reviewer,
+                    "review_note": review_note,
+                    "proposed_at": now,
+                },
+                "public_proposal_decision": {},
+                "history": history,
+                "history_compaction": history_compaction,
+            }
+        )
+        records[index] = updated
+        ledger["contributions"] = records
+        _save_private_ledger(safe_slug, ledger)
+    return _private_operator_projection(updated)
+
+
+def _decide_family_contribution_public_proposal(
+    *,
+    slug: str,
+    contribution_id: str,
+    manage_token: str,
+    payload: dict[str, object],
+    decision: str,
+) -> dict[str, object]:
+    safe_slug = _safe_slug(slug)
+    proposal_sha256 = _required_proposal_sha256(payload)
+    contributor_note = _bounded_text(
+        payload.get("contributor_note"),
+        field="contributor_note",
+        max_chars=MAX_NOTE_CHARS,
+    )
+    if decision not in {"approved", "rejected"}:
+        raise MemorialContributionError(
+            "memorial_contribution_proposal_decision_invalid"
+        )
+    target_status = (
+        "approved_for_publication" if decision == "approved" else "proposal_rejected"
+    )
+    with _contribution_lock(safe_slug):
+        ledger = _load_private_ledger(safe_slug)
+        records = _records(ledger)
+        index, current = _find_record(records, contribution_id)
+        _verify_manage_token(current, manage_token)
+        if current.get("publication_consent") is not True:
+            raise MemorialContributionError(
+                "memorial_contribution_publication_consent_required"
+            )
+        takedown_status = str(
+            _takedown_for_record(slug=safe_slug, record=current).get("status")
+            or ""
+        )
+        if takedown_status and takedown_status not in {
+            "correction_pending",
+            "unpublished",
+        }:
+            raise MemorialContributionError(
+                "memorial_contribution_proposal_not_decidable"
+            )
+        _proposal, binding = _stored_public_proposal(
+            slug=safe_slug,
+            record=current,
+            required=True,
+        )
+        current_sha256 = str(binding.get("sha256") or "")
+        if not hmac.compare_digest(proposal_sha256, current_sha256):
+            raise MemorialContributionError(
+                "memorial_contribution_proposal_stale"
+            )
+        existing_decision = _stored_proposal_decision(current)
+        if (
+            str(current.get("status") or "") == target_status
+            and existing_decision.get("decision") == decision
+            and hmac.compare_digest(
+                str(existing_decision.get("proposal_sha256") or ""),
+                current_sha256,
+            )
+        ):
+            return _private_operator_projection(current)
+        if str(current.get("status") or "") not in {
+            "awaiting_contributor_approval",
+            "approved_for_publication",
+            "proposal_rejected",
+        }:
+            raise MemorialContributionError(
+                "memorial_contribution_proposal_not_decidable"
+            )
+        now = _utc_now_iso()
+        history, history_compaction = _append_history_event(
+            current,
+            {
+                "action": f"contributor_{decision}_public_proposal",
+                "from_status": str(current.get("status") or ""),
+                "to_status": target_status,
+                "proposal_sha256": current_sha256,
+                "reason": contributor_note,
+                "recorded_at": now,
+            },
+        )
+        updated = dict(current)
+        updated.update(
+            {
+                "status": target_status,
+                "visibility": "private",
+                "updated_at": now,
+                "public_proposal_decision": {
+                    "schema": PUBLIC_PROPOSAL_DECISION_SCHEMA,
+                    "decision": decision,
+                    "proposal_sha256": current_sha256,
+                    "decided_at": now,
+                    "contributor_note": contributor_note,
+                },
+                "history": history,
+                "history_compaction": history_compaction,
+            }
+        )
+        records[index] = updated
+        ledger["contributions"] = records
+        _save_private_ledger(safe_slug, ledger)
+    return _private_operator_projection(updated)
+
+
+def approve_family_contribution_public_proposal(
+    *,
+    slug: str,
+    contribution_id: str,
+    manage_token: str,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    return _decide_family_contribution_public_proposal(
+        slug=slug,
+        contribution_id=contribution_id,
+        manage_token=manage_token,
+        payload=payload,
+        decision="approved",
+    )
+
+
+def reject_family_contribution_public_proposal(
+    *,
+    slug: str,
+    contribution_id: str,
+    manage_token: str,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    return _decide_family_contribution_public_proposal(
+        slug=slug,
+        contribution_id=contribution_id,
+        manage_token=manage_token,
+        payload=payload,
+        decision="rejected",
+    )
+
+
 def approve_family_contribution(
     *,
     slug: str,
@@ -725,23 +1271,7 @@ def approve_family_contribution(
     payload: dict[str, object],
 ) -> dict[str, object]:
     safe_slug = _safe_slug(slug)
-    public_memory = {
-        "source_label": _bounded_text(
-            payload.get("source_label"),
-            field="source_label",
-            max_chars=MAX_SOURCE_LABEL_CHARS,
-        )
-        or "Erinnerung aus der Familie",
-        "title": _bounded_text(
-            payload.get("title"),
-            field="title",
-            max_chars=MAX_TITLE_CHARS,
-            required=True,
-        ),
-        "body": _bounded_text(
-            payload.get("body"), field="body", max_chars=MAX_BODY_CHARS, required=True
-        ),
-    }
+    requested_proposal_sha256 = _required_proposal_sha256(payload)
     reviewer = _bounded_text(
         payload.get("reviewer"),
         field="reviewer",
@@ -755,25 +1285,67 @@ def approve_family_contribution(
         ledger = _load_private_ledger(safe_slug)
         records = _records(ledger)
         index, current = _find_record(records, contribution_id)
-        if current.get("status") not in {
-            "pending_review",
-            "correction_pending",
-            "published",
-        }:
+        if current.get("status") != "approved_for_publication":
             raise MemorialContributionError("memorial_contribution_not_reviewable")
         if current.get("publication_consent") is not True:
             raise MemorialContributionError(
                 "memorial_contribution_publication_consent_required"
             )
+        takedown_status = str(
+            _takedown_for_record(slug=safe_slug, record=current).get("status")
+            or ""
+        )
+        if takedown_status and takedown_status not in {
+            "correction_pending",
+            "unpublished",
+        }:
+            raise MemorialContributionError(
+                "memorial_contribution_not_reviewable"
+            )
+        public_memory, proposal_binding = _stored_public_proposal(
+            slug=safe_slug,
+            record=current,
+            required=True,
+        )
+        proposal_sha256 = str(proposal_binding.get("sha256") or "")
+        if not hmac.compare_digest(
+            requested_proposal_sha256, proposal_sha256
+        ):
+            raise MemorialContributionError(
+                "memorial_contribution_proposal_stale"
+            )
+        proposal_decision = _stored_proposal_decision(current)
+        if (
+            proposal_decision.get("decision") != "approved"
+            or not hmac.compare_digest(
+                str(proposal_decision.get("proposal_sha256") or ""),
+                proposal_sha256,
+            )
+        ):
+            raise MemorialContributionError(
+                "memorial_contribution_proposal_not_approved"
+            )
+        if {"source_label", "title", "body"}.intersection(payload):
+            echoed_public_memory = _bounded_public_version(
+                {
+                    key: payload.get(key, public_memory[key])
+                    for key in ("source_label", "title", "body")
+                }
+            )
+            if echoed_public_memory != public_memory:
+                raise MemorialContributionError(
+                    "memorial_contribution_proposal_payload_mismatch"
+                )
         now = _utc_now_iso()
         history, history_compaction = _append_history_event(
             current,
             {
-                "action": "operator_approved",
+                "action": "operator_published_approved_proposal",
                 "from_status": str(current.get("status") or ""),
                 "to_status": "published",
                 "reviewer": reviewer,
                 "reason": review_note,
+                "proposal_sha256": proposal_sha256,
                 "prior_review": dict(current.get("review") or {}),
                 "prior_public_memory": dict(current.get("public_memory") or {}),
                 "recorded_at": now,
@@ -790,6 +1362,7 @@ def approve_family_contribution(
                     "reviewer": reviewer,
                     "review_note": review_note,
                     "approved_at": now,
+                    "proposal_sha256": proposal_sha256,
                 },
                 "public_memory": public_memory,
                 "history": history,
@@ -828,6 +1401,10 @@ def correct_family_contribution(
         _verify_manage_token(current, manage_token)
         if current.get("status") == "withdrawn":
             raise MemorialContributionError("memorial_contribution_withdrawn")
+        _prior_proposal, prior_proposal_binding = _stored_public_proposal(
+            slug=safe_slug,
+            record=current,
+        )
         submission = dict(current.get("submission") or {})
         changed = False
         for key, limit, required in (
@@ -877,6 +1454,9 @@ def correct_family_contribution(
                 "reason": correction_reason,
                 "prior_review": dict(current.get("review") or {}),
                 "prior_public_memory": dict(current.get("public_memory") or {}),
+                "prior_proposal_sha256": str(
+                    prior_proposal_binding.get("sha256") or ""
+                ),
                 "recorded_at": now,
             },
         )
@@ -890,6 +1470,10 @@ def correct_family_contribution(
                 "updated_at": now,
                 "review": {},
                 "public_memory": {},
+                "public_proposal": {},
+                "public_proposal_binding": {},
+                "public_proposal_review": {},
+                "public_proposal_decision": {},
                 "correction_reason": correction_reason,
                 "history": history,
                 "history_compaction": history_compaction,
@@ -1043,7 +1627,13 @@ def reject_family_contribution(
         slug=slug,
         contribution_id=contribution_id,
         payload=payload,
-        expected_statuses={"pending_review", "correction_pending"},
+        expected_statuses={
+            "pending_review",
+            "correction_pending",
+            "awaiting_contributor_approval",
+            "approved_for_publication",
+            "proposal_rejected",
+        },
         target_status="rejected",
         action="operator_rejected",
         invalid_state_code="memorial_contribution_not_rejectable",
