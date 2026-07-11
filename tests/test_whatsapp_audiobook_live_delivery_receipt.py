@@ -1021,3 +1021,27 @@ def test_live_whatsapp_audiobook_delivery_receipt_resolves_runtime_readiness_whe
     assert receipt["runtime_readiness"]["receipt_present"] is True
     assert receipt["runtime_readiness"]["ready"] is True
     assert readiness_path.exists()
+
+
+def test_whatsapp_audiobook_live_delivery_verifier_rejects_stale_source_state(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
+    verifier = _load_script("verify_whatsapp_audiobook_live_delivery_receipt")
+    receipt_path = tmp_path / "stale-source.generated.json"
+    materializer.build_receipt(
+        output_path=receipt_path,
+        job_receipts=[_job_receipt()],
+        generated_at="2026-06-22T08:45:00Z",
+    )
+
+    assert verifier.verify(receipt_path) == []
+
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["source_git_head"] = "0" * 40
+    receipt["source_state_fingerprint"] = "0" * 64
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    issues = verifier.verify(receipt_path)
+    assert "source_git_head stale" in issues
+    assert "source_state_fingerprint stale" in issues

@@ -3,10 +3,18 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
+
+
 DEFAULT_RECEIPT = ROOT / ".codex-studio" / "published" / "whatsapp_audiobook_live_delivery.generated.json"
 ALLOWED_STATUSES = {"pass", "blocked", "waiting_voice_choice", "waiting_provider_throttle", "waiting_for_live_epub"}
 ALLOWED_CLAIM_SCOPES = {"none", "machine_playable_delivery_only", "machine_playable_delivery_and_human_accepted"}
@@ -20,6 +28,28 @@ def _json(path: Path) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _verify_source_state(receipt: dict[str, Any], issues: list[str]) -> None:
+    if receipt.get("head_semantics") != "source_state":
+        issues.append("head_semantics must describe source_state")
+    if (
+        receipt.get("source_state_fingerprint_semantics")
+        != "worktree_source_files_sha256_excluding_generated_only_paths"
+    ):
+        issues.append("source_state_fingerprint_semantics must describe the source worktree fingerprint")
+    recorded_head = str(receipt.get("source_git_head") or "").strip()
+    recorded_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    current_head = resolve_source_state_head(ROOT)
+    current_fingerprint = resolve_source_worktree_fingerprint(ROOT)
+    if not recorded_head:
+        issues.append("source_git_head missing")
+    elif recorded_head != current_head and recorded_fingerprint != current_fingerprint:
+        issues.append("source_git_head stale")
+    if not recorded_fingerprint:
+        issues.append("source_state_fingerprint missing")
+    elif recorded_fingerprint != current_fingerprint:
+        issues.append("source_state_fingerprint stale")
+
+
 def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
     issues: list[str] = []
     receipt = _json(path)
@@ -30,6 +60,7 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
         issues.append("contract_name must be ea.whatsapp_audiobook_live_delivery_receipt.v1")
     if receipt.get("generated_by") != "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py":
         issues.append("generated_by must point at the WhatsApp live delivery materializer")
+    _verify_source_state(receipt, issues)
 
     status = str(receipt.get("status") or "").strip()
     if status not in ALLOWED_STATUSES:
