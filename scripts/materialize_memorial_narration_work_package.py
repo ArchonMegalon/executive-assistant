@@ -67,7 +67,7 @@ def main() -> int:
     print(
         json.dumps(provider_safe_receipt(package), ensure_ascii=False, sort_keys=True)
     )
-    return 0 if package.get("render_authorized") is True else 1
+    return 0 if package.get("cast_resolution_authorized") is True else 1
 
 
 if __name__ == "__main__":

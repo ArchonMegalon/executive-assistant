@@ -9777,7 +9777,7 @@ def _minimal_public_memorial_html(
         --gold: #b48d51;
         --paper-soft: #fffaf4;
         --shadow: 0 18px 36px rgba(56, 45, 36, 0.1);
-        --conversation-dock-clearance: 440px;
+        --conversation-dock-clearance: 0px;
       }}
       * {{ box-sizing: border-box; }}
       html {{
@@ -9789,7 +9789,7 @@ def _minimal_public_memorial_html(
       body {{
         margin: 0;
         min-height: 100dvh;
-        padding-bottom: calc(var(--conversation-dock-clearance) + env(safe-area-inset-bottom, 0px));
+        padding-bottom: env(safe-area-inset-bottom, 0px);
         background:
           radial-gradient(circle at top, rgba(255,255,255,.42), rgba(255,255,255,0) 30%),
           linear-gradient(180deg, #d7e0e5 0%, #f7f2e8 22%, #f7f2e8 100%);
@@ -10024,17 +10024,14 @@ def _minimal_public_memorial_html(
       .prompt-list {{ padding-left: 1.2rem; }}
       .prompt-list li {{ padding: 3px 0; color: var(--muted); }}
       .conversation-dock {{
-        position: fixed;
-        left: 0;
-        right: 0;
-        bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-        padding: 0;
-        z-index: 20;
+        position: relative;
+        inset: auto;
+        padding: 0 0 clamp(56px, 8vw, 88px);
+        z-index: 2;
       }}
       .chat {{
-        max-height: min(72dvh, 620px);
-        overflow: auto;
-        overscroll-behavior: contain;
+        max-height: none;
+        overflow: visible;
         border: 1px solid var(--line);
         border-radius: 22px;
         padding: 18px 18px 14px;
@@ -10175,15 +10172,11 @@ def _minimal_public_memorial_html(
       }}
       [hidden] {{ display: none !important; }}
       @media (max-width: 760px) {{
-        body {{ padding-bottom: 0; }}
         header {{ min-height: auto; }}
         .story {{ padding-bottom: 54px; }}
         .conversation-dock {{
-          position: relative;
-          bottom: auto;
           padding: 0 0 calc(14px + env(safe-area-inset-bottom, 0px));
         }}
-        .chat {{ max-height: none; overflow: visible; }}
         .hero-cta {{ width: 100%; min-width: 0; }}
         .conversation-toggle {{
           flex-direction: column;
@@ -10197,13 +10190,9 @@ def _minimal_public_memorial_html(
         .contribution-fields {{ grid-template-columns: 1fr; }}
       }}
       @media (max-height: 720px) {{
-        body {{ padding-bottom: 0; }}
         .conversation-dock {{
-          position: relative;
-          bottom: auto;
           padding: 0 0 calc(14px + env(safe-area-inset-bottom, 0px));
         }}
-        .chat {{ max-height: none; overflow: visible; }}
       }}
       body {{
         position: relative;
@@ -10754,10 +10743,7 @@ def _minimal_public_memorial_html(
       try {{ document.documentElement.setAttribute("lang", browserPreferredLanguage); }} catch (error) {{}}
 
       function syncConversationDockClearance() {{
-        if (!conversationDock) return;
-        const dockIsInFlow = window.matchMedia("(max-width: 760px), (max-height: 720px)").matches;
-        const clearance = dockIsInFlow ? 0 : Math.ceil(conversationDock.getBoundingClientRect().height + 40);
-        document.documentElement.style.setProperty("--conversation-dock-clearance", String(clearance) + "px");
+        document.documentElement.style.setProperty("--conversation-dock-clearance", "0px");
       }}
 
       if (conversationDock && window.ResizeObserver) {{

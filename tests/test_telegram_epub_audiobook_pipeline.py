@@ -3745,7 +3745,27 @@ def test_voice_selection_prefers_language_match_over_tag_match(monkeypatch, tmp_
     assert selection["public"]["candidate_scores"][1]["language_match"] is False
 
 
-def test_voice_selection_uses_author_gender_as_soft_signal(monkeypatch, tmp_path: Path) -> None:
+def test_authenticated_catalog_voice_label_is_bounded_normalized_and_private_id_safe() -> None:
+    from app.services.audiobook_epub_pipeline import (
+        _safe_authenticated_catalog_voice_label,
+    )
+
+    assert _safe_authenticated_catalog_voice_label(
+        "  Clear\n narrator\t",
+        "private-voice-id",
+    ) == "Clear narrator"
+    assert len(_safe_authenticated_catalog_voice_label("x" * 200)) == 120
+    assert _safe_authenticated_catalog_voice_label(
+        "Premium RAW-PRIVATE-VOICE-ID",
+        "raw-private-voice-id",
+    ) == "Dialogue voice"
+    assert _safe_authenticated_catalog_voice_label("") == "Dialogue voice"
+
+
+def test_voice_selection_does_not_infer_author_gender_from_name(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
     from app.services.audiobook_epub_pipeline import EpubChapter, EpubMetadata, select_unmixr_voice_for_book
 
     monkeypatch.setenv(
@@ -3757,18 +3777,57 @@ def test_voice_selection_uses_author_gender_as_soft_signal(monkeypatch, tmp_path
             ]
         ),
     )
-    chapter_dir = tmp_path / "chapters"
-    chapter_dir.mkdir()
     text = "This nonfiction chapter explains the process in a calm practical way."
-    (chapter_dir / "001 - Test.txt").write_text(text, encoding="utf-8")
-    metadata = EpubMetadata(title="Calm Guide", author="Knuf, Andreas", language="en-US", source_filename="book.epub", source_sha256="sha")
-    chapter = EpubChapter(index=1, title="Test", source_href="test.xhtml", text_path="001 - Test.txt", audio_filename="001 - Test.wav", char_count=len(text), sha256="sha")
+    selections: list[dict[str, object]] = []
+    for index, author in enumerate(("Knuf, Andreas", "Austen, Jane"), start=1):
+        job_dir = tmp_path / f"job-{index}"
+        chapter_dir = job_dir / "chapters"
+        chapter_dir.mkdir(parents=True)
+        (chapter_dir / "001 - Test.txt").write_text(text, encoding="utf-8")
+        metadata = EpubMetadata(
+            title="Calm Guide",
+            author=author,
+            language="en-US",
+            source_filename="book.epub",
+            source_sha256="sha",
+        )
+        chapter = EpubChapter(
+            index=1,
+            title="Test",
+            source_href="test.xhtml",
+            text_path="001 - Test.txt",
+            audio_filename="001 - Test.wav",
+            char_count=len(text),
+            sha256="sha",
+        )
+        selections.append(
+            select_unmixr_voice_for_book(
+                metadata=metadata,
+                chapters=(chapter,),
+                job_dir=job_dir,
+            )
+        )
 
-    selection = select_unmixr_voice_for_book(metadata=metadata, chapters=(chapter,), job_dir=tmp_path)
-
-    assert selection["public"]["book_profile"]["author_gender_signal"] == "male"
-    assert selection["public"]["selected"]["label"] == "Male narrator"
-    assert selection["public"]["selected"]["author_gender_match"] is True
+    for selection in selections:
+        public = dict(selection["public"])
+        profile = dict(public["book_profile"])
+        selected = dict(public["selected"])
+        assert profile["author_gender_signal"] == ""
+        assert profile["author_gender_signal_provenance"] == (
+            "not_available_without_explicit_approved_metadata"
+        )
+        assert public["author_gender_preference_used"] is False
+        assert selected["author_gender_match"] is False
+    assert [
+        dict(row)["voice_id_sha256"]
+        for row in list(dict(selections[0]["public"])["candidate_scores"])
+    ] == [
+        dict(row)["voice_id_sha256"]
+        for row in list(dict(selections[1]["public"])["candidate_scores"])
+    ]
+    assert dict(dict(selections[0]["public"])["selected"])[
+        "voice_id_sha256"
+    ] == dict(dict(selections[1]["public"])["selected"])["voice_id_sha256"]
 
 
 def test_voice_selection_learns_from_selected_and_dismissed_feedback(monkeypatch, tmp_path: Path) -> None:
@@ -4203,7 +4262,10 @@ def test_voice_audition_batch_dedupes_display_voice_family(monkeypatch, tmp_path
     assert voice_selection["sample_generation_failed_count"] == 0
 
 
-def test_voice_audition_prefers_author_gender_batch_for_comma_author(monkeypatch, tmp_path: Path) -> None:
+def test_voice_audition_does_not_infer_author_gender_from_name(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
     from app.services import audiobook_epub_pipeline as pipeline
     from app.services.audiobook_epub_pipeline import create_job_from_epub
 
@@ -4226,23 +4288,42 @@ def test_voice_audition_prefers_author_gender_batch_for_comma_author(monkeypatch
         ),
     )
     tones: dict[str, bytes] = {}
-    for index, voice_id in enumerate(("florian-id", "hans-id", "dieter-id"), start=1):
+    voice_ids = (
+        "seraphina-id",
+        "gisela-id",
+        "amala-id",
+        "florian-id",
+        "hans-id",
+        "dieter-id",
+    )
+    for index, voice_id in enumerate(voice_ids, start=1):
         tone = tmp_path / f"{voice_id}.wav"
         _write_tone_wav(tone, seconds=0.10 + index * 0.02)
         tones[voice_id] = tone.read_bytes()
     monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tones[str(kwargs["voice_id"])], "audio/wav"))
     monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
-    epub = tmp_path / "book.epub"
-    _write_minimal_epub(epub, author="Knuf, Andreas", language="de")
+    batches: list[list[str]] = []
+    for index, author in enumerate(("Knuf, Andreas", "Austen, Jane"), start=1):
+        epub = tmp_path / f"book-{index}.epub"
+        _write_minimal_epub(epub, author=author, language="de")
+        job = create_job_from_epub(
+            epub_path=epub,
+            original_filename=epub.name,
+            principal_id=f"principal-{index}",
+        )
+        voice_selection = dict(dict(job["provider"])["voice_selection"])
+        profile = dict(voice_selection["book_profile"])
+        pending = [dict(row) for row in list(voice_selection["pending_batch"])]
+        assert profile["author_gender_signal"] == ""
+        assert profile["author_gender_signal_provenance"] == (
+            "not_available_without_explicit_approved_metadata"
+        )
+        assert voice_selection["author_gender_preference_used"] is False
+        assert len(pending) == 3
+        assert all(row["author_gender_match"] is False for row in pending)
+        batches.append([str(row["voice_id_sha256"]) for row in pending])
 
-    job = create_job_from_epub(epub_path=epub, original_filename="book.epub", principal_id="principal-1")
-
-    voice_selection = job["provider"]["voice_selection"]
-    labels = [row["label"] for row in voice_selection["pending_batch"]]
-    assert voice_selection["book_profile"]["author_gender_signal"] == "male"
-    assert voice_selection["author_gender_preference_used"] is True
-    assert labels == ["Florian", "Hans", "Dieter"]
-    assert all("male" in row["tags"] for row in voice_selection["pending_batch"])
+    assert batches[0] == batches[1]
 
 
 def test_voice_audition_expands_discovery_when_language_pool_is_underfilled(monkeypatch, tmp_path: Path) -> None:

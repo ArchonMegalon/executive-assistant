@@ -9,18 +9,24 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import tempfile
 import unicodedata
 
 from app.services.audiobook_narration_planner import PlannerChapter, plan_narration
 
 
-WORK_PACKAGE_CONTRACT_NAME = "ea.memorial_narration_work_package.v1"
+WORK_PACKAGE_CONTRACT_NAME = "ea.memorial_narration_work_package.v2"
 CAST_HANDOFF_CONTRACT_NAME = "ea.audiobook_speaker_cast_handoff.v2"
-RECEIPT_CONTRACT_NAME = "ea.memorial_narration_work_package_receipt.v1"
+RECEIPT_CONTRACT_NAME = "ea.memorial_narration_work_package_receipt.v2"
 
 _APPROVED_REVIEW_STATUSES = frozenset({"approved", "published"})
 _ARCHIVE_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,127}")
+_MAX_ARCHIVE_MANIFEST_BYTES = 256 * 1024
+_MAX_ARCHIVE_SOURCE_BYTES = 4 * 1024 * 1024
+_MAX_JSON_INPUT_BYTES = 4 * 1024 * 1024
+_MAX_APPROVED_SOURCE_COUNT = 128
+_MAX_APPROVED_SOURCE_BYTES = 16 * 1024 * 1024
 _PROFILE_TRAIT_ALIASES = {
     "gender_presentation": ("gender_presentation", "gender"),
     "age_band": ("age_band", "approximate_age", "age_range", "age"),
@@ -85,9 +91,9 @@ def _card_source(
 ) -> tuple[_ApprovedSource | None, str]:
     if str(raw.get("visibility") or "").strip().casefold() != "public":
         return None, "memorial_card_not_explicitly_public"
-    if raw.get("approved") is False:
+    if raw.get("approved") is not True:
         return None, "memorial_card_not_approved"
-    if not _approved_review_status(raw.get("review_status"), allow_empty=True):
+    if not _approved_review_status(raw.get("review_status"), allow_empty=False):
         return None, "memorial_card_review_not_approved"
 
     public_excerpt = raw.get("public_excerpt")
@@ -118,10 +124,49 @@ def _card_source(
 
 def _load_json_object(path: Path) -> dict[str, object]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        payload = json.loads(
+            _read_contained_regular_text(
+                path,
+                root=path.parent,
+                max_bytes=_MAX_JSON_INPUT_BYTES,
+            )
+        )
+    except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _read_contained_regular_text(
+    path: Path,
+    *,
+    root: Path,
+    max_bytes: int,
+) -> str:
+    if max_bytes <= 0 or _has_symlink_ancestor(path) or path.is_symlink():
+        raise ValueError("narration_source_file_unsafe")
+    resolved_root = root.resolve(strict=True)
+    resolved_path = path.resolve(strict=True)
+    try:
+        resolved_path.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValueError("narration_source_path_outside_root") from exc
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(resolved_path, flags)
+    try:
+        file_stat = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(file_stat.st_mode)
+            or file_stat.st_size <= 0
+            or file_stat.st_size > max_bytes
+        ):
+            raise ValueError("narration_source_file_unsafe")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            payload = handle.read(max_bytes + 1)
+        if not payload or len(payload) > max_bytes:
+            raise ValueError("narration_source_file_unsafe")
+        return payload.decode("utf-8")
+    finally:
+        os.close(descriptor)
 
 
 def _archive_source(
@@ -132,6 +177,9 @@ def _archive_source(
 ) -> tuple[_ApprovedSource | None, str]:
     if str(raw.get("audience") or "").strip().casefold() != "public":
         return None, "archive_entry_not_explicitly_public"
+    # The registry's published review state plus the document manifest's
+    # explicit approval are the two authoritative publication gates. An
+    # explicit registry denial still wins.
     if raw.get("approved") is False:
         return None, "archive_entry_not_approved"
     if not _approved_review_status(raw.get("review_status"), allow_empty=False):
@@ -149,7 +197,18 @@ def _archive_source(
     except ValueError:
         return None, "archive_entry_path_outside_public_root"
 
-    document_manifest = _load_json_object(document_root / "manifest.json")
+    try:
+        manifest_text = _read_contained_regular_text(
+            document_root / "manifest.json",
+            root=document_root,
+            max_bytes=_MAX_ARCHIVE_MANIFEST_BYTES,
+        )
+        parsed_manifest = json.loads(manifest_text)
+        document_manifest = (
+            dict(parsed_manifest) if isinstance(parsed_manifest, dict) else {}
+        )
+    except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+        return None, "archive_document_manifest_missing_or_unsafe"
     if str(document_manifest.get("audience") or "").strip().casefold() != "public":
         return None, "archive_document_not_explicitly_public"
     if document_manifest.get("approved") is not True:
@@ -161,9 +220,13 @@ def _archive_source(
 
     source_path = document_root / "source.md"
     try:
-        source_text = source_path.read_text(encoding="utf-8")
-    except OSError:
-        return None, "archive_document_source_missing"
+        source_text = _read_contained_regular_text(
+            source_path,
+            root=document_root,
+            max_bytes=_MAX_ARCHIVE_SOURCE_BYTES,
+        )
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None, "archive_document_source_missing_or_unsafe"
     if not source_text.strip():
         return None, "archive_document_source_empty"
     return (
@@ -186,6 +249,27 @@ def _collect_approved_sources(
 ) -> tuple[list[_ApprovedSource], Counter[str]]:
     sources: list[_ApprovedSource] = []
     excluded: Counter[str] = Counter()
+    seen_hrefs: set[str] = set()
+    approved_source_bytes = 0
+    approved_source_byte_limit_reached = False
+
+    def _append_source(source: _ApprovedSource) -> None:
+        nonlocal approved_source_bytes, approved_source_byte_limit_reached
+        if source.href in seen_hrefs:
+            excluded["duplicate_public_source"] += 1
+            return
+        encoded_size = len(source.text.encode("utf-8"))
+        if len(sources) >= _MAX_APPROVED_SOURCE_COUNT:
+            excluded["approved_source_count_limit_exceeded"] += 1
+            return
+        if approved_source_bytes + encoded_size > _MAX_APPROVED_SOURCE_BYTES:
+            excluded["approved_source_byte_limit_exceeded"] += 1
+            approved_source_byte_limit_reached = True
+            return
+        seen_hrefs.add(source.href)
+        sources.append(source)
+        approved_source_bytes += encoded_size
+
     raw_cards = memorial_manifest.get("memory_cards")
     for index, raw in enumerate(
         raw_cards if isinstance(raw_cards, list) else [], start=1
@@ -197,11 +281,18 @@ def _collect_approved_sources(
         if source is None:
             excluded[reason] += 1
         else:
-            sources.append(source)
+            _append_source(source)
 
     registry = dict(archive_registry or {})
     raw_publications = registry.get("fliplink_publications")
     for raw in raw_publications if isinstance(raw_publications, list) else []:
+        if (
+            len(sources) >= _MAX_APPROVED_SOURCE_COUNT
+            or approved_source_byte_limit_reached
+            or approved_source_bytes >= _MAX_APPROVED_SOURCE_BYTES
+        ):
+            excluded["approved_source_limit_reached"] += 1
+            continue
         if not isinstance(raw, Mapping):
             excluded["archive_entry_invalid"] += 1
             continue
@@ -209,17 +300,8 @@ def _collect_approved_sources(
         if source is None:
             excluded[reason] += 1
         else:
-            sources.append(source)
-
-    unique: list[_ApprovedSource] = []
-    seen_hrefs: set[str] = set()
-    for source in sources:
-        if source.href in seen_hrefs:
-            excluded["duplicate_public_source"] += 1
-            continue
-        seen_hrefs.add(source.href)
-        unique.append(source)
-    return unique, excluded
+            _append_source(source)
+    return sources, excluded
 
 
 def _explicit_trait_payload(
@@ -256,12 +338,11 @@ def _approved_speaker_profiles(
     for label, raw_profile in dict(profiles or {}).items():
         if not isinstance(raw_profile, Mapping):
             continue
+        if raw_profile.get("casting_approved") is not True:
+            continue
         if not (
             raw_profile.get("approved") is True
-            or raw_profile.get("casting_approved") is True
-            or _approved_review_status(
-                raw_profile.get("review_status"), allow_empty=False
-            )
+            or _approved_review_status(raw_profile.get("review_status"), allow_empty=False)
         ):
             continue
         key = _profile_key(label)
@@ -519,6 +600,7 @@ def build_memorial_narration_work_package(
         voice_profile=voice_profile,
         approved_profile_refs=profile_refs,
     )
+    cast_handoff_sha256 = _stable_json_sha256(cast_handoff)
     if not sources:
         status = "blocked_no_approved_public_sources"
         reason = status
@@ -555,7 +637,14 @@ def build_memorial_narration_work_package(
         "contract_name": RECEIPT_CONTRACT_NAME,
         "status": status,
         "reason": reason,
-        "render_authorized": status == "ready_for_private_cast_resolution",
+        # Planning and consent make private resolution eligible, but they do
+        # not authorize a provider call.  A separate, hash-bound private cast
+        # resolution and human review must pass before synthesis.
+        "cast_resolution_authorized": status == "ready_for_private_cast_resolution",
+        "render_authorized": False,
+        "synthesis_authorized": False,
+        "cast_mapping_review_required": True,
+        "human_listening_review_required": True,
         "planner_contract_name": str(plan.get("contract_name") or ""),
         "plan_sha256": str(plan.get("plan_sha256") or ""),
         "source_aggregate_sha256": _stable_json_sha256(source_rows),
@@ -582,6 +671,7 @@ def build_memorial_narration_work_package(
             1 for row in dialogue_cast_rows if row.get("neutral_fallback") is True
         ),
         "cast_map_sha256": str(cast_handoff.get("cast_map_sha256") or ""),
+        "cast_handoff_sha256": cast_handoff_sha256,
         "voice_consent": {
             "status": consent.get("status"),
             "revoked": consent.get("revoked"),
@@ -598,7 +688,7 @@ def build_memorial_narration_work_package(
     }
     package_without_receipt = {
         "contract_name": WORK_PACKAGE_CONTRACT_NAME,
-        "version": 1,
+        "version": 2,
         "status": status,
         "reason": reason,
         "slug": normalized_slug,
@@ -611,7 +701,12 @@ def build_memorial_narration_work_package(
         "sources": source_rows,
         "narration_plan": plan,
         "cast_handoff": cast_handoff,
-        "render_authorized": receipt["render_authorized"],
+        "cast_handoff_sha256": cast_handoff_sha256,
+        "cast_resolution_authorized": receipt["cast_resolution_authorized"],
+        "render_authorized": False,
+        "synthesis_authorized": False,
+        "cast_mapping_review_required": True,
+        "human_listening_review_required": True,
         "private_payload": True,
         "provider_calls_made": 0,
         "synthesis_requested": False,
@@ -627,15 +722,42 @@ def provider_safe_receipt(work_package: Mapping[str, object]) -> dict[str, objec
     return deepcopy(dict(raw))
 
 
+def _has_symlink_ancestor(path: Path) -> bool:
+    current = path.expanduser().absolute().parent
+    while True:
+        try:
+            if stat.S_ISLNK(current.lstat().st_mode):
+                return True
+        except FileNotFoundError:
+            pass
+        if current == current.parent:
+            return False
+        current = current.parent
+
+
+def _prepare_artifact_parent(path: Path, *, private: bool) -> None:
+    if _has_symlink_ancestor(path):
+        raise ValueError("narration_artifact_symlink_ancestor_forbidden")
+    existed = path.parent.exists()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if _has_symlink_ancestor(path) or path.parent.is_symlink():
+        raise ValueError("narration_artifact_symlink_ancestor_forbidden")
+    parent_stat = path.parent.lstat()
+    if not stat.S_ISDIR(parent_stat.st_mode):
+        raise ValueError("narration_artifact_parent_not_directory")
+    if private:
+        if not existed:
+            path.parent.chmod(0o700)
+            parent_stat = path.parent.lstat()
+        if parent_stat.st_uid != os.geteuid() or parent_stat.st_mode & 0o077:
+            raise ValueError("narration_private_artifact_parent_unsafe")
+
+
 def write_json_artifact(
     path: Path, payload: Mapping[str, object], *, private: bool
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_artifact_parent(path, private=private)
     mode = 0o600 if private else 0o644
-    try:
-        path.parent.chmod(0o700 if private else 0o755)
-    except OSError:
-        pass
     if path.is_symlink():
         raise ValueError("narration_artifact_symlink_forbidden")
     document = (

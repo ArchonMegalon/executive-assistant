@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, FastAPI
+import os
+import re
+from collections.abc import Awaitable, Callable
+
+from fastapi import APIRouter, Depends, FastAPI, Request
+from starlette.responses import Response
 
 from app.api.dependencies import require_request_auth
 from app.api.errors import install_error_handlers
@@ -8,6 +13,29 @@ from app.api.threadpool_compat import inline_sync_handlers_enabled, install_inli
 from app.container import build_container
 from app.settings import get_settings, validate_startup_settings
 from app.api.routes.property_surface_boundary import install_property_surface_boundary
+
+
+_SOURCE_REVISION_PATTERN = re.compile(r"[0-9a-f]{40}")
+
+
+def _validated_source_revision(value: object) -> str | None:
+    text = str(value or "")
+    return text if _SOURCE_REVISION_PATTERN.fullmatch(text) else None
+
+
+def install_source_revision_header(app: FastAPI) -> None:
+    source_revision = _validated_source_revision(os.getenv("EA_SOURCE_REVISION"))
+    if source_revision is None:
+        return
+
+    @app.middleware("http")
+    async def add_source_revision_header(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        response = await call_next(request)
+        response.headers["X-EA-Source-Revision"] = source_revision
+        return response
 
 
 async def _prewarm_provider_health_cache() -> None:
@@ -190,6 +218,7 @@ def create_app() -> FastAPI:
     from app.api.routes.tools import router as tools_router
 
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
+    install_source_revision_header(app)
     install_error_handlers(app)
     install_property_surface_boundary(app)
     app.state.container = build_container(settings=s)

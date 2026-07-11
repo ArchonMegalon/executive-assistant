@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-RECEIPT_SCHEMA = "ea.manfred_memorial_image_build.v1"
+RECEIPT_SCHEMA = "ea.manfred_memorial_image_build.v2"
 FORBIDDEN_CONTEXT_PATHS = (
     ".env",
     ".env.local",
@@ -99,6 +99,13 @@ def _image_inspection(tag: str, *, expected_commit: str) -> tuple[str, dict[str,
     if labels.get("org.opencontainers.image.revision") != expected_commit:
         raise RuntimeError("manfred_image_revision_label_mismatch")
     configured_environment = list((inspection.get("Config") or {}).get("Env") or [])
+    configured_revisions = [
+        str(item).split("=", 1)[1]
+        for item in configured_environment
+        if str(item).split("=", 1)[0] == "EA_SOURCE_REVISION" and "=" in str(item)
+    ]
+    if configured_revisions != [expected_commit]:
+        raise RuntimeError("manfred_image_source_revision_environment_mismatch")
     forbidden_names = {
         "EA_API_TOKEN",
         "EA_SIGNING_SECRET",
@@ -184,6 +191,8 @@ def build_image(
                 str(dockerfile),
                 "--tag",
                 safe_tag,
+                "--build-arg",
+                f"EA_SOURCE_REVISION={commit}",
                 "--label",
                 f"org.opencontainers.image.revision={commit}",
                 "--label",
@@ -206,6 +215,7 @@ def build_image(
         "image_id": image_id,
         "created_at": created_at,
         "revision_label": commit,
+        "runtime_source_revision": commit,
         "rootfs_layer_count": len((inspection.get("RootFS") or {}).get("Layers") or []),
         "tracked_archive_context": True,
         "dirty_worktree_context_used": False,

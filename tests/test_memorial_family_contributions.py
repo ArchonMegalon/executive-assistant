@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import stat
 from pathlib import Path
@@ -103,6 +104,28 @@ def _approve(
             "source_label": "Erinnerung aus der Familie",
             "title": title,
             "body": body,
+        },
+    )
+
+
+def _reject(client: TestClient, contribution_id: str):  # type: ignore[no-untyped-def]
+    return client.post(
+        f"/memorials/manfred/contributions/{contribution_id}/reject",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "reviewer": "Memorial curator",
+            "reason": "Not suitable for publication in this form.",
+        },
+    )
+
+
+def _unpublish(client: TestClient, contribution_id: str):  # type: ignore[no-untyped-def]
+    return client.post(
+        f"/memorials/manfred/contributions/{contribution_id}/unpublish",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "reviewer": "Memorial curator",
+            "reason": "Family requested an immediate public takedown.",
         },
     )
 
@@ -421,3 +444,363 @@ def test_private_contribution_ledger_rejects_symlinks_and_wrong_schema(
     )
     assert wrong_schema.status_code == 503
     assert _error_code(wrong_schema) == "memorial_contribution_store_invalid"
+
+
+def test_recovery_receipt_and_token_authenticated_status_are_private_and_minimal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client, _public_root, _private_root = _memorial_client(monkeypatch, tmp_path)
+    response = _submit(client)
+
+    assert response.status_code == 201
+    submission_receipt = response.json()
+    recovery = submission_receipt["recovery_receipt"]
+    assert recovery == {
+        "schema_version": "ea.memorial_family_contribution.recovery_receipt.v1",
+        "contribution_id": submission_receipt["contribution_id"],
+        "status": "pending_review",
+        "visibility": "private",
+        "manage_token_header": "x-memorial-contribution-token",
+        "status_path": (
+            f"/memorials/manfred/contributions/{submission_receipt['contribution_id']}/status"
+        ),
+        "token_recoverable": False,
+        "manage_token": submission_receipt["manage_token"],
+    }
+    assert "RAW_PRIVATE" not in json.dumps(submission_receipt)
+
+    denied = client.get(
+        recovery["status_path"],
+        headers={"x-memorial-contribution-token": "wrong-token"},
+    )
+    assert denied.status_code == 403
+    assert _error_code(denied) == "memorial_contribution_unauthorized"
+
+    status = client.get(
+        recovery["status_path"],
+        headers={
+            "x-memorial-contribution-token": submission_receipt["manage_token"]
+        },
+    )
+    assert status.status_code == 200
+    status_payload = status.json()
+    assert status_payload["status"] == "pending_review"
+    assert status_payload["visibility"] == "private"
+    assert status_payload["publication_consent"] is True
+    assert status_payload["actions"] == {
+        "can_correct": True,
+        "can_withdraw": True,
+    }
+    assert "manage_token" not in status_payload["recovery_receipt"]
+    assert submission_receipt["manage_token"] not in json.dumps(status_payload)
+    assert "manage_token_hash" not in json.dumps(status_payload)
+    assert "submission" not in status_payload
+    assert "RAW_PRIVATE" not in json.dumps(status_payload)
+    assert status.headers["cache-control"] == "no-store"
+    assert status.headers["referrer-policy"] == "no-referrer"
+
+
+def test_operator_can_reject_pending_contribution_with_private_audit_history(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client, public_root, _private_root = _memorial_client(monkeypatch, tmp_path)
+    submission = _submit(client).json()
+    contribution_id = submission["contribution_id"]
+
+    unauthorized = client.post(
+        f"/memorials/manfred/contributions/{contribution_id}/reject",
+        json={"reviewer": "No access", "reason": "No access"},
+    )
+    assert unauthorized.status_code == 403
+    assert _error_code(unauthorized) == "memorial_write_unauthorized"
+
+    missing_reason = client.post(
+        f"/memorials/manfred/contributions/{contribution_id}/reject",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={"reviewer": "Memorial curator"},
+    )
+    assert missing_reason.status_code == 400
+    assert _error_code(missing_reason) == "memorial_contribution_reason_required"
+
+    rejected = _reject(client, contribution_id)
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected"
+    assert rejected.json()["visibility"] == "private"
+    assert rejected.json()["public_removed"] is True
+    assert rejected.json()["rejected_at"]
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+
+    rows = client.get(
+        "/memorials/manfred/contributions/operator",
+        headers={"x-memorial-write-token": "unit-write-token"},
+    ).json()["contributions"]
+    record = rows[0]
+    assert record["status"] == "rejected"
+    assert record["public_memory"] == {}
+    assert record["history"][-1]["action"] == "operator_rejected"
+    assert record["history"][-1]["from_status"] == "pending_review"
+    assert record["history"][-1]["to_status"] == "rejected"
+    assert record["history"][-1]["reviewer"] == "Memorial curator"
+    assert "manage_token_hash" not in json.dumps(record)
+
+    tombstone = json.loads(
+        (
+            public_root
+            / "manfred"
+            / "family_contributions.takedowns.public.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert tombstone["takedowns"] == [
+        {
+            "contribution_id": contribution_id,
+            "status": "rejected",
+            "recorded_at": rejected.json()["rejected_at"],
+            "updated_at": rejected.json()["rejected_at"],
+        }
+    ]
+    assert "RAW_PRIVATE" not in json.dumps(tombstone)
+    assert set(tombstone["takedowns"][0]) == {
+        "contribution_id",
+        "status",
+        "recorded_at",
+        "updated_at",
+    }
+    assert (
+        client.get(
+            "/memorials/files/manfred/family_contributions.takedowns.public.json"
+        ).status_code
+        == 404
+    )
+
+    status = client.get(
+        submission["recovery_receipt"]["status_path"],
+        headers={"x-memorial-contribution-token": submission["manage_token"]},
+    ).json()
+    assert status["status"] == "rejected"
+    assert status["visibility"] == "private"
+    assert "reason" not in json.dumps(status)
+
+
+def test_operator_unpublish_tombstone_survives_restart_and_stale_projection_rebuild(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client, _public_root, _private_root = _memorial_client(monkeypatch, tmp_path)
+    submission = _submit(client).json()
+    contribution_id = submission["contribution_id"]
+    invalid_pending_takedown = _unpublish(client, contribution_id)
+    assert invalid_pending_takedown.status_code == 409
+    assert (
+        _error_code(invalid_pending_takedown)
+        == "memorial_contribution_not_unpublishable"
+    )
+    assert _approve(client, contribution_id).status_code == 200
+    published_record = client.get(
+        "/memorials/manfred/contributions/operator",
+        headers={"x-memorial-write-token": "unit-write-token"},
+    ).json()["contributions"][0]
+    assert client.get("/memorials/manfred.json").json()["memory_cards"]
+
+    removed = _unpublish(client, contribution_id)
+    assert removed.status_code == 200
+    assert removed.json()["status"] == "unpublished"
+    assert removed.json()["visibility"] == "private"
+    assert removed.json()["public_removed"] is True
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+    invalid_unpublished_rejection = _reject(client, contribution_id)
+    assert invalid_unpublished_rejection.status_code == 409
+    assert (
+        _error_code(invalid_unpublished_rejection)
+        == "memorial_contribution_not_rejectable"
+    )
+
+    from app.services import memorial_family_contributions
+
+    memorial_family_contributions._write_public_projection(
+        "manfred", [published_record]
+    )
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+
+    from app.api.app import create_app
+
+    restarted = TestClient(create_app())
+    restarted.headers.update({"X-EA-Principal-ID": "family-contribution-restart"})
+    assert restarted.get("/memorials/manfred.json").json()["memory_cards"] == []
+    status = restarted.get(
+        submission["recovery_receipt"]["status_path"],
+        headers={"x-memorial-contribution-token": submission["manage_token"]},
+    )
+    assert status.status_code == 200
+    assert status.json()["status"] == "unpublished"
+    assert status.json()["visibility"] == "private"
+
+
+@pytest.mark.parametrize("failure_point", ["projection", "private_ledger"])
+def test_operator_takedown_remains_hidden_across_individual_write_faults(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    failure_point: str,
+) -> None:
+    client, _public_root, _private_root = _memorial_client(monkeypatch, tmp_path)
+    submission = _submit(client).json()
+    contribution_id = submission["contribution_id"]
+    assert _approve(client, contribution_id).status_code == 200
+    assert client.get("/memorials/manfred.json").json()["memory_cards"]
+
+    from app.services import memorial_family_contributions
+
+    if failure_point == "projection":
+        original = memorial_family_contributions._write_public_projection
+        monkeypatch.setattr(
+            memorial_family_contributions,
+            "_write_public_projection",
+            lambda *args, **kwargs: (_ for _ in ()).throw(OSError("projection fault")),
+        )
+    else:
+        original = memorial_family_contributions._save_private_ledger
+        monkeypatch.setattr(
+            memorial_family_contributions,
+            "_save_private_ledger",
+            lambda *args, **kwargs: (_ for _ in ()).throw(OSError("private fault")),
+        )
+
+    failed = _unpublish(client, contribution_id)
+    assert failed.status_code == 503
+    assert _error_code(failed) == "memorial_contribution_store_unavailable"
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+    effective_status = client.get(
+        submission["recovery_receipt"]["status_path"],
+        headers={"x-memorial-contribution-token": submission["manage_token"]},
+    )
+    assert effective_status.status_code == 200
+    assert effective_status.json()["status"] == "unpublished"
+    assert effective_status.json()["visibility"] == "private"
+    assert effective_status.json()["timestamps"]["takedown_recorded_at"]
+
+    if failure_point == "projection":
+        monkeypatch.setattr(
+            memorial_family_contributions, "_write_public_projection", original
+        )
+    else:
+        monkeypatch.setattr(
+            memorial_family_contributions, "_save_private_ledger", original
+        )
+    retried = _unpublish(client, contribution_id)
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "unpublished"
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+
+
+@pytest.mark.parametrize(
+    ("actor", "expected_action"),
+    [
+        ("operator", "operator_unpublished"),
+        ("contributor", "contributor_withdrew"),
+    ],
+)
+def test_saturated_history_compacts_without_blocking_public_removal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    actor: str,
+    expected_action: str,
+) -> None:
+    client, _public_root, private_root = _memorial_client(monkeypatch, tmp_path)
+    submission = _submit(client).json()
+    contribution_id = submission["contribution_id"]
+    assert _approve(client, contribution_id).status_code == 200
+    assert client.get("/memorials/manfred.json").json()["memory_cards"]
+
+    ledger_path = private_root / "manfred" / "family_contributions.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger["contributions"][0]["history"] = [
+        {
+            "action": f"prior_event_{index:02d}",
+            "recorded_at": (
+                f"2026-07-10T{8 + (index // 60):02d}:{index % 60:02d}:00Z"
+            ),
+        }
+        for index in range(64)
+    ]
+    ledger["contributions"][0].pop("history_compaction", None)
+    ledger_path.write_text(
+        json.dumps(ledger, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    ledger_path.chmod(0o600)
+
+    if actor == "operator":
+        removed = _unpublish(client, contribution_id)
+    else:
+        removed = client.post(
+            f"/memorials/manfred/contributions/{contribution_id}/withdraw",
+            headers={
+                "x-memorial-contribution-token": submission["manage_token"]
+            },
+            json={"reason": "Contributor requested removal."},
+        )
+
+    assert removed.status_code == 200
+    assert removed.json()["public_removed"] is True
+    assert client.get("/memorials/manfred.json").json()["memory_cards"] == []
+    stored = json.loads(ledger_path.read_text(encoding="utf-8"))["contributions"][0]
+    assert len(stored["history"]) == 64
+    assert stored["history"][0]["action"] == "prior_event_01"
+    assert stored["history"][-1]["action"] == expected_action
+    compaction = stored["history_compaction"]
+    assert set(compaction) == {"schema", "evicted_count", "evicted_sha256"}
+    assert (
+        compaction["schema"]
+        == "ea.memorial_family_contribution.history_compaction.v1"
+    )
+    assert compaction["evicted_count"] == 1
+    assert len(compaction["evicted_sha256"]) == 64
+    assert compaction["evicted_sha256"] != "0" * 64
+    first_event = {
+        "action": "prior_event_00",
+        "recorded_at": "2026-07-10T08:00:00Z",
+    }
+    expected_digest = hashlib.sha256(
+        bytes.fromhex("0" * 64)
+        + b"\x00"
+        + json.dumps(
+            first_event,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    assert compaction["evicted_sha256"] == expected_digest
+
+
+def test_invalid_takedown_ledger_fails_closed_without_leaking_public_memory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client, public_root, _private_root = _memorial_client(monkeypatch, tmp_path)
+    contribution_id = _submit(client).json()["contribution_id"]
+    assert _approve(client, contribution_id).status_code == 200
+    assert client.get("/memorials/manfred.json").json()["memory_cards"]
+
+    tombstone_path = (
+        public_root / "manfred" / "family_contributions.takedowns.public.json"
+    )
+    tombstone_path.write_text(
+        json.dumps(
+            {
+                "schema": "wrong",
+                "slug": "manfred",
+                "takedowns": [{"private_submission": "MUST_NOT_ESCAPE"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    public_payload = client.get("/memorials/manfred.json")
+    assert public_payload.status_code == 200
+    assert public_payload.json()["memory_cards"] == []
+    assert "MUST_NOT_ESCAPE" not in public_payload.text
+    failed = _unpublish(client, contribution_id)
+    assert failed.status_code == 503
+    assert _error_code(failed) == "memorial_contribution_store_invalid"

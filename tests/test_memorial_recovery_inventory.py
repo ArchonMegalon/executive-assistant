@@ -165,6 +165,16 @@ def _seed_flagship(public: Path, private: Path, archive: Path) -> None:
         public_projection,
         mode=0o644,
     )
+    _write_json(
+        public_slug / family_contributions.TAKEDOWN_FILENAME,
+        {
+            "schema": family_contributions.TAKEDOWN_SCHEMA,
+            "slug": "manfred",
+            "generated_at": "2026-07-11T09:00:00Z",
+            "takedowns": [],
+        },
+        mode=0o644,
+    )
 
 
 def _inventory_path(private: Path, filename: str = "flagship.inventory.json") -> Path:
@@ -190,6 +200,7 @@ def test_inventory_is_private_secret_free_and_fresh_root_restore_is_idempotent(
     assert materialized["archive_document_count"] == 1
     assert materialized["family_private_present"] is True
     assert materialized["family_public_present"] is True
+    assert materialized["family_takedown_present"] is True
     assert materialized["canonical_publication_state_included"] is False
     assert materialized["private_media_publication_performed"] is False
     assert stat.S_IMODE(source_inventory.stat().st_mode) == 0o600
@@ -277,9 +288,11 @@ def test_inventory_is_private_secret_free_and_fresh_root_restore_is_idempotent(
 
     private_ledger = target_private / "manfred" / family_contributions.PRIVATE_FILENAME
     public_projection = target_public / "manfred" / family_contributions.PUBLIC_FILENAME
+    public_takedowns = target_public / "manfred" / family_contributions.TAKEDOWN_FILENAME
     references = target_private / "manfred" / "recovery_inventory.references.json"
     assert stat.S_IMODE(private_ledger.stat().st_mode) == 0o600
     assert stat.S_IMODE(public_projection.stat().st_mode) == 0o644
+    assert stat.S_IMODE(public_takedowns.stat().st_mode) == 0o644
     assert stat.S_IMODE(references.stat().st_mode) == 0o600
     assert _SECRET not in references.read_text(encoding="utf-8")
     assert (
@@ -294,6 +307,7 @@ def test_inventory_is_private_secret_free_and_fresh_root_restore_is_idempotent(
         ]
         == "The approved public version"
     )
+    assert json.loads(public_takedowns.read_text(encoding="utf-8"))["takedowns"] == []
 
     repeated = memorial_recovery_inventory.restore_memorial_recovery_inventory(
         inventory_path=str(target_inventory),
@@ -323,6 +337,9 @@ def test_inventory_roundtrip_keeps_source_and_contribution_roots_separate(
     source_private_contribution = (
         source_private_contributions / "manfred" / family_contributions.PRIVATE_FILENAME
     )
+    source_takedown_contribution = (
+        source_public_contributions / "manfred" / family_contributions.TAKEDOWN_FILENAME
+    )
     source_public_contribution.parent.mkdir(parents=True)
     source_private_contribution.parent.mkdir(parents=True)
     (source_public / "manfred" / family_contributions.PUBLIC_FILENAME).replace(
@@ -330,6 +347,9 @@ def test_inventory_roundtrip_keeps_source_and_contribution_roots_separate(
     )
     (source_private / "manfred" / family_contributions.PRIVATE_FILENAME).replace(
         source_private_contribution
+    )
+    (source_public / "manfred" / family_contributions.TAKEDOWN_FILENAME).replace(
+        source_takedown_contribution
     )
     monkeypatch.setenv(
         "EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR",
@@ -351,6 +371,7 @@ def test_inventory_roundtrip_keeps_source_and_contribution_roots_separate(
 
     assert materialized["family_private_present"] is True
     assert materialized["family_public_present"] is True
+    assert materialized["family_takedown_present"] is True
     assert not (
         source_public / "manfred" / family_contributions.PUBLIC_FILENAME
     ).exists()
@@ -420,9 +441,13 @@ def test_inventory_roundtrip_keeps_source_and_contribution_roots_separate(
     restored_public = (
         target_public_contributions / "manfred" / family_contributions.PUBLIC_FILENAME
     )
+    restored_takedowns = (
+        target_public_contributions / "manfred" / family_contributions.TAKEDOWN_FILENAME
+    )
     assert stat.S_IMODE(restored_private.stat().st_mode) == 0o600
     assert stat.S_IMODE(restored_private.parent.stat().st_mode) == 0o700
     assert stat.S_IMODE(restored_public.stat().st_mode) == 0o644
+    assert stat.S_IMODE(restored_takedowns.stat().st_mode) == 0o644
     assert not (
         target_private / "manfred" / family_contributions.PRIVATE_FILENAME
     ).exists()
@@ -431,6 +456,140 @@ def test_inventory_roundtrip_keeps_source_and_contribution_roots_separate(
     ).exists()
     assert json.loads(restored_private.read_text(encoding="utf-8"))["contributions"]
     assert json.loads(restored_public.read_text(encoding="utf-8"))["memory_cards"]
+    assert json.loads(restored_takedowns.read_text(encoding="utf-8"))["takedowns"] == []
+
+
+def test_takedown_roundtrip_preserves_fault_state_and_blocks_future_rebuild(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_public, source_private, source_archive = _roots(
+        tmp_path, "takedown-fault-source"
+    )
+    _seed_flagship(source_public, source_private, source_archive)
+    source_takedown = (
+        source_public / "manfred" / family_contributions.TAKEDOWN_FILENAME
+    )
+    _write_json(
+        source_takedown,
+        {
+            "schema": family_contributions.TAKEDOWN_SCHEMA,
+            "slug": "manfred",
+            "generated_at": "2026-07-11T09:05:00Z",
+            "takedowns": [
+                {
+                    "contribution_id": "contribution-1",
+                    "status": "unpublished",
+                    "recorded_at": "2026-07-11T09:05:00Z",
+                    "updated_at": "2026-07-11T09:05:00Z",
+                }
+            ],
+        },
+        mode=0o644,
+    )
+    # This is the exact partial-fault state: the private ledger and raw public
+    # projection still say published, while the tombstone is authoritative.
+    source_inventory = _inventory_path(source_private, "takedown-fault.json")
+    materialized = memorial_recovery_inventory.materialize_memorial_recovery_inventory(
+        memorial_slug="manfred",
+        destination_path=str(source_inventory),
+        public_root=source_public,
+        private_root=source_private,
+        archive_root=source_archive,
+    )
+    assert materialized["family_takedown_present"] is True
+    envelope = json.loads(source_inventory.read_text(encoding="utf-8"))
+    family_state = envelope["payload"]["family_contributions"]
+    assert family_state["private_payload"]["contributions"][0]["status"] == "published"
+    assert family_state["public_payload"]["memory_cards"]
+    assert family_state["takedown_payload"]["takedowns"][0]["status"] == "unpublished"
+    assert all(
+        family_contributions.TAKEDOWN_FILENAME
+        not in str(item.get("source_relpath") or "")
+        for item in envelope["payload"]["source_media"]
+    )
+
+    target_public, target_private, target_archive = _roots(
+        tmp_path, "takedown-fault-target"
+    )
+    target_inventory = _inventory_path(target_private, "takedown-fault.json")
+    target_inventory.parent.mkdir(parents=True)
+    target_inventory.write_bytes(source_inventory.read_bytes())
+    target_inventory.chmod(0o600)
+
+    planned_writes = memorial_recovery_inventory._restore_writes(  # noqa: SLF001
+        payload=envelope["payload"],
+        private_root=target_private,
+        archive_root=target_archive,
+        public_contribution_root=target_public,
+        private_contribution_root=target_private,
+    )
+    contribution_write_names = [
+        path.name
+        for path, _content, _mode, _root in planned_writes
+        if path.name
+        in {
+            family_contributions.TAKEDOWN_FILENAME,
+            family_contributions.PRIVATE_FILENAME,
+            family_contributions.PUBLIC_FILENAME,
+        }
+    ]
+    assert contribution_write_names == [
+        family_contributions.TAKEDOWN_FILENAME,
+        family_contributions.PRIVATE_FILENAME,
+        family_contributions.PUBLIC_FILENAME,
+    ]
+
+    restored = memorial_recovery_inventory.restore_memorial_recovery_inventory(
+        inventory_path=str(target_inventory),
+        expected_memorial_slug="manfred",
+        dry_run=False,
+        confirmed_payload_sha256=str(materialized["payload_sha256"]),
+        public_root=target_public,
+        private_root=target_private,
+        archive_root=target_archive,
+    )
+    assert restored["family_takedown_present"] is True
+    restored_takedown = (
+        target_public / "manfred" / family_contributions.TAKEDOWN_FILENAME
+    )
+    restored_private = (
+        target_private / "manfred" / family_contributions.PRIVATE_FILENAME
+    )
+    restored_public = (
+        target_public / "manfred" / family_contributions.PUBLIC_FILENAME
+    )
+    assert stat.S_IMODE(restored_takedown.stat().st_mode) == 0o644
+    assert not (
+        target_private / "manfred" / family_contributions.TAKEDOWN_FILENAME
+    ).exists()
+    assert json.loads(restored_private.read_text(encoding="utf-8"))["contributions"][
+        0
+    ]["status"] == "published"
+    assert json.loads(restored_public.read_text(encoding="utf-8"))["memory_cards"]
+
+    verified = memorial_recovery_inventory.verify_memorial_recovery_inventory(
+        inventory_path=str(target_inventory),
+        expected_memorial_slug="manfred",
+        private_root=target_private,
+        public_root=target_public,
+        public_contribution_root=target_public,
+        private_contribution_root=target_private,
+    )
+    assert verified["valid"] is True
+    assert verified["family_takedown_present"] is True
+    assert verified["contribution_sources_verified"] is True
+
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR", str(target_public))
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR", str(target_private))
+    assert family_contributions.load_public_family_memory_cards(slug="manfred") == []
+    private_payload = json.loads(restored_private.read_text(encoding="utf-8"))
+    family_contributions._write_public_projection(  # noqa: SLF001
+        "manfred",
+        [dict(row) for row in private_payload["contributions"]],
+    )
+    assert json.loads(restored_public.read_text(encoding="utf-8"))["memory_cards"] == []
+    assert family_contributions.load_public_family_memory_cards(slug="manfred") == []
 
 
 def test_inventory_rejects_inner_media_tamper_even_with_recomputed_envelope_digest(
@@ -499,6 +658,37 @@ def test_inventory_rejects_extra_fields_in_public_family_projection(
     inventory = _inventory_path(private)
 
     with pytest.raises(ValueError, match="family_public_mismatch"):
+        memorial_recovery_inventory.materialize_memorial_recovery_inventory(
+            memorial_slug="manfred",
+            destination_path=str(inventory),
+            public_root=public,
+            private_root=private,
+            archive_root=archive,
+        )
+
+    assert not inventory.exists()
+
+
+def test_inventory_rejects_private_fields_in_public_takedown_ledger(
+    tmp_path: Path,
+) -> None:
+    public, private, archive = _roots(tmp_path, "takedown-public-leak")
+    _seed_flagship(public, private, archive)
+    takedown_path = public / "manfred" / family_contributions.TAKEDOWN_FILENAME
+    takedown = json.loads(takedown_path.read_text(encoding="utf-8"))
+    takedown["takedowns"] = [
+        {
+            "contribution_id": "contribution-1",
+            "status": "unpublished",
+            "recorded_at": "2026-07-11T09:05:00Z",
+            "updated_at": "2026-07-11T09:05:00Z",
+            "private_submission": _SECRET,
+        }
+    ]
+    _write_json(takedown_path, takedown, mode=0o644)
+    inventory = _inventory_path(private)
+
+    with pytest.raises(ValueError, match="family_takedown_invalid"):
         memorial_recovery_inventory.materialize_memorial_recovery_inventory(
             memorial_slug="manfred",
             destination_path=str(inventory),

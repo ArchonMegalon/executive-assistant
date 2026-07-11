@@ -7,6 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 
+TEST_RUNTIME_REVISION = "a" * 40
+
+
 @pytest.fixture(autouse=True)
 def _clean_source_worktree(monkeypatch):
     import scripts.verify_memorial_gold_readiness as readiness
@@ -26,7 +29,7 @@ def _clean_source_worktree(monkeypatch):
     )
 
 
-def _voice_receipt(*, base_url: str = "https://memorial.example.test", slow: bool = False) -> dict[str, object]:
+def _voice_receipt(*, base_url: str = "https://8.8.8.8", slow: bool = False) -> dict[str, object]:
     return {
         "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
         "git_head": "HEAD",
@@ -37,7 +40,9 @@ def _voice_receipt(*, base_url: str = "https://memorial.example.test", slow: boo
         "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "dirty_worktree": False,
         "status": "pass",
+        "slug": "manfred",
         "base_url": base_url,
+        "runtime_source_revision": TEST_RUNTIME_REVISION,
         "gold_mode": True,
         "require_public_origin": True,
         "gold_claim_allowed": True,
@@ -53,7 +58,7 @@ def _voice_receipt(*, base_url: str = "https://memorial.example.test", slow: boo
     }
 
 
-def _browser_receipt(*, base_url: str = "https://memorial.example.test", mode: str = "live") -> dict[str, object]:
+def _browser_receipt(*, base_url: str = "https://8.8.8.8", mode: str = "live") -> dict[str, object]:
     return {
         "contract_name": "ea.memorial_realtime_browser_exit_gate",
         "git_head": "HEAD",
@@ -64,7 +69,9 @@ def _browser_receipt(*, base_url: str = "https://memorial.example.test", mode: s
         "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "dirty_worktree": False,
         "status": "pass",
+        "slug": "manfred",
         "base_url": base_url,
+        "runtime_source_revision": TEST_RUNTIME_REVISION,
         "gold_mode": True,
         "require_public_origin": True,
         "gold_claim_allowed": True,
@@ -79,7 +86,7 @@ def _browser_receipt(*, base_url: str = "https://memorial.example.test", mode: s
     }
 
 
-def _room_receipt(*, base_url: str = "https://memorial.example.test") -> dict[str, object]:
+def _room_receipt(*, base_url: str = "https://8.8.8.8") -> dict[str, object]:
     return {
         "contract_name": "ea.memorial_room_audio_public_origin",
         "git_head": "HEAD",
@@ -91,7 +98,9 @@ def _room_receipt(*, base_url: str = "https://memorial.example.test") -> dict[st
         "dirty_worktree": False,
         "status": "pass",
         "proof_type": "manual_room_attestation",
+        "slug": "manfred",
         "base_url": base_url,
+        "runtime_source_revision": TEST_RUNTIME_REVISION,
         "require_public_origin": True,
         "reviewer": "unit reviewer",
         "manual_attestation": {
@@ -190,9 +199,13 @@ def test_memorial_gold_readiness_requires_meaningful_browser_receipt_by_default(
     assert default_payload["memorial_voice_gold_claim_allowed"] is False
 
     monkeypatch.setenv("MEMORIAL_DIAGNOSTIC_SKIP_MEANINGFUL_BROWSER_RECEIPT", "1")
-    assert readiness.main() == 0
+    assert readiness.main() == 1
     diagnostic_payload = json.loads(capsys.readouterr().out)
+    assert diagnostic_payload["status"] == "blocked"
     assert diagnostic_payload["public_meaningful_browser_diagnostic_override"] is True
+    assert diagnostic_payload["public_meaningful_browser_gold_issues"] == [
+        "meaningful_browser_receipt_skipped_for_diagnostic_only"
+    ]
     assert diagnostic_payload["memorial_voice_gold_claim_allowed"] is False
 
 
@@ -236,6 +249,223 @@ def test_memorial_gold_readiness_blocks_browser_stub_stt_receipt(tmp_path: Path,
     monkeypatch.setattr(readiness, "_git_head", lambda: "HEAD")
 
     assert readiness.main() == 1
+
+
+@pytest.mark.parametrize(
+    "origin_url",
+    [
+        "http://memorial.example.test",
+        "https://127.0.0.1:8090",
+        "https://192.168.1.20",
+        "https://0.0.0.0:8090",
+        "https://user:password@memorial.example.test",
+        "https://memorial.example.test/path",
+    ],
+)
+def test_memorial_gold_readiness_rejects_non_public_https_voice_origins(
+    origin_url: str,
+) -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    issues = readiness._check_receipt(
+        _voice_receipt(base_url=origin_url),
+        current_head="HEAD",
+        current_fingerprint="unit-source-state",
+        public_required=True,
+        direct_min_f1=0.92,
+        conversation_min_f1=0.90,
+    )
+
+    assert "public_origin_must_be_nonlocal_https" in issues
+
+
+@pytest.mark.parametrize(
+    "origin_url",
+    (
+        "https://memorial.example.test",
+        "https://memorial.internal",
+        "https://memorial.local",
+        "https://localhost",
+    ),
+)
+def test_memorial_gold_readiness_rejects_reserved_hostnames_without_dns(
+    monkeypatch: pytest.MonkeyPatch,
+    origin_url: str,
+) -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    monkeypatch.setattr(
+        readiness.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: pytest.fail(
+            "reserved hostnames must be rejected before DNS resolution"
+        ),
+    )
+
+    assert readiness._is_https_public_origin(origin_url) is False
+
+
+def test_memorial_gold_readiness_rejects_any_private_dns_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    monkeypatch.setattr(
+        readiness.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (
+                readiness.socket.AF_INET,
+                readiness.socket.SOCK_STREAM,
+                6,
+                "",
+                ("93.184.216.34", 0),
+            ),
+            (
+                readiness.socket.AF_INET6,
+                readiness.socket.SOCK_STREAM,
+                6,
+                "",
+                ("fd00::23", 0, 0, 0),
+            ),
+        ],
+    )
+
+    assert (
+        readiness._is_https_public_origin(
+            "https://memorial.public-origin.example.at"
+        )
+        is False
+    )
+
+
+def test_memorial_gold_readiness_fails_closed_on_dns_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    def fail_resolution(*_args, **_kwargs):
+        raise readiness.socket.gaierror("unit DNS failure")
+
+    monkeypatch.setattr(readiness.socket, "getaddrinfo", fail_resolution)
+
+    assert (
+        readiness._is_https_public_origin(
+            "https://memorial.public-origin.example.at"
+        )
+        is False
+    )
+
+
+def test_memorial_gold_readiness_accepts_global_literal_and_global_dns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    monkeypatch.setattr(
+        readiness.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (
+                readiness.socket.AF_INET,
+                readiness.socket.SOCK_STREAM,
+                6,
+                "",
+                ("93.184.216.34", 0),
+            )
+        ],
+    )
+
+    assert readiness._is_https_public_origin("https://8.8.8.8") is True
+    assert (
+        readiness._is_https_public_origin(
+            "https://memorial.public-origin.example.at"
+        )
+        is True
+    )
+
+
+def test_memorial_gold_readiness_handles_malformed_room_receipt_fields() -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    receipt = _room_receipt()
+    receipt["manual_attestation"] = ["not", "an", "object"]
+    receipt["checks"] = "not-an-object"
+
+    issues = readiness._check_room_receipt(
+        receipt,
+        current_head="HEAD",
+        current_fingerprint="unit-source-state",
+    )
+
+    assert "room_manual_attestation_invalid" in issues
+    assert "room_checks_invalid" in issues
+    assert "room_manual_attestation_id_missing" in issues
+    assert "room_actual_device_checked_missing" in issues
+
+
+def test_memorial_gold_readiness_handles_malformed_browser_latency() -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    receipt = _browser_receipt()
+    receipt["first_answer_ms"] = "not-a-number"
+
+    issues = readiness._check_browser_receipt(
+        receipt,
+        current_head="HEAD",
+        current_fingerprint="unit-source-state",
+        max_first_answer_ms=4500,
+    )
+
+    assert "browser_first_answer_ms_invalid" in issues
+
+
+def test_memorial_gold_readiness_binds_public_receipts_to_one_runtime() -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    receipts = {
+        "public_voice": _voice_receipt(),
+        "public_browser": _browser_receipt(),
+        "meaningful_browser": _browser_receipt(mode="text_prompt"),
+        "room_audio": _room_receipt(),
+    }
+
+    assert (
+        readiness._receipt_set_binding_issues(
+            receipts,
+            expected_slug="manfred",
+            current_head="HEAD",
+        )
+        == []
+    )
+
+
+def test_memorial_gold_readiness_rejects_mixed_runtime_receipt_set() -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    public_browser = _browser_receipt(base_url="https://1.1.1.1")
+    public_browser["runtime_source_revision"] = "b" * 40
+    meaningful_browser = _browser_receipt(mode="text_prompt")
+    meaningful_browser["slug"] = "another-memorial"
+    room = _room_receipt()
+    room.pop("runtime_source_revision")
+    receipts = {
+        "public_voice": _voice_receipt(),
+        "public_browser": public_browser,
+        "meaningful_browser": meaningful_browser,
+        "room_audio": room,
+    }
+
+    issues = readiness._receipt_set_binding_issues(
+        receipts,
+        expected_slug="manfred",
+        current_head="HEAD",
+    )
+
+    assert "receipt_set_meaningful_browser_slug_mismatch" in issues
+    assert "receipt_set_room_audio_runtime_revision_missing_or_invalid" in issues
+    assert "receipt_set_origin_mismatch" in issues
+    assert "receipt_set_runtime_revision_mismatch" in issues
 
 
 def test_memorial_gold_readiness_requires_room_audio_receipt(tmp_path: Path, monkeypatch) -> None:

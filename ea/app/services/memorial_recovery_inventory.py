@@ -28,7 +28,7 @@ from app.services.memorial_paths import (
 )
 
 
-INVENTORY_SCHEMA = "ea.memorial_flagship_recovery_inventory.v2"
+INVENTORY_SCHEMA = "ea.memorial_flagship_recovery_inventory.v3"
 REFERENCE_SCHEMA = "ea.memorial_flagship_recovery_references.v2"
 _MAX_INVENTORY_BYTES = 512 * 1024 * 1024
 _MAX_MEDIA_FILE_BYTES = 128 * 1024 * 1024
@@ -681,6 +681,54 @@ def _consent_voice_references(*, slug: str, private_root: Path) -> dict[str, obj
     return {"tts_voice": tts_reference, "voice_profile": voice_reference}
 
 
+def _validate_family_takedown_payload(
+    payload: dict[str, object], *, slug: str
+) -> list[dict[str, object]]:
+    if (
+        set(payload) != {"schema", "slug", "generated_at", "takedowns"}
+        or payload.get("schema") != family_contributions.TAKEDOWN_SCHEMA
+        or payload.get("slug") != slug
+        or not isinstance(payload.get("generated_at"), str)
+        or len(str(payload.get("generated_at") or "")) > 200
+    ):
+        raise ValueError("memorial_recovery_inventory_family_takedown_invalid")
+    rows = payload.get("takedowns")
+    if (
+        not isinstance(rows, list)
+        or len(rows) > family_contributions.MAX_CONTRIBUTIONS
+        or any(not isinstance(row, dict) for row in rows)
+    ):
+        raise ValueError("memorial_recovery_inventory_family_takedown_invalid")
+    normalized: list[dict[str, object]] = []
+    seen_ids: set[str] = set()
+    allowed_statuses = {"correction_pending", "rejected", "unpublished", "withdrawn"}
+    for raw_row in rows:
+        row = dict(raw_row)
+        if set(row) != {"contribution_id", "status", "recorded_at", "updated_at"}:
+            raise ValueError("memorial_recovery_inventory_family_takedown_invalid")
+        contribution_id = str(row.get("contribution_id") or "")
+        status_value = str(row.get("status") or "")
+        recorded_at = str(row.get("recorded_at") or "")
+        updated_at = str(row.get("updated_at") or "")
+        if (
+            re.fullmatch(r"[A-Za-z0-9_-]{1,128}", contribution_id) is None
+            or contribution_id in seen_ids
+            or status_value not in allowed_statuses
+            or not recorded_at
+            or len(recorded_at) > 80
+            or not updated_at
+            or len(updated_at) > 80
+        ):
+            raise ValueError("memorial_recovery_inventory_family_takedown_invalid")
+        seen_ids.add(contribution_id)
+        normalized.append(row)
+    if normalized != sorted(
+        normalized, key=lambda row: str(row.get("contribution_id") or "")
+    ):
+        raise ValueError("memorial_recovery_inventory_family_takedown_invalid")
+    return normalized
+
+
 def _family_contribution_state(
     *, slug: str, public_contribution_root: Path, private_contribution_root: Path
 ) -> dict[str, object]:
@@ -692,8 +740,13 @@ def _family_contribution_state(
         public_contribution_root,
         public_contribution_root / slug / family_contributions.PUBLIC_FILENAME,
     )
+    takedown_path = _contained(
+        public_contribution_root,
+        public_contribution_root / slug / family_contributions.TAKEDOWN_FILENAME,
+    )
     private_payload: dict[str, object] | None = None
     public_payload: dict[str, object] | None = None
+    takedown_payload: dict[str, object] | None = None
     if private_path.exists():
         private_payload, _document = _read_json(private_path)
         rows = private_payload.get("contributions")
@@ -707,11 +760,26 @@ def _family_contribution_state(
             raise ValueError("memorial_recovery_inventory_family_private_invalid")
     if public_path.exists():
         public_payload, _document = _read_json(public_path)
-    if public_payload is not None and private_payload is None:
+    if takedown_path.exists():
+        takedown_payload, _document = _read_json(takedown_path)
+        _validate_family_takedown_payload(takedown_payload, slug=slug)
+    if (
+        public_payload is not None or takedown_payload is not None
+    ) and private_payload is None:
         raise ValueError("memorial_recovery_inventory_family_private_missing")
     if private_payload is not None:
+        records = [dict(row) for row in private_payload["contributions"]]
+        blocked_ids = {
+            str(row.get("contribution_id") or "")
+            for row in list((takedown_payload or {}).get("takedowns") or [])
+            if isinstance(row, dict)
+        }
         expected_cards = family_contributions._public_projection_rows(  # noqa: SLF001
-            [dict(row) for row in private_payload["contributions"]]
+            records,
+            blocked_ids=blocked_ids,
+        )
+        stale_but_tombstoned_cards = family_contributions._public_projection_rows(  # noqa: SLF001
+            records
         )
         if public_payload is None and expected_cards:
             raise ValueError("memorial_recovery_inventory_family_public_missing")
@@ -721,7 +789,12 @@ def _family_contribution_state(
             or public_payload.get("slug") != slug
             or not isinstance(public_payload.get("generated_at"), str)
             or len(str(public_payload.get("generated_at") or "")) > 200
-            or public_payload.get("memory_cards") != expected_cards
+            or public_payload.get("memory_cards")
+            not in (
+                [expected_cards, stale_but_tombstoned_cards]
+                if takedown_payload is not None
+                else [expected_cards]
+            )
         ):
             raise ValueError("memorial_recovery_inventory_family_public_mismatch")
     return {
@@ -739,6 +812,13 @@ def _family_contribution_state(
         if public_payload is not None
         else "",
         "public_payload": public_payload,
+        "takedown_present": takedown_payload is not None,
+        "takedown_sha256": hashlib.sha256(
+            _canonical_json_bytes(takedown_payload)
+        ).hexdigest()
+        if takedown_payload is not None
+        else "",
+        "takedown_payload": takedown_payload,
     }
 
 
@@ -1033,9 +1113,12 @@ def _validate_inventory_payload(
         "public_present",
         "public_sha256",
         "public_payload",
+        "takedown_present",
+        "takedown_sha256",
+        "takedown_payload",
     }:
         raise ValueError("memorial_recovery_inventory_family_invalid")
-    for scope in ("private", "public"):
+    for scope in ("private", "public", "takedown"):
         present = state[f"{scope}_present"]
         digest = state[f"{scope}_sha256"]
         value = state[f"{scope}_payload"]
@@ -1051,8 +1134,21 @@ def _validate_inventory_payload(
             )
         ):
             raise ValueError("memorial_recovery_inventory_family_digest_mismatch")
-    if state["public_present"] and not state["private_present"]:
+    if (
+        state["public_present"] or state["takedown_present"]
+    ) and not state["private_present"]:
         raise ValueError("memorial_recovery_inventory_family_private_missing")
+    blocked_ids: set[str] = set()
+    if state["takedown_present"]:
+        takedown_payload = state["takedown_payload"]
+        assert isinstance(takedown_payload, dict)
+        takedown_rows = _validate_family_takedown_payload(
+            takedown_payload,
+            slug=expected_slug,
+        )
+        blocked_ids = {
+            str(row.get("contribution_id") or "") for row in takedown_rows
+        }
     if state["private_present"]:
         private_payload = state["private_payload"]
         assert isinstance(private_payload, dict)
@@ -1065,8 +1161,13 @@ def _validate_inventory_payload(
             or any(not isinstance(row, dict) for row in rows)
         ):
             raise ValueError("memorial_recovery_inventory_family_private_invalid")
+        records = [dict(row) for row in rows]
         expected_cards = family_contributions._public_projection_rows(
-            [dict(row) for row in rows]
+            records,
+            blocked_ids=blocked_ids,
+        )  # noqa: SLF001
+        stale_but_tombstoned_cards = family_contributions._public_projection_rows(
+            records
         )  # noqa: SLF001
         if expected_cards and not state["public_present"]:
             raise ValueError("memorial_recovery_inventory_family_public_missing")
@@ -1080,7 +1181,12 @@ def _validate_inventory_payload(
                 or public_payload.get("slug") != expected_slug
                 or not isinstance(public_payload.get("generated_at"), str)
                 or len(str(public_payload.get("generated_at") or "")) > 200
-                or public_payload.get("memory_cards") != expected_cards
+                or public_payload.get("memory_cards")
+                not in (
+                    [expected_cards, stale_but_tombstoned_cards]
+                    if state["takedown_present"]
+                    else [expected_cards]
+                )
             ):
                 raise ValueError("memorial_recovery_inventory_family_public_mismatch")
     return payload
@@ -1240,6 +1346,9 @@ def materialize_memorial_recovery_inventory(
         "family_public_present": bool(
             payload["family_contributions"]["public_present"]
         ),
+        "family_takedown_present": bool(
+            payload["family_contributions"]["takedown_present"]
+        ),
         "private_file_mode": "0600",
         "canonical_publication_state_included": False,
         "private_media_publication_performed": False,
@@ -1300,6 +1409,7 @@ def verify_memorial_recovery_inventory(
         "private_context_present": bool(payload["private_context"]["present"]),
         "family_private_present": bool(family["private_present"]),
         "family_public_present": bool(family["public_present"]),
+        "family_takedown_present": bool(family["takedown_present"]),
         "contribution_sources_verified": contribution_sources_verified,
         "canonical_publication_state_included": False,
         "private_media_publication_performed": False,
@@ -1394,6 +1504,22 @@ def _restore_writes(
         )
     )
     state = payload["family_contributions"]
+    # Restore the public-safe takedown authority before either ledger or
+    # projection so a live merge can never expose a stale public card.
+    if state["takedown_present"]:
+        writes.append(
+            (
+                _contained(
+                    public_contribution_root,
+                    public_contribution_root
+                    / slug
+                    / family_contributions.TAKEDOWN_FILENAME,
+                ),
+                _canonical_json_bytes(state["takedown_payload"]) + b"\n",
+                0o644,
+                public_contribution_root,
+            )
+        )
     if state["private_present"]:
         writes.append(
             (
@@ -1435,6 +1561,7 @@ def _restore_content_matches(*, path: Path, current: bytes, expected: bytes) -> 
     family_names = {
         family_contributions.PRIVATE_FILENAME,
         family_contributions.PUBLIC_FILENAME,
+        family_contributions.TAKEDOWN_FILENAME,
     }
     if path.name in family_names:
         current = _canonical_json_bytes(_decode_json_bytes(current))
@@ -1501,6 +1628,7 @@ def restore_memorial_recovery_inventory(
         if path.name in {
             family_contributions.PRIVATE_FILENAME,
             family_contributions.PUBLIC_FILENAME,
+            family_contributions.TAKEDOWN_FILENAME,
         }:
             read_limit = max(read_limit, _MAX_JSON_FILE_BYTES)
         try:
@@ -1530,6 +1658,9 @@ def restore_memorial_recovery_inventory(
         "atomic_file_writes": True,
         "idempotent_merge": True,
         "private_context_present": bool(payload["private_context"]["present"]),
+        "family_takedown_present": bool(
+            payload["family_contributions"]["takedown_present"]
+        ),
         "canonical_publication_state_restored": False,
         "private_media_published": False,
     }

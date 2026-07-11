@@ -85,9 +85,12 @@ def _write_public_archive_registry(
 def _write_private_voice_consent(private_root: Path, consent: object) -> None:
     profile = private_root / "manfred"
     profile.mkdir(parents=True, exist_ok=True)
-    (profile / "tts_voice.json").write_text(
+    profile.chmod(0o700)
+    path = profile / "tts_voice.json"
+    path.write_text(
         json.dumps({"voice_consent": consent}), encoding="utf-8"
     )
+    path.chmod(0o600)
 
 
 def _write_private_context(private_root: Path) -> None:
@@ -232,7 +235,9 @@ def test_preflight_detects_public_manifest_tokens(monkeypatch, tmp_path) -> None
     )
     private_root = tmp_path / "private"
     (private_root / "manfred").mkdir(parents=True)
-    (private_root / "manfred" / "tts_voice.json").write_text(
+    (private_root / "manfred").chmod(0o700)
+    voice_path = private_root / "manfred" / "tts_voice.json"
+    voice_path.write_text(
         json.dumps(
             {
                 "voice_consent": {
@@ -244,6 +249,7 @@ def test_preflight_detects_public_manifest_tokens(monkeypatch, tmp_path) -> None
         ),
         encoding="utf-8",
     )
+    voice_path.chmod(0o600)
 
     monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
     monkeypatch.setattr(preflight, "private_profile_root", lambda: private_root)
@@ -256,7 +262,7 @@ def test_preflight_detects_public_manifest_tokens(monkeypatch, tmp_path) -> None
     )
 
 
-def test_preflight_passes_explicit_consent_and_public_registry(
+def test_preflight_rejects_unreferenced_family_publication_in_public_registry(
     monkeypatch, tmp_path
 ) -> None:
     import scripts.memorial_flagship_preflight as preflight
@@ -335,7 +341,7 @@ def test_preflight_passes_explicit_consent_and_public_registry(
         for item in report.findings
     )
     assert any(
-        item.code == "archive_registry_public_only" and item.status == "pass"
+        item.code == "archive_registry_not_public" and item.status == "fail"
         for item in report.findings
     )
     assert any(
@@ -387,6 +393,133 @@ def test_preflight_private_voice_consent_is_authoritative(
     )
     assert finding.status == "fail"
     assert finding.detail == {}
+    assert not any(item.code == "voice_consent_ok" for item in report.findings)
+
+
+@pytest.mark.parametrize(
+    ("file_mode", "profile_mode"),
+    [
+        (0o640, 0o700),
+        (0o600, 0o750),
+        (0o200, 0o700),
+        (0o600, 0o600),
+    ],
+)
+def test_preflight_rejects_broad_private_voice_profile_permissions(
+    monkeypatch, tmp_path, file_mode, profile_mode
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    bundle.mkdir(parents=True)
+    (bundle / "memorial.json").write_text(
+        json.dumps({"slug": "manfred"}), encoding="utf-8"
+    )
+    _write_public_archive_registry(bundle)
+    private_root = tmp_path / "private"
+    _write_private_voice_consent(
+        private_root,
+        {
+            "status": "approved",
+            "scope": ["synthesize", "conversation_turn", "realtime"],
+            "revoked": False,
+        },
+    )
+    profile = private_root / "manfred"
+    (profile / "tts_voice.json").chmod(file_mode)
+    profile.chmod(profile_mode)
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+    monkeypatch.setattr(preflight, "private_profile_root", lambda: private_root)
+
+    report = preflight.Report(slug="manfred")
+    preflight.check_filesystem("manfred", report)
+    profile.chmod(0o700)
+
+    finding = next(
+        item for item in report.findings if item.code == "voice_profile_security_invalid"
+    )
+    assert finding.status == "fail"
+    assert not any(item.code == "voice_consent_ok" for item in report.findings)
+
+
+def test_preflight_rejects_private_voice_profile_owner_mismatch(
+    monkeypatch, tmp_path
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    bundle.mkdir(parents=True)
+    (bundle / "memorial.json").write_text(
+        json.dumps({"slug": "manfred"}), encoding="utf-8"
+    )
+    _write_public_archive_registry(bundle)
+    private_root = tmp_path / "private"
+    _write_private_voice_consent(
+        private_root,
+        {
+            "status": "approved",
+            "scope": ["synthesize", "conversation_turn", "realtime"],
+            "revoked": False,
+        },
+    )
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+    monkeypatch.setattr(preflight, "private_profile_root", lambda: private_root)
+    actual_uid = preflight.os.geteuid()
+    monkeypatch.setattr(preflight.os, "geteuid", lambda: actual_uid + 1)
+
+    report = preflight.Report(slug="manfred")
+    preflight.check_filesystem("manfred", report)
+
+    finding = next(
+        item for item in report.findings if item.code == "voice_profile_security_invalid"
+    )
+    assert finding.status == "fail"
+    assert finding.detail["profile_owner_ok"] is False
+
+
+def test_preflight_rejects_symlinked_private_voice_profile(
+    monkeypatch, tmp_path
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    bundle.mkdir(parents=True)
+    (bundle / "memorial.json").write_text(
+        json.dumps({"slug": "manfred"}), encoding="utf-8"
+    )
+    _write_public_archive_registry(bundle)
+    private_root = tmp_path / "private"
+    profile = private_root / "manfred"
+    profile.mkdir(parents=True)
+    profile.chmod(0o700)
+    outside = tmp_path / "outside-voice.json"
+    outside.write_text(
+        json.dumps(
+            {
+                "voice_consent": {
+                    "status": "approved",
+                    "scope": ["synthesize", "conversation_turn", "realtime"],
+                    "revoked": False,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    outside.chmod(0o600)
+    (profile / "tts_voice.json").symlink_to(outside)
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+    monkeypatch.setattr(preflight, "private_profile_root", lambda: private_root)
+
+    report = preflight.Report(slug="manfred")
+    preflight.check_filesystem("manfred", report)
+
+    assert any(
+        item.status == "fail" and item.code == "voice_profile_security_invalid"
+        for item in report.findings
+    )
     assert not any(item.code == "voice_consent_ok" for item in report.findings)
 
 
@@ -476,7 +609,10 @@ def test_preflight_fails_invalid_private_consent_without_public_fallback(
     private_root = tmp_path / "private"
     profile = private_root / "manfred"
     profile.mkdir(parents=True)
-    (profile / "tts_voice.json").write_text("{not-json", encoding="utf-8")
+    profile.chmod(0o700)
+    voice_path = profile / "tts_voice.json"
+    voice_path.write_text("{not-json", encoding="utf-8")
+    voice_path.chmod(0o600)
     monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
     monkeypatch.setattr(preflight, "private_profile_root", lambda: private_root)
 
@@ -1447,7 +1583,7 @@ def test_preflight_live_tts_override_must_fail_closed(monkeypatch) -> None:
         if item.code == "live_public_tts_override_rejection_failed"
     )
     assert report.failed is True
-    assert failure.detail == {"http_status": 500}
+    assert failure.detail == {"http_status": 500, "field": "voice_name"}
 
 
 def test_preflight_http_request_returns_zero_for_transport_failure(monkeypatch) -> None:
@@ -1481,12 +1617,277 @@ def test_preflight_live_transport_failures_are_structured_findings(monkeypatch) 
         item for item in report.findings if item.code == "live_endpoint_request_failed"
     ]
     assert report.failed is True
-    assert len(failures) == 6
+    assert len(failures) == 7
     assert {item.detail["route"] for item in failures} == {
         "raw_manifest",
         "public_json",
         "public_page",
         "voice_config",
         "archive_json",
-        "speech_synthesize_override_probe",
+        "speech_synthesize_voice_name_override_probe",
+        "speech_synthesize_tts_plugin_voice_id_override_probe",
     }
+
+
+def test_preflight_live_requires_raw_manifest_exactly_404(monkeypatch) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    def fake_http_request(
+        url: str, *, method: str = "GET", body: bytes | None = None, headers=None
+    ):
+        if "/files/" in url:
+            return 403, ""
+        if url.endswith("/speech-synthesize"):
+            return 400, '{"error":{"code":"unsupported_public_tts_fields"}}'
+        if url.endswith("/voice-config") or url.endswith(".json"):
+            return 200, "{}"
+        return 200, "<html></html>"
+
+    monkeypatch.setattr(preflight, "http_request", fake_http_request)
+    report = preflight.Report(slug="manfred")
+
+    preflight.check_live("manfred", report, "https://example.test")
+
+    finding = next(
+        item
+        for item in report.findings
+        if item.code == "live_raw_manifest_access_policy_failed"
+    )
+    assert finding.status == "fail"
+    assert finding.detail == {"http_status": 403}
+    assert not any(item.code == "live_raw_manifest_not_public" for item in report.findings)
+
+
+def test_preflight_live_probes_both_public_tts_override_fields(monkeypatch) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    probed_fields: list[str] = []
+
+    def fake_http_request(
+        url: str, *, method: str = "GET", body: bytes | None = None, headers=None
+    ):
+        if url.endswith("/speech-synthesize"):
+            assert method == "POST"
+            payload = json.loads((body or b"{}").decode("utf-8"))
+            probed_fields.extend(payload)
+            return 400, '{"error":{"code":"unsupported_public_tts_fields"}}'
+        if "/files/" in url:
+            return 404, ""
+        if url.endswith("/voice-config") or url.endswith(".json"):
+            return 200, "{}"
+        return 200, "<html></html>"
+
+    monkeypatch.setattr(preflight, "http_request", fake_http_request)
+    report = preflight.Report(slug="manfred")
+
+    preflight.check_live("manfred", report, "https://example.test")
+
+    assert probed_fields == ["voice_name", "tts_plugin_voice_id"]
+    finding = next(
+        item for item in report.findings if item.code == "live_public_tts_rejects_override"
+    )
+    assert finding.detail == {"fields": ["tts_plugin_voice_id", "voice_name"]}
+
+
+def test_preflight_live_rejects_sensitive_fields_in_public_payloads(monkeypatch) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    def fake_http_request(
+        url: str, *, method: str = "GET", body: bytes | None = None, headers=None
+    ):
+        if url.endswith("/speech-synthesize"):
+            return 400, '{"error":{"code":"unsupported_public_tts_fields"}}'
+        if "/files/" in url:
+            return 404, ""
+        if url.endswith("/voice-config"):
+            return 200, json.dumps({"nested": {"tts_plugin_voice_id": "must-not-escape"}})
+        if url.endswith("/manfred.json"):
+            return 200, json.dumps(
+                {
+                    "metadata": {"write_token": "must-not-escape"},
+                    "candidate_recordings": [{"asset": "private.wav"}],
+                }
+            )
+        if url.endswith("/archive.json"):
+            return 200, "{}"
+        return 200, "<html></html>"
+
+    monkeypatch.setattr(preflight, "http_request", fake_http_request)
+    report = preflight.Report(slug="manfred")
+
+    preflight.check_live("manfred", report, "https://example.test")
+
+    findings = [
+        item for item in report.findings if item.code == "live_public_payload_forbidden_fields"
+    ]
+    assert [(item.detail["route"], item.detail["fields"]) for item in findings] == [
+        (
+            "public_json",
+            ["$.metadata.write_token", "$.candidate_recordings"],
+        ),
+        ("voice_config", ["$.nested.tts_plugin_voice_id"]),
+    ]
+
+
+def test_preflight_live_rejects_nested_sensitive_field_in_public_archive(
+    monkeypatch,
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    archive_payload = {
+        "archive_sections": [
+            {
+                "audience": "public",
+                "items": ["public-document"],
+            }
+        ],
+        "fliplink_publications": [
+            {
+                "id": "public-document",
+                "audience": "public",
+                "review_status": "published",
+                "url": "https://archive.example/public-document",
+                "provider_metadata": {
+                    "access_token": "must-not-escape",
+                },
+            }
+        ],
+    }
+
+    def fake_http_request(
+        url: str, *, method: str = "GET", body: bytes | None = None, headers=None
+    ):
+        if url.endswith("/speech-synthesize"):
+            return 400, '{"error":{"code":"unsupported_public_tts_fields"}}'
+        if "/files/" in url:
+            return 404, ""
+        if url.endswith("/manfred.json") or url.endswith("/voice-config"):
+            return 200, "{}"
+        if url.endswith("/archive.json"):
+            return 200, json.dumps(archive_payload)
+        return 200, "<html></html>"
+
+    monkeypatch.setattr(preflight, "http_request", fake_http_request)
+    report = preflight.Report(slug="manfred")
+
+    preflight.check_live("manfred", report, "https://example.test")
+
+    finding = next(
+        item
+        for item in report.findings
+        if item.code == "live_public_payload_forbidden_fields"
+    )
+    assert finding.status == "fail"
+    assert finding.detail == {
+        "route": "archive_json",
+        "fields": [
+            "$.fliplink_publications[0].provider_metadata.access_token"
+        ],
+        "omitted_count": 0,
+    }
+
+
+def test_preflight_live_rejects_family_items_in_public_archive_projection(monkeypatch) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_payload = {
+        "memory_cards": [
+            {"body": "[stark redigiert] Familie", "title": "Schach"}
+        ],
+        "external_sources": [{"url": "https://sources.example/manfred"}],
+        "suggested_prompts": ["Was ist belegt?"],
+    }
+    archive_payload = {
+        "fliplink_publications": [
+            {
+                "id": "family-only",
+                "audience": "family",
+                "review_status": "published",
+                "url": "https://archive.example/family",
+            }
+        ]
+    }
+
+    def fake_http_request(
+        url: str, *, method: str = "GET", body: bytes | None = None, headers=None
+    ):
+        if url.endswith("/speech-synthesize"):
+            return 400, '{"error":{"code":"unsupported_public_tts_fields"}}'
+        if "/files/" in url:
+            return 404, ""
+        if url.endswith("/manfred.json"):
+            return 200, json.dumps(public_payload)
+        if url.endswith("/voice-config"):
+            return 200, "{}"
+        if url.endswith("/archive.json"):
+            return 200, json.dumps(archive_payload)
+        return 200, "<html></html>"
+
+    monkeypatch.setattr(preflight, "http_request", fake_http_request)
+    report = preflight.Report(slug="manfred")
+
+    preflight.check_live("manfred", report, "https://example.test")
+
+    finding = next(
+        item
+        for item in report.findings
+        if item.code == "live_archive_projection_contains_nonpublic_items"
+    )
+    assert finding.status == "fail"
+    assert finding.detail == {
+        "nonpublic_item_count": 1,
+        "unapproved_publication_count": 0,
+    }
+
+
+def test_preflight_rejects_malformed_joggai_receipt_without_crashing(
+    monkeypatch, tmp_path
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    (bundle / "receipts").mkdir(parents=True)
+    (bundle / "receipts" / "bad.json").write_text("{not-json", encoding="utf-8")
+    (bundle / "video.mp4").write_bytes(b"video")
+    (bundle / "memorial.json").write_text(
+        json.dumps(
+            {
+                "voice_consent": {
+                    "status": "approved",
+                    "scope": ["synthesize", "conversation_turn", "realtime"],
+                    "revoked": False,
+                },
+                "public_documents": [
+                    {
+                        "provider": "joggai",
+                        "asset_relpath": "video.mp4",
+                        "receipt_relpath": "receipts/bad.json",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+
+    report = preflight.Report(slug="manfred")
+    preflight.check_filesystem("manfred", report)
+
+    assert any(
+        item.status == "fail" and item.code == "joggai_public_asset_receipt_invalid"
+        for item in report.findings
+    )
+
+
+def test_preflight_rejects_unsafe_slug_before_filesystem_access(monkeypatch, tmp_path) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: tmp_path)
+    report = preflight.Report(slug="../private")
+
+    preflight.check_filesystem("../private", report)
+
+    assert [(item.status, item.code) for item in report.findings] == [
+        ("fail", "slug_invalid")
+    ]

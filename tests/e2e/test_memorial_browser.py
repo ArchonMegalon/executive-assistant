@@ -504,6 +504,19 @@ def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
 
         assert page.locator("header + main#memorial-story").count() == 1
         assert page.locator("main#memorial-story + aside#memorial-conversation-region").count() == 1
+        for viewport in ({"width": 1440, "height": 1100}, {"width": 390, "height": 844}):
+            page.set_viewport_size(viewport)
+            story_box = page.locator("main#memorial-story").bounding_box()
+            conversation_box = page.locator(
+                "aside#memorial-conversation-region"
+            ).bounding_box()
+            assert story_box is not None
+            assert conversation_box is not None
+            assert page.locator("aside#memorial-conversation-region").evaluate(
+                "element => getComputedStyle(element).position"
+            ) not in {"fixed", "sticky"}
+            assert conversation_box["y"] >= story_box["y"] + story_box["height"] - 1
+        page.set_viewport_size({"width": 1440, "height": 1100})
         assert page.locator("main#memorial-story").get_attribute("tabindex") == "-1"
         assert page.locator("aside#memorial-conversation-region").get_attribute("tabindex") == "-1"
         assert page.locator("aside#memorial-conversation-region").get_attribute("aria-label") == "Gespräch mit Manfred Hoza"

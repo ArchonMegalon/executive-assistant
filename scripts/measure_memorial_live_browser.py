@@ -4,17 +4,20 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import ipaddress
 import json
 import io
 import math
 import os
 import re
 import shutil
+import socket
 import struct
 import subprocess
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import wave
 from contextlib import contextmanager
@@ -199,6 +202,91 @@ def _is_local_base_url(value: str) -> bool:
     return any(marker in lowered for marker in ("://127.0.0.1", "://localhost", "://0.0.0.0", "://[::1]"))
 
 
+_RESERVED_PUBLIC_HOST_SUFFIXES = frozenset(
+    {
+        "alt",
+        "arpa",
+        "example",
+        "example.com",
+        "example.net",
+        "example.org",
+        "home.arpa",
+        "internal",
+        "invalid",
+        "lan",
+        "local",
+        "localdomain",
+        "localhost",
+        "onion",
+        "test",
+    }
+)
+
+
+def _dns_host_resolves_globally(hostname: str) -> bool:
+    try:
+        canonical = hostname.encode("idna").decode("ascii").rstrip(".").lower()
+    except UnicodeError:
+        return False
+    if not canonical or "." not in canonical or any(
+        canonical == suffix or canonical.endswith(f".{suffix}")
+        for suffix in _RESERVED_PUBLIC_HOST_SUFFIXES
+    ):
+        return False
+    try:
+        records = socket.getaddrinfo(
+            canonical,
+            None,
+            family=socket.AF_UNSPEC,
+            type=socket.SOCK_STREAM,
+        )
+    except OSError:
+        return False
+    addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
+    try:
+        for family, _socket_type, _protocol, _canonical_name, sockaddr in records:
+            if family not in {socket.AF_INET, socket.AF_INET6}:
+                continue
+            addresses.add(ipaddress.ip_address(str(sockaddr[0]).split("%", 1)[0]))
+    except (IndexError, TypeError, ValueError):
+        return False
+    return bool(addresses) and all(address.is_global for address in addresses)
+
+
+def _public_hostname_allowed(hostname: str) -> bool:
+    if not hostname or "%" in hostname:
+        return False
+    try:
+        return ipaddress.ip_address(hostname).is_global
+    except ValueError:
+        return _dns_host_resolves_globally(hostname)
+
+
+def _is_https_public_origin(value: str) -> bool:
+    try:
+        parsed = urllib.parse.urlsplit(str(value or "").strip())
+    except ValueError:
+        return False
+    hostname = str(parsed.hostname or "").rstrip(".").lower()
+    return bool(
+        parsed.scheme.lower() == "https"
+        and hostname
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.query
+        and not parsed.fragment
+        and parsed.path in {"", "/"}
+        and _public_hostname_allowed(hostname)
+    )
+
+
+def _is_source_revision(value: object) -> bool:
+    text = str(value or "").strip()
+    return len(text) == 40 and text == text.lower() and all(
+        character in "0123456789abcdef" for character in text
+    )
+
+
 def _http_json(url: str, *, method: str = "GET", payload: dict[str, object] | None = None, timeout: float = 20.0) -> tuple[int, dict[str, object]]:
     body = None
     headers = {
@@ -378,28 +466,28 @@ def _prompt_wav_bytes_for_measure(base_url: str, slug: str, prompt_text: str) ->
 
 
 def _browser_audio_gate_init_script() -> str:
-    return f"""
-(() => {{
-  Object.defineProperty(window, "SpeechRecognition", {{ configurable: true, value: undefined }});
-  Object.defineProperty(window, "webkitSpeechRecognition", {{ configurable: true, value: undefined }});
-  window.__memorial_audio_gate = {{ play_calls: 0, play_ended: 0, last_error: "" }};
-  HTMLMediaElement.prototype.play = function play() {{
+    return """
+(() => {
+  Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: undefined });
+  Object.defineProperty(window, "webkitSpeechRecognition", { configurable: true, value: undefined });
+  window.__memorial_audio_gate = { play_calls: 0, play_ended: 0, last_error: "" };
+  HTMLMediaElement.prototype.play = function play() {
     window.__memorial_audio_gate.play_calls += 1;
-    return new Promise((resolve, reject) => {{
-      setTimeout(() => {{
-        if (!this.getAttribute("src")) {{
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        if (!this.getAttribute("src")) {
           window.__memorial_audio_gate.play_ended += 1;
           window.__memorial_audio_gate.last_error = "missing_audio_src";
           reject(new Error("missing_audio_src"));
           return;
-        }}
+        }
         window.__memorial_audio_gate.play_ended += 1;
         this.dispatchEvent(new Event("ended"));
         resolve();
-      }}, 1750);
-    }});
-  }};
-}})();
+      }, 1750);
+    });
+  };
+})();
 """
 
 
@@ -848,6 +936,9 @@ def _measure(
                 response = page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
                 if response is None or not response.ok:
                     raise SystemExit("page_load_failed")
+                runtime_source_revision = str(
+                    response.headers.get("x-ea-source-revision") or ""
+                ).strip()
                 try:
                     page.wait_for_load_state("networkidle", timeout=5000)
                 except Exception:
@@ -1159,6 +1250,7 @@ def _measure(
                 result = {
                     "base_url": base_url,
                     "slug": slug,
+                    "runtime_source_revision": runtime_source_revision,
                     "prompt_text": prompt_text,
                     "warmup_preflight": warmup_preflight,
                     "browser_launch_attempts": int(browser_launch_attempts),
@@ -1255,8 +1347,25 @@ def _with_exit_gate_status(
         add_reason("first_answer_too_slow")
     if not bool(result.get("answer_semantic_passed")):
         add_reason("answer_semantics_failed")
-    if require_public_origin and _is_local_base_url(str(result.get("base_url") or "")):
+    base_url = str(result.get("base_url") or "")
+    speech_transcribe_mode = str(result.get("speech_transcribe_mode") or "").strip().lower()
+    runtime_source_revision = str(
+        result.get("runtime_source_revision") or ""
+    ).strip()
+    if require_public_origin and not _is_https_public_origin(base_url):
         add_reason("public_origin_required")
+    if gold_mode and not require_public_origin:
+        add_reason("gold_requires_public_origin_flag")
+    if gold_mode and speech_transcribe_mode not in {"live", "text_prompt"}:
+        add_reason("gold_requires_real_stt")
+    if gold_mode and not _is_source_revision(runtime_source_revision):
+        add_reason("runtime_source_revision_missing_or_invalid")
+    elif (
+        gold_mode
+        and _is_source_revision(source_git_head)
+        and runtime_source_revision != source_git_head
+    ):
+        add_reason("runtime_source_revision_source_mismatch")
     if gold_mode and _git_dirty():
         add_reason("dirty_worktree")
 
@@ -1278,6 +1387,13 @@ def _with_exit_gate_status(
             "exit_gate": bool(exit_gate),
             "gold_mode": bool(gold_mode),
             "require_public_origin": bool(require_public_origin),
+            "launch_proof_scope": (
+                "real_public_microphone"
+                if gold_mode and speech_transcribe_mode == "live"
+                else "real_public_text_prompt"
+                if gold_mode and speech_transcribe_mode == "text_prompt"
+                else "local_or_diagnostic"
+            ),
             "max_first_answer_ms": float(max_first_answer_ms),
             "failed_codes": reasons,
             "gold_claim_allowed": bool(gold_mode) and not reasons,
@@ -1299,6 +1415,13 @@ def main() -> int:
     parser.add_argument("--require-public-origin", action="store_true", help="Fail gold/browser proof on localhost origins.")
     parser.add_argument("--max-first-answer-ms", type=float, default=0.0)
     args = parser.parse_args()
+
+    if args.gold_mode and not args.real_stt and not args.text_prompt:
+        parser.error("--gold-mode requires --real-stt")
+    if args.gold_mode and not args.require_public_origin:
+        parser.error("--gold-mode requires --require-public-origin")
+    if args.require_public_origin and not _is_https_public_origin(args.base_url):
+        parser.error("--require-public-origin requires a credential-free, non-loopback HTTPS origin")
 
     result = _measure(
         args.base_url,

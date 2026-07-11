@@ -10,12 +10,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urljoin, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 ROOT = Path(__file__).resolve().parents[1]
 EA_DIR = ROOT / "ea"
 EA_SCRIPTS = EA_DIR / "scripts"
 ROOT_SCRIPTS = ROOT / "scripts"
 DEFAULT_OUTPUT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
+RUNTIME_SOURCE_REVISION_FAILURE_CODE = "runtime_source_revision_unverified"
+RUNTIME_SOURCE_REVISION_HEADER = "X-EA-Source-Revision"
+RUNTIME_SOURCE_REVISION_MAX_BODY_BYTES = 1024 * 1024
+RUNTIME_SOURCE_REVISION_TIMEOUT_SECONDS = 5.0
 
 for import_root in (EA_SCRIPTS, EA_DIR, ROOT_SCRIPTS, ROOT):
     import_root_text = str(import_root)
@@ -124,6 +131,79 @@ def _is_local_base_url(base_url: str) -> bool:
     )
 
 
+def _validated_source_revision(value: object) -> str | None:
+    text = str(value or "")
+    if len(text) != 40 or any(character not in "0123456789abcdef" for character in text):
+        return None
+    return text
+
+
+def _url_origin(value: str) -> tuple[str, str, int] | None:
+    try:
+        parsed = urlsplit(str(value or ""))
+        port = parsed.port
+    except ValueError:
+        return None
+    scheme = parsed.scheme.lower()
+    hostname = (parsed.hostname or "").lower()
+    if scheme not in {"http", "https"} or not hostname or parsed.username or parsed.password:
+        return None
+    if port is None:
+        port = 443 if scheme == "https" else 80
+    return scheme, hostname, port
+
+
+class _SameOriginRedirectHandler(HTTPRedirectHandler):
+    def __init__(self, expected_origin: tuple[str, str, int]) -> None:
+        super().__init__()
+        self._expected_origin = expected_origin
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        redirect_url = urljoin(req.full_url, str(newurl or ""))
+        if _url_origin(redirect_url) != self._expected_origin:
+            raise URLError("runtime_source_revision_cross_origin_redirect")
+        return super().redirect_request(req, fp, code, msg, headers, redirect_url)
+
+
+def _probe_runtime_source_revision(*, base_url: str, slug: str) -> tuple[str | None, str | None]:
+    slug_text = str(slug or "").strip()
+    if not slug_text or len(slug_text) > 128:
+        return None, "request_invalid"
+    base_text = str(base_url or "").rstrip("/")
+    try:
+        base_parts = urlsplit(base_text)
+        endpoint = f"{base_text}/memorials/{quote(slug_text, safe='')}.json"
+    except (UnicodeError, ValueError):
+        return None, "request_invalid"
+    expected_origin = _url_origin(endpoint)
+    if expected_origin is None or base_parts.query or base_parts.fragment:
+        return None, "request_invalid"
+    try:
+        request = Request(endpoint, headers={"Accept": "application/json"}, method="GET")
+        opener = build_opener(_SameOriginRedirectHandler(expected_origin))
+        with opener.open(request, timeout=RUNTIME_SOURCE_REVISION_TIMEOUT_SECONDS) as response:
+            if _url_origin(str(response.geturl() or "")) != expected_origin:
+                return None, "cross_origin_final_url"
+            status = int(response.getcode() or 0)
+            if status != 200:
+                return None, "unexpected_status"
+            body = response.read(RUNTIME_SOURCE_REVISION_MAX_BODY_BYTES + 1)
+            if len(body) > RUNTIME_SOURCE_REVISION_MAX_BODY_BYTES:
+                return None, "response_too_large"
+            try:
+                payload = json.loads(body.decode("utf-8"))
+            except (UnicodeError, json.JSONDecodeError):
+                return None, "response_invalid"
+            if not isinstance(payload, dict):
+                return None, "response_invalid"
+            revision = _validated_source_revision(response.headers.get(RUNTIME_SOURCE_REVISION_HEADER))
+            if revision is None:
+                return None, "header_missing_or_invalid"
+            return revision, None
+    except (AttributeError, HTTPError, TypeError, URLError, OSError, TimeoutError, ValueError):
+        return None, "request_failed"
+
+
 def build_receipt(
     *,
     slug: str,
@@ -176,6 +256,31 @@ def build_receipt(
             }
         )
         payload["status"] = "fail"
+    runtime_source_revision: str | None = None
+    runtime_source_revision_required = bool(gold_mode or require_public_origin)
+    if runtime_source_revision_required:
+        probed_revision, probe_reason = _probe_runtime_source_revision(base_url=base_url, slug=slug)
+        runtime_source_revision = _validated_source_revision(probed_revision)
+        if runtime_source_revision is None:
+            failed_codes.append(RUNTIME_SOURCE_REVISION_FAILURE_CODE)
+            payload.setdefault("checks", []).append(
+                {
+                    "status": "fail",
+                    "code": RUNTIME_SOURCE_REVISION_FAILURE_CODE,
+                    "message": "The public memorial runtime did not expose a valid source revision.",
+                    "detail": {"reason": probe_reason or "header_missing_or_invalid"},
+                }
+            )
+            payload["status"] = "fail"
+        else:
+            payload.setdefault("checks", []).append(
+                {
+                    "status": "pass",
+                    "code": "runtime_source_revision_verified",
+                    "message": "The public memorial runtime exposed a valid source revision.",
+                    "detail": {},
+                }
+            )
     metrics = dict(payload.get("metrics") or {})
     try:
         conversation_turn_total_ms = float(metrics.get("conversation_turn_total_ms") or 0.0)
@@ -226,7 +331,7 @@ def build_receipt(
         )
         payload["status"] = "fail"
     source_git_head = _git_head()
-    return {
+    receipt = {
         "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
         "generated_at": _utc_now(),
         "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
@@ -242,6 +347,7 @@ def build_receipt(
         "require_stt": bool(require_stt),
         "gold_mode": bool(gold_mode),
         "require_public_origin": bool(require_public_origin),
+        "runtime_source_revision_required": runtime_source_revision_required,
         "direct_min_f1": float(direct_min_f1),
         "conversation_min_f1": float(conversation_min_f1),
         "max_conversation_turn_ms": float(max_conversation_turn_ms),
@@ -255,8 +361,16 @@ def build_receipt(
         "metrics": payload.get("metrics", {}),
         "artifacts": payload.get("artifacts", {}),
         "checks": payload.get("checks", []),
-        "gold_claim_allowed": bool(gold_mode) and payload.get("status") == "pass" and not dirty_worktree,
+        "gold_claim_allowed": (
+            bool(gold_mode)
+            and payload.get("status") == "pass"
+            and not dirty_worktree
+            and (not runtime_source_revision_required or runtime_source_revision is not None)
+        ),
     }
+    if runtime_source_revision_required:
+        receipt["runtime_source_revision"] = runtime_source_revision
+    return receipt
 
 
 def main(argv: list[str] | None = None) -> int:

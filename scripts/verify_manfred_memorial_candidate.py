@@ -177,6 +177,11 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
                     }
                     return !(element.labels && element.labels.length) && !String(element.getAttribute("aria-label") || "").trim();
                   }).map((element) => element.id || element.name || element.tagName);
+                  const story = document.getElementById("memorial-story");
+                  const conversation = document.getElementById("memorial-conversation-region");
+                  const storyRect = story?.getBoundingClientRect();
+                  const conversationRect = conversation?.getBoundingClientRect();
+                  const conversationPosition = conversation ? getComputedStyle(conversation).position : "missing";
                   return {
                     lang: document.documentElement.lang,
                     main_count: document.querySelectorAll("main").length,
@@ -189,6 +194,14 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
                     conversation_label: String(document.getElementById("memorial-conversation")?.textContent || "").trim(),
                     reduced_motion: matchMedia("(prefers-reduced-motion: reduce)").matches,
                     horizontal_overflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
+                    conversation_position: conversationPosition,
+                    conversation_after_story: Boolean(
+                      storyRect && conversationRect && conversationRect.top >= storyRect.bottom - 1
+                    ),
+                    conversation_overlap: Math.max(
+                      0,
+                      Math.round((storyRect?.bottom || 0) - (conversationRect?.top || 0)),
+                    ),
                   };
                 }"""
             )
@@ -204,6 +217,9 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
                 or accessibility.get("conversation_label") != "Gespräch beginnen"
                 or accessibility.get("reduced_motion") is not True
                 or int(accessibility.get("horizontal_overflow") or 0) > 1
+                or accessibility.get("conversation_position") in {"fixed", "sticky", "missing"}
+                or accessibility.get("conversation_after_story") is not True
+                or int(accessibility.get("conversation_overlap") or 0) > 1
             ):
                 raise RuntimeError("candidate_browser_accessibility_contract_failed")
 
@@ -224,13 +240,33 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
 
             page.set_viewport_size({"width": 1440, "height": 900})
             page.wait_for_timeout(100)
-            desktop_overflow = int(
-                page.evaluate(
-                    "Math.max(0, document.documentElement.scrollWidth - window.innerWidth)"
-                )
+            desktop_layout = page.evaluate(
+                """() => {
+                  const story = document.getElementById("memorial-story");
+                  const conversation = document.getElementById("memorial-conversation-region");
+                  const storyRect = story?.getBoundingClientRect();
+                  const conversationRect = conversation?.getBoundingClientRect();
+                  return {
+                    overflow: Math.max(0, document.documentElement.scrollWidth - window.innerWidth),
+                    conversation_position: conversation ? getComputedStyle(conversation).position : "missing",
+                    conversation_after_story: Boolean(
+                      storyRect && conversationRect && conversationRect.top >= storyRect.bottom - 1
+                    ),
+                    conversation_overlap: Math.max(
+                      0,
+                      Math.round((storyRect?.bottom || 0) - (conversationRect?.top || 0)),
+                    ),
+                  };
+                }"""
             )
-            if desktop_overflow > 1:
-                raise RuntimeError("candidate_browser_desktop_overflow")
+            desktop_overflow = int(desktop_layout.get("overflow") or 0)
+            if (
+                desktop_overflow > 1
+                or desktop_layout.get("conversation_position") in {"fixed", "sticky", "missing"}
+                or desktop_layout.get("conversation_after_story") is not True
+                or int(desktop_layout.get("conversation_overlap") or 0) > 1
+            ):
+                raise RuntimeError("candidate_browser_desktop_layout_contract_failed")
             context.close()
             browser.close()
             browser = None
@@ -248,6 +284,8 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
         "desktop_viewport": "1440x900",
         "reduced_motion": True,
         "horizontal_overflow_px": 0,
+        "conversation_in_document_flow": True,
+        "conversation_overlap_px": 0,
         "unlabeled_controls": 0,
         "automatic_provider_requests": 0,
         "external_requests": 0,

@@ -3723,9 +3723,28 @@ def test_public_memorial_operator_write_routes_are_disabled_without_operator_sur
         client.get(f"/memorials/{slug}/voice-ab-admin", headers=headers),
         client.post(f"/memorials/{slug}/voice-ab-admin/maintain", headers=headers, json={}),
         client.post(f"/memorials/{slug}/voice-clone", headers=headers, json={"voice_label": "Nope"}),
+        client.post(
+            f"/memorials/{slug}/contributions/dummy-contribution/reject",
+            headers=headers,
+            json={"reviewer": "Nope", "reason": "Nope"},
+        ),
+        client.post(
+            f"/memorials/{slug}/contributions/dummy-contribution/unpublish",
+            headers=headers,
+            json={"reviewer": "Nope", "reason": "Nope"},
+        ),
     ]
 
-    assert [response.status_code for response in checks] == [404, 404, 404, 404, 404, 404]
+    assert [response.status_code for response in checks] == [
+        404,
+        404,
+        404,
+        404,
+        404,
+        404,
+        404,
+        404,
+    ]
     assert all("memorial_operator_surface_disabled" in response.text for response in checks)
 
 

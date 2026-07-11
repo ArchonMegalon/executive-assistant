@@ -20,7 +20,7 @@ uvicorn = pytest.importorskip("uvicorn")
 Config = uvicorn.Config
 Server = uvicorn.Server
 
-from app.api.app import create_app
+from app.api.app import create_app  # noqa: E402 - imported after the optional uvicorn gate.
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -127,6 +127,7 @@ def _source_first_memorial_payload(slug: str) -> dict[str, object]:
             {
                 "visibility": "public",
                 "public": True,
+                "approved": True,
                 "label": f"Öffentliche Quelle {index}",
                 "url": f"https://sources.example/manfred/{index}",
                 "status": "belegt",
@@ -188,7 +189,9 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
         encoding="utf-8",
     )
     (private_root / slug).mkdir(parents=True, exist_ok=True)
-    (private_root / slug / "tts_voice.json").write_text(
+    (private_root / slug).chmod(0o700)
+    private_voice_path = private_root / slug / "tts_voice.json"
+    private_voice_path.write_text(
         json.dumps(
             {
                 "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
@@ -212,6 +215,7 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
         ),
         encoding="utf-8",
     )
+    private_voice_path.chmod(0o600)
     (registry_root / slug).mkdir(parents=True, exist_ok=True)
     (registry_root / slug / "archive_registry.json").write_text(
         json.dumps(
@@ -225,14 +229,6 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
                         "audience": "public",
                         "viewer_type": "smart_document",
                         "url": "https://archive.example/public",
-                        "review_status": "published",
-                    },
-                    {
-                        "id": "doc-family",
-                        "title": "Family Doc",
-                        "audience": "family",
-                        "viewer_type": "smart_document",
-                        "url": "https://archive.example/family",
                         "review_status": "published",
                     },
                 ],
@@ -345,6 +341,7 @@ def test_memorial_flagship_preflight_cli_passes_against_runtime(memorial_flagshi
     assert "live_public_page_source_first" in codes
     assert "live_public_tts_rejects_override" in codes
     assert "archive_registry_public_only" in codes
+    assert "live_public_payload_empty_private_fields" in codes
 
 
 def test_memorial_flagship_http_surface_is_source_first_and_private_by_default(
@@ -470,7 +467,10 @@ def test_memorial_flagship_exit_gate_script_accepts_optional_avatar_warn(
     env["TMPDIR"] = str(tmpdir)
 
     result = subprocess.run(
-        [str(ROOT / "scripts" / "memorial_flagship_exit_gates.sh")],
+        [
+            str(ROOT / "scripts" / "memorial_flagship_exit_gates.sh"),
+            "--provider-free-local",
+        ],
         check=False,
         capture_output=True,
         text=True,
@@ -478,10 +478,148 @@ def test_memorial_flagship_exit_gate_script_accepts_optional_avatar_warn(
     )
 
     assert result.returncode == 0, result.stderr or result.stdout
-    room_ready = json.loads((tmpdir / "manfred_room_ready_exit_gate" / "room_ready_report.json").read_text(encoding="utf-8"))
-    showtime = json.loads((tmpdir / "manfred_room_ready_exit_gate" / "showtime_report.json").read_text(encoding="utf-8"))
-    avatar_step = next(item for item in room_ready["results"] if item["name"] == "avatar_video_call_status")
-    voice_step = next(item for item in showtime["results"] if item["name"] == "voice_roundtrip_validation")
-    assert avatar_step["effective_status"] == "pass"
-    assert avatar_step["semantic_status"] == "warn"
-    assert voice_step["effective_status"] == "pass"
+    assert "PROVIDER_FREE_LOCAL_GATE_PASS" in result.stdout
+    assert not (tmpdir / "manfred_room_ready_exit_gate").exists()
+
+
+def test_memorial_flagship_exit_gate_script_requires_base_url(tmp_path: Path) -> None:
+    env = dict(os.environ)
+    env.pop("MEMORIAL_FLAGSHIP_BASE_URL", None)
+    env.pop("MEMORIAL_FLAGSHIP_GATE_MODE", None)
+    env["TMPDIR"] = str(tmp_path)
+
+    result = subprocess.run(
+        [str(ROOT / "scripts" / "memorial_flagship_exit_gates.sh")],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "a base URL is required" in result.stderr
+    assert "pytest" not in result.stdout
+
+
+def test_memorial_flagship_exit_gate_script_rejects_http_real_public_origin(
+    tmp_path: Path,
+) -> None:
+    env = dict(os.environ)
+    env["TMPDIR"] = str(tmp_path)
+
+    result = subprocess.run(
+        [
+            str(ROOT / "scripts" / "memorial_flagship_exit_gates.sh"),
+            "--real-public",
+            "--base-url",
+            "http://memorial.example.test",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "real-public mode requires an HTTPS origin" in result.stderr
+
+
+def test_memorial_flagship_exit_gate_script_rejects_reserved_public_origin(
+    tmp_path: Path,
+) -> None:
+    env = dict(os.environ)
+    env["TMPDIR"] = str(tmp_path)
+
+    result = subprocess.run(
+        [
+            str(ROOT / "scripts" / "memorial_flagship_exit_gates.sh"),
+            "--real-public",
+            "--base-url",
+            "https://memorial.example.test",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "real-public mode requires a public origin" in result.stderr
+    assert "pytest" not in result.stdout
+
+
+def test_memorial_flagship_exit_gate_script_rejects_private_dns_resolution(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "socket.py").write_text(
+        "from _socket import *\n"
+        "def getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):\n"
+        "    return [(AF_INET, SOCK_STREAM, 6, '', ('10.23.45.67', 0))]\n",
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env["TMPDIR"] = str(tmp_path)
+    env["PYTHONPATH"] = os.pathsep.join(
+        value
+        for value in (str(tmp_path), str(env.get("PYTHONPATH") or ""))
+        if value
+    )
+
+    result = subprocess.run(
+        [
+            str(ROOT / "scripts" / "memorial_flagship_exit_gates.sh"),
+            "--real-public",
+            "--base-url",
+            "https://memorial.public-origin.example.at",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "real-public mode requires a public origin" in result.stderr
+    assert "pytest" not in result.stdout
+
+
+def test_memorial_flagship_exit_gate_rejects_diagnostic_bypass_in_real_public(
+    tmp_path: Path,
+) -> None:
+    env = dict(os.environ)
+    env["TMPDIR"] = str(tmp_path)
+    env["MEMORIAL_DIAGNOSTIC_SKIP_MEANINGFUL_BROWSER_RECEIPT"] = "1"
+
+    result = subprocess.run(
+        [
+            str(ROOT / "scripts" / "memorial_flagship_exit_gates.sh"),
+            "--real-public",
+            "--base-url",
+            "https://8.8.8.8",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "diagnostic meaningful-browser bypass is forbidden" in result.stderr
+    assert "pytest" not in result.stdout
+
+
+def test_memorial_flagship_exit_gate_script_wires_truthful_launch_modes() -> None:
+    source = (ROOT / "scripts" / "memorial_flagship_exit_gates.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'gate_mode="${MEMORIAL_FLAGSHIP_GATE_MODE:-real-public}"' in source
+    assert "--provider-free-local" in source
+    assert "--real-public" in source
+    assert "--real-stt" in source
+    assert "--gold-mode" in source
+    assert "--require-public-origin" in source
+    assert "PROVIDER_FREE_LOCAL_GATE_PASS" in source
+    assert '"$ROOT/scripts/verify_memorial_gold_readiness.py"' in source
+    assert "diagnostic meaningful-browser bypass is forbidden in real-public mode" in source
+    assert 'payload.get("memorial_voice_gold_claim_allowed") is not True' in source

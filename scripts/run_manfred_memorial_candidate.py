@@ -23,7 +23,7 @@ from scripts.verify_manfred_memorial_candidate import (  # noqa: E402
 )
 
 
-RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_runtime.v1"
+RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_runtime.v2"
 ALLOWED_ENV_KEYS = {
     "DATABASE_URL",
     "EA_API_TOKEN",
@@ -103,6 +103,28 @@ def _assert_live_http() -> None:
                 raise RuntimeError("manfred_candidate_live_health_unexpected")
     except (OSError, urllib.error.URLError) as exc:
         raise RuntimeError("manfred_candidate_live_health_unreachable") from exc
+
+
+def _candidate_runtime_source_revision(base_url: str) -> str:
+    request = urllib.request.Request(
+        f"{str(base_url or '').rstrip('/')}/memorials/manfred.json",
+        method="GET",
+        headers={"Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if int(response.status or 0) != 200:
+                raise RuntimeError("manfred_candidate_runtime_revision_probe_status")
+            revision = str(
+                response.headers.get("X-EA-Source-Revision") or ""
+            ).strip()
+    except (OSError, urllib.error.URLError) as exc:
+        raise RuntimeError("manfred_candidate_runtime_revision_unreachable") from exc
+    if len(revision) != 40 or revision != revision.lower() or any(
+        character not in "0123456789abcdef" for character in revision
+    ):
+        raise RuntimeError("manfred_candidate_runtime_revision_invalid")
+    return revision
 
 
 def _rendered_compose(env_file: Path, compose_file: Path) -> dict[str, object]:
@@ -296,16 +318,34 @@ def prove_candidate(
     _assert_live_unchanged(live_before, live_after)
     _assert_live_http()
 
-    image_id = _run(
-        ["docker", "image", "inspect", "--format", "{{.Id}}", env["EA_MANFRED_IMAGE"]],
-        timeout=30,
-    ).decode().strip()
+    raw_image_inspection = _run(
+        ["docker", "image", "inspect", env["EA_MANFRED_IMAGE"]], timeout=30
+    )
+    image_rows = json.loads(raw_image_inspection)
+    if (
+        not isinstance(image_rows, list)
+        or len(image_rows) != 1
+        or not isinstance(image_rows[0], dict)
+    ):
+        raise RuntimeError("manfred_candidate_image_inspection_invalid")
+    image_inspection = dict(image_rows[0])
+    image_id = str(image_inspection.get("Id") or "").strip()
+    image_labels = dict((image_inspection.get("Config") or {}).get("Labels") or {})
+    image_source_revision = str(
+        image_labels.get("org.opencontainers.image.revision") or ""
+    ).strip()
+    runtime_source_revision = _candidate_runtime_source_revision(base_url)
+    if runtime_source_revision != image_source_revision:
+        raise RuntimeError("manfred_candidate_runtime_revision_image_mismatch")
     receipt = {
         "schema": RECEIPT_SCHEMA,
         "status": "pass",
         "observed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "image": env["EA_MANFRED_IMAGE"],
         "image_id": image_id,
+        "image_source_revision": image_source_revision,
+        "runtime_source_revision": runtime_source_revision,
+        "runtime_revision_matches_image": True,
         "candidate_api_container_id": api_after_restart,
         "candidate_port": int(env["EA_MANFRED_HOST_PORT"]),
         "api_network_internal": True,

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This runbook matches the current public memorial product as it exists now: a minimal, conversation-first surface with install support and no public archive, source profile, or voice A/B controls on the landing page.
+This runbook matches the current public memorial product as it exists now: a calm source-first page with a prominent conversation jump, curated public memories and sources below the hero, and no raw-recording browser, private source profile, or voice A/B controls on the landing page.
 
 ## Presentation order
 
@@ -12,8 +12,7 @@ This runbook matches the current public memorial product as it exists now: a min
 
    > This is a sourced memorial conversation interface. It does not claim that Manfred is literally present.
 
-4. Show the minimal surface:
-   The page should only emphasize `Sprich mit der Erinnerung`, the short interaction hint, and the install affordance when available.
+4. Show the restrained hero and choose `Zum Gespräch mit Manfred Hoza`. The conversation card stays in normal document flow and must never cover the title or source content.
 5. Start one short conversation turn.
 6. Let Manfred answer fully once.
 7. Interrupt once briefly to demonstrate natural turn-taking if the machine is stable.
@@ -49,7 +48,7 @@ Do not present live if any of these fail:
 
 - `/memorials/files/manfred/memorial.json` returns anything except `404`
 - `/memorials/manfred.json` exposes tokens, raw voice IDs, or private profile fields
-- `/memorials/manfred` still shows removed public sections such as archive, recordings, or voice A/B UI
+- `/memorials/manfred` exposes raw recordings, a raw archive browser, private profiles, or voice A/B UI
 - `voice_consent` is missing, revoked, or not approved
 - public TTS accepts `tts_plugin_voice_id`
 - the microphone permission flow is unstable on the exact presentation machine
@@ -62,41 +61,53 @@ Filesystem and live-route preflight:
 ```bash
 cd "$EA_REPO_ROOT"
 python3 scripts/memorial_flagship_preflight.py manfred
-python3 scripts/memorial_flagship_preflight.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}"
+python3 scripts/memorial_flagship_preflight.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:?set the deployed HTTPS origin}"
 ```
 
 Automation-friendly JSON:
 
 ```bash
-python3 scripts/memorial_flagship_preflight.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --json
+python3 scripts/memorial_flagship_preflight.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:?set the deployed HTTPS origin}" --json
 ```
 
 Full exit gate runner:
 
 ```bash
-scripts/memorial_flagship_exit_gates.sh
+# Provider-free/local evidence only. This is not a public-launch or voice-identity claim.
+scripts/memorial_flagship_exit_gates.sh \
+  --provider-free-local \
+  --base-url http://127.0.0.1:18090
+
+# Real public launch evidence. The origin must be credential-free HTTPS and non-loopback.
+scripts/memorial_flagship_exit_gates.sh \
+  --real-public \
+  --base-url "${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}"
 ```
+
+The runner fails before executing its suite when no base URL is supplied. `real-public` is the default mode and always invokes the browser proof with `--real-stt --gold-mode --require-public-origin`; omitting those semantics is not a launch pass. It then evaluates that fresh browser receipt through `verify_memorial_gold_readiness.py`, which still requires the other current voice, meaningful-turn, room, source-state, and surface receipts. `provider-free-local` is deliberately restricted to a loopback origin and produces local/diagnostic evidence only. After the deterministic suites and live privacy preflight pass, it exits before room-ready or conversational browser actions so it cannot spend provider quota or manufacture microphone/voice proof. It does not prove a real microphone, provider availability, voice identity, room playback, or family approval.
+
+The live preflight requires the raw manifest route to return exactly `404`, independently probes both `voice_name` and `tts_plugin_voice_id` override rejection, rejects family-only archive entries on the public archive projection, and scans the decoded public JSON and voice configuration for token, raw-voice, transcript, consent, and private-profile field names. A `401` or `403` raw-manifest response is not equivalent to the required non-existent public route.
 
 Live rehearsal and launch evidence:
 
 ```bash
-python3 scripts/memorial_demo_rehearsal.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --save-audio-dir /tmp
-python3 scripts/memorial_launch_snapshot.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --output /tmp/manfred_launch_snapshot.json
+python3 scripts/memorial_demo_rehearsal.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:?set the deployed HTTPS origin}" --questions examples/demo_questions.manfred.json --save-audio-dir /tmp
+python3 scripts/memorial_launch_snapshot.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:?set the deployed HTTPS origin}" --questions examples/demo_questions.manfred.json --output /tmp/manfred_launch_snapshot.json
 ```
 
 Showtime wrapper:
 
 ```bash
-python3 scripts/memorial_showtime.py --slug manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --output-dir /tmp/manfred_showtime --optional-exit-gates
+python3 scripts/memorial_showtime.py --slug manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:?set the deployed HTTPS origin}" --questions examples/demo_questions.manfred.json --output-dir /tmp/manfred_showtime --optional-exit-gates
 
-python3 scripts/memorial_room_ready.py --slug manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --output-dir /tmp/manfred_room_ready --optional-exit-gates
+python3 scripts/memorial_room_ready.py --slug manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:?set the deployed HTTPS origin}" --questions examples/demo_questions.manfred.json --output-dir /tmp/manfred_room_ready --optional-exit-gates
 ```
 
 ## Local recovery inventory
 
 Provision `memorial_private_context.json` out of band at `$EA_PRIVATE_MEMORIAL_PROFILE_DIR/manfred/` with mode `0600` (or read-only `0400`). Never add that file to Git. The flagship preflight fails when the tracked declaration is present but this private context is missing, malformed, symlinked, or too broadly readable.
 
-Keep the v2 inventory inside the memorial's private `recovery_snapshots` directory. It preserves the exact private context, referenced source media, archive sources/build artifacts, consent references, and contribution state. Commands print only bounded receipts and hashes, never inventory bodies or source media.
+Keep the v3 inventory inside the memorial's private `recovery_snapshots` directory. It preserves the exact private context, referenced source media, archive sources/build artifacts, consent references, contribution state, and the public-safe takedown authority. Commands print only bounded receipts and hashes, never inventory bodies or source media. Regenerate every v2 inventory before relying on restore.
 
 ```bash
 private_root="${EA_PRIVATE_MEMORIAL_PROFILE_DIR:?set EA_PRIVATE_MEMORIAL_PROFILE_DIR}"
@@ -169,7 +180,7 @@ docker compose --env-file "$candidate_env" -f "$candidate_compose" up -d --wait
 docker compose --env-file "$candidate_env" -f "$candidate_compose" exec -T redis redis-cli ping
 ```
 
-The first smoke is deliberately provider-free. With `EA_MEMORIAL_PAGE_PREWARM_ENABLED=0`, both server rendering and page JavaScript defer warmup and speech synthesis until a visitor explicitly starts a conversation. The proof uses `HEAD` for the route checks, then a real reduced-motion mobile/desktop browser load that fails on automatic provider requests, external requests, unlabeled controls, horizontal overflow, page errors, or a slow local load. It also exercises public JSON/archive/PWA/share routes, denies the private audio path, and submits a synthetic private contribution. It does not prove microphone quality, speech recognition, voice identity, or family approval.
+The first smoke is deliberately provider-free. With `EA_MEMORIAL_PAGE_PREWARM_ENABLED=0`, both server rendering and page JavaScript defer warmup and speech synthesis until a visitor explicitly starts a conversation. The proof uses `HEAD` for the route checks, then a real reduced-motion mobile/desktop browser load that fails on automatic provider requests, external requests, unlabeled controls, horizontal overflow, page errors, or a slow local load. It also exercises public JSON/archive/PWA/share routes, denies the private audio path, and submits a synthetic private contribution. It does not prove microphone quality, speech recognition, voice identity, or family approval, and it must not be relabeled as the `real-public` exit-gate result.
 
 ```bash
 contribution_receipt="$deploy_root/candidate-contribution.json"
@@ -194,11 +205,11 @@ python3 scripts/run_manfred_memorial_candidate.py \
   --receipt "$deploy_root/receipts/candidate-runtime.json"
 ```
 
-Promotion must reuse the exact accepted image ID; do not rebuild it. Before promotion, prove the live container identity did not change, inspect candidate logs for import failures, verify private ledger mode `0600` and public projection mode `0644`, complete the full provider-backed/browser gates with explicit quota authority, and obtain family listening/usability approval. Candidate evidence is non-authoritative until the real HTTPS origin passes the public launch gates.
+Promotion must reuse the exact accepted image ID; do not rebuild it. The immutable build embeds its 40-character source revision, and the API exposes that non-secret revision in `X-EA-Source-Revision`. Public voice, browser, meaningful-turn, and room receipts must all observe the same revision, slug, origin, and source-state fingerprint; the gold verifier rejects mixed receipt sets or a deployed revision that differs from the current release source. Before promotion, prove the live container identity did not change, inspect candidate logs for import failures, verify private ledger mode `0600` and public projection mode `0644`, complete the full provider-backed/browser gates with explicit quota authority, and obtain family listening/usability approval. Candidate evidence is non-authoritative until the real HTTPS origin passes the public launch gates.
 
 ## Narration cast handoff
 
-Materialize the source-exact, consent-gated cast handoff before any synthesis. The private package contains source text and must remain below the private profile root; the optional receipt is provider-safe and contains hashes and trait kinds only.
+Materialize the source-exact, consent-gated cast handoff before any synthesis. The private package contains source text and must remain below the private profile root. Its optional receipt contains only bounded counts, opaque SHA-256 bindings, and policy state; it exposes no raw voice or profile IDs and no trait values. The receipt is informational and never an authorization capability.
 
 ```bash
 private_root="${EA_PRIVATE_MEMORIAL_PROFILE_DIR:?set EA_PRIVATE_MEMORIAL_PROFILE_DIR}"
@@ -207,9 +218,17 @@ python3 scripts/materialize_memorial_narration_work_package.py \
   --slug manfred \
   --output "$private_root/manfred/narration/work-package.json" \
   --receipt-output /tmp/manfred-narration-receipt.json
+
+python3 scripts/resolve_memorial_narration_cast.py resolve \
+  --work-package "$private_root/manfred/narration/work-package.json" \
+  --voice-profile "$private_root/manfred/tts_voice.json" \
+  --output "$private_root/manfred/narration/cast-resolution.json" \
+  --receipt-output /tmp/manfred-cast-resolution-receipt.json
 ```
 
-This command never calls a speech provider. It blocks when consent is absent or revoked. The current approved Manfred sources contain no attributed dialogue, so the real package remains narrator-only until a curator approves quoted dialogue and explicit speaker profiles.
+These commands never call a speech provider. They block when consent is absent or revoked. Current evidence resolves four explicitly published archive documents to the approved private Manfred clone profile, with no attributed dialogue. Six public memory cards remain excluded until they receive an explicit narration review status.
+
+The mapping review is a separate private, HMAC-bound artifact with a maximum seven-day lifetime. Its HMAC authenticates possession of the private signing secret and records a decision bound to the cast resolution; it does not authenticate reviewer identity. It does not prove provider availability, voice rights, audition playback, family listening approval, or source freshness. Even a passing mapping receipt leaves `audition_authorized`, `render_authorized`, and `synthesis_authorized` false. Do not run `review` or any provider preflight on behalf of a family reviewer; obtain their explicit decision first. A later provider preflight must bind authoritative catalog/clone capability and rights evidence, then a separate listening review must bind the exact audition sample hashes before synthesis can be enabled.
 
 ## Governed share drafts
 

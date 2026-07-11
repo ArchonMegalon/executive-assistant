@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -279,6 +280,233 @@ def test_browser_exit_gate_receipt_blocks_local_public_gold(monkeypatch: pytest.
         receipt["source_state_fingerprint_semantics"]
         == "worktree_source_files_sha256_excluding_generated_only_paths"
     )
+
+
+@pytest.mark.parametrize(
+    "origin_url",
+    (
+        "https://memorial.example.test",
+        "https://memorial.internal",
+        "https://memorial.local",
+        "https://localhost",
+    ),
+)
+def test_browser_public_origin_rejects_reserved_hostnames_without_dns(
+    monkeypatch: pytest.MonkeyPatch,
+    origin_url: str,
+) -> None:
+    module = _load_module()
+    monkeypatch.setattr(
+        module.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: pytest.fail(
+            "reserved hostnames must be rejected before DNS resolution"
+        ),
+    )
+
+    assert module._is_https_public_origin(origin_url) is False
+
+
+def test_browser_public_origin_rejects_any_private_dns_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    monkeypatch.setattr(
+        module.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (
+                module.socket.AF_INET,
+                module.socket.SOCK_STREAM,
+                6,
+                "",
+                ("93.184.216.34", 0),
+            ),
+            (
+                module.socket.AF_INET,
+                module.socket.SOCK_STREAM,
+                6,
+                "",
+                ("10.23.45.67", 0),
+            ),
+        ],
+    )
+
+    assert (
+        module._is_https_public_origin("https://memorial.public-origin.example.at")
+        is False
+    )
+
+
+def test_browser_public_origin_fails_closed_on_dns_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+
+    def fail_resolution(*_args, **_kwargs):
+        raise module.socket.gaierror("unit DNS failure")
+
+    monkeypatch.setattr(module.socket, "getaddrinfo", fail_resolution)
+
+    assert (
+        module._is_https_public_origin("https://memorial.public-origin.example.at")
+        is False
+    )
+
+
+def test_browser_public_origin_accepts_global_literal_and_global_dns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    monkeypatch.setattr(
+        module.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (
+                module.socket.AF_INET,
+                module.socket.SOCK_STREAM,
+                6,
+                "",
+                ("93.184.216.34", 0),
+            )
+        ],
+    )
+
+    assert module._is_https_public_origin("https://8.8.8.8") is True
+    assert (
+        module._is_https_public_origin("https://memorial.public-origin.example.at")
+        is True
+    )
+
+
+def _passing_browser_result(*, mode: str = "live") -> dict[str, object]:
+    return {
+        "base_url": "https://8.8.8.8",
+        "slug": "manfred",
+        "runtime_source_revision": "a" * 40,
+        "speech_transcribe_mode": mode,
+        "answer_preview": "Ja, ich bin da. Sag mir einfach, was dich beschaeftigt.",
+        "audio_payload_ready": True,
+        "audio_ready_for_ui": True,
+        "answer_text_visible": True,
+        "ui_audio_play_calls": 1,
+        "ui_audio_play_ended": 1,
+        "answer_semantic_passed": True,
+        "first_answer_ms": 900,
+    }
+
+
+def test_browser_gold_receipt_requires_real_stt(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "_git_dirty", lambda: False)
+    monkeypatch.setattr(module, "_git_head", lambda: "HEAD")
+    monkeypatch.setattr(module, "_source_tree_fingerprint", lambda: "tree")
+    monkeypatch.setattr(module, "resolve_source_worktree_fingerprint", lambda _root: "state")
+
+    receipt = module._with_exit_gate_status(
+        _passing_browser_result(mode="transcript_injected"),
+        exit_gate=True,
+        gold_mode=True,
+        require_public_origin=True,
+        max_first_answer_ms=4500,
+    )
+
+    assert receipt["status"] == "fail"
+    assert "gold_requires_real_stt" in receipt["failed_codes"]
+    assert receipt["gold_claim_allowed"] is False
+
+
+def test_browser_gold_receipt_requires_public_origin_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "_git_dirty", lambda: False)
+    monkeypatch.setattr(module, "_git_head", lambda: "HEAD")
+    monkeypatch.setattr(module, "_source_tree_fingerprint", lambda: "tree")
+    monkeypatch.setattr(module, "resolve_source_worktree_fingerprint", lambda _root: "state")
+
+    receipt = module._with_exit_gate_status(
+        _passing_browser_result(),
+        exit_gate=True,
+        gold_mode=True,
+        require_public_origin=False,
+        max_first_answer_ms=4500,
+    )
+
+    assert receipt["status"] == "fail"
+    assert "gold_requires_public_origin_flag" in receipt["failed_codes"]
+
+
+def test_browser_gold_receipt_accepts_only_https_live_public_proof(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "_git_dirty", lambda: False)
+    monkeypatch.setattr(module, "_git_head", lambda: "HEAD")
+    monkeypatch.setattr(module, "_source_tree_fingerprint", lambda: "tree")
+    monkeypatch.setattr(module, "resolve_source_worktree_fingerprint", lambda _root: "state")
+
+    receipt = module._with_exit_gate_status(
+        _passing_browser_result(),
+        exit_gate=True,
+        gold_mode=True,
+        require_public_origin=True,
+        max_first_answer_ms=4500,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["failed_codes"] == []
+    assert receipt["gold_claim_allowed"] is True
+    assert receipt["launch_proof_scope"] == "real_public_microphone"
+
+
+def test_browser_gold_receipt_requires_runtime_source_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "_git_dirty", lambda: False)
+    monkeypatch.setattr(module, "_git_head", lambda: "HEAD")
+    monkeypatch.setattr(module, "_source_tree_fingerprint", lambda: "tree")
+    monkeypatch.setattr(module, "resolve_source_worktree_fingerprint", lambda _root: "state")
+    result = _passing_browser_result()
+    result.pop("runtime_source_revision")
+
+    receipt = module._with_exit_gate_status(
+        result,
+        exit_gate=True,
+        gold_mode=True,
+        require_public_origin=True,
+        max_first_answer_ms=4500,
+    )
+
+    assert receipt["status"] == "fail"
+    assert "runtime_source_revision_missing_or_invalid" in receipt["failed_codes"]
+    assert receipt["gold_claim_allowed"] is False
+
+
+def test_browser_cli_rejects_gold_without_real_stt_before_measurement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    monkeypatch.setattr(
+        module,
+        "_measure",
+        lambda *_args, **_kwargs: pytest.fail("measurement must not run for invalid gold flags"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "measure_memorial_live_browser.py",
+            "--base-url",
+            "https://memorial.example.test",
+            "--gold-mode",
+            "--require-public-origin",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        module.main()
+
+    assert exc_info.value.code == 2
 
 
 def test_wait_for_realtime_turn_tolerates_contexts_without_off() -> None:

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
+import socket
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -122,11 +125,96 @@ def _is_local_base_url(value: str) -> bool:
     return any(marker in lowered for marker in ("://127.0.0.1", "://localhost", "://0.0.0.0", "://[::1]"))
 
 
+_RESERVED_PUBLIC_HOST_SUFFIXES = frozenset(
+    {
+        "alt",
+        "arpa",
+        "example",
+        "example.com",
+        "example.net",
+        "example.org",
+        "home.arpa",
+        "internal",
+        "invalid",
+        "lan",
+        "local",
+        "localdomain",
+        "localhost",
+        "onion",
+        "test",
+    }
+)
+
+
+def _dns_host_resolves_globally(hostname: str) -> bool:
+    try:
+        canonical = hostname.encode("idna").decode("ascii").rstrip(".").lower()
+    except UnicodeError:
+        return False
+    if not canonical or "." not in canonical or any(
+        canonical == suffix or canonical.endswith(f".{suffix}")
+        for suffix in _RESERVED_PUBLIC_HOST_SUFFIXES
+    ):
+        return False
+    try:
+        records = socket.getaddrinfo(
+            canonical,
+            None,
+            family=socket.AF_UNSPEC,
+            type=socket.SOCK_STREAM,
+        )
+    except OSError:
+        return False
+    addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
+    try:
+        for family, _socket_type, _protocol, _canonical_name, sockaddr in records:
+            if family not in {socket.AF_INET, socket.AF_INET6}:
+                continue
+            addresses.add(ipaddress.ip_address(str(sockaddr[0]).split("%", 1)[0]))
+    except (IndexError, TypeError, ValueError):
+        return False
+    return bool(addresses) and all(address.is_global for address in addresses)
+
+
+def _public_hostname_allowed(hostname: str) -> bool:
+    if not hostname or "%" in hostname:
+        return False
+    try:
+        return ipaddress.ip_address(hostname).is_global
+    except ValueError:
+        return _dns_host_resolves_globally(hostname)
+
+
+def _is_https_public_origin(value: str) -> bool:
+    try:
+        parsed = urllib.parse.urlsplit(str(value or "").strip())
+    except ValueError:
+        return False
+    hostname = str(parsed.hostname or "").rstrip(".").lower()
+    return bool(
+        parsed.scheme.lower() == "https"
+        and hostname
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.query
+        and not parsed.fragment
+        and parsed.path in {"", "/"}
+        and _public_hostname_allowed(hostname)
+    )
+
+
 def _metric(receipt: dict[str, Any], key: str) -> float:
     try:
         return float(dict(receipt.get("metrics") or {}).get(key) or 0.0)
     except Exception:
         return 0.0
+
+
+def _safe_float(value: object) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _receipt_source_head(receipt: dict[str, Any]) -> str:
@@ -205,8 +293,16 @@ def _check_receipt(
     if receipt.get("warned_codes"):
         issues.append("receipt_warned_codes_present")
     if public_required:
-        if _is_local_base_url(str(receipt.get("base_url") or "")):
-            issues.append("public_origin_required_not_localhost")
+        if not _is_https_public_origin(str(receipt.get("base_url") or "")):
+            issues.append("public_origin_must_be_nonlocal_https")
+        runtime_revision = str(receipt.get("runtime_source_revision") or "").strip()
+        if not _is_source_revision(runtime_revision):
+            issues.append("public_runtime_source_revision_missing_or_invalid")
+        elif (
+            _is_source_revision(_receipt_source_head(receipt))
+            and runtime_revision != _receipt_source_head(receipt)
+        ):
+            issues.append("public_runtime_source_revision_source_mismatch")
         if receipt.get("gold_mode") is not True:
             issues.append("public_gold_receipt_must_use_gold_mode")
         if receipt.get("require_public_origin") is not True:
@@ -221,7 +317,10 @@ def _check_receipt(
         issues.append("conversation_turn_total_ms_above_gold_threshold")
     if max_speech_transcribe_ms is not None and _metric(receipt, "speech_transcribe_ms") > float(max_speech_transcribe_ms):
         issues.append("speech_transcribe_ms_above_gold_threshold")
-    checks = list(receipt.get("checks") or [])
+    raw_checks = receipt.get("checks") or []
+    checks = list(raw_checks) if isinstance(raw_checks, list) else []
+    if not isinstance(raw_checks, list):
+        issues.append("receipt_checks_invalid")
     check_codes = {str(item.get("code") or "") for item in checks if isinstance(item, dict)}
     if "present_world_route_ok" not in check_codes:
         issues.append("local_source_current_world_check_missing")
@@ -258,8 +357,16 @@ def _check_browser_receipt(
         current_fingerprint=current_fingerprint,
     ):
         issues.append("browser_receipt_generated_from_dirty_worktree")
-    if _is_local_base_url(str(receipt.get("base_url") or "")):
-        issues.append("browser_public_origin_required_not_localhost")
+    if not _is_https_public_origin(str(receipt.get("base_url") or "")):
+        issues.append("browser_public_origin_must_be_nonlocal_https")
+    runtime_revision = str(receipt.get("runtime_source_revision") or "").strip()
+    if not _is_source_revision(runtime_revision):
+        issues.append("browser_runtime_source_revision_missing_or_invalid")
+    elif (
+        _is_source_revision(_receipt_source_head(receipt))
+        and runtime_revision != _receipt_source_head(receipt)
+    ):
+        issues.append("browser_runtime_source_revision_source_mismatch")
     if receipt.get("gold_mode") is not True:
         issues.append("browser_gold_receipt_must_use_gold_mode")
     if receipt.get("require_public_origin") is not True:
@@ -273,7 +380,10 @@ def _check_browser_receipt(
         issues.append("browser_meaningful_receipt_mode_invalid")
     if receipt.get("failed_codes"):
         issues.append("browser_failed_codes_present")
-    if float(receipt.get("first_answer_ms") or 0.0) > float(max_first_answer_ms):
+    first_answer_ms = _safe_float(receipt.get("first_answer_ms"))
+    if first_answer_ms is None:
+        issues.append("browser_first_answer_ms_invalid")
+    elif first_answer_ms > float(max_first_answer_ms):
         issues.append("browser_first_answer_ms_above_gold_threshold")
     if not bool(receipt.get("audio_ready_for_ui")):
         issues.append("browser_audio_not_ready_for_ui")
@@ -313,13 +423,26 @@ def _check_room_receipt(
         current_fingerprint=current_fingerprint,
     ):
         issues.append("room_receipt_generated_from_dirty_worktree")
-    if _is_local_base_url(str(receipt.get("base_url") or "")):
-        issues.append("room_public_origin_required_not_localhost")
+    if not _is_https_public_origin(str(receipt.get("base_url") or "")):
+        issues.append("room_public_origin_must_be_nonlocal_https")
+    runtime_revision = str(receipt.get("runtime_source_revision") or "").strip()
+    if not _is_source_revision(runtime_revision):
+        issues.append("room_runtime_source_revision_missing_or_invalid")
+    elif (
+        _is_source_revision(_receipt_source_head(receipt))
+        and runtime_revision != _receipt_source_head(receipt)
+    ):
+        issues.append("room_runtime_source_revision_source_mismatch")
     if receipt.get("require_public_origin") is not True:
         issues.append("room_receipt_must_require_public_origin")
     if str(receipt.get("proof_type") or "").strip() != "manual_room_attestation":
         issues.append("room_manual_attestation_proof_type_missing")
-    attestation = dict(receipt.get("manual_attestation") or {})
+    raw_attestation = receipt.get("manual_attestation")
+    if not isinstance(raw_attestation, dict):
+        issues.append("room_manual_attestation_invalid")
+        attestation: dict[str, Any] = {}
+    else:
+        attestation = dict(raw_attestation)
     if not str(attestation.get("attestation_id") or "").strip():
         issues.append("room_manual_attestation_id_missing")
     if not str(attestation.get("signed_at") or "").strip():
@@ -337,7 +460,12 @@ def _check_room_receipt(
         "interruption_behavior_confirmed",
         "retry_path_confirmed",
     }
-    checks = dict(receipt.get("checks") or {})
+    raw_checks = receipt.get("checks")
+    if not isinstance(raw_checks, dict):
+        issues.append("room_checks_invalid")
+        checks: dict[str, Any] = {}
+    else:
+        checks = dict(raw_checks)
     for key in sorted(required):
         if checks.get(key) is not True:
             issues.append(f"room_{key}_missing")
@@ -365,6 +493,7 @@ def _blocker_summary(
     meaningful_browser_issues: list[str],
     memorial_surface_contract_issues: list[str],
     room_issues: list[str],
+    receipt_set_issues: list[str] | None = None,
 ) -> dict[str, Any]:
     blockers: list[dict[str, Any]] = []
     if local_issues:
@@ -419,6 +548,15 @@ def _blocker_summary(
                 "label": "Room audio receipt",
                 "issues": list(room_issues),
                 "next_action": "collect_real_room_audio_attestation",
+            }
+        )
+    if receipt_set_issues:
+        blockers.append(
+            {
+                "key": "receipt_set_binding",
+                "label": "Public receipt-set binding",
+                "issues": list(receipt_set_issues),
+                "next_action": "refresh_memorial_public_auto_receipts_clean",
             }
         )
     for blocker in blockers:
@@ -650,6 +788,7 @@ def _next_action_from_summary(summary: dict[str, Any]) -> str:
         "public_voice_receipt",
         "public_browser_receipt",
         "meaningful_browser_receipt",
+        "receipt_set_binding",
     }
     blocked_keys = {str(item.get("key") or "").strip() for item in blockers}
     if blocked_keys & auto_receipt_keys:
@@ -698,6 +837,80 @@ def _meaningful_browser_receipt_required() -> bool:
     )
 
 
+def _normalized_receipt_origin(value: object) -> str:
+    try:
+        parsed = urllib.parse.urlsplit(str(value or "").strip())
+        port = parsed.port
+    except (TypeError, ValueError):
+        return ""
+    scheme = str(parsed.scheme or "").lower()
+    hostname = str(parsed.hostname or "").rstrip(".").lower()
+    if not scheme or not hostname:
+        return ""
+    rendered_host = f"[{hostname}]" if ":" in hostname else hostname
+    default_port = 443 if scheme == "https" else 80 if scheme == "http" else None
+    rendered_port = "" if port in {None, default_port} else f":{port}"
+    return f"{scheme}://{rendered_host}{rendered_port}"
+
+
+def _is_source_revision(value: object) -> bool:
+    text = str(value or "").strip()
+    return len(text) == 40 and text == text.lower() and all(
+        character in "0123456789abcdef" for character in text
+    )
+
+
+def _receipt_set_binding_issues(
+    receipts: dict[str, dict[str, Any]],
+    *,
+    expected_slug: str,
+    current_head: str,
+) -> list[str]:
+    issues: list[str] = []
+    origins: set[str] = set()
+    revisions: set[str] = set()
+    source_fingerprints: set[str] = set()
+    expected_slug = str(expected_slug or "").strip()
+
+    for label, receipt in receipts.items():
+        slug = str(receipt.get("slug") or "").strip()
+        if not slug:
+            issues.append(f"receipt_set_{label}_slug_missing")
+        elif slug != expected_slug:
+            issues.append(f"receipt_set_{label}_slug_mismatch")
+
+        origin = _normalized_receipt_origin(receipt.get("base_url"))
+        if not origin:
+            issues.append(f"receipt_set_{label}_origin_missing_or_invalid")
+        else:
+            origins.add(origin)
+
+        revision = str(receipt.get("runtime_source_revision") or "").strip()
+        if not _is_source_revision(revision):
+            issues.append(f"receipt_set_{label}_runtime_revision_missing_or_invalid")
+        else:
+            revisions.add(revision)
+            receipt_source_head = _receipt_source_head(receipt).strip()
+            if _is_source_revision(receipt_source_head) and revision != receipt_source_head:
+                issues.append(f"receipt_set_{label}_runtime_revision_source_mismatch")
+
+        fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+        if not fingerprint:
+            issues.append(f"receipt_set_{label}_source_fingerprint_missing")
+        else:
+            source_fingerprints.add(fingerprint)
+
+    if len(origins) > 1:
+        issues.append("receipt_set_origin_mismatch")
+    if len(revisions) > 1:
+        issues.append("receipt_set_runtime_revision_mismatch")
+    if len(source_fingerprints) > 1:
+        issues.append("receipt_set_source_fingerprint_mismatch")
+    if _is_source_revision(current_head) and revisions and revisions != {current_head}:
+        issues.append("receipt_set_runtime_revision_not_current_head")
+    return list(dict.fromkeys(issues))
+
+
 def main() -> int:
     current_head = _git_head()
     current_fingerprint = _source_fingerprint()
@@ -736,6 +949,7 @@ def main() -> int:
     )
 
     meaningful_browser_issues: list[str] = []
+    meaningful_browser_receipt: dict[str, Any] = {}
     meaningful_browser_receipt_path = Path(os.getenv("MEMORIAL_PUBLIC_MEANINGFUL_BROWSER_RECEIPT") or MEANINGFUL_BROWSER_RECEIPT)
     meaningful_browser_required = _meaningful_browser_receipt_required()
     if meaningful_browser_required:
@@ -750,12 +964,28 @@ def main() -> int:
             ),
             require_live_stt=False,
         )
+    else:
+        meaningful_browser_issues = [
+            "meaningful_browser_receipt_skipped_for_diagnostic_only"
+        ]
     room_receipt_path = Path(os.getenv("MEMORIAL_ROOM_AUDIO_RECEIPT") or ROOM_RECEIPT)
     room = _json(room_receipt_path)
     room_issues = _check_room_receipt(
         room,
         current_head=current_head,
         current_fingerprint=current_fingerprint,
+    )
+    bound_receipts = {
+        "public_voice": public,
+        "public_browser": browser,
+        "room_audio": room,
+    }
+    if meaningful_browser_required:
+        bound_receipts["meaningful_browser"] = meaningful_browser_receipt
+    receipt_set_issues = _receipt_set_binding_issues(
+        bound_receipts,
+        expected_slug="manfred",
+        current_head=current_head,
     )
     memorial_surface_contract = _run_script_json(["scripts/verify_project_mode_runtime.py", "--mode", "memorial"])
     memorial_surface_contract_issues = _check_memorial_surface_contract(memorial_surface_contract)
@@ -766,6 +996,7 @@ def main() -> int:
         meaningful_browser_issues=meaningful_browser_issues,
         memorial_surface_contract_issues=memorial_surface_contract_issues,
         room_issues=room_issues,
+        receipt_set_issues=receipt_set_issues,
     )
     next_action = _next_action_from_summary(blocker_summary)
     source_worktree = dict(source_worktree_metadata(ROOT, dirty_path_limit=SOURCE_DIRTY_FILE_LIMIT))
@@ -794,6 +1025,7 @@ def main() -> int:
         and not meaningful_browser_issues
         and not memorial_surface_contract_issues
         and not room_issues
+        and not receipt_set_issues
         else "blocked"
     )
     next_command = _next_command_for_action(next_action)
@@ -826,6 +1058,12 @@ def main() -> int:
         "memorial_surface_contract_issues": memorial_surface_contract_issues,
         "room_audio_receipt": _display_path(room_receipt_path),
         "room_audio_issues": room_issues,
+        "receipt_set_binding_issues": receipt_set_issues,
+        "receipt_set_runtime_source_revision": (
+            str(public.get("runtime_source_revision") or "").strip()
+            if not receipt_set_issues
+            else ""
+        ),
         "blocker_summary": blocker_summary,
         "next_action": next_action,
         "next_command": next_command,

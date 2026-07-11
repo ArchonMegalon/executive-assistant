@@ -24,17 +24,32 @@ from app.services.memorial_paths import (
 
 PRIVATE_SCHEMA = "ea.memorial_family_contributions.private.v1"
 PUBLIC_SCHEMA = "ea.memorial_family_contributions.public.v1"
+TAKEDOWN_SCHEMA = "ea.memorial_family_contributions.takedowns.public.v1"
+RECOVERY_RECEIPT_SCHEMA = "ea.memorial_family_contribution.recovery_receipt.v1"
+HISTORY_COMPACTION_SCHEMA = (
+    "ea.memorial_family_contribution.history_compaction.v1"
+)
 PRIVATE_FILENAME = "family_contributions.json"
 PUBLIC_FILENAME = "family_contributions.public.json"
+TAKEDOWN_FILENAME = "family_contributions.takedowns.public.json"
 MAX_CONTRIBUTIONS = 500
+MAX_HISTORY_EVENTS = 64
 MAX_TITLE_CHARS = 180
 MAX_BODY_CHARS = 6000
 MAX_SOURCE_LABEL_CHARS = 160
 MAX_PERSON_CHARS = 160
 MAX_RELATIONSHIP_CHARS = 160
 MAX_NOTE_CHARS = 1000
+_EMPTY_HISTORY_DIGEST = "0" * 64
 
 _SLUG_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+_CONTRIBUTION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_TAKEDOWN_STATUSES = {
+    "correction_pending",
+    "rejected",
+    "unpublished",
+    "withdrawn",
+}
 _STORE_LOCK = threading.RLock()
 
 
@@ -108,6 +123,10 @@ def private_contribution_path(slug: str) -> Path:
 
 def public_contribution_path(slug: str) -> Path:
     return _public_slug_dir(slug) / PUBLIC_FILENAME
+
+
+def public_takedown_path(slug: str) -> Path:
+    return _public_slug_dir(slug) / TAKEDOWN_FILENAME
 
 
 def _bounded_text(
@@ -253,8 +272,195 @@ def _save_private_ledger(slug: str, ledger: dict[str, object]) -> None:
     _write_json_atomic(private_contribution_path(slug), stored, mode=0o600)
 
 
+def _empty_takedown_ledger(slug: str) -> dict[str, object]:
+    return {
+        "schema": TAKEDOWN_SCHEMA,
+        "slug": _safe_slug(slug),
+        "generated_at": _utc_now_iso(),
+        "takedowns": [],
+    }
+
+
+def _load_takedown_ledger(slug: str) -> dict[str, object]:
+    safe_slug = _safe_slug(slug)
+    path = public_takedown_path(safe_slug)
+    if path.is_symlink():
+        raise MemorialContributionError("memorial_contribution_store_invalid")
+    if not path.is_file():
+        return _empty_takedown_ledger(safe_slug)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        rows = payload.get("takedowns") if isinstance(payload, dict) else None
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema") != TAKEDOWN_SCHEMA
+            or str(payload.get("slug") or "") != safe_slug
+            or not isinstance(rows, list)
+            or len(rows) > MAX_CONTRIBUTIONS
+        ):
+            raise ValueError("invalid_takedown_ledger")
+        seen_ids: set[str] = set()
+        normalized_rows: list[dict[str, object]] = []
+        allowed_keys = {"contribution_id", "status", "recorded_at", "updated_at"}
+        for row in rows:
+            if not isinstance(row, dict) or set(row) != allowed_keys:
+                raise ValueError("invalid_takedown_row")
+            contribution_id = str(row.get("contribution_id") or "")
+            status_value = str(row.get("status") or "")
+            recorded_at = str(row.get("recorded_at") or "")
+            updated_at = str(row.get("updated_at") or "")
+            if (
+                _CONTRIBUTION_ID_RE.fullmatch(contribution_id) is None
+                or contribution_id in seen_ids
+                or status_value not in _TAKEDOWN_STATUSES
+                or not recorded_at
+                or len(recorded_at) > 80
+                or not updated_at
+                or len(updated_at) > 80
+            ):
+                raise ValueError("invalid_takedown_row")
+            seen_ids.add(contribution_id)
+            normalized_rows.append(
+                {
+                    "contribution_id": contribution_id,
+                    "status": status_value,
+                    "recorded_at": recorded_at,
+                    "updated_at": updated_at,
+                }
+            )
+    except MemorialContributionError:
+        raise
+    except Exception as exc:
+        raise MemorialContributionError("memorial_contribution_store_invalid") from exc
+    return {
+        "schema": TAKEDOWN_SCHEMA,
+        "slug": safe_slug,
+        "generated_at": str(payload.get("generated_at") or "")[:80],
+        "takedowns": normalized_rows,
+    }
+
+
+def _save_takedown_ledger(slug: str, ledger: dict[str, object]) -> None:
+    stored = {
+        "schema": TAKEDOWN_SCHEMA,
+        "slug": _safe_slug(slug),
+        "generated_at": _utc_now_iso(),
+        "takedowns": list(ledger.get("takedowns") or []),
+    }
+    _write_json_atomic(public_takedown_path(slug), stored, mode=0o644)
+
+
+def _takedown_ids(slug: str) -> set[str]:
+    return {
+        str(row.get("contribution_id") or "")
+        for row in list(_load_takedown_ledger(slug).get("takedowns") or [])
+        if isinstance(row, dict) and str(row.get("contribution_id") or "")
+    }
+
+
+def _record_takedown(
+    *, slug: str, contribution_id: str, status_value: str, recorded_at: str
+) -> None:
+    if status_value not in _TAKEDOWN_STATUSES:
+        raise MemorialContributionError("memorial_contribution_store_invalid")
+    safe_id = str(contribution_id or "")
+    if _CONTRIBUTION_ID_RE.fullmatch(safe_id) is None:
+        raise MemorialContributionError("memorial_contribution_store_invalid")
+    ledger = _load_takedown_ledger(slug)
+    rows = [dict(row) for row in list(ledger.get("takedowns") or []) if isinstance(row, dict)]
+    prior = next(
+        (
+            row
+            for row in rows
+            if hmac.compare_digest(
+                str(row.get("contribution_id") or ""), safe_id
+            )
+        ),
+        None,
+    )
+    replacement = {
+        "contribution_id": safe_id,
+        "status": status_value,
+        "recorded_at": str((prior or {}).get("recorded_at") or recorded_at),
+        "updated_at": recorded_at,
+    }
+    rows = [row for row in rows if str(row.get("contribution_id") or "") != safe_id]
+    rows.append(replacement)
+    rows.sort(key=lambda row: str(row.get("contribution_id") or ""))
+    ledger["takedowns"] = rows
+    _save_takedown_ledger(slug, ledger)
+
+
+def _clear_takedown(*, slug: str, contribution_id: str) -> None:
+    ledger = _load_takedown_ledger(slug)
+    rows = [dict(row) for row in list(ledger.get("takedowns") or []) if isinstance(row, dict)]
+    remaining = [
+        row
+        for row in rows
+        if not hmac.compare_digest(
+            str(row.get("contribution_id") or ""), str(contribution_id or "")
+        )
+    ]
+    if len(remaining) == len(rows):
+        return
+    ledger["takedowns"] = remaining
+    _save_takedown_ledger(slug, ledger)
+
+
+def _append_history_event(
+    record: dict[str, object], event: dict[str, object]
+) -> tuple[list[dict[str, object]], dict[str, object]]:
+    raw_history = record.get("history")
+    history = (
+        [dict(item) for item in raw_history if isinstance(item, dict)]
+        if isinstance(raw_history, list)
+        else []
+    )
+    raw_compaction = record.get("history_compaction")
+    if raw_compaction is None:
+        evicted_count = 0
+        evicted_digest = _EMPTY_HISTORY_DIGEST
+    elif (
+        isinstance(raw_compaction, dict)
+        and set(raw_compaction)
+        == {"schema", "evicted_count", "evicted_sha256"}
+        and raw_compaction.get("schema") == HISTORY_COMPACTION_SCHEMA
+        and isinstance(raw_compaction.get("evicted_count"), int)
+        and not isinstance(raw_compaction.get("evicted_count"), bool)
+        and 0 <= int(raw_compaction["evicted_count"]) <= 1_000_000_000
+        and re.fullmatch(
+            r"[0-9a-f]{64}", str(raw_compaction.get("evicted_sha256") or "")
+        )
+    ):
+        evicted_count = int(raw_compaction["evicted_count"])
+        evicted_digest = str(raw_compaction["evicted_sha256"])
+    else:
+        raise MemorialContributionError("memorial_contribution_store_invalid")
+
+    overflow = max(0, len(history) + 1 - MAX_HISTORY_EVENTS)
+    for evicted in history[:overflow]:
+        canonical_event = json.dumps(
+            evicted,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        evicted_digest = hashlib.sha256(
+            bytes.fromhex(evicted_digest) + b"\x00" + canonical_event
+        ).hexdigest()
+        evicted_count += 1
+    compacted_history = [*history[overflow:], dict(event)]
+    return compacted_history, {
+        "schema": HISTORY_COMPACTION_SCHEMA,
+        "evicted_count": evicted_count,
+        "evicted_sha256": evicted_digest,
+    }
+
+
 def _public_projection_rows(
     records: list[dict[str, object]],
+    *,
+    blocked_ids: set[str] | None = None,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     published = sorted(
@@ -263,6 +469,9 @@ def _public_projection_rows(
         reverse=True,
     )
     for record in published:
+        contribution_id = str(record.get("contribution_id") or "")
+        if contribution_id and contribution_id in (blocked_ids or set()):
+            continue
         if record.get("status") != "published" or record.get("visibility") != "public":
             continue
         memory = record.get("public_memory")
@@ -305,13 +514,20 @@ def _public_projection_rows(
     return rows[:MAX_CONTRIBUTIONS]
 
 
-def _write_public_projection(slug: str, records: list[dict[str, object]]) -> None:
+def _write_public_projection(
+    slug: str,
+    records: list[dict[str, object]],
+    *,
+    allow_takedown_ids: set[str] | None = None,
+) -> None:
     now = _utc_now_iso()
+    blocked_ids = _takedown_ids(slug)
+    blocked_ids.difference_update(allow_takedown_ids or set())
     payload: dict[str, object] = {
         "schema": PUBLIC_SCHEMA,
         "slug": _safe_slug(slug),
         "generated_at": now,
-        "memory_cards": _public_projection_rows(records),
+        "memory_cards": _public_projection_rows(records, blocked_ids=blocked_ids),
     }
     _write_json_atomic(public_contribution_path(slug), payload, mode=0o644)
 
@@ -338,6 +554,87 @@ def _find_record(
 def _private_operator_projection(record: dict[str, object]) -> dict[str, object]:
     return {
         key: value for key, value in record.items() if key not in {"manage_token_hash"}
+    }
+
+
+def build_family_contribution_recovery_receipt(
+    *,
+    slug: str,
+    record: dict[str, object],
+    manage_token: str | None = None,
+) -> dict[str, object]:
+    contribution_id = str(record.get("contribution_id") or "")
+    receipt: dict[str, object] = {
+        "schema_version": RECOVERY_RECEIPT_SCHEMA,
+        "contribution_id": contribution_id,
+        "status": str(record.get("status") or ""),
+        "visibility": str(record.get("visibility") or "private"),
+        "manage_token_header": "x-memorial-contribution-token",
+        "status_path": f"/memorials/{_safe_slug(slug)}/contributions/{contribution_id}/status",
+        "token_recoverable": False,
+    }
+    if manage_token is not None:
+        receipt["manage_token"] = str(manage_token)
+    return receipt
+
+
+def get_family_contribution_status(
+    *, slug: str, contribution_id: str, manage_token: str
+) -> dict[str, object]:
+    safe_slug = _safe_slug(slug)
+    with _contribution_lock(safe_slug):
+        records = _records(_load_private_ledger(safe_slug))
+        _index, record = _find_record(records, contribution_id)
+        _verify_manage_token(record, manage_token)
+        takedown = next(
+            (
+                dict(row)
+                for row in list(
+                    _load_takedown_ledger(safe_slug).get("takedowns") or []
+                )
+                if isinstance(row, dict)
+                and hmac.compare_digest(
+                    str(row.get("contribution_id") or ""),
+                    str(record.get("contribution_id") or ""),
+                )
+            ),
+            None,
+        )
+    status_value = str((takedown or {}).get("status") or record.get("status") or "")
+    effective_visibility = "private" if takedown else str(record.get("visibility") or "private")
+    timestamps = {
+        key: str(record.get(key) or "")
+        for key in (
+            "submitted_at",
+            "updated_at",
+            "published_at",
+            "withdrawn_at",
+            "rejected_at",
+            "unpublished_at",
+        )
+        if str(record.get(key) or "")
+    }
+    if takedown:
+        timestamps["takedown_recorded_at"] = str(takedown.get("recorded_at") or "")
+        timestamps["takedown_updated_at"] = str(takedown.get("updated_at") or "")
+    receipt_record = {
+        "contribution_id": str(record.get("contribution_id") or ""),
+        "status": status_value,
+        "visibility": effective_visibility,
+    }
+    return {
+        "contribution_id": str(record.get("contribution_id") or ""),
+        "status": status_value,
+        "visibility": effective_visibility,
+        "publication_consent": record.get("publication_consent") is True,
+        "timestamps": timestamps,
+        "actions": {
+            "can_correct": status_value != "withdrawn",
+            "can_withdraw": status_value != "withdrawn",
+        },
+        "recovery_receipt": build_family_contribution_recovery_receipt(
+            slug=safe_slug, record=receipt_record
+        ),
     }
 
 
@@ -469,20 +766,19 @@ def approve_family_contribution(
                 "memorial_contribution_publication_consent_required"
             )
         now = _utc_now_iso()
-        history = (
-            list(current.get("history") or [])
-            if isinstance(current.get("history"), list)
-            else []
+        history, history_compaction = _append_history_event(
+            current,
+            {
+                "action": "operator_approved",
+                "from_status": str(current.get("status") or ""),
+                "to_status": "published",
+                "reviewer": reviewer,
+                "reason": review_note,
+                "prior_review": dict(current.get("review") or {}),
+                "prior_public_memory": dict(current.get("public_memory") or {}),
+                "recorded_at": now,
+            },
         )
-        if current.get("review") or current.get("public_memory"):
-            history.append(
-                {
-                    "status": str(current.get("status") or ""),
-                    "review": dict(current.get("review") or {}),
-                    "public_memory": dict(current.get("public_memory") or {}),
-                    "recorded_at": now,
-                }
-            )
         updated = dict(current)
         updated.update(
             {
@@ -496,14 +792,24 @@ def approve_family_contribution(
                     "approved_at": now,
                 },
                 "public_memory": public_memory,
-                "history": history[-10:],
+                "history": history,
+                "history_compaction": history_compaction,
             }
         )
         records[index] = updated
         ledger["contributions"] = records
-        # Private state is authoritative; a failed projection remains fail-closed and can be retried idempotently.
+        # Keep any existing tombstone active while the newly approved projection is
+        # materialized. Clearing it is the final publication step.
         _save_private_ledger(safe_slug, ledger)
-        _write_public_projection(safe_slug, records)
+        _write_public_projection(
+            safe_slug,
+            records,
+            allow_takedown_ids={str(updated.get("contribution_id") or "")},
+        )
+        _clear_takedown(
+            slug=safe_slug,
+            contribution_id=str(updated.get("contribution_id") or ""),
+        )
     return _private_operator_projection(updated)
 
 
@@ -556,18 +862,23 @@ def correct_family_contribution(
         if not changed:
             raise MemorialContributionError("memorial_contribution_correction_required")
         now = _utc_now_iso()
-        history = (
-            list(current.get("history") or [])
-            if isinstance(current.get("history"), list)
-            else []
+        _record_takedown(
+            slug=safe_slug,
+            contribution_id=str(current.get("contribution_id") or ""),
+            status_value="correction_pending",
+            recorded_at=now,
         )
-        history.append(
+        history, history_compaction = _append_history_event(
+            current,
             {
-                "status": str(current.get("status") or ""),
-                "review": dict(current.get("review") or {}),
-                "public_memory": dict(current.get("public_memory") or {}),
+                "action": "contributor_corrected",
+                "from_status": str(current.get("status") or ""),
+                "to_status": "correction_pending",
+                "reason": correction_reason,
+                "prior_review": dict(current.get("review") or {}),
+                "prior_public_memory": dict(current.get("public_memory") or {}),
                 "recorded_at": now,
-            }
+            },
         )
         updated = dict(current)
         updated.update(
@@ -580,12 +891,14 @@ def correct_family_contribution(
                 "review": {},
                 "public_memory": {},
                 "correction_reason": correction_reason,
-                "history": history[-10:],
+                "history": history,
+                "history_compaction": history_compaction,
             }
         )
         records[index] = updated
         ledger["contributions"] = records
-        # Removal is written first so a partial failure cannot leave corrected raw content public.
+        # The independent public-safe tombstone is the durable first write. It is
+        # consulted both by projection builds and by public reads.
         _write_public_projection(safe_slug, records)
         _save_private_ledger(safe_slug, ledger)
     return _private_operator_projection(updated)
@@ -607,7 +920,27 @@ def withdraw_family_contribution(
         records = _records(ledger)
         index, current = _find_record(records, contribution_id)
         _verify_manage_token(current, manage_token)
+        if current.get("status") == "withdrawn":
+            raise MemorialContributionError("memorial_contribution_withdrawn")
         now = _utc_now_iso()
+        _record_takedown(
+            slug=safe_slug,
+            contribution_id=str(current.get("contribution_id") or ""),
+            status_value="withdrawn",
+            recorded_at=now,
+        )
+        history, history_compaction = _append_history_event(
+            current,
+            {
+                "action": "contributor_withdrew",
+                "from_status": str(current.get("status") or ""),
+                "to_status": "withdrawn",
+                "reason": withdrawal_reason,
+                "prior_review": dict(current.get("review") or {}),
+                "prior_public_memory": dict(current.get("public_memory") or {}),
+                "recorded_at": now,
+            },
+        )
         updated = dict(current)
         updated.update(
             {
@@ -617,19 +950,124 @@ def withdraw_family_contribution(
                 "withdrawn_at": now,
                 "withdrawal_reason": withdrawal_reason,
                 "public_memory": {},
+                "history": history,
+                "history_compaction": history_compaction,
             }
         )
         records[index] = updated
         ledger["contributions"] = records
-        # Withdrawal is fail-closed: remove the public projection before recording completion privately.
         _write_public_projection(safe_slug, records)
         _save_private_ledger(safe_slug, ledger)
     return _private_operator_projection(updated)
 
 
+def _operator_takedown_family_contribution(
+    *,
+    slug: str,
+    contribution_id: str,
+    payload: dict[str, object],
+    expected_statuses: set[str],
+    target_status: str,
+    action: str,
+    invalid_state_code: str,
+) -> dict[str, object]:
+    safe_slug = _safe_slug(slug)
+    reviewer = _bounded_text(
+        payload.get("reviewer"),
+        field="reviewer",
+        max_chars=MAX_PERSON_CHARS,
+        required=True,
+    )
+    reason = _bounded_text(
+        payload.get("reason"),
+        field="reason",
+        max_chars=MAX_NOTE_CHARS,
+        required=True,
+    )
+    with _contribution_lock(safe_slug):
+        ledger = _load_private_ledger(safe_slug)
+        records = _records(ledger)
+        index, current = _find_record(records, contribution_id)
+        if str(current.get("status") or "") not in expected_statuses:
+            raise MemorialContributionError(invalid_state_code)
+        now = _utc_now_iso()
+        _record_takedown(
+            slug=safe_slug,
+            contribution_id=str(current.get("contribution_id") or ""),
+            status_value=target_status,
+            recorded_at=now,
+        )
+        history, history_compaction = _append_history_event(
+            current,
+            {
+                "action": action,
+                "from_status": str(current.get("status") or ""),
+                "to_status": target_status,
+                "reviewer": reviewer,
+                "reason": reason,
+                "prior_review": dict(current.get("review") or {}),
+                "prior_public_memory": dict(current.get("public_memory") or {}),
+                "recorded_at": now,
+            },
+        )
+        updated = dict(current)
+        updated.update(
+            {
+                "status": target_status,
+                "visibility": "private",
+                "updated_at": now,
+                f"{target_status}_at": now,
+                "review": {
+                    "reviewer": reviewer,
+                    "review_note": reason,
+                    f"{target_status}_at": now,
+                },
+                "public_memory": {},
+                "history": history,
+                "history_compaction": history_compaction,
+            }
+        )
+        records[index] = updated
+        ledger["contributions"] = records
+        # This order makes removal durable across every individual write fault:
+        # reads honor the tombstone even if projection or private-ledger writes fail.
+        _write_public_projection(safe_slug, records)
+        _save_private_ledger(safe_slug, ledger)
+    return _private_operator_projection(updated)
+
+
+def reject_family_contribution(
+    *, slug: str, contribution_id: str, payload: dict[str, object]
+) -> dict[str, object]:
+    return _operator_takedown_family_contribution(
+        slug=slug,
+        contribution_id=contribution_id,
+        payload=payload,
+        expected_statuses={"pending_review", "correction_pending"},
+        target_status="rejected",
+        action="operator_rejected",
+        invalid_state_code="memorial_contribution_not_rejectable",
+    )
+
+
+def unpublish_family_contribution(
+    *, slug: str, contribution_id: str, payload: dict[str, object]
+) -> dict[str, object]:
+    return _operator_takedown_family_contribution(
+        slug=slug,
+        contribution_id=contribution_id,
+        payload=payload,
+        expected_statuses={"published"},
+        target_status="unpublished",
+        action="operator_unpublished",
+        invalid_state_code="memorial_contribution_not_unpublishable",
+    )
+
+
 def load_public_family_memory_cards(*, slug: str) -> list[dict[str, object]]:
     try:
         safe_slug = _safe_slug(slug)
+        blocked_ids = _takedown_ids(safe_slug)
         path = public_contribution_path(safe_slug)
         if not path.is_file() or path.is_symlink():
             return []
@@ -645,8 +1083,10 @@ def load_public_family_memory_cards(*, slug: str) -> list[dict[str, object]]:
         return []
     safe_rows: list[dict[str, object]] = []
     for raw in raw_rows:
+        contribution_id = str(raw.get("contribution_id") or "") if isinstance(raw, dict) else ""
         if (
             not isinstance(raw, dict)
+            or (contribution_id and contribution_id in blocked_ids)
             or raw.get("visibility") != "public"
             or raw.get("public") is not True
         ):

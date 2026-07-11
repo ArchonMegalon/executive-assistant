@@ -2968,7 +2968,10 @@ def _ranked_unmixr_voice_candidates(
         candidate_rows.append(
             {
                 "preset_key": preset.preset_key,
-                "label": _safe_public_voice_label(preset.label, preset.voice_id),
+                "label": _safe_authenticated_catalog_voice_label(
+                    preset.label,
+                    preset.voice_id,
+                ),
                 "language": preset.language,
                 "supported_languages": list(preset.supported_languages[:20]),
                 "language_match": language_match,
@@ -7770,6 +7773,21 @@ def _speaker_cast_snapshot_path(
         "utf-8"
     )
     return job_dir / "speaker_casts" / f"{_sha256_bytes(encoded)}.json"
+
+
+def _safe_authenticated_catalog_voice_label(
+    label: object,
+    *private_voice_ids: str,
+) -> str:
+    normalized_label = " ".join(str(label or "").split()).strip()
+    folded_label = normalized_label.casefold()
+    if not normalized_label:
+        return "Dialogue voice"
+    for voice_id in private_voice_ids:
+        normalized_id = str(voice_id or "").strip()
+        if normalized_id and normalized_id.casefold() in folded_label:
+            return "Dialogue voice"
+    return normalized_label[:120]
 
 
 def _safe_public_voice_label(label: object, *private_voice_ids: str) -> str:

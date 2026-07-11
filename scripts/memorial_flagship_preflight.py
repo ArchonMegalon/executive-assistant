@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -12,10 +13,11 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-_OPTIONAL_AVATAR_WARN_CODES = {
+_NONBLOCKING_WARN_CODES = {
     "avatar_disabled_label_missing",
     "avatar_manifest_missing",
     "avatar_video_not_published",
+    "live_public_payload_empty_private_fields",
 }
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _EA_APP_ROOT = _REPO_ROOT / "ea"
@@ -29,6 +31,116 @@ from app.services.memorial_private_context import (  # noqa: E402
 )
 
 _REQUIRED_VOICE_CONSENT_SCOPES = frozenset({"synthesize", "conversation_turn", "realtime"})
+_SAFE_SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
+_FORBIDDEN_PUBLIC_FIELDS = frozenset(
+    {
+        "api_key",
+        "authorization",
+        "password",
+        "provider_voice_id",
+        "raw_transcript",
+        "raw_voice_id",
+        "read_token",
+        "refresh_token",
+        "secret",
+        "transcript",
+        "transcript_text",
+        "tts_plugin_voice_id",
+        "voice_id",
+        "write_token",
+    }
+)
+_NONEMPTY_PRIVATE_PUBLIC_FIELDS = frozenset(
+    {
+        "candidate_recordings",
+        "family_notes",
+        "memory_principal_id",
+        "private_context",
+        "private_memories",
+        "private_memory",
+        "private_notes",
+        "private_profile",
+        "source_notes",
+        "voice_consent",
+    }
+)
+
+
+def _valid_slug(slug: str) -> bool:
+    return bool(_SAFE_SLUG_RE.fullmatch(str(slug or "").strip()))
+
+
+def _safe_bundle_path(bundle: Path, relpath: object) -> Path | None:
+    if not isinstance(relpath, str):
+        return None
+    raw = relpath.strip()
+    if not raw or "\\" in raw or "\x00" in raw:
+        return None
+    relative = Path(raw)
+    if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        return None
+    try:
+        root = bundle.resolve()
+        unresolved = bundle / relative
+        if unresolved.is_symlink():
+            return None
+        candidate = unresolved.resolve(strict=False)
+        candidate.relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return candidate
+
+
+def _normalized_public_key(value: object) -> str:
+    return str(value or "").strip().lower().replace("-", "_")
+
+
+def _public_field_is_forbidden(key: object, value: object) -> bool:
+    normalized = _normalized_public_key(key)
+    if normalized in _NONEMPTY_PRIVATE_PUBLIC_FIELDS:
+        return value not in (None, "", False, [], {})
+    raw_voice_id_field = normalized.endswith("_voice_id") and not normalized.endswith(
+        ("_requires_voice_id", "_supports_voice_id")
+    )
+    return bool(
+        normalized in _FORBIDDEN_PUBLIC_FIELDS
+        or normalized == "token"
+        or normalized.endswith(("_api_key", "_password", "_secret", "_token"))
+        or raw_voice_id_field
+    )
+
+
+def _forbidden_public_field_paths(value: object, *, path: str = "$") -> list[str]:
+    findings: list[str] = []
+    if isinstance(value, dict):
+        for raw_key, item in value.items():
+            key = str(raw_key)
+            item_path = f"{path}.{key}"
+            if _public_field_is_forbidden(key, item):
+                findings.append(item_path)
+            findings.extend(_forbidden_public_field_paths(item, path=item_path))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            findings.extend(_forbidden_public_field_paths(item, path=f"{path}[{index}]"))
+    return findings
+
+
+def _empty_private_field_paths(value: object, *, path: str = "$") -> list[str]:
+    findings: list[str] = []
+    if isinstance(value, dict):
+        for raw_key, item in value.items():
+            key = str(raw_key)
+            item_path = f"{path}.{key}"
+            if (
+                _normalized_public_key(key) in _NONEMPTY_PRIVATE_PUBLIC_FIELDS
+                and item in (None, "", False, [], {})
+            ):
+                findings.append(item_path)
+            findings.extend(_empty_private_field_paths(item, path=item_path))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            findings.extend(_empty_private_field_paths(item, path=f"{path}[{index}]"))
+    return findings
 
 
 def public_memorial_root() -> Path:
@@ -74,7 +186,7 @@ class Report:
         if self.failed:
             return "fail"
         warn_codes = {item.code for item in self.findings if item.status == "warn"}
-        if warn_codes and warn_codes - _OPTIONAL_AVATAR_WARN_CODES:
+        if warn_codes and warn_codes - _NONBLOCKING_WARN_CODES:
             return "warn"
         return "pass"
 
@@ -86,11 +198,95 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _private_voice_profile_security_ok(
+    *,
+    private_root: Path,
+    slug: str,
+    private_path: Path,
+    report: Report,
+) -> bool:
+    profile_dir = private_root / slug
+    try:
+        file_stat = private_path.lstat()
+        profile_stat = profile_dir.lstat()
+    except OSError:
+        report.add("fail", "voice_profile_security_invalid")
+        return False
+    file_mode = file_stat.st_mode & 0o777
+    profile_mode = profile_stat.st_mode & 0o777
+    expected_uid = os.geteuid()
+    file_owner_ok = file_stat.st_uid == expected_uid
+    profile_owner_ok = profile_stat.st_uid == expected_uid
+    file_mode_ok = file_mode & ~0o600 == 0 and file_mode & 0o400 == 0o400
+    profile_mode_ok = (
+        profile_mode & ~0o700 == 0 and profile_mode & 0o500 == 0o500
+    )
+    symlink_free = not private_path.is_symlink() and not profile_dir.is_symlink()
+    if not (
+        file_owner_ok
+        and profile_owner_ok
+        and file_mode_ok
+        and profile_mode_ok
+        and symlink_free
+    ):
+        report.add(
+            "fail",
+            "voice_profile_security_invalid",
+            file_owner_ok=file_owner_ok,
+            profile_owner_ok=profile_owner_ok,
+            file_mode=oct(file_mode),
+            profile_mode=oct(profile_mode),
+            symlink_free=symlink_free,
+        )
+        return False
+    return True
+
+
 def _voice_consent(slug: str, public_payload: dict[str, object], report: Report) -> dict[str, object] | None:
-    private_path = private_profile_root() / slug / "tts_voice.json"
+    if not _valid_slug(slug):
+        report.add("fail", "slug_invalid")
+        return None
+    private_root = private_profile_root()
+    profile_dir = private_root / slug
+    if os.path.lexists(profile_dir):
+        try:
+            profile_stat = profile_dir.lstat()
+        except OSError:
+            report.add("fail", "voice_profile_security_invalid")
+            return None
+        profile_mode = profile_stat.st_mode & 0o777
+        if (
+            profile_dir.is_symlink()
+            or not profile_dir.is_dir()
+            or profile_stat.st_uid != os.geteuid()
+            or profile_mode & ~0o700 != 0
+            or profile_mode & 0o500 != 0o500
+        ):
+            report.add(
+                "fail",
+                "voice_profile_security_invalid",
+                profile_owner_ok=profile_stat.st_uid == os.geteuid(),
+                profile_mode=oct(profile_mode),
+                symlink_free=not profile_dir.is_symlink(),
+            )
+            return None
+    private_path = _safe_bundle_path(
+        private_root,
+        f"{slug}/tts_voice.json",
+    )
+    if private_path is None:
+        report.add("fail", "voice_profile_security_invalid")
+        return None
     if private_path.exists():
         if not private_path.is_file():
-            report.add("fail", "voice_consent_invalid")
+            report.add("fail", "voice_profile_security_invalid")
+            return None
+        if not _private_voice_profile_security_ok(
+            private_root=private_root,
+            slug=slug,
+            private_path=private_path,
+            report=report,
+        ):
             return None
         try:
             private_payload = json.loads(private_path.read_text(encoding="utf-8"))
@@ -143,11 +339,15 @@ def _check_voice_consent(slug: str, public_payload: dict[str, object], report: R
 
 
 def _check_archive_registry(slug: str, report: Report) -> None:
+    if not _valid_slug(slug):
+        if not any(item.code == "slug_invalid" for item in report.findings):
+            report.add("fail", "slug_invalid")
+        return
     registry = public_registry_path(slug)
     if not registry.exists():
         report.add("fail", "archive_registry_missing")
         return
-    if not registry.is_file():
+    if registry.is_symlink() or not registry.is_file():
         report.add("fail", "archive_registry_invalid")
         return
     try:
@@ -187,11 +387,18 @@ def _check_archive_registry(slug: str, report: Report) -> None:
             return
         public_ids.update(item.strip() for item in items)
 
-    registry_is_public = bool(public_ids) and all(
-        item_id in publications
-        and str(publications[item_id].get("audience") or "") == "public"
-        and str(publications[item_id].get("review_status") or "") == "published"
-        for item_id in public_ids
+    registry_is_public = (
+        bool(public_ids)
+        and all(
+            str(section.get("audience") or "") == "public"
+            for section in raw_sections
+        )
+        and set(publications) == public_ids
+        and all(
+            str(publication.get("audience") or "") == "public"
+            and str(publication.get("review_status") or "") == "published"
+            for publication in publications.values()
+        )
     )
     if not registry_is_public:
         report.add("fail", "archive_registry_not_public")
@@ -224,9 +431,15 @@ def _check_private_context(
 
 
 def check_filesystem(slug: str, report: Report) -> None:
-    bundle = public_memorial_root() / slug
+    if not _valid_slug(slug):
+        report.add("fail", "slug_invalid")
+        return
+    bundle = _safe_bundle_path(public_memorial_root(), slug)
+    if bundle is None:
+        report.add("fail", "public_bundle_path_invalid")
+        return
     manifest_path = bundle / "memorial.json"
-    if not manifest_path.is_file():
+    if manifest_path.is_symlink() or not manifest_path.is_file():
         report.add("fail", "public_manifest_missing")
         return
     try:
@@ -243,11 +456,19 @@ def check_filesystem(slug: str, report: Report) -> None:
     _check_private_context(slug, payload, report)
     _check_voice_consent(slug, payload, report)
     _check_archive_registry(slug, report)
-    avatar = dict(payload.get("video_call_avatar") or {})
+    raw_avatar = payload.get("video_call_avatar")
+    if raw_avatar is not None and not isinstance(raw_avatar, dict):
+        report.add("fail", "avatar_manifest_invalid")
+        avatar: dict[str, object] = {}
+    else:
+        avatar = dict(raw_avatar or {})
     if not avatar:
         report.add("warn", "avatar_manifest_missing")
     elif avatar.get("public_ready") is True:
-        asset = bundle / str(avatar.get("asset_relpath") or "")
+        asset = _safe_bundle_path(bundle, avatar.get("asset_relpath"))
+        if asset is None:
+            report.add("fail", "avatar_asset_path_invalid")
+            asset = bundle / "__invalid_avatar_asset__"
         if asset.is_file():
             report.add("pass", "avatar_video_asset_present")
         if asset.is_file() and str(avatar.get("asset_sha256") or "") == _sha256(asset):
@@ -256,25 +477,52 @@ def check_filesystem(slug: str, report: Report) -> None:
             report.add("fail", "avatar_video_hash_mismatch")
         if avatar.get("provider_proof_verdict") == "VERIFIED_PROVIDER":
             report.add("pass", "avatar_manifest_verified")
-        consent = dict(avatar.get("avatar_consent") or {})
+        raw_avatar_consent = avatar.get("avatar_consent")
+        consent = dict(raw_avatar_consent) if isinstance(raw_avatar_consent, dict) else {}
         if consent.get("status") == "approved" and consent.get("revoked") is False:
             report.add("pass", "avatar_consent_ok")
-    for document in list(payload.get("public_documents") or []):
+        poster_relpath = avatar.get("poster_relpath")
+        if poster_relpath:
+            poster = _safe_bundle_path(bundle, poster_relpath)
+            if (
+                poster is None
+                or not poster.is_file()
+                or str(avatar.get("poster_sha256") or "") != _sha256(poster)
+            ):
+                report.add("fail", "avatar_poster_hash_mismatch")
+            else:
+                report.add("pass", "avatar_poster_hash_ok")
+    raw_documents = payload.get("public_documents") or []
+    if not isinstance(raw_documents, list):
+        report.add("fail", "public_documents_invalid")
+        raw_documents = []
+    for document in raw_documents:
         if not isinstance(document, dict) or str(document.get("provider") or "") != "joggai":
             continue
         relpath = str(document.get("asset_relpath") or "")
         receipt_relpath = str(document.get("receipt_relpath") or "")
-        if not receipt_relpath or ".." in Path(receipt_relpath).parts:
+        asset_path = _safe_bundle_path(bundle, relpath)
+        receipt_path = _safe_bundle_path(bundle, receipt_relpath)
+        if receipt_path is None:
             report.add("fail", "joggai_public_asset_missing_receipt_gate", missing=["receipt_relpath"], relpath=relpath)
             continue
-        receipt_path = bundle / receipt_relpath
         if not receipt_path.is_file():
             report.add("fail", "joggai_public_asset_missing_receipt_gate", relpath=relpath)
             continue
-        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-        asset_path = bundle / relpath
-        if not asset_path.is_file():
+        try:
+            raw_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError):
+            report.add("fail", "joggai_public_asset_receipt_invalid", relpath=relpath)
+            continue
+        if not isinstance(raw_receipt, dict):
+            report.add("fail", "joggai_public_asset_receipt_invalid", relpath=relpath)
+            continue
+        receipt: dict[str, object] = raw_receipt
+        if asset_path is None or not asset_path.is_file():
             report.add("fail", "joggai_public_asset_hash_mismatch", relpath=relpath)
+            continue
+        if str(receipt.get("asset_relpath") or "") != relpath:
+            report.add("fail", "joggai_public_asset_receipt_invalid", relpath=relpath)
             continue
         if str(receipt.get("asset_sha256") or "") != _sha256(asset_path):
             detail: dict[str, object] = {"relpath": relpath}
@@ -284,8 +532,8 @@ def check_filesystem(slug: str, report: Report) -> None:
             continue
         poster_relpath = str(receipt.get("poster_relpath") or "")
         if poster_relpath:
-            poster_path = bundle / poster_relpath
-            if not poster_path.is_file() or str(receipt.get("poster_sha256") or "") != _sha256(poster_path):
+            poster_path = _safe_bundle_path(bundle, poster_relpath)
+            if poster_path is None or not poster_path.is_file() or str(receipt.get("poster_sha256") or "") != _sha256(poster_path):
                 report.add("fail", "joggai_public_asset_hash_mismatch", relpath=relpath, poster_relpath=poster_relpath)
                 continue
         report.add("pass", "joggai_public_asset_gate_ok", relpath=relpath)
@@ -341,6 +589,9 @@ def _valid_public_evidence_url(value: object, *, slug: str) -> bool:
 
 
 def check_live(slug: str, report: Report, base_url: str) -> None:
+    if not _valid_slug(slug):
+        report.add("fail", "slug_invalid")
+        return
     routes = {
         "raw_manifest": f"{base_url}/memorials/files/{slug}/memorial.json",
         "public_json": f"{base_url}/memorials/{slug}.json",
@@ -353,17 +604,25 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
         payloads[name] = http_request(url)
         if payloads[name][0] == 0:
             report.add("fail", "live_endpoint_request_failed", route=name, detail=payloads[name][1])
-    speech_status, speech_body = http_request(
-        f"{base_url}/memorials/{slug}/speech-synthesize",
-        method="POST",
-        body=json.dumps({"voice_name": "override"}).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
-    if speech_status == 0:
-        report.add("fail", "live_endpoint_request_failed", route="speech_synthesize_override_probe", detail=speech_body)
+    speech_probe_results: dict[str, tuple[int, str]] = {}
+    for field_name in ("voice_name", "tts_plugin_voice_id"):
+        speech_status, speech_body = http_request(
+            f"{base_url}/memorials/{slug}/speech-synthesize",
+            method="POST",
+            body=json.dumps({field_name: "preflight-override-must-be-rejected"}).encode("utf-8"),
+            headers={"content-type": "application/json"},
+        )
+        speech_probe_results[field_name] = (speech_status, speech_body)
+        if speech_status == 0:
+            report.add(
+                "fail",
+                "live_endpoint_request_failed",
+                route=f"speech_synthesize_{field_name}_override_probe",
+                detail=speech_body,
+            )
 
     raw_manifest_status = payloads["raw_manifest"][0]
-    if raw_manifest_status in {401, 403, 404}:
+    if raw_manifest_status == 404:
         report.add(
             "pass",
             "live_raw_manifest_not_public",
@@ -384,15 +643,25 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
                 route=route_name,
                 http_status=route_status,
             )
-    if speech_status != 0:
+    rejected_override_fields: list[str] = []
+    for field_name, (speech_status, speech_body) in speech_probe_results.items():
+        if speech_status == 0:
+            continue
         if speech_status == 400 and "unsupported_public_tts_fields" in speech_body:
-            report.add("pass", "live_public_tts_rejects_override")
+            rejected_override_fields.append(field_name)
         else:
             report.add(
                 "fail",
                 "live_public_tts_override_rejection_failed",
                 http_status=speech_status,
+                field=field_name,
             )
+    if len(rejected_override_fields) == len(speech_probe_results):
+        report.add(
+            "pass",
+            "live_public_tts_rejects_override",
+            fields=sorted(rejected_override_fields),
+        )
     if report.failed:
         return
     decoded_payloads: dict[str, dict[str, object]] = {}
@@ -419,21 +688,89 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
     if report.failed:
         return
     public_json = decoded_payloads["public_json"]
+    voice_config = decoded_payloads["voice_config"]
+    for route_name, decoded in (
+        ("public_json", public_json),
+        ("voice_config", voice_config),
+        ("archive_json", decoded_payloads["archive_json"]),
+    ):
+        forbidden_paths = _forbidden_public_field_paths(decoded)
+        if forbidden_paths:
+            report.add(
+                "fail",
+                "live_public_payload_forbidden_fields",
+                route=route_name,
+                fields=forbidden_paths[:20],
+                omitted_count=max(0, len(forbidden_paths) - 20),
+            )
+        empty_private_paths = _empty_private_field_paths(decoded)
+        if empty_private_paths:
+            report.add(
+                "warn",
+                "live_public_payload_empty_private_fields",
+                route=route_name,
+                fields=empty_private_paths[:20],
+                omitted_count=max(0, len(empty_private_paths) - 20),
+            )
+    if report.failed:
+        return
     public_page = payloads["public_page"][1]
-    public_memories = [item for item in list(public_json.get("memory_cards") or []) if isinstance(item, dict)]
-    public_sources = [item for item in list(public_json.get("external_sources") or []) if isinstance(item, dict)]
+    raw_public_memories = public_json.get("memory_cards") or []
+    raw_public_sources = public_json.get("external_sources") or []
+    raw_public_profiles = public_json.get("source_grounded_profile") or []
+    raw_public_prompts = public_json.get("suggested_prompts") or []
+    if any(
+        not isinstance(value, list)
+        for value in (
+            raw_public_memories,
+            raw_public_sources,
+            raw_public_profiles,
+            raw_public_prompts,
+        )
+    ):
+        report.add("fail", "live_public_payload_invalid")
+        return
+    public_memories = [item for item in raw_public_memories if isinstance(item, dict)]
+    public_sources = [item for item in raw_public_sources if isinstance(item, dict)]
     public_profiles = [
         item
-        for item in list(public_json.get("source_grounded_profile") or [])
+        for item in raw_public_profiles
         if isinstance(item, dict)
     ]
-    public_prompts = [item for item in list(public_json.get("suggested_prompts") or []) if isinstance(item, str) and item.strip()]
+    public_prompts = [item for item in raw_public_prompts if isinstance(item, str) and item.strip()]
     archive_json = decoded_payloads["archive_json"]
+    raw_archive_sections = archive_json.get("archive_sections") or []
+    raw_archive_publications = archive_json.get("fliplink_publications") or []
+    if (
+        not isinstance(raw_archive_sections, list)
+        or not isinstance(raw_archive_publications, list)
+        or any(not isinstance(item, dict) for item in raw_archive_sections)
+        or any(not isinstance(item, dict) for item in raw_archive_publications)
+    ):
+        report.add("fail", "live_archive_projection_invalid")
+        return
+    nonpublic_archive_items = sum(
+        1
+        for item in [*raw_archive_sections, *raw_archive_publications]
+        if str(item.get("audience") or "").strip().lower() != "public"
+    )
+    unapproved_archive_publications = sum(
+        1
+        for item in raw_archive_publications
+        if str(item.get("review_status") or "").strip().lower() not in {"approved", "published"}
+    )
+    if nonpublic_archive_items or unapproved_archive_publications:
+        report.add(
+            "fail",
+            "live_archive_projection_contains_nonpublic_items",
+            nonpublic_item_count=nonpublic_archive_items,
+            unapproved_publication_count=unapproved_archive_publications,
+        )
+        return
     approved_archive_publications = [
         item
-        for item in list(archive_json.get("fliplink_publications") or [])
-        if isinstance(item, dict)
-        and str(item.get("audience") or "").strip().lower() == "public"
+        for item in raw_archive_publications
+        if str(item.get("audience") or "").strip().lower() == "public"
         and str(item.get("review_status") or "").strip().lower() in {"approved", "published"}
     ]
     approved_public_profiles = [
@@ -501,7 +838,8 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
             archive_routes_ok=archive_routes_ok,
             raw_transcript_present=_public_json_has_raw_transcript(public_json),
         )
-    avatar = dict(public_json.get("video_call_avatar") or {})
+    raw_live_avatar = public_json.get("video_call_avatar")
+    avatar = dict(raw_live_avatar) if isinstance(raw_live_avatar, dict) else {}
     if avatar.get("enabled") is True and 'memorial-video-call-avatar-video' in public_page:
         report.add("pass", "live_avatar_video_present_on_page")
     elif avatar.get("enabled") is False and str(avatar.get("kind") or "") == "portrait":
@@ -515,6 +853,10 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     report = Report(slug=args.slug)
+    if not _valid_slug(args.slug):
+        report.add("fail", "slug_invalid")
+        print(json.dumps(report.as_dict(), ensure_ascii=False, indent=None if args.json else 2))
+        return 1
     check_filesystem(args.slug, report)
     if args.base_url:
         check_live(args.slug, report, args.base_url.rstrip("/"))
