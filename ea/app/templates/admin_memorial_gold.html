@@ -34,6 +34,25 @@
         color: var(--page-ink);
         font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
       }
+      .skip-link {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        z-index: 100;
+        transform: translateY(-160%);
+        padding: 10px 14px;
+        border-radius: 10px;
+        background: var(--paper-strong);
+        color: var(--page-ink);
+        box-shadow: var(--shadow);
+      }
+      .skip-link:focus {
+        transform: translateY(0);
+      }
+      :focus-visible {
+        outline: 3px solid #244f8f;
+        outline-offset: 3px;
+      }
       main {
         max-width: 1120px;
         margin: 0 auto;
@@ -177,7 +196,8 @@
       }
       .status.blocked,
       .status.no,
-      .status.fail {
+      .status.fail,
+      .status.external_contract_required {
         background: var(--danger-bg);
         color: var(--danger-ink);
       }
@@ -250,7 +270,8 @@
     </style>
   </head>
   <body>
-    <main>
+    <a class="skip-link" href="#memorial-operator-main">Skip to memorial status</a>
+    <main id="memorial-operator-main" tabindex="-1">
       <section class="hero">
         <div class="hero-kicker">Memorial Gold Review</div>
         <div class="hero-grid">
@@ -517,6 +538,40 @@
         <ul class="note-list">
           {% for note in operator_status.operator_notes %}
           <li>{{ note }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      <section class="band" style="margin-top:16px;" aria-labelledby="governance-boundaries-heading">
+        <h2 id="governance-boundaries-heading">Governance and Privacy Boundaries</h2>
+        {% set governance = operator_status.governance or {} %}
+        {% set privacy_controls = governance.privacy_controls or {} %}
+        <dl>
+          <dt>EA authority</dt>
+          <dd><code>{{ governance.authority or "unknown" }}</code></dd>
+          <dt>Canonical system of record</dt>
+          <dd><span class="status {{ 'pass' if governance.canonical else 'unknown' }}">{{ governance.canonical }}</span> — this page is a local operator aid, not family identity, approval, or publication truth.</dd>
+          <dt>Voice-rating privacy</dt>
+          <dd>
+            {% set voice_privacy = privacy_controls.voice_ab_feedback or {} %}
+            <code>free_text={{ voice_privacy.free_text_retained }}</code>
+            <code>identity={{ voice_privacy.client_identity or "unknown" }}</code>
+            <code>retention_days={{ voice_privacy.current_vote_event_retention_days or 0 }}</code>
+            <code>history={{ voice_privacy.historical_rounds or "unknown" }}</code>
+          </dd>
+          <dt>Private-mail integrity</dt>
+          <dd>
+            {% set mail_privacy = privacy_controls.private_mail_memory or {} %}
+            <code>confirmation={{ mail_privacy.explicit_import_confirmation_required }}</code>
+            <code>dedupe={{ mail_privacy.dedupe_scope or "unknown" }}</code>
+            <code>digest={{ mail_privacy.raw_archive_digest or "unknown" }}</code>
+            <code>manifest={{ mail_privacy.manifest_write or "unknown" }}</code>
+          </dd>
+        </dl>
+        <h3 style="margin-top:18px;">External canonical handoffs</h3>
+        <ul class="note-list">
+          {% for handoff in governance.external_handoffs or [] %}
+          <li><code>{{ handoff.owner }}</code> — {{ handoff.capability }} — <span class="status {{ handoff.status }}">{{ handoff.status }}</span></li>
           {% endfor %}
         </ul>
       </section>

@@ -8,6 +8,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CANDIDATE_RECEIPT = ROOT / ".codex-studio/published/memorial_stt_fixture_candidate.generated.json"
@@ -271,6 +278,11 @@ def build_diagnostic(
     return {
         "contract_name": CONTRACT_NAME,
         "generated_at": generated_at or _utc_now(),
+        "generated_by": "scripts/materialize_memorial_stt_captured_candidate_diagnostic.py",
+        "source_git_head": resolve_source_state_head(ROOT),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "status": "pass" if promotion_allowed else "blocked",
         "diagnostic_status": "ready" if candidate and benchmark else "incomplete",
         "promotion_allowed": promotion_allowed,

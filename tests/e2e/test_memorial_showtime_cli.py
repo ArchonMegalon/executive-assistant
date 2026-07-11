@@ -108,10 +108,25 @@ def memorial_showtime_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
                 "slug": slug,
                 "person_name": "Manfred Hoza",
                 "title": "Erinnerungen an Manfred",
-                "subtitle": "Eine ruhige Seite fuer Gespraeche.",
-                "intro": "Eine reduzierte Seite fuer das Gespraech.",
-                "disclosure": "Diese Seite bleibt auf dem Gespraech fokussiert.",
-                "audio_clips": [{"asset_relpath": "audio/clip.mp3"}],
+                "subtitle": "Eine ruhige Seite fuer Erinnerungen, belegte Gedanken und oeffentliche Quellen.",
+                "intro": "Freigegebene Erinnerungen und nachvollziehbare Quellen stehen im Mittelpunkt.",
+                "disclosure": "Neue Antworten bleiben quellengebunden und sind keine Originalaufnahme.",
+                "audio_clips": [{"public": True, "asset_relpath": "audio/clip.mp3"}],
+                "memory_cards": [
+                    {
+                        "public": True,
+                        "title": "Gerechtigkeit",
+                        "body": "Tatsachen, Verantwortung und Fairness gehoerten fuer ihn zusammen.",
+                    }
+                ],
+                "external_sources": [
+                    {
+                        "public": True,
+                        "label": "Oeffentliche Quelle",
+                        "url": "https://example.test/manfred",
+                    }
+                ],
+                "suggested_prompts": ["Was war dir bei Gerechtigkeit wichtig?"],
                 "pwa_app_name": "Manfred Gedenkseite",
                 "pwa_short_name": "Manfred",
                 "pwa_icon": {
@@ -209,6 +224,7 @@ def memorial_showtime_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
         return SimpleNamespace(text=text, provider_key="unit-test-model", model="unit-test-model")
 
     monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    monkeypatch.setattr(public_memorials, "_enforce_public_memorial_rate_limit", lambda *args, **kwargs: None)
     def _fake_unmixr_synthesize_request(**kwargs):
         text = str(kwargs.get("text") or "audio")
         payload = _generated_wav_bytes(seed=text)

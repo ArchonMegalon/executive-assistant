@@ -151,6 +151,10 @@ _TTS_MAX_TEXT_LEN = 3000
 _PERSONAL_MEMORY_MAX_ITEMS = 24
 _VOICE_AB_AUTO_SWAP_MARGIN = 3
 _VOICE_AB_AUTO_SWAP_MIN_TOTAL = 4
+_VOICE_AB_EVENT_RETENTION_DAYS_DEFAULT = 30
+_VOICE_AB_RATINGS_SCHEMA = "ea.memorial_voice_ab_ratings.v2"
+_VOICE_AB_ROUND_RECEIPT_SCHEMA = "ea.memorial_voice_ab_round_receipt.v1"
+_VOICE_AB_RETIREMENT_RECEIPT_SCHEMA = "ea.memorial_voice_ab_retirement_receipt.v1"
 _MEMORIAL_PWA_VERSION = "20260609a"
 _MEMORIAL_GUEST_COOKIE = "ea_memorial_guest"
 _MAX_REALTIME_AUDIO_BYTES = _MAX_SPEECH_UPLOAD_BYTES
@@ -248,6 +252,8 @@ _PUBLIC_MEMORIAL_SAFE_JSON_KEYS = {
     "person_name",
     "title",
     "subtitle",
+    "relationship",
+    "relationship_public",
     "intro",
     "disclosure",
     "audio_clips",
@@ -287,7 +293,7 @@ _BLOCKED_PUBLIC_ASSET_NAMES = {
 }
 _ALLOWED_PUBLIC_ASSET_SUFFIXES = {
     ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm", ".mp4",
-    ".jpg", ".jpeg", ".png", ".webp", ".svg", ".pdf",
+    ".jpg", ".jpeg", ".png", ".webp", ".pdf",
 }
 
 _MEMORIAL_CONTACT_TTS_CACHE_VALIDATE_ATTEMPTS = 3
@@ -810,6 +816,10 @@ def _public_memorial_payload(payload: dict[str, object]) -> dict[str, object]:
         payload,
         safe_json_keys=_PUBLIC_MEMORIAL_SAFE_JSON_KEYS,
         text=_text,
+        story_text=_public_memorial_story_text,
+        censored_memory_preview=_censored_memory_preview,
+        safe_external_url=_safe_public_memorial_external_url,
+        safe_audio_relpath=_safe_public_memorial_audio_relpath,
         public_list=lambda items, allowed_keys: _public_list(items, allowed_keys=allowed_keys),
         public_memorial_archive_registry=_public_memorial_archive_registry,
         memorial_video_call_avatar=_memorial_video_call_avatar,
@@ -1088,20 +1098,24 @@ def _voice_ab_normalize_dimensions(value: object) -> dict[str, int]:
     return normalized
 
 
-def _voice_ab_variant_snapshot(variant: dict[str, object]) -> dict[str, object]:
+def _voice_ab_variant_snapshot(variant: dict[str, object], *, slug: str = "") -> dict[str, object]:
+    voice_id = _text(variant.get("tts_plugin_voice_id"), "")
     return {
         "id": _text(variant.get("id"), ""),
         "label": _text(variant.get("label"), ""),
-        "voice_id": _text(variant.get("tts_plugin_voice_id"), ""),
+        "voice_receipt": _voice_ab_private_receipt(voice_id, slug=slug, domain="voice") if voice_id else "",
         "description": _text(variant.get("description"), ""),
         "feature_profile": _voice_ab_normalize_feature_profile(variant.get("feature_profile")),
     }
 
 
-def _voice_ab_candidate_analysis_key(variant_snapshot: dict[str, object]) -> str:
-    voice_id = _text(variant_snapshot.get("voice_id"), "")
-    if voice_id:
-        return voice_id
+def _voice_ab_candidate_analysis_key(variant_snapshot: dict[str, object], *, slug: str = "") -> str:
+    voice_receipt = _text(variant_snapshot.get("voice_receipt"), "")
+    if voice_receipt:
+        return voice_receipt
+    legacy_voice_id = _text(variant_snapshot.get("voice_id"), "")
+    if legacy_voice_id:
+        return _voice_ab_private_receipt(legacy_voice_id, slug=slug, domain="voice")
     return _text(variant_snapshot.get("id"), "") or "unknown"
 
 
@@ -1572,10 +1586,18 @@ def _voice_ab_dimension_average(events: list[dict[str, object]]) -> dict[str, fl
 def _voice_ab_round_analysis_events(ratings: dict[str, object]) -> list[dict[str, object]]:
     combined: list[dict[str, object]] = []
     for round_entry in [dict(item) for item in ratings.get("rounds", []) if isinstance(item, dict)]:
-        for event in [dict(item) for item in round_entry.get("events", []) if isinstance(item, dict)]:
-            combined.append(event)
-    for event in [dict(item) for item in ratings.get("events", []) if isinstance(item, dict)]:
-        combined.append(event)
+        if isinstance(round_entry.get("rating_receipt"), dict):
+            continue
+        combined.extend(
+            _voice_ab_latest_events(
+                [dict(item) for item in round_entry.get("events", []) if isinstance(item, dict)]
+            )
+        )
+    combined.extend(
+        _voice_ab_latest_events(
+            [dict(item) for item in ratings.get("events", []) if isinstance(item, dict)]
+        )
+    )
     return combined
 
 
@@ -1586,6 +1608,35 @@ def _voice_ab_analysis(slug: str, ratings: dict[str, object] | None = None) -> d
     active_by_id = {_text(item.get("id"), ""): item for item in variants}
     events = _voice_ab_round_analysis_events(ratings)
     labels = _voice_ab_dimension_labels()
+    historical_target_sum = {name: 0.0 for name in _VOICE_AB_DIMENSION_KEYS}
+    historical_target_weight = {name: 0.0 for name in _VOICE_AB_DIMENSION_KEYS}
+    historical_event_count = 0
+    for round_entry in [dict(item) for item in ratings.get("rounds", []) if isinstance(item, dict)]:
+        receipt = dict(round_entry.get("rating_receipt") or {})
+        if not receipt:
+            historical_event_count += len(
+                _voice_ab_latest_events(
+                    [dict(item) for item in round_entry.get("events", []) if isinstance(item, dict)]
+                )
+            )
+            continue
+        event_count = max(0, int(receipt.get("event_count", 0) or 0))
+        historical_event_count += event_count
+        dimension_average = _voice_ab_normalize_target_profile(receipt.get("dimension_average"))
+        if not any(dimension_average.values()):
+            dimension_average = _voice_ab_normalize_target_profile(receipt.get("target_profile"))
+        dimension_stats = _voice_ab_normalize_dimension_stats(
+            receipt.get("dimension_stats"),
+            fallback_average=dimension_average,
+            fallback_count=event_count,
+        )
+        for name in _VOICE_AB_DIMENSION_KEYS:
+            stat = dict(dimension_stats.get(name) or {})
+            count = max(0, int(stat.get("count", 0) or 0))
+            if count <= 0:
+                continue
+            historical_target_sum[name] += max(0.0, float(stat.get("sum", 0.0) or 0.0))
+            historical_target_weight[name] += float(count)
     candidate_map: dict[str, dict[str, object]] = {}
     for event in events:
         choice = _text(event.get("choice"), "equal")
@@ -1596,11 +1647,11 @@ def _voice_ab_analysis(slug: str, ratings: dict[str, object] | None = None) -> d
             snapshot = dict(snapshots.get(variant_id) or {})
             if not snapshot:
                 continue
-            key = _voice_ab_candidate_analysis_key(snapshot)
+            key = _voice_ab_candidate_analysis_key(snapshot, slug=slug)
             entry = candidate_map.setdefault(
                 key,
                 {
-                    "voice_id": _text(snapshot.get("voice_id"), ""),
+                    "voice_receipt": _voice_ab_candidate_analysis_key(snapshot, slug=slug),
                     "label": _text(snapshot.get("label"), f"Stimme {variant_id.upper()}"),
                     "feature_profile": _voice_ab_normalize_feature_profile(snapshot.get("feature_profile")),
                     "shown": 0,
@@ -1622,8 +1673,8 @@ def _voice_ab_analysis(slug: str, ratings: dict[str, object] | None = None) -> d
             if approved_variant == variant_id:
                 entry["approved"] = int(entry.get("approved", 0) or 0) + 1
     candidates: list[dict[str, object]] = []
-    weighted_target_sum = {name: 0.0 for name in _VOICE_AB_DIMENSION_KEYS}
-    weighted_target_weight = 0.0
+    weighted_target_sum = dict(historical_target_sum)
+    weighted_target_weight = dict(historical_target_weight)
     for entry in candidate_map.values():
         preferred = int(entry.get("preferred", 0) or 0)
         approved = int(entry.get("approved", 0) or 0)
@@ -1643,10 +1694,10 @@ def _voice_ab_analysis(slug: str, ratings: dict[str, object] | None = None) -> d
         for name in _VOICE_AB_DIMENSION_KEYS:
             if weight > 0 and avg_dimensions[name] > 0:
                 weighted_target_sum[name] += avg_dimensions[name] * weight
-        weighted_target_weight += weight
+                weighted_target_weight[name] += weight
         candidates.append(
             {
-                "voice_id": entry["voice_id"],
+                "voice_receipt": entry["voice_receipt"],
                 "label": entry["label"],
                 "feature_profile": entry["feature_profile"],
                 "shown": int(entry.get("shown", 0) or 0),
@@ -1659,13 +1710,22 @@ def _voice_ab_analysis(slug: str, ratings: dict[str, object] | None = None) -> d
         )
     candidates.sort(key=lambda item: (int(item.get("score", 0) or 0), int(item.get("preferred", 0) or 0)), reverse=True)
     target_profile = {
-        name: round((weighted_target_sum[name] / weighted_target_weight), 2) if weighted_target_weight > 0 else 0.0
+        name: round((weighted_target_sum[name] / weighted_target_weight[name]), 2)
+        if weighted_target_weight[name] > 0
+        else 0.0
         for name in _VOICE_AB_DIMENSION_KEYS
     }
     active_scores: dict[str, dict[str, float]] = {}
     for variant_id, variant in active_by_id.items():
-        snapshot = _voice_ab_variant_snapshot(variant)
-        candidate = next((item for item in candidates if _text(item.get("voice_id"), "") == _text(snapshot.get("voice_id"), "")), None)
+        snapshot = _voice_ab_variant_snapshot(variant, slug=slug)
+        candidate = next(
+            (
+                item
+                for item in candidates
+                if _text(item.get("voice_receipt"), "") == _text(snapshot.get("voice_receipt"), "")
+            ),
+            None,
+        )
         active_scores[variant_id] = dict(candidate.get("average_dimensions") or {}) if candidate else {}
     comparative_gaps: list[tuple[float, str]] = []
     for name in _VOICE_AB_DIMENSION_KEYS:
@@ -1685,6 +1745,9 @@ def _voice_ab_analysis(slug: str, ratings: dict[str, object] | None = None) -> d
         {"id": "intelligibility", "label": labels.get("intelligibility", "Verstaendlichkeit"), "value": round((target_profile.get("intelligibility", 0.0) + target_profile.get("artifact_control", 0.0)) / 2, 2)},
         {"id": "naturalness", "label": "Waerme/Natuerlichkeit", "value": round((target_profile.get("warmth", 0.0) + target_profile.get("naturalness", 0.0)) / 2, 2)},
     ]
+    current_effective_events = _voice_ab_latest_events(
+        [dict(item) for item in ratings.get("events", []) if isinstance(item, dict)]
+    )
     return {
         "target_profile": target_profile,
         "target_profile_summary": target_profile_summary,
@@ -1692,10 +1755,10 @@ def _voice_ab_analysis(slug: str, ratings: dict[str, object] | None = None) -> d
         "weak_dimension_labels": [labels.get(name, name) for name in weak_dimensions],
         "hypothesis": hypothesis,
         "sample_size": {
-            "effective": len([dict(item) for item in ratings.get("events", []) if isinstance(item, dict)]),
-            "historical": len(events),
+            "effective": len(current_effective_events),
+            "historical": historical_event_count + len(current_effective_events),
         },
-        "current_round_dimension_average": _voice_ab_dimension_average([dict(item) for item in ratings.get("events", []) if isinstance(item, dict)]),
+        "current_round_dimension_average": _voice_ab_dimension_average(current_effective_events),
         "candidates": candidates[:8],
     }
 
@@ -1740,35 +1803,465 @@ def _voice_ab_rating_path(slug: str) -> Path:
     return _voice_ab_path(slug, "ratings.json")
 
 
-def _load_voice_ab_ratings(slug: str) -> dict[str, object]:
-    path = _voice_ab_rating_path(slug)
-    if not path.is_file():
-        return {"slug": _safe_slug(slug), "totals": {"a": 0, "b": 0, "equal": 0, "approved": 0}, "effective_totals": {"a": 0, "b": 0, "equal": 0, "approved": 0}, "events": [], "round": 1, "rounds": []}
+@lru_cache(maxsize=1)
+def _voice_ab_receipt_secret() -> bytes:
+    return resolve_signing_secret(get_settings(), purpose="memorial-voice-ab-receipt-v1").encode("utf-8")
+
+
+def _voice_ab_private_receipt(
+    value: object,
+    *,
+    slug: str = "",
+    domain: str = "generic",
+) -> str:
+    normalized = _text(value, "")
+    if not normalized:
+        return ""
+    slug_key = _safe_slug(slug) if slug else "global"
+    domain_key = re.sub(r"[^a-z0-9_-]+", "-", _text(domain, "generic").lower()).strip("-") or "generic"
+    message = f"{domain_key}\0{slug_key}\0{normalized}".encode("utf-8")
+    return hmac.new(_voice_ab_receipt_secret(), message, hashlib.sha256).hexdigest()
+
+
+def _voice_ab_receipt_is_valid(value: object) -> bool:
+    return re.fullmatch(r"[0-9a-f]{64}", _text(value, "")) is not None
+
+
+def _voice_ab_canonical_receipt(
+    value: object,
+    *,
+    slug: str,
+    domain: str,
+    trusted: bool,
+) -> str:
+    normalized = _text(value, "")
+    if trusted and _voice_ab_receipt_is_valid(normalized):
+        return normalized
+    return _voice_ab_private_receipt(normalized, slug=slug, domain=domain) if normalized else ""
+
+
+def _voice_ab_event_retention_days() -> int:
+    raw_value = _text(os.getenv("EA_MEMORIAL_VOICE_AB_EVENT_RETENTION_DAYS"), "")
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
-    totals = dict(payload.get("totals") or {})
-    events = [dict(item) for item in payload.get("events", []) if isinstance(item, dict)][-40:]
-    effective_totals = _recompute_voice_ab_effective_totals(events)
+        parsed = int(raw_value) if raw_value else _VOICE_AB_EVENT_RETENTION_DAYS_DEFAULT
+    except (TypeError, ValueError):
+        parsed = _VOICE_AB_EVENT_RETENTION_DAYS_DEFAULT
+    return max(1, min(parsed, 365))
+
+
+def _voice_ab_event_is_retained(event: dict[str, object]) -> bool:
+    created_at = _text(event.get("created_at"), "")
+    if not created_at:
+        return False
+    try:
+        created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    created = created.astimezone(timezone.utc)
+    now = datetime.now(timezone.utc)
+    cutoff = now.timestamp() - (_voice_ab_event_retention_days() * 86400)
+    return cutoff <= created.timestamp() <= now.timestamp() + 300
+
+
+def _voice_ab_minimized_variant_snapshot(
+    value: object,
+    *,
+    slug: str,
+    trusted_receipts: bool,
+) -> dict[str, object]:
+    snapshot = dict(value or {}) if isinstance(value, dict) else {}
+    legacy_voice_id = _text(snapshot.get("voice_id"), "")
+    if legacy_voice_id:
+        voice_receipt = _voice_ab_private_receipt(legacy_voice_id, slug=slug, domain="voice")
+    else:
+        voice_receipt = _voice_ab_canonical_receipt(
+            snapshot.get("voice_receipt"),
+            slug=slug,
+            domain="voice",
+            trusted=trusted_receipts,
+        )
     return {
-        "slug": _safe_slug(slug),
-        "totals": {
-            "a": int(totals.get("a", 0) or 0),
-            "b": int(totals.get("b", 0) or 0),
-            "equal": int(totals.get("equal", 0) or 0),
-            "approved": int(totals.get("approved", 0) or 0),
-        },
-        "effective_totals": effective_totals,
-        "events": events,
-        "round": int(payload.get("round", 1) or 1),
-        "rounds": [dict(item) for item in payload.get("rounds", []) if isinstance(item, dict)][-20:],
+        "id": _text(snapshot.get("id"), ""),
+        "label": _text(snapshot.get("label"), "")[:120],
+        "voice_receipt": voice_receipt,
+        "description": _text(snapshot.get("description"), "")[:240],
+        "feature_profile": _voice_ab_normalize_feature_profile(snapshot.get("feature_profile")),
     }
 
 
+def _voice_ab_minimized_event(
+    value: object,
+    *,
+    slug: str,
+    trusted_receipts: bool,
+) -> dict[str, object]:
+    event = dict(value or {}) if isinstance(value, dict) else {}
+    legacy_identity = _text(event.get("scope"), "") or _text(event.get("dedupe_key"), "")
+    if legacy_identity:
+        dedupe_receipt = _voice_ab_private_receipt(legacy_identity, slug=slug, domain="client")
+    else:
+        dedupe_receipt = _voice_ab_canonical_receipt(
+            event.get("dedupe_receipt"),
+            slug=slug,
+            domain="client",
+            trusted=trusted_receipts,
+        )
+    created_at = _text(event.get("created_at"), "")
+    if not dedupe_receipt and created_at:
+        dedupe_receipt = _voice_ab_private_receipt(
+            f"anonymous:{created_at}",
+            slug=slug,
+            domain="client",
+        )
+    snapshots = dict(event.get("variant_snapshot") or {})
+    minimized_snapshots = {
+        variant_id: _voice_ab_minimized_variant_snapshot(
+            snapshots.get(variant_id),
+            slug=slug,
+            trusted_receipts=trusted_receipts,
+        )
+        for variant_id in ("a", "b")
+        if isinstance(snapshots.get(variant_id), dict)
+    }
+    choice = _text(event.get("choice"), "equal")
+    if choice not in {"a", "b", "equal"}:
+        choice = "equal"
+    approved_variant = _text(event.get("approved_variant"), "")
+    if approved_variant not in {"a", "b"}:
+        approved_variant = ""
+    return {
+        "dedupe_receipt": dedupe_receipt,
+        "choice": choice,
+        "approved_variant": approved_variant,
+        "dimensions": _voice_ab_normalize_dimensions(event.get("dimensions")),
+        "variant_snapshot": minimized_snapshots,
+        "created_at": created_at,
+    }
+
+
+def _voice_ab_normalize_target_profile(value: object) -> dict[str, float]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    normalized: dict[str, float] = {}
+    for key in _VOICE_AB_DIMENSION_KEYS:
+        try:
+            parsed = float(payload.get(key, 0.0) or 0.0)
+        except (TypeError, ValueError):
+            parsed = 0.0
+        normalized[key] = round(max(0.0, min(parsed, 5.0)), 2)
+    return normalized
+
+
+def _voice_ab_dimension_stats(events: list[dict[str, object]]) -> dict[str, dict[str, object]]:
+    sums = {key: 0.0 for key in _VOICE_AB_DIMENSION_KEYS}
+    counts = {key: 0 for key in _VOICE_AB_DIMENSION_KEYS}
+    for event in events:
+        dims = _voice_ab_normalize_dimensions(event.get("dimensions"))
+        for key in _VOICE_AB_DIMENSION_KEYS:
+            sums[key] += float(dims.get(key, 3))
+            counts[key] += 1
+    return {
+        key: {"sum": round(sums[key], 2), "count": counts[key]}
+        for key in _VOICE_AB_DIMENSION_KEYS
+    }
+
+
+def _voice_ab_normalize_dimension_stats(
+    value: object,
+    *,
+    fallback_average: object,
+    fallback_count: int,
+) -> dict[str, dict[str, object]]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    averages = _voice_ab_normalize_target_profile(fallback_average)
+    normalized: dict[str, dict[str, object]] = {}
+    for key in _VOICE_AB_DIMENSION_KEYS:
+        item = dict(payload.get(key) or {}) if isinstance(payload.get(key), dict) else {}
+        try:
+            count = max(0, int(item.get("count", 0) or 0))
+        except (TypeError, ValueError):
+            count = 0
+        try:
+            total = max(0.0, float(item.get("sum", 0.0) or 0.0))
+        except (TypeError, ValueError):
+            total = 0.0
+        if count <= 0 and averages.get(key, 0.0) > 0 and fallback_count > 0:
+            count = fallback_count
+            total = float(averages[key]) * count
+        if count <= 0:
+            total = 0.0
+        else:
+            total = min(total, float(count) * 5.0)
+        normalized[key] = {"sum": round(total, 2), "count": count}
+    return normalized
+
+
+def _voice_ab_dimension_average_from_stats(value: object) -> dict[str, float]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    result: dict[str, float] = {}
+    for key in _VOICE_AB_DIMENSION_KEYS:
+        item = dict(payload.get(key) or {}) if isinstance(payload.get(key), dict) else {}
+        count = max(0, int(item.get("count", 0) or 0))
+        total = max(0.0, float(item.get("sum", 0.0) or 0.0))
+        result[key] = round(total / count, 2) if count else 0.0
+    return result
+
+
+def _voice_ab_round_receipt_from_events(
+    events: list[dict[str, object]],
+    *,
+    effective_totals: object = None,
+    created_at: object = "",
+) -> dict[str, object]:
+    effective_events = _voice_ab_latest_events(events)
+    dimension_stats = _voice_ab_dimension_stats(effective_events)
+    dimension_average = _voice_ab_dimension_average_from_stats(dimension_stats)
+    computed_totals = _recompute_voice_ab_effective_totals(effective_events)
+    supplied_totals = dict(effective_totals or {}) if isinstance(effective_totals, dict) else {}
+    return {
+        "schema": _VOICE_AB_ROUND_RECEIPT_SCHEMA,
+        "event_count": len(effective_events),
+        "dimension_average": dimension_average,
+        "target_profile": dict(dimension_average),
+        "dimension_stats": dimension_stats,
+        "effective_totals": {
+            key: max(0, int(supplied_totals.get(key, computed_totals[key]) or 0))
+            for key in ("a", "b", "equal", "approved")
+        },
+        "created_at": _text(created_at, "") or _utc_now_iso(),
+    }
+
+
+def _voice_ab_normalized_round_receipt(value: object, *, created_at: object = "") -> dict[str, object]:
+    receipt = dict(value or {}) if isinstance(value, dict) else {}
+    if not receipt:
+        return {}
+    try:
+        event_count = max(0, int(receipt.get("event_count", 0) or 0))
+    except (TypeError, ValueError):
+        event_count = 0
+    dimension_average = _voice_ab_normalize_target_profile(receipt.get("dimension_average"))
+    if not any(dimension_average.values()):
+        dimension_average = _voice_ab_normalize_target_profile(receipt.get("target_profile"))
+    dimension_stats = _voice_ab_normalize_dimension_stats(
+        receipt.get("dimension_stats"),
+        fallback_average=dimension_average,
+        fallback_count=event_count,
+    )
+    dimension_average = _voice_ab_dimension_average_from_stats(dimension_stats)
+    effective = dict(receipt.get("effective_totals") or {})
+    return {
+        "schema": _VOICE_AB_ROUND_RECEIPT_SCHEMA,
+        "event_count": event_count,
+        "dimension_average": dimension_average,
+        "target_profile": dict(dimension_average),
+        "dimension_stats": dimension_stats,
+        "effective_totals": {
+            key: max(0, int(effective.get(key, 0) or 0))
+            for key in ("a", "b", "equal", "approved")
+        },
+        "created_at": _text(receipt.get("created_at"), _text(created_at, "")),
+    }
+
+
+def _voice_ab_retirement_receipt(
+    slug: str,
+    value: object,
+    *,
+    trusted_receipts: bool,
+) -> dict[str, object]:
+    retirement = dict(value or {}) if isinstance(value, dict) else {}
+    if not retirement:
+        return {}
+    voice_id = _text(retirement.get("voice_id"), "")
+    profile_id = _text(retirement.get("profile_id"), "")
+    voice_receipt = (
+        _voice_ab_private_receipt(voice_id, slug=slug, domain="voice")
+        if voice_id
+        else _voice_ab_canonical_receipt(
+            retirement.get("voice_receipt"),
+            slug=slug,
+            domain="voice",
+            trusted=trusted_receipts,
+        )
+    )
+    profile_receipt = (
+        _voice_ab_private_receipt(profile_id, slug=slug, domain="provider-profile")
+        if profile_id
+        else _voice_ab_canonical_receipt(
+            retirement.get("profile_receipt"),
+            slug=slug,
+            domain="provider-profile",
+            trusted=trusted_receipts,
+        )
+    )
+    status = _text(retirement.get("status_at_rotation"), _text(retirement.get("delete_status"), "not_attempted"))
+    if status not in {"deleted", "pending_manual_delete", "not_attempted"}:
+        status = "not_attempted"
+    raw_error = _text(retirement.get("error_code"), _text(retirement.get("error"), ""))
+    if raw_error in {"profile_id_unresolved", "unmixr_profile_id_unresolved"}:
+        error_code = "profile_id_unresolved"
+    elif raw_error in {"", "none"}:
+        error_code = "none"
+    else:
+        error_code = "provider_delete_failed"
+    return {
+        "schema": _VOICE_AB_RETIREMENT_RECEIPT_SCHEMA,
+        "provider": "unmixr",
+        "action": "delete_clone_profile",
+        "voice_receipt": voice_receipt,
+        "profile_receipt": profile_receipt,
+        "recorded_at": _text(retirement.get("recorded_at"), _text(retirement.get("retired_at"), "")),
+        "status_at_rotation": status,
+        "retry_required": status == "pending_manual_delete",
+        "error_code": error_code,
+    }
+
+
+def _voice_ab_minimized_round(
+    value: object,
+    *,
+    slug: str,
+    trusted_receipts: bool,
+) -> dict[str, object]:
+    round_entry = dict(value or {}) if isinstance(value, dict) else {}
+    legacy_events = [
+        _voice_ab_minimized_event(item, slug=slug, trusted_receipts=trusted_receipts)
+        for item in list(round_entry.get("events") or [])
+        if isinstance(item, dict)
+    ]
+    rating_receipt = dict(round_entry.get("rating_receipt") or {})
+    if not rating_receipt and legacy_events:
+        rating_receipt = _voice_ab_round_receipt_from_events(
+            legacy_events,
+            effective_totals=round_entry.get("effective_totals"),
+            created_at=round_entry.get("created_at"),
+        )
+    else:
+        rating_receipt = _voice_ab_normalized_round_receipt(
+            rating_receipt,
+            created_at=round_entry.get("created_at"),
+        )
+    minimized: dict[str, object] = {
+        "round": max(1, int(round_entry.get("round", 1) or 1)),
+        "winner": _text(round_entry.get("winner"), "") if _text(round_entry.get("winner"), "") in {"a", "b"} else "",
+        "manual_finalize": bool(round_entry.get("manual_finalize")),
+        "effective_totals": {
+            key: max(0, int(dict(round_entry.get("effective_totals") or {}).get(key, 0) or 0))
+            for key in ("a", "b", "equal", "approved")
+        },
+        "raw_totals": {
+            key: max(0, int(dict(round_entry.get("raw_totals") or {}).get(key, 0) or 0))
+            for key in ("a", "b", "equal", "approved")
+        },
+        "created_at": _text(round_entry.get("created_at"), ""),
+    }
+    if rating_receipt:
+        minimized["rating_receipt"] = rating_receipt
+    retirement_receipt = _voice_ab_retirement_receipt(
+        slug,
+        round_entry.get("retirement") or round_entry.get("retirement_receipt"),
+        trusted_receipts=trusted_receipts,
+    )
+    if retirement_receipt:
+        minimized["retirement_receipt"] = retirement_receipt
+    return minimized
+
+
+def _voice_ab_retention_contract() -> dict[str, object]:
+    return {
+        "current_vote_events_days": _voice_ab_event_retention_days(),
+        "historical_rounds": "aggregate_receipts_only",
+        "free_text_retained": False,
+        "client_identity": "hmac_sha256_receipt",
+    }
+
+
+def _voice_ab_empty_ratings(slug: str) -> dict[str, object]:
+    return {
+        "slug": _safe_slug(slug),
+        "totals": {"a": 0, "b": 0, "equal": 0, "approved": 0},
+        "effective_totals": {"a": 0, "b": 0, "equal": 0, "approved": 0},
+        "events": [],
+        "round": 1,
+        "rounds": [],
+    }
+
+
+def _voice_ab_canonical_ratings(
+    slug: str,
+    payload: dict[str, object],
+    *,
+    trusted_receipts: bool,
+) -> dict[str, object]:
+    totals = dict(payload.get("totals") or {})
+    raw_events = [dict(item) for item in payload.get("events", []) if isinstance(item, dict)]
+    events = [
+        _voice_ab_minimized_event(item, slug=slug, trusted_receipts=trusted_receipts)
+        for item in raw_events
+    ]
+    events = _voice_ab_latest_events(
+        [event for event in events if _voice_ab_event_is_retained(event)]
+    )[-40:]
+    raw_rounds = [dict(item) for item in payload.get("rounds", []) if isinstance(item, dict)]
+    canonical: dict[str, object] = {
+        "schema": _VOICE_AB_RATINGS_SCHEMA,
+        "slug": _safe_slug(slug),
+        "totals": {
+            key: max(0, int(totals.get(key, 0) or 0))
+            for key in ("a", "b", "equal", "approved")
+        },
+        "effective_totals": _recompute_voice_ab_effective_totals(events),
+        "events": events,
+        "round": max(1, int(payload.get("round", 1) or 1)),
+        "rounds": [
+            _voice_ab_minimized_round(item, slug=slug, trusted_receipts=trusted_receipts)
+            for item in raw_rounds
+        ][-20:],
+        "retention": _voice_ab_retention_contract(),
+    }
+    last_rotation_at = _text(payload.get("last_rotation_at"), "")
+    if last_rotation_at:
+        canonical["last_rotation_at"] = last_rotation_at
+    return canonical
+
+
+def _voice_ab_runtime_ratings(payload: dict[str, object]) -> dict[str, object]:
+    runtime = {
+        key: payload[key]
+        for key in ("slug", "totals", "effective_totals", "events", "round", "rounds")
+    }
+    if payload.get("last_rotation_at"):
+        runtime["last_rotation_at"] = payload["last_rotation_at"]
+    return runtime
+
+
+def _load_voice_ab_ratings(slug: str) -> dict[str, object]:
+    path = _voice_ab_rating_path(slug)
+    if not path.is_file():
+        return _voice_ab_empty_ratings(slug)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.error("Memorial voice A/B ratings are unreadable for %s: %s", _safe_slug(slug), exc)
+        raise HTTPException(status_code=503, detail="memorial_voice_ab_ratings_invalid") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=503, detail="memorial_voice_ab_ratings_invalid")
+    canonical = _voice_ab_canonical_ratings(
+        slug,
+        payload,
+        trusted_receipts=payload.get("schema") == _VOICE_AB_RATINGS_SCHEMA,
+    )
+    if payload != canonical:
+        _write_json_atomic(path, canonical)
+    return _voice_ab_runtime_ratings(canonical)
+
+
 def _voice_ab_scope_key(event: dict[str, object]) -> str:
+    dedupe_receipt = _text(event.get("dedupe_receipt"), "").strip()
+    if dedupe_receipt:
+        return dedupe_receipt
     dedupe_key = _text(event.get("dedupe_key"), "").strip()
     if dedupe_key:
         return dedupe_key
@@ -1778,14 +2271,18 @@ def _voice_ab_scope_key(event: dict[str, object]) -> str:
     return f"anon:{_text(event.get('created_at'), '')}"
 
 
-def _recompute_voice_ab_effective_totals(events: list[dict[str, object]]) -> dict[str, int]:
-    latest_by_scope: dict[str, dict[str, object]] = {}
-    for event in events:
+def _voice_ab_latest_events(events: list[dict[str, object]]) -> list[dict[str, object]]:
+    latest_by_scope: dict[str, tuple[int, dict[str, object]]] = {}
+    for index, event in enumerate(events):
         if not isinstance(event, dict):
             continue
-        latest_by_scope[_voice_ab_scope_key(event)] = event
+        latest_by_scope[_voice_ab_scope_key(event)] = (index, event)
+    return [event for _, event in sorted(latest_by_scope.values(), key=lambda item: item[0])]
+
+
+def _recompute_voice_ab_effective_totals(events: list[dict[str, object]]) -> dict[str, int]:
     totals = {"a": 0, "b": 0, "equal": 0, "approved": 0}
-    for event in latest_by_scope.values():
+    for event in _voice_ab_latest_events(events):
         choice = _text(event.get("choice"), "equal")
         if choice not in {"a", "b", "equal"}:
             choice = "equal"
@@ -1793,6 +2290,18 @@ def _recompute_voice_ab_effective_totals(events: list[dict[str, object]]) -> dic
         if _text(event.get("approved_variant"), "") in {"a", "b"}:
             totals["approved"] += 1
     return totals
+
+
+def _voice_ab_round_rating_receipt(slug: str, ratings: dict[str, object]) -> dict[str, object]:
+    del slug
+    events = _voice_ab_latest_events(
+        [dict(item) for item in ratings.get("events", []) if isinstance(item, dict)]
+    )
+    return _voice_ab_round_receipt_from_events(
+        events,
+        effective_totals=ratings.get("effective_totals"),
+        created_at=_utc_now_iso(),
+    )
 
 
 def _voice_ab_finalize_options(ratings: dict[str, object]) -> dict[str, object]:
@@ -1856,6 +2365,18 @@ def _voice_ab_finalize_winner(slug: str, *, winner: str, ratings: dict[str, obje
     promoted_voice_id = _text(promoted.get("tts_plugin_voice_id"), "")
     losing_voice_id = current_b_id if winner == "a" else current_a_id
 
+    challenger = _voice_ab_next_challenger(
+        slug,
+        excluded_voice_ids={promoted_voice_id, losing_voice_id},
+    )
+    if not challenger:
+        challenger = _voice_ab_auto_build_challenger(
+            slug,
+            excluded_voice_ids={promoted_voice_id, losing_voice_id},
+        )
+    if not challenger:
+        raise HTTPException(status_code=409, detail="voice_ab_no_replacement_challenger")
+
     retirement: dict[str, object] = {}
     if losing_voice_id:
         retirement = _voice_ab_retire_losing_challenger(slug, voice_id=losing_voice_id)
@@ -1868,12 +2389,6 @@ def _voice_ab_finalize_winner(slug: str, *, winner: str, ratings: dict[str, obje
         if isinstance(item, dict) and _text(item.get("voice_id"), "") not in {promoted_voice_id, losing_voice_id}
     ]
     _save_voice_ab_pool(slug, pool)
-
-    challenger = _voice_ab_next_challenger(slug, excluded_voice_ids={promoted_voice_id})
-    if not challenger:
-        challenger = _voice_ab_auto_build_challenger(slug, excluded_voice_ids={promoted_voice_id})
-    if not challenger:
-        raise HTTPException(status_code=409, detail="voice_ab_no_replacement_challenger")
 
     config["variants"] = [promoted, _voice_ab_variant_from_challenger(challenger)]
     config["updated_at"] = _utc_now_iso()
@@ -1889,7 +2404,7 @@ def _voice_ab_finalize_winner(slug: str, *, winner: str, ratings: dict[str, obje
             "raw_totals": dict(ratings.get("totals") or {}),
             "replaced_voice_id": losing_voice_id,
             "new_b_voice_id": _text(challenger.get("voice_id"), ""),
-            "events": [dict(item) for item in ratings.get("events", []) if isinstance(item, dict)],
+            "rating_receipt": _voice_ab_round_rating_receipt(slug, ratings),
             "analysis": _voice_ab_analysis(slug, ratings),
             "retirement": retirement,
             "created_at": _utc_now_iso(),
@@ -1906,7 +2421,7 @@ def _voice_ab_finalize_winner(slug: str, *, winner: str, ratings: dict[str, obje
     }
     _save_voice_ab_ratings(slug, updated)
     _voice_ab_maintain_pool(slug)
-    return updated
+    return _load_voice_ab_ratings(slug)
 
 
 def _voice_ab_next_challenger(slug: str, *, excluded_voice_ids: set[str]) -> dict[str, object] | None:
@@ -1968,8 +2483,6 @@ def _voice_ab_next_challenger(slug: str, *, excluded_voice_ids: set[str]) -> dic
 def _maybe_rotate_voice_ab_challenger(slug: str, ratings: dict[str, object]) -> dict[str, object]:
     totals = dict(ratings.get("totals") or {})
     effective = dict(ratings.get("effective_totals") or {})
-    raw_a = int(totals.get("a", 0) or 0)
-    raw_b = int(totals.get("b", 0) or 0)
     eff_a = int(effective.get("a", 0) or 0)
     eff_b = int(effective.get("b", 0) or 0)
     effective_votes = eff_a + eff_b + int(effective.get("equal", 0) or 0)
@@ -1988,19 +2501,21 @@ def _maybe_rotate_voice_ab_challenger(slug: str, ratings: dict[str, object]) -> 
     variant_b = next((item for item in variants if _text(item.get("id"), "") == "b"), variants[-1])
     current_a_id = _text(variant_a.get("tts_plugin_voice_id"), "")
     current_b_id = _text(variant_b.get("tts_plugin_voice_id"), "")
+    original_a_id = current_a_id
+    original_b_id = current_b_id
     if winner == "b":
         promoted = dict(variant_b)
         promoted["id"] = "a"
         promoted["label"] = "Stimme A · klarer"
         variant_a = promoted
         current_a_id = _text(variant_a.get("tts_plugin_voice_id"), "")
-    challenger = _voice_ab_next_challenger(slug, excluded_voice_ids={current_a_id, current_b_id})
+    challenger = _voice_ab_next_challenger(slug, excluded_voice_ids={original_a_id, original_b_id})
     if not challenger:
-        challenger = _voice_ab_auto_build_challenger(slug, excluded_voice_ids={current_a_id, current_b_id})
+        challenger = _voice_ab_auto_build_challenger(slug, excluded_voice_ids={original_a_id, original_b_id})
     if not challenger:
         return ratings
     retirement: dict[str, object] = {}
-    replaced_voice_id = current_b_id if winner == "a" else current_a_id
+    replaced_voice_id = original_b_id if winner == "a" else original_a_id
     if replaced_voice_id:
         retirement = _voice_ab_retire_losing_challenger(slug, voice_id=replaced_voice_id)
     variant_b = {
@@ -2026,7 +2541,7 @@ def _maybe_rotate_voice_ab_challenger(slug: str, ratings: dict[str, object]) -> 
             "effective_totals": dict(effective),
             "replaced_voice_id": replaced_voice_id,
             "new_b_voice_id": _text(variant_b.get("tts_plugin_voice_id"), ""),
-            "events": [dict(item) for item in ratings.get("events", []) if isinstance(item, dict)],
+            "rating_receipt": _voice_ab_round_rating_receipt(slug, ratings),
             "analysis": _voice_ab_analysis(slug, ratings),
             "retirement": retirement,
             "created_at": _utc_now_iso(),
@@ -2042,13 +2557,14 @@ def _maybe_rotate_voice_ab_challenger(slug: str, ratings: dict[str, object]) -> 
         "last_rotation_at": _utc_now_iso(),
     }
     _save_voice_ab_ratings(slug, updated)
-    return updated
+    return _load_voice_ab_ratings(slug)
 
 
 def _save_voice_ab_ratings(slug: str, payload: dict[str, object]) -> None:
     path = _voice_ab_rating_path(slug)
     path.parent.mkdir(parents=True, exist_ok=True)
-    _write_json_atomic(path, payload)
+    canonical = _voice_ab_canonical_ratings(slug, payload, trusted_receipts=True)
+    _write_json_atomic(path, canonical)
 
 
 def _record_voice_ab_rating(
@@ -2061,6 +2577,7 @@ def _record_voice_ab_rating(
     dedupe_key: str = "",
     dimensions: dict[str, int] | None = None,
 ) -> dict[str, object]:
+    del note
     ratings = _load_voice_ab_ratings(slug)
     config = _load_voice_ab_config(slug)
     variants = [dict(item) for item in config.get("variants", []) if isinstance(item, dict)]
@@ -2068,24 +2585,34 @@ def _record_voice_ab_rating(
     ratings["totals"][choice_key] = int(ratings["totals"].get(choice_key, 0) or 0) + 1
     if approved_variant in {"a", "b"}:
         ratings["totals"]["approved"] = int(ratings["totals"].get("approved", 0) or 0) + 1
-    ratings["events"] = list(ratings.get("events", []))[-39:]
-    ratings["events"].append(
-        {
-            "scope": _text(context.get("scope"), ""),
-            "dedupe_key": _text(dedupe_key, ""),
-            "guest_mode": bool(context.get("guest_mode")),
-            "choice": choice_key,
-            "approved_variant": approved_variant,
-            "note": _text(note, "")[:240],
-            "dimensions": _voice_ab_normalize_dimensions(dimensions),
-            "variant_snapshot": {
-                _text(item.get("id"), ""): _voice_ab_variant_snapshot(item)
-                for item in variants
-                if _text(item.get("id"), "") in {"a", "b"}
-            },
-            "created_at": _utc_now_iso(),
-        }
+    created_at = _utc_now_iso()
+    client_identity = (
+        _text(context.get("scope"), "")
+        or _text(dedupe_key, "")
+        or f"anonymous:{created_at}"
     )
+    event = {
+        "dedupe_receipt": _voice_ab_private_receipt(
+            client_identity,
+            slug=slug,
+            domain="client",
+        ),
+        "choice": choice_key,
+        "approved_variant": approved_variant,
+        "dimensions": _voice_ab_normalize_dimensions(dimensions),
+        "variant_snapshot": {
+            _text(item.get("id"), ""): _voice_ab_variant_snapshot(item, slug=slug)
+            for item in variants
+            if _text(item.get("id"), "") in {"a", "b"}
+        },
+        "created_at": created_at,
+    }
+    ratings["events"] = _voice_ab_latest_events(
+        [
+            *[dict(item) for item in ratings.get("events", []) if isinstance(item, dict)],
+            event,
+        ]
+    )[-40:]
     ratings["effective_totals"] = _recompute_voice_ab_effective_totals(list(ratings["events"]))
     _save_voice_ab_ratings(slug, ratings)
     scope = _text(context.get("scope"), "")
@@ -2188,10 +2715,14 @@ def _asset_file(slug: str, asset_path: str) -> Path:
         raise HTTPException(status_code=404, detail="memorial_file_not_found")
     allowed_relpaths: set[str] = set()
     for clip in _list_of_dicts(payload.get("audio_clips")):
+        if not _is_public_item(clip):
+            continue
         rel = _text(clip.get("asset_relpath"), "")
         if rel:
             allowed_relpaths.add(PurePosixPath(rel).as_posix().lstrip("/"))
     for doc in _list_of_dicts(payload.get("public_documents")):
+        if not _is_public_item(doc):
+            continue
         rel = _text(doc.get("asset_relpath"), "")
         if rel:
             allowed_relpaths.add(PurePosixPath(rel).as_posix().lstrip("/"))
@@ -2262,7 +2793,7 @@ def _memorial_video_call_avatar_fallback_html(video_call_avatar: dict[str, objec
 
 def _public_memorial_surface_probe(slug: str) -> dict[str, object]:
     payload = _load_memorial(slug)
-    private_profile = _load_private_profile(slug)
+    private_profile = _load_public_memorial_profile(slug)
     voice_config = _load_voice_config(slug)
     public_payload = _public_memorial_payload(payload)
     safe_slug = _safe_slug(slug)
@@ -2505,6 +3036,76 @@ def _load_private_profile(slug: str) -> dict[str, object]:
         if isinstance(report_payload, dict):
             data["transcript_signal_report"] = report_payload
     return data
+
+
+_PUBLIC_MEMORIAL_PROFILE_MODEL_KEYS = {
+    "chat_model_plugins",
+    "chat_models",
+    "chat_model_catalog",
+    "llm_chat_models",
+    "chat_model_default",
+    "default_chat_model",
+    "memorial_chat_default_model",
+    "llm_default_model",
+}
+
+
+def _public_memorial_private_profile(profile: dict[str, object] | None) -> dict[str, object]:
+    source = dict(profile or {})
+    public_profile = {
+        key: source[key]
+        for key in _PUBLIC_MEMORIAL_PROFILE_MODEL_KEYS
+        if key in source
+    }
+    memorial_chat = source.get("memorial_chat")
+    if isinstance(memorial_chat, dict):
+        public_profile["memorial_chat"] = {
+            key: memorial_chat[key]
+            for key in _PUBLIC_MEMORIAL_PROFILE_MODEL_KEYS
+            if key in memorial_chat
+        }
+    public_source_notes: list[dict[str, object]] = []
+    for note in _public_list(
+        source.get("public_source_notes"),
+        allowed_keys={"label", "source_url", "note", "confidence"},
+    )[:16]:
+        label = _public_memorial_story_text(note.get("label"), max_chars=180)
+        note_text = _public_memorial_story_text(note.get("note"), max_chars=900)
+        confidence = _public_memorial_story_text(note.get("confidence"), max_chars=80)
+        source_url = _safe_public_memorial_external_url(note.get("source_url"))
+        if not note_text:
+            continue
+        public_source_notes.append(
+            {
+                "label": label,
+                "source_url": source_url,
+                "note": note_text,
+                "confidence": confidence,
+                "public": True,
+            }
+        )
+    if public_source_notes:
+        public_profile["public_source_notes"] = public_source_notes
+    public_family_notes: list[dict[str, object]] = []
+    for note in _public_list(
+        source.get("family_context_notes"),
+        allowed_keys={"trait", "evidence", "note"},
+    )[:8]:
+        trait = _public_memorial_story_text(note.get("trait"), max_chars=180)
+        evidence = _public_memorial_story_text(note.get("evidence"), max_chars=900)
+        note_text = _public_memorial_story_text(note.get("note"), max_chars=900)
+        if not (trait or evidence or note_text):
+            continue
+        public_family_notes.append({"trait": trait, "evidence": evidence, "note": note_text, "public": True})
+    if public_family_notes:
+        public_profile["family_context_notes"] = public_family_notes
+    if source.get("public_mail_access") is True:
+        public_profile["public_mail_access"] = True
+    return public_profile
+
+
+def _load_public_memorial_profile(slug: str) -> dict[str, object]:
+    return _public_memorial_private_profile(_load_private_profile(slug))
 
 
 def _public_voice_profile_summary(slug: str) -> dict[str, object]:
@@ -3025,14 +3626,20 @@ def _normalize_voice_build_payload(payload: dict[str, object]) -> tuple[list[str
 
 def _compact_public_facts(payload: dict[str, object]) -> list[str]:
     facts: list[str] = []
-    for card in _list_of_dicts(payload.get("memory_cards")):
-        title = _text(card.get("title"))
-        body = _text(card.get("body"))
+    for card in _public_list(
+        payload.get("memory_cards"),
+        allowed_keys={"title", "body"},
+    ):
+        title = _public_memorial_story_text(card.get("title"), max_chars=180)
+        body = _public_memorial_story_text(card.get("body"), max_chars=1200)
         if title and body:
             facts.append(f"{title}: {body}")
-    for note in _list_of_dicts(payload.get("source_grounded_profile")):
-        trait = _text(note.get("trait"))
-        evidence = _text(note.get("evidence"))
+    for note in _public_list(
+        payload.get("source_grounded_profile"),
+        allowed_keys={"trait", "evidence"},
+    ):
+        trait = _public_memorial_story_text(note.get("trait"), max_chars=240)
+        evidence = _public_memorial_story_text(note.get("evidence"), max_chars=1200)
         if trait and evidence:
             facts.append(f"{trait}: {evidence}")
     return facts[:8]
@@ -3122,6 +3729,17 @@ def _memorial_archive_publication_redirect_url(slug: str, publication_slug: str)
     return ""
 
 
+def _public_memorial_has_imported_mail(
+    *,
+    memory_runtime,
+    principal_id: str,
+    private_profile: dict[str, object],
+) -> bool:
+    if private_profile.get("public_mail_access") is not True:
+        return False
+    return memorial_has_imported_mail(memory_runtime, principal_id=principal_id)
+
+
 def _memorial_chat_source_labels(
     payload: dict[str, object],
     *,
@@ -3131,7 +3749,10 @@ def _memorial_chat_source_labels(
 ) -> list[str]:
     if _is_memorial_live_interaction_question(question) or _is_memorial_present_world_question(question):
         return []
-    external_sources = _list_of_dicts(payload.get("external_sources"))
+    external_sources = _public_list(
+        payload.get("external_sources"),
+        allowed_keys={"label", "url", "status"},
+    )
     preferred_audio = [
         _text(source.get("label"))
         for source in external_sources
@@ -4853,9 +5474,10 @@ def _memorial_chat_fallback_answer(
     lowered = normalized_question.lower()
     facts = _compact_public_facts(payload)
     private_notes = _list_of_dicts(private_profile.get("family_context_notes"))
-    has_imported_mail = memorial_has_imported_mail(
-        memory_runtime,
+    has_imported_mail = _public_memorial_has_imported_mail(
+        memory_runtime=memory_runtime,
         principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
+        private_profile=private_profile,
     )
     source_labels = _memorial_chat_source_labels(
         payload,
@@ -5183,18 +5805,28 @@ def _build_memorial_chat_messages(
     if len(normalized_question) > 1200:
         raise HTTPException(status_code=400, detail="question_too_long")
     person_name = _text(payload.get("person_name"), "Manfred")
-    relationship = _text(payload.get("relationship"), "")
+    relationship = (
+        _public_memorial_story_text(payload.get("relationship"), max_chars=80)
+        if payload.get("relationship_public") is True
+        else ""
+    )
     live_interaction = _is_memorial_live_interaction_question(normalized_question)
     present_world = _is_memorial_present_world_question(normalized_question)
-    has_imported_mail = memorial_has_imported_mail(
-        memory_runtime,
+    has_imported_mail = _public_memorial_has_imported_mail(
+        memory_runtime=memory_runtime,
         principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
+        private_profile=private_profile,
     )
     facts = [] if live_interaction or present_world else _compact_public_facts(payload)
     private_notes = _list_of_dicts(private_profile.get("family_context_notes"))
     transcript_signal_report = dict(private_profile.get("transcript_signal_report") or {})
-    character_notes = [str(item).strip() for item in (payload.get("character_notes") or []) if str(item).strip()]
-    conversation_style = dict(payload.get("conversation_style") or {})
+    character_notes = [
+        note
+        for item in _public_list(payload.get("character_notes"), allowed_keys={"note"})
+        if (note := _public_memorial_story_text(item.get("note"), max_chars=900))
+    ]
+    raw_conversation_style = payload.get("conversation_style")
+    conversation_style = dict(raw_conversation_style) if _is_public_item(raw_conversation_style) else {}
     context_bits = [f"Person: {person_name}"]
     if relationship and not live_interaction and not present_world:
         context_bits.append(f"Beziehung: {relationship}")
@@ -5251,9 +5883,10 @@ def _build_memorial_chat_messages(
         question=normalized_question,
         memory_runtime=memory_runtime,
     )
-    has_imported_mail = memorial_has_imported_mail(
-        memory_runtime,
+    has_imported_mail = _public_memorial_has_imported_mail(
+        memory_runtime=memory_runtime,
         principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
+        private_profile=private_profile,
     )
     memory_axis_context = _memorial_memory_axis_context(memory_lines)
     if memory_axis_context["style"] and not live_interaction and not present_world:
@@ -5348,12 +5981,12 @@ def _ensure_memorial_memory_seeded(
     payload: dict[str, object],
     private_profile: dict[str, object],
     memory_runtime,
-) -> None:
+) -> set[str]:
     normalized_slug = _text(slug or payload.get("slug"), "")
     if memory_runtime is None or not normalized_slug:
-        return
+        return set()
     try:
-        seed_memorial_source_memories(
+        result = seed_memorial_source_memories(
             memory_runtime=memory_runtime,
             principal_id=memorial_memory_principal_id(normalized_slug, payload),
             memorial_slug=normalized_slug,
@@ -5362,7 +5995,12 @@ def _ensure_memorial_memory_seeded(
             reviewer="memorial-auto-seed",
         )
     except Exception:
-        return
+        return set()
+    return {
+        str(item)
+        for item in list(result.get("public_approval_keys") or [])
+        if str(item).strip()
+    }
 
 
 def _memorial_memory_context_lines(
@@ -5378,7 +6016,7 @@ def _memorial_memory_context_lines(
         return []
     if _is_memorial_live_interaction_question(question) or _is_memorial_present_world_question(question):
         return []
-    _ensure_memorial_memory_seeded(
+    public_approval_keys = _ensure_memorial_memory_seeded(
         slug=normalized_slug,
         payload=payload,
         private_profile=private_profile,
@@ -5391,6 +6029,8 @@ def _memorial_memory_context_lines(
             principal_id=principal_id,
             question=question,
             limit=6,
+            public_only=True,
+            public_approval_keys=public_approval_keys,
         )
     except Exception:
         return []
@@ -5467,9 +6107,10 @@ def _memorial_chat_answer(
         raise HTTPException(status_code=400, detail="question_missing")
     if len(normalized_question) > 1200:
         raise HTTPException(status_code=400, detail="question_too_long")
-    has_imported_mail = memorial_has_imported_mail(
-        memory_runtime,
+    has_imported_mail = _public_memorial_has_imported_mail(
+        memory_runtime=memory_runtime,
         principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
+        private_profile=private_profile,
     )
     lowered_question = normalized_question.lower()
     personal_memory_lines = _personal_memory_context_lines(
@@ -7077,7 +7718,7 @@ def _memorial_runtime_readiness(slug: str) -> dict[str, object]:
     tts_enabled = bool(selected_option.get("tts_plugin_enabled"))
     selected_model = _resolve_memorial_voice_chat_model(
         payload,
-        _load_private_profile(safe_slug),
+        _load_public_memorial_profile(safe_slug),
         "Hallo Manfred, kann ich jetzt mit dir reden?",
     )
     degraded_reasons: list[str] = []
@@ -7217,7 +7858,7 @@ def _run_memorial_live_warmup(slug: str) -> None:
         _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
     try:
         payload = _load_memorial(slug)
-        private_profile = _load_private_profile(slug)
+        private_profile = _load_public_memorial_profile(slug)
         live_prompt = "Hallo Manfred, kann ich jetzt mit dir reden?"
         try:
             phase_started = time.perf_counter()
@@ -7571,7 +8212,7 @@ def _build_memorial_rescue_contact_turn_payload(
     rescue_reason: str,
 ) -> dict[str, object]:
     payload = _load_memorial(slug)
-    private_profile = _load_private_profile(slug)
+    private_profile = _load_public_memorial_profile(slug)
     base_config = _load_voice_config(slug)
     merged_config = dict(base_config)
     tts_options = _tts_plugin_options(
@@ -8850,6 +9491,223 @@ def _cartesia_transcribe_audio(*, api_key: str, payload: bytes, content_type: st
     return parsed
 
 
+_PUBLIC_MEMORIAL_STORY_AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".ogg", ".flac"}
+
+
+def _public_memorial_story_text(value: object, *, max_chars: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    normalized = " ".join(value.strip().split())
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[: max(1, max_chars - 1)].rstrip() + "…"
+
+
+def _safe_public_memorial_audio_relpath(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    candidate = value.strip()
+    if not candidate or len(candidate) > 512 or "\\" in candidate:
+        return ""
+    try:
+        decoded = urllib.parse.unquote(candidate, errors="strict")
+    except (UnicodeDecodeError, ValueError):
+        return ""
+    if urllib.parse.unquote(decoded) != decoded or "\\" in decoded:
+        return ""
+    if any(ord(character) < 32 or ord(character) == 127 for character in decoded):
+        return ""
+    parsed = urllib.parse.urlsplit(decoded)
+    if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
+        return ""
+    parts = decoded.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        return ""
+    path = PurePosixPath(decoded)
+    if path.is_absolute() or path.suffix.lower() not in _PUBLIC_MEMORIAL_STORY_AUDIO_SUFFIXES:
+        return ""
+    return path.as_posix()
+
+
+def _safe_public_memorial_external_url(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    candidate = value.strip()
+    if not candidate or len(candidate) > 2048 or "\\" in candidate:
+        return ""
+    if any(ord(character) < 32 or ord(character) == 127 for character in candidate):
+        return ""
+    try:
+        parsed = urllib.parse.urlsplit(candidate)
+        port = parsed.port
+    except ValueError:
+        return ""
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        return ""
+    if parsed.username or parsed.password or port not in {None, 443}:
+        return ""
+    return parsed.geturl()
+
+
+def _censored_memory_preview(value: object) -> str:
+    normalized = _public_memorial_story_text(value, max_chars=2000)
+    if not normalized:
+        return "[stark redigiert]"
+    normalized = re.sub(r"https?://\S+", "[redigiert]", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\b[\w.+-]+@[\w.-]+\.\w+\b", "[redigiert]", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\b\d[\d\s./:-]{1,}\b", "[redigiert]", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip(" ,;:-")
+    words = normalized.split(" ")
+    compact = " ".join(words[:10]).strip()
+    if len(words) > 10:
+        compact += " ..."
+    return "[stark redigiert] " + compact if compact else "[stark redigiert]"
+
+
+def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str:
+    safe_slug = _safe_slug(slug)
+    intro = _public_memorial_story_text(payload.get("intro"), max_chars=900)
+    disclosure = _public_memorial_story_text(payload.get("disclosure"), max_chars=900)
+
+    clips_html: list[str] = []
+    for clip in _public_list(
+        payload.get("audio_clips"),
+        allowed_keys={"label", "title", "description", "asset_relpath", "public_transcript"},
+    )[:6]:
+        relpath = _safe_public_memorial_audio_relpath(clip.get("asset_relpath"))
+        if not relpath:
+            continue
+        try:
+            _asset_file(safe_slug, relpath)
+        except HTTPException:
+            continue
+        label = _public_memorial_story_text(clip.get("label"), max_chars=90) or "Originalaufnahme"
+        title = _public_memorial_story_text(clip.get("title"), max_chars=160) or "Stimme aus dem Archiv"
+        description = _public_memorial_story_text(clip.get("description"), max_chars=420)
+        transcript = _public_memorial_story_text(clip.get("public_transcript"), max_chars=1600)
+        asset_url = "/memorials/files/{}/{}".format(
+            urllib.parse.quote(safe_slug, safe=""),
+            urllib.parse.quote(relpath, safe="/"),
+        )
+        description_html = f"<p>{html.escape(description)}</p>" if description else ""
+        transcript_html = ""
+        if transcript:
+            transcript_html = (
+                '<details class="archive-transcript">'
+                "<summary>Freigegebenes Transkript lesen</summary>"
+                f"<p>{html.escape(transcript)}</p>"
+                "</details>"
+            )
+        clips_html.append(
+            f"""
+        <article class="story-card archive-clip">
+          <p class="story-kicker">{html.escape(label)}</p>
+          <h3>{html.escape(title)}</h3>
+          {description_html}
+          <audio controls preload="metadata" data-memorial-archive-audio aria-label="Archivaufnahme: {html.escape(title, quote=True)}" src="{html.escape(asset_url, quote=True)}"></audio>
+          {transcript_html}
+        </article>"""
+        )
+
+    memories_html: list[str] = []
+    for card in _public_list(
+        payload.get("memory_cards"),
+        allowed_keys={"title", "body", "source_label"},
+    )[:8]:
+        title = _public_memorial_story_text(card.get("title"), max_chars=160) or "Erinnerung"
+        preview = _censored_memory_preview(card.get("body") or card.get("title"))
+        memories_html.append(
+            f"""
+        <article class="story-card memory-card">
+          <p class="story-kicker">Stark redigierte Kurzfassung</p>
+          <h3>{html.escape(title)}</h3>
+          <p>{html.escape(preview)}</p>
+        </article>"""
+        )
+
+    sources_html: list[str] = []
+    for source in _public_list(
+        payload.get("external_sources"),
+        allowed_keys={"label", "url", "status"},
+    )[:8]:
+        url = _safe_public_memorial_external_url(source.get("url"))
+        if not url:
+            continue
+        label = _public_memorial_story_text(source.get("label"), max_chars=180) or "Öffentliche Quelle"
+        sources_html.append(
+            f'<li><a href="{html.escape(url, quote=True)}" referrerpolicy="no-referrer">'
+            f'{html.escape(label)}</a></li>'
+        )
+
+    prompts: list[str] = []
+    raw_prompts = payload.get("suggested_prompts")
+    if isinstance(raw_prompts, (list, tuple)):
+        for value in raw_prompts:
+            prompt = _public_memorial_story_text(value, max_chars=180)
+            if prompt and prompt not in prompts:
+                prompts.append(prompt)
+            if len(prompts) >= 6:
+                break
+
+    sections: list[str] = [
+        f"""
+      <section class="story-intro" aria-labelledby="memorial-story-title">
+        <p class="story-kicker">Gedenkort</p>
+        <h2 id="memorial-story-title">Erinnerungen und belegte Quellen</h2>
+        {f'<p class="story-lead">{html.escape(intro)}</p>' if intro else ''}
+        {f'<p class="story-disclosure">{html.escape(disclosure)}</p>' if disclosure else ''}
+      </section>"""
+    ]
+    if clips_html:
+        sections.append(
+            """
+      <section class="story-section" aria-labelledby="memorial-archive-title">
+        <div class="story-heading">
+          <p class="story-kicker">Originalstimme</p>
+          <h2 id="memorial-archive-title">Stimme aus dem Archiv</h2>
+          <p>Freigegebene Originalaufnahmen. Sie sind keine neu erzeugten Antworten.</p>
+        </div>
+        <div class="story-grid">{}</div>
+      </section>""".format("".join(clips_html))
+        )
+    if memories_html:
+        sections.append(
+            """
+      <section class="story-section" aria-labelledby="memorial-memories-title">
+        <div class="story-heading">
+          <p class="story-kicker">Erinnerungen</p>
+          <h2 id="memorial-memories-title">Behutsam bewahrte Spuren</h2>
+          <p>Nur ausdrücklich freigegebene, stark gekürzte Vorschauen aus dem Archiv.</p>
+        </div>
+        <div class="story-grid">{}</div>
+      </section>""".format("".join(memories_html))
+        )
+    if sources_html:
+        sections.append(
+            """
+      <section class="story-section" aria-labelledby="memorial-sources-title">
+        <div class="story-heading">
+          <p class="story-kicker">Quellen</p>
+          <h2 id="memorial-sources-title">Öffentliche Quellen</h2>
+        </div>
+        <ul class="source-list">{}</ul>
+      </section>""".format("".join(sources_html))
+        )
+    if prompts:
+        sections.append(
+            """
+      <section class="story-section" aria-labelledby="memorial-prompts-title">
+        <div class="story-heading">
+          <p class="story-kicker">Gespräch</p>
+          <h2 id="memorial-prompts-title">Fragen als ruhiger Einstieg</h2>
+          <p>Diese Beispiele helfen beim Gespräch. Sie senden noch nichts.</p>
+        </div>
+        <ul class="prompt-list">{}</ul>
+      </section>""".format("".join(f"<li>{html.escape(prompt)}</li>" for prompt in prompts))
+        )
+    return "\n".join(sections)
+
+
 def _minimal_public_memorial_html(
     *,
     slug: str,
@@ -8859,6 +9717,7 @@ def _minimal_public_memorial_html(
     memorial_avatar_url: str,
     pwa_short_name: str,
     clickrank_html: str,
+    story_html: str,
     video_call_avatar_fallback_html: str = "",
 ) -> str:
     safe_person_name = html.escape(person_name)
@@ -8891,6 +9750,7 @@ def _minimal_public_memorial_html(
         --gold: #b48d51;
         --paper-soft: #fffaf4;
         --shadow: 0 18px 36px rgba(56, 45, 36, 0.1);
+        --conversation-dock-clearance: 440px;
       }}
       * {{ box-sizing: border-box; }}
       html {{
@@ -8902,6 +9762,7 @@ def _minimal_public_memorial_html(
       body {{
         margin: 0;
         min-height: 100dvh;
+        padding-bottom: calc(var(--conversation-dock-clearance) + env(safe-area-inset-bottom, 0px));
         background:
           radial-gradient(circle at top, rgba(255,255,255,.42), rgba(255,255,255,0) 30%),
           linear-gradient(180deg, #d7e0e5 0%, #f7f2e8 22%, #f7f2e8 100%);
@@ -8910,13 +9771,27 @@ def _minimal_public_memorial_html(
         overflow-x: hidden;
         overflow-y: auto;
       }}
+      .skip-link {{
+        position: fixed;
+        left: 16px;
+        top: 12px;
+        z-index: 100;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: var(--ink);
+        color: var(--paper-soft);
+        font: 700 14px/1 ui-sans-serif, system-ui, sans-serif;
+        transform: translateY(-180%);
+        transition: transform .16s ease;
+      }}
+      .skip-link:focus {{ transform: translateY(0); }}
       .wrap {{ width: min(100vw - 28px, 720px); margin: 0 auto; }}
       header {{
-        min-height: 100dvh;
-        min-height: 100svh;
+        min-height: 68dvh;
+        min-height: 68svh;
         display: grid;
-        align-items: start;
-        padding: clamp(28px, 6vh, 56px) 0 calc(320px + env(safe-area-inset-bottom, 0px));
+        align-items: center;
+        padding: clamp(36px, 7vh, 72px) 0 clamp(40px, 8vh, 82px);
       }}
       .hero {{ padding: 0; display: grid; gap: 18px; justify-items: center; text-align: center; }}
       .hero-shell {{ width: min(100%, 560px); display: grid; gap: 18px; justify-items: center; }}
@@ -8954,6 +9829,19 @@ def _minimal_public_memorial_html(
         font-size: .83rem;
         line-height: 1.45;
       }}
+      .hero-story-link {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 10px 18px;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        color: var(--blue);
+        background: rgba(255, 251, 244, .7);
+        font: 700 13px/1.25 ui-sans-serif, system-ui, sans-serif;
+        text-decoration: none;
+      }}
       .hero-actions {{ display: grid; gap: 14px; justify-items: center; width: 100%; }}
       .hero-cta {{
         appearance: none;
@@ -8988,13 +9876,102 @@ def _minimal_public_memorial_html(
         padding: 0 0 0 4px;
       }}
       main {{
+        position: relative;
+        z-index: 1;
+      }}
+      main:focus-visible {{
+        outline: 3px solid rgba(72, 103, 126, .72);
+        outline-offset: 6px;
+      }}
+      .story {{
+        display: grid;
+        gap: clamp(44px, 7vw, 72px);
+        padding: 0 0 clamp(72px, 10vw, 112px);
+      }}
+      .story-intro,
+      .story-section {{
+        border-top: 1px solid var(--line);
+        padding-top: clamp(26px, 5vw, 42px);
+      }}
+      .story-intro {{ max-width: 640px; }}
+      .story-kicker {{
+        margin: 0 0 8px;
+        color: var(--blue);
+        font: 700 11px/1.2 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }}
+      .story h2,
+      .story h3 {{ color: var(--ink); }}
+      .story h2 {{
+        margin: 0;
+        font-size: clamp(1.65rem, 5vw, 2.4rem);
+        line-height: 1.08;
+      }}
+      .story h3 {{ margin: 0; font-size: 1.12rem; line-height: 1.3; }}
+      .story-lead {{
+        margin: 18px 0 0;
+        max-width: 58ch;
+        font-size: clamp(1.05rem, 2.7vw, 1.22rem);
+        line-height: 1.62;
+      }}
+      .story-disclosure,
+      .story-heading > p:last-child {{
+        margin: 14px 0 0;
+        max-width: 62ch;
+        color: var(--muted);
+        font: 14px/1.58 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .story-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr));
+        gap: 14px;
+        margin-top: 22px;
+      }}
+      .story-card {{
+        min-width: 0;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: rgba(255, 251, 244, .78);
+        box-shadow: 0 12px 26px rgba(56, 45, 36, .06);
+      }}
+      .story-card > p:not(.story-kicker) {{ margin: 10px 0 0; color: var(--muted); }}
+      .story-card audio {{ display: block; width: 100%; margin-top: 16px; }}
+      .archive-transcript {{ margin-top: 14px; color: var(--muted); }}
+      .archive-transcript summary {{
+        min-height: 38px;
+        cursor: pointer;
+        font: 700 13px/1.35 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .archive-transcript p {{ margin: 8px 0 0; font: 14px/1.6 ui-sans-serif, system-ui, sans-serif; }}
+      .source-list,
+      .prompt-list {{
+        margin: 20px 0 0;
+        font: 14px/1.55 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .source-list {{ padding: 0; list-style: none; border-top: 1px solid var(--line); }}
+      .source-list li {{ border-bottom: 1px solid var(--line); }}
+      .source-list a {{
+        display: block;
+        padding: 11px 0;
+        color: var(--blue);
+        text-underline-offset: 3px;
+      }}
+      .prompt-list {{ padding-left: 1.2rem; }}
+      .prompt-list li {{ padding: 3px 0; color: var(--muted); }}
+      .conversation-dock {{
         position: fixed;
         left: 0;
         right: 0;
         bottom: calc(20px + env(safe-area-inset-bottom, 0px));
         padding: 0;
+        z-index: 20;
       }}
       .chat {{
+        max-height: min(72dvh, 620px);
+        overflow: auto;
+        overscroll-behavior: contain;
         border: 1px solid var(--line);
         border-radius: 22px;
         padding: 18px 18px 14px;
@@ -9104,7 +10081,15 @@ def _minimal_public_memorial_html(
       }}
       [hidden] {{ display: none !important; }}
       @media (max-width: 760px) {{
-        main {{ bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }}
+        body {{ padding-bottom: 0; }}
+        header {{ min-height: auto; }}
+        .story {{ padding-bottom: 54px; }}
+        .conversation-dock {{
+          position: relative;
+          bottom: auto;
+          padding: 0 0 calc(14px + env(safe-area-inset-bottom, 0px));
+        }}
+        .chat {{ max-height: none; overflow: visible; }}
         .hero-cta {{ width: 100%; min-width: 0; }}
         .conversation-toggle {{
           flex-direction: column;
@@ -9113,6 +10098,15 @@ def _minimal_public_memorial_html(
         .conversation-settings-status button {{
           width: 100%;
         }}
+      }}
+      @media (max-height: 720px) {{
+        body {{ padding-bottom: 0; }}
+        .conversation-dock {{
+          position: relative;
+          bottom: auto;
+          padding: 0 0 calc(14px + env(safe-area-inset-bottom, 0px));
+        }}
+        .chat {{ max-height: none; overflow: visible; }}
       }}
       body {{
         position: relative;
@@ -9381,7 +10375,11 @@ def _minimal_public_memorial_html(
       .chat-tool:focus-visible,
       .hero-cta:focus-visible,
       .speech-primary:focus-visible,
-      .install-hint button:focus-visible {{
+      .install-hint button:focus-visible,
+      .hero-story-link:focus-visible,
+      .source-list a:focus-visible,
+      summary:focus-visible,
+      input:focus-visible {{
         outline: 2px solid rgba(72, 103, 126, .7);
         outline-offset: 2px;
       }}
@@ -9407,6 +10405,8 @@ def _minimal_public_memorial_html(
     </style>
   </head>
   <body>
+    <a class="skip-link" href="#memorial-story">Zum Inhalt springen</a>
+    <a class="skip-link" href="#memorial-conversation-region">Zum Gespräch springen</a>
     <header>
       <div class="wrap hero">
         <div class="hero-shell">
@@ -9414,22 +10414,29 @@ def _minimal_public_memorial_html(
           <div class="hero-copy">
             <h1>{page_title}</h1>
             <p class="hero-subtitle">{safe_subtitle}</p>
-            <div class="hero-actions is-readying" id="memorial-hero-actions">
-              <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Gespräch beginnen" aria-label="Gespräch beginnen" aria-disabled="true" disabled>Gespräch wird vorbereitet …</button>
-            </div>
-            <p class="hero-guidance">Das Mikrofon wird erst nach deinem Start verwendet. Antworten bleiben als Text sichtbar.</p>
-            <p class="install-hint" id="memorial-install-hint" hidden>
-              Optional als App installieren.
-              <button type="button" id="memorial-install-button" hidden>Installieren</button>
-            </p>
+            <a class="hero-story-link" href="#memorial-story">Erinnerungen und Quellen ansehen</a>
           </div>
         </div>
       </div>
     </header>
-    <main class="wrap">
+    <main id="memorial-story" tabindex="-1">
+      <div class="wrap story">
+        {story_html}
+      </div>
+    </main>
+    <aside class="conversation-dock" aria-label="Gespräch mit {safe_person_name}" id="memorial-conversation-region" tabindex="-1">
+      <div class="wrap">
       <section class="chat quiet-shell">
+        <div class="hero-actions is-readying" id="memorial-hero-actions">
+          <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Gespräch beginnen" aria-label="Gespräch beginnen" aria-disabled="true" disabled>Gespräch wird vorbereitet …</button>
+        </div>
+        <p class="hero-guidance">Das Mikrofon wird erst nach deinem Start verwendet. Antworten bleiben als Text sichtbar.</p>
+        <p class="install-hint" id="memorial-install-hint" hidden>
+          Optional: Am Handy/Desktop installieren.
+          <button type="button" id="memorial-install-button" hidden>Installieren</button>
+        </p>
         <div class="speech-status-bar speech-note is-pristine" id="memorial-speech-note">
-          <strong id="memorial-speech-message">Bereit.</strong>
+          <strong id="memorial-speech-message" role="status" aria-live="polite" aria-atomic="true">Bereit.</strong>
           <div class="speech-live-monitor is-idle" id="memorial-speech-monitor" aria-hidden="true">
             <div class="speech-meter"><span class="speech-meter-fill" id="memorial-speech-meter-fill"></span></div>
             <div class="speech-wave" id="memorial-speech-wave">
@@ -9483,7 +10490,7 @@ def _minimal_public_memorial_html(
         <p class="status-note" id="memorial-voice-recovery-note">Wenn die Stimme stockt, bleibt die Antwort als Text sichtbar. Du kannst ruhig unterbrechen oder noch einmal sprechen.</p>
         <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
         <div class="chat-answer" id="memorial-chat-answer" aria-live="polite" hidden></div>
-        <section class="speech-transcript-shell" id="memorial-speech-transcript-shell" aria-live="polite">
+        <section class="speech-transcript-shell" id="memorial-speech-transcript-shell">
           <div class="speech-transcript-live" id="memorial-speech-transcript-live" hidden>
             <strong id="memorial-speech-transcript-label">Transkript</strong>
             <p id="memorial-speech-transcript-live-text"></p>
@@ -9497,9 +10504,10 @@ def _minimal_public_memorial_html(
           <button type="button" class="chat-tool" id="memorial-toggle-status" hidden>Quellen / Status</button>
         </div>
         <div class="chat-status" id="memorial-chat-status" hidden></div>
-        <audio id="memorial-speech-audio" preload="none"></audio>
+        <audio id="memorial-speech-audio" preload="none" aria-hidden="true"></audio>
       </section>
-    </main>
+      </div>
+    </aside>
     <script>
       const installHint = document.getElementById("memorial-install-hint");
       const installButton = document.getElementById("memorial-install-button");
@@ -9528,6 +10536,23 @@ def _minimal_public_memorial_html(
       const replayAnswerButton = document.getElementById("memorial-replay-answer");
       const toggleStatusButton = document.getElementById("memorial-toggle-status");
       const answerStatus = document.getElementById("memorial-chat-status");
+      const conversationDock = document.getElementById("memorial-conversation-region");
+      const archiveAudioPlayers = Array.from(document.querySelectorAll("[data-memorial-archive-audio]"));
+      for (const archiveAudio of archiveAudioPlayers) {{
+        archiveAudio.addEventListener("play", () => {{
+          for (const otherAudio of archiveAudioPlayers) {{
+            if (otherAudio !== archiveAudio && !otherAudio.paused) otherAudio.pause();
+          }}
+          if (speechAudio && !speechAudio.paused) speechAudio.pause();
+        }});
+      }}
+      if (speechAudio) {{
+        speechAudio.addEventListener("play", () => {{
+          for (const archiveAudio of archiveAudioPlayers) {{
+            if (!archiveAudio.paused) archiveAudio.pause();
+          }}
+        }});
+      }}
       const memorialAutostartStorageKey = "memorial_autostart_enabled_v1";
       const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
       let personalMemoryStatusPayload = {{ available: false, enabled: false, guest_mode: true, item_count: 0, frozen: false, approved_voice_choice: "" }};
@@ -9577,8 +10602,23 @@ def _minimal_public_memorial_html(
       let contactAcknowledgementReady = false;
       const contactAcknowledgementText = "Worum geht es?";
       const browserPreferredLanguage = "de-AT";
+      const memorialReducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
       let speechMeterLive = false;
       try {{ document.documentElement.setAttribute("lang", browserPreferredLanguage); }} catch (error) {{}}
+
+      function syncConversationDockClearance() {{
+        if (!conversationDock) return;
+        const dockIsInFlow = window.matchMedia("(max-width: 760px), (max-height: 720px)").matches;
+        const clearance = dockIsInFlow ? 0 : Math.ceil(conversationDock.getBoundingClientRect().height + 40);
+        document.documentElement.style.setProperty("--conversation-dock-clearance", String(clearance) + "px");
+      }}
+
+      if (conversationDock && window.ResizeObserver) {{
+        const conversationDockObserver = new ResizeObserver(syncConversationDockClearance);
+        conversationDockObserver.observe(conversationDock);
+      }}
+      window.addEventListener("resize", syncConversationDockClearance, {{ passive: true }});
+      syncConversationDockClearance();
 
       function memorialAutostartEnabled() {{
         try {{
@@ -9709,6 +10749,11 @@ def _minimal_public_memorial_html(
 
       function setSpeechMeterLevel(level = 0.06, opacity = 0.78) {{
         if (!speechMeterFill) return;
+        if (memorialReducedMotionQuery.matches) {{
+          speechMeterFill.style.transform = "scaleX(.18)";
+          speechMeterFill.style.opacity = ".5";
+          return;
+        }}
         const normalized = Math.max(0.06, Math.min(1, Number(level) || 0.06));
         speechMeterFill.style.transform = "scaleX(" + String(normalized) + ")";
         speechMeterFill.style.opacity = String(Math.max(0.2, Math.min(1, Number(opacity) || 0.78)));
@@ -11429,12 +12474,42 @@ def _memorial_html(
     video_call_avatar_asset_url = html.escape(_text(video_call_avatar.get("asset_url"), ""))
     video_call_avatar_poster_url = html.escape(_text(video_call_avatar.get("poster_url"), ""))
     video_call_avatar_fallback_html = _memorial_video_call_avatar_fallback_html(video_call_avatar)
-    audio_clips = _list_of_dicts(payload.get("audio_clips"))
-    memory_cards = _list_of_dicts(payload.get("memory_cards"))
-    candidate_recordings = _list_of_dicts(payload.get("candidate_recordings"))
-    profile_notes = _list_of_dicts(payload.get("source_grounded_profile"))
-    external_sources = _list_of_dicts(payload.get("external_sources"))
-    suggested_prompts = [str(item).strip() for item in (payload.get("suggested_prompts") or []) if str(item).strip()]
+    audio_clips = _public_list(
+        payload.get("audio_clips"),
+        allowed_keys={"label", "title", "description", "asset_relpath", "public_transcript"},
+    )
+    memory_cards = _public_list(
+        payload.get("memory_cards"),
+        allowed_keys={"source_label", "title", "body"},
+    )
+    candidate_recordings = _public_list(
+        payload.get("candidate_recordings"),
+        allowed_keys={"title", "recorded_at", "status"},
+    )
+    profile_notes = _public_list(
+        payload.get("source_grounded_profile"),
+        allowed_keys={"trait", "confidence", "evidence"},
+    )
+    external_sources = _public_list(
+        payload.get("external_sources"),
+        allowed_keys={"label", "url", "status"},
+    )
+    audio_clips = [
+        {**clip, "asset_relpath": relpath}
+        for clip in audio_clips
+        if (relpath := _safe_public_memorial_audio_relpath(clip.get("asset_relpath")))
+    ]
+    external_sources = [
+        {**source, "url": url}
+        for source in external_sources
+        if (url := _safe_public_memorial_external_url(source.get("url")))
+    ]
+    raw_suggested_prompts = payload.get("suggested_prompts")
+    suggested_prompts = [
+        prompt
+        for item in (raw_suggested_prompts if isinstance(raw_suggested_prompts, (list, tuple)) else [])
+        if (prompt := _public_memorial_story_text(item, max_chars=180))
+    ][:8]
     archive_registry = _public_memorial_archive_registry(slug)
     archive_sections = [dict(item) for item in archive_registry.get("archive_sections", []) if isinstance(item, dict)]
     archive_publications = {
@@ -11442,7 +12517,7 @@ def _memorial_html(
         for item in archive_registry.get("fliplink_publications", [])
         if isinstance(item, dict) and _text(item.get("id"), "")
     }
-    resolved_private_profile = private_profile or _load_private_profile(slug)
+    resolved_private_profile = _public_memorial_private_profile(private_profile or _load_private_profile(slug))
     chat_models = _collect_memorial_chat_models(payload, resolved_private_profile)
     chat_model_default = _resolve_memorial_chat_default_model(payload, resolved_private_profile, chat_models)
     chat_model_options = _collect_memorial_chat_model_options(payload, resolved_private_profile, chat_models)
@@ -11508,26 +12583,13 @@ def _memorial_html(
             <h3>{html.escape(_text(clip.get("title"), "Audio"))}</h3>
             <p>{html.escape(_text(clip.get("description"), "Echte Aufnahme aus dem Archiv."))}</p>
           </div>
-          <audio controls preload="metadata" src="/memorials/files/{html.escape(slug)}/{html.escape(_text(clip.get("asset_relpath")))}"></audio>
+          <audio controls preload="metadata" src="/memorials/files/{urllib.parse.quote(slug, safe='')}/{html.escape(urllib.parse.quote(_text(clip.get("asset_relpath")), safe='/'), quote=True)}"></audio>
         </article>"""
         for clip in audio_clips
         if _text(clip.get("asset_relpath"))
     )
     if not clips_html:
         clips_html = '<p class="empty">Noch keine freigegebenen Aufnahmen aus dem Archiv.</p>'
-    def _censored_memory_preview(value: object) -> str:
-        normalized = " ".join(str(value or "").strip().split())
-        if not normalized:
-            return "[stark redigiert]"
-        normalized = re.sub(r"https?://\S+", "[redigiert]", normalized, flags=re.IGNORECASE)
-        normalized = re.sub(r"\b[\w.+-]+@[\w.-]+\.\w+\b", "[redigiert]", normalized, flags=re.IGNORECASE)
-        normalized = re.sub(r"\b\d[\d\s./:-]{1,}\b", "[redigiert]", normalized)
-        normalized = re.sub(r"\s+", " ", normalized).strip(" ,;:-")
-        words = normalized.split(" ")
-        compact = " ".join(words[:10]).strip()
-        if len(words) > 10:
-            compact += " ..."
-        return "[stark redigiert] " + compact
     cards_html = "\n".join(
         f"""
         <article class="memory">
@@ -11542,7 +12604,7 @@ def _memorial_html(
     sources_html = "\n".join(
         f"""
         <li>
-          <a href="{html.escape(_text(source.get("url")))}" target="_blank" rel="noreferrer">{html.escape(_text(source.get("label"), "Quelle"))}</a>
+          <a href="{html.escape(_text(source.get("url")), quote=True)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">{html.escape(_text(source.get("label"), "Quelle"))}</a>
           <span>{html.escape(_text(source.get("status"), "Quelle"))}</span>
         </li>"""
         for source in external_sources
@@ -16361,22 +17423,22 @@ def _public_memorial_page_html(
     hostname: str = "",
     private_profile: dict[str, object] | None = None,
 ) -> str:
-    slug = _text(payload.get("slug"))
-    person_name = _text(payload.get("person_name"), "Manfred")
-    title = html.escape(_text(payload.get("title"), f"Erinnerungen an {person_name}"))
-    subtitle = _text(
-        payload.get("subtitle"),
-        "Eine ruhige Seite fuer Erinnerungen, Originalstimme und dokumentierte Gedanken.",
+    slug = _safe_slug(_public_memorial_story_text(payload.get("slug"), max_chars=80))
+    person_name = _public_memorial_story_text(payload.get("person_name"), max_chars=160) or "Manfred"
+    title_text = _public_memorial_story_text(payload.get("title"), max_chars=220) or f"Erinnerungen an {person_name}"
+    subtitle = _public_memorial_story_text(payload.get("subtitle"), max_chars=420) or (
+        "Eine ruhige Seite fuer Erinnerungen, belegte Gedanken und oeffentliche Quellen."
     )
     video_call_avatar = _memorial_video_call_avatar(payload, slug)
     return _minimal_public_memorial_html(
         slug=slug,
         person_name=person_name,
-        page_title=title,
+        page_title=html.escape(title_text),
         subtitle=subtitle,
         memorial_avatar_url=html.escape(_memorial_pwa_icon_url(slug, payload, 180)),
         pwa_short_name=_memorial_pwa_short_name(payload),
         clickrank_html=clickrank_head_snippet(hostname),
+        story_html=_public_memorial_story_html(payload, slug=slug),
         video_call_avatar_fallback_html=_memorial_video_call_avatar_fallback_html(video_call_avatar),
     )
 
@@ -17083,22 +18145,23 @@ def _build_memorial_gemini_live_instruction(
     language: str = "de-AT",
 ) -> str:
     payload = _load_memorial(slug)
-    private_profile = _load_private_profile(slug)
+    private_profile = _load_public_memorial_profile(slug)
     person_name = _text(payload.get("person_name"), "Manfred")
     public_cards = []
-    for item in list(payload.get("memory_cards") or [])[:6]:
-        if not isinstance(item, dict):
-            continue
-        title = _text(item.get("title"))
-        body = _text(item.get("body"))
+    for item in _public_list(
+        payload.get("memory_cards"),
+        allowed_keys={"title", "body"},
+    )[:6]:
+        title = _public_memorial_story_text(item.get("title"), max_chars=160)
+        body = _public_memorial_story_text(item.get("body"), max_chars=900)
         if title or body:
             public_cards.append(f"- {title}: {body}".strip())
     private_notes = []
     for item in list(private_profile.get("family_context_notes") or [])[:4] if isinstance(private_profile, dict) else []:
         if not isinstance(item, dict):
             continue
-        label = _text(item.get("label"))
-        note = _text(item.get("note"))
+        label = _text(item.get("trait"))
+        note = _text(item.get("evidence") or item.get("note"))
         if label or note:
             private_notes.append(f"- {label}: {note}".strip())
     memory_context = _extract_personal_memory_request_context(request=request, websocket=websocket)
@@ -17115,20 +18178,17 @@ def _build_memorial_gemini_live_instruction(
     if public_cards:
         instruction_parts.append("Oeffentliche belegte Erinnerungen:\n" + "\n".join(public_cards))
     if private_notes:
-        instruction_parts.append("Private Stilhinweise nur fuer Tonalitaet, nicht ausgeben:\n" + "\n".join(private_notes))
-    if memory_runtime is not None and bool(memory_context.get("personal_memory_enabled")):
-        try:
-            memory_rows = retrieve_memorial_memory_items(
-                memory_runtime=memory_runtime,
-                principal_id=memorial_memory_principal_id(slug=slug, context=memory_context),
-                question="",
-                limit=6,
-            )
-            imported_memory = "\n".join(format_memorial_memory_context(memory_rows))
-        except Exception:
-            imported_memory = ""
-        if imported_memory:
-            instruction_parts.append("Persoenlicher Kontext aus Memory, nur verwenden wenn passend:\n" + imported_memory[:1800])
+        instruction_parts.append("Freigegebene Stilhinweise nur fuer Tonalitaet, nicht woertlich ausgeben:\n" + "\n".join(private_notes))
+    personal_memory_lines = _personal_memory_context_lines(
+        slug=slug,
+        context=memory_context,
+        question="",
+    )
+    if personal_memory_lines:
+        instruction_parts.append(
+            "Persoenlicher Kontext aus diesem Browser, nur verwenden wenn passend:\n"
+            + "\n".join(personal_memory_lines)[:1800]
+        )
     return "\n\n".join(instruction_parts)
 
 
@@ -17225,7 +18285,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
     await websocket.accept()
     container = getattr(websocket.app.state, "container", None)
     memory_runtime = getattr(container, "memory_runtime", None)
-    private_profile = _load_private_profile(slug)
+    private_profile = _load_public_memorial_profile(slug)
     personal_memory_context = _extract_personal_memory_request_context(websocket=websocket)
     current_difficult_memory_mode = _extract_difficult_memory_mode(websocket=websocket)
     try:

@@ -45,7 +45,11 @@ from app.repositories.interruption_budgets import InterruptionBudgetRepository, 
 from app.repositories.interruption_budgets_postgres import PostgresInterruptionBudgetRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository, MemoryCandidateRepository
 from app.repositories.memory_candidates_postgres import PostgresMemoryCandidateRepository
-from app.repositories.memory_items import InMemoryMemoryItemRepository, MemoryItemRepository
+from app.repositories.memory_items import (
+    InMemoryMemoryItemRepository,
+    MemoryItemRepository,
+    validate_memory_item_snapshot_request,
+)
 from app.repositories.memory_items_postgres import PostgresMemoryItemRepository
 from app.repositories.relationships import InMemoryRelationshipRepository, RelationshipRepository
 from app.repositories.relationships_postgres import PostgresRelationshipRepository
@@ -86,6 +90,10 @@ class MemoryRuntimeService:
         self._follow_ups = follow_ups
         self._follow_up_rules = follow_up_rules
         self._interruption_budgets = interruption_budgets
+
+    @property
+    def snapshot_storage_durable(self) -> bool:
+        return bool(getattr(self._items, "snapshot_storage_durable", False))
 
     @staticmethod
     def _ensure_owned_existing(row_id: str | None, *, principal_id: str, fetch) -> None:  # type: ignore[no-untyped-def]
@@ -214,6 +222,21 @@ class MemoryRuntimeService:
 
     def list_items(self, *, limit: int = 100, principal_id: str | None = None) -> list[MemoryItem]:
         return self._items.list_items(limit=limit, principal_id=principal_id)
+
+    def export_principal_snapshot(
+        self,
+        *,
+        principal_id: str,
+        max_items: int,
+    ) -> list[MemoryItem]:
+        principal, item_limit = validate_memory_item_snapshot_request(
+            principal_id=principal_id,
+            max_items=max_items,
+        )
+        return self._items.export_principal_snapshot(
+            principal_id=principal,
+            max_items=item_limit,
+        )
 
     def get_item(self, item_id: str, *, principal_id: str | None = None) -> MemoryItem | None:
         found = self._items.get(item_id)

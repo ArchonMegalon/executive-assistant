@@ -35,7 +35,7 @@ def _chatlab_contract() -> dict[str, object]:
 
 def _memorial_chat_answer_payload(*, slug: str, request: Request, body: dict[str, object]) -> dict[str, object]:
     payload = shared._load_memorial(slug)
-    private_profile = shared._load_private_profile(slug)
+    private_profile = shared._load_public_memorial_profile(slug)
     selected_model, _, _ = shared._resolve_memorial_chat_model(payload, private_profile, shared._text(body.get("llm_model")))
     container = getattr(request.app.state, "container", None)
     memory_runtime = getattr(container, "memory_runtime", None)

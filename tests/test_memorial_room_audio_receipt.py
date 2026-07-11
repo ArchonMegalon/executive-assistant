@@ -21,6 +21,11 @@ def test_room_audio_receipt_fails_closed_until_every_manual_check_is_present(mon
     monkeypatch.setattr(module, "_git_dirty", lambda: False)
     monkeypatch.setattr(module, "_git_head", lambda: "HEAD")
     monkeypatch.setattr(module, "_source_tree_fingerprint", lambda: "fingerprint")
+    monkeypatch.setattr(
+        module,
+        "resolve_source_worktree_fingerprint",
+        lambda _root: "worktree-fingerprint",
+    )
 
     args = module.argparse.Namespace(
         base_url="https://memorial.example.test",
@@ -65,6 +70,11 @@ def test_room_audio_receipt_passes_for_complete_public_origin_check(monkeypatch)
     monkeypatch.setattr(module, "_git_dirty", lambda: False)
     monkeypatch.setattr(module, "_git_head", lambda: "HEAD")
     monkeypatch.setattr(module, "_source_tree_fingerprint", lambda: "fingerprint")
+    monkeypatch.setattr(
+        module,
+        "resolve_source_worktree_fingerprint",
+        lambda _root: "worktree-fingerprint",
+    )
 
     args = module.argparse.Namespace(
         base_url="https://memorial.example.test",
@@ -96,6 +106,11 @@ def test_room_audio_receipt_passes_for_complete_public_origin_check(monkeypatch)
     assert receipt["gold_claim_allowed"] is True
     assert receipt["source_git_head"] == "HEAD"
     assert receipt["source_tree_fingerprint"] == "fingerprint"
+    assert receipt["source_state_fingerprint"] == "worktree-fingerprint"
+    assert (
+        receipt["source_state_fingerprint_semantics"]
+        == "worktree_source_files_sha256_excluding_generated_only_paths"
+    )
     assert receipt["proof_type"] == "manual_room_attestation"
     assert receipt["manual_attestation"]["attestation_id"] == "room-review-001"
     assert receipt["manual_attestation"]["ci_must_not_auto_assert"] is True

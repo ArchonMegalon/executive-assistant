@@ -243,8 +243,14 @@ def test_prompt_wav_bytes_for_measure_falls_back_when_synth_route_is_unavailable
     assert payload == b"fallback-wav"
 
 
-def test_browser_exit_gate_receipt_blocks_local_public_gold() -> None:
+def test_browser_exit_gate_receipt_blocks_local_public_gold(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _load_module()
+    monkeypatch.setattr(module, "resolve_source_state_head", lambda _root: "HEAD")
+    monkeypatch.setattr(
+        module,
+        "resolve_source_worktree_fingerprint",
+        lambda _root: "worktree-fingerprint",
+    )
 
     receipt = module._with_exit_gate_status(
         {
@@ -267,6 +273,12 @@ def test_browser_exit_gate_receipt_blocks_local_public_gold() -> None:
     assert receipt["contract_name"] == "ea.memorial_realtime_browser_exit_gate"
     assert receipt["status"] == "fail"
     assert "public_origin_required" in receipt["failed_codes"]
+    assert receipt["source_git_head"] == "HEAD"
+    assert receipt["source_state_fingerprint"] == "worktree-fingerprint"
+    assert (
+        receipt["source_state_fingerprint_semantics"]
+        == "worktree_source_files_sha256_excluding_generated_only_paths"
+    )
 
 
 def test_wait_for_realtime_turn_tolerates_contexts_without_off() -> None:

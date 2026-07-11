@@ -26,8 +26,10 @@ for import_root in (EA_SCRIPTS, EA_DIR, ROOT_SCRIPTS, ROOT):
 
 try:
     from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 try:
     import scripts.validate_memorial_voice_loop as voice_loop  # noqa: E402
@@ -231,6 +233,8 @@ def build_receipt(
         "source_git_head": source_git_head,
         "head_semantics": "source_state",
         "source_tree_fingerprint": _source_tree_fingerprint(),
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "dirty_worktree": dirty_worktree,
         "status": payload.get("status"),
         "slug": slug,

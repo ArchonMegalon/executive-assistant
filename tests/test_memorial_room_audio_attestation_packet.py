@@ -21,6 +21,11 @@ def _load_module():
 def test_room_audio_attestation_packet_is_manual_and_complete(monkeypatch) -> None:
     module = _load_module()
     monkeypatch.setattr(module, "resolve_source_state_head", lambda root: "HEAD")
+    monkeypatch.setattr(
+        module,
+        "resolve_source_worktree_fingerprint",
+        lambda _root: "worktree-fingerprint",
+    )
 
     packet = module.build_packet(
         argparse.Namespace(base_url="https://memorial.example.test", slug="manfred", output=""),
@@ -30,6 +35,12 @@ def test_room_audio_attestation_packet_is_manual_and_complete(monkeypatch) -> No
     assert packet["contract_name"] == "ea.memorial_room_audio_attestation_packet"
     assert packet["status"] == "ready"
     assert packet["source_git_head"] == "HEAD"
+    assert packet["head_semantics"] == "source_state"
+    assert packet["source_state_fingerprint"] == "worktree-fingerprint"
+    assert (
+        packet["source_state_fingerprint_semantics"]
+        == "worktree_source_files_sha256_excluding_generated_only_paths"
+    )
     assert packet["manual_only"] is True
     assert packet["ci_must_not_auto_assert"] is True
     assert packet["operator_command"] == "make materialize-memorial-room-audio-gold-clean"

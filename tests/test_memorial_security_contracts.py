@@ -87,8 +87,55 @@ def test_public_memorial_json_is_sanitized_and_raw_manifest_is_blocked(
             "slug": slug,
             "person_name": "Manfred Hoza",
             "write_token": "must-not-leak",
+            "transcript": "TOP_LEVEL_RAW_TRANSCRIPT_SENTINEL",
+            "intro": {"private": "STRUCTURED_INTRO_SENTINEL"},
             "character_notes": [{"note": "private-note", "public": False}],
-            "audio_clips": [],
+            "audio_clips": [
+                {
+                    "public": True,
+                    "title": "Approved clip",
+                    "asset_relpath": "audio/clip.mp3",
+                    "transcript": "RAW_TRANSCRIPT_SENTINEL",
+                    "public_transcript": "Approved public transcript",
+                },
+                {
+                    "public": True,
+                    "title": "Unsafe path",
+                    "asset_relpath": "../private/clip.mp3",
+                },
+                {
+                    "visibility": "public",
+                    "public": False,
+                    "title": "CONFLICTING_AUDIO_SENTINEL",
+                    "asset_relpath": "audio/conflicting.mp3",
+                },
+            ],
+            "memory_cards": [
+                {
+                    "public": True,
+                    "title": "Approved memory",
+                    "body": {"private": "STRUCTURED_MEMORY_SENTINEL"},
+                }
+            ],
+            "source_grounded_profile": [
+                {
+                    "public": True,
+                    "trait": "Approved trait",
+                    "evidence": {"private": "STRUCTURED_EVIDENCE_SENTINEL"},
+                }
+            ],
+            "external_sources": [
+                {
+                    "public": True,
+                    "label": "UNSAFE_SOURCE_SENTINEL",
+                    "url": "javascript:alert(1)",
+                }
+            ],
+            "conversation_style": {
+                "public": True,
+                "reasoning_frame": {"private": "STRUCTURED_STYLE_SENTINEL"},
+                "social_tone": "Ruhig",
+            },
         },
     )
     (bundle_dir / "audio").mkdir()
@@ -108,6 +155,26 @@ def test_public_memorial_json_is_sanitized_and_raw_manifest_is_blocked(
     body = response.json()
     assert "write_token" not in body
     assert body.get("character_notes") == []
+    assert body["audio_clips"] == [
+        {
+            "title": "Approved clip",
+            "asset_relpath": "audio/clip.mp3",
+            "public_transcript": "Approved public transcript",
+        }
+    ]
+    assert body["memory_cards"] == [
+        {"title": "Approved memory", "body": "[stark redigiert]"},
+    ]
+    assert body["source_grounded_profile"] == [{"trait": "Approved trait"}]
+    assert body["external_sources"] == []
+    assert body["conversation_style"] == {"social_tone": "Ruhig", "should_avoid": []}
+    serialized = json.dumps(body, ensure_ascii=False)
+    assert "RAW_TRANSCRIPT_SENTINEL" not in serialized
+    assert "TOP_LEVEL_RAW_TRANSCRIPT_SENTINEL" not in serialized
+    assert "STRUCTURED_" not in serialized
+    assert "CONFLICTING_" not in serialized
+    assert "UNSAFE_" not in serialized
+    assert "../private" not in serialized
 
     raw_manifest = client.get(f"/memorials/files/{slug}/memorial.json")
     assert raw_manifest.status_code == 404
@@ -323,7 +390,7 @@ def test_public_memorial_pwa_install_is_disabled_by_default(
     assert 'id="memorial-video-call-avatar-video"' not in page.text
     assert 'id="memorial-video-call-avatar-fallback"' in page.text
     assert "VidBoard noch nicht live" in page.text
-    assert "Gleich bereit" in page.text
+    assert "Gleich kannst du mit mir reden." in page.text
     assert "/memorials/manfred/realtime" in page.text
     assert "/memorials/manfred/realtime/webrtc" not in page.text
     assert "RTCPeerConnection" not in page.text
@@ -339,7 +406,10 @@ def test_public_memorial_pwa_install_is_disabled_by_default(
     assert "server_stt_cooldown" not in page.text
     assert "utterance.onstart = () => {" not in page.text
     assert 'setSpeechStatus("Ich antworte gleich.", "working", "Meine Stimme wird gestartet")' not in page.text
-    assert "<h1>" not in page.text
+    assert "<h1>" in page.text
+    assert '<a class="skip-link" href="#memorial-story">' in page.text
+    assert '<main id="memorial-story" tabindex="-1">' in page.text
+    assert '<aside class="conversation-dock"' in page.text
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
     assert "Hosted on myexternalbrain.com" not in page.text
 
@@ -984,15 +1054,40 @@ def test_public_memorial_public_asset_sends_referrer_privacy_header(
             "audio_clips": [],
             "public_documents": [
                 {
+                    "public": True,
                     "title": "Rede",
                     "asset_relpath": "docs/rede.pdf",
-                }
+                },
+                {
+                    "visibility": "private",
+                    "title": "Private",
+                    "asset_relpath": "docs/private.pdf",
+                },
+                {
+                    "title": "Implicit",
+                    "asset_relpath": "docs/implicit.pdf",
+                },
+                {
+                    "visibility": "public",
+                    "public": False,
+                    "title": "Conflicting",
+                    "asset_relpath": "docs/conflicting.pdf",
+                },
+                {
+                    "public": True,
+                    "title": "Unsafe SVG",
+                    "asset_relpath": "docs/public.svg",
+                },
             ],
         },
     )
     docs_dir = bundle_dir / "docs"
     docs_dir.mkdir(parents=True, exist_ok=True)
     (docs_dir / "rede.pdf").write_bytes(b"%PDF-1.4 memorial")
+    (docs_dir / "private.pdf").write_bytes(b"%PDF-1.4 private")
+    (docs_dir / "implicit.pdf").write_bytes(b"%PDF-1.4 implicit")
+    (docs_dir / "conflicting.pdf").write_bytes(b"%PDF-1.4 conflicting")
+    (docs_dir / "public.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>", encoding="utf-8")
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
     _patch_memorial_runtime_roots(tmp_path)
 
@@ -1005,6 +1100,9 @@ def test_public_memorial_public_asset_sends_referrer_privacy_header(
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
     assert response.headers.get("content-type", "").startswith("application/pdf")
+    for filename in ("private.pdf", "implicit.pdf", "conflicting.pdf", "public.svg"):
+        rejected = client.get(f"/memorials/files/{slug}/docs/{filename}")
+        assert rejected.status_code == 404
 
 
 def test_public_memorial_video_meeting_status_and_session_fail_closed(
@@ -2700,6 +2798,456 @@ def test_public_voice_ab_rating_persists_dimension_signal(
     assert stored["events"][0]["dimensions"]["artifact_control"] == 2
 
 
+def test_public_voice_ab_rating_persistence_is_minimized_and_pseudonymous(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.delenv("EA_MEMORIAL_VOICE_AB_EVENT_RETENTION_DAYS", raising=False)
+    public_memorials._VOICE_AB_ROOT = tmp_path / "voice-ab"
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_ab_config",
+        lambda _slug: {
+            "variants": [
+                {
+                    "id": "a",
+                    "label": "A",
+                    "tts_plugin_voice_id": "PRIVATE_PROVIDER_VOICE_A",
+                },
+                {
+                    "id": "b",
+                    "label": "B",
+                    "tts_plugin_voice_id": "PRIVATE_PROVIDER_VOICE_B",
+                },
+            ]
+        },
+    )
+
+    public_memorials._record_voice_ab_rating(
+        slug="manfred",
+        context={"scope": "guest:PRIVATE_SCOPE", "guest_mode": True},
+        choice="a",
+        note="PRIVATE_FREE_TEXT_SENTINEL",
+        dedupe_key="ip:203011310:scope:guest:PRIVATE_SCOPE",
+        dimensions={"identity": 5, "artifact_control": 2},
+    )
+    public_memorials._record_voice_ab_rating(
+        slug="manfred",
+        context={"scope": "guest:PRIVATE_SCOPE", "guest_mode": True},
+        choice="b",
+        note="SECOND_PRIVATE_FREE_TEXT_SENTINEL",
+        dedupe_key="ip:198511007:scope:guest:PRIVATE_SCOPE",
+        dimensions={"identity": 4, "artifact_control": 5},
+    )
+
+    ratings_path = tmp_path / "voice-ab" / "manfred" / "ratings.json"
+    stored = json.loads(ratings_path.read_text(encoding="utf-8"))
+    assert len(stored["events"]) == 1
+    event = stored["events"][0]
+    serialized = json.dumps(stored, ensure_ascii=False)
+    assert set(event) == {
+        "dedupe_receipt",
+        "choice",
+        "approved_variant",
+        "dimensions",
+        "variant_snapshot",
+        "created_at",
+    }
+    assert len(event["dedupe_receipt"]) == 64
+    assert event["dedupe_receipt"] == public_memorials._voice_ab_private_receipt(
+        "guest:PRIVATE_SCOPE",
+        slug="manfred",
+        domain="client",
+    )
+    assert event["choice"] == "b"
+    assert event["dimensions"]["identity"] == 4
+    assert stored["totals"] == {"a": 1, "b": 1, "equal": 0, "approved": 0}
+    assert stored["effective_totals"] == {"a": 0, "b": 1, "equal": 0, "approved": 0}
+    assert "dedupe_key" not in event
+    assert "scope" not in event
+    assert "guest_mode" not in event
+    assert "note" not in event
+    assert "PRIVATE_FREE_TEXT_SENTINEL" not in serialized
+    assert "SECOND_PRIVATE_FREE_TEXT_SENTINEL" not in serialized
+    assert "PRIVATE_SCOPE" not in serialized
+    assert "203011310" not in serialized
+    assert "198511007" not in serialized
+    assert "PRIVATE_PROVIDER_VOICE" not in serialized
+    assert stored["retention"] == {
+        "current_vote_events_days": 30,
+        "historical_rounds": "aggregate_receipts_only",
+        "free_text_retained": False,
+        "client_identity": "hmac_sha256_receipt",
+    }
+
+
+def test_public_voice_ab_load_prunes_expired_events_and_migrates_legacy_rounds(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.delenv("EA_MEMORIAL_VOICE_AB_EVENT_RETENTION_DAYS", raising=False)
+    public_memorials._VOICE_AB_ROOT = tmp_path / "voice-ab"
+    ratings_path = tmp_path / "voice-ab" / "manfred" / "ratings.json"
+    ratings_path.parent.mkdir(parents=True)
+    current_created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    ratings_path.write_text(
+        json.dumps(
+            {
+                "slug": "manfred",
+                "totals": {"a": 4, "b": 0, "equal": 0, "approved": 0},
+                "events": [
+                    {
+                        "scope": "EXPIRED_PRIVATE_SCOPE",
+                        "dedupe_key": "ip:192021:scope:EXPIRED_PRIVATE_SCOPE",
+                        "note": "EXPIRED_PRIVATE_NOTE",
+                        "choice": "a",
+                        "created_at": "2020-01-01T00:00:00Z",
+                    },
+                    {
+                        "scope": "CURRENT_PRIVATE_SCOPE",
+                        "dedupe_key": "ip:203011310:scope:CURRENT_PRIVATE_SCOPE",
+                        "guest_mode": True,
+                        "note": "CURRENT_PRIVATE_NOTE",
+                        "choice": "a",
+                        "variant_snapshot": {
+                            "a": {"id": "a", "voice_id": "PRIVATE_PROVIDER_VOICE_A"},
+                        },
+                        "created_at": current_created_at,
+                    },
+                    {
+                        "scope": "MISSING_TIMESTAMP_PRIVATE_SCOPE",
+                        "choice": "a",
+                    },
+                    {
+                        "scope": "FUTURE_PRIVATE_SCOPE",
+                        "choice": "a",
+                        "created_at": "2099-01-01T00:00:00Z",
+                    },
+                ],
+                "round": 2,
+                "rounds": [
+                    {
+                        "round": 1,
+                        "winner": "a",
+                        "events": [
+                            {
+                                "scope": "HISTORICAL_PRIVATE_SCOPE",
+                                "choice": "a",
+                                "created_at": "2026-01-01T00:00:00Z",
+                            }
+                        ],
+                        "analysis": {"voice_id": "PRIVATE_PROVIDER_VOICE_A"},
+                        "created_at": "2026-01-01T00:00:00Z",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = public_memorials._load_voice_ab_ratings("manfred")
+    migrated = json.loads(ratings_path.read_text(encoding="utf-8"))
+    serialized = json.dumps(migrated, ensure_ascii=False)
+
+    assert len(loaded["events"]) == 1
+    assert len(migrated["events"]) == 1
+    assert loaded["events"][0]["created_at"] == current_created_at
+    assert migrated["schema"] == "ea.memorial_voice_ab_ratings.v2"
+    assert "events" not in migrated["rounds"][0]
+    assert migrated["rounds"][0]["rating_receipt"]["event_count"] == 1
+    assert migrated["rounds"][0]["rating_receipt"]["dimension_average"]["identity"] == 3.0
+    assert migrated["rounds"][0]["rating_receipt"]["target_profile"]["identity"] == 3.0
+    assert migrated["rounds"][0]["rating_receipt"]["dimension_stats"]["identity"] == {
+        "sum": 3.0,
+        "count": 1,
+    }
+    for marker in (
+        "EXPIRED_PRIVATE_SCOPE",
+        "EXPIRED_PRIVATE_NOTE",
+        "CURRENT_PRIVATE_SCOPE",
+        "CURRENT_PRIVATE_NOTE",
+        "MISSING_TIMESTAMP_PRIVATE_SCOPE",
+        "FUTURE_PRIVATE_SCOPE",
+        "HISTORICAL_PRIVATE_SCOPE",
+        "203011310",
+        "PRIVATE_PROVIDER_VOICE_A",
+    ):
+        assert marker not in serialized
+
+
+def test_voice_ab_receipts_are_stable_domain_and_slug_separated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    public_memorials._voice_ab_receipt_secret.cache_clear()
+    monkeypatch.setattr(public_memorials, "get_settings", lambda: object())
+    monkeypatch.setattr(
+        public_memorials,
+        "resolve_signing_secret",
+        lambda _settings, *, purpose: f"stable-test-secret:{purpose}",
+    )
+    try:
+        first = public_memorials._voice_ab_private_receipt(
+            "shared-identity",
+            slug="manfred",
+            domain="client",
+        )
+        assert len(first) == 64
+        assert int(first, 16) >= 0
+
+        public_memorials._voice_ab_receipt_secret.cache_clear()
+        restarted = public_memorials._voice_ab_private_receipt(
+            "shared-identity",
+            slug="manfred",
+            domain="client",
+        )
+        voice_domain = public_memorials._voice_ab_private_receipt(
+            "shared-identity",
+            slug="manfred",
+            domain="voice",
+        )
+        other_slug = public_memorials._voice_ab_private_receipt(
+            "shared-identity",
+            slug="another-memorial",
+            domain="client",
+        )
+
+        assert restarted == first
+        assert voice_domain != first
+        assert other_slug != first
+    finally:
+        public_memorials._voice_ab_receipt_secret.cache_clear()
+
+
+def test_voice_ab_receipt_secret_failure_prevents_rating_write(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    public_memorials._VOICE_AB_ROOT = tmp_path / "voice-ab"
+    public_memorials._voice_ab_receipt_secret.cache_clear()
+    monkeypatch.setattr(public_memorials, "get_settings", lambda: object())
+
+    def _fail_secret(_settings, *, purpose: str) -> str:
+        raise RuntimeError(f"secret unavailable:{purpose}")
+
+    monkeypatch.setattr(public_memorials, "resolve_signing_secret", _fail_secret)
+    monkeypatch.setattr(public_memorials, "_load_voice_ab_config", lambda _slug: {"variants": []})
+    try:
+        with pytest.raises(RuntimeError, match="secret unavailable"):
+            public_memorials._record_voice_ab_rating(
+                slug="manfred",
+                context={"scope": "guest:stable"},
+                choice="a",
+            )
+        assert not (tmp_path / "voice-ab" / "manfred" / "ratings.json").exists()
+    finally:
+        public_memorials._voice_ab_receipt_secret.cache_clear()
+
+
+def test_voice_ab_load_canonically_scrubs_extra_fields_and_invalid_receipts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.delenv("EA_MEMORIAL_VOICE_AB_EVENT_RETENTION_DAYS", raising=False)
+    public_memorials._VOICE_AB_ROOT = tmp_path / "voice-ab"
+    ratings_path = tmp_path / "voice-ab" / "manfred" / "ratings.json"
+    ratings_path.parent.mkdir(parents=True)
+    current_created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    ratings_path.write_text(
+        json.dumps(
+            {
+                "schema": "ea.memorial_voice_ab_ratings.v2",
+                "slug": "manfred",
+                "totals": {"a": 1, "b": 0, "equal": 0, "approved": 0},
+                "effective_totals": {"a": 1, "b": 0, "equal": 0, "approved": 0},
+                "events": [
+                    {
+                        "dedupe_receipt": "PLAINTEXT_CLIENT_RECEIPT",
+                        "choice": "a",
+                        "approved_variant": "",
+                        "dimensions": {"identity": 5},
+                        "variant_snapshot": {
+                            "a": {
+                                "id": "a",
+                                "voice_receipt": "PLAINTEXT_PROVIDER_RECEIPT",
+                                "private_snapshot_extra": "PRIVATE_SNAPSHOT_EXTRA",
+                            }
+                        },
+                        "created_at": current_created_at,
+                        "private_event_extra": "PRIVATE_EVENT_EXTRA",
+                    }
+                ],
+                "round": 1,
+                "rounds": [
+                    {
+                        "round": 1,
+                        "winner": "a",
+                        "private_round_extra": "PRIVATE_ROUND_EXTRA",
+                    }
+                ],
+                "retention": {
+                    "current_vote_events_days": 30,
+                    "historical_rounds": "aggregate_receipts_only",
+                    "free_text_retained": False,
+                    "client_identity": "hmac_sha256_receipt",
+                },
+                "private_top_level_extra": "PRIVATE_TOP_LEVEL_EXTRA",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = public_memorials._load_voice_ab_ratings("manfred")
+    first_canonical_bytes = ratings_path.read_bytes()
+    canonical = json.loads(first_canonical_bytes)
+    public_memorials._load_voice_ab_ratings("manfred")
+
+    assert len(loaded["events"]) == 1
+    assert ratings_path.read_bytes() == first_canonical_bytes
+    serialized = json.dumps(canonical, ensure_ascii=False)
+    assert "PRIVATE_" not in serialized
+    event = canonical["events"][0]
+    assert public_memorials._voice_ab_receipt_is_valid(event["dedupe_receipt"])
+    assert public_memorials._voice_ab_receipt_is_valid(
+        event["variant_snapshot"]["a"]["voice_receipt"]
+    )
+    assert event["dedupe_receipt"] != "PLAINTEXT_CLIENT_RECEIPT"
+    assert event["variant_snapshot"]["a"]["voice_receipt"] != "PLAINTEXT_PROVIDER_RECEIPT"
+
+
+def test_voice_ab_corrupt_ratings_fail_closed_without_overwrite(
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    public_memorials._VOICE_AB_ROOT = tmp_path / "voice-ab"
+    ratings_path = tmp_path / "voice-ab" / "manfred" / "ratings.json"
+    ratings_path.parent.mkdir(parents=True)
+    corrupt = b'{"events": [not-json]}'
+    ratings_path.write_bytes(corrupt)
+
+    with pytest.raises(HTTPException) as exc_info:
+        public_memorials._load_voice_ab_ratings("manfred")
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "memorial_voice_ab_ratings_invalid"
+    assert ratings_path.read_bytes() == corrupt
+
+
+def test_voice_ab_round_aggregates_are_round_local_and_dimension_weighted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(public_memorials, "_load_voice_ab_config", lambda _slug: {"variants": []})
+
+    def _event(receipt: str, score: int) -> dict[str, object]:
+        return {
+            "dedupe_receipt": receipt,
+            "choice": "a",
+            "approved_variant": "",
+            "dimensions": {key: score for key in public_memorials._VOICE_AB_DIMENSION_KEYS},
+            "variant_snapshot": {},
+            "created_at": "2026-07-11T00:00:00Z",
+        }
+
+    high = public_memorials._voice_ab_round_receipt_from_events([_event("a" * 64, 5)])
+    low = public_memorials._voice_ab_round_receipt_from_events([_event("b" * 64, 1)])
+    analysis = public_memorials._voice_ab_analysis(
+        "manfred",
+        {"events": [], "rounds": [{"rating_receipt": high}, {"rating_receipt": low}]},
+    )
+    assert analysis["target_profile"]["identity"] == 3.0
+
+    zero_signal = {
+        "schema": "ea.memorial_voice_ab_round_receipt.v1",
+        "event_count": 9,
+        "dimension_average": {key: 0 for key in public_memorials._VOICE_AB_DIMENSION_KEYS},
+        "target_profile": {key: 0 for key in public_memorials._VOICE_AB_DIMENSION_KEYS},
+        "dimension_stats": {
+            key: {"sum": 0, "count": 0}
+            for key in public_memorials._VOICE_AB_DIMENSION_KEYS
+        },
+    }
+    undiluted = public_memorials._voice_ab_analysis(
+        "manfred",
+        {"events": [], "rounds": [{"rating_receipt": high}, {"rating_receipt": zero_signal}]},
+    )
+    assert undiluted["target_profile"]["identity"] == 5.0
+
+    migrated = public_memorials._voice_ab_minimized_round(
+        {
+            "round": 1,
+            "events": [_event("c" * 64, 3)],
+            "created_at": "2026-01-01T00:00:00Z",
+        },
+        slug="manfred",
+        trusted_receipts=True,
+    )
+    assert migrated["rating_receipt"]["dimension_average"]["identity"] == 3.0
+    assert migrated["rating_receipt"]["target_profile"]["identity"] == 3.0
+
+
+def test_voice_ab_storage_keeps_only_latest_event_per_receipt_before_capping(
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    public_memorials._VOICE_AB_ROOT = tmp_path / "voice-ab"
+    created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    events = [
+        {
+            "dedupe_receipt": f"{index:064x}",
+            "choice": "a",
+            "dimensions": {"identity": 1},
+            "variant_snapshot": {},
+            "created_at": created_at,
+        }
+        for index in range(40)
+    ]
+    events.append(
+        {
+            "dedupe_receipt": f"{20:064x}",
+            "choice": "b",
+            "dimensions": {"identity": 5},
+            "variant_snapshot": {},
+            "created_at": created_at,
+        }
+    )
+
+    public_memorials._save_voice_ab_ratings(
+        "manfred",
+        {
+            "slug": "manfred",
+            "totals": {"a": 40, "b": 1, "equal": 0, "approved": 0},
+            "events": events,
+            "round": 1,
+            "rounds": [],
+        },
+    )
+    stored = json.loads(
+        (tmp_path / "voice-ab" / "manfred" / "ratings.json").read_text(encoding="utf-8")
+    )
+
+    assert len(stored["events"]) == 40
+    assert f"{0:064x}" in {event["dedupe_receipt"] for event in stored["events"]}
+    updated = next(event for event in stored["events"] if event["dedupe_receipt"] == f"{20:064x}")
+    assert updated["choice"] == "b"
+    assert updated["dimensions"]["identity"] == 5
+    assert stored["effective_totals"] == {"a": 39, "b": 1, "equal": 0, "approved": 0}
+
+
 def test_public_voice_ab_auto_rotates_challenger_after_effective_margin(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2760,6 +3308,178 @@ def test_public_voice_ab_auto_rotates_challenger_after_effective_margin(
     stored_ratings = json.loads((voice_ab_root / "ratings.json").read_text(encoding="utf-8"))
     assert stored_ratings["round"] == 2
     assert stored_ratings["rounds"][0]["winner"] == "a"
+    assert "events" not in stored_ratings["rounds"][0]
+    assert stored_ratings["rounds"][0]["rating_receipt"]["schema"] == "ea.memorial_voice_ab_round_receipt.v1"
+    assert "dimension_stats" in stored_ratings["rounds"][0]["rating_receipt"]
+    assert "retirement" not in stored_ratings["rounds"][0]
+    retirement_receipt = stored_ratings["rounds"][0]["retirement_receipt"]
+    assert retirement_receipt["schema"] == "ea.memorial_voice_ab_retirement_receipt.v1"
+    assert retirement_receipt["provider"] == "unmixr"
+    assert retirement_receipt["action"] == "delete_clone_profile"
+    assert len(retirement_receipt["voice_receipt"]) == 64
+    assert "provider-test-challenger-old" not in json.dumps(stored_ratings)
+    assert "provider-test-challenger-v2" not in json.dumps(stored_ratings)
+
+
+def test_voice_ab_auto_rotation_b_winner_retires_original_a_and_keeps_sanitized_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    public_memorials._VOICE_AB_ROOT = tmp_path / "voice-ab"
+    config = {
+        "slug": "manfred",
+        "variants": [
+            {
+                "id": "a",
+                "label": "A",
+                "tts_plugin": "unmixr_clone",
+                "tts_plugin_voice_id": "provider-original-a",
+            },
+            {
+                "id": "b",
+                "label": "B",
+                "tts_plugin": "unmixr_clone",
+                "tts_plugin_voice_id": "provider-winning-b",
+            },
+        ],
+    }
+    saved_configs: list[dict[str, object]] = []
+    retired_voice_ids: list[str] = []
+    monkeypatch.setattr(public_memorials, "_load_voice_ab_config", lambda _slug: config)
+    monkeypatch.setattr(
+        public_memorials,
+        "_save_voice_ab_config",
+        lambda _slug, payload: saved_configs.append(json.loads(json.dumps(payload))),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_voice_ab_next_challenger",
+        lambda _slug, *, excluded_voice_ids: {
+            "voice_id": "provider-new-challenger",
+            "tts_plugin": "unmixr_clone",
+            "label": "New challenger",
+        },
+    )
+
+    def _retire(_slug: str, *, voice_id: str) -> dict[str, object]:
+        retired_voice_ids.append(voice_id)
+        return {
+            "voice_id": voice_id,
+            "profile_id": "profile-original-a",
+            "retired_at": "2026-07-11T00:05:00Z",
+            "delete_status": "deleted",
+            "error": "",
+        }
+
+    monkeypatch.setattr(public_memorials, "_voice_ab_retire_losing_challenger", _retire)
+    created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    ratings = {
+        "slug": "manfred",
+        "totals": {"a": 0, "b": 4, "equal": 0, "approved": 0},
+        "effective_totals": {"a": 0, "b": 4, "equal": 0, "approved": 0},
+        "events": [
+            {
+                "dedupe_receipt": f"{index + 1:064x}",
+                "choice": "b",
+                "approved_variant": "",
+                "dimensions": {"identity": 4},
+                "variant_snapshot": {},
+                "created_at": created_at,
+            }
+            for index in range(4)
+        ],
+        "round": 1,
+        "rounds": [],
+    }
+
+    rotated = public_memorials._maybe_rotate_voice_ab_challenger("manfred", ratings)
+
+    assert retired_voice_ids == ["provider-original-a"]
+    assert rotated["round"] == 2
+    assert saved_configs
+    saved_variants = {item["id"]: item for item in saved_configs[-1]["variants"]}
+    assert saved_variants["a"]["tts_plugin_voice_id"] == "provider-winning-b"
+    assert saved_variants["b"]["tts_plugin_voice_id"] == "provider-new-challenger"
+
+    stored = json.loads(
+        (tmp_path / "voice-ab" / "manfred" / "ratings.json").read_text(encoding="utf-8")
+    )
+    round_entry = stored["rounds"][0]
+    retirement_receipt = round_entry["retirement_receipt"]
+    assert round_entry["winner"] == "b"
+    assert retirement_receipt == {
+        "schema": "ea.memorial_voice_ab_retirement_receipt.v1",
+        "provider": "unmixr",
+        "action": "delete_clone_profile",
+        "voice_receipt": public_memorials._voice_ab_private_receipt(
+            "provider-original-a",
+            slug="manfred",
+            domain="voice",
+        ),
+        "profile_receipt": public_memorials._voice_ab_private_receipt(
+            "profile-original-a",
+            slug="manfred",
+            domain="provider-profile",
+        ),
+        "recorded_at": "2026-07-11T00:05:00Z",
+        "status_at_rotation": "deleted",
+        "retry_required": False,
+        "error_code": "none",
+    }
+    serialized = json.dumps(stored)
+    assert "provider-original-a" not in serialized
+    assert "profile-original-a" not in serialized
+    assert "provider-winning-b" not in serialized
+    assert "provider-new-challenger" not in serialized
+
+
+def test_voice_ab_manual_finalize_does_not_retire_voice_without_replacement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_ab_config",
+        lambda _slug: {
+            "variants": [
+                {"id": "a", "tts_plugin_voice_id": "provider-a"},
+                {"id": "b", "tts_plugin_voice_id": "provider-b"},
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_voice_ab_next_challenger",
+        lambda _slug, *, excluded_voice_ids: None,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_voice_ab_auto_build_challenger",
+        lambda _slug, *, excluded_voice_ids: None,
+    )
+    retired: list[str] = []
+    monkeypatch.setattr(
+        public_memorials,
+        "_voice_ab_retire_losing_challenger",
+        lambda _slug, *, voice_id: retired.append(voice_id),
+    )
+    ratings = {
+        "totals": {"a": 1, "b": 0, "equal": 0, "approved": 0},
+        "effective_totals": {"a": 1, "b": 0, "equal": 0, "approved": 0},
+        "events": [],
+        "round": 1,
+        "rounds": [],
+    }
+
+    with pytest.raises(HTTPException) as exc_info:
+        public_memorials._voice_ab_finalize_winner("manfred", winner="a", ratings=ratings)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "voice_ab_no_replacement_challenger"
+    assert retired == []
 
 
 def test_public_voice_ab_admin_requires_write_access(
@@ -3020,6 +3740,7 @@ def test_public_memorial_operator_status_route_returns_current_generated_card(
 ) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES", "1")
+    monkeypatch.delenv("EA_MEMORIAL_VOICE_AB_EVENT_RETENTION_DAYS", raising=False)
     public_root = tmp_path / "public"
     slug = "manfred"
     _write_public_memorial(
@@ -3203,6 +3924,19 @@ def test_public_memorial_operator_status_route_returns_current_generated_card(
     assert payload["source_cleanup"]["handoff_commands"][0] == "git status --short"
     assert payload["source_cleanup"]["next_command"] == "scripts/inspect_source_dirty_groups.py --list-categories"
     assert payload["memorial_public_gold_next_command"] == "scripts/inspect_source_dirty_groups.py --list-categories"
+    assert payload["governance"]["authority"] == "ea_local_operator_diagnostics"
+    assert payload["governance"]["canonical"] is False
+    assert payload["governance"]["privacy_controls"]["voice_ab_feedback"] == {
+        "free_text_retained": False,
+        "client_identity": "hmac_sha256_receipt",
+        "current_vote_event_retention_days": 30,
+        "historical_rounds": "aggregate_receipts_only",
+    }
+    assert [item["owner"] for item in payload["governance"]["external_handoffs"]] == [
+        "chummer6-hub",
+        "chummer6-hub",
+        "chummer6-hub-registry",
+    ]
 
 
 def test_public_memorial_operator_status_degrades_to_structured_payload_when_artifact_is_missing(
@@ -3431,6 +4165,12 @@ def test_public_memorial_operator_gold_page_renders_human_status_summary(
     assert "Configured public origin" in response.text
     assert "Local runtime route" in response.text
     assert "Public origin route" in response.text
+    assert '<a class="skip-link" href="#memorial-operator-main">' in response.text
+    assert '<main id="memorial-operator-main" tabindex="-1">' in response.text
+    assert "Governance and Privacy Boundaries" in response.text
+    assert "ea_local_operator_diagnostics" in response.text
+    assert "hmac_sha256_receipt" in response.text
+    assert "chummer6-hub-registry" in response.text
 
 
 def test_public_memorial_operator_gold_page_degrades_gracefully_when_status_artifact_is_missing(

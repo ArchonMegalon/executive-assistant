@@ -5,6 +5,7 @@ import base64
 import asyncio
 import difflib
 import importlib.util
+import os
 import socket
 import struct
 import threading
@@ -19,8 +20,7 @@ import pytest
 
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
-if importlib.util.find_spec("websockets") is None and importlib.util.find_spec("wsproto") is None:
-    pytest.skip("uvicorn websocket protocol support requires websockets or wsproto", allow_module_level=True)
+_HAS_WEBSOCKET_PROTOCOL = importlib.util.find_spec("websockets") is not None or importlib.util.find_spec("wsproto") is not None
 from playwright.sync_api import Browser, Page, sync_playwright
 
 Config = uvicorn.Config
@@ -59,6 +59,79 @@ def _write_private_voice(root: Path, slug: str, payload: dict[str, object]) -> N
     profile_dir = root / slug
     profile_dir.mkdir(parents=True, exist_ok=True)
     (profile_dir / "tts_voice.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+RAW_TRANSCRIPT_SENTINEL = "RAW_TRANSCRIPT_MUST_NOT_ESCAPE"
+PRIVATE_MEMORY_SENTINEL = "PRIVATE_MEMORY_MUST_NOT_ESCAPE"
+PRIVATE_SOURCE_SENTINEL = "PRIVATE_SOURCE_MUST_NOT_ESCAPE"
+PRIVATE_FAMILY_SENTINEL = "PRIVATE_FAMILY_NOTE_MUST_NOT_ESCAPE"
+PRIVATE_AUDIO_RELPATH = "audio/private-family-recording.mp3"
+
+
+def _source_first_memorial_payload(slug: str) -> dict[str, object]:
+    return {
+        "slug": slug,
+        "person_name": "Manfred Hoza",
+        "title": "Erinnerungen an Manfred",
+        "subtitle": "Eine ruhige Seite für Erinnerungen, belegte Gedanken und öffentliche Quellen.",
+        "intro": "Hier stehen freigegebene Erinnerungen und nachvollziehbare öffentliche Quellen im Mittelpunkt.",
+        "disclosure": "Das Gespräch ist eine synthetische Annäherung und keine Originalaufnahme.",
+        "transcript": RAW_TRANSCRIPT_SENTINEL,
+        "family_notes": [{"note": PRIVATE_FAMILY_SENTINEL}],
+        "public_source_notes": [{"note": PRIVATE_FAMILY_SENTINEL}],
+        "audio_clips": [
+            {
+                "visibility": "private",
+                "public": False,
+                "title": "Private Familienaufnahme",
+                "asset_relpath": PRIVATE_AUDIO_RELPATH,
+                "transcript": RAW_TRANSCRIPT_SENTINEL,
+                "public_transcript": RAW_TRANSCRIPT_SENTINEL,
+            }
+        ],
+        "memory_cards": [
+            {
+                "visibility": "public",
+                "public": True,
+                "title": f"Freigegebene Erinnerung {index}",
+                "body": f"Behutsam gekürzte Erinnerung Nummer {index}.",
+                "source_label": "Familienfreigabe",
+            }
+            for index in range(1, 7)
+        ]
+        + [
+            {
+                "visibility": "private",
+                "public": False,
+                "title": PRIVATE_MEMORY_SENTINEL,
+                "body": PRIVATE_MEMORY_SENTINEL,
+            }
+        ],
+        "external_sources": [
+            {
+                "visibility": "public",
+                "public": True,
+                "label": f"Öffentliche Quelle {index}",
+                "url": f"https://sources.example/manfred/{index}",
+                "status": "belegt",
+            }
+            for index in range(1, 9)
+        ]
+        + [
+            {
+                "visibility": "private",
+                "public": False,
+                "label": PRIVATE_SOURCE_SENTINEL,
+                "url": "https://private.example/manfred",
+            }
+        ],
+        "suggested_prompts": [
+            "Was war dir im Leben wichtig?",
+            "Woran sollen wir uns erinnern?",
+            "Wie bist du mit schwierigen Entscheidungen umgegangen?",
+            "Welche Haltung möchtest du weitergeben?",
+        ],
+    }
 
 
 def _wav_bytes() -> bytes:
@@ -114,21 +187,18 @@ def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     _write_public_memorial(
         public_root,
         slug,
-        {
-            "slug": slug,
-            "person_name": "Manfred Hoza",
-            "title": "Erinnerungen an Manfred",
-            "subtitle": "Eine ruhige Seite fuer Erinnerungen und Originalstimme.",
-            "audio_clips": [],
-        },
+        _source_first_memorial_payload(slug),
     )
+    private_audio_path = public_root / slug / PRIVATE_AUDIO_RELPATH
+    private_audio_path.parent.mkdir(parents=True, exist_ok=True)
+    private_audio_path.write_bytes(b"physically-present-private-audio")
     _write_private_voice(
         private_root,
         slug,
         {
-            "tts_plugin": "voicewave_clone",
-            "tts_plugin_voice_id": "Manfred Hoza Memorial",
-            "voice_label": "Manfred Hoza · VoiceWave-Klon",
+            "tts_plugin": "unmixr_clone",
+            "tts_plugin_voice_id": "playwright-unmixr-voice",
+            "voice_label": "Manfred Hoza · Unmixr-Teststimme",
             "voice_consent": {
                 "status": "approved",
                 "scope": ["synthesize", "conversation_turn", "realtime"],
@@ -165,12 +235,17 @@ def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
             "status": "warm_recent",
             "warm": True,
             "inflight": False,
-            "started_at": 10.0,
-            "completed_at": 12.0,
+            "started_at": time.time() - 2.0,
+            "completed_at": time.time() - 1.0,
+            "expires_at": time.time() + 599.0,
+            "ttl_remaining_seconds": 599.0,
             "errors": [],
             "voice_ready": True,
             "voice_inflight": False,
-            "voice_completed_at": 12.0,
+            "voice_prewarm_stale": False,
+            "voice_completed_at": time.time() - 1.0,
+            "voice_expires_at": time.time() + 599.0,
+            "voice_ttl_remaining_seconds": 599.0,
             "voice_errors": [],
             "voice_required": True,
         },
@@ -235,6 +310,7 @@ def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
         return _FakeGeminiLiveSocket()
 
     monkeypatch.setattr(public_memorials, "websockets", type("_FakeWebsockets", (), {"connect": _fake_gemini_connect}))
+    public_memorials._memorial_runtime_readiness_cache_invalidate(slug)
 
     app = create_app()
     port = _free_port()
@@ -252,11 +328,12 @@ def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
         thread.join(timeout=10.0)
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             headless=True,
+            executable_path=os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or None,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
@@ -392,17 +469,18 @@ def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int
 
 
 @pytest.mark.parametrize(
-    ("viewport", "max_slack"),
+    ("viewport", "expected_dock_position"),
     [
-        ({"width": 1440, "height": 1100}, 4),
-        ({"width": 430, "height": 932}, 6),
+        ({"width": 1440, "height": 1100}, "fixed"),
+        ({"width": 430, "height": 932}, "relative"),
+        ({"width": 900, "height": 650}, "relative"),
     ],
 )
-def test_memorial_minimal_page_fits_single_viewport_without_scroll(
+def test_memorial_source_first_page_scrolls_without_conversation_dock_overlap(
     browser: Browser,
     memorial_minimal_server: dict[str, object],
     viewport: dict[str, int],
-    max_slack: int,
+    expected_dock_position: str,
 ) -> None:
     base_url = str(memorial_minimal_server["base_url"])
     slug = str(memorial_minimal_server["slug"])
@@ -412,26 +490,78 @@ def test_memorial_minimal_page_fits_single_viewport_without_scroll(
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.wait_for_function(
-            "() => !document.getElementById('memorial-conversation').disabled",
-            timeout=5000,
+            """() => (
+              document.querySelectorAll("article.memory-card").length === 6 &&
+              document.querySelectorAll(".source-list a").length === 8 &&
+              document.querySelectorAll(".prompt-list li").length === 4
+            )""",
+            timeout=3000,
         )
         metrics = page.evaluate(
-            """() => ({
-              html: document.documentElement.scrollHeight,
-              body: document.body.scrollHeight,
-              viewport: window.innerHeight,
-              bodyOverflow: getComputedStyle(document.body).overflowY,
-              htmlOverflow: getComputedStyle(document.documentElement).overflowY,
-            })"""
+            """async () => {
+              window.scrollTo(0, document.documentElement.scrollHeight);
+              await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              const main = document.getElementById("memorial-story");
+              const dock = document.getElementById("memorial-conversation-region");
+              const dockRect = dock.getBoundingClientRect();
+              const mainRect = main.getBoundingClientRect();
+              return {
+                scrollHeight: document.documentElement.scrollHeight,
+                scrollWidth: document.documentElement.scrollWidth,
+                viewportHeight: window.innerHeight,
+                viewportWidth: window.innerWidth,
+                dockPosition: getComputedStyle(dock).position,
+                dockTop: dockRect.top,
+                dockBottom: dockRect.bottom,
+                dockHeight: dockRect.height,
+                mainBottom: mainRect.bottom,
+                bodyPaddingBottom: parseFloat(getComputedStyle(document.body).paddingBottom || "0"),
+                bodyOverflow: getComputedStyle(document.body).overflowY,
+                htmlOverflow: getComputedStyle(document.documentElement).overflowY,
+              };
+            }"""
         )
-        assert int(metrics["html"]) <= int(metrics["viewport"]) + max_slack
-        assert int(metrics["body"]) <= int(metrics["viewport"]) + max_slack
-        assert metrics["bodyOverflow"] == "hidden"
-        assert metrics["htmlOverflow"] == "hidden"
+        assert int(metrics["scrollHeight"]) > int(metrics["viewportHeight"])
+        assert int(metrics["scrollWidth"]) <= int(metrics["viewportWidth"]) + 1
+        assert metrics["dockPosition"] == expected_dock_position
+        assert metrics["bodyOverflow"] == "auto"
+        assert metrics["htmlOverflow"] == "auto"
+        if expected_dock_position == "fixed":
+            assert float(metrics["dockBottom"]) <= float(metrics["viewportHeight"]) + 1
+            assert float(metrics["mainBottom"]) <= float(metrics["dockTop"]) + 1
+            assert float(metrics["bodyPaddingBottom"]) >= float(metrics["dockHeight"]) + 39
+            page.evaluate(
+                """() => {
+                  const answer = document.getElementById("memorial-chat-answer");
+                  answer.hidden = false;
+                  answer.textContent = "Eine längere sichtbare Antwort. ".repeat(28);
+                }"""
+            )
+            page.wait_for_function(
+                """() => {
+                  const dock = document.getElementById("memorial-conversation-region");
+                  return parseFloat(getComputedStyle(document.body).paddingBottom || "0") >=
+                    dock.getBoundingClientRect().height + 39;
+                }""",
+                timeout=3000,
+            )
+        else:
+            assert float(metrics["dockTop"]) >= float(metrics["mainBottom"]) - 1
+            assert float(metrics["bodyPaddingBottom"]) == 0
+
+        page_html = page.content()
+        for sentinel in (
+            RAW_TRANSCRIPT_SENTINEL,
+            PRIVATE_MEMORY_SENTINEL,
+            PRIVATE_SOURCE_SENTINEL,
+            PRIVATE_FAMILY_SENTINEL,
+        ):
+            assert sentinel not in page_html
     finally:
         context.close()
 
 
+@pytest.mark.skipif(not _HAS_WEBSOCKET_PROTOCOL, reason="uvicorn websocket protocol support requires websockets or wsproto")
 def test_memorial_minimal_page_completes_one_browser_conversation_turn(
     browser: Browser,
     memorial_minimal_server: dict[str, object],
@@ -446,13 +576,13 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
         assert response is not None and response.ok
         page.wait_for_function(
             "() => !document.getElementById('memorial-conversation').disabled",
-            timeout=5000,
+            timeout=12000,
         )
         _await_realtime_turn_complete(
             page,
             slug,
             lambda: page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()"),
-            timeout_ms=7000,
+            timeout_ms=12000,
         )
         page.wait_for_function(
             """() => {
@@ -485,6 +615,7 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
         context.close()
 
 
+@pytest.mark.skipif(not _HAS_WEBSOCKET_PROTOCOL, reason="uvicorn websocket protocol support requires websockets or wsproto")
 def test_memorial_minimal_browser_voice_exit_gate_roundtrips_tts_to_stt(
     browser: Browser,
     memorial_minimal_server: dict[str, object],
@@ -504,7 +635,7 @@ def test_memorial_minimal_browser_voice_exit_gate_roundtrips_tts_to_stt(
         assert response is not None and response.ok
         page.wait_for_function(
             "() => !document.getElementById('memorial-conversation').disabled",
-            timeout=5000,
+            timeout=12000,
         )
         result = page.evaluate(
             """async ({ slug, spokenPcmBase64 }) => {

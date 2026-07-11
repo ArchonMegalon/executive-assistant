@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
@@ -76,6 +77,86 @@ def _generated_wav_bytes(*, seed: str) -> bytes:
     )
 
 
+RAW_TRANSCRIPT_SENTINEL = "RAW_TRANSCRIPT_MUST_NOT_ESCAPE"
+PRIVATE_MEMORY_SENTINEL = "PRIVATE_MEMORY_MUST_NOT_ESCAPE"
+PRIVATE_SOURCE_SENTINEL = "PRIVATE_SOURCE_MUST_NOT_ESCAPE"
+PRIVATE_FAMILY_SENTINEL = "PRIVATE_FAMILY_NOTE_MUST_NOT_ESCAPE"
+PRIVATE_AUDIO_RELPATH = "audio/private-family-recording.mp3"
+
+
+def _source_first_memorial_payload(slug: str) -> dict[str, object]:
+    return {
+        "slug": slug,
+        "person_name": "Manfred Hoza",
+        "title": "Erinnerungen an Manfred",
+        "subtitle": "Eine ruhige Seite für Erinnerungen, belegte Gedanken und öffentliche Quellen.",
+        "intro": "Hier stehen freigegebene Erinnerungen und nachvollziehbare öffentliche Quellen im Mittelpunkt.",
+        "disclosure": "Das Gespräch ist eine synthetische Annäherung und keine Originalaufnahme.",
+        "transcript": RAW_TRANSCRIPT_SENTINEL,
+        "family_notes": [{"note": PRIVATE_FAMILY_SENTINEL}],
+        "public_source_notes": [{"note": PRIVATE_FAMILY_SENTINEL}],
+        "audio_clips": [
+            {
+                "visibility": "private",
+                "public": False,
+                "title": "Private Familienaufnahme",
+                "asset_relpath": PRIVATE_AUDIO_RELPATH,
+                "transcript": RAW_TRANSCRIPT_SENTINEL,
+                "public_transcript": RAW_TRANSCRIPT_SENTINEL,
+            }
+        ],
+        "memory_cards": [
+            {
+                "visibility": "public",
+                "public": True,
+                "title": f"Freigegebene Erinnerung {index}",
+                "body": f"Behutsam gekürzte Erinnerung Nummer {index}.",
+                "source_label": "Familienfreigabe",
+            }
+            for index in range(1, 7)
+        ]
+        + [
+            {
+                "visibility": "private",
+                "public": False,
+                "title": PRIVATE_MEMORY_SENTINEL,
+                "body": PRIVATE_MEMORY_SENTINEL,
+            }
+        ],
+        "external_sources": [
+            {
+                "visibility": "public",
+                "public": True,
+                "label": f"Öffentliche Quelle {index}",
+                "url": f"https://sources.example/manfred/{index}",
+                "status": "belegt",
+            }
+            for index in range(1, 9)
+        ]
+        + [
+            {
+                "visibility": "private",
+                "public": False,
+                "label": PRIVATE_SOURCE_SENTINEL,
+                "url": "https://private.example/manfred",
+            }
+        ],
+        "suggested_prompts": [
+            "Was war dir im Leben wichtig?",
+            "Woran sollen wir uns erinnern?",
+            "Wie bist du mit schwierigen Entscheidungen umgegangen?",
+            "Welche Haltung möchtest du weitergeben?",
+        ],
+        "pwa_app_name": "Manfred Gedenkseite",
+        "pwa_short_name": "Manfred",
+        "pwa_icon": {
+            "src_180": "icons/manfred-180.png",
+            "src_192": "icons/manfred-192.png",
+            "src_512": "icons/manfred-512.png",
+        },
+    }
+
+
 @pytest.fixture()
 def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[dict[str, object]]:
     from app.api.routes import public_memorials
@@ -98,30 +179,12 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     bundle = public_root / slug
     bundle.mkdir(parents=True, exist_ok=True)
     (bundle / "audio").mkdir()
-    (bundle / "audio" / "clip.mp3").write_bytes(b"clip")
+    (bundle / PRIVATE_AUDIO_RELPATH).write_bytes(b"physically-present-private-audio")
     (bundle / "icons").mkdir()
     for size in (180, 192, 512):
         (bundle / "icons" / f"manfred-{size}.png").write_bytes(b"\x89PNG\r\n\x1a\nicon")
     (bundle / "memorial.json").write_text(
-        json.dumps(
-            {
-                "slug": slug,
-                "person_name": "Manfred Hoza",
-                "title": "Erinnerungen an Manfred",
-                "subtitle": "Eine ruhige Seite fuer Gespraeche.",
-                "intro": "Eine reduzierte Seite fuer das Gespraech.",
-                "disclosure": "Diese Seite bleibt auf dem Gespraech fokussiert.",
-                "audio_clips": [{"asset_relpath": "audio/clip.mp3"}],
-                "pwa_app_name": "Manfred Gedenkseite",
-                "pwa_short_name": "Manfred",
-                "pwa_icon": {
-                    "src_180": "icons/manfred-180.png",
-                    "src_192": "icons/manfred-192.png",
-                    "src_512": "icons/manfred-512.png",
-                },
-            },
-            ensure_ascii=False,
-        ),
+        json.dumps(_source_first_memorial_payload(slug), ensure_ascii=False),
         encoding="utf-8",
     )
     (private_root / slug).mkdir(parents=True, exist_ok=True)
@@ -279,22 +342,112 @@ def test_memorial_flagship_preflight_cli_passes_against_runtime(memorial_flagshi
     payload = json.loads(result.stdout)
     assert payload["status"] == "pass"
     codes = {item["code"] for item in payload["findings"]}
-    assert "live_public_page_minimal" in codes
+    assert "live_public_page_source_first" in codes
     assert "live_public_tts_rejects_override" in codes
     assert "archive_registry_public_only" in codes
 
 
-def test_memorial_flagship_http_surface_stays_minimal(memorial_flagship_server: dict[str, object]) -> None:
+def test_memorial_flagship_http_surface_is_source_first_and_private_by_default(
+    memorial_flagship_server: dict[str, object],
+) -> None:
     base_url = str(memorial_flagship_server["base_url"])
     with urllib.request.urlopen(f"{base_url}/memorials/manfred", timeout=5.0) as response:
         body = response.read().decode("utf-8", errors="replace")
+    with urllib.request.urlopen(f"{base_url}/memorials/manfred.json", timeout=5.0) as response:
+        public_payload = json.loads(response.read().decode("utf-8", errors="replace"))
 
     assert "Gespräch beginnen" in body
-    assert "Am Handy/Desktop installieren" in body
+    assert "Optional: Am Handy/Desktop installieren." in body
+    assert "Erinnerungen und belegte Quellen" in body
+    assert "Behutsam bewahrte Spuren" in body
+    assert "Öffentliche Quellen" in body
+    assert "Fragen als ruhiger Einstieg" in body
+    assert body.count('class="story-card memory-card"') == 6
+    assert body.count('https://sources.example/manfred/') == 8
+    assert body.count('<li>') >= 12
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in body
-    assert "Originalaufnahmen" not in body
-    assert "Archiv lesen" not in body
     assert "Stimmvergleich und Feedback" not in body
+    assert public_payload["audio_clips"] == []
+    assert len(public_payload["memory_cards"]) == 6
+    assert len(public_payload["external_sources"]) == 8
+    assert len(public_payload["suggested_prompts"]) == 4
+    public_json = json.dumps(public_payload, ensure_ascii=False)
+    for sentinel in (
+        RAW_TRANSCRIPT_SENTINEL,
+        PRIVATE_MEMORY_SENTINEL,
+        PRIVATE_SOURCE_SENTINEL,
+        PRIVATE_FAMILY_SENTINEL,
+    ):
+        assert sentinel not in body
+        assert sentinel not in public_json
+
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(
+            f"{base_url}/memorials/files/manfred/{PRIVATE_AUDIO_RELPATH}",
+            timeout=5.0,
+        )
+    assert exc_info.value.code == 404
+
+
+def test_memorial_flagship_live_browser_measurement_passes(
+    memorial_flagship_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "memorial-live-turn-gate.json"
+    python_bin = ROOT / ".venv" / "bin" / "python"
+    if not python_bin.is_file():
+        python_bin = Path(sys.executable)
+    result = subprocess.run(
+        [
+            str(python_bin),
+            str(ROOT / "scripts" / "measure_memorial_live_browser.py"),
+            "--base-url",
+            str(memorial_flagship_server["base_url"]),
+            "--slug",
+            "manfred",
+            "--output",
+            str(output),
+            "--exit-gate",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=dict(os.environ),
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["status"] == "pass"
+    assert payload["failed_codes"] == []
+
+
+def test_memorial_browser_measurement_retries_only_pre_page_target_closed(monkeypatch) -> None:
+    from scripts import measure_memorial_live_browser
+
+    class _Chromium:
+        def __init__(self) -> None:
+            self.attempts = 0
+
+        def launch(self, **kwargs):
+            self.attempts += 1
+            if self.attempts == 1:
+                raise RuntimeError("TargetClosedError: Target page, context or browser has been closed")
+            return {"browser": "ready", "kwargs": kwargs}
+
+    chromium = _Chromium()
+    playwright = type("_Playwright", (), {"chromium": chromium})()
+    monkeypatch.setattr(measure_memorial_live_browser.time, "sleep", lambda _seconds: None)
+
+    browser, attempts, errors = measure_memorial_live_browser._launch_chromium_with_startup_retry(
+        playwright,
+        headless=True,
+    )
+
+    assert attempts == 2
+    assert chromium.attempts == 2
+    assert browser["browser"] == "ready"
+    assert len(errors) == 1
+    assert "TargetClosedError" in errors[0]
 
 
 def test_memorial_flagship_exit_gate_script_accepts_optional_avatar_warn(

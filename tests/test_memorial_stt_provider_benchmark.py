@@ -429,6 +429,28 @@ def test_stt_benchmark_report_surfaces_fixture_quality_blocker() -> None:
     assert report["fixture_quality_failed_codes"] == ["audio_too_short_for_expected_text"]
 
 
+def test_stt_benchmark_report_has_current_source_stamp(monkeypatch) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "resolve_source_state_head", lambda _root: "HEAD")
+    monkeypatch.setattr(
+        module,
+        "resolve_source_worktree_fingerprint",
+        lambda _root: "worktree-fingerprint",
+    )
+
+    report = module._build_report(rows=[], availability={"cartesia_configured": False})
+
+    assert report["generated_by"] == "scripts/benchmark_memorial_stt_providers.py"
+    assert report["generated_at"]
+    assert report["source_git_head"] == "HEAD"
+    assert report["head_semantics"] == "source_state"
+    assert report["source_state_fingerprint"] == "worktree-fingerprint"
+    assert (
+        report["source_state_fingerprint_semantics"]
+        == "worktree_source_files_sha256_excluding_generated_only_paths"
+    )
+
+
 def test_stt_provider_ranking_uses_accuracy_before_latency() -> None:
     module = _load_module()
     rows = [

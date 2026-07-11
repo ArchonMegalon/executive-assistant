@@ -162,6 +162,16 @@ def http_request(url: str, *, method: str = "GET", body: bytes | None = None, he
         return 0, f"{type(exc).__name__}: {exc}"
 
 
+def _public_json_has_raw_transcript(value: object) -> bool:
+    if isinstance(value, dict):
+        if "transcript" in value:
+            return True
+        return any(_public_json_has_raw_transcript(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_public_json_has_raw_transcript(item) for item in value)
+    return False
+
+
 def check_live(slug: str, report: Report, base_url: str) -> None:
     routes = {
         "raw_manifest": f"{base_url}/memorials/files/{slug}/memorial.json",
@@ -187,8 +197,47 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
         return
     public_json = json.loads(payloads["public_json"][1])
     public_page = payloads["public_page"][1]
-    if "memorial-conversation" in public_page and "memorial-retry-button" in public_page:
-        report.add("pass", "live_public_page_minimal")
+    public_memories = [item for item in list(public_json.get("memory_cards") or []) if isinstance(item, dict)]
+    public_sources = [item for item in list(public_json.get("external_sources") or []) if isinstance(item, dict)]
+    public_prompts = [item for item in list(public_json.get("suggested_prompts") or []) if isinstance(item, str) and item.strip()]
+    source_first_page_ok = all(
+        marker in public_page
+        for marker in (
+            '<main id="memorial-story" tabindex="-1">',
+            'id="memorial-conversation-region" tabindex="-1"',
+            'href="#memorial-conversation-region"',
+            "Erinnerungen und belegte Quellen",
+            "memorial-conversation",
+            "memorial-retry-button",
+        )
+    )
+    source_first_payload_ok = (
+        bool(public_memories)
+        and bool(public_sources)
+        and bool(public_prompts)
+        and all(str(item.get("body") or "").startswith("[stark redigiert]") for item in public_memories)
+        and all(str(item.get("url") or "").startswith("https://") for item in public_sources)
+        and not _public_json_has_raw_transcript(public_json)
+    )
+    if source_first_page_ok and source_first_payload_ok:
+        report.add(
+            "pass",
+            "live_public_page_source_first",
+            public_memory_count=len(public_memories),
+            public_source_count=len(public_sources),
+            public_prompt_count=len(public_prompts),
+        )
+    else:
+        report.add(
+            "fail",
+            "live_public_page_source_first_failed",
+            page_contract_ok=source_first_page_ok,
+            payload_contract_ok=source_first_payload_ok,
+            public_memory_count=len(public_memories),
+            public_source_count=len(public_sources),
+            public_prompt_count=len(public_prompts),
+            raw_transcript_present=_public_json_has_raw_transcript(public_json),
+        )
     if speech_status == 400 and "unsupported_public_tts_fields" in speech_body:
         report.add("pass", "live_public_tts_rejects_override")
     avatar = dict(public_json.get("video_call_avatar") or {})

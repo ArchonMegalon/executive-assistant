@@ -10,9 +10,11 @@ from pathlib import Path
 try:
     from scripts.materialize_memorial_room_audio_receipt import ROOM_AUDIO_CHECK_REQUIREMENTS
     from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from materialize_memorial_room_audio_receipt import ROOM_AUDIO_CHECK_REQUIREMENTS
     from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,6 +68,9 @@ def build_packet(args: argparse.Namespace, *, generated_at: str | None = None) -
         "generated_by": "scripts/materialize_memorial_room_audio_attestation_packet.py",
         "status": "ready",
         "source_git_head": resolve_source_state_head(ROOT),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "slug": slug,
         "base_url": base_url,
         "proof_target": ROOM_RECEIPT,

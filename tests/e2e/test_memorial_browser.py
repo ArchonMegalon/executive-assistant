@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import socket
 import threading
 import time
@@ -54,6 +56,79 @@ def _write_private_voice(root: Path, slug: str, payload: dict[str, object]) -> N
     (profile_dir / "tts_voice.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
 
+RAW_TRANSCRIPT_SENTINEL = "RAW_TRANSCRIPT_MUST_NOT_ESCAPE"
+PRIVATE_MEMORY_SENTINEL = "PRIVATE_MEMORY_MUST_NOT_ESCAPE"
+PRIVATE_SOURCE_SENTINEL = "PRIVATE_SOURCE_MUST_NOT_ESCAPE"
+PRIVATE_FAMILY_SENTINEL = "PRIVATE_FAMILY_NOTE_MUST_NOT_ESCAPE"
+PRIVATE_AUDIO_RELPATH = "audio/private-family-recording.mp3"
+
+
+def _source_first_memorial_payload(slug: str) -> dict[str, object]:
+    return {
+        "slug": slug,
+        "person_name": "Manfred Hoza",
+        "title": "Erinnerungen an Manfred",
+        "subtitle": "Eine ruhige Seite für Erinnerungen, belegte Gedanken und öffentliche Quellen.",
+        "intro": "Hier stehen freigegebene Erinnerungen und nachvollziehbare öffentliche Quellen im Mittelpunkt.",
+        "disclosure": "Das Gespräch ist eine synthetische Annäherung und keine Originalaufnahme.",
+        "transcript": RAW_TRANSCRIPT_SENTINEL,
+        "family_notes": [{"note": PRIVATE_FAMILY_SENTINEL}],
+        "public_source_notes": [{"note": PRIVATE_FAMILY_SENTINEL}],
+        "audio_clips": [
+            {
+                "visibility": "private",
+                "public": False,
+                "title": "Private Familienaufnahme",
+                "asset_relpath": PRIVATE_AUDIO_RELPATH,
+                "transcript": RAW_TRANSCRIPT_SENTINEL,
+                "public_transcript": RAW_TRANSCRIPT_SENTINEL,
+            }
+        ],
+        "memory_cards": [
+            {
+                "visibility": "public",
+                "public": True,
+                "title": f"Freigegebene Erinnerung {index}",
+                "body": f"Behutsam gekürzte Erinnerung Nummer {index}.",
+                "source_label": "Familienfreigabe",
+            }
+            for index in range(1, 7)
+        ]
+        + [
+            {
+                "visibility": "private",
+                "public": False,
+                "title": PRIVATE_MEMORY_SENTINEL,
+                "body": PRIVATE_MEMORY_SENTINEL,
+            }
+        ],
+        "external_sources": [
+            {
+                "visibility": "public",
+                "public": True,
+                "label": f"Öffentliche Quelle {index}",
+                "url": f"https://sources.example/manfred/{index}",
+                "status": "belegt",
+            }
+            for index in range(1, 9)
+        ]
+        + [
+            {
+                "visibility": "private",
+                "public": False,
+                "label": PRIVATE_SOURCE_SENTINEL,
+                "url": "https://private.example/manfred",
+            }
+        ],
+        "suggested_prompts": [
+            "Was war dir im Leben wichtig?",
+            "Woran sollen wir uns erinnern?",
+            "Wie bist du mit schwierigen Entscheidungen umgegangen?",
+            "Welche Haltung möchtest du weitergeben?",
+        ],
+    }
+
+
 def _wav_bytes() -> bytes:
     sample_rate = 16_000
     total_frames = int(sample_rate * 0.22)
@@ -74,6 +149,7 @@ def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
     monkeypatch.setenv("EA_API_TOKEN", "")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "playwright-gemini-live-key")
     monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
     monkeypatch.delenv("EA_DEFAULT_PRINCIPAL_ID", raising=False)
     monkeypatch.delenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", raising=False)
@@ -88,14 +164,11 @@ def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     _write_public_memorial(
         public_root,
         slug,
-        {
-            "slug": slug,
-            "person_name": "Manfred Hoza",
-            "title": "Erinnerungen an Manfred",
-            "subtitle": "Eine ruhige Seite fuer Erinnerungen und Originalstimme.",
-            "audio_clips": [],
-        },
+        _source_first_memorial_payload(slug),
     )
+    private_audio_path = public_root / slug / PRIVATE_AUDIO_RELPATH
+    private_audio_path.parent.mkdir(parents=True, exist_ok=True)
+    private_audio_path.write_bytes(b"physically-present-private-audio")
     _write_private_voice(
         private_root,
         slug,
@@ -139,12 +212,17 @@ def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
             "status": "warm_recent",
             "warm": True,
             "inflight": False,
-            "started_at": 10.0,
-            "completed_at": 12.0,
+            "started_at": time.time() - 2.0,
+            "completed_at": time.time() - 1.0,
+            "expires_at": time.time() + 599.0,
+            "ttl_remaining_seconds": 599.0,
             "errors": [],
             "voice_ready": True,
             "voice_inflight": False,
-            "voice_completed_at": 12.0,
+            "voice_prewarm_stale": False,
+            "voice_completed_at": time.time() - 1.0,
+            "voice_expires_at": time.time() + 599.0,
+            "voice_ttl_remaining_seconds": 599.0,
             "voice_errors": [],
             "voice_required": True,
         },
@@ -164,6 +242,62 @@ def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
         lambda **kwargs: (_wav_bytes(), "audio/wav"),
     )
 
+    class _FakeGeminiLiveSocket:
+        def __init__(self) -> None:
+            self._queue: asyncio.Queue[object] = asyncio.Queue()
+
+        async def send(self, raw: str) -> None:
+            payload = json.loads(raw)
+            if "setup" in payload:
+                await self._queue.put({"setupComplete": {}})
+            realtime_input = payload.get("realtimeInput")
+            if isinstance(realtime_input, dict) and realtime_input.get("audioStreamEnd") is True:
+                await self._queue.put(
+                    {
+                        "serverContent": {
+                            "inputTranscription": {"text": "Hallo Manfred, kannst du mich hoeren?"},
+                            "outputTranscription": {"text": "Ja, ich bin da."},
+                            "generationComplete": True,
+                            "turnComplete": True,
+                        }
+                    }
+                )
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            item = await self._queue.get()
+            if item is None:
+                raise StopAsyncIteration
+            return json.dumps(item)
+
+        async def close(self) -> None:
+            await self._queue.put(None)
+
+    async def _fake_gemini_connect(uri: str, **kwargs):
+        return _FakeGeminiLiveSocket()
+
+    monkeypatch.setattr(
+        public_memorials,
+        "websockets",
+        type("_FakeWebsockets", (), {"connect": _fake_gemini_connect}),
+    )
+    real_voicewave_plugin_option = public_memorials.voicewave_plugin_option
+
+    def _browser_voicewave_plugin_option(**kwargs):
+        option = dict(real_voicewave_plugin_option(**kwargs))
+        option.update(
+            {
+                "tts_plugin_enabled": True,
+                "tts_plugin_voice_id": str(kwargs.get("configured_voice_id") or "browser-fixture-voice"),
+            }
+        )
+        return option
+
+    monkeypatch.setattr(public_memorials, "voicewave_plugin_option", _browser_voicewave_plugin_option)
+    public_memorials._memorial_runtime_readiness_cache_invalidate(slug)
+
     app = create_app()
     port = _free_port()
     config = Config(app=app, host="127.0.0.1", port=port, log_level="warning")
@@ -180,11 +314,12 @@ def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
         thread.join(timeout=10.0)
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             headless=True,
+            executable_path=os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or None,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
@@ -319,7 +454,30 @@ def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int
     return state
 
 
-def test_memorial_public_page_ships_only_the_minimal_safe_surface(
+def _await_conversation_ready(page: Page, *, timeout_ms: int = 12000) -> None:
+    try:
+        page.wait_for_function(
+            "() => !document.getElementById('memorial-conversation').disabled",
+            timeout=timeout_ms,
+        )
+    except Exception as exc:
+        diagnostics = page.evaluate(
+            """() => {
+              const button = document.getElementById("memorial-conversation");
+              const phase = document.getElementById("memorial-speech-phase");
+              const message = document.getElementById("memorial-speech-message");
+              return {
+                buttonDisabled: Boolean(button && button.disabled),
+                buttonText: String((button && button.textContent) || "").trim(),
+                phaseText: String((phase && phase.textContent) || "").trim(),
+                messageText: String((message && message.textContent) || "").trim(),
+              };
+            }"""
+        )
+        raise AssertionError(f"conversation readiness timeout: {json.dumps(diagnostics, ensure_ascii=False)}") from exc
+
+
+def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
     browser: Browser,
     memorial_browser_server: dict[str, object],
 ) -> None:
@@ -330,13 +488,88 @@ def test_memorial_public_page_ships_only_the_minimal_safe_surface(
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
-        page.wait_for_function(
-            "() => !document.getElementById('memorial-conversation').disabled",
-            timeout=5000,
-        )
         assert page.locator("#memorial-conversation").count() == 1
-        button_text = (page.locator("#memorial-conversation").text_content() or "").strip()
-        assert button_text in {"Gespräch beginnen", "Gespräch stoppen"}
+        assert page.locator("#memorial-conversation").get_attribute("aria-label") == "Gespräch beginnen"
+
+        assert page.locator("header + main#memorial-story").count() == 1
+        assert page.locator("main#memorial-story + aside#memorial-conversation-region").count() == 1
+        assert page.locator("main#memorial-story").get_attribute("tabindex") == "-1"
+        assert page.locator("aside#memorial-conversation-region").get_attribute("tabindex") == "-1"
+        assert page.locator("aside#memorial-conversation-region").get_attribute("aria-label") == "Gespräch mit Manfred Hoza"
+        assert page.locator("a.skip-link").evaluate_all(
+            "links => links.map((link) => link.getAttribute('href'))"
+        ) == ["#memorial-story", "#memorial-conversation-region"]
+        page.locator('a.skip-link[href="#memorial-story"]').focus()
+        page.keyboard.press("Enter")
+        assert page.evaluate("() => document.activeElement && document.activeElement.id") == "memorial-story"
+        main_focus_style = page.locator("main#memorial-story").evaluate(
+            "element => ({ style: getComputedStyle(element).outlineStyle, width: getComputedStyle(element).outlineWidth })"
+        )
+        assert main_focus_style["style"] != "none"
+        assert main_focus_style["width"] != "0px"
+        page.locator('a.skip-link[href="#memorial-conversation-region"]').focus()
+        page.keyboard.press("Enter")
+        assert page.evaluate("() => document.activeElement && document.activeElement.id") == "memorial-conversation-region"
+
+        assert page.locator(
+            '#memorial-speech-message[role="status"][aria-live="polite"][aria-atomic="true"]'
+        ).count() == 1
+        assert page.locator("#memorial-speech-note").get_attribute("role") is None
+        assert page.locator("#memorial-speech-note").get_attribute("aria-live") is None
+        assert page.locator("#memorial-speech-transcript-shell").get_attribute("aria-live") is None
+        assert page.locator("#memorial-chat-answer").get_attribute("aria-live") == "polite"
+        assert page.locator("#memorial-speech-audio").get_attribute("aria-hidden") == "true"
+        assert page.locator("#memorial-speech-audio").get_attribute("controls") is None
+
+        assert page.get_by_role("heading", name="Erinnerungen und belegte Quellen", exact=True).count() == 1
+        assert page.get_by_role("heading", name="Behutsam bewahrte Spuren", exact=True).count() == 1
+        assert page.get_by_role("heading", name="Öffentliche Quellen", exact=True).count() == 1
+        assert page.get_by_role("heading", name="Fragen als ruhiger Einstieg", exact=True).count() == 1
+        assert page.locator("article.memory-card").count() == 6
+        assert page.locator(".source-list a").count() == 8
+        assert page.locator(".prompt-list li").count() == 4
+        assert page.locator("[data-memorial-archive-audio]").count() == 0
+        assert page.locator("#memorial-archive-title").count() == 0
+        source_hrefs = page.locator(".source-list a").evaluate_all(
+            "links => links.map((link) => link.getAttribute('href'))"
+        )
+        assert all(str(href).startswith("https://") for href in source_hrefs)
+        assert page.locator(".source-list a").evaluate_all(
+            "links => links.every((link) => !link.hasAttribute('target'))"
+        )
+
+        public_payload = page.evaluate(
+            """async (currentSlug) => {
+              const response = await fetch(`/memorials/${currentSlug}.json`);
+              if (!response.ok) throw new Error(`public_payload_${response.status}`);
+              return response.json();
+            }""",
+            slug,
+        )
+        assert public_payload["audio_clips"] == []
+        assert len(public_payload["memory_cards"]) == 6
+        assert len(public_payload["external_sources"]) == 8
+        assert len(public_payload["suggested_prompts"]) == 4
+        public_json = json.dumps(public_payload, ensure_ascii=False)
+        page_html = page.content()
+        for sentinel in (
+            RAW_TRANSCRIPT_SENTINEL,
+            PRIVATE_MEMORY_SENTINEL,
+            PRIVATE_SOURCE_SENTINEL,
+            PRIVATE_FAMILY_SENTINEL,
+        ):
+            assert sentinel not in public_json
+            assert sentinel not in page_html
+
+        private_audio_status = page.evaluate(
+            """async (path) => {
+              const response = await fetch(path);
+              return response.status;
+            }""",
+            f"/memorials/files/{slug}/{PRIVATE_AUDIO_RELPATH}",
+        )
+        assert private_audio_status == 404
+        assert "Optional: Am Handy/Desktop installieren." in page_html
         assert page.locator("#memorial-video-call").count() == 0
         assert page.locator("#memorial-voice-config-form").count() == 0
         assert page.locator("#memorial-voice-ab-wrap").count() == 0
@@ -357,10 +590,7 @@ def test_memorial_page_exposes_single_active_voice_config_without_service_worker
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
-        page.wait_for_function(
-            "() => !document.getElementById('memorial-conversation').disabled",
-            timeout=5000,
-        )
+        _await_conversation_ready(page)
 
         manifest_href = page.get_attribute("link[rel='manifest']", "href")
         assert manifest_href is not None
@@ -418,15 +648,12 @@ def test_memorial_public_page_finishes_one_browser_turn_without_followup_overlap
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
-        page.wait_for_function(
-            "() => !document.getElementById('memorial-conversation').disabled",
-            timeout=5000,
-        )
+        _await_conversation_ready(page)
         _await_realtime_turn_complete(
             page,
             slug,
             lambda: page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()"),
-            timeout_ms=7000,
+            timeout_ms=12000,
         )
         page.wait_for_function(
             """() => {

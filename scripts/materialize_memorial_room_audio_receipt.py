@@ -10,8 +10,10 @@ from pathlib import Path
 
 try:
     from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -163,6 +165,8 @@ def build_receipt(args: argparse.Namespace) -> dict[str, object]:
         "source_git_head": source_git_head,
         "head_semantics": "source_state",
         "source_tree_fingerprint": _source_tree_fingerprint(),
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "dirty_worktree": dirty_worktree,
         "status": status,
         "base_url": str(args.base_url or "").rstrip("/"),

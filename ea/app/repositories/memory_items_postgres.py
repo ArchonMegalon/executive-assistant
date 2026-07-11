@@ -5,6 +5,10 @@ from datetime import datetime
 from typing import Any
 
 from app.domain.models import MemoryItem, now_utc_iso
+from app.repositories.memory_items import (
+    MemoryItemSnapshotLimitExceeded,
+    validate_memory_item_snapshot_request,
+)
 
 
 def _to_iso(value: Any) -> str:
@@ -31,6 +35,10 @@ class PostgresMemoryItemRepository:
         if not self._database_url:
             raise ValueError("database_url is required for PostgresMemoryItemRepository")
         self._ensure_schema()
+
+    @property
+    def snapshot_storage_durable(self) -> bool:
+        return True
 
     def _connect(self):  # type: ignore[no-untyped-def]
         try:
@@ -84,6 +92,12 @@ class PostgresMemoryItemRepository:
                     """
                     CREATE INDEX IF NOT EXISTS idx_memory_items_principal_updated
                     ON memory_items(principal_id, updated_at DESC)
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_memory_items_principal_created
+                    ON memory_items(principal_id, created_at, item_id)
                     """
                 )
                 cur.execute(
@@ -236,4 +250,36 @@ class PostgresMemoryItemRepository:
             with conn.cursor() as cur:
                 cur.execute(query, tuple(params))
                 rows = cur.fetchall()
+        return [self._from_row(row) for row in rows]
+
+    def export_principal_snapshot(
+        self,
+        *,
+        principal_id: str,
+        max_items: int,
+    ) -> list[MemoryItem]:
+        principal, item_limit = validate_memory_item_snapshot_request(
+            principal_id=principal_id,
+            max_items=max_items,
+        )
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT item_id, principal_id, category, summary, fact_json, provenance_json,
+                           confidence, sensitivity, sharing_policy, last_verified_at, reviewer,
+                           created_at, updated_at
+                    FROM memory_items
+                    WHERE principal_id = %s
+                    ORDER BY created_at ASC, item_id ASC
+                    LIMIT %s
+                    """,
+                    (principal, item_limit + 1),
+                )
+                rows = cur.fetchall()
+        if len(rows) > item_limit:
+            raise MemoryItemSnapshotLimitExceeded(
+                principal_id=principal,
+                max_items=item_limit,
+            )
         return [self._from_row(row) for row in rows]

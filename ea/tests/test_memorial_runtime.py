@@ -8,8 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from fastapi import HTTPException
+
 from app.api.routes import public_memorial_operator
 from app.api.routes import public_memorials
+from app.services.memorial_turn_runtime import runtime_from_shared
 
 
 class MemorialRuntimeTests(unittest.TestCase):
@@ -39,26 +42,588 @@ class MemorialRuntimeTests(unittest.TestCase):
             "slug": "manfred",
             "person_name": "Manfred",
             "title": "Erinnerungen an Manfred",
-            "subtitle": "Eine ruhige Seite fuer Erinnerungen, Originalstimme und dokumentierte Gedanken.",
-            "intro": "Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen. Neue Texte sind keine direkte Rede.",
-            "audio_clips": [{"asset_relpath": "voice.mp3"}],
-            "memory_cards": [{"title": "Kindheit", "body": "Kurzfassung"}],
+            "subtitle": "Eine ruhige Seite für Erinnerungen, Originalstimme und dokumentierte Gedanken.",
+            "intro": "Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen.",
+            "disclosure": "Neue Antworttexte sprechen nicht an Manfreds Stelle.",
+            "audio_clips": [
+                {
+                    "public": True,
+                    "label": "Originalaufnahme",
+                    "title": "Über Gerechtigkeit",
+                    "description": "Eine freigegebene Aufnahme aus dem Familienarchiv.",
+                    "asset_relpath": "audio/gerechtigkeit.mp3",
+                    "public_transcript": "Gerechtigkeit bedeutete für mich ...",
+                },
+                {
+                    "visibility": "private",
+                    "title": "PRIVATE_AUDIO_SENTINEL",
+                    "asset_relpath": "private/not-public.mp3",
+                },
+            ],
+            "memory_cards": [
+                {
+                    "visibility": "public",
+                    "title": "Kindheit in Döbling",
+                    "body": "Eine freigegebene Erinnerung.",
+                },
+                {
+                    "visibility": "private",
+                    "title": "PRIVATE_MEMORY_SENTINEL",
+                    "body": "Nicht veröffentlichen.",
+                },
+            ],
+            "external_sources": [
+                {
+                    "public": True,
+                    "label": "Öffentliche Quelle",
+                    "url": "https://example.test/manfred",
+                    "status": "Dokumentiert",
+                },
+                {
+                    "visibility": "private",
+                    "label": "PRIVATE_SOURCE_SENTINEL",
+                    "url": "https://private.example.test",
+                },
+            ],
+            "suggested_prompts": [
+                "Was war dir bei Gerechtigkeit wichtig?",
+                "Welche Erinnerung war dir besonders lieb?",
+            ],
         }
         with (
             patch.object(public_memorials, "clickrank_head_snippet", return_value=""),
             patch.object(public_memorials, "_memorial_pwa_icon_url", return_value="/memorials/manfred/icon-180.png"),
             patch.object(public_memorials, "_memorial_video_call_avatar", return_value={}),
             patch.object(public_memorials, "_memorial_video_call_avatar_fallback_html", return_value=""),
+            patch.object(public_memorials, "_asset_file", return_value=Path("/tmp/gerechtigkeit.mp3")),
         ):
-            html = public_memorials._public_memorial_page_html(payload, hostname="myexternalbrain.com", private_profile={})
+            rendered = public_memorials._public_memorial_page_html(
+                payload,
+                hostname="myexternalbrain.com",
+                private_profile={"private_marker": "PRIVATE_PROFILE_SENTINEL"},
+            )
 
-        self.assertIn("<h1>Erinnerungen an Manfred</h1>", html)
-        self.assertIn("Eine ruhige Seite fuer Erinnerungen, Originalstimme und dokumentierte Gedanken.", html)
-        self.assertNotIn("Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen.", html)
-        self.assertNotIn("1 Archivaufnahmen", html)
-        self.assertNotIn("1 belegte Erinnerungen", html)
-        self.assertIn("Das Mikrofon wird erst nach deinem Start verwendet.", html)
-        self.assertIn("Gespräch wird vorbereitet …", html)
+        self.assertIn("<h1>Erinnerungen an Manfred</h1>", rendered)
+        self.assertIn("Eine ruhige Seite für Erinnerungen, Originalstimme und dokumentierte Gedanken.", rendered)
+        self.assertIn('<a class="skip-link" href="#memorial-story">', rendered)
+        self.assertIn('<a class="skip-link" href="#memorial-conversation-region">', rendered)
+        self.assertIn('<main id="memorial-story" tabindex="-1">', rendered)
+        self.assertIn("Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen.", rendered)
+        self.assertLess(
+            rendered.index("Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen."),
+            rendered.index('id="memorial-conversation"'),
+        )
+        self.assertIn("Stimme aus dem Archiv", rendered)
+        self.assertIn("Über Gerechtigkeit", rendered)
+        self.assertIn('controls preload="metadata"', rendered)
+        self.assertIn("/memorials/files/manfred/audio/gerechtigkeit.mp3", rendered)
+        self.assertIn("Gerechtigkeit bedeutete für mich ...", rendered)
+        self.assertIn("Kindheit in Döbling", rendered)
+        self.assertIn("Eine freigegebene Erinnerung.", rendered)
+        self.assertIn("Öffentliche Quelle", rendered)
+        self.assertIn('href="https://example.test/manfred"', rendered)
+        self.assertIn('referrerpolicy="no-referrer"', rendered)
+        self.assertNotIn('target="_blank"', rendered)
+        self.assertIn("Was war dir bei Gerechtigkeit wichtig?", rendered)
+        self.assertNotIn("PRIVATE_AUDIO_SENTINEL", rendered)
+        self.assertNotIn("PRIVATE_MEMORY_SENTINEL", rendered)
+        self.assertNotIn("PRIVATE_SOURCE_SENTINEL", rendered)
+        self.assertNotIn("PRIVATE_PROFILE_SENTINEL", rendered)
+        self.assertIn(
+            'id="memorial-speech-message" role="status" aria-live="polite" aria-atomic="true"',
+            rendered,
+        )
+        self.assertNotIn('id="memorial-speech-note" role="status"', rendered)
+        self.assertNotIn('id="memorial-speech-transcript-shell" aria-live=', rendered)
+        self.assertIn(
+            '<aside class="conversation-dock" aria-label="Gespräch mit Manfred" id="memorial-conversation-region" tabindex="-1">',
+            rendered,
+        )
+        self.assertIn('id="memorial-speech-audio" preload="none" aria-hidden="true"', rendered)
+        self.assertNotIn(" autoplay", rendered)
+        self.assertIn("Das Mikrofon wird erst nach deinem Start verwendet.", rendered)
+        self.assertIn("Gespräch wird vorbereitet …", rendered)
+
+    def test_public_memorial_story_rejects_unapproved_or_unsafe_nested_values(self) -> None:
+        payload = {
+            "slug": "manfred",
+            "person_name": "Manfred",
+            "intro": {"private": "STRUCTURED_INTRO_SENTINEL"},
+            "audio_clips": [
+                {
+                    "public": True,
+                    "title": "Traversal",
+                    "asset_relpath": "../private/voice.mp3",
+                }
+            ],
+            "memory_cards": [
+                {
+                    "public": True,
+                    "title": "<script>MEMORY_MARKUP_SENTINEL</script>",
+                    "body": "<img src=x onerror=MEMORY_BODY_SENTINEL>",
+                }
+            ],
+            "external_sources": [
+                {
+                    "public": True,
+                    "label": "Unsafe",
+                    "url": "javascript:alert('SOURCE_SENTINEL')",
+                }
+            ],
+            "suggested_prompts": [{"prompt": "NON_STRING_PROMPT_SENTINEL"}],
+        }
+        with (
+            patch.object(public_memorials, "clickrank_head_snippet", return_value=""),
+            patch.object(public_memorials, "_memorial_pwa_icon_url", return_value="/memorials/manfred/icon-180.png"),
+            patch.object(public_memorials, "_memorial_video_call_avatar", return_value={}),
+            patch.object(public_memorials, "_memorial_video_call_avatar_fallback_html", return_value=""),
+            patch.object(public_memorials, "_asset_file") as asset_file,
+        ):
+            rendered = public_memorials._public_memorial_page_html(payload, private_profile={})
+
+        asset_file.assert_not_called()
+        self.assertNotIn("../private/voice.mp3", rendered)
+        self.assertNotIn("javascript:", rendered)
+        self.assertNotIn("SOURCE_SENTINEL", rendered)
+        self.assertNotIn("STRUCTURED_INTRO_SENTINEL", rendered)
+        self.assertNotIn("NON_STRING_PROMPT_SENTINEL", rendered)
+        self.assertNotIn("<script>MEMORY_MARKUP_SENTINEL</script>", rendered)
+        self.assertNotIn("<img src=x onerror=MEMORY_BODY_SENTINEL>", rendered)
+        self.assertIn("&lt;script&gt;MEMORY_MARKUP_SENTINEL&lt;/script&gt;", rendered)
+        self.assertIn("&lt;img src=x onerror=MEMORY_BODY_SENTINEL&gt;", rendered)
+
+    def test_public_memorial_payload_filters_nested_story_collections(self) -> None:
+        payload = {
+            "slug": "manfred",
+            "person_name": "Manfred",
+            "intro": {"private": "STRUCTURED_INTRO_SENTINEL"},
+            "audio_clips": [
+                {
+                    "public": True,
+                    "title": "Public audio",
+                    "asset_relpath": "audio/public.mp3",
+                    "transcript": "RAW_TRANSCRIPT_SENTINEL",
+                    "public_transcript": "Approved transcript",
+                    "secret": "drop",
+                },
+                {"visibility": "private", "title": "PRIVATE_AUDIO_SENTINEL", "asset_relpath": "audio/private.mp3"},
+                {
+                    "visibility": "public",
+                    "public": False,
+                    "title": "CONFLICTING_AUDIO_SENTINEL",
+                    "asset_relpath": "audio/conflicting.mp3",
+                },
+            ],
+            "memory_cards": [
+                {"visibility": "public", "title": "Public memory", "body": "Redacted downstream"},
+                {"visibility": "private", "title": "PRIVATE_MEMORY_SENTINEL", "body": "drop"},
+            ],
+            "candidate_recordings": [
+                {"visibility": "private", "title": "PRIVATE_CANDIDATE_SENTINEL"},
+            ],
+            "external_sources": [
+                {"public": True, "label": "Public source", "url": "https://example.test"},
+                {"visibility": "private", "label": "PRIVATE_SOURCE_SENTINEL", "url": "https://private.test"},
+                {
+                    "visibility": "public",
+                    "public": False,
+                    "label": "CONFLICTING_SOURCE_SENTINEL",
+                    "url": "https://conflicting.test",
+                },
+            ],
+            "source_grounded_profile": [
+                {
+                    "public": True,
+                    "trait": "Public trait",
+                    "evidence": {"private": "STRUCTURED_EVIDENCE_SENTINEL"},
+                }
+            ],
+            "conversation_style": {
+                "public": True,
+                "reasoning_frame": {"private": "STRUCTURED_STYLE_SENTINEL"},
+                "social_tone": "Calm",
+                "should_avoid": ["Guessing", {"private": "STRUCTURED_AVOID_SENTINEL"}],
+            },
+            "suggested_prompts": [" Public prompt ", {"prompt": "PRIVATE_PROMPT_SENTINEL"}],
+        }
+        with (
+            patch.object(public_memorials, "_public_memorial_archive_registry", return_value={}),
+            patch.object(public_memorials, "_memorial_video_call_avatar", return_value={}),
+            patch.object(public_memorials, "public_video_meeting_payload", return_value={}),
+        ):
+            public_payload = public_memorials._public_memorial_payload(payload)
+
+        self.assertNotIn("intro", public_payload)
+        self.assertEqual(
+            public_payload["audio_clips"],
+            [
+                {
+                    "title": "Public audio",
+                    "asset_relpath": "audio/public.mp3",
+                    "public_transcript": "Approved transcript",
+                }
+            ],
+        )
+        self.assertEqual(
+            public_payload["memory_cards"],
+            [{"title": "Public memory", "body": "[stark redigiert] Redacted downstream"}],
+        )
+        self.assertEqual(public_payload["candidate_recordings"], [])
+        self.assertEqual(
+            public_payload["external_sources"],
+            [{"label": "Public source", "url": "https://example.test"}],
+        )
+        self.assertEqual(public_payload["suggested_prompts"], ["Public prompt"])
+        self.assertEqual(public_payload["source_grounded_profile"], [{"trait": "Public trait"}])
+        self.assertEqual(
+            public_payload["conversation_style"],
+            {"social_tone": "Calm", "should_avoid": ["Guessing"]},
+        )
+        serialized = json.dumps(public_payload, ensure_ascii=False)
+        self.assertNotIn("PRIVATE_", serialized)
+        self.assertNotIn("CONFLICTING_", serialized)
+        self.assertNotIn("STRUCTURED_", serialized)
+        self.assertNotIn("RAW_TRANSCRIPT_SENTINEL", serialized)
+        self.assertNotIn('"transcript"', serialized)
+        self.assertNotIn('"secret"', serialized)
+
+    def test_manfred_manifest_keeps_the_real_public_surface_source_first(self) -> None:
+        manifest_path = (
+            Path(__file__).resolve().parents[2]
+            / "memorial_data"
+            / "public_memorials"
+            / "manfred"
+            / "memorial.json"
+        )
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        with (
+            patch.object(public_memorials, "_public_memorial_archive_registry", return_value={}),
+            patch.object(public_memorials, "_memorial_video_call_avatar", return_value={}),
+            patch.object(public_memorials, "public_video_meeting_payload", return_value={}),
+        ):
+            public_payload = public_memorials._public_memorial_payload(payload)
+
+        self.assertEqual(len(public_payload["audio_clips"]), 0)
+        self.assertEqual(len(public_payload["memory_cards"]), 6)
+        self.assertEqual(len(public_payload["source_grounded_profile"]), 9)
+        self.assertEqual(len(public_payload["external_sources"]), 12)
+        self.assertEqual(len(public_payload["candidate_recordings"]), 0)
+        self.assertEqual(len(public_payload["suggested_prompts"]), 4)
+        self.assertTrue(
+            all(str(item.get("body") or "").startswith("[stark redigiert]") for item in public_payload["memory_cards"])
+        )
+        self.assertTrue(
+            all(str(item.get("url") or "").startswith("https://") for item in public_payload["external_sources"])
+        )
+        self.assertNotIn("Originalstimme", str(public_payload.get("subtitle") or ""))
+
+        with (
+            patch.object(public_memorials, "clickrank_head_snippet", return_value=""),
+            patch.object(public_memorials, "_memorial_pwa_icon_url", return_value="/memorials/manfred/icon-180.png"),
+            patch.object(public_memorials, "_memorial_video_call_avatar", return_value={}),
+            patch.object(public_memorials, "_memorial_video_call_avatar_fallback_html", return_value=""),
+        ):
+            rendered = public_memorials._public_memorial_page_html(payload, private_profile={})
+
+        self.assertEqual(rendered.count('class="story-card memory-card"'), 6)
+        self.assertEqual(rendered.count('referrerpolicy="no-referrer"'), 8)
+        self.assertNotIn('id="memorial-archive-title"', rendered)
+        self.assertNotIn("Hanusch Krankenhaus: Gespraech ueber Behandlung und Familie", rendered)
+        self.assertNotIn("Der Flugzeugreisegepaeckkoffer", rendered)
+
+    def test_public_memorial_asset_route_rejects_unapproved_audio(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_directory:
+            bundle = Path(raw_directory)
+            audio_directory = bundle / "audio"
+            audio_directory.mkdir()
+            public_audio = audio_directory / "public.mp3"
+            private_audio = audio_directory / "private.mp3"
+            public_audio.write_bytes(b"public")
+            private_audio.write_bytes(b"private")
+            payload = {
+                "audio_clips": [
+                    {"public": True, "asset_relpath": "audio/public.mp3"},
+                    {"visibility": "private", "asset_relpath": "audio/private.mp3"},
+                ]
+            }
+            with (
+                patch.object(public_memorials, "_memorial_bundle", return_value=bundle),
+                patch.object(public_memorials, "_load_memorial", return_value=payload),
+                patch.object(public_memorials, "_memorial_video_call_avatar", return_value={}),
+            ):
+                self.assertEqual(public_memorials._asset_file("manfred", "audio/public.mp3"), public_audio)
+                with self.assertRaises(HTTPException) as rejected:
+                    public_memorials._asset_file("manfred", "audio/private.mp3")
+
+        self.assertEqual(rejected.exception.status_code, 404)
+        self.assertEqual(rejected.exception.detail, "memorial_file_not_found")
+
+    def test_compact_public_facts_excludes_private_and_implicit_items(self) -> None:
+        facts = public_memorials._compact_public_facts(
+            {
+                "memory_cards": [
+                    {"public": True, "title": "Public memory", "body": "Approved detail"},
+                    {"visibility": "private", "title": "PRIVATE_MEMORY_SENTINEL", "body": "Do not use"},
+                    {"title": "IMPLICIT_MEMORY_SENTINEL", "body": "Do not infer approval"},
+                    {
+                        "visibility": "public",
+                        "public": False,
+                        "title": "CONFLICTING_PUBLIC_MEMORY_SENTINEL",
+                        "body": "Do not use",
+                    },
+                    {
+                        "visibility": "private",
+                        "public": True,
+                        "title": "CONFLICTING_PRIVATE_MEMORY_SENTINEL",
+                        "body": "Do not use",
+                    },
+                ],
+                "source_grounded_profile": [
+                    {"visibility": "public", "trait": "Public trait", "evidence": "Approved evidence"},
+                    {"visibility": "private", "trait": "PRIVATE_PROFILE_SENTINEL", "evidence": "Do not use"},
+                    {"trait": "IMPLICIT_PROFILE_SENTINEL", "evidence": "Do not infer approval"},
+                    {
+                        "visibility": "public",
+                        "public": False,
+                        "trait": "CONFLICTING_PROFILE_SENTINEL",
+                        "evidence": "Do not use",
+                    },
+                ],
+            }
+        )
+
+        self.assertEqual(
+            facts,
+            ["Public memory: Approved detail", "Public trait: Approved evidence"],
+        )
+
+    def test_memorial_chat_source_labels_exclude_unapproved_sources(self) -> None:
+        labels = public_memorials._memorial_chat_source_labels(
+            {
+                "external_sources": [
+                    {
+                        "public": True,
+                        "label": "Public interview",
+                        "status": "public_audio_reference",
+                        "url": "https://youtube.example/public",
+                    },
+                    {
+                        "visibility": "private",
+                        "label": "PRIVATE_SOURCE_SENTINEL",
+                        "status": "audio_ready",
+                        "url": "https://youtube.example/private",
+                    },
+                    {
+                        "label": "IMPLICIT_SOURCE_SENTINEL",
+                        "status": "audio_ready",
+                        "url": "https://youtube.example/implicit",
+                    },
+                    {
+                        "visibility": "public",
+                        "public": False,
+                        "label": "CONFLICTING_SOURCE_SENTINEL",
+                        "status": "audio_ready",
+                        "url": "https://youtube.example/conflicting",
+                    },
+                ]
+            },
+            question="Welche Quellen gibt es?",
+        )
+
+        self.assertEqual(labels, ["Public interview"])
+
+    def test_public_memorial_memory_context_requests_public_only_items(self) -> None:
+        with (
+            patch.object(public_memorials, "_ensure_memorial_memory_seeded", return_value={"public_v2:approved"}),
+            patch.object(public_memorials, "memorial_memory_principal_id", return_value="memorial:manfred"),
+            patch.object(public_memorials, "retrieve_memorial_memory_items", return_value=[]) as retrieve,
+        ):
+            lines = public_memorials._memorial_memory_context_lines(
+                slug="manfred",
+                payload={"slug": "manfred"},
+                private_profile={"family_context_notes": [{"note": "PRIVATE_SENTINEL"}]},
+                question="Was war dir wichtig?",
+                memory_runtime=object(),
+            )
+
+        self.assertEqual(lines, [])
+        retrieve.assert_called_once_with(
+            memory_runtime=retrieve.call_args.kwargs["memory_runtime"],
+            principal_id="memorial:manfred",
+            question="Was war dir wichtig?",
+            limit=6,
+            public_only=True,
+            public_approval_keys={"public_v2:approved"},
+        )
+
+    def test_public_memorial_private_profile_excludes_unapproved_context(self) -> None:
+        sanitized = public_memorials._public_memorial_private_profile(
+            {
+                "chat_models": ["ea-coder-fast"],
+                "chat_model_default": "ea-coder-fast",
+                "public_source_notes": [
+                    {
+                        "public": True,
+                        "label": "Reviewed source",
+                        "source_url": "https://example.test/source",
+                        "note": "Approved public note",
+                        "confidence": "high",
+                    },
+                    {
+                        "label": "IMPLICIT_SOURCE_NOTE_SENTINEL",
+                        "note": "Do not infer approval",
+                    },
+                    {
+                        "visibility": "public",
+                        "public": False,
+                        "label": "CONFLICTING_SOURCE_NOTE_SENTINEL",
+                        "note": "Do not expose",
+                    },
+                ],
+                "family_context_notes": [
+                    {"trait": "PRIVATE_FAMILY_SENTINEL", "evidence": "Do not expose"},
+                    {
+                        "visibility": "public",
+                        "trait": "Approved family trait",
+                        "evidence": "Approved family evidence",
+                    },
+                ],
+                "transcript_signal_report": {"private": "PRIVATE_TRANSCRIPT_SENTINEL"},
+                "raw_mail": "PRIVATE_MAIL_SENTINEL",
+                "provider_api_key": "PRIVATE_KEY_SENTINEL",
+            }
+        )
+
+        self.assertEqual(sanitized["chat_models"], ["ea-coder-fast"])
+        self.assertEqual(sanitized["chat_model_default"], "ea-coder-fast")
+        self.assertEqual(sanitized["public_source_notes"][0]["note"], "Approved public note")
+        self.assertEqual(sanitized["family_context_notes"][0]["trait"], "Approved family trait")
+        serialized = json.dumps(sanitized, ensure_ascii=False)
+        self.assertNotIn("PRIVATE_", serialized)
+        self.assertNotIn("IMPLICIT_", serialized)
+        self.assertNotIn("CONFLICTING_", serialized)
+        self.assertNotIn("transcript_signal_report", sanitized)
+        self.assertNotIn("provider_api_key", sanitized)
+
+    def test_public_memorial_imported_mail_requires_explicit_public_access(self) -> None:
+        with patch.object(public_memorials, "memorial_has_imported_mail", return_value=True) as has_mail:
+            self.assertFalse(
+                public_memorials._public_memorial_has_imported_mail(
+                    memory_runtime=object(),
+                    principal_id="memorial:manfred",
+                    private_profile={},
+                )
+            )
+            has_mail.assert_not_called()
+            self.assertTrue(
+                public_memorials._public_memorial_has_imported_mail(
+                    memory_runtime=object(),
+                    principal_id="memorial:manfred",
+                    private_profile={"public_mail_access": True},
+                )
+            )
+            has_mail.assert_called_once()
+
+    def test_gemini_live_instruction_uses_only_public_approved_context(self) -> None:
+        payload = {
+            "slug": "manfred",
+            "person_name": "Manfred",
+            "memory_cards": [
+                {"public": True, "title": "Public memory", "body": "Approved detail"},
+                {"visibility": "private", "title": "PRIVATE_CARD_SENTINEL", "body": "Do not expose"},
+            ],
+        }
+        raw_profile = {
+            "family_context_notes": [
+                {"trait": "PRIVATE_PROFILE_SENTINEL", "evidence": "Do not expose"},
+                {
+                    "public": True,
+                    "trait": "Approved style",
+                    "evidence": "Approved tone",
+                },
+            ],
+            "transcript_signal_report": {"private": "PRIVATE_TRANSCRIPT_SENTINEL"},
+        }
+        with (
+            patch.object(public_memorials, "_load_memorial", return_value=payload),
+            patch.object(public_memorials, "_load_private_profile", return_value=raw_profile),
+        ):
+            instruction = public_memorials._build_memorial_gemini_live_instruction(slug="manfred")
+
+        self.assertIn("Public memory", instruction)
+        self.assertIn("Approved detail", instruction)
+        self.assertIn("Approved style", instruction)
+        self.assertIn("Approved tone", instruction)
+        self.assertNotIn("PRIVATE_", instruction)
+
+    def test_gemini_live_instruction_uses_only_browser_scoped_personal_memory(self) -> None:
+        with (
+            patch.object(
+                public_memorials,
+                "_load_memorial",
+                return_value={"slug": "manfred", "person_name": "Manfred", "memory_cards": []},
+            ),
+            patch.object(public_memorials, "_load_public_memorial_profile", return_value={}),
+            patch.object(
+                public_memorials,
+                "_extract_personal_memory_request_context",
+                return_value={
+                    "personal_memory_enabled": True,
+                    "scope": "guest:browser-only",
+                    "guest_mode": True,
+                },
+            ),
+            patch.object(
+                public_memorials,
+                "_personal_memory_context_lines",
+                return_value=["[Persoenlich] Nutzerpraeferenz: APPROVED_BROWSER_MEMORY"],
+            ) as personal_memory,
+            patch.object(public_memorials, "retrieve_memorial_memory_items") as memorial_wide_memory,
+        ):
+            instruction = public_memorials._build_memorial_gemini_live_instruction(
+                slug="manfred",
+                memory_runtime=object(),
+            )
+
+        self.assertIn("APPROVED_BROWSER_MEMORY", instruction)
+        self.assertIn("aus diesem Browser", instruction)
+        personal_memory.assert_called_once_with(
+            slug="manfred",
+            context={
+                "personal_memory_enabled": True,
+                "scope": "guest:browser-only",
+                "guest_mode": True,
+            },
+            question="",
+        )
+        memorial_wide_memory.assert_not_called()
+
+    def test_public_turn_runtime_loads_sanitized_profile(self) -> None:
+        raw_profile = {
+            "family_context_notes": [{"trait": "PRIVATE_FAMILY_SENTINEL", "evidence": "Do not expose"}],
+            "public_source_notes": [{"public": True, "label": "Public", "note": "Approved note"}],
+            "transcript_signal_report": {"private": "PRIVATE_TRANSCRIPT_SENTINEL"},
+        }
+        with patch.object(public_memorials, "_load_private_profile", return_value=raw_profile):
+            profile = runtime_from_shared(public_memorials).load_private_profile("manfred")
+
+        self.assertEqual(profile["public_source_notes"][0]["note"], "Approved note")
+        self.assertNotIn("family_context_notes", profile)
+        self.assertNotIn("transcript_signal_report", profile)
+        self.assertNotIn("PRIVATE_", json.dumps(profile, ensure_ascii=False))
+
+    def test_public_turn_runtime_fails_closed_when_public_profile_loader_is_missing(self) -> None:
+        class SharedWithoutPublicProfileLoader:
+            def __getattr__(self, name: str):
+                if name == "_load_public_memorial_profile":
+                    raise AttributeError(name)
+                return getattr(public_memorials, name)
+
+        with patch.object(public_memorials, "_load_private_profile") as raw_loader:
+            runtime = runtime_from_shared(SharedWithoutPublicProfileLoader())
+            self.assertEqual(runtime.load_private_profile("manfred"), {})
+
+        raw_loader.assert_not_called()
 
     def test_schedule_memorial_live_warmup_queues_voice_when_base_warmup_ready(self) -> None:
         with (

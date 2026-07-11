@@ -47,7 +47,7 @@ def runtime_from_shared(shared: Any) -> MemorialTurnRuntime:
         canonical_contact_opening_question=shared._canonical_memorial_contact_opening_question,
         visible_transcript_text=shared._memorial_visible_transcript_text,
         load_memorial=shared._load_memorial,
-        load_private_profile=shared._load_private_profile,
+        load_private_profile=getattr(shared, "_load_public_memorial_profile", lambda _slug: {}),
         resolve_voice_chat_model=shared._resolve_memorial_voice_chat_model,
         is_contact_question=shared._is_memorial_contact_question,
         memorial_contact_answer_body=shared._memorial_contact_answer_body,

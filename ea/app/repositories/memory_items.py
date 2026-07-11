@@ -8,6 +8,10 @@ from app.domain.models import MemoryItem, now_utc_iso
 
 
 class MemoryItemRepository(Protocol):
+    @property
+    def snapshot_storage_durable(self) -> bool:
+        ...
+
     def create_item(
         self,
         *,
@@ -35,6 +39,41 @@ class MemoryItemRepository(Protocol):
     ) -> list[MemoryItem]:
         ...
 
+    def export_principal_snapshot(
+        self,
+        *,
+        principal_id: str,
+        max_items: int,
+    ) -> list[MemoryItem]:
+        ...
+
+
+class MemoryItemSnapshotLimitExceeded(RuntimeError):
+    """Raised when an exact snapshot would exceed its caller-defined bound."""
+
+    def __init__(self, *, principal_id: str, max_items: int) -> None:
+        self.principal_id = principal_id
+        self.max_items = max_items
+        super().__init__("memory_item_snapshot_limit_exceeded")
+
+
+def validate_memory_item_snapshot_request(
+    *,
+    principal_id: str,
+    max_items: int,
+) -> tuple[str, int]:
+    principal = str(principal_id or "").strip()
+    if not principal:
+        raise ValueError("principal_id is required for memory-item snapshot export")
+    if isinstance(max_items, bool):
+        raise ValueError("max_items must be a positive integer")
+    try:
+        item_limit = int(max_items)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("max_items must be a positive integer") from exc
+    if item_limit < 1:
+        raise ValueError("max_items must be a positive integer")
+    return principal, item_limit
 
 
 def _clamp_confidence(value: float) -> float:
@@ -53,6 +92,10 @@ class InMemoryMemoryItemRepository:
     def __init__(self) -> None:
         self._rows: Dict[str, MemoryItem] = {}
         self._order: List[str] = []
+
+    @property
+    def snapshot_storage_durable(self) -> bool:
+        return False
 
     def create_item(
         self,
@@ -103,6 +146,27 @@ class InMemoryMemoryItemRepository:
         if principal_filter:
             rows = [row for row in rows if row.principal_id == principal_filter]
         return rows[:n]
+
+    def export_principal_snapshot(
+        self,
+        *,
+        principal_id: str,
+        max_items: int,
+    ) -> list[MemoryItem]:
+        principal, item_limit = validate_memory_item_snapshot_request(
+            principal_id=principal_id,
+            max_items=max_items,
+        )
+        rows = sorted(
+            (row for row in self._rows.values() if row.principal_id == principal),
+            key=lambda row: (row.created_at, row.item_id),
+        )[: item_limit + 1]
+        if len(rows) > item_limit:
+            raise MemoryItemSnapshotLimitExceeded(
+                principal_id=principal,
+                max_items=item_limit,
+            )
+        return rows
 
     def touch_last_verified(self, item_id: str, when_iso: str | None = None) -> MemoryItem | None:
         key = str(item_id or "")

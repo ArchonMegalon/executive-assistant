@@ -31,6 +31,11 @@ def test_materialize_memorial_voice_roundtrip_exit_gate_fails_gold_latency(monke
     monkeypatch.setattr(materializer, "_git_dirty", lambda: False)
     monkeypatch.setattr(materializer, "_git_head", lambda: "HEAD")
     monkeypatch.setattr(materializer, "_source_tree_fingerprint", lambda: "fingerprint")
+    monkeypatch.setattr(
+        materializer,
+        "resolve_source_worktree_fingerprint",
+        lambda _root: "worktree-fingerprint",
+    )
 
     receipt = materializer.build_receipt(
         slug="manfred",
@@ -53,3 +58,10 @@ def test_materialize_memorial_voice_roundtrip_exit_gate_fails_gold_latency(monke
     assert "conversation_turn_total_ms_above_gold_threshold" in receipt["failed_codes"]
     assert "speech_transcribe_ms_above_gold_threshold" in receipt["failed_codes"]
     assert receipt["gold_claim_allowed"] is False
+    assert receipt["source_git_head"] == "HEAD"
+    assert receipt["source_tree_fingerprint"] == "fingerprint"
+    assert receipt["source_state_fingerprint"] == "worktree-fingerprint"
+    assert (
+        receipt["source_state_fingerprint_semantics"]
+        == "worktree_source_files_sha256_excluding_generated_only_paths"
+    )

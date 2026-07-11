@@ -259,6 +259,55 @@ def _operator_actions() -> dict[str, str]:
     }
 
 
+def _operator_governance_boundaries() -> dict[str, object]:
+    try:
+        voice_ab_retention_days = int(str(os.getenv("EA_MEMORIAL_VOICE_AB_EVENT_RETENTION_DAYS") or "30").strip())
+    except (TypeError, ValueError):
+        voice_ab_retention_days = 30
+    voice_ab_retention_days = max(1, min(voice_ab_retention_days, 365))
+    return {
+        "authority": "ea_local_operator_diagnostics",
+        "canonical": False,
+        "local_controls": [
+            "fail_closed_public_projection",
+            "voice_consent_enforcement",
+            "private_provider_orchestration",
+            "local_archive_and_readiness_receipts",
+        ],
+        "privacy_controls": {
+            "voice_ab_feedback": {
+                "free_text_retained": False,
+                "client_identity": "hmac_sha256_receipt",
+                "current_vote_event_retention_days": voice_ab_retention_days,
+                "historical_rounds": "aggregate_receipts_only",
+            },
+            "private_mail_memory": {
+                "explicit_import_confirmation_required": True,
+                "dedupe_scope": "per_principal",
+                "raw_archive_digest": "sha256",
+                "manifest_write": "atomic_fail_closed",
+            },
+        },
+        "external_handoffs": [
+            {
+                "capability": "family_identity_consent_and_contribution_intake",
+                "owner": "chummer6-hub",
+                "status": "external_contract_required",
+            },
+            {
+                "capability": "moderation_appeals_deletion_and_data_rights",
+                "owner": "chummer6-hub",
+                "status": "external_contract_required",
+            },
+            {
+                "capability": "publication_versions_sharing_revocation_and_recovery",
+                "owner": "chummer6-hub-registry",
+                "status": "external_contract_required",
+            },
+        ],
+    }
+
+
 def _read_json(path: Path) -> dict[str, object]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -472,6 +521,7 @@ def _enrich_operator_status_payload(
         response_payload["readiness"] = _runtime_readiness_probe_failed_payload(slug=slug, exc=exc)
     response_payload["route_probe"] = _memorial_route_probe(slug)
     response_payload["actions"] = _operator_actions()
+    response_payload["governance"] = _operator_governance_boundaries()
     return response_payload
 
 

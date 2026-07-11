@@ -139,9 +139,15 @@ def _write(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def test_captured_candidate_diagnostic_blocks_failed_candidate_without_raw_text(tmp_path: Path) -> None:
+def test_captured_candidate_diagnostic_blocks_failed_candidate_without_raw_text(monkeypatch, tmp_path: Path) -> None:
     materializer = _load_script("materialize_memorial_stt_captured_candidate_diagnostic")
     verifier = _load_script("verify_memorial_stt_captured_candidate_diagnostic")
+    monkeypatch.setattr(materializer, "resolve_source_state_head", lambda _root: "HEAD")
+    monkeypatch.setattr(
+        materializer,
+        "resolve_source_worktree_fingerprint",
+        lambda _root: "worktree-fingerprint",
+    )
     candidate = tmp_path / "candidate.json"
     benchmark = tmp_path / "benchmark.json"
     output = tmp_path / "diagnostic.json"
@@ -158,6 +164,14 @@ def test_captured_candidate_diagnostic_blocks_failed_candidate_without_raw_text(
     assert receipt["status"] == "blocked"
     assert receipt["promotion_allowed"] is False
     assert receipt["may_update_fixture_manifest"] is False
+    assert receipt["generated_by"] == "scripts/materialize_memorial_stt_captured_candidate_diagnostic.py"
+    assert receipt["source_git_head"] == "HEAD"
+    assert receipt["head_semantics"] == "source_state"
+    assert receipt["source_state_fingerprint"] == "worktree-fingerprint"
+    assert (
+        receipt["source_state_fingerprint_semantics"]
+        == "worktree_source_files_sha256_excluding_generated_only_paths"
+    )
     assert receipt["privacy"]["raw_transcript_fields"] is False  # type: ignore[index]
     assert receipt["privacy"]["candidate_raw_text_fields"] is False  # type: ignore[index]
     assert "transcript_hash_mismatch" in receipt["blocker_summary"]["row_failure_codes"]  # type: ignore[index]

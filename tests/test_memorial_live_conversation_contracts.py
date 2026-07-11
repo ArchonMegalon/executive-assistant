@@ -306,7 +306,12 @@ def _setup_memorial(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
             "person_name": "Manfred Hoza",
             "audio_clips": [],
             "external_sources": [
-                {"label": "Interview Audio", "status": "audio_ready", "url": "https://youtube.example/interview"}
+                {
+                    "public": True,
+                    "label": "Interview Audio",
+                    "status": "audio_ready",
+                    "url": "https://youtube.example/interview",
+                }
             ],
         },
     )
@@ -4972,7 +4977,7 @@ def test_memorial_realtime_text_turn_rewrites_generic_fallback_answer_to_retry_p
     assert "konkreten Punkt" not in answer_message["text"]
 
 
-def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None:
+def test_memorial_voice_chat_model_prefers_ea_fast_for_live_interaction() -> None:
     from app.api.routes import public_memorials
 
     selected = public_memorials._resolve_memorial_voice_chat_model(
@@ -4981,10 +4986,10 @@ def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None
         "Hallo Manfred, kannst du kurz direkt mit mir reden?",
     )
 
-    assert selected == GEMINI_VORTEX_PUBLIC_MODEL
+    assert selected == public_memorials.FAST_PUBLIC_MODEL
 
 
-def test_memorial_voice_chat_model_forces_gemini_for_live_interaction_even_when_catalog_prefers_coder() -> None:
+def test_memorial_voice_chat_model_prefers_catalog_fast_for_live_interaction() -> None:
     from app.api.routes import public_memorials
 
     selected = public_memorials._resolve_memorial_voice_chat_model(
@@ -4993,7 +4998,7 @@ def test_memorial_voice_chat_model_forces_gemini_for_live_interaction_even_when_
         "Hallo Manfred, kannst du kurz direkt mit mir reden?",
     )
 
-    assert selected == GEMINI_VORTEX_PUBLIC_MODEL
+    assert selected == public_memorials.FAST_PUBLIC_MODEL
 
 
 def test_memorial_voice_chat_model_keeps_memorial_local_fast_as_default_non_live_choice() -> None:
@@ -5032,7 +5037,7 @@ def test_memorial_voice_chat_model_uses_gemini_live_fallback_without_explicit_mo
     assert selected == GEMINI_VORTEX_PUBLIC_MODEL
 
 
-def test_memorial_realtime_chat_model_always_prefers_gemini() -> None:
+def test_memorial_realtime_chat_model_prefers_local_fast_when_available() -> None:
     from app.api.routes import public_memorials
 
     selected = public_memorials._resolve_memorial_realtime_chat_model(
@@ -5040,16 +5045,15 @@ def test_memorial_realtime_chat_model_always_prefers_gemini() -> None:
         {},
     )
 
-    assert selected == GEMINI_VORTEX_PUBLIC_MODEL
+    assert selected == "memorial-local-fast"
 
 
-def test_memorial_realtime_chat_model_never_uses_default_openai_style_fallback() -> None:
+def test_memorial_realtime_chat_model_uses_configured_default_without_fast_catalog_entry() -> None:
     from app.api.routes import public_memorials
 
     selected = public_memorials._resolve_memorial_realtime_chat_model({}, {})
 
-    assert selected == GEMINI_VORTEX_PUBLIC_MODEL
-    assert selected != public_memorials.DEFAULT_PUBLIC_MODEL
+    assert selected == public_memorials.DEFAULT_PUBLIC_MODEL
 
 
 def test_memorial_realtime_timeout_copy_invites_retry_without_sounding_like_a_failure() -> None:

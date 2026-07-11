@@ -512,18 +512,31 @@ def test_preflight_fails_public_joggai_poster_hash_mismatch(monkeypatch, tmp_pat
     )
 
 
-def test_preflight_live_checks_current_minimal_surface(monkeypatch) -> None:
+def test_preflight_live_checks_current_source_first_surface(monkeypatch) -> None:
     import scripts.memorial_flagship_preflight as preflight
 
     responses = {
         "https://example.test/memorials/files/manfred/memorial.json": (404, ""),
-        "https://example.test/memorials/manfred.json": (200, json.dumps({"slug": "manfred", "person_name": "Manfred", "video_call_avatar": {"enabled": False, "kind": "portrait"}})),
+        "https://example.test/memorials/manfred.json": (
+            200,
+            json.dumps(
+                {
+                    "slug": "manfred",
+                    "person_name": "Manfred",
+                    "memory_cards": [{"title": "Schach", "body": "[stark redigiert] Familie"}],
+                    "external_sources": [{"label": "Quelle", "url": "https://example.test/source"}],
+                    "suggested_prompts": ["Was ist belegt?"],
+                    "video_call_avatar": {"enabled": False, "kind": "portrait"},
+                }
+            ),
+        ),
         "https://example.test/memorials/manfred": (
             200,
-            "<html><body>Gespräch beginnen"
-            "Am Handy/Desktop installieren"
+            "<html><body><a href=\"#memorial-conversation-region\">Zum Gespräch springen</a>"
+            "<main id=\"memorial-story\" tabindex=\"-1\">Erinnerungen und belegte Quellen</main>"
+            "<aside id=\"memorial-conversation-region\" tabindex=\"-1\">Gespräch beginnen"
             "<button id=\"memorial-conversation\">Gespräch beginnen</button>"
-            "<button id=\"memorial-retry-button\">Bitte noch einmal sprechen</button></body></html>",
+            "<button id=\"memorial-retry-button\">Bitte noch einmal sprechen</button></aside></body></html>",
         ),
         "https://example.test/memorials/manfred/voice-config": (
             200,
@@ -557,7 +570,7 @@ def test_preflight_live_checks_current_minimal_surface(monkeypatch) -> None:
     preflight.check_live("manfred", report, "https://example.test")
 
     assert report.failed is False
-    assert any(item.code == "live_public_page_minimal" and item.status == "pass" for item in report.findings)
+    assert any(item.code == "live_public_page_source_first" and item.status == "pass" for item in report.findings)
     assert any(item.code == "live_public_tts_rejects_override" and item.status == "pass" for item in report.findings)
     assert any(item.code == "live_avatar_portrait_fallback_consistent" and item.status == "pass" for item in report.findings)
 
@@ -573,6 +586,9 @@ def test_preflight_live_checks_avatar_video_when_public_json_enabled(monkeypatch
                 {
                     "slug": "manfred",
                     "person_name": "Manfred",
+                    "memory_cards": [{"title": "Schach", "body": "[stark redigiert] Familie"}],
+                    "external_sources": [{"label": "Quelle", "url": "https://example.test/source"}],
+                    "suggested_prompts": ["Was ist belegt?"],
                     "video_call_avatar": {
                         "enabled": True,
                         "kind": "video",
@@ -584,9 +600,13 @@ def test_preflight_live_checks_avatar_video_when_public_json_enabled(monkeypatch
         ),
         "https://example.test/memorials/manfred": (
             200,
-            "<html><body>Gespräch beginnen"
-            "Am Handy/Desktop installieren"
-            "<video id=\"memorial-video-call-avatar-video\" src=\"/memorials/files/manfred/video/avatar.mp4\"></video></body></html>",
+            "<html><body><a href=\"#memorial-conversation-region\">Zum Gespräch springen</a>"
+            "<main id=\"memorial-story\" tabindex=\"-1\">Erinnerungen und belegte Quellen</main>"
+            "<aside id=\"memorial-conversation-region\" tabindex=\"-1\">Gespräch beginnen"
+            "<button id=\"memorial-conversation\">Gespräch beginnen</button>"
+            "<button id=\"memorial-retry-button\">Bitte noch einmal sprechen</button>"
+            "<video id=\"memorial-video-call-avatar-video\" src=\"/memorials/files/manfred/video/avatar.mp4\"></video>"
+            "</aside></body></html>",
         ),
         "https://example.test/memorials/manfred/voice-config": (
             200,

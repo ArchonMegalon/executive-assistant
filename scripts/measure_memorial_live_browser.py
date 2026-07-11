@@ -7,6 +7,7 @@ import hashlib
 import json
 import io
 import math
+import os
 import re
 import shutil
 import struct
@@ -21,8 +22,10 @@ from pathlib import Path
 
 try:
     from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 
 LIVE_PROMPT_TEXT = "Hallo Manfred, kannst du jetzt mit mir sprechen?"
@@ -710,6 +713,69 @@ def _should_accept_visible_answer_early(
     return bool(passed)
 
 
+def _launch_chromium_with_startup_retry(playwright, **launch_kwargs):  # type: ignore[no-untyped-def]
+    launch_errors: list[str] = []
+    for attempt in (1, 2):
+        try:
+            return playwright.chromium.launch(**launch_kwargs), attempt, launch_errors
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            launch_errors.append(detail[:1000])
+            retryable = any(
+                marker in detail
+                for marker in (
+                    "TargetClosedError",
+                    "Target page, context or browser has been closed",
+                    "signal=SIGTRAP",
+                )
+            )
+            if attempt >= 2 or not retryable:
+                raise
+            time.sleep(0.25)
+    raise RuntimeError("browser_launch_unreachable")
+
+
+def _resolve_chromium_executable(playwright) -> tuple[str | None, str]:  # type: ignore[no-untyped-def]
+    configured = str(os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or "").strip()
+    if configured:
+        return configured, "explicit_env"
+
+    default_path = Path(str(getattr(playwright.chromium, "executable_path", "") or "")).expanduser()
+    if default_path.is_file() and os.access(default_path, os.X_OK):
+        return str(default_path), "playwright_default"
+
+    cache_root = Path(
+        str(os.getenv("PLAYWRIGHT_BROWSERS_PATH") or "").strip()
+        or (Path.home() / ".cache" / "ms-playwright")
+    ).expanduser()
+    if cache_root.is_dir():
+        version_dirs = sorted(
+            (
+                item
+                for item in cache_root.iterdir()
+                if item.is_dir() and item.name.startswith(("chromium-", "chromium_headless_shell-"))
+            ),
+            key=lambda item: item.name,
+            reverse=True,
+        )
+        for version_dir in version_dirs:
+            for relative in (
+                Path("chrome-linux64/chrome"),
+                Path("chrome-linux/chrome"),
+                Path("chrome-headless-shell-linux64/chrome-headless-shell"),
+                Path("chrome-headless-shell-linux/chrome-headless-shell"),
+            ):
+                candidate = version_dir / relative
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    return str(candidate), "playwright_cache"
+
+    for command in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
+        candidate = shutil.which(command)
+        if candidate:
+            return candidate, "system_path"
+    return None, "playwright_unresolved"
+
+
 def _measure(
     base_url: str,
     slug: str,
@@ -729,8 +795,11 @@ def _measure(
         fake_capture_path = Path(tmpdir) / "prompt.16k.wav"
         fake_capture_path.write_bytes(audio_bytes)
         with sync_playwright() as playwright:  # pragma: no cover - exercised in live runs
-            browser = playwright.chromium.launch(
+            chromium_executable_path, chromium_executable_source = _resolve_chromium_executable(playwright)
+            browser, browser_launch_attempts, browser_launch_errors = _launch_chromium_with_startup_retry(
+                playwright,
                 headless=True,
+                executable_path=chromium_executable_path,
                 args=[
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
@@ -1071,6 +1140,10 @@ def _measure(
                     "slug": slug,
                     "prompt_text": prompt_text,
                     "warmup_preflight": warmup_preflight,
+                    "browser_launch_attempts": int(browser_launch_attempts),
+                    "browser_launch_recovered": bool(browser_launch_attempts > 1),
+                    "browser_launch_errors": list(browser_launch_errors),
+                    "chromium_executable_source": chromium_executable_source,
                     "page_load_ms": round(load_ms, 1),
                     "cta_ready_ms": round(cta_ready_ms, 1),
                     "first_answer_ms": round(first_answer_ms, 1),
@@ -1175,6 +1248,10 @@ def _with_exit_gate_status(
             "source_git_head": source_git_head,
             "head_semantics": "source_state",
             "source_tree_fingerprint": _source_tree_fingerprint(),
+            "source_state_fingerprint": resolve_source_worktree_fingerprint(
+                Path(__file__).resolve().parents[1]
+            ),
+            "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
             "dirty_worktree": _git_dirty(),
             "status": "pass" if not reasons else "fail",
             "exit_gate": bool(exit_gate),

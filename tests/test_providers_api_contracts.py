@@ -10550,11 +10550,13 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
                 "person_name": "Manfred",
                 "title": "Erinnerungen an Manfred",
                 "relationship": "Vater",
+                "relationship_public": True,
                 "subtitle": "Eine ruhige Seite fuer Erinnerungen und Originalstimme.",
                 "disclosure": "Originalaufnahmen sind als Original gekennzeichnet.",
                 "intro": "Neue Texte sind keine direkte Rede.",
                 "audio_clips": [
                     {
+                        "public": True,
                         "label": "Originalaufnahme",
                         "title": "Hanusch Gespraech",
                         "description": "Freigegebener Ausschnitt aus dem Archiv.",
@@ -10563,6 +10565,7 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
                 ],
                 "memory_cards": [
                     {
+                        "public": True,
                         "source_label": "Transkript",
                         "title": "Schach",
                         "body": "Das Schach soll in der Familie bleiben.",
@@ -10581,11 +10584,13 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
 
     assert page.status_code == 200
     assert "Manfred" in page.text
-    assert "Originalaufnahmen" not in page.text
+    assert "Originalaufnahmen" in page.text
+    assert "Stimme aus dem Archiv" in page.text
+    assert "Hanusch Gespraech" in page.text
     assert "Seine Stimme hoeren" not in page.text
     assert "Quellenbasiertes Profil" not in page.text
     assert "Weitere gefundene Kandidaten" not in page.text
-    assert "Was ist wirklich belegt?" not in page.text
+    assert "Was ist wirklich belegt?" in page.text
     assert "Archiv lesen" not in page.text
     assert "Gespräch beginnen" in page.text
     assert "Am Handy/Desktop installieren" in page.text
@@ -10596,6 +10601,7 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
     payload = client.get(f"/memorials/{slug}.json")
     assert payload.status_code == 200
     assert payload.json()["person_name"] == "Manfred"
+    assert payload.json()["audio_clips"][0]["asset_relpath"] == "audio/hanusch-enhanced.mp3"
 
     audio = client.get(f"/memorials/files/{slug}/audio/hanusch-enhanced.mp3")
     assert audio.status_code == 200
@@ -10605,7 +10611,7 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
     assert audio.headers["x-content-type-options"] == "nosniff"
 
 
-def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak(
+def test_public_memorial_chat_excludes_private_context_and_public_diagnosis_leak(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -10619,9 +10625,28 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
                 "slug": slug,
                 "person_name": "Manfred Hoza",
                 "audio_clips": [],
-                "memory_cards": [{"source_label": "Archiv", "title": "Schach", "body": "Das Schach bleibt in der Familie."}],
-                "source_grounded_profile": [{"trait": "Gerechtigkeit", "evidence": "Opferschutz war ein wiederkehrendes Thema."}],
-                "external_sources": [{"label": "RIS Suche", "url": "https://www.ris.bka.gv.at/Suchergebnis.wxe?Suchworte=Manfred%20Hoza"}],
+                "memory_cards": [
+                    {
+                        "public": True,
+                        "source_label": "Archiv",
+                        "title": "Schach",
+                        "body": "Das Schach bleibt in der Familie.",
+                    }
+                ],
+                "source_grounded_profile": [
+                    {
+                        "public": True,
+                        "trait": "Gerechtigkeit",
+                        "evidence": "Opferschutz war ein wiederkehrendes Thema.",
+                    }
+                ],
+                "external_sources": [
+                    {
+                        "public": True,
+                        "label": "RIS Suche",
+                        "url": "https://www.ris.bka.gv.at/Suchergebnis.wxe?Suchworte=Manfred%20Hoza",
+                    }
+                ],
             },
             ensure_ascii=False,
         ),
@@ -10740,17 +10765,9 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert response.status_code == 200
     body = response.json()
     assert body["mode"] == "memorial_first_person_memory_chat"
-    assert body["private_context_used"] is True
+    assert body["private_context_used"] is False
+    assert body["answer"]
     assert "Ich bin nicht Manfred Hoza" not in body["answer"]
-    assert (
-        "Ich lasse mir nicht einreden" in body["answer"]
-        or "ich wollte in der Sache recht behalten" in body["answer"]
-    )
-    assert (
-        "immer ich schuld" in body["answer"]
-        or "Vorwurf der Haerte" in body["answer"]
-    )
-    assert "Das tut mir leid" not in body["answer"]
     assert "ADHS" not in body["answer"]
     assert "narcissistic" not in body["answer"].lower()
     assert "Erinnerungsanker" not in body["answer"]
@@ -10758,7 +10775,7 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     discipline = client.post(f"/memorials/{slug}/chat", json={"question": "Was dachte er ueber Kinder schlagen?"})
     assert discipline.status_code == 200
     discipline_body = discipline.json()
-    assert discipline_body["private_context_used"] is True
+    assert discipline_body["private_context_used"] is False
     assert discipline_body["fallback_reason"] == "difficult_memory_guardrail"
     assert "keine Ich-Form-Rekonstruktion" in discipline_body["answer"]
 
@@ -10787,8 +10804,10 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert difficult_opt_in.status_code == 200
     difficult_opt_in_body = difficult_opt_in.json()
     assert difficult_opt_in_body["difficult_memory_mode"] is True
-    assert "Ein Kind muss lernen" in difficult_opt_in_body["answer"]
-    assert "nicht so tun" in difficult_opt_in_body["answer"]
+    assert difficult_opt_in_body["private_context_used"] is False
+    assert difficult_opt_in_body["answer"]
+    assert "Ein Kind muss lernen" not in difficult_opt_in_body["answer"]
+    assert "nicht so tun" not in difficult_opt_in_body["answer"]
 
 
 def test_public_memorial_speech_transcribe_uploads_audio_and_returns_text(
@@ -11104,7 +11123,7 @@ def test_public_memorial_voice_profile_routes_support_config_and_build(monkeypat
             {
                 "slug": slug,
                 "person_name": "Manfred Hoza",
-                "audio_clips": [{"asset_relpath": "audio/hanusch-enhanced.mp3"}],
+                "audio_clips": [{"public": True, "asset_relpath": "audio/hanusch-enhanced.mp3"}],
             },
             ensure_ascii=False,
         ),

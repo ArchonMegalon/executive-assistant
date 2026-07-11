@@ -11,6 +11,7 @@ import sys
 import time
 import unicodedata
 import wave
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 EA_APP_ROOT = REPO_ROOT / "ea"
 if str(EA_APP_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_APP_ROOT))
+
+try:
+    from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 try:
     from app.api.routes import public_memorials
@@ -942,6 +950,10 @@ def _benchmark_status(ranking: list[dict[str, object]]) -> str:
     return "pass" if any(row.get("production_eligible") for row in ranking) else "blocked"
 
 
+def _utc_now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def _build_report(*, rows: list[dict[str, object]], availability: dict[str, object], text_mode: str | None = None) -> dict[str, object]:
     ranking = _rank_providers(rows)
     public_text_mode = _benchmark_text_mode(text_mode)
@@ -955,6 +967,12 @@ def _build_report(*, rows: list[dict[str, object]], availability: dict[str, obje
     )
     return {
         "contract_name": "ea.memorial_stt_provider_benchmark",
+        "generated_at": _utc_now(),
+        "generated_by": "scripts/benchmark_memorial_stt_providers.py",
+        "source_git_head": resolve_source_state_head(REPO_ROOT),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(REPO_ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "status": _benchmark_status(ranking),
         "scoring": {
             "pass_rule": "usable transcript + required tokens present + token_f1 >= sample min + WER <= sample max",
