@@ -222,6 +222,39 @@ def test_memorial_chat_citations_require_public_approval_and_safe_url() -> None:
     assert labels == ["Approved public source"]
 
 
+def test_memorial_story_sources_require_public_approval_and_safe_url() -> None:
+    from app.api.routes import public_memorials
+
+    story_html = public_memorials._public_memorial_story_html(
+        {
+            "external_sources": [
+                {
+                    "visibility": "public",
+                    "label": "UNAPPROVED_STORY_SOURCE_SENTINEL",
+                    "url": "https://memorial.example/unapproved",
+                },
+                {
+                    "visibility": "public",
+                    "approved": True,
+                    "label": "UNSAFE_STORY_SOURCE_SENTINEL",
+                    "url": "javascript:alert(1)",
+                },
+                {
+                    "visibility": "public",
+                    "approved": True,
+                    "label": "Approved story source",
+                    "url": "https://memorial.example/approved",
+                },
+            ]
+        },
+        slug="manfred",
+    )
+
+    assert "Approved story source" in story_html
+    assert "UNAPPROVED_STORY_SOURCE_SENTINEL" not in story_html
+    assert "UNSAFE_STORY_SOURCE_SENTINEL" not in story_html
+
+
 def test_generic_importance_question_uses_grounded_values_guardrail() -> None:
     from app.api.routes import public_memorials
 

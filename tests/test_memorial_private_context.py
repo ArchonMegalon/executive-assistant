@@ -146,6 +146,15 @@ def test_manfred_public_projection_matches_with_or_without_private_provisioning(
     assert public_memorials._public_memorial_payload(
         internal_payload
     ) == public_memorials._public_memorial_payload(public_payload)
+    story_html = public_memorials._public_memorial_story_html(
+        internal_payload,
+        slug="manfred",
+    )
+    assert all(
+        str(source.get("label") or "") not in story_html
+        for source in list(internal_payload.get("external_sources") or [])
+        if isinstance(source, dict) and source.get("approved") is not True
+    )
 
 
 def test_loader_reconstructs_exact_values_and_order_then_falls_back_for_malformed_context(

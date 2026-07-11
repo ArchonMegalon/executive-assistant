@@ -9676,8 +9676,10 @@ def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str
     sources_html: list[str] = []
     for source in _public_list(
         payload.get("external_sources"),
-        allowed_keys={"label", "url", "status"},
+        allowed_keys={"label", "url", "status", "approved"},
     )[:8]:
+        if source.get("approved") is not True:
+            continue
         url = _safe_public_memorial_external_url(source.get("url"))
         if not url:
             continue
@@ -13761,6 +13763,37 @@ def _minimal_public_memorial_html(
         }});
       }}
 
+      async function sendTextConversationHttp(text, generation) {{
+        const normalizedText = String(text || "").trim();
+        if (!normalizedText) throw new Error("text_required");
+        const controller = new AbortController();
+        activeFetchController = controller;
+        const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+        try {{
+          const response = await fetch(memorialChatEndpoint, {{
+            method: "POST",
+            headers: {{
+              "Content-Type": "application/json",
+              "Accept": "application/json",
+              ...personalMemoryHeaders(),
+            }},
+            body: JSON.stringify({{ question: normalizedText }}),
+            cache: "no-store",
+            signal: controller.signal,
+          }});
+          const payload = await response.json().catch(() => ({{}}));
+          if (!response.ok) throw new Error("text_turn_http_failed");
+          if (generation !== activeGeneration) throw new Error("turn_superseded");
+          if (!payload || typeof payload !== "object" || !String(payload.answer || "").trim()) {{
+            throw new Error("text_turn_answer_missing");
+          }}
+          return payload;
+        }} finally {{
+          window.clearTimeout(timeoutId);
+          if (activeFetchController === controller) activeFetchController = null;
+        }}
+      }}
+
       function cancelRealtimeAudioTurn(turn) {{
         if (!turn || typeof turn.cancel !== "function") return;
         turn.cancel();
@@ -13928,7 +13961,7 @@ def _minimal_public_memorial_html(
         syncConversationButton();
         setSpeechStatus("Ich antworte gleich.", "working", "Getippte Frage");
         try {{
-          const payload = await sendRealtimeTextTurn(question, generation);
+          const payload = await sendTextConversationHttp(question, generation);
           if (generation !== activeGeneration) return;
           showAnswerText(payload && payload.answer);
           const audioBlob = decodeAudioPayload(payload);
