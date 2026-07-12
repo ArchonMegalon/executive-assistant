@@ -56,7 +56,11 @@ CONTRACT_NAME = "ea.telegram_epub_to_audiobook.v1"
 SOURCE_DOCUMENT_CONTRACT_NAME = "ea.audiobook_source_document.v1"
 NARRATION_PLAN_CONTRACT_NAME = PLANNER_CONTRACT_NAME
 SPEAKER_CAST_SNAPSHOT_CONTRACT_NAME = "ea.audiobook_speaker_cast_snapshot.v1"
-SPEAKER_CAST_POLICY_NAME = "ea.audiobook_speaker_cast_policy.v3"
+SPEAKER_CAST_POLICY_NAME = "ea.audiobook_speaker_cast_policy.v4"
+REQUIRED_AUDIOBOOK_SPEAKER_CASTING_SCOPE = (
+    "audiobook_speaker_casting_traits"
+)
+MAX_AUDIOBOOK_SPEAKER_CASTING_REVIEW_TTL = timedelta(days=30)
 PLAYER_AUDIOBOOK_ACCESS_CONTRACT_NAME = "ea.player_scoped_audiobookshelf_reference.v1"
 AUDIOBOOK_JOB_RECEIPT_CONTRACT_NAME = "ea.telegram_epub_audiobook_job_receipt.v1"
 AUDIOBOOK_RUNTIME_PREFLIGHT_CONTRACT_NAME = "ea.telegram_epub_audiobook_runtime_preflight.v1"
@@ -6641,22 +6645,24 @@ def _removed_local_piper_render_result(voice_selection: dict[str, object]) -> di
     }
 
 
-def _configured_dialogue_voice_selection(job_dir: Path) -> dict[str, str]:
+def _configured_dialogue_voice_selection(job_dir: Path) -> dict[str, object]:
     configured = str(os.getenv("EA_AUDIOBOOK_UNMIXR_DIALOGUE_VOICE_ID") or "").strip()
     if configured:
-        return {"voice_id": configured, "source": "explicit_operator_environment"}
+        return {
+            "voice_id": configured,
+            "source": "explicit_operator_environment",
+            "revoked": False,
+        }
     try:
         job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
     except Exception:
         return {}
     provider = dict(job.get("provider") or {}) if isinstance(job, dict) else {}
     selection = dict(provider.get("dialogue_voice_selection") or {})
-    status = _normalize_tag(selection.get("status"))
-    approved = (
-        selection.get("approved_by_user") is True
-        or status in {"approved", "selected_by_user", "accepted_by_user"}
-    )
-    if not approved:
+    if not _speaker_voice_selection_approved(
+        selection,
+        now=datetime.now(UTC),
+    ):
         return {}
     private_payload = _load_voice_audition_private(job_dir)
     token = str(
@@ -6669,17 +6675,47 @@ def _configured_dialogue_voice_selection(job_dir: Path) -> dict[str, str]:
     voice_id = str(candidate.get("voice_id") or "").strip()
     if not token or not voice_id:
         return {}
-    recorded_hash = str(candidate.get("voice_id_sha256") or "").strip()
-    if recorded_hash and recorded_hash != _sha256_bytes(voice_id.encode("utf-8")):
+    recorded_hash = str(
+        selection.get("voice_id_sha256")
+        or candidate.get("voice_id_sha256")
+        or ""
+    ).strip()
+    if (
+        re.fullmatch(r"[0-9a-f]{64}", recorded_hash) is None
+        or recorded_hash != _sha256_bytes(voice_id.encode("utf-8"))
+    ):
         return {}
+    public_candidate = dict(candidate.get("public") or {})
+    approval_markers = {
+        key: True
+        for key in (
+            "approved_by_user",
+            "approved_by_family",
+            "approved_by_reviewer",
+            "approved_by_operator",
+        )
+        if selection.get(key) is True
+    }
     return {
         "voice_id": voice_id,
         "source": "approved_private_dialogue_voice_selection",
+        "status": _normalize_tag(selection.get("status")),
+        "revoked": False,
+        "expires_at": str(selection.get("expires_at") or "").strip(),
+        "language": str(
+            selection.get("language") or public_candidate.get("language") or ""
+        ).strip(),
+        "supported_languages": list(
+            selection.get("supported_languages")
+            or public_candidate.get("supported_languages")
+            or []
+        ),
+        **approval_markers,
     }
 
 
 def _public_dialogue_voice_selection(
-    selection: dict[str, str],
+    selection: dict[str, object],
     *,
     narrator_voice_id: str,
 ) -> dict[str, object]:
@@ -6774,12 +6810,86 @@ def _speaker_trait_evidence(
     value: object,
     *,
     default_provenance: str,
+    validated_profile_review: bool = False,
 ) -> dict[str, object] | None:
+    canonical_kind = _canonical_speaker_trait_kind(kind)
     raw_value = value
     explicit = True
     provenance = default_provenance
     confidence = 1.0
+    casting_eligible: bool | None = None
+    requires_human_approval = False
+    casting_approved = False
+    casting_review_evidence_sha256 = ""
+    casting_review_scope = ""
+    casting_review_revoked: object = None
+    casting_review_authority_class = ""
+    casting_review_reviewed_at = ""
+    casting_review_expires_at = ""
+    conflicting_evidence_present = False
+    conflict_review_approved = False
+    conflict_review_evidence_sha256 = ""
+    casting_review_valid = False
     if isinstance(value, dict):
+        casting_eligible = (
+            bool(value.get("casting_eligible"))
+            if "casting_eligible" in value
+            else None
+        )
+        requires_human_approval = value.get("requires_human_approval") is True
+        casting_approved = (
+            value.get("casting_approved") is True
+            or value.get("casting_approved_by_user") is True
+            or value.get("casting_approved_by_family") is True
+        )
+        casting_review_evidence_sha256 = str(
+            value.get("casting_review_evidence_sha256") or ""
+        )
+        casting_review_scope = str(
+            value.get("casting_review_scope") or ""
+        )
+        casting_review_revoked = value.get("casting_review_revoked")
+        casting_review_authority_class = str(
+            value.get("casting_review_authority_class") or ""
+        )
+        casting_review_reviewed_at = str(
+            value.get("casting_review_reviewed_at") or ""
+        )
+        casting_review_expires_at = str(
+            value.get("casting_review_expires_at") or ""
+        )
+        conflicting_evidence_present = (
+            value.get("conflicting_evidence_present") is True
+        )
+        conflict_review_approved = value.get("conflict_review_approved") is True
+        conflict_review_evidence_sha256 = str(
+            value.get("conflict_review_evidence_sha256") or ""
+        )
+        casting_review_valid = _speaker_casting_review_markers_valid(
+            scope=casting_review_scope,
+            revoked=casting_review_revoked,
+            authority_class=casting_review_authority_class,
+            reviewed_at=casting_review_reviewed_at,
+            expires_at=casting_review_expires_at,
+            evidence_sha256=casting_review_evidence_sha256,
+        )
+        if casting_eligible is False:
+            return None
+        if canonical_kind in _SENSITIVE_SPEAKER_CASTING_TRAIT_KINDS and (
+            casting_eligible is not True
+            or not casting_approved
+            or not casting_review_valid
+            or not validated_profile_review
+        ):
+            return None
+        if (requires_human_approval or casting_approved) and not casting_review_valid:
+            return None
+        if conflicting_evidence_present and not (
+            casting_review_valid
+            and conflict_review_approved
+            and re.fullmatch(r"[0-9a-f]{64}", conflict_review_evidence_sha256)
+        ):
+            return None
         raw_value = value.get("value")
         explicit = value.get("explicit") is not False
         provenance = str(value.get("provenance") or value.get("source") or default_provenance).strip()
@@ -6787,6 +6897,13 @@ def _speaker_trait_evidence(
             confidence = float(value.get("confidence", 1.0))
         except Exception:
             confidence = 1.0
+    if canonical_kind in _SENSITIVE_SPEAKER_CASTING_TRAIT_KINDS and not (
+        casting_eligible is True
+        and casting_approved
+        and casting_review_valid
+        and validated_profile_review
+    ):
+        return None
     if not explicit:
         return None
     raw_values = (
@@ -6810,6 +6927,18 @@ def _speaker_trait_evidence(
         "confidence": round(min(max(confidence, 0.0), 1.0), 3),
         "explicit": True,
         "ranking_hint_only": True,
+        "casting_eligible": casting_eligible is not False,
+        "requires_human_approval": requires_human_approval,
+        "casting_approved": casting_approved,
+        "casting_review_evidence_sha256": casting_review_evidence_sha256,
+        "casting_review_scope": casting_review_scope,
+        "casting_review_revoked": casting_review_revoked,
+        "casting_review_authority_class": casting_review_authority_class,
+        "casting_review_reviewed_at": casting_review_reviewed_at,
+        "casting_review_expires_at": casting_review_expires_at,
+        "conflicting_evidence_present": conflicting_evidence_present,
+        "conflict_review_approved": conflict_review_approved,
+        "conflict_review_evidence_sha256": conflict_review_evidence_sha256,
     }
 
 
@@ -6835,11 +6964,268 @@ _SINGULAR_SPEAKER_TRAIT_KINDS = {
     "accent",
     "ethnicity",
 }
+_SENSITIVE_SPEAKER_CASTING_TRAIT_KINDS = frozenset(
+    {"gender_presentation", "approximate_age", "accent", "ethnicity"}
+)
+_SPEAKER_PROFILE_TRAIT_ALIASES = {
+    "gender_presentation": ("gender_presentation", "gender"),
+    "approximate_age": (
+        "approximate_age",
+        "age_band",
+        "age_range",
+        "age",
+    ),
+    "language": (
+        "language",
+        "locale",
+        "spoken_language",
+        "native_language",
+    ),
+    "accent": ("accent", "dialect"),
+    "ethnicity": (
+        "ethnicity",
+        "ethnic_background",
+        "cultural_background",
+        "cultural_or_ethnic_background",
+        "cultural_identity",
+    ),
+    "role": ("role", "character_role"),
+    "style": ("style", "performance_style"),
+}
 
 
 def _canonical_speaker_trait_kind(kind: object) -> str:
     normalized = _normalize_tag(kind)
     return _SPEAKER_TRAIT_KIND_ALIASES.get(normalized, normalized)
+
+
+def _strict_casting_review_datetime(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(UTC)
+
+
+def _speaker_casting_review_markers_valid(
+    *,
+    scope: object,
+    revoked: object,
+    authority_class: object,
+    reviewed_at: object,
+    expires_at: object,
+    evidence_sha256: object,
+    now: datetime | None = None,
+) -> bool:
+    observed_at = (now or datetime.now(UTC)).astimezone(UTC)
+    reviewed = _strict_casting_review_datetime(reviewed_at)
+    expires = _strict_casting_review_datetime(expires_at)
+    return bool(
+        str(scope or "") == REQUIRED_AUDIOBOOK_SPEAKER_CASTING_SCOPE
+        and revoked is False
+        and str(authority_class or "")
+        in {"family", "user", "reviewer", "operator"}
+        and re.fullmatch(r"[0-9a-f]{64}", str(evidence_sha256 or ""))
+        and reviewed is not None
+        and expires is not None
+        and reviewed <= observed_at + timedelta(minutes=5)
+        and expires > observed_at
+        and expires > reviewed
+        and expires - reviewed <= MAX_AUDIOBOOK_SPEAKER_CASTING_REVIEW_TTL
+    )
+
+
+def _speaker_casting_stable_sha256(value: object) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _speaker_profile_trait_claims(
+    raw_profile: dict[str, object],
+) -> tuple[dict[str, object], dict[str, object]]:
+    raw_traits = dict(raw_profile.get("traits") or {})
+    raw_by_kind: dict[str, object] = {}
+    claims: dict[str, object] = {}
+    for kind, keys in _SPEAKER_PROFILE_TRAIT_ALIASES.items():
+        raw_value: object = None
+        for key in keys:
+            if key in raw_traits:
+                raw_value = raw_traits[key]
+                break
+            if key in raw_profile:
+                raw_value = raw_profile[key]
+                break
+        if raw_value is None:
+            continue
+        raw_by_kind[kind] = raw_value
+        claim_value = raw_value.get("value") if isinstance(raw_value, dict) else raw_value
+        raw_values = (
+            list(claim_value)
+            if isinstance(claim_value, (list, tuple, set))
+            else [claim_value]
+        )
+        normalized = sorted(
+            {
+                _speaker_trait_value(kind, item)
+                for item in raw_values
+                if _speaker_trait_value(kind, item)
+                not in {"", "unknown", "unspecified", "none"}
+            }
+        )
+        if normalized:
+            claims[kind] = normalized[0] if len(normalized) == 1 else normalized
+    return raw_by_kind, claims
+
+
+def _speaker_profile_conflict_rows(
+    raw_values_by_kind: dict[str, object],
+    trait_claims: dict[str, object],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for kind, raw_value in raw_values_by_kind.items():
+        if not isinstance(raw_value, dict) or raw_value.get(
+            "conflicting_evidence_present"
+        ) is not True:
+            continue
+        row = {
+            "trait_kind": kind,
+            "trait_claim_sha256": _speaker_casting_stable_sha256(
+                trait_claims.get(kind)
+            ),
+            "superseded_provenance": str(
+                raw_value.get("superseded_provenance") or ""
+            ),
+            "superseded_evidence_sha256": str(
+                raw_value.get("superseded_evidence_sha256") or ""
+            ),
+        }
+        rows.append(
+            {
+                **row,
+                "conflict_fingerprint": _speaker_casting_stable_sha256(row),
+            }
+        )
+    return sorted(rows, key=lambda row: str(row["trait_kind"]))
+
+
+def _speaker_profile_casting_review(
+    *,
+    raw_profile: dict[str, object],
+    speaker_id: str,
+    raw_values_by_kind: dict[str, object],
+    trait_claims: dict[str, object],
+    now: datetime,
+) -> dict[str, object] | None:
+    raw_review = raw_profile.get("casting_review")
+    if not isinstance(raw_review, dict):
+        return None
+    review = dict(raw_review)
+    scopes = (
+        [str(item or "").strip() for item in review.get("scope") or []]
+        if isinstance(review.get("scope"), list)
+        else []
+    )
+    authorities = [
+        authority
+        for key, authority in (
+            ("approved_by_family", "family"),
+            ("approved_by_user", "user"),
+            ("approved_by_reviewer", "reviewer"),
+            ("approved_by_operator", "operator"),
+        )
+        if review.get(key) is True
+    ]
+    traits_sha256 = _speaker_casting_stable_sha256(trait_claims)
+    profile_ref = next(
+        (
+            str(raw_profile.get(key) or "").strip()
+            for key in (
+                "speaker_profile_id",
+                "profile_id",
+                "voice_profile_ref",
+                "voice_profile_id",
+            )
+            if str(raw_profile.get(key) or "").strip()
+        ),
+        "",
+    )
+    profile_ref_sha256 = (
+        hashlib.sha256(profile_ref.encode("utf-8")).hexdigest()
+        if profile_ref
+        else ""
+    )
+    reviewed_at = _strict_casting_review_datetime(review.get("reviewed_at"))
+    expires_at = _strict_casting_review_datetime(review.get("expires_at"))
+    conflict_rows = _speaker_profile_conflict_rows(
+        raw_values_by_kind,
+        trait_claims,
+    )
+    reviewed_conflicts_sha256 = (
+        _speaker_casting_stable_sha256(conflict_rows) if conflict_rows else ""
+    )
+    if (
+        str(review.get("status") or "").strip().casefold() != "approved"
+        or scopes != [REQUIRED_AUDIOBOOK_SPEAKER_CASTING_SCOPE]
+        or review.get("revoked") is not False
+        or len(authorities) != 1
+        or str(review.get("speaker_id") or "") != speaker_id
+        or str(review.get("speaker_traits_sha256") or "") != traits_sha256
+        or (
+            review.get("source_conflict_acknowledged") is True
+        )
+        is not bool(conflict_rows)
+        or str(review.get("reviewed_conflicts_sha256") or "")
+        != reviewed_conflicts_sha256
+        or any(
+            re.fullmatch(
+                r"[0-9a-f]{64}",
+                str(row.get("superseded_evidence_sha256") or ""),
+            )
+            is None
+            for row in conflict_rows
+        )
+        or not profile_ref
+        or re.fullmatch(r"[0-9a-f]{64}", profile_ref_sha256) is None
+        or str(review.get("speaker_profile_ref_sha256") or "")
+        != profile_ref_sha256
+        or reviewed_at is None
+        or expires_at is None
+        or reviewed_at > now + timedelta(minutes=5)
+        or expires_at <= now
+        or expires_at <= reviewed_at
+        or expires_at - reviewed_at
+        > MAX_AUDIOBOOK_SPEAKER_CASTING_REVIEW_TTL
+    ):
+        return None
+    payload = {
+        "status": "approved",
+        "scope": [REQUIRED_AUDIOBOOK_SPEAKER_CASTING_SCOPE],
+        "revoked": False,
+        "authority_class": authorities[0],
+        "speaker_id": speaker_id,
+        "speaker_traits_sha256": traits_sha256,
+        "speaker_profile_ref_sha256": profile_ref_sha256,
+        "reviewed_at": reviewed_at.isoformat().replace("+00:00", "Z"),
+        "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
+        "source_conflict_acknowledged": (
+            bool(conflict_rows)
+        ),
+        "reviewed_conflicts_sha256": reviewed_conflicts_sha256,
+    }
+    return {
+        **payload,
+        "review_evidence_sha256": _speaker_casting_stable_sha256(payload),
+    }
 
 
 def _merge_speaker_trait_observations(
@@ -6940,6 +7326,7 @@ def _speaker_profile_rows(job_dir: Path) -> tuple[dict[str, object], ...]:
 
     rows: list[dict[str, object]] = []
     by_speaker_id: dict[str, int] = {}
+    observed_at = datetime.now(UTC)
 
     def _iter_rows(value: object) -> list[dict[str, object]]:
         if isinstance(value, list):
@@ -6951,6 +7338,30 @@ def _speaker_profile_rows(job_dir: Path) -> tuple[dict[str, object], ...]:
                 if isinstance(item, dict)
             ]
         return []
+
+    def _merge_voice_selection(
+        profile: dict[str, object],
+        incoming: dict[str, object],
+    ) -> dict[str, object]:
+        merged = dict(profile)
+        if not incoming:
+            return merged
+        if merged.get("voice_selection_state_ambiguous") is True:
+            merged["voice_selection"] = {}
+            return merged
+        existing = dict(merged.get("voice_selection") or {})
+        if existing and _speaker_casting_stable_sha256(
+            existing
+        ) != _speaker_casting_stable_sha256(incoming):
+            # Voice approvals are append-only authority records. Divergent
+            # duplicate rows can represent a revocation, correction, or
+            # competing approval, so ordering must never choose a winner.
+            merged["voice_selection"] = {}
+            merged["voice_selection_state_ambiguous"] = True
+            return merged
+        merged["voice_selection"] = dict(incoming)
+        merged["voice_selection_state_ambiguous"] = False
+        return merged
 
     for raw_profiles, source in configured_sources:
         for raw_profile in _iter_rows(raw_profiles):
@@ -6973,73 +7384,78 @@ def _speaker_profile_rows(job_dir: Path) -> tuple[dict[str, object], ...]:
             alias_ids = sorted({_speaker_id_from_label(alias) for alias in aliases if alias})
             if explicit_id == "speaker_unknown":
                 alias_ids.append("speaker_unknown")
-            raw_traits = dict(raw_profile.get("traits") or {})
-            profile_approval_status = _normalize_tag(
-                raw_profile.get("trait_approval_status")
-                or raw_profile.get("profile_approval_status")
+            raw_values_by_kind, trait_claims = _speaker_profile_trait_claims(
+                raw_profile
             )
-            profile_traits_approved = (
-                source == "explicit_operator_environment"
-                or raw_profile.get("traits_approved_by_user") is True
-                or raw_profile.get("casting_traits_approved_by_user") is True
-                or raw_profile.get("approved_by_user") is True
-                or profile_approval_status
-                in {"approved", "selected_by_user", "accepted_by_user"}
+            casting_review = _speaker_profile_casting_review(
+                raw_profile=raw_profile,
+                speaker_id=speaker_id,
+                raw_values_by_kind=raw_values_by_kind,
+                trait_claims=trait_claims,
+                now=observed_at,
             )
-            trait_aliases = {
-                "gender_presentation": ("gender_presentation", "gender"),
-                "approximate_age": (
-                    "approximate_age",
-                    "age_band",
-                    "age_range",
-                    "age",
-                ),
-                "language": (
-                    "language",
-                    "locale",
-                    "spoken_language",
-                    "native_language",
-                ),
-                "accent": ("accent", "dialect"),
-                "ethnicity": (
-                    "ethnicity",
-                    "ethnic_background",
-                    "cultural_background",
-                    "cultural_or_ethnic_background",
-                    "cultural_identity",
-                ),
-                "role": ("role", "character_role"),
-                "style": ("style", "performance_style"),
+            conflict_rows_by_kind = {
+                str(row["trait_kind"]): row
+                for row in _speaker_profile_conflict_rows(
+                    raw_values_by_kind,
+                    trait_claims,
+                )
             }
             traits: dict[str, dict[str, object]] = {}
-            for kind, keys in trait_aliases.items():
-                raw_value: object = None
-                for key in keys:
-                    if key in raw_traits:
-                        raw_value = raw_traits[key]
-                        break
-                    if key in raw_profile:
-                        raw_value = raw_profile[key]
-                        break
-                evidence_approval_status = (
-                    _normalize_tag(raw_value.get("approval_status") or raw_value.get("status"))
-                    if isinstance(raw_value, dict)
-                    else ""
-                )
-                trait_approved = profile_traits_approved or (
-                    isinstance(raw_value, dict)
-                    and (
-                        raw_value.get("approved_by_user") is True
-                        or evidence_approval_status
-                        in {"approved", "selected_by_user", "accepted_by_user"}
-                    )
-                )
-                if not trait_approved:
+            for kind, raw_value in raw_values_by_kind.items():
+                if casting_review is None:
                     continue
+                evidence_value: object
+                if isinstance(raw_value, dict):
+                    evidence_value = dict(raw_value)
+                else:
+                    evidence_value = {"value": raw_value}
+                if isinstance(evidence_value, dict):
+                    evidence_value["casting_eligible"] = True
+                    evidence_value["casting_approved"] = True
+                    evidence_value["requires_human_approval"] = False
+                    evidence_value["casting_review_evidence_sha256"] = str(
+                        casting_review.get("review_evidence_sha256") or ""
+                    )
+                    evidence_value["casting_review_scope"] = (
+                        REQUIRED_AUDIOBOOK_SPEAKER_CASTING_SCOPE
+                    )
+                    evidence_value["casting_review_revoked"] = False
+                    evidence_value["casting_review_authority_class"] = str(
+                        casting_review.get("authority_class") or ""
+                    )
+                    evidence_value["casting_review_reviewed_at"] = str(
+                        casting_review.get("reviewed_at") or ""
+                    )
+                    evidence_value["casting_review_expires_at"] = str(
+                        casting_review.get("expires_at") or ""
+                    )
+                    if evidence_value.get("conflicting_evidence_present") is True:
+                        if casting_review.get(
+                            "source_conflict_acknowledged"
+                        ) is not True:
+                            continue
+                        evidence_value["conflict_review_approved"] = True
+                        evidence_value[
+                            "conflict_review_evidence_sha256"
+                        ] = _speaker_casting_stable_sha256(
+                            {
+                                "casting_review_evidence_sha256": str(
+                                    casting_review.get(
+                                        "review_evidence_sha256"
+                                    )
+                                    or ""
+                                ),
+                                "speaker_id": speaker_id,
+                                "conflict": conflict_rows_by_kind.get(kind),
+                                "source_conflict_acknowledged": True,
+                            }
+                        )
                 evidence = _speaker_trait_evidence(
                     kind,
-                    raw_value,
+                    evidence_value,
                     default_provenance=source,
+                    validated_profile_review=True,
                 )
                 if evidence is not None:
                     traits[kind] = evidence
@@ -7054,6 +7470,16 @@ def _speaker_profile_rows(job_dir: Path) -> tuple[dict[str, object], ...]:
                     or {}
                 ),
                 "profile_provenance": source,
+                "casting_review_evidence_sha256": str(
+                    (casting_review or {}).get("review_evidence_sha256") or ""
+                ),
+                "casting_review_intended": bool(trait_claims)
+                or isinstance(raw_profile.get("casting_review"), dict),
+                "casting_review_validated_by_profile_registry": (
+                    casting_review is not None
+                ),
+                "casting_review_state_ambiguous": False,
+                "voice_selection_state_ambiguous": False,
             }
             existing_index = by_speaker_id.get(speaker_id)
             if existing_index is None:
@@ -7061,12 +7487,56 @@ def _speaker_profile_rows(job_dir: Path) -> tuple[dict[str, object], ...]:
                 rows.append(normalized)
             else:
                 merged = dict(rows[existing_index])
-                merged["traits"] = {**dict(merged.get("traits") or {}), **traits}
+                existing_intended = merged.get("casting_review_intended") is True
+                incoming_intended = normalized["casting_review_intended"] is True
+                ambiguous_review_state = (
+                    merged.get("casting_review_state_ambiguous") is True
+                )
+                if existing_intended and incoming_intended:
+                    ambiguous_review_state = ambiguous_review_state or not (
+                        merged.get(
+                            "casting_review_validated_by_profile_registry"
+                        )
+                        is True
+                        and normalized[
+                            "casting_review_validated_by_profile_registry"
+                        ]
+                        is True
+                        and str(
+                            merged.get("casting_review_evidence_sha256") or ""
+                        )
+                        == str(
+                            normalized.get(
+                                "casting_review_evidence_sha256"
+                            )
+                            or ""
+                        )
+                    )
+                if ambiguous_review_state:
+                    merged["traits"] = {}
+                    merged["casting_review_validated_by_profile_registry"] = False
+                    merged["casting_review_state_ambiguous"] = True
+                elif incoming_intended:
+                    merged["traits"] = {
+                        **dict(merged.get("traits") or {}),
+                        **traits,
+                    }
+                    merged["casting_review_intended"] = True
+                    merged[
+                        "casting_review_validated_by_profile_registry"
+                    ] = normalized[
+                        "casting_review_validated_by_profile_registry"
+                    ]
+                    merged["casting_review_evidence_sha256"] = normalized[
+                        "casting_review_evidence_sha256"
+                    ]
                 merged["alias_ids"] = sorted(
                     set(list(merged.get("alias_ids") or []) + alias_ids)
                 )
-                if normalized["voice_selection"]:
-                    merged["voice_selection"] = normalized["voice_selection"]
+                merged = _merge_voice_selection(
+                    merged,
+                    dict(normalized.get("voice_selection") or {}),
+                )
                 rows[existing_index] = merged
 
     raw_selections = provider.get("speaker_voice_selections")
@@ -7080,6 +7550,13 @@ def _speaker_profile_rows(job_dir: Path) -> tuple[dict[str, object], ...]:
         explicit_id = str(selection_row.get("speaker_id") or "").strip()
         speaker_id = explicit_id if explicit_id.startswith("speaker_") else _speaker_id_from_label(label)
         selection = dict(selection_row.get("voice_selection") or selection_row)
+        for identity_key in (
+            "speaker_label",
+            "speaker",
+            "name",
+            "speaker_id",
+        ):
+            selection.pop(identity_key, None)
         existing_index = by_speaker_id.get(speaker_id)
         if existing_index is None:
             by_speaker_id[speaker_id] = len(rows)
@@ -7091,10 +7568,14 @@ def _speaker_profile_rows(job_dir: Path) -> tuple[dict[str, object], ...]:
                     "traits": {},
                     "voice_selection": selection,
                     "profile_provenance": "approved_private_speaker_selection",
+                    "voice_selection_state_ambiguous": False,
                 }
             )
         else:
-            rows[existing_index]["voice_selection"] = selection
+            rows[existing_index] = _merge_voice_selection(
+                rows[existing_index],
+                selection,
+            )
     return tuple(rows)
 
 
@@ -7103,32 +7584,85 @@ def _profile_for_speaker(
     *,
     speaker_id: str,
 ) -> dict[str, object]:
-    for profile in profiles:
-        if speaker_id == str(profile.get("speaker_id") or ""):
-            return dict(profile)
-        if speaker_id in list(profile.get("alias_ids") or []):
-            return dict(profile)
+    exact_matches = [
+        profile
+        for profile in profiles
+        if speaker_id == str(profile.get("speaker_id") or "")
+    ]
+    if len(exact_matches) == 1:
+        return dict(exact_matches[0])
+    alias_matches = [
+        profile
+        for profile in profiles
+        if speaker_id in list(profile.get("alias_ids") or [])
+    ]
+    if not exact_matches and len(alias_matches) == 1:
+        return dict(alias_matches[0])
     return {
         "speaker_id": speaker_id,
         "speaker_label": "",
         "alias_ids": [speaker_id],
         "traits": {},
         "voice_selection": {},
-        "profile_provenance": "unknown_neutral_fallback",
+        "profile_provenance": (
+            "ambiguous_profile_key_neutral_fallback"
+            if exact_matches or alias_matches
+            else "unknown_neutral_fallback"
+        ),
+        "casting_review_validated_by_profile_registry": False,
+        "casting_review_state_ambiguous": bool(exact_matches or alias_matches),
+        "voice_selection_state_ambiguous": bool(exact_matches or alias_matches),
     }
+
+
+def _speaker_voice_selection_approved(
+    selection: dict[str, object],
+    *,
+    now: datetime,
+) -> bool:
+    status = _normalize_tag(selection.get("status"))
+    explicit_approvers = [
+        key
+        for key in (
+            "approved_by_user",
+            "approved_by_family",
+            "approved_by_reviewer",
+            "approved_by_operator",
+        )
+        if selection.get(key) is True
+    ]
+    if not (
+        status in {"approved", "selected_by_user", "accepted_by_user"}
+        and len(explicit_approvers) == 1
+        and selection.get("revoked") is False
+    ):
+        return False
+    expires_text = str(selection.get("expires_at") or "").strip()
+    expires_at = _strict_casting_review_datetime(expires_text)
+    return bool(expires_text and expires_at is not None and expires_at > now)
+
+
+def _dialogue_voice_selection_current(
+    selection: dict[str, object],
+    *,
+    now: datetime,
+) -> bool:
+    source = str(selection.get("source") or "")
+    if source == "explicit_operator_environment":
+        return selection.get("revoked") is False
+    return _speaker_voice_selection_approved(selection, now=now)
 
 
 def _approved_speaker_voice(
     *,
     profile: dict[str, object],
     private_candidates: dict[str, object],
+    now: datetime,
 ) -> dict[str, object]:
+    if profile.get("voice_selection_state_ambiguous") is True:
+        return {}
     selection = dict(profile.get("voice_selection") or {})
-    status = _normalize_tag(selection.get("status"))
-    if not (
-        selection.get("approved_by_user") is True
-        or status in {"approved", "selected_by_user", "accepted_by_user"}
-    ):
+    if not _speaker_voice_selection_approved(selection, now=now):
         return {}
     token = str(selection.get("selected_callback_token") or selection.get("callback_token") or "").strip()
     candidate = dict(private_candidates.get(token) or {}) if token else {}
@@ -7144,7 +7678,17 @@ def _approved_speaker_voice(
     if not voice_id:
         return {}
     recorded_hash = str(selection.get("voice_id_sha256") or candidate.get("voice_id_sha256") or "").strip()
-    if recorded_hash and recorded_hash != _sha256_bytes(voice_id.encode("utf-8")):
+    explicit_operator_environment = (
+        str(profile.get("profile_provenance") or "")
+        == "explicit_operator_environment"
+    )
+    if (
+        not explicit_operator_environment
+        and re.fullmatch(r"[0-9a-f]{64}", recorded_hash) is None
+    ) or (
+        recorded_hash
+        and recorded_hash != _sha256_bytes(voice_id.encode("utf-8"))
+    ):
         return {}
     public_candidate = dict(candidate.get("public") or {})
     return {
@@ -7231,6 +7775,20 @@ def _speaker_voice_candidate_score(
     for kind, evidence in traits.items():
         if not isinstance(evidence, dict):
             continue
+        eligible_evidence = _speaker_trait_evidence(
+            kind,
+            evidence,
+            default_provenance="speaker_cast_profile",
+            validated_profile_review=(
+                profile.get(
+                    "casting_review_validated_by_profile_registry"
+                )
+                is True
+            ),
+        )
+        if eligible_evidence is None:
+            continue
+        evidence = eligible_evidence
         values = [
             str(item or "").strip()
             for item in list(evidence.get("values") or [evidence.get("value")])
@@ -7282,6 +7840,7 @@ def _resolve_audiobook_speaker_cast(
     render_language: str,
     default_dialogue_selection: dict[str, str] | None = None,
 ) -> dict[str, object]:
+    observed_at = datetime.now(UTC)
     dialogue_speakers: dict[str, dict[str, object]] = {}
     for row in (*speaker_rows, *segment_rows):
         speaker_role = str(row.get("speaker_role") or row.get("role") or "dialogue")
@@ -7360,6 +7919,11 @@ def _resolve_audiobook_speaker_cast(
     preset_by_voice_id = {preset.voice_id: preset for preset in presets}
     generic_selection = dict(default_dialogue_selection or {})
     generic_voice_id = str(generic_selection.get("voice_id") or "").strip()
+    if not _dialogue_voice_selection_current(
+        generic_selection,
+        now=observed_at,
+    ):
+        generic_voice_id = ""
     if generic_voice_id == narrator_voice_id:
         generic_voice_id = ""
     used_voice_ids: set[str] = set()
@@ -7437,8 +8001,22 @@ def _resolve_audiobook_speaker_cast(
         approved = _approved_speaker_voice(
             profile=profile,
             private_candidates=private_candidates,
+            now=observed_at,
         )
-        if not approved and generic_voice_id:
+        profile_sensitive_trait_kinds = (
+            set(dict(profile.get("traits") or {}))
+            & _SENSITIVE_SPEAKER_CASTING_TRAIT_KINDS
+            if profile.get(
+                "casting_review_validated_by_profile_registry"
+            )
+            is True
+            else set()
+        )
+        if (
+            not approved
+            and generic_voice_id
+            and not profile_sensitive_trait_kinds
+        ):
             preset = preset_by_voice_id.get(generic_voice_id)
             approved = {
                 "voice_id": generic_voice_id,
@@ -7492,6 +8070,40 @@ def _resolve_audiobook_speaker_cast(
                     "public": public,
                     "cast_map_sha256": "",
                 }
+            if selected_preset is not None:
+                (
+                    _approved_score,
+                    matched_traits,
+                    unmatched_traits,
+                ) = _speaker_voice_candidate_score(
+                    preset=selected_preset,
+                    profile=profile,
+                    render_language=render_language,
+                )
+            if profile_sensitive_trait_kinds and (
+                selected_preset is None
+                or not profile_sensitive_trait_kinds.issubset(
+                    set(matched_traits)
+                )
+            ):
+                public = {
+                    "status": "blocked",
+                    "reason": (
+                        "speaker_voice_sensitive_traits_unmatched_or_unverified"
+                    ),
+                    "speaker_count": len(dialogue_speakers),
+                    "resolved_speaker_count": len(private_cast),
+                    "cast": public_cast,
+                    "raw_voice_ids_exposed": False,
+                    "trait_values_exposed": False,
+                }
+                return {
+                    "status": "blocked",
+                    "reason": public["reason"],
+                    "private": private_cast,
+                    "public": public,
+                    "cast_map_sha256": "",
+                }
             if selected_preset is not None and not voice_label:
                 voice_label = selected_preset.label
         else:
@@ -7525,6 +8137,33 @@ def _resolve_audiobook_speaker_cast(
                 candidate_rows.append(
                     (-score, reuse_penalty, stable_tie, preset, matched, unmatched)
                 )
+            required_sensitive_trait_kinds = profile_sensitive_trait_kinds
+            sensitive_compatible_rows = [
+                row
+                for row in candidate_rows
+                if required_sensitive_trait_kinds.issubset(set(row[4]))
+            ]
+            if required_sensitive_trait_kinds and not sensitive_compatible_rows:
+                public = {
+                    "status": "blocked",
+                    "reason": (
+                        "speaker_voice_sensitive_traits_unmatched_or_unverified"
+                    ),
+                    "speaker_count": len(dialogue_speakers),
+                    "resolved_speaker_count": len(private_cast),
+                    "cast": public_cast,
+                    "raw_voice_ids_exposed": False,
+                    "trait_values_exposed": False,
+                }
+                return {
+                    "status": "blocked",
+                    "reason": public["reason"],
+                    "private": private_cast,
+                    "public": public,
+                    "cast_map_sha256": "",
+                }
+            if required_sensitive_trait_kinds:
+                candidate_rows = sensitive_compatible_rows
             candidate_rows.sort(key=lambda item: (item[0], item[1], item[2], item[3].preset_key))
             _negative_score, _reuse, _stable, selected_preset, matched_traits, unmatched_traits = candidate_rows[0]
             if (
@@ -7532,13 +8171,56 @@ def _resolve_audiobook_speaker_cast(
                 and len(automatic_voice_ids) >= automatic_voice_cap
                 and neutral_anchor is not None
             ):
-                selected_preset = neutral_anchor
-                _score, matched_traits, unmatched_traits = _speaker_voice_candidate_score(
-                    preset=selected_preset,
-                    profile=profile,
-                    render_language=render_language,
-                )
-                selection_source = "deterministic_shared_minor_speaker_fallback"
+                reusable_rows = [
+                    row
+                    for row in candidate_rows
+                    if row[3].voice_id in automatic_voice_ids
+                ]
+                if required_sensitive_trait_kinds and not reusable_rows:
+                    public = {
+                        "status": "blocked",
+                        "reason": (
+                            "speaker_voice_cap_conflicts_with_approved_traits"
+                        ),
+                        "speaker_count": len(dialogue_speakers),
+                        "resolved_speaker_count": len(private_cast),
+                        "cast": public_cast,
+                        "raw_voice_ids_exposed": False,
+                        "trait_values_exposed": False,
+                    }
+                    return {
+                        "status": "blocked",
+                        "reason": public["reason"],
+                        "private": private_cast,
+                        "public": public,
+                        "cast_map_sha256": "",
+                    }
+                if required_sensitive_trait_kinds:
+                    (
+                        _negative_score,
+                        _reuse,
+                        _stable,
+                        selected_preset,
+                        matched_traits,
+                        unmatched_traits,
+                    ) = reusable_rows[0]
+                    selection_source = (
+                        "deterministic_approved_trait_compatible_sharing"
+                    )
+                else:
+                    selected_preset = neutral_anchor
+                    (
+                        _score,
+                        matched_traits,
+                        unmatched_traits,
+                    ) = _speaker_voice_candidate_score(
+                        preset=selected_preset,
+                        profile=profile,
+                        render_language=render_language,
+                    )
+                    selection_source = (
+                        "deterministic_shared_minor_speaker_fallback"
+                    )
             else:
                 selection_source = "deterministic_evidence_ranked_catalog"
             voice_id = selected_preset.voice_id
@@ -7603,22 +8285,16 @@ def _resolve_audiobook_speaker_cast(
         private_cast[speaker_id] = private_entry
         public_cast.append(
             {
-                "speaker_id": speaker_id,
-                "speaker_label_sha256": (
-                    _sha256_bytes(private_entry["speaker_label"].encode("utf-8"))
-                    if private_entry["speaker_label"]
-                    else ""
-                ),
-                "voice_id_sha256": private_entry["voice_id_sha256"],
+                "speaker_index": len(public_cast) + 1,
                 "voice_label": _safe_public_voice_label(
                     voice_label,
                     narrator_voice_id,
                     voice_id,
                 ),
                 "selection_source": selection_source,
-                "matched_trait_kinds": matched_traits,
-                "unmatched_trait_kinds": unmatched_traits,
-                "ambiguous_trait_kinds": ambiguous_trait_kinds,
+                "matched_trait_count": len(matched_traits),
+                "unmatched_trait_count": len(unmatched_traits),
+                "ambiguous_trait_count": len(ambiguous_trait_kinds),
                 "trait_evidence_confidence": evidence_confidence,
                 "unknown_neutral_fallback": not bool(traits),
                 "raw_voice_id_exposed": False,
@@ -7665,16 +8341,16 @@ def _speaker_cast_effective_inputs_sha256(
     default_dialogue_selection: dict[str, str] | None = None,
 ) -> str:
     """Bind snapshots to approved casting inputs without binding catalog churn."""
+    observed_at = datetime.now(UTC)
     private_payload = _load_voice_audition_private(job_dir)
     private_candidates = dict(private_payload.get("candidates") or {})
     effective_profiles: list[dict[str, object]] = []
     for profile in _speaker_profile_rows(job_dir):
         selection = dict(profile.get("voice_selection") or {})
         selection_status = _normalize_tag(selection.get("status"))
-        selection_approved = (
-            selection.get("approved_by_user") is True
-            or selection_status
-            in {"approved", "selected_by_user", "accepted_by_user"}
+        selection_approved = _speaker_voice_selection_approved(
+            selection,
+            now=observed_at,
         )
         token = str(
             selection.get("selected_callback_token")
@@ -7760,6 +8436,15 @@ def _speaker_cast_effective_inputs_sha256(
         else _configured_dialogue_voice_selection(job_dir)
     )
     generic_voice_id = str(generic_selection.get("voice_id") or "").strip()
+    generic_expires_text = str(
+        generic_selection.get("expires_at") or ""
+    ).strip()
+    generic_selection_current = _dialogue_voice_selection_current(
+        generic_selection,
+        now=observed_at,
+    )
+    if not generic_selection_current:
+        generic_voice_id = ""
     payload = {
         "profiles": sorted(
             effective_profiles,
@@ -7769,17 +8454,43 @@ def _speaker_cast_effective_inputs_sha256(
             ),
         ),
         "default_dialogue_selection": {
-            "source": str(generic_selection.get("source") or ""),
+            "selection_current": generic_selection_current,
+            "expires_at": generic_expires_text,
+            "approval_authorities": sorted(
+                key
+                for key in (
+                    "approved_by_user",
+                    "approved_by_family",
+                    "approved_by_reviewer",
+                    "approved_by_operator",
+                )
+                if generic_selection.get(key) is True
+            ),
+            "source": (
+                str(generic_selection.get("source") or "")
+                if generic_selection_current
+                else ""
+            ),
             "voice_id_sha256": (
                 _sha256_bytes(generic_voice_id.encode("utf-8"))
                 if generic_voice_id
                 else ""
             ),
-            "language": str(generic_selection.get("language") or "").strip(),
-            "supported_languages": sorted(
-                str(value).strip()
-                for value in list(generic_selection.get("supported_languages") or [])
-                if str(value).strip()
+            "language": (
+                str(generic_selection.get("language") or "").strip()
+                if generic_selection_current
+                else ""
+            ),
+            "supported_languages": (
+                sorted(
+                    str(value).strip()
+                    for value in list(
+                        generic_selection.get("supported_languages") or []
+                    )
+                    if str(value).strip()
+                )
+                if generic_selection_current
+                else []
             ),
         },
     }
@@ -7855,7 +8566,10 @@ def _speaker_cast_result_from_private_entries(
         for entry in private_cast.values()
         if str(entry.get("voice_id") or "").strip()
     )
-    for speaker_id, entry in sorted(private_cast.items()):
+    for speaker_index, (speaker_id, entry) in enumerate(
+        sorted(private_cast.items()),
+        start=1,
+    ):
         voice_id = str(entry.get("voice_id") or "").strip()
         if not voice_id or voice_id == narrator_voice_id:
             return {}
@@ -7865,42 +8579,23 @@ def _speaker_cast_result_from_private_entries(
             return {}
         entry["voice_id_sha256"] = voice_hash
         used_voice_ids.add(voice_id)
-        speaker_label = str(entry.get("speaker_label") or "")
         public_cast.append(
             {
-                "speaker_id": speaker_id,
-                "speaker_label_sha256": (
-                    _sha256_bytes(speaker_label.encode("utf-8"))
-                    if speaker_label
-                    else ""
-                ),
-                "voice_id_sha256": voice_hash,
+                "speaker_index": speaker_index,
                 "voice_label": _safe_public_voice_label(
                     entry.get("voice_label"),
                     narrator_voice_id,
                     *private_voice_ids,
                 ),
                 "selection_source": str(entry.get("selection_source") or ""),
-                "matched_trait_kinds": sorted(
-                    {
-                        str(value)
-                        for value in list(entry.get("matched_trait_kinds") or [])
-                        if str(value)
-                    }
+                "matched_trait_count": len(
+                    list(entry.get("matched_trait_kinds") or [])
                 ),
-                "unmatched_trait_kinds": sorted(
-                    {
-                        str(value)
-                        for value in list(entry.get("unmatched_trait_kinds") or [])
-                        if str(value)
-                    }
+                "unmatched_trait_count": len(
+                    list(entry.get("unmatched_trait_kinds") or [])
                 ),
-                "ambiguous_trait_kinds": sorted(
-                    {
-                        str(value)
-                        for value in list(entry.get("ambiguous_trait_kinds") or [])
-                        if str(value)
-                    }
+                "ambiguous_trait_count": len(
+                    list(entry.get("ambiguous_trait_kinds") or [])
                 ),
                 "trait_evidence_confidence": float(
                     entry.get("evidence_confidence") or 0.0
@@ -7955,7 +8650,10 @@ def _speaker_cast_result_from_private_entries(
         "traits_are_ranking_hints_only": True,
         "identity_or_demographics_claimed": False,
         "trait_hints_used": any(
-            bool(row.get("matched_trait_kinds") or row.get("unmatched_trait_kinds"))
+            bool(
+                int(row.get("matched_trait_count") or 0)
+                or int(row.get("unmatched_trait_count") or 0)
+            )
             for row in public_cast
         ),
         "reused_private_snapshot": reused_private_snapshot,

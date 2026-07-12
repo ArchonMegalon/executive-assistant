@@ -381,11 +381,14 @@ def test_dialogue_voice_requires_explicit_environment_or_private_approval(
         },
     }
     pipeline._write_voice_audition_private(job_dir, private_payload)
+    expires_at = (datetime.now(UTC) + timedelta(days=7)).isoformat()
     job_payload = {
         "provider": {
             "dialogue_voice_selection": {
                 "status": "selected_by_user",
                 "approved_by_user": True,
+                "revoked": False,
+                "expires_at": expires_at,
                 "selected_callback_token": "approved-token",
                 "voice_id": "must-not-be-read-from-public-job",
             }
@@ -398,6 +401,12 @@ def test_dialogue_voice_requires_explicit_environment_or_private_approval(
     assert selected == {
         "voice_id": "private-dialogue-voice",
         "source": "approved_private_dialogue_voice_selection",
+        "status": "selected_by_user",
+        "revoked": False,
+        "expires_at": expires_at,
+        "language": "",
+        "supported_languages": [],
+        "approved_by_user": True,
     }
     assert (job_dir / "voice_audition" / "private.json").stat().st_mode & 0o777 == 0o600
     job_payload["provider"]["dialogue_voice_selection"]["status"] = "pending"
@@ -409,6 +418,7 @@ def test_dialogue_voice_requires_explicit_environment_or_private_approval(
     assert pipeline._configured_dialogue_voice_selection(job_dir) == {
         "voice_id": "operator-dialogue-voice",
         "source": "explicit_operator_environment",
+        "revoked": False,
     }
 
 
@@ -530,7 +540,7 @@ def test_render_uses_distinct_dialogue_voice_and_private_source_complete_plan(
         assert raw_voice_id not in serialized_result
 
 
-def test_automatic_multispeaker_cast_uses_explicit_traits_without_dialogue_env(
+def test_automatic_multispeaker_cast_ignores_unreviewed_source_demographics(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -612,8 +622,11 @@ def test_automatic_multispeaker_cast_uses_explicit_traits_without_dialogue_env(
 
     by_text = {spoken_text: voice_id for spoken_text, voice_id in calls}
     assert result["status"] == "rendered"
-    assert by_text["“Come,”"] == "anna-id"
-    assert by_text["“Wait,”"] == "ben-id"
+    assert {
+        by_text["“Come,”"],
+        by_text["“Wait,”"],
+    } == {"anna-id", "ben-id"}
+    assert by_text["“Come,”"] != by_text["“Wait,”"]
     assert result["speaker_cast"]["speaker_count"] == 2
     assert result["speaker_cast"]["distinct_dialogue_voice_count"] == 2
     assert result["speaker_cast"]["narrator_voice_excluded"] is True

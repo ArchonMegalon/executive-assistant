@@ -8,8 +8,9 @@ import unicodedata
 from collections.abc import Mapping, Sequence
 
 
-PLANNER_CONTRACT_NAME = "ea.audiobook_narration_plan.v3"
+PLANNER_CONTRACT_NAME = "ea.audiobook_narration_plan.v4"
 BOUNDARY_POLICY_NAME = "ea.audiobook_boundary_policy.v2"
+CASTING_TRAIT_POLICY_NAME = "ea.audiobook_casting_trait_evidence_policy.v1"
 
 _QUOTE_PAIRS = {
     '"': '"',
@@ -25,7 +26,9 @@ _SPEECH_VERBS = (
     "said|asked|replied|answered|whispered|shouted|called|cried|murmured|added|"
     "sagte|fragte|antwortete|flüsterte|rief|murmelte|erwiderte|fügte"
 )
-_NAME_SUBJECT = r"(?-i:[A-ZÄÖÜÀ-Þ][\wÀ-ÿ'’-]*(?:\s+[A-ZÄÖÜÀ-Þ][\wÀ-ÿ'’-]*){0,2})"
+_NAME_SUBJECT = (
+    r"(?-i:[^\W\d_][\w'’-]*(?:\s+[^\W\d_][\w'’-]*){0,2})"
+)
 _SUBJECT = rf"(?:{_NAME_SUBJECT}|he|she|they|er|sie)"
 _POST_SUBJECT_VERB_RE = re.compile(
     rf"^\s*[,.;:!?—–-]*\s*(?P<subject>{_SUBJECT})\s+(?P<verb>{_SPEECH_VERBS})\b",
@@ -95,9 +98,46 @@ def _stable_json_sha256(value: object) -> str:
     return _sha256_text(payload)
 
 
+def _dialogue_attribution_evidence_rows(
+    spans: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "speaker_id": str(span.get("speaker_id") or ""),
+            "source_chapter_index": int(
+                span.get("source_chapter_index") or 0
+            ),
+            "source_href": str(span.get("source_href") or ""),
+            "char_start": int(span.get("char_start") or 0),
+            "char_end": int(span.get("char_end") or 0),
+            "source_text_sha256": str(
+                span.get("source_text_sha256") or ""
+            ),
+            "attribution_provenance": str(
+                span.get("attribution_provenance") or ""
+            ),
+            "attribution_confidence": round(
+                float(span.get("attribution_confidence") or 0.0), 3
+            ),
+        }
+        for span in spans
+        if str(span.get("kind") or "") == "dialogue"
+    ]
+
+
 def _normalized_label(value: object) -> str:
     text = unicodedata.normalize("NFKC", str(value or "")).strip()
     return re.sub(r"\s+", " ", text)
+
+
+def _looks_like_named_subject(value: object) -> bool:
+    label = _normalized_label(value)
+    if not label:
+        return False
+    first = label[0]
+    return first.isupper() or (
+        first.isalpha() and not first.islower() and not first.isupper()
+    )
 
 
 def _profile_key(value: object) -> str:
@@ -114,13 +154,34 @@ def _unknown_speaker_id(*, chapter_index: int, scene_index: int, token: str) -> 
     return f"speaker_unknown_{digest}"
 
 
-def _trait(value: str, *, provenance: str, confidence: float, sensitive: bool = False) -> dict[str, object]:
+def _trait(
+    value: str,
+    *,
+    provenance: str,
+    confidence: float,
+    sensitive: bool = False,
+    casting_eligible: bool = True,
+    requires_human_approval: bool = False,
+    casting_approved: bool = False,
+) -> dict[str, object]:
     return {
         "value": value,
         "provenance": provenance,
         "confidence": round(max(0.0, min(float(confidence), 1.0)), 3),
         "sensitive_hint": bool(sensitive),
+        "casting_eligible": bool(casting_eligible),
+        "requires_human_approval": bool(requires_human_approval),
+        "casting_approved": bool(casting_approved),
     }
+
+
+def _approved_casting_trait(value: Mapping[str, object]) -> bool:
+    return (
+        str(value.get("provenance") or "") == "approved_casting_notes"
+        and value.get("casting_eligible") is True
+        and value.get("requires_human_approval") is not True
+        and value.get("casting_approved") is True
+    )
 
 
 def _merge_traits(
@@ -139,11 +200,27 @@ def _merge_traits(
             if float(value.get("confidence") or 0.0) > float(merged[key].get("confidence") or 0.0):
                 merged[key] = value
             continue
+        existing_approved = _approved_casting_trait(merged[key])
+        incoming_approved = _approved_casting_trait(value)
+        if existing_approved != incoming_approved:
+            authoritative = dict(merged[key] if existing_approved else value)
+            weaker = value if existing_approved else merged[key]
+            authoritative["conflicting_evidence_present"] = True
+            authoritative["superseded_provenance"] = str(
+                weaker.get("provenance") or "unknown"
+            )
+            authoritative["superseded_evidence_sha256"] = (
+                _stable_json_sha256(dict(weaker))
+            )
+            merged[key] = authoritative
+            continue
         merged[key] = _trait(
             "unknown",
             provenance="conflicting_evidence",
             confidence=0.0,
             sensitive=bool(merged[key].get("sensitive_hint") or value.get("sensitive_hint")),
+            casting_eligible=False,
+            requires_human_approval=True,
         )
     return merged
 
@@ -179,6 +256,7 @@ def _approved_traits(value: Mapping[str, object] | None) -> dict[str, dict[str, 
                 provenance="approved_casting_notes",
                 confidence=1.0,
                 sensitive=key == "cultural_or_ethnic_background",
+                casting_approved=True,
             )
     return traits
 
@@ -191,6 +269,8 @@ def _source_traits(context: str, *, pronoun: str = "") -> dict[str, dict[str, ob
             _PRONOUN_GENDER[normalized_pronoun],
             provenance="explicit_attribution_pronoun",
             confidence=0.75,
+            casting_eligible=False,
+            requires_human_approval=True,
         )
 
     lowered = context.casefold()
@@ -199,12 +279,16 @@ def _source_traits(context: str, *, pronoun: str = "") -> dict[str, dict[str, ob
             "feminine",
             provenance="explicit_source_phrase",
             confidence=0.9,
+            casting_eligible=False,
+            requires_human_approval=True,
         )
     elif re.search(r"\b(?:man|male|mann)\b", lowered):
         traits["gender_presentation"] = _trait(
             "masculine",
             provenance="explicit_source_phrase",
             confidence=0.9,
+            casting_eligible=False,
+            requires_human_approval=True,
         )
 
     age_rules = (
@@ -221,7 +305,13 @@ def _source_traits(context: str, *, pronoun: str = "") -> dict[str, dict[str, ob
     )
     for pattern, value in age_rules:
         if re.search(pattern, lowered, re.IGNORECASE):
-            traits["age_band"] = _trait(value, provenance="explicit_source_phrase", confidence=0.9)
+            traits["age_band"] = _trait(
+                value,
+                provenance="explicit_source_phrase",
+                confidence=0.9,
+                casting_eligible=False,
+                requires_human_approval=True,
+            )
             break
 
     accent_match = re.search(
@@ -234,6 +324,8 @@ def _source_traits(context: str, *, pronoun: str = "") -> dict[str, dict[str, ob
             _normalized_label(accent_match.group(1)),
             provenance="explicit_source_phrase",
             confidence=0.95,
+            casting_eligible=False,
+            requires_human_approval=True,
         )
 
     background_match = re.search(
@@ -247,6 +339,8 @@ def _source_traits(context: str, *, pronoun: str = "") -> dict[str, dict[str, ob
             provenance="explicit_source_phrase",
             confidence=0.95,
             sensitive=True,
+            casting_eligible=False,
+            requires_human_approval=True,
         )
 
     style_rules = (
@@ -373,6 +467,8 @@ def _attribution(paragraph: str, start: int, end: int) -> dict[str, object]:
             continue
         subject = _normalized_label(candidate.group("subject"))
         pronoun = subject.casefold() if subject.casefold() in _PRONOUN_GENDER else ""
+        if not pronoun and not _looks_like_named_subject(subject):
+            continue
         attribution_context = (
             _post_attribution_trait_context(candidate, after)
             if position == "post"
@@ -1016,6 +1112,25 @@ def plan_narration(
         for span in dialogue_spans
         if float(span["attribution_confidence"]) < 0.7
     ]
+    casting_review_spans = [
+        span
+        for span in dialogue_spans
+        if float(span["attribution_confidence"]) < 0.8
+        or str(span.get("speaker_id") or "").startswith("speaker_unknown_")
+    ]
+    review_required_trait_kinds = sorted(
+        {
+            str(kind)
+            for speaker in speakers.values()
+            for kind, evidence in dict(speaker.get("traits") or {}).items()
+            if isinstance(evidence, Mapping)
+            and (
+                evidence.get("casting_eligible") is False
+                or evidence.get("requires_human_approval") is True
+                or evidence.get("conflicting_evidence_present") is True
+            )
+        }
+    )
     source_aggregate = [
         {
             "chapter_index": chapter.index,
@@ -1026,6 +1141,7 @@ def plan_narration(
     ]
     structural_payload = {
         "contract_name": PLANNER_CONTRACT_NAME,
+        "casting_trait_policy": CASTING_TRAIT_POLICY_NAME,
         "language": language,
         "max_chars": max_chars,
         "source_aggregate": source_aggregate,
@@ -1037,6 +1153,10 @@ def plan_narration(
                 "text_sha256": span["source_text_sha256"],
                 "speaker_id": span["speaker_id"],
                 "kind": span["kind"],
+                "attribution_provenance": span["attribution_provenance"],
+                "attribution_confidence": round(
+                    float(span["attribution_confidence"]), 3
+                ),
             }
             for span in spans
         ],
@@ -1061,15 +1181,19 @@ def plan_narration(
     plan_sha256 = _stable_json_sha256(structural_payload)
     return {
         "contract_name": PLANNER_CONTRACT_NAME,
-        "version": 3,
+        "version": 4,
         "status": "ready" if not issues else "blocked_source_integrity_or_planning",
         "language": language,
         "max_chars": max_chars,
         "boundary_policy": BOUNDARY_POLICY_NAME,
+        "casting_trait_policy": CASTING_TRAIT_POLICY_NAME,
         "pause_policy": {key: round(float(value), 3) for key, value in policy.items()},
         "batch_paragraphs_with_natural_pauses": batch_paragraphs_with_natural_pauses,
         "source_aggregate_sha256": _stable_json_sha256(source_aggregate),
         "plan_sha256": plan_sha256,
+        "dialogue_attribution_evidence_sha256": _stable_json_sha256(
+            _dialogue_attribution_evidence_rows(spans)
+        ),
         "source_coverage": "complete" if not coverage_issues else "mismatch",
         "coverage_complete": not coverage_issues,
         "source_integrity_verified": not coverage_issues,
@@ -1082,6 +1206,14 @@ def plan_narration(
         "dialogue_span_count": len(dialogue_spans),
         "attributed_dialogue_span_count": len(attributed),
         "uncertain_dialogue_span_count": len(uncertain),
+        "casting_review_dialogue_span_count": len(casting_review_spans),
+        "casting_review_required": bool(
+            casting_review_spans or review_required_trait_kinds
+        ),
+        "automatic_casting_eligible": not bool(
+            casting_review_spans or review_required_trait_kinds
+        ),
+        "review_required_trait_kinds": review_required_trait_kinds,
         "speaker_count": len([speaker for speaker in speakers if speaker != "narrator"]),
         "passage_count": len(passages),
         "unsafe_or_very_short_passage_count": sum(

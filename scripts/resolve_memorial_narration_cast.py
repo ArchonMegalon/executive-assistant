@@ -51,6 +51,8 @@ def _parser() -> argparse.ArgumentParser:
     resolve_parser.add_argument("--work-package", type=Path, required=True)
     resolve_parser.add_argument("--voice-profile", type=Path, required=True)
     resolve_parser.add_argument("--speaker-mappings", type=Path)
+    resolve_parser.add_argument("--speaker-profiles", type=Path)
+    resolve_parser.add_argument("--memorial-manifest", type=Path)
     resolve_parser.add_argument("--output", type=Path, required=True)
     resolve_parser.add_argument("--receipt-output", type=Path)
 
@@ -83,6 +85,8 @@ def _parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--resolution", type=Path, required=True)
     verify_parser.add_argument("--review", type=Path, required=True)
     verify_parser.add_argument("--speaker-mappings", type=Path)
+    verify_parser.add_argument("--speaker-profiles", type=Path)
+    verify_parser.add_argument("--memorial-manifest", type=Path)
     verify_parser.add_argument("--receipt-output", type=Path)
     _add_signing_secret_arguments(verify_parser)
     return parser
@@ -131,10 +135,22 @@ def _resolve(args: argparse.Namespace) -> int:
     mappings: object = None
     if args.speaker_mappings is not None:
         mappings = _read_private(args.speaker_mappings)
+    speaker_profiles = (
+        _read_private(args.speaker_profiles)
+        if args.speaker_profiles is not None
+        else None
+    )
+    memorial_manifest = (
+        _read_private(args.memorial_manifest)
+        if args.memorial_manifest is not None
+        else None
+    )
     resolution = resolve_memorial_narration_cast(
         work_package=work_package,
         voice_profile=voice_profile,
         speaker_voice_mappings=mappings,
+        current_speaker_profiles=speaker_profiles,
+        current_memorial_manifest=memorial_manifest,
     )
     write_json_artifact(args.output, resolution, private=True)
     receipt = cast_resolution_safe_receipt(resolution)
@@ -172,6 +188,16 @@ def _verify(args: argparse.Namespace) -> int:
     mappings: object = None
     if args.speaker_mappings is not None:
         mappings = _read_private(args.speaker_mappings)
+    speaker_profiles = (
+        _read_private(args.speaker_profiles)
+        if args.speaker_profiles is not None
+        else None
+    )
+    memorial_manifest = (
+        _read_private(args.memorial_manifest)
+        if args.memorial_manifest is not None
+        else None
+    )
     receipt = verify_memorial_narration_cast(
         work_package=work_package,
         resolution=resolution,
@@ -179,6 +205,8 @@ def _verify(args: argparse.Namespace) -> int:
         voice_profile=voice_profile,
         signing_secret=_secret(args),
         speaker_voice_mappings=mappings,
+        current_speaker_profiles=speaker_profiles,
+        current_memorial_manifest=memorial_manifest,
     )
     _write_receipt(args.receipt_output, receipt)
     _emit(receipt)

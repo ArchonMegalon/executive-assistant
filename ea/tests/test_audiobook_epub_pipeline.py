@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 import json
 import os
 from pathlib import Path
@@ -913,6 +914,85 @@ def _speaker_row(
     }
 
 
+def _approved_casting_trait(
+    pipeline,
+    value: object,
+    *,
+    provenance: str = "approved_casting_notes",
+    confidence: float = 1.0,
+    reviewed_at: datetime | None = None,
+    expires_at: datetime | None = None,
+    **extra: object,
+) -> dict[str, object]:
+    reviewed = reviewed_at or (datetime.now(UTC) - timedelta(minutes=1))
+    expires = expires_at or (reviewed + timedelta(days=7))
+    evidence = {
+        "scope": pipeline.REQUIRED_AUDIOBOOK_SPEAKER_CASTING_SCOPE,
+        "authority_class": "user",
+        "reviewed_at": reviewed.isoformat(),
+        "expires_at": expires.isoformat(),
+        "value": value,
+    }
+    return {
+        "value": value,
+        "provenance": provenance,
+        "confidence": confidence,
+        "casting_eligible": True,
+        "casting_approved": True,
+        "casting_review_scope": pipeline.REQUIRED_AUDIOBOOK_SPEAKER_CASTING_SCOPE,
+        "casting_review_revoked": False,
+        "casting_review_authority_class": "user",
+        "casting_review_reviewed_at": reviewed.isoformat(),
+        "casting_review_expires_at": expires.isoformat(),
+        "casting_review_evidence_sha256": pipeline._speaker_casting_stable_sha256(
+            evidence
+        ),
+        **extra,
+    }
+
+
+def _approved_stored_speaker_profile(
+    pipeline,
+    label: str,
+    traits: dict[str, object],
+) -> dict[str, object]:
+    speaker_id = pipeline._speaker_id_from_label(label)
+    profile_ref = f"profile:{speaker_id}"
+    profile: dict[str, object] = {
+        "speaker_profile_id": profile_ref,
+        "traits": traits,
+    }
+    raw_traits, trait_claims = pipeline._speaker_profile_trait_claims(profile)
+    conflict_rows = pipeline._speaker_profile_conflict_rows(
+        raw_traits,
+        trait_claims,
+    )
+    reviewed = datetime.now(UTC) - timedelta(minutes=1)
+    expires = reviewed + timedelta(days=7)
+    profile["casting_review"] = {
+        "status": "approved",
+        "scope": [pipeline.REQUIRED_AUDIOBOOK_SPEAKER_CASTING_SCOPE],
+        "revoked": False,
+        "approved_by_user": True,
+        "speaker_id": speaker_id,
+        "speaker_traits_sha256": pipeline._speaker_casting_stable_sha256(
+            trait_claims
+        ),
+        "speaker_profile_ref_sha256": pipeline._sha256_bytes(
+            profile_ref.encode("utf-8")
+        ),
+        "reviewed_at": reviewed.isoformat(),
+        "expires_at": expires.isoformat(),
+        "source_conflict_acknowledged": bool(conflict_rows),
+        "reviewed_conflicts_sha256": (
+            pipeline._speaker_casting_stable_sha256(conflict_rows)
+            if conflict_rows
+            else ""
+        ),
+    }
+    return profile
+
+
 def test_speaker_trait_value_normalizes_approximate_age_aliases() -> None:
     pipeline = audiobook_epub_pipeline
     assert pipeline._speaker_trait_value("approximate_age", "middle-aged") == "mature"
@@ -920,16 +1000,157 @@ def test_speaker_trait_value_normalizes_approximate_age_aliases() -> None:
     assert pipeline._speaker_trait_value("approximate_age", "older adult") == "senior"
 
 
+def test_private_voice_selection_requires_explicit_current_approval() -> None:
+    pipeline = audiobook_epub_pipeline
+    now = datetime(2026, 7, 12, 10, 0, tzinfo=UTC)
+
+    assert pipeline._speaker_voice_selection_approved(
+        {"status": "approved"},
+        now=now,
+    ) is False
+    assert pipeline._speaker_voice_selection_approved(
+        {
+            "status": "approved",
+            "approved_by_user": True,
+            "revoked": True,
+        },
+        now=now,
+    ) is False
+    assert pipeline._speaker_voice_selection_approved(
+        {
+            "status": "approved",
+            "approved_by_user": True,
+            "revoked": False,
+        },
+        now=now,
+    ) is False
+    assert pipeline._speaker_voice_selection_approved(
+        {
+            "status": "approved",
+            "approved_by_user": True,
+            "revoked": False,
+            "expires_at": "2026-07-12T09:59:59Z",
+        },
+        now=now,
+    ) is False
+    assert pipeline._speaker_voice_selection_approved(
+        {
+            "status": "approved",
+            "approved_by_user": True,
+            "revoked": False,
+            "expires_at": "2026-07-12T10:00:01Z",
+        },
+        now=now,
+    ) is True
+
+
+@pytest.mark.parametrize(
+    "invalid_state",
+    [
+        "revoked",
+        "string_revoked",
+        "expired",
+        "missing_expiry",
+        "missing_approver",
+        "multiple_approvers",
+        "missing_voice_hash",
+    ],
+)
+def test_configured_dialogue_default_rechecks_exact_current_approval(
+    tmp_path: Path,
+    invalid_state: str,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    job_dir = tmp_path / invalid_state
+    job_dir.mkdir()
+    selection: dict[str, object] = {
+        "status": "approved",
+        "approved_by_user": True,
+        "revoked": False,
+        "expires_at": (datetime.now(UTC) + timedelta(days=7)).isoformat(),
+        "selected_callback_token": "approved-dialogue-token",
+        "voice_id_sha256": pipeline._sha256_bytes(b"approved-dialogue-id"),
+    }
+    if invalid_state == "revoked":
+        selection["revoked"] = True
+    elif invalid_state == "string_revoked":
+        selection["revoked"] = "true"
+    elif invalid_state == "expired":
+        selection["expires_at"] = (
+            datetime.now(UTC) - timedelta(minutes=1)
+        ).isoformat()
+    elif invalid_state == "missing_expiry":
+        selection.pop("expires_at")
+    elif invalid_state == "missing_approver":
+        selection.pop("approved_by_user")
+    elif invalid_state == "multiple_approvers":
+        selection["approved_by_family"] = True
+    else:
+        selection.pop("voice_id_sha256")
+    candidate: dict[str, object] = {
+        "voice_id": "approved-dialogue-id",
+        "voice_id_sha256": pipeline._sha256_bytes(
+            b"approved-dialogue-id"
+        ),
+        "public": {"language": "en-US"},
+    }
+    if invalid_state == "missing_voice_hash":
+        candidate.pop("voice_id_sha256")
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": invalid_state,
+            "provider": {"dialogue_voice_selection": selection},
+        },
+    )
+    pipeline._write_private_json(
+        job_dir / "voice_audition" / "private.json",
+        {
+            "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
+            "candidates": {
+                "approved-dialogue-token": candidate,
+            },
+        },
+        private_parent=True,
+    )
+
+    assert pipeline._configured_dialogue_voice_selection(job_dir) == {}
+
+
+def test_private_speaker_selection_requires_voice_hash_binding() -> None:
+    pipeline = audiobook_epub_pipeline
+    now = datetime.now(UTC)
+    profile = {
+        "profile_provenance": "private_job_profile",
+        "voice_selection": {
+            "status": "approved",
+            "approved_by_user": True,
+            "revoked": False,
+            "expires_at": (now + timedelta(days=7)).isoformat(),
+            "selected_callback_token": "unbound-token",
+        },
+    }
+
+    assert pipeline._approved_speaker_voice(
+        profile=profile,
+        private_candidates={
+            "unbound-token": {"voice_id": "unbound-private-id"}
+        },
+        now=now,
+    ) == {}
+
+
 def test_voice_candidate_score_matches_multiword_ethnicity_hint() -> None:
     pipeline = audiobook_epub_pipeline
     profile = {
         "traits": {
-            "ethnicity": {
-                "value": "Austrian Nigerian",
-                "provenance": "unit_test",
-                "confidence": 1.0,
-            }
+            "ethnicity": _approved_casting_trait(
+                pipeline,
+                "Austrian Nigerian",
+                provenance="unit_test",
+            )
         },
+        "casting_review_validated_by_profile_registry": True,
     }
     preset_match = audiobook_epub_pipeline.VoicePreset(
         preset_key="voice_match",
@@ -967,16 +1188,576 @@ def test_voice_candidate_score_matches_multiword_ethnicity_hint() -> None:
     assert "ethnicity" not in miss_matched
 
 
+def test_voice_candidate_score_ignores_ineligible_sensitive_source_hint() -> None:
+    pipeline = audiobook_epub_pipeline
+    profile = {
+        "traits": {
+            "ethnicity": {
+                "value": "Nigerian",
+                "provenance": "explicit_source_phrase",
+                "confidence": 0.95,
+                "casting_eligible": False,
+                "requires_human_approval": True,
+            }
+        }
+    }
+    preset = audiobook_epub_pipeline.VoicePreset(
+        preset_key="source_hint_must_not_rank",
+        voice_id="private-voice-id",
+        label="Catalog voice",
+        language="en-US",
+        tags=("nigerian", "dialogue"),
+        supported_languages=("en-US",),
+        default=False,
+        source="unit-test",
+    )
+
+    _score, matched, unmatched = pipeline._speaker_voice_candidate_score(
+        preset=preset,
+        profile=profile,
+        render_language="en-US",
+    )
+
+    assert "ethnicity" not in matched
+    assert "ethnicity" not in unmatched
+
+
+def test_generic_approved_status_does_not_authorize_sensitive_casting_hint() -> None:
+    pipeline = audiobook_epub_pipeline
+    profile = {
+        "traits": {
+            "ethnicity": {
+                "value": "Nigerian",
+                "provenance": "explicit_source_phrase",
+                "confidence": 0.95,
+                "casting_eligible": True,
+                "requires_human_approval": True,
+                "status": "approved",
+            }
+        }
+    }
+    preset = audiobook_epub_pipeline.VoicePreset(
+        preset_key="generic_status_must_not_rank",
+        voice_id="private-voice-id",
+        label="Catalog voice",
+        language="en-US",
+        tags=("nigerian", "dialogue"),
+        supported_languages=("en-US",),
+        source="unit-test",
+    )
+
+    _score, matched, unmatched = pipeline._speaker_voice_candidate_score(
+        preset=preset,
+        profile=profile,
+        render_language="en-US",
+    )
+
+    assert "ethnicity" not in matched
+    assert "ethnicity" not in unmatched
+
+
+def test_unresolved_conflicting_sensitive_evidence_does_not_rank() -> None:
+    pipeline = audiobook_epub_pipeline
+    profile = {
+        "traits": {
+            "gender_presentation": _approved_casting_trait(
+                pipeline,
+                "female",
+                conflicting_evidence_present=True,
+            )
+        }
+    }
+    preset = audiobook_epub_pipeline.VoicePreset(
+        preset_key="unresolved_conflict_must_not_rank",
+        voice_id="private-voice-id",
+        label="Catalog voice",
+        language="en-US",
+        tags=("female", "dialogue"),
+        supported_languages=("en-US",),
+        source="unit-test",
+    )
+
+    _score, matched, unmatched = pipeline._speaker_voice_candidate_score(
+        preset=preset,
+        profile=profile,
+        render_language="en-US",
+    )
+
+    assert "gender_presentation" not in matched
+    assert "gender_presentation" not in unmatched
+
+
+def test_forged_direct_segment_casting_markers_cannot_affect_ranking(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-id",
+                    "label": "Narrator",
+                    "language": "en",
+                    "tags": ["narration"],
+                },
+                {
+                    "voice_id": "neutral-id",
+                    "label": "Neutral dialogue",
+                    "language": "en",
+                    "tags": ["neutral", "dialogue"],
+                },
+                {
+                    "voice_id": "female-id",
+                    "label": "Female dialogue",
+                    "language": "en",
+                    "gender": "female",
+                    "tags": ["dialogue"],
+                },
+            ]
+        ),
+    )
+    job_dir = tmp_path / "forged-segment-markers"
+    job_dir.mkdir()
+    pipeline._write_job(
+        job_dir,
+        {"job_id": "forged-segment-markers", "metadata": {"source_sha256": "seed"}},
+    )
+    plain = _speaker_row(pipeline, "Unreviewed speaker")
+    forged = _speaker_row(
+        pipeline,
+        "Unreviewed speaker",
+        traits={
+            "gender_presentation": _approved_casting_trait(
+                pipeline,
+                "female",
+            )
+        },
+    )
+
+    baseline = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(plain,),
+        narrator_voice_id="narrator-id",
+        render_language="en",
+    )
+    attempted_forgery = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(forged,),
+        narrator_voice_id="narrator-id",
+        render_language="en",
+    )
+
+    speaker_id = pipeline._speaker_id_from_label("Unreviewed speaker")
+    assert attempted_forgery["cast_map_sha256"] == baseline["cast_map_sha256"]
+    assert attempted_forgery["private"][speaker_id]["traits"] == {}
+    assert attempted_forgery["private"][speaker_id]["matched_trait_kinds"] == (
+        baseline["private"][speaker_id]["matched_trait_kinds"]
+    )
+    assert attempted_forgery["private"][speaker_id]["unmatched_trait_kinds"] == (
+        baseline["private"][speaker_id]["unmatched_trait_kinds"]
+    )
+    assert "gender_presentation" not in attempted_forgery["private"][speaker_id][
+        "matched_trait_kinds"
+    ]
+
+
+def test_automatic_cast_blocks_when_no_voice_matches_reviewed_sensitive_traits(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-id",
+                    "label": "Narrator",
+                    "language": "en",
+                    "tags": ["narration"],
+                },
+                {
+                    "voice_id": "wrong-young-male-id",
+                    "label": "Wrong cast",
+                    "language": "en",
+                    "tags": ["dialogue", "male", "young_adult"],
+                },
+                {
+                    "voice_id": "untagged-id",
+                    "label": "Unverified cast",
+                    "language": "en",
+                    "tags": ["dialogue"],
+                },
+            ]
+        ),
+    )
+    job_dir = tmp_path / "no-sensitive-match"
+    job_dir.mkdir()
+    profile = _approved_stored_speaker_profile(
+        pipeline,
+        "Maria",
+        {
+            "gender_presentation": "female",
+            "age_band": "senior",
+        },
+    )
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": "no-sensitive-match",
+            "speaker_profiles": {"Maria": profile},
+        },
+    )
+
+    result = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(_speaker_row(pipeline, "Maria"),),
+        narrator_voice_id="narrator-id",
+        render_language="en",
+    )
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == (
+        "speaker_voice_sensitive_traits_unmatched_or_unverified"
+    )
+    assert result["public"]["trait_values_exposed"] is False
+
+
+def test_global_dialogue_default_cannot_override_reviewed_sensitive_traits(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-id",
+                    "label": "Narrator",
+                    "language": "en",
+                    "tags": ["narration"],
+                },
+                {
+                    "voice_id": "wrong-default-id",
+                    "label": "Wrong default",
+                    "language": "en",
+                    "tags": ["dialogue", "male", "young_adult"],
+                },
+                {
+                    "voice_id": "review-compatible-id",
+                    "label": "Compatible cast",
+                    "language": "en",
+                    "tags": ["dialogue", "female", "senior"],
+                },
+            ]
+        ),
+    )
+    job_dir = tmp_path / "default-cannot-override"
+    job_dir.mkdir()
+    profile = _approved_stored_speaker_profile(
+        pipeline,
+        "Maria",
+        {
+            "gender_presentation": "female",
+            "age_band": "senior",
+        },
+    )
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": "default-cannot-override",
+            "speaker_profiles": {"Maria": profile},
+        },
+    )
+
+    result = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(_speaker_row(pipeline, "Maria"),),
+        narrator_voice_id="narrator-id",
+        render_language="en",
+        default_dialogue_selection={
+            "voice_id": "wrong-default-id",
+            "source": "global_default",
+        },
+    )
+
+    speaker_id = pipeline._speaker_id_from_label("Maria")
+    assert result["status"] == "ready"
+    assert result["private"][speaker_id]["voice_id"] == (
+        "review-compatible-id"
+    )
+
+
+@pytest.mark.parametrize(
+    "approved_voice_id",
+    ["explicit-mismatched-id", "explicit-unverified-id"],
+)
+def test_explicit_speaker_voice_must_match_all_reviewed_sensitive_traits(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    approved_voice_id: str,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    presets = [
+        {
+            "voice_id": "narrator-id",
+            "label": "Narrator",
+            "language": "en-US",
+            "tags": ["narration"],
+        },
+        {
+            "voice_id": "review-compatible-id",
+            "label": "Compatible cast",
+            "language": "en-US",
+            "tags": ["dialogue", "female", "senior"],
+        },
+    ]
+    if approved_voice_id == "explicit-mismatched-id":
+        presets.append(
+            {
+                "voice_id": approved_voice_id,
+                "label": "Mismatched cast",
+                "language": "en-US",
+                "tags": ["dialogue", "male", "young_adult"],
+            }
+        )
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(presets),
+    )
+    job_dir = tmp_path / approved_voice_id
+    job_dir.mkdir()
+    profile = _approved_stored_speaker_profile(
+        pipeline,
+        "Maria",
+        {
+            "gender_presentation": "female",
+            "age_band": "senior",
+        },
+    )
+    profile["voice_selection"] = {
+        "status": "approved",
+        "approved_by_user": True,
+        "revoked": False,
+        "expires_at": (datetime.now(UTC) + timedelta(days=7)).isoformat(),
+        "selected_callback_token": "maria-explicit-token",
+        "voice_id_sha256": pipeline._sha256_bytes(
+            approved_voice_id.encode("utf-8")
+        ),
+    }
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": approved_voice_id,
+            "speaker_profiles": {"Maria": profile},
+        },
+    )
+    pipeline._write_private_json(
+        job_dir / "voice_audition" / "private.json",
+        {
+            "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
+            "candidates": {
+                "maria-explicit-token": {
+                    "voice_id": approved_voice_id,
+                    "voice_id_sha256": pipeline._sha256_bytes(
+                        approved_voice_id.encode("utf-8")
+                    ),
+                    "public": {"language": "en-US"},
+                }
+            },
+        },
+        private_parent=True,
+    )
+
+    result = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(_speaker_row(pipeline, "Maria"),),
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == (
+        "speaker_voice_sensitive_traits_unmatched_or_unverified"
+    )
+    assert approved_voice_id not in json.dumps(result["public"], sort_keys=True)
+    assert result["public"]["trait_values_exposed"] is False
+
+
+@pytest.mark.parametrize("approved_first", [True, False])
+def test_divergent_duplicate_speaker_voice_selection_never_resurrects_approval(
+    tmp_path: Path,
+    approved_first: bool,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    job_dir = tmp_path / ("approved-first" if approved_first else "revoked-first")
+    job_dir.mkdir()
+    speaker_id = pipeline._speaker_id_from_label("Anna")
+    approved = {
+        "speaker_id": speaker_id,
+        "voice_selection": {
+            "status": "approved",
+            "approved_by_user": True,
+            "revoked": False,
+            "expires_at": (datetime.now(UTC) + timedelta(days=7)).isoformat(),
+            "selected_callback_token": "old-approved-token",
+            "voice_id_sha256": pipeline._sha256_bytes(b"old-approved-id"),
+        },
+    }
+    revoked = json.loads(json.dumps(approved))
+    revoked["voice_selection"]["revoked"] = True
+    rows = [approved, revoked] if approved_first else [revoked, approved]
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": job_dir.name,
+            "provider": {"speaker_voice_selections": rows},
+        },
+    )
+
+    profiles = pipeline._speaker_profile_rows(job_dir)
+
+    assert len(profiles) == 1
+    assert profiles[0]["speaker_id"] == speaker_id
+    assert profiles[0]["voice_selection"] == {}
+    assert profiles[0]["voice_selection_state_ambiguous"] is True
+    assert pipeline._approved_speaker_voice(
+        profile=profiles[0],
+        private_candidates={
+            "old-approved-token": {
+                "voice_id": "old-approved-id",
+                "voice_id_sha256": pipeline._sha256_bytes(b"old-approved-id"),
+            }
+        },
+        now=datetime.now(UTC),
+    ) == {}
+
+
+def test_speaker_profile_lookup_prioritizes_exact_id_and_fails_alias_collision_closed() -> None:
+    pipeline = audiobook_epub_pipeline
+    speaker_id = pipeline._speaker_id_from_label("Shared alias")
+    alias_first = {
+        "speaker_id": "speaker_other_profile",
+        "speaker_label": "Wrong alias owner",
+        "alias_ids": [speaker_id],
+        "traits": {"style": {"value": "wrong"}},
+        "voice_selection": {"status": "approved"},
+        "profile_provenance": "private_job_profile",
+    }
+    exact_second = {
+        "speaker_id": speaker_id,
+        "speaker_label": "Exact owner",
+        "alias_ids": [],
+        "traits": {"style": {"value": "exact"}},
+        "voice_selection": {},
+        "profile_provenance": "private_job_profile",
+    }
+
+    exact = pipeline._profile_for_speaker(
+        (alias_first, exact_second),
+        speaker_id=speaker_id,
+    )
+    ambiguous = pipeline._profile_for_speaker(
+        (
+            alias_first,
+            {
+                **exact_second,
+                "speaker_id": "speaker_second_alias_owner",
+                "alias_ids": [speaker_id],
+            },
+        ),
+        speaker_id=speaker_id,
+    )
+
+    assert exact["speaker_label"] == "Exact owner"
+    assert ambiguous["profile_provenance"] == (
+        "ambiguous_profile_key_neutral_fallback"
+    )
+    assert ambiguous["traits"] == {}
+    assert ambiguous["voice_selection"] == {}
+    assert ambiguous["casting_review_state_ambiguous"] is True
+    assert ambiguous["voice_selection_state_ambiguous"] is True
+
+
+def test_profile_conflict_review_is_bound_to_exact_superseded_evidence(
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    job_dir = tmp_path / "exact-conflict-review"
+    job_dir.mkdir()
+    profile = _approved_stored_speaker_profile(
+        pipeline,
+        "Maria",
+        {
+            "gender_presentation": {
+                "value": "female",
+                "provenance": "approved_character_sheet",
+                "conflicting_evidence_present": True,
+                "superseded_provenance": "source_pronoun_inference",
+                "superseded_evidence_sha256": "a" * 64,
+            }
+        },
+    )
+    exact_review = dict(profile["casting_review"])
+    assert exact_review["source_conflict_acknowledged"] is True
+    assert len(str(exact_review["reviewed_conflicts_sha256"])) == 64
+
+    blanket_ack = json.loads(json.dumps(profile))
+    blanket_ack["casting_review"].pop("reviewed_conflicts_sha256")
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": "blanket-conflict-ack",
+            "speaker_profiles": {"Maria": blanket_ack},
+        },
+    )
+    assert pipeline._speaker_profile_rows(job_dir)[0]["traits"] == {}
+
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": "exact-conflict-ack",
+            "speaker_profiles": {"Maria": profile},
+        },
+    )
+    exact_rows = pipeline._speaker_profile_rows(job_dir)
+    exact_trait = exact_rows[0]["traits"]["gender_presentation"]
+    assert exact_trait["conflict_review_approved"] is True
+    assert len(str(exact_trait["conflict_review_evidence_sha256"])) == 64
+
+    changed_evidence = json.loads(json.dumps(profile))
+    changed_evidence["traits"]["gender_presentation"][
+        "superseded_evidence_sha256"
+    ] = "b" * 64
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": "changed-conflict-evidence",
+            "speaker_profiles": {"Maria": changed_evidence},
+        },
+    )
+    assert pipeline._speaker_profile_rows(job_dir)[0]["traits"] == {}
+
+
 def test_speaker_voice_candidate_score_prefers_audiobook_capability_over_general_voice() -> None:
     pipeline = audiobook_epub_pipeline
     profile = {
         "traits": {
-            "gender_presentation": {
-                "value": "masculine",
-                "provenance": "explicit_source_phrase",
-                "confidence": 0.9,
-            }
-        }
+            "gender_presentation": _approved_casting_trait(
+                pipeline,
+                "masculine",
+                provenance="approved_casting_notes",
+                confidence=0.9,
+            )
+        },
+        "casting_review_validated_by_profile_registry": True,
     }
     audiobook = audiobook_epub_pipeline.VoicePreset(
         preset_key="audiobook_voice",
@@ -1048,43 +1829,55 @@ def test_speaker_cast_uses_explicit_traits_as_ranking_hints_and_is_stable(
     )
     job_dir = tmp_path / "stable-cast"
     job_dir.mkdir()
-    (job_dir / "job.json").write_text(
-        json.dumps({"job_id": "stable-cast", "metadata": {"source_sha256": "book-seed"}}),
-        encoding="utf-8",
-    )
     amala_traits = {
         "gender_presentation": {
             "value": "female",
-            "provenance": "source_character_sheet",
-            "confidence": 1.0,
+            "provenance": "approved_character_sheet",
         },
         "approximate_age": {
             "value": 74,
-            "provenance": "source_character_sheet",
+            "provenance": "approved_character_sheet",
             "confidence": 0.95,
         },
         "ethnicity": {
             "value": "east_asian",
             "provenance": "author_approved_character_sheet",
-            "confidence": 1.0,
         },
     }
     ben_traits = {
         "gender_presentation": {
             "value": "male",
-            "provenance": "source_character_sheet",
-            "confidence": 1.0,
+            "provenance": "approved_character_sheet",
         },
         "approximate_age": {
             "value": 25,
-            "provenance": "source_character_sheet",
+            "provenance": "approved_character_sheet",
             "confidence": 0.9,
         },
     }
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": "stable-cast",
+            "metadata": {"source_sha256": "book-seed"},
+            "speaker_profiles": {
+                "Amala": _approved_stored_speaker_profile(
+                    pipeline,
+                    "Amala",
+                    amala_traits,
+                ),
+                "Ben": _approved_stored_speaker_profile(
+                    pipeline,
+                    "Ben",
+                    ben_traits,
+                ),
+            },
+        },
+    )
     rows = (
-        _speaker_row(pipeline, "Ben", traits=ben_traits, chapter_index=1),
-        _speaker_row(pipeline, "Amala", traits=amala_traits, chapter_index=1),
-        _speaker_row(pipeline, "Amala", traits=amala_traits, chapter_index=8),
+        _speaker_row(pipeline, "Ben", chapter_index=1),
+        _speaker_row(pipeline, "Amala", chapter_index=1),
+        _speaker_row(pipeline, "Amala", chapter_index=8),
     )
 
     first = pipeline._resolve_audiobook_speaker_cast(
@@ -1157,37 +1950,26 @@ def test_speaker_cast_matches_explicit_catalog_demographics_locale_and_accent(
     )
     job_dir = tmp_path / "explicit-catalog-metadata"
     job_dir.mkdir()
-    row = _speaker_row(
-        pipeline,
-        "Speaker 17",
-        traits={
-            "gender_presentation": {
-                "value": "feminine",
-                "provenance": "approved_character_sheet",
-                "confidence": 1.0,
-            },
-            "age_band": {
-                "value": "older_adult",
-                "provenance": "approved_character_sheet",
-                "confidence": 1.0,
-            },
-            "locale": {
-                "value": "en-NG",
-                "provenance": "approved_casting_notes",
-                "confidence": 1.0,
-            },
-            "dialect": {
-                "value": "Austrian",
-                "provenance": "approved_casting_notes",
-                "confidence": 1.0,
-            },
-            "cultural_identity": {
-                "value": "Nigerian",
-                "provenance": "approved_casting_notes",
-                "confidence": 1.0,
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": "explicit-catalog-metadata",
+            "speaker_profiles": {
+                "Speaker 17": _approved_stored_speaker_profile(
+                    pipeline,
+                    "Speaker 17",
+                    {
+                        "gender_presentation": "feminine",
+                        "age_band": "older_adult",
+                        "locale": "en-NG",
+                        "dialect": "Austrian",
+                        "cultural_identity": "Nigerian",
+                    },
+                )
             },
         },
     )
+    row = _speaker_row(pipeline, "Speaker 17")
 
     result = pipeline._resolve_audiobook_speaker_cast(
         job_dir=job_dir,
@@ -1266,21 +2048,24 @@ def test_speaker_cast_matches_explicit_age_bands(
     )
     job_dir = tmp_path / f"age-{catalog_age}"
     job_dir.mkdir()
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": f"age-{catalog_age}",
+            "speaker_profiles": {
+                "Age-coded speaker": _approved_stored_speaker_profile(
+                    pipeline,
+                    "Age-coded speaker",
+                    {"approximate_age": speaker_age},
+                )
+            },
+        },
+    )
 
     result = pipeline._resolve_audiobook_speaker_cast(
         job_dir=job_dir,
         segment_rows=(
-            _speaker_row(
-                pipeline,
-                "Age-coded speaker",
-                traits={
-                    "approximate_age": {
-                        "value": speaker_age,
-                        "provenance": "approved_character_sheet",
-                        "confidence": 1.0,
-                    }
-                },
-            ),
+            _speaker_row(pipeline, "Age-coded speaker"),
         ),
         narrator_voice_id="narrator-id",
         render_language="en",
@@ -1326,21 +2111,24 @@ def test_speaker_cast_supports_explicit_nonbinary_gender_metadata(
     )
     job_dir = tmp_path / "nonbinary-cast"
     job_dir.mkdir()
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": "nonbinary-cast",
+            "speaker_profiles": {
+                "Speaker 21": _approved_stored_speaker_profile(
+                    pipeline,
+                    "Speaker 21",
+                    {"gender_presentation": "non_binary"},
+                )
+            },
+        },
+    )
 
     result = pipeline._resolve_audiobook_speaker_cast(
         job_dir=job_dir,
         segment_rows=(
-            _speaker_row(
-                pipeline,
-                "Speaker 21",
-                traits={
-                    "gender_presentation": {
-                        "value": "non_binary",
-                        "provenance": "approved_casting_notes",
-                        "confidence": 1.0,
-                    }
-                },
-            ),
+            _speaker_row(pipeline, "Speaker 21"),
         ),
         narrator_voice_id="narrator-id",
         render_language="en",
@@ -1353,7 +2141,7 @@ def test_speaker_cast_supports_explicit_nonbinary_gender_metadata(
     ]
 
 
-def test_speaker_cast_conflicting_traits_are_ignored_stably_for_neutral_fallback(
+def test_speaker_cast_direct_sensitive_conflicts_are_ignored_without_kind_leak(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -1398,22 +2186,22 @@ def test_speaker_cast_conflicting_traits_are_ignored_stably_for_neutral_fallback
         pipeline,
         "Ambiguous speaker",
         traits={
-            "gender": {
-                "value": "female",
-                "provenance": "explicit_source_phrase",
-                "confidence": 0.9,
-            }
+            "gender": _approved_casting_trait(
+                pipeline,
+                "female",
+                confidence=0.9,
+            )
         },
     )
     male_row = _speaker_row(
         pipeline,
         "Ambiguous speaker",
         traits={
-            "gender_presentation": {
-                "value": "male",
-                "provenance": "explicit_source_phrase",
-                "confidence": 0.9,
-            }
+            "gender_presentation": _approved_casting_trait(
+                pipeline,
+                "male",
+                confidence=0.9,
+            )
         },
     )
 
@@ -1433,13 +2221,10 @@ def test_speaker_cast_conflicting_traits_are_ignored_stably_for_neutral_fallback
     speaker_id = pipeline._speaker_id_from_label("Ambiguous speaker")
     assert first["private"][speaker_id]["voice_id"] == "neutral-id"
     assert first["private"][speaker_id]["traits"] == {}
-    assert first["private"][speaker_id]["ambiguous_trait_kinds"] == [
-        "gender_presentation"
-    ]
+    assert first["private"][speaker_id]["ambiguous_trait_kinds"] == []
     assert first["cast_map_sha256"] == second["cast_map_sha256"]
-    assert first["public"]["cast"][0]["ambiguous_trait_kinds"] == [
-        "gender_presentation"
-    ]
+    assert first["public"]["cast"][0]["ambiguous_trait_count"] == 0
+    assert "gender_presentation" not in json.dumps(first["public"], sort_keys=True)
 
 
 def test_speaker_and_voice_names_never_supply_demographic_casting_traits(
@@ -1524,6 +2309,10 @@ def test_speaker_cast_approved_private_choice_wins_without_public_voice_id(
                         "voice_selection": {
                             "status": "approved",
                             "approved_by_user": True,
+                            "revoked": False,
+                            "expires_at": (
+                                datetime.now(UTC) + timedelta(days=7)
+                            ).isoformat(),
                             "selected_callback_token": "maria-approved-token",
                             "voice_id_sha256": audiobook_epub_pipeline._sha256_bytes(
                                 b"approved-id"
@@ -1565,7 +2354,98 @@ def test_speaker_cast_approved_private_choice_wins_without_public_voice_id(
     rendered_public = json.dumps(result["public"], sort_keys=True)
     assert "approved-id" not in rendered_public
     assert "approved-id" not in (job_dir / "job.json").read_text(encoding="utf-8")
-    assert result["public"]["cast"][0]["voice_id_sha256"] == pipeline._sha256_bytes(b"approved-id")
+    public_entry = result["public"]["cast"][0]
+    assert public_entry["speaker_index"] == 1
+    assert "voice_id_sha256" not in public_entry
+    assert "speaker_id" not in public_entry
+    assert "speaker_label_sha256" not in public_entry
+
+
+def test_public_cast_projection_omits_identifiers_hashes_and_trait_names(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-private-id",
+                    "label": "Narrator",
+                    "language": "en-US",
+                    "tags": ["narration"],
+                },
+                {
+                    "voice_id": "matched-private-id",
+                    "label": "Sensitive catalog label",
+                    "language": "en-US",
+                    "tags": ["female", "senior", "nigerian", "dialogue"],
+                },
+                {
+                    "voice_id": "neutral-private-id",
+                    "label": "Neutral catalog label",
+                    "language": "en-US",
+                    "tags": ["neutral", "dialogue"],
+                },
+            ]
+        ),
+    )
+    job_dir = tmp_path / "safe-public-cast"
+    job_dir.mkdir()
+    label = "Private Maria Label"
+    speaker_id = pipeline._speaker_id_from_label(label)
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": "safe-public-cast",
+            "speaker_profiles": {
+                label: _approved_stored_speaker_profile(
+                    pipeline,
+                    label,
+                    {
+                        "gender_presentation": "female",
+                        "age_band": "senior",
+                        "cultural_identity": "Nigerian",
+                    },
+                )
+            },
+        },
+    )
+
+    result = pipeline._resolve_audiobook_speaker_cast(
+        job_dir=job_dir,
+        segment_rows=(_speaker_row(pipeline, label),),
+        narrator_voice_id="narrator-private-id",
+        render_language="en-US",
+    )
+
+    public_entry = result["public"]["cast"][0]
+    public_json = json.dumps(result["public"], sort_keys=True)
+    assert public_entry["speaker_index"] == 1
+    assert public_entry["matched_trait_count"] == 3
+    assert set(public_entry) == {
+        "speaker_index",
+        "voice_label",
+        "selection_source",
+        "matched_trait_count",
+        "unmatched_trait_count",
+        "ambiguous_trait_count",
+        "trait_evidence_confidence",
+        "unknown_neutral_fallback",
+        "raw_voice_id_exposed",
+        "identity_asserted",
+    }
+    assert speaker_id not in public_json
+    assert label not in public_json
+    assert "matched-private-id" not in public_json
+    assert pipeline._sha256_bytes(b"matched-private-id") not in public_json
+    assert pipeline._sha256_bytes(label.encode("utf-8")) not in public_json
+    assert "gender_presentation" not in public_json
+    assert "approximate_age" not in public_json
+    assert "ethnicity" not in public_json
+    assert "Nigerian" not in public_json
 
 
 def test_write_job_strips_raw_speaker_voice_ids_and_keeps_private_token(
@@ -1842,10 +2722,14 @@ def test_speaker_cast_snapshot_survives_catalog_change_on_resume(
             "job_id": "cast-resume",
             "speaker_profiles": {
                 "Anna": {
-                    "voice_selection": {
-                        "status": "approved",
-                        "approved_by_user": True,
-                        "selected_callback_token": "anna-approved-token",
+                        "voice_selection": {
+                            "status": "approved",
+                            "approved_by_user": True,
+                            "revoked": False,
+                            "expires_at": (
+                                datetime.now(UTC) + timedelta(days=7)
+                            ).isoformat(),
+                            "selected_callback_token": "anna-approved-token",
                     }
                 }
             },
@@ -1904,6 +2788,152 @@ def test_speaker_cast_snapshot_survives_catalog_change_on_resume(
     )
     assert invalid["status"] == "blocked"
     assert invalid["reason"] == "speaker_cast_snapshot_invalid"
+
+
+@pytest.mark.parametrize("invalid_selection", ["revoked", "expired"])
+def test_invalid_exact_voice_selection_changes_snapshot_and_is_not_reused(
+    monkeypatch,
+    tmp_path: Path,
+    invalid_selection: str,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {
+                    "voice_id": "narrator-id",
+                    "label": "Narrator",
+                    "language": "en-US",
+                    "tags": ["narration"],
+                },
+                {
+                    "voice_id": "approved-id",
+                    "label": "Approved actor",
+                    "language": "en-US",
+                    "tags": ["dialogue"],
+                },
+                {
+                    "voice_id": "neutral-id",
+                    "label": "Neutral actor",
+                    "language": "en-US",
+                    "tags": ["neutral", "dialogue"],
+                },
+            ]
+        ),
+    )
+    job_dir = tmp_path / f"selection-{invalid_selection}"
+    job_dir.mkdir()
+    speaker_id = pipeline._speaker_id_from_label("Anna")
+    selection = {
+        "status": "approved",
+        "approved_by_user": True,
+        "revoked": False,
+        "expires_at": (datetime.now(UTC) + timedelta(days=7)).isoformat(),
+        "selected_callback_token": "anna-approved-token",
+        "voice_id_sha256": pipeline._sha256_bytes(b"approved-id"),
+    }
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": f"selection-{invalid_selection}",
+            "speaker_profiles": {
+                "Anna": {"voice_selection": selection},
+            },
+        },
+    )
+    pipeline._write_private_json(
+        job_dir / "voice_audition" / "private.json",
+        {
+            "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
+            "candidates": {
+                "anna-approved-token": {
+                    "voice_id": "approved-id",
+                    "voice_id_sha256": pipeline._sha256_bytes(b"approved-id"),
+                    "public": {
+                        "label": "Approved actor",
+                        "language": "en-US",
+                    },
+                }
+            },
+        },
+        private_parent=True,
+    )
+    plan = {
+        "contract_name": pipeline.NARRATION_PLAN_CONTRACT_NAME,
+        "plan_sha256": "c" * 64,
+        "source_aggregate_sha256": "d" * 64,
+        "passages": [
+            {
+                "speaker_role": "dialogue",
+                "speaker_id": speaker_id,
+                "speaker_label": "Anna",
+                "text": "Hello.",
+                "traits": {},
+                "attribution_provenance": "explicit_post_attribution",
+                "attribution_confidence": 0.98,
+            }
+        ],
+        "speakers": [
+            {
+                "speaker_role": "dialogue",
+                "speaker_id": speaker_id,
+                "speaker_label": "Anna",
+                "traits": {},
+                "attribution_provenance": "explicit_post_attribution",
+                "attribution_confidence": 0.98,
+            }
+        ],
+    }
+    effective_before = pipeline._speaker_cast_effective_inputs_sha256(job_dir)
+    first = pipeline._resolve_speaker_cast_for_narration_plan(
+        job_dir=job_dir,
+        narration_plan=plan,
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+    snapshot_before = pipeline._speaker_cast_snapshot_path(
+        job_dir,
+        plan,
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+    assert first["private"][speaker_id]["selection_source"] == (
+        "approved_private_speaker_selection"
+    )
+    assert snapshot_before.is_file()
+
+    stored = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    invalid = stored["speaker_profiles"]["Anna"]["voice_selection"]
+    if invalid_selection == "revoked":
+        invalid["revoked"] = True
+    else:
+        invalid["expires_at"] = (
+            datetime.now(UTC) - timedelta(minutes=1)
+        ).isoformat()
+    pipeline._write_job(job_dir, stored)
+
+    effective_after = pipeline._speaker_cast_effective_inputs_sha256(job_dir)
+    snapshot_after = pipeline._speaker_cast_snapshot_path(
+        job_dir,
+        plan,
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+    resumed = pipeline._resolve_speaker_cast_for_narration_plan(
+        job_dir=job_dir,
+        narration_plan=plan,
+        narrator_voice_id="narrator-id",
+        render_language="en-US",
+    )
+
+    assert effective_after != effective_before
+    assert snapshot_after != snapshot_before
+    assert resumed["public"]["reused_private_snapshot"] is False
+    assert resumed["private"][speaker_id]["selection_source"] != (
+        "approved_private_speaker_selection"
+    )
 
 
 def test_automatic_speaker_cast_cap_uses_deterministic_neutral_sharing(
@@ -2044,6 +3074,7 @@ def test_unknown_approved_dialogue_voice_blocks_when_language_is_unverified(
         default_dialogue_selection={
             "voice_id": "unknown-private-id",
             "source": "explicit_operator_environment",
+            "revoked": False,
         },
     )
 
@@ -2080,8 +3111,31 @@ def test_stored_speaker_demographics_require_explicit_approval(tmp_path: Path) -
     assert len(rows) == 1
     assert rows[0]["traits"] == {}
 
-    approved = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
-    approved["speaker_profiles"]["Maria"]["traits_approved_by_user"] = True
+    generic_approval = json.loads(
+        (job_dir / "job.json").read_text(encoding="utf-8")
+    )
+    generic_approval["speaker_profiles"]["Maria"][
+        "traits_approved_by_user"
+    ] = True
+    pipeline._write_job(job_dir, generic_approval)
+    assert pipeline._speaker_profile_rows(job_dir)[0]["traits"] == {}
+
+    approved = {
+        "job_id": "profile-approval",
+        "speaker_profiles": {
+            "Maria": _approved_stored_speaker_profile(
+                pipeline,
+                "Maria",
+                {
+                    "gender_presentation": "female",
+                    "age_band": "senior",
+                    "cultural_identity": "private-background",
+                    "locale": "de-AT",
+                    "dialect": "Viennese",
+                },
+            )
+        },
+    }
     pipeline._write_job(job_dir, approved)
     approved_rows = pipeline._speaker_profile_rows(job_dir)
     assert set(approved_rows[0]["traits"]) == {
@@ -2091,6 +3145,108 @@ def test_stored_speaker_demographics_require_explicit_approval(tmp_path: Path) -
         "language",
         "accent",
     }
+
+
+@pytest.mark.parametrize(
+    "invalid_review",
+    [
+        "revoked",
+        "expired",
+        "trait_hash_mismatch",
+        "profile_ref_missing",
+        "profile_ref_hash_mismatch",
+    ],
+)
+def test_stored_speaker_demographics_reject_invalid_casting_review(
+    tmp_path: Path,
+    invalid_review: str,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    job_dir = tmp_path / invalid_review
+    job_dir.mkdir()
+    profile = _approved_stored_speaker_profile(
+        pipeline,
+        "Maria",
+        {
+            "gender_presentation": "female",
+            "age_band": "senior",
+            "cultural_identity": "private-background",
+        },
+    )
+    review = dict(profile["casting_review"])
+    if invalid_review == "revoked":
+        review["revoked"] = True
+    elif invalid_review == "expired":
+        review["reviewed_at"] = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+        review["expires_at"] = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    elif invalid_review == "profile_ref_missing":
+        profile.pop("speaker_profile_id")
+    elif invalid_review == "profile_ref_hash_mismatch":
+        review["speaker_profile_ref_sha256"] = "1" * 64
+    else:
+        review["speaker_traits_sha256"] = "0" * 64
+    profile["casting_review"] = review
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": invalid_review,
+            "speaker_profiles": {"Maria": profile},
+        },
+    )
+
+    rows = pipeline._speaker_profile_rows(job_dir)
+
+    assert len(rows) == 1
+    assert rows[0]["traits"] == {}
+
+
+@pytest.mark.parametrize(
+    "invalid_review",
+    ["revoked", "expired", "trait_hash_mismatch"],
+)
+def test_duplicate_invalid_profile_clears_prior_valid_traits(
+    tmp_path: Path,
+    invalid_review: str,
+) -> None:
+    pipeline = audiobook_epub_pipeline
+    job_dir = tmp_path / f"duplicate-{invalid_review}"
+    job_dir.mkdir()
+    valid = _approved_stored_speaker_profile(
+        pipeline,
+        "Maria",
+        {
+            "gender_presentation": "female",
+            "age_band": "senior",
+        },
+    )
+    invalid = json.loads(json.dumps(valid))
+    review = invalid["casting_review"]
+    if invalid_review == "revoked":
+        review["revoked"] = True
+    elif invalid_review == "expired":
+        review["reviewed_at"] = (
+            datetime.now(UTC) - timedelta(days=2)
+        ).isoformat()
+        review["expires_at"] = (
+            datetime.now(UTC) - timedelta(days=1)
+        ).isoformat()
+    else:
+        review["speaker_traits_sha256"] = "0" * 64
+    pipeline._write_job(
+        job_dir,
+        {
+            "job_id": f"duplicate-{invalid_review}",
+            "speaker_profiles": {"Maria": valid},
+            "narration": {"speaker_profiles": {"Maria": invalid}},
+        },
+    )
+
+    rows = pipeline._speaker_profile_rows(job_dir)
+
+    assert len(rows) == 1
+    assert rows[0]["traits"] == {}
+    assert rows[0]["casting_review_validated_by_profile_registry"] is False
+    assert rows[0]["casting_review_state_ambiguous"] is True
 
 
 @pytest.mark.parametrize(

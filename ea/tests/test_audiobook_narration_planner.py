@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 
 from app.services.audiobook_narration_planner import (
+    CASTING_TRAIT_POLICY_NAME,
     PLANNER_CONTRACT_NAME,
     PlannerChapter,
     plan_narration,
@@ -37,6 +38,7 @@ def test_inline_english_dialogue_keeps_tags_as_narrator_and_stable_named_speaker
     )
 
     assert plan["contract_name"] == PLANNER_CONTRACT_NAME
+    assert plan["casting_trait_policy"] == CASTING_TRAIT_POLICY_NAME
     assert plan["status"] == "ready"
     assert _reconstruct(plan, 1) == first
     assert _reconstruct(plan, 2) == second
@@ -111,6 +113,9 @@ def test_unattributed_turns_alternate_deterministically_with_uncertainty() -> No
         span["speaker_id"] for span in second_dialogue
     ]
     assert first_plan["uncertain_dialogue_span_count"] == 3
+    assert first_plan["casting_review_dialogue_span_count"] == 3
+    assert first_plan["casting_review_required"] is True
+    assert first_plan["automatic_casting_eligible"] is False
 
 
 def test_explicit_and_approved_traits_are_provenance_bearing_cast_hints() -> None:
@@ -130,12 +135,28 @@ def test_explicit_and_approved_traits_are_provenance_bearing_cast_hints() -> Non
     assert traits["accent"]["value"] == "Austrian"
     assert traits["cultural_or_ethnic_background"]["value"] == "Nigerian"
     assert traits["cultural_or_ethnic_background"]["sensitive_hint"] is True
+    assert traits["cultural_or_ethnic_background"]["casting_eligible"] is False
+    assert (
+        traits["cultural_or_ethnic_background"]["requires_human_approval"]
+        is True
+    )
     assert traits["style"] == {
         "value": "warm",
         "provenance": "approved_casting_notes",
         "confidence": 1.0,
         "sensitive_hint": False,
+        "casting_eligible": True,
+        "requires_human_approval": False,
+        "casting_approved": True,
     }
+    assert plan["casting_review_required"] is True
+    assert plan["automatic_casting_eligible"] is False
+    assert plan["review_required_trait_kinds"] == [
+        "accent",
+        "age_band",
+        "cultural_or_ethnic_background",
+        "gender_presentation",
+    ]
     assert anna["identity_claimed"] is False
 
 
@@ -166,6 +187,9 @@ def test_approved_casting_aliases_normalize_cultural_linguistic_and_age_metadata
         "provenance": "approved_casting_notes",
         "confidence": 1.0,
         "sensitive_hint": True,
+        "casting_eligible": True,
+        "requires_human_approval": False,
+        "casting_approved": True,
     }
     assert traits["accent"]["value"] == "Viennese"
     assert traits["language"]["value"] == "de-AT"
@@ -195,10 +219,46 @@ def test_named_appositives_elsewhere_in_paragraph_are_source_grounded_cast_hints
     assert anna["traits"]["age_band"]["value"] == "young_adult"
     assert anna["traits"]["cultural_or_ethnic_background"]["value"] == "Nigerian"
     assert anna["traits"]["cultural_or_ethnic_background"]["sensitive_hint"] is True
+    assert (
+        anna["traits"]["cultural_or_ethnic_background"]["casting_eligible"]
+        is False
+    )
     assert ben["traits"]["gender_presentation"]["value"] == "masculine"
     assert ben["traits"]["age_band"]["value"] == "older_adult"
     assert ben["traits"]["cultural_or_ethnic_background"]["value"] == "Austrian"
     assert all(speaker["identity_claimed"] is False for speaker in (anna, ben))
+
+
+def test_approved_casting_trait_wins_over_conflicting_source_hint() -> None:
+    text = '“Hello,” said Anna, an older adult man.'
+
+    plan = plan_narration(
+        (_chapter(1, text),),
+        language="en-US",
+        max_chars=180,
+        approved_speaker_profiles={
+            "Anna": {
+                "gender": "feminine",
+                "age_band": "young_adult",
+            }
+        },
+    )
+
+    anna = next(
+        speaker for speaker in plan["speakers"] if speaker["speaker_label"] == "Anna"
+    )
+    assert anna["traits"]["gender_presentation"]["value"] == "feminine"
+    assert anna["traits"]["age_band"]["value"] == "young_adult"
+    assert anna["traits"]["gender_presentation"]["casting_eligible"] is True
+    assert anna["traits"]["age_band"]["casting_eligible"] is True
+    assert anna["traits"]["gender_presentation"]["conflicting_evidence_present"] is True
+    assert anna["traits"]["age_band"]["conflicting_evidence_present"] is True
+    assert anna["traits"]["gender_presentation"]["superseded_provenance"] == (
+        "explicit_source_phrase"
+    )
+    assert plan["casting_review_required"] is True
+    assert plan["automatic_casting_eligible"] is False
+    assert plan["review_required_trait_kinds"] == ["age_band", "gender_presentation"]
 
 
 def test_german_attributive_age_and_gender_description_is_not_misread_as_child() -> None:
@@ -227,8 +287,8 @@ def test_approved_speaker_trait_change_invalidates_plan_hash() -> None:
         approved_speaker_profiles={"Anna": {"style": "calm"}},
     )
 
-    assert warm["version"] == 3
-    assert calm["version"] == 3
+    assert warm["version"] == 4
+    assert calm["version"] == 4
     assert warm["plan_sha256"] != calm["plan_sha256"]
 
 

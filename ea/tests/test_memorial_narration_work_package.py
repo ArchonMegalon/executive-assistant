@@ -2,16 +2,91 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from app.services.memorial_narration_work_package import (
+    REQUIRED_SPEAKER_CASTING_SCOPE,
     build_memorial_narration_work_package,
     materialize_memorial_narration_work_package,
     provider_safe_receipt,
     write_json_artifact,
 )
+
+
+BUILD_AT = datetime(2026, 7, 11, 9, 59, tzinfo=UTC)
+_PROFILE_TRAIT_ALIASES = {
+    "gender_presentation": ("gender_presentation", "gender"),
+    "age_band": ("age_band", "approximate_age", "age_range", "age"),
+    "cultural_or_ethnic_background": (
+        "cultural_or_ethnic_background",
+        "cultural_background",
+        "cultural_identity",
+        "ethnic_background",
+        "ethnicity",
+    ),
+    "accent": ("accent", "dialect"),
+    "language": ("language", "locale", "spoken_language", "native_language"),
+    "role": ("role", "character_role"),
+    "style": ("style", "performance_style"),
+}
+
+
+def _reviewed_speaker_profiles(
+    profiles: object,
+) -> dict[str, dict[str, object]] | None:
+    if profiles is None:
+        return None
+    reviewed: dict[str, dict[str, object]] = {}
+    for label, raw in dict(profiles).items():
+        profile = deepcopy(dict(raw))
+        if isinstance(profile.get("casting_review"), dict):
+            reviewed[str(label)] = profile
+            continue
+        traits: dict[str, str] = {}
+        for canonical, aliases in _PROFILE_TRAIT_ALIASES.items():
+            for alias in aliases:
+                value = " ".join(str(profile.get(alias) or "").split())
+                if value:
+                    traits[canonical] = value
+                    break
+        profile_ref = next(
+            (
+                str(profile.get(key) or "").strip()
+                for key in (
+                    "speaker_profile_id",
+                    "profile_id",
+                    "voice_profile_ref",
+                    "voice_profile_id",
+                )
+                if str(profile.get(key) or "").strip()
+            ),
+            "",
+        )
+        profile["casting_review"] = {
+            "status": "approved",
+            "scope": [REQUIRED_SPEAKER_CASTING_SCOPE],
+            "revoked": False,
+            "approved_by_family": True,
+            "speaker_profile_ref_sha256": hashlib.sha256(
+                profile_ref.encode("utf-8")
+            ).hexdigest(),
+            "speaker_traits_sha256": hashlib.sha256(
+                json.dumps(
+                    traits,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest(),
+            "reviewed_at": "2026-07-11T09:00:00Z",
+            "expires_at": "2026-07-31T09:00:00Z",
+        }
+        reviewed[str(label)] = profile
+    return reviewed
 
 
 def _voice_profile(*, revoked: bool = False) -> dict[str, object]:
@@ -62,12 +137,47 @@ def _narration_review(
 
 
 def _build(text: str, **kwargs: object) -> dict[str, object]:
+    options = dict(kwargs)
+    profiles = _reviewed_speaker_profiles(options.pop("speaker_profiles", None))
     return build_memorial_narration_work_package(
         slug="manfred",
         memorial_manifest=_manifest(text),
         voice_profile=_voice_profile(),
+        speaker_profiles=profiles,
         max_chars=256,
-        **kwargs,
+        observed_at=BUILD_AT,
+        **options,
+    )
+
+
+def _build_with_approved_attributions(
+    text: str, **kwargs: object
+) -> dict[str, object]:
+    options = dict(kwargs)
+    profiles = _reviewed_speaker_profiles(options.pop("speaker_profiles", None))
+    preliminary = _build(text, speaker_profiles=profiles, **options)
+    manifest = _manifest(text)
+    manifest["speaker_attribution_reviews"] = [
+        {
+            "status": "approved",
+            "scope": ["memorial_audiobook_speaker_attribution"],
+            "revoked": False,
+            "approved_by_family": True,
+            "reviewed_at": "2026-07-11T09:58:00Z",
+            "speaker_id": str(row["speaker_id"]),
+            "span_fingerprint": str(row["span_fingerprint"]),
+            "source_text_sha256": str(row["source_text_sha256"]),
+        }
+        for row in preliminary["speaker_attribution_review_requirements"]
+    ]
+    return build_memorial_narration_work_package(
+        slug="manfred",
+        memorial_manifest=manifest,
+        voice_profile=_voice_profile(),
+        speaker_profiles=profiles,
+        max_chars=256,
+        observed_at=BUILD_AT,
+        **options,
     )
 
 
@@ -87,6 +197,9 @@ def test_separates_narrator_from_attributed_dialogue_without_rewriting_source() 
         row for row in spans if isinstance(row, dict) and row.get("kind") == "dialogue"
     ]
     assert package["status"] == "ready_for_private_cast_resolution"
+    assert package["casting_trait_policy"] == (
+        "ea.audiobook_casting_trait_evidence_policy.v1"
+    )
     assert package["cast_resolution_authorized"] is True
     assert package["render_authorized"] is False
     assert package["synthesis_authorized"] is False
@@ -321,8 +434,8 @@ def test_publication_approval_alone_never_authorizes_card_narration(
         max_chars=256,
     )
 
-    assert package["contract_name"].endswith(".v3")
-    assert package["version"] == 3
+    assert package["contract_name"].endswith(".v4")
+    assert package["version"] == 4
     assert package["status"] == "blocked_no_approved_public_sources"
     assert provider_safe_receipt(package)["excluded_source_reason_counts"] == {
         reason: 1
@@ -507,6 +620,120 @@ def test_speaker_demographics_require_purpose_specific_casting_approval() -> Non
     assert handoff["mapping"] == "neutral_unprofiled_speaker"
 
 
+def test_intended_speaker_profile_without_casting_review_blocks_with_exact_reason() -> None:
+    text = "“Good morning,” Anna said."
+    package = build_memorial_narration_work_package(
+        slug="manfred",
+        memorial_manifest=_manifest(text),
+        voice_profile=_voice_profile(),
+        speaker_profiles={
+            "Anna": {
+                "approved": True,
+                "casting_approved": True,
+                "speaker_profile_id": "private-anna-unreviewed-profile",
+                "gender": "feminine",
+            }
+        },
+        max_chars=256,
+        observed_at=BUILD_AT,
+    )
+
+    assert package["status"] == "blocked_speaker_casting_review"
+    assert package["reason"] == "speaker_casting_review_required"
+    assert package["cast_handoff"]["status"] == (
+        "blocked_speaker_casting_review"
+    )
+    receipt = provider_safe_receipt(package)
+    assert receipt["speaker_casting_review_required_count"] == 1
+    assert receipt["speaker_casting_review_approved_count"] == 0
+    assert receipt["speaker_casting_review_excluded_reason_counts"] == {
+        "speaker_casting_review_missing": 1
+    }
+
+
+@pytest.mark.parametrize(
+    ("mutation", "reason"),
+    [
+        ({"revoked": True}, "speaker_casting_review_revocation_state_invalid"),
+        ({"expires_at": "2026-07-11T09:58:59Z"}, "speaker_casting_review_expired"),
+        ({"speaker_traits_sha256": "0" * 64}, "speaker_casting_traits_hash_mismatch"),
+        (
+            {"scope": ["public_web_publication"]},
+            "speaker_casting_review_scope_invalid",
+        ),
+    ],
+)
+def test_invalid_speaker_casting_review_never_authorizes_profile_traits(
+    mutation: dict[str, object],
+    reason: str,
+) -> None:
+    text = "“Good morning,” Anna said."
+    profiles = _reviewed_speaker_profiles(
+        {
+            "Anna": {
+                "approved": True,
+                "casting_approved": True,
+                "speaker_profile_id": "private-anna-reviewed-profile",
+                "gender": "feminine",
+            }
+        }
+    )
+    assert profiles is not None
+    profiles["Anna"]["casting_review"].update(mutation)
+
+    package = build_memorial_narration_work_package(
+        slug="manfred",
+        memorial_manifest=_manifest(text),
+        voice_profile=_voice_profile(),
+        speaker_profiles=profiles,
+        max_chars=256,
+        observed_at=BUILD_AT,
+    )
+
+    assert package["status"] == "blocked_speaker_casting_review"
+    assert provider_safe_receipt(package)[
+        "speaker_casting_review_excluded_reason_counts"
+    ] == {reason: 1}
+    anna = next(
+        row
+        for row in package["narration_plan"]["speakers"]
+        if row["speaker_label"] == "Anna"
+    )
+    assert anna["traits"] == {}
+
+
+def test_normalized_speaker_profile_key_collision_fails_closed() -> None:
+    package = _build(
+        '“Hello,” José said.',
+        speaker_profiles={
+            "José": {
+                "approved": True,
+                "casting_approved": True,
+                "speaker_profile_id": "private-jose-accented",
+                "gender": "masculine",
+            },
+            "Jose": {
+                "approved": True,
+                "casting_approved": True,
+                "speaker_profile_id": "private-jose-ascii",
+                "gender": "masculine",
+            },
+        },
+    )
+
+    assert package["status"] == "blocked_speaker_casting_review"
+    receipt = provider_safe_receipt(package)
+    assert receipt["speaker_casting_review_excluded_reason_counts"] == {
+        "speaker_casting_profile_key_collision": 1
+    }
+    jose = next(
+        row
+        for row in package["narration_plan"]["speakers"]
+        if row["speaker_label"] == "José"
+    )
+    assert jose["traits"] == {}
+
+
 def test_maps_only_explicit_approved_speaker_profile_and_redacts_receipt() -> None:
     profiles = {
         "Anna": {
@@ -533,34 +760,35 @@ def test_maps_only_explicit_approved_speaker_profile_and_redacts_receipt() -> No
         provider_safe_receipt(package), ensure_ascii=False, sort_keys=True
     )
     package_json = json.dumps(package, ensure_ascii=False, sort_keys=True)
-    assert anna["traits"] == {
-        "age_band": {
-            "confidence": 1.0,
-            "provenance": "explicit_approved_speaker_profile",
-            "sensitive_hint": False,
-            "value": "older_adult",
-        },
-        "cultural_or_ethnic_background": {
-            "confidence": 1.0,
-            "provenance": "explicit_approved_speaker_profile",
-            "sensitive_hint": True,
-            "value": "Austrian",
-        },
-        "gender_presentation": {
-            "confidence": 1.0,
-            "provenance": "explicit_approved_speaker_profile",
-            "sensitive_hint": False,
-            "value": "feminine",
-        },
-        "style": {
-            "confidence": 1.0,
-            "provenance": "explicit_approved_speaker_profile",
-            "sensitive_hint": False,
-            "value": "warm",
-        },
+    assert {
+        kind: evidence["value"] for kind, evidence in anna["traits"].items()
+    } == {
+        "age_band": "older_adult",
+        "cultural_or_ethnic_background": "Austrian",
+        "gender_presentation": "feminine",
+        "style": "warm",
     }
+    review_hashes = {
+        str(evidence["casting_review_evidence_sha256"])
+        for evidence in anna["traits"].values()
+    }
+    assert len(review_hashes) == 1
+    assert all(len(value) == 64 for value in review_hashes)
+    assert all(
+        evidence["casting_eligible"] is True
+        and evidence["casting_approved"] is True
+        and evidence["requires_human_approval"] is False
+        and evidence["casting_review_scope"]
+        == REQUIRED_SPEAKER_CASTING_SCOPE
+        and evidence["casting_review_revoked"] is False
+        and evidence["casting_review_expires_at"]
+        == "2026-07-31T09:00:00Z"
+        for evidence in anna["traits"].values()
+    )
     assert anna_cast["mapping"] == "explicit_approved_speaker_profile"
     assert anna_cast["explicit_profile"] is True
+    assert anna_cast["casting_review_complete"] is True
+    assert anna_cast["casting_review_evidence_sha256"] in review_hashes
     assert "raw-dialogue-provider-voice-id" not in package_json
     assert "Austrian" not in receipt_json
     assert "feminine" not in receipt_json
@@ -569,7 +797,17 @@ def test_maps_only_explicit_approved_speaker_profile_and_redacts_receipt() -> No
 
 
 def test_unattributed_dialogue_stays_neutral_without_demographic_claims() -> None:
-    package = _build("“Who is there?”")
+    blocked = _build("“Who is there?”")
+    assert blocked["status"] == "blocked_speaker_attribution_review"
+    assert blocked["cast_resolution_authorized"] is False
+    assert provider_safe_receipt(blocked)[
+        "speaker_attribution_review_required_count"
+    ] == 1
+    assert provider_safe_receipt(blocked)[
+        "speaker_attribution_review_approved_count"
+    ] == 0
+
+    package = _build_with_approved_attributions("“Who is there?”")
 
     plan = dict(package["narration_plan"])
     unknown = next(row for row in plan["speakers"] if row["speaker_id"] != "narrator")
@@ -582,6 +820,137 @@ def test_unattributed_dialogue_stays_neutral_without_demographic_claims() -> Non
     assert unknown_cast["mapping"] == "neutral_ambiguity"
     assert unknown_cast["neutral_fallback"] is True
     assert provider_safe_receipt(package)["neutral_dialogue_speaker_count"] == 1
+    assert provider_safe_receipt(package)[
+        "speaker_attribution_review_approved_count"
+    ] == 1
+
+
+def test_future_dated_attribution_review_never_authorizes_casting() -> None:
+    text = "“Who is there?”"
+    preliminary = _build(text)
+    requirement = preliminary["speaker_attribution_review_requirements"][0]
+    manifest = _manifest(text)
+    manifest["speaker_attribution_reviews"] = [
+        {
+            "status": "approved",
+            "scope": ["memorial_audiobook_speaker_attribution"],
+            "revoked": False,
+            "approved_by_family": True,
+            "reviewed_at": "2026-07-11T10:05:01Z",
+            "speaker_id": requirement["speaker_id"],
+            "span_fingerprint": requirement["span_fingerprint"],
+            "source_text_sha256": requirement["source_text_sha256"],
+        }
+    ]
+
+    package = build_memorial_narration_work_package(
+        slug="manfred",
+        memorial_manifest=manifest,
+        voice_profile=_voice_profile(),
+        max_chars=256,
+        observed_at=BUILD_AT,
+    )
+
+    assert package["status"] == "blocked_speaker_attribution_review"
+    assert provider_safe_receipt(package)[
+        "speaker_attribution_review_excluded_reason_counts"
+    ] == {"speaker_attribution_review_timestamp_in_future": 1}
+
+
+def test_low_confidence_turn_stays_review_gated_after_later_explicit_turn() -> None:
+    text = '“Ready,” Anna said. “Go,” she replied. “Done,” Anna said.'
+    profiles = {
+        "Anna": {
+            "approved": True,
+            "casting_approved": True,
+            "speaker_profile_id": "private-anna-profile",
+            "gender": "feminine",
+        }
+    }
+
+    blocked = _build(text, speaker_profiles=profiles)
+
+    assert blocked["status"] == "blocked_speaker_attribution_review"
+    requirements = blocked["speaker_attribution_review_requirements"]
+    assert len(requirements) == 1
+    anna_id = next(
+        row["speaker_id"]
+        for row in blocked["narration_plan"]["speakers"]
+        if row["speaker_label"] == "Anna"
+    )
+    assert requirements[0]["speaker_id"] == anna_id
+    anna_handoff = next(
+        row
+        for row in blocked["cast_handoff"]["speakers"]
+        if row["speaker_id"] == anna_id
+    )
+    assert anna_handoff["attribution_review_required"] is True
+    assert anna_handoff["attribution_review_complete"] is False
+
+    approved = _build_with_approved_attributions(
+        text,
+        speaker_profiles=profiles,
+    )
+
+    assert approved["status"] == "ready_for_private_cast_resolution"
+    approved_handoff = next(
+        row
+        for row in approved["cast_handoff"]["speakers"]
+        if row["speaker_id"] == anna_id
+    )
+    assert approved_handoff["attribution_review_complete"] is True
+    assert len(
+        approved_handoff["attribution_review_evidence_aggregate_sha256"]
+    ) == 64
+
+
+def test_conflicting_source_traits_require_plan_bound_casting_acknowledgement() -> None:
+    text = '“Hello,” said Anna, an older adult man.'
+    raw_profiles = {
+        "Anna": {
+            "approved": True,
+            "casting_approved": True,
+            "speaker_profile_id": "private-anna-conflict-profile",
+            "gender": "feminine",
+            "age_band": "young_adult",
+        }
+    }
+    blocked = _build(text, speaker_profiles=raw_profiles)
+
+    assert blocked["status"] == "blocked_speaker_casting_conflict_review"
+    conflicts = blocked["speaker_casting_conflict_review_requirements"]
+    assert {row["trait_kind"] for row in conflicts} == {
+        "age_band",
+        "gender_presentation",
+    }
+    assert all(row["conflict_review_approved"] is False for row in conflicts)
+
+    profiles = _reviewed_speaker_profiles(raw_profiles)
+    assert profiles is not None
+    profiles["Anna"]["casting_review"].update(
+        {
+            "source_conflict_acknowledged": True,
+            "reviewed_plan_sha256": blocked["narration_plan"]["plan_sha256"],
+        }
+    )
+    approved = build_memorial_narration_work_package(
+        slug="manfred",
+        memorial_manifest=_manifest(text),
+        voice_profile=_voice_profile(),
+        speaker_profiles=profiles,
+        max_chars=256,
+        observed_at=BUILD_AT,
+    )
+
+    assert approved["status"] == "ready_for_private_cast_resolution"
+    assert all(
+        row["conflict_review_approved"] is True
+        and len(str(row["conflict_review_evidence_sha256"])) == 64
+        for row in approved["speaker_casting_conflict_review_requirements"]
+    )
+    receipt = provider_safe_receipt(approved)
+    assert receipt["speaker_casting_conflict_review_required_count"] == 2
+    assert receipt["speaker_casting_conflict_review_approved_count"] == 2
 
 
 def test_consent_revocation_blocks_cast_and_render_but_not_offline_source_planning() -> (

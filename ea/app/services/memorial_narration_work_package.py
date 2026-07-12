@@ -4,6 +4,7 @@ from collections import Counter
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 import hashlib
 import hmac
 import json
@@ -14,13 +15,23 @@ import stat
 import tempfile
 import unicodedata
 
-from app.services.audiobook_narration_planner import PlannerChapter, plan_narration
+from app.services.audiobook_narration_planner import (
+    CASTING_TRAIT_POLICY_NAME,
+    PLANNER_CONTRACT_NAME,
+    PlannerChapter,
+    plan_narration,
+)
 
 
-WORK_PACKAGE_CONTRACT_NAME = "ea.memorial_narration_work_package.v3"
-CAST_HANDOFF_CONTRACT_NAME = "ea.audiobook_speaker_cast_handoff.v2"
-RECEIPT_CONTRACT_NAME = "ea.memorial_narration_work_package_receipt.v3"
+WORK_PACKAGE_CONTRACT_NAME = "ea.memorial_narration_work_package.v4"
+CAST_HANDOFF_CONTRACT_NAME = "ea.audiobook_speaker_cast_handoff.v3"
+RECEIPT_CONTRACT_NAME = "ea.memorial_narration_work_package_receipt.v4"
 REQUIRED_NARRATION_SOURCE_SCOPE = "memorial_audiobook_narration"
+REQUIRED_SPEAKER_ATTRIBUTION_SCOPE = (
+    "memorial_audiobook_speaker_attribution"
+)
+REQUIRED_SPEAKER_CASTING_SCOPE = "memorial_audiobook_speaker_casting_traits"
+MAX_SPEAKER_CASTING_REVIEW_TTL = timedelta(days=30)
 
 _APPROVED_REVIEW_STATUSES = frozenset({"approved", "published"})
 _ARCHIVE_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,127}")
@@ -365,10 +376,187 @@ def _collect_approved_sources(
     return sources, excluded
 
 
-def _explicit_trait_payload(
+def _speaker_attribution_span_fingerprint(row: Mapping[str, object]) -> str:
+    return _stable_json_sha256(
+        {
+            "speaker_id": str(row.get("speaker_id") or ""),
+            "source_chapter_index": int(row.get("source_chapter_index") or 0),
+            "source_href": str(row.get("source_href") or ""),
+            "char_start": int(row.get("char_start") or 0),
+            "char_end": int(row.get("char_end") or 0),
+            "source_text_sha256": str(row.get("source_text_sha256") or ""),
+            "attribution_provenance": str(
+                row.get("attribution_provenance") or ""
+            ),
+            "attribution_confidence": round(
+                float(row.get("attribution_confidence") or 0.0), 3
+            ),
+        }
+    )
+
+
+def _speaker_attribution_requirements(
+    plan: Mapping[str, object],
+) -> list[dict[str, object]]:
+    requirements: list[dict[str, object]] = []
+    for raw in list(plan.get("spans") or []):
+        if not isinstance(raw, Mapping) or str(raw.get("kind") or "") != "dialogue":
+            continue
+        speaker_id = str(raw.get("speaker_id") or "")
+        confidence = float(raw.get("attribution_confidence") or 0.0)
+        if confidence >= 0.8 and not speaker_id.startswith("speaker_unknown_"):
+            continue
+        requirements.append(
+            {
+                "speaker_id": speaker_id,
+                "source_chapter_index": int(raw.get("source_chapter_index") or 0),
+                "source_href": str(raw.get("source_href") or ""),
+                "char_start": int(raw.get("char_start") or 0),
+                "char_end": int(raw.get("char_end") or 0),
+                "source_text_sha256": str(raw.get("source_text_sha256") or ""),
+                "attribution_provenance": str(
+                    raw.get("attribution_provenance") or ""
+                ),
+                "attribution_confidence": round(confidence, 3),
+                "span_fingerprint": _speaker_attribution_span_fingerprint(raw),
+            }
+        )
+    requirements.sort(
+        key=lambda row: (
+            int(row["source_chapter_index"]),
+            int(row["char_start"]),
+            str(row["speaker_id"]),
+        )
+    )
+    return requirements
+
+
+def _speaker_attribution_review_decisions(
+    memorial_manifest: Mapping[str, object],
+    requirements: list[dict[str, object]],
+    *,
+    observed_at: datetime,
+) -> tuple[list[dict[str, object]], Counter[str]]:
+    by_fingerprint = {
+        str(row["span_fingerprint"]): row for row in requirements
+    }
+    accepted: dict[str, tuple[str, str]] = {}
+    duplicate_fingerprints: set[str] = set()
+    observed_current_fingerprints: set[str] = set()
+    excluded: Counter[str] = Counter()
+    raw_reviews = memorial_manifest.get("speaker_attribution_reviews")
+    for raw in raw_reviews if isinstance(raw_reviews, list) else []:
+        if not isinstance(raw, Mapping):
+            excluded["speaker_attribution_review_invalid"] += 1
+            continue
+        fingerprint = str(raw.get("span_fingerprint") or "").strip()
+        requirement = by_fingerprint.get(fingerprint)
+        if requirement is None:
+            excluded["speaker_attribution_review_not_current"] += 1
+            continue
+        if (
+            fingerprint in observed_current_fingerprints
+            or fingerprint in duplicate_fingerprints
+        ):
+            accepted.pop(fingerprint, None)
+            duplicate_fingerprints.add(fingerprint)
+            excluded["speaker_attribution_review_duplicate"] += 1
+            continue
+        observed_current_fingerprints.add(fingerprint)
+        if str(raw.get("status") or "").strip().casefold() != "approved":
+            excluded["speaker_attribution_review_not_approved"] += 1
+            continue
+        raw_scope = raw.get("scope")
+        scopes = (
+            [str(item or "").strip() for item in raw_scope]
+            if isinstance(raw_scope, list)
+            else []
+        )
+        if scopes != [REQUIRED_SPEAKER_ATTRIBUTION_SCOPE]:
+            excluded["speaker_attribution_review_scope_invalid"] += 1
+            continue
+        if raw.get("revoked") is not False:
+            excluded["speaker_attribution_review_revocation_state_invalid"] += 1
+            continue
+        authority_classes = [
+            authority_class
+            for key, authority_class in (
+                ("approved_by_family", "family"),
+                ("approved_by_user", "user"),
+                ("approved_by_reviewer", "reviewer"),
+            )
+            if raw.get(key) is True
+        ]
+        if len(authority_classes) != 1:
+            excluded["speaker_attribution_review_approver_missing"] += 1
+            continue
+        authority_class = authority_classes[0]
+        reviewed_at = _normalized_text(raw.get("reviewed_at"))
+        if not reviewed_at:
+            excluded["speaker_attribution_review_timestamp_missing"] += 1
+            continue
+        try:
+            reviewed_datetime = datetime.fromisoformat(
+                reviewed_at.replace("Z", "+00:00")
+            )
+        except ValueError:
+            reviewed_datetime = None
+        if reviewed_datetime is None or reviewed_datetime.tzinfo is None:
+            excluded["speaker_attribution_review_timestamp_invalid"] += 1
+            continue
+        if reviewed_datetime.astimezone(UTC) > observed_at + timedelta(minutes=5):
+            excluded["speaker_attribution_review_timestamp_in_future"] += 1
+            continue
+        if str(raw.get("speaker_id") or "") != str(
+            requirement["speaker_id"]
+        ):
+            excluded["speaker_attribution_review_speaker_mismatch"] += 1
+            continue
+        if str(raw.get("source_text_sha256") or "") != str(
+            requirement["source_text_sha256"]
+        ):
+            excluded["speaker_attribution_review_source_mismatch"] += 1
+            continue
+        accepted[fingerprint] = (
+            _stable_json_sha256(
+                {
+                    "status": "approved",
+                    "scope": [REQUIRED_SPEAKER_ATTRIBUTION_SCOPE],
+                    "revoked": False,
+                    "authority_class": authority_class,
+                    "speaker_id": str(requirement["speaker_id"]),
+                    "span_fingerprint": fingerprint,
+                    "source_text_sha256": str(
+                        requirement["source_text_sha256"]
+                    ),
+                    "reviewed_at": reviewed_at,
+                }
+            ),
+            authority_class,
+        )
+    reviewed = [
+        {
+            **row,
+            "review_evidence_sha256": (
+                accepted.get(str(row["span_fingerprint"]), ("", ""))[0]
+            ),
+            "review_authority_class": (
+                accepted.get(str(row["span_fingerprint"]), ("", ""))[1]
+            ),
+            "review_approved": str(row["span_fingerprint"]) in accepted,
+        }
+        for row in sorted(
+            requirements,
+            key=lambda item: str(item.get("speaker_key") or ""),
+        )
+    ]
+    return reviewed, excluded
+
+
+def _speaker_profile_trait_values(
     profile: Mapping[str, object],
-) -> dict[str, dict[str, object]]:
-    traits: dict[str, dict[str, object]] = {}
+) -> dict[str, str]:
+    traits: dict[str, str] = {}
     for canonical_key, aliases in _PROFILE_TRAIT_ALIASES.items():
         value = ""
         for key in aliases:
@@ -377,28 +565,170 @@ def _explicit_trait_payload(
                 break
         if not value:
             continue
+        traits[canonical_key] = value
+    return traits
+
+
+def _speaker_casting_review_decision(
+    *,
+    label: str,
+    profile: Mapping[str, object],
+    observed_at: datetime,
+) -> tuple[dict[str, object], str]:
+    trait_values = _speaker_profile_trait_values(profile)
+    profile_ref = next(
+        (
+            str(profile.get(reference_key) or "").strip()
+            for reference_key in _PROFILE_REFERENCE_KEYS
+            if str(profile.get(reference_key) or "").strip()
+        ),
+        "",
+    )
+    requirement = {
+        "speaker_key": _profile_key(label),
+        "speaker_profile_ref_sha256": (
+            _text_sha256(profile_ref) if profile_ref else ""
+        ),
+        "speaker_traits_sha256": _stable_json_sha256(trait_values),
+        "required_scope": REQUIRED_SPEAKER_CASTING_SCOPE,
+    }
+    raw_review = profile.get("casting_review")
+    if not isinstance(raw_review, Mapping):
+        return requirement, "speaker_casting_review_missing"
+    review = dict(raw_review)
+    if str(review.get("status") or "").strip().casefold() != "approved":
+        return requirement, "speaker_casting_review_not_approved"
+    raw_scope = review.get("scope")
+    scopes = (
+        [str(item or "").strip() for item in raw_scope]
+        if isinstance(raw_scope, list)
+        else []
+    )
+    if scopes != [REQUIRED_SPEAKER_CASTING_SCOPE]:
+        return requirement, "speaker_casting_review_scope_invalid"
+    if review.get("revoked") is not False:
+        return requirement, "speaker_casting_review_revocation_state_invalid"
+    authority_classes = [
+        authority_class
+        for key, authority_class in (
+            ("approved_by_family", "family"),
+            ("approved_by_user", "user"),
+            ("approved_by_reviewer", "reviewer"),
+        )
+        if review.get(key) is True
+    ]
+    if len(authority_classes) != 1:
+        return requirement, "speaker_casting_review_approver_invalid"
+    if not profile_ref:
+        return requirement, "speaker_casting_profile_ref_missing"
+    if str(review.get("speaker_profile_ref_sha256") or "") != str(
+        requirement["speaker_profile_ref_sha256"]
+    ):
+        return requirement, "speaker_casting_profile_ref_mismatch"
+    if str(review.get("speaker_traits_sha256") or "") != str(
+        requirement["speaker_traits_sha256"]
+    ):
+        return requirement, "speaker_casting_traits_hash_mismatch"
+    try:
+        reviewed_at = datetime.fromisoformat(
+            str(review.get("reviewed_at") or "").replace("Z", "+00:00")
+        )
+        expires_at = datetime.fromisoformat(
+            str(review.get("expires_at") or "").replace("Z", "+00:00")
+        )
+    except ValueError:
+        return requirement, "speaker_casting_review_timestamp_invalid"
+    if reviewed_at.tzinfo is None or expires_at.tzinfo is None:
+        return requirement, "speaker_casting_review_timestamp_invalid"
+    reviewed_at = reviewed_at.astimezone(UTC)
+    expires_at = expires_at.astimezone(UTC)
+    if reviewed_at > observed_at + timedelta(minutes=5):
+        return requirement, "speaker_casting_review_timestamp_in_future"
+    if expires_at <= observed_at:
+        return requirement, "speaker_casting_review_expired"
+    if expires_at <= reviewed_at:
+        return requirement, "speaker_casting_review_expiry_not_after_review"
+    if expires_at - reviewed_at > MAX_SPEAKER_CASTING_REVIEW_TTL:
+        return requirement, "speaker_casting_review_expiry_too_distant"
+    conflict_acknowledged = review.get("source_conflict_acknowledged") is True
+    reviewed_plan_sha256 = str(review.get("reviewed_plan_sha256") or "")
+    evidence_payload = {
+        **requirement,
+        "status": "approved",
+        "scope": [REQUIRED_SPEAKER_CASTING_SCOPE],
+        "revoked": False,
+        "authority_class": authority_classes[0],
+        "reviewed_at": reviewed_at.isoformat().replace("+00:00", "Z"),
+        "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
+        "source_conflict_acknowledged": conflict_acknowledged,
+        "reviewed_plan_sha256": reviewed_plan_sha256,
+    }
+    evidence = {
+        **evidence_payload,
+        "review_evidence_sha256": _stable_json_sha256(evidence_payload),
+    }
+    return evidence, ""
+
+
+def _explicit_trait_payload(
+    profile: Mapping[str, object],
+    *,
+    casting_review_evidence: Mapping[str, object],
+) -> dict[str, dict[str, object]]:
+    traits: dict[str, dict[str, object]] = {}
+    for canonical_key, value in _speaker_profile_trait_values(profile).items():
         traits[canonical_key] = {
             "value": value,
             "provenance": "explicit_approved_speaker_profile",
             "confidence": 1.0,
             "sensitive_hint": canonical_key == "cultural_or_ethnic_background",
+            "casting_eligible": True,
+            "requires_human_approval": False,
+            "casting_approved": True,
+            "casting_review_evidence_sha256": (
+                str(casting_review_evidence.get("review_evidence_sha256") or "")
+            ),
+            "casting_review_scope": REQUIRED_SPEAKER_CASTING_SCOPE,
+            "casting_review_revoked": False,
+            "casting_review_authority_class": str(
+                casting_review_evidence.get("authority_class") or ""
+            ),
+            "casting_review_reviewed_at": str(
+                casting_review_evidence.get("reviewed_at") or ""
+            ),
+            "casting_review_expires_at": str(
+                casting_review_evidence.get("expires_at") or ""
+            ),
         }
     return traits
 
 
 def _approved_speaker_profiles(
     profiles: Mapping[str, Mapping[str, object]] | None,
+    *,
+    observed_at: datetime,
 ) -> tuple[
     dict[str, dict[str, object]],
     dict[str, dict[str, dict[str, object]]],
     dict[str, str],
+    dict[str, dict[str, object]],
+    list[dict[str, object]],
+    Counter[str],
 ]:
     planner_profiles: dict[str, dict[str, object]] = {}
     traits_by_key: dict[str, dict[str, dict[str, object]]] = {}
     profile_refs: dict[str, str] = {}
+    reviews_by_key: dict[str, dict[str, object]] = {}
+    review_requirements: list[dict[str, object]] = []
+    excluded: Counter[str] = Counter()
+    labels_by_key: dict[str, list[str]] = {}
     for label, raw_profile in dict(profiles or {}).items():
         if not isinstance(raw_profile, Mapping):
             continue
+        key = _profile_key(label)
+        if not key:
+            continue
+        labels_by_key.setdefault(key, []).append(str(label))
         if raw_profile.get("casting_approved") is not True:
             continue
         if not (
@@ -406,14 +736,61 @@ def _approved_speaker_profiles(
             or _approved_review_status(raw_profile.get("review_status"), allow_empty=False)
         ):
             continue
-        key = _profile_key(label)
-        if not key:
+        review_evidence, review_reason = _speaker_casting_review_decision(
+            label=str(label),
+            profile=raw_profile,
+            observed_at=observed_at,
+        )
+        review_requirements.append(
+            {
+                "speaker_label": str(label),
+                "speaker_key": key,
+                "speaker_profile_ref_sha256": str(
+                    review_evidence.get("speaker_profile_ref_sha256") or ""
+                ),
+                "speaker_traits_sha256": str(
+                    review_evidence.get("speaker_traits_sha256") or ""
+                ),
+                "required_scope": REQUIRED_SPEAKER_CASTING_SCOPE,
+                "review_approved": not review_reason,
+                "review_reason": review_reason,
+                "review_evidence_sha256": str(
+                    review_evidence.get("review_evidence_sha256") or ""
+                ),
+                "review_authority_class": str(
+                    review_evidence.get("authority_class") or ""
+                ),
+                "reviewed_at": str(
+                    review_evidence.get("reviewed_at") or ""
+                ),
+                "expires_at": str(
+                    review_evidence.get("expires_at") or ""
+                ),
+                "revoked": (
+                    review_evidence.get("revoked")
+                    if not review_reason
+                    else None
+                ),
+                "source_conflict_acknowledged": (
+                    review_evidence.get("source_conflict_acknowledged") is True
+                ),
+                "reviewed_plan_sha256": str(
+                    review_evidence.get("reviewed_plan_sha256") or ""
+                ),
+            }
+        )
+        if review_reason:
+            excluded[review_reason] += 1
             continue
-        traits = _explicit_trait_payload(raw_profile)
+        traits = _explicit_trait_payload(
+            raw_profile,
+            casting_review_evidence=review_evidence,
+        )
         planner_profiles[str(label)] = {
             name: str(evidence.get("value") or "") for name, evidence in traits.items()
         }
         traits_by_key[key] = traits
+        reviews_by_key[key] = review_evidence
         profile_ref = next(
             (
                 str(raw_profile.get(reference_key) or "").strip()
@@ -429,13 +806,113 @@ def _approved_speaker_profiles(
                 "approved_traits": traits,
             }
         )
-    return planner_profiles, traits_by_key, profile_refs
+    duplicate_keys = {
+        key for key, labels in labels_by_key.items() if len(labels) > 1
+    }
+    for key in duplicate_keys:
+        for label in labels_by_key[key]:
+            planner_profiles.pop(label, None)
+        traits_by_key.pop(key, None)
+        profile_refs.pop(key, None)
+        reviews_by_key.pop(key, None)
+        excluded["speaker_casting_profile_key_collision"] += 1
+    for requirement in review_requirements:
+        if str(requirement.get("speaker_key") or "") in duplicate_keys:
+            requirement["review_approved"] = False
+            requirement["review_reason"] = (
+                "speaker_casting_profile_key_collision"
+            )
+            requirement["review_evidence_sha256"] = ""
+    review_requirements.sort(key=lambda row: str(row["speaker_key"]))
+    return (
+        planner_profiles,
+        traits_by_key,
+        profile_refs,
+        reviews_by_key,
+        review_requirements,
+        excluded,
+    )
+
+
+def _speaker_casting_conflict_requirements(
+    plan: Mapping[str, object],
+    *,
+    casting_reviews_by_key: Mapping[str, Mapping[str, object]],
+) -> list[dict[str, object]]:
+    plan_sha256 = str(plan.get("plan_sha256") or "")
+    requirements: list[dict[str, object]] = []
+    for raw_speaker in list(plan.get("speakers") or []):
+        if not isinstance(raw_speaker, Mapping):
+            continue
+        speaker_id = str(raw_speaker.get("speaker_id") or "")
+        speaker_key = _profile_key(raw_speaker.get("speaker_label"))
+        casting_review = dict(casting_reviews_by_key.get(speaker_key) or {})
+        for trait_kind, raw_evidence in dict(
+            raw_speaker.get("traits") or {}
+        ).items():
+            if not isinstance(raw_evidence, Mapping) or raw_evidence.get(
+                "conflicting_evidence_present"
+            ) is not True:
+                continue
+            base = {
+                "speaker_id": speaker_id,
+                "speaker_key": speaker_key,
+                "trait_kind": str(trait_kind),
+                "approved_trait_value_sha256": _text_sha256(
+                    raw_evidence.get("value")
+                ),
+                "superseded_provenance": str(
+                    raw_evidence.get("superseded_provenance") or ""
+                ),
+                "superseded_evidence_sha256": str(
+                    raw_evidence.get("superseded_evidence_sha256") or ""
+                ),
+                "reviewed_plan_sha256": plan_sha256,
+            }
+            conflict_fingerprint = _stable_json_sha256(base)
+            approved = (
+                casting_review.get("source_conflict_acknowledged") is True
+                and str(casting_review.get("reviewed_plan_sha256") or "")
+                == plan_sha256
+            )
+            conflict_review_evidence_sha256 = (
+                _stable_json_sha256(
+                    {
+                        **base,
+                        "conflict_fingerprint": conflict_fingerprint,
+                        "casting_review_evidence_sha256": str(
+                            casting_review.get("review_evidence_sha256") or ""
+                        ),
+                        "source_conflict_acknowledged": True,
+                    }
+                )
+                if approved
+                else ""
+            )
+            requirements.append(
+                {
+                    **base,
+                    "conflict_fingerprint": conflict_fingerprint,
+                    "conflict_review_approved": approved,
+                    "conflict_review_evidence_sha256": (
+                        conflict_review_evidence_sha256
+                    ),
+                }
+            )
+    requirements.sort(
+        key=lambda row: (
+            str(row["speaker_id"]),
+            str(row["trait_kind"]),
+        )
+    )
+    return requirements
 
 
 def _sanitize_plan_traits(
     plan: Mapping[str, object],
     *,
     approved_traits_by_key: Mapping[str, Mapping[str, Mapping[str, object]]],
+    casting_conflict_requirements: list[dict[str, object]],
 ) -> dict[str, object]:
     sanitized = deepcopy(dict(plan))
     for collection_key in ("speakers", "spans", "passages"):
@@ -446,15 +923,54 @@ def _sanitize_plan_traits(
             if not isinstance(row, dict):
                 continue
             speaker_key = _profile_key(row.get("speaker_label"))
-            row["traits"] = {
+            sanitized_traits = {
                 name: dict(evidence)
                 for name, evidence in dict(
                     approved_traits_by_key.get(speaker_key) or {}
                 ).items()
             }
+            speaker_id = str(row.get("speaker_id") or "")
+            for trait_kind, evidence in sanitized_traits.items():
+                conflict = next(
+                    (
+                        requirement
+                        for requirement in casting_conflict_requirements
+                        if str(requirement.get("speaker_id") or "")
+                        == speaker_id
+                        and str(requirement.get("trait_kind") or "")
+                        == str(trait_kind)
+                    ),
+                    None,
+                )
+                if conflict is not None:
+                    evidence["conflicting_evidence_present"] = True
+                    evidence["superseded_provenance"] = str(
+                        conflict.get("superseded_provenance") or ""
+                    )
+                    evidence["superseded_evidence_sha256"] = str(
+                        conflict.get("superseded_evidence_sha256") or ""
+                    )
+                    evidence["conflict_review_approved"] = (
+                        conflict.get("conflict_review_approved") is True
+                    )
+                    evidence["conflict_review_evidence_sha256"] = str(
+                        conflict.get("conflict_review_evidence_sha256") or ""
+                    )
+            row["traits"] = sanitized_traits
             row["traits_from_explicit_approved_profile_only"] = True
     sanitized["demographic_trait_policy"] = "explicit_approved_profiles_only"
     sanitized["source_inferred_trait_values_removed"] = True
+    sanitized["casting_trait_policy"] = CASTING_TRAIT_POLICY_NAME
+    sanitized["planner_plan_sha256"] = str(
+        sanitized.get("plan_sha256") or ""
+    )
+    sanitized["casting_plan_sha256"] = _stable_json_sha256(
+        {
+            key: value
+            for key, value in sanitized.items()
+            if key != "casting_plan_sha256"
+        }
+    )
     return sanitized
 
 
@@ -500,19 +1016,158 @@ def _narrator_profile_ref_sha256(voice_profile: Mapping[str, object]) -> str:
     return _text_sha256(profile_ref)
 
 
+def _speaker_casting_review_evidence_rows(
+    requirements: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "speaker_key": str(row.get("speaker_key") or ""),
+            "speaker_profile_ref_sha256": str(
+                row.get("speaker_profile_ref_sha256") or ""
+            ),
+            "speaker_traits_sha256": str(
+                row.get("speaker_traits_sha256") or ""
+            ),
+            "review_evidence_sha256": str(
+                row.get("review_evidence_sha256") or ""
+            ),
+            "review_authority_class": str(
+                row.get("review_authority_class") or ""
+            ),
+            "reviewed_at": str(row.get("reviewed_at") or ""),
+            "expires_at": str(row.get("expires_at") or ""),
+        }
+        for row in sorted(
+            requirements,
+            key=lambda item: str(item.get("speaker_key") or ""),
+        )
+    ]
+
+
+def build_speaker_attribution_review_registry_snapshot(
+    *,
+    memorial_manifest: Mapping[str, object],
+    narration_plan: Mapping[str, object],
+    observed_at: datetime | None = None,
+) -> dict[str, object]:
+    checked_at = (observed_at or datetime.now(UTC)).astimezone(UTC)
+    requirements = _speaker_attribution_requirements(narration_plan)
+    reviewed, excluded = _speaker_attribution_review_decisions(
+        memorial_manifest,
+        requirements,
+        observed_at=checked_at,
+    )
+    evidence_rows = [
+        {
+            "speaker_id": str(row.get("speaker_id") or ""),
+            "span_fingerprint": str(row.get("span_fingerprint") or ""),
+            "source_text_sha256": str(row.get("source_text_sha256") or ""),
+            "review_evidence_sha256": str(
+                row.get("review_evidence_sha256") or ""
+            ),
+            "review_authority_class": str(
+                row.get("review_authority_class") or ""
+            ),
+        }
+        for row in reviewed
+    ]
+    payload: dict[str, object] = {
+        "contract_name": (
+            "ea.memorial_speaker_attribution_review_registry_snapshot.v1"
+        ),
+        "version": 1,
+        "requirements": reviewed,
+        "review_evidence_aggregate_sha256": _stable_json_sha256(
+            evidence_rows
+        ),
+        "excluded_reason_counts": dict(sorted(excluded.items())),
+        "private_payload": True,
+    }
+    payload["snapshot_sha256"] = _stable_json_sha256(payload)
+    return payload
+
+
+def build_speaker_casting_review_registry_snapshot(
+    *,
+    speaker_profiles: Mapping[str, Mapping[str, object]] | None,
+    observed_at: datetime | None = None,
+) -> dict[str, object]:
+    checked_at = (observed_at or datetime.now(UTC)).astimezone(UTC)
+    (
+        _planner_profiles,
+        _approved_traits,
+        _profile_refs,
+        _reviews_by_key,
+        requirements,
+        excluded,
+    ) = _approved_speaker_profiles(
+        speaker_profiles,
+        observed_at=checked_at,
+    )
+    evidence_rows = _speaker_casting_review_evidence_rows(requirements)
+    payload: dict[str, object] = {
+        "contract_name": (
+            "ea.memorial_speaker_casting_review_registry_snapshot.v1"
+        ),
+        "version": 1,
+        "checked_at": checked_at.isoformat().replace("+00:00", "Z"),
+        "requirements": requirements,
+        "review_evidence_aggregate_sha256": _stable_json_sha256(
+            evidence_rows
+        ),
+        "excluded_reason_counts": dict(sorted(excluded.items())),
+        "private_payload": True,
+    }
+    payload["snapshot_sha256"] = _stable_json_sha256(
+        {
+            key: value
+            for key, value in payload.items()
+            if key != "checked_at"
+        }
+    )
+    return payload
+
+
 def _cast_handoff(
     *,
     plan: Mapping[str, object],
     consent: Mapping[str, object],
     voice_profile: Mapping[str, object],
     approved_profile_refs: Mapping[str, str],
+    attribution_requirements: list[dict[str, object]],
+    casting_review_requirements: list[dict[str, object]],
 ) -> dict[str, object]:
+    attribution_review_complete = all(
+        row.get("review_approved") is True for row in attribution_requirements
+    )
+    casting_review_complete = all(
+        row.get("review_approved") is True
+        for row in casting_review_requirements
+    )
+    casting_review_evidence_rows = _speaker_casting_review_evidence_rows(
+        casting_review_requirements
+    )
+    casting_review_evidence_aggregate_sha256 = _stable_json_sha256(
+        casting_review_evidence_rows
+    )
     if consent.get("authorized") is not True:
         return {
             "contract_name": CAST_HANDOFF_CONTRACT_NAME,
+            "casting_trait_policy": CASTING_TRAIT_POLICY_NAME,
             "status": "blocked_voice_consent",
             "reason": str(consent.get("reason") or "voice_consent_required"),
             "speakers": [],
+            "speaker_attribution_review_required_count": len(
+                attribution_requirements
+            ),
+            "speaker_attribution_review_complete": attribution_review_complete,
+            "speaker_casting_review_required_count": len(
+                casting_review_requirements
+            ),
+            "speaker_casting_review_complete": casting_review_complete,
+            "speaker_casting_review_evidence_aggregate_sha256": (
+                casting_review_evidence_aggregate_sha256
+            ),
             "cast_map_sha256": "",
             "raw_voice_ids_embedded": False,
             "sensitive_trait_values_embedded": False,
@@ -527,6 +1182,10 @@ def _cast_handoff(
             "profile_ref_sha256": _narrator_profile_ref_sha256(voice_profile),
             "private_profile_lookup_required": True,
             "explicit_profile": True,
+            "attribution_review_required": False,
+            "attribution_review_complete": True,
+            "casting_review_required": False,
+            "casting_review_complete": True,
         }
     ]
     raw_speakers = plan.get("speakers")
@@ -539,10 +1198,38 @@ def _cast_handoff(
         speaker_id = str(raw.get("speaker_id") or "speaker_unknown")
         speaker_key = _profile_key(raw.get("speaker_label"))
         explicit_profile = speaker_key in approved_profile_refs
-        confidence = float(raw.get("attribution_confidence") or 0.0)
+        casting_review = next(
+            (
+                row
+                for row in casting_review_requirements
+                if str(row.get("speaker_key") or "") == speaker_key
+            ),
+            {},
+        )
+        speaker_attribution_requirements = [
+            row
+            for row in attribution_requirements
+            if str(row.get("speaker_id") or "") == speaker_id
+        ]
+        speaker_attribution_review_complete = all(
+            row.get("review_approved") is True
+            for row in speaker_attribution_requirements
+        )
+        attribution_review_evidence_rows = [
+            {
+                "span_fingerprint": str(row.get("span_fingerprint") or ""),
+                "review_evidence_sha256": str(
+                    row.get("review_evidence_sha256") or ""
+                ),
+                "review_authority_class": str(
+                    row.get("review_authority_class") or ""
+                ),
+            }
+            for row in speaker_attribution_requirements
+        ]
         ambiguous = (
             speaker_id.startswith("speaker_unknown_")
-            or confidence < 0.7
+            or bool(speaker_attribution_requirements)
             or speaker_key == _profile_key("Unknown speaker")
         )
         mapping = (
@@ -561,15 +1248,68 @@ def _cast_handoff(
                 "private_profile_lookup_required": explicit_profile,
                 "explicit_profile": explicit_profile,
                 "neutral_fallback": not explicit_profile,
+                "casting_review_required": explicit_profile,
+                "casting_review_complete": (
+                    not explicit_profile
+                    or casting_review.get("review_approved") is True
+                ),
+                "casting_review_evidence_sha256": str(
+                    casting_review.get("review_evidence_sha256") or ""
+                ),
+                "speaker_traits_sha256": str(
+                    casting_review.get("speaker_traits_sha256") or ""
+                ),
+                "casting_review_expires_at": str(
+                    casting_review.get("expires_at") or ""
+                ),
+                "attribution_review_required": bool(
+                    speaker_attribution_requirements
+                ),
+                "attribution_review_complete": (
+                    speaker_attribution_review_complete
+                ),
+                "attribution_review_required_span_count": len(
+                    speaker_attribution_requirements
+                ),
+                "attribution_review_evidence_aggregate_sha256": (
+                    _stable_json_sha256(attribution_review_evidence_rows)
+                    if attribution_review_evidence_rows
+                    else ""
+                ),
             }
         )
     rows.sort(key=lambda row: (str(row["speaker_role"]), str(row["speaker_id"])))
     cast_map_sha256 = _stable_json_sha256(rows)
     return {
         "contract_name": CAST_HANDOFF_CONTRACT_NAME,
-        "status": "ready_for_private_audiobook_cast_resolution",
+        "casting_trait_policy": CASTING_TRAIT_POLICY_NAME,
+        "status": (
+            "ready_for_private_audiobook_cast_resolution"
+            if attribution_review_complete and casting_review_complete
+            else "blocked_speaker_attribution_review"
+            if not attribution_review_complete
+            else "blocked_speaker_casting_review"
+        ),
+        "reason": (
+            ""
+            if attribution_review_complete and casting_review_complete
+            else "speaker_attribution_review_required"
+            if not attribution_review_complete
+            else "speaker_casting_review_required"
+        ),
         "planner_contract_name": str(plan.get("contract_name") or ""),
         "speakers": rows,
+        "speaker_attribution_review_required_count": len(
+            attribution_requirements
+        ),
+        "speaker_attribution_review_complete": attribution_review_complete,
+        "speaker_casting_review_required_count": len(
+            casting_review_requirements
+        ),
+        "speaker_casting_review_complete": casting_review_complete,
+        "speaker_casting_review_evidence_aggregate_sha256": (
+            casting_review_evidence_aggregate_sha256
+        ),
         "cast_map_sha256": cast_map_sha256,
         "raw_voice_ids_embedded": False,
         "sensitive_trait_values_embedded": False,
@@ -578,18 +1318,22 @@ def _cast_handoff(
 
 
 def _empty_plan(*, language: str) -> dict[str, object]:
-    return {
-        "contract_name": "ea.audiobook_narration_plan.v2",
-        "version": 2,
+    plan: dict[str, object] = {
+        "contract_name": PLANNER_CONTRACT_NAME,
+        "version": 4,
         "status": "blocked_no_approved_public_sources",
         "language": language,
         "speakers": [],
         "spans": [],
         "passages": [],
         "coverage_complete": False,
+        "casting_trait_policy": CASTING_TRAIT_POLICY_NAME,
         "private_payload": True,
         "raw_source_text_embedded": False,
     }
+    plan["planner_plan_sha256"] = ""
+    plan["casting_plan_sha256"] = _stable_json_sha256(plan)
+    return plan
 
 
 def build_memorial_narration_work_package(
@@ -603,7 +1347,9 @@ def build_memorial_narration_work_package(
     language: str = "",
     max_chars: int = 1200,
     required_voice_scope: str = "synthesize",
+    observed_at: datetime | None = None,
 ) -> dict[str, object]:
+    build_observed_at = (observed_at or datetime.now(UTC)).astimezone(UTC)
     normalized_slug = str(slug or "").strip().casefold()
     if (
         not normalized_slug
@@ -633,10 +1379,17 @@ def build_memorial_narration_work_package(
             }
         )
     embedded_profiles.update(dict(speaker_profiles or {}))
-    planner_profiles, approved_traits, profile_refs = _approved_speaker_profiles(
-        embedded_profiles
+    (
+        planner_profiles,
+        approved_traits,
+        profile_refs,
+        casting_reviews_by_key,
+        speaker_casting_review_requirements,
+        speaker_casting_review_excluded,
+    ) = _approved_speaker_profiles(
+        embedded_profiles,
+        observed_at=build_observed_at,
     )
-
     if sources:
         chapters = tuple(
             PlannerChapter(index=index, source_href=source.href, text=source.text)
@@ -648,9 +1401,57 @@ def build_memorial_narration_work_package(
             max_chars=max_chars,
             approved_speaker_profiles=planner_profiles,
         )
-        plan = _sanitize_plan_traits(raw_plan, approved_traits_by_key=approved_traits)
+        speaker_casting_conflict_requirements = (
+            _speaker_casting_conflict_requirements(
+                raw_plan,
+                casting_reviews_by_key=casting_reviews_by_key,
+            )
+        )
+        plan = _sanitize_plan_traits(
+            raw_plan,
+            approved_traits_by_key=approved_traits,
+            casting_conflict_requirements=(
+                speaker_casting_conflict_requirements
+            ),
+        )
     else:
         plan = _empty_plan(language=selected_language)
+        speaker_casting_conflict_requirements = []
+    present_speaker_keys = {
+        _profile_key(row.get("speaker_label"))
+        for row in list(plan.get("speakers") or [])
+        if isinstance(row, Mapping)
+        and str(row.get("speaker_id") or "") != "narrator"
+    }
+    speaker_casting_review_requirements = [
+        row
+        for row in speaker_casting_review_requirements
+        if str(row.get("speaker_key") or "") in present_speaker_keys
+    ]
+    missing_speaker_casting_reviews = [
+        row
+        for row in speaker_casting_review_requirements
+        if row.get("review_approved") is not True
+    ]
+    missing_speaker_casting_conflict_reviews = [
+        row
+        for row in speaker_casting_conflict_requirements
+        if row.get("conflict_review_approved") is not True
+    ]
+
+    attribution_requirements = _speaker_attribution_requirements(plan)
+    attribution_requirements, attribution_review_excluded = (
+        _speaker_attribution_review_decisions(
+            memorial_manifest,
+            attribution_requirements,
+            observed_at=build_observed_at,
+        )
+    )
+    missing_attribution_reviews = [
+        row
+        for row in attribution_requirements
+        if row.get("review_approved") is not True
+    ]
 
     consent = _voice_consent_decision(
         voice_profile, required_scope=required_voice_scope
@@ -660,6 +1461,8 @@ def build_memorial_narration_work_package(
         consent=consent,
         voice_profile=voice_profile,
         approved_profile_refs=profile_refs,
+        attribution_requirements=attribution_requirements,
+        casting_review_requirements=speaker_casting_review_requirements,
     )
     cast_handoff_sha256 = _stable_json_sha256(cast_handoff)
     if not sources:
@@ -671,6 +1474,15 @@ def build_memorial_narration_work_package(
     elif str(plan.get("status") or "") != "ready":
         status = "blocked_narration_plan"
         reason = str(plan.get("status") or "narration_plan_not_ready")
+    elif missing_speaker_casting_reviews:
+        status = "blocked_speaker_casting_review"
+        reason = "speaker_casting_review_required"
+    elif missing_speaker_casting_conflict_reviews:
+        status = "blocked_speaker_casting_conflict_review"
+        reason = "speaker_casting_conflict_review_required"
+    elif missing_attribution_reviews:
+        status = "blocked_speaker_attribution_review"
+        reason = "speaker_attribution_review_required"
     else:
         status = "ready_for_private_cast_resolution"
         reason = ""
@@ -700,6 +1512,28 @@ def build_memorial_narration_work_package(
         }
         for source in sources
     ]
+    attribution_review_evidence_rows = [
+        {
+            "speaker_id": str(row.get("speaker_id") or ""),
+            "span_fingerprint": str(row.get("span_fingerprint") or ""),
+            "source_text_sha256": str(row.get("source_text_sha256") or ""),
+            "review_evidence_sha256": str(
+                row.get("review_evidence_sha256") or ""
+            ),
+            "review_authority_class": str(
+                row.get("review_authority_class") or ""
+            ),
+        }
+        for row in attribution_requirements
+    ]
+    speaker_casting_review_evidence_rows = (
+        _speaker_casting_review_evidence_rows(
+            speaker_casting_review_requirements
+        )
+    )
+    speaker_casting_review_evidence_aggregate_sha256 = _stable_json_sha256(
+        speaker_casting_review_evidence_rows
+    )
     source_kind_counts = dict(
         sorted(Counter(source.kind for source in sources).items())
     )
@@ -722,10 +1556,57 @@ def build_memorial_narration_work_package(
         "human_listening_review_required": True,
         "planner_contract_name": str(plan.get("contract_name") or ""),
         "plan_sha256": str(plan.get("plan_sha256") or ""),
+        "casting_plan_sha256": str(
+            plan.get("casting_plan_sha256") or ""
+        ),
+        "dialogue_attribution_evidence_sha256": str(
+            plan.get("dialogue_attribution_evidence_sha256") or ""
+        ),
         "source_aggregate_sha256": _stable_json_sha256(source_rows),
         "purpose_specific_narration_review_required": True,
         "narration_review_scope_array_required": True,
         "required_narration_source_scope": REQUIRED_NARRATION_SOURCE_SCOPE,
+        "purpose_specific_speaker_attribution_review_required": True,
+        "purpose_specific_speaker_casting_review_required": True,
+        "required_speaker_casting_scope": REQUIRED_SPEAKER_CASTING_SCOPE,
+        "speaker_casting_review_required_count": len(
+            speaker_casting_review_requirements
+        ),
+        "speaker_casting_review_approved_count": (
+            len(speaker_casting_review_requirements)
+            - len(missing_speaker_casting_reviews)
+        ),
+        "speaker_casting_review_evidence_aggregate_sha256": (
+            speaker_casting_review_evidence_aggregate_sha256
+        ),
+        "speaker_casting_review_excluded_reason_counts": dict(
+            sorted(speaker_casting_review_excluded.items())
+        ),
+        "speaker_casting_conflict_review_required_count": len(
+            speaker_casting_conflict_requirements
+        ),
+        "speaker_casting_conflict_review_approved_count": (
+            len(speaker_casting_conflict_requirements)
+            - len(missing_speaker_casting_conflict_reviews)
+        ),
+        "speaker_casting_conflict_review_evidence_aggregate_sha256": (
+            _stable_json_sha256(speaker_casting_conflict_requirements)
+        ),
+        "required_speaker_attribution_scope": (
+            REQUIRED_SPEAKER_ATTRIBUTION_SCOPE
+        ),
+        "speaker_attribution_review_required_count": len(
+            attribution_requirements
+        ),
+        "speaker_attribution_review_approved_count": (
+            len(attribution_requirements) - len(missing_attribution_reviews)
+        ),
+        "speaker_attribution_review_evidence_aggregate_sha256": (
+            _stable_json_sha256(attribution_review_evidence_rows)
+        ),
+        "speaker_attribution_review_excluded_reason_counts": dict(
+            sorted(attribution_review_excluded.items())
+        ),
         "approved_narration_permission_count": len(
             narration_review_evidence_rows
         ),
@@ -764,6 +1645,7 @@ def build_memorial_narration_work_package(
             "evidence_sha256": consent.get("evidence_sha256"),
         },
         "demographic_trait_policy": "explicit_approved_profiles_only",
+        "casting_trait_policy": CASTING_TRAIT_POLICY_NAME,
         "provider_calls_made": 0,
         "synthesis_requested": False,
         "raw_source_text_exposed": False,
@@ -772,7 +1654,7 @@ def build_memorial_narration_work_package(
     }
     package_without_receipt = {
         "contract_name": WORK_PACKAGE_CONTRACT_NAME,
-        "version": 3,
+        "version": 4,
         "status": status,
         "reason": reason,
         "slug": normalized_slug,
@@ -783,12 +1665,37 @@ def build_memorial_narration_work_package(
             "purpose_specific_narration_review_required": True,
             "narration_review_scope_array_required": True,
             "required_narration_source_scope": REQUIRED_NARRATION_SOURCE_SCOPE,
+            "purpose_specific_speaker_attribution_review_required": True,
+            "purpose_specific_speaker_casting_review_required": True,
+            "required_speaker_casting_scope": REQUIRED_SPEAKER_CASTING_SCOPE,
+            "required_speaker_attribution_scope": (
+                REQUIRED_SPEAKER_ATTRIBUTION_SCOPE
+            ),
             "exact_source_hash_binding_required": True,
+            "dialogue_attribution_integrity_required": True,
+            "casting_trait_policy": CASTING_TRAIT_POLICY_NAME,
             "private_sources_excluded_by_default": True,
         },
         "sources": source_rows,
+        "speaker_attribution_review_requirements": attribution_requirements,
+        "speaker_casting_review_requirements": (
+            speaker_casting_review_requirements
+        ),
+        "speaker_casting_review_evidence_aggregate_sha256": (
+            speaker_casting_review_evidence_aggregate_sha256
+        ),
+        "speaker_casting_conflict_review_requirements": (
+            speaker_casting_conflict_requirements
+        ),
         "narration_plan": plan,
+        "casting_plan_sha256": str(
+            plan.get("casting_plan_sha256") or ""
+        ),
+        "dialogue_attribution_evidence_sha256": str(
+            plan.get("dialogue_attribution_evidence_sha256") or ""
+        ),
         "cast_handoff": cast_handoff,
+        "casting_trait_policy": CASTING_TRAIT_POLICY_NAME,
         "cast_handoff_sha256": cast_handoff_sha256,
         "cast_resolution_authorized": receipt["cast_resolution_authorized"],
         "render_authorized": False,
