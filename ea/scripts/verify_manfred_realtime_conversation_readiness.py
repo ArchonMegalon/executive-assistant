@@ -17,21 +17,49 @@ from materialize_manfred_realtime_conversation_readiness import EVIDENCE_MAX_AGE
 from materialize_manfred_realtime_conversation_readiness import EVIDENCE_RECEIPTS
 from materialize_manfred_realtime_conversation_readiness import MANFRED_PROOF_LABEL
 from materialize_manfred_realtime_conversation_readiness import MANFRED_PROOF_PATH
+from materialize_manfred_realtime_conversation_readiness import MANFRED_REVIEW_LABEL
 from materialize_manfred_realtime_conversation_readiness import MANFRED_OPERATOR_ACTION_KEY
 from materialize_manfred_realtime_conversation_readiness import MANFRED_VOICE_GOLD_LABEL
 from materialize_manfred_realtime_conversation_readiness import MANFRED_VOICE_GOLD_PATH
 from materialize_manfred_realtime_conversation_readiness import _load_evidence_receipt
+from materialize_manfred_realtime_conversation_readiness import _manual_room_proof_is_sole_remaining_blocker
+from materialize_manfred_realtime_conversation_readiness import _next_action_surface
 from materialize_manfred_realtime_conversation_readiness import _operator_status_from_receipts
+from materialize_manfred_realtime_conversation_readiness import _operator_action_packet
 from materialize_manfred_realtime_conversation_readiness import _readiness_blocked_checks
+from materialize_manfred_realtime_conversation_readiness import _read_regular_file_snapshot
+from materialize_manfred_realtime_conversation_readiness import _validated_generated_at
+from materialize_manfred_realtime_conversation_readiness import UnsafeLocalFileError
 from scripts.source_state_head import resolve_source_state_head
 from scripts.source_state_head import resolve_source_worktree_fingerprint
 
 
 DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "manfred_realtime_conversation_readiness.generated.json"
+VERIFIER_CONTRACT_NAME = "ea.manfred_realtime_conversation_readiness.verify.v1"
+
+
+def _verification_failure(issue: str) -> dict[str, Any]:
+    return {
+        "contract_name": VERIFIER_CONTRACT_NAME,
+        "status": "fail",
+        "issues": [issue],
+    }
 
 
 def verify_manfred_realtime_conversation_readiness(receipt_path: str | Path) -> dict[str, Any]:
-    receipt = json.loads(Path(receipt_path).read_text(encoding="utf-8"))
+    try:
+        raw_receipt = _read_regular_file_snapshot(receipt_path)
+    except FileNotFoundError:
+        return _verification_failure("manfred_realtime_receipt_missing")
+    except (OSError, UnsafeLocalFileError):
+        return _verification_failure("manfred_realtime_receipt_unsafe")
+    try:
+        parsed_receipt = json.loads(raw_receipt.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _verification_failure("manfred_realtime_receipt_invalid_json")
+    if not isinstance(parsed_receipt, dict):
+        return _verification_failure("manfred_realtime_receipt_invalid_shape")
+    receipt = dict(parsed_receipt)
     issues: list[str] = []
     allowed_top_level_fields = {
         "blocked_checks",
@@ -76,6 +104,13 @@ def verify_manfred_realtime_conversation_readiness(receipt_path: str | Path) -> 
     fingerprint_matches = bool(current_fingerprint and recorded_fingerprint and current_fingerprint == recorded_fingerprint)
     if receipt.get("contract_name") != "ea.manfred_realtime_conversation_readiness.v1":
         issues.append("manfred_realtime_contract_name_mismatch")
+    try:
+        normalized_generated_at = _validated_generated_at(receipt.get("generated_at"))
+    except ValueError:
+        normalized_generated_at = ""
+        issues.append("manfred_realtime_generated_at_invalid_or_stale")
+    if normalized_generated_at != receipt.get("generated_at"):
+        issues.append("manfred_realtime_generated_at_not_canonical")
     if receipt.get("head_semantics") != "source_state":
         issues.append("manfred_realtime_head_semantics_missing")
     if receipt.get("source_state_fingerprint_semantics") != "worktree_source_files_sha256_excluding_generated_only_paths":
@@ -313,6 +348,40 @@ def verify_manfred_realtime_conversation_readiness(receipt_path: str | Path) -> 
         issues.append("manfred_realtime_status_inconsistent")
     if receipt.get("ready_for_realtime_conversation_review") is not expected_ready:
         issues.append("manfred_realtime_ready_flag_inconsistent")
+    expected_next_action_surface = _next_action_surface(
+        ready=expected_ready,
+        blocked_checks=expected_blocked_checks,
+        stt=stt,
+        diagnostic=diagnostic,
+        tts=tts,
+        attestation=attestation,
+    )
+    if any(
+        receipt.get(field) != expected_next_action_surface.get(field)
+        for field in (
+            "next_action",
+            "next_action_href",
+            "next_action_label",
+            "next_action_method",
+        )
+    ):
+        issues.append("manfred_realtime_next_action_derivation_mismatch")
+    manual_room_proof_only = _manual_room_proof_is_sole_remaining_blocker(
+        blocked_checks=expected_blocked_checks,
+        stt=stt,
+        diagnostic=diagnostic,
+        tts=tts,
+        attestation=attestation,
+    )
+    expected_operator_action = _operator_action_packet(
+        ready=expected_ready,
+        blocked_checks=expected_blocked_checks,
+        next_action_surface=expected_next_action_surface,
+        attestation=attestation,
+        manual_room_proof_only=manual_room_proof_only,
+    )
+    if operator_action != expected_operator_action:
+        issues.append("manfred_realtime_operator_action_derivation_mismatch")
     if receipt.get("realtime_conversation_claim_allowed") is not False:
         issues.append("manfred_realtime_realtime_claim_inconsistent")
     if receipt.get("premium_spoken_claim_allowed") is not False:
@@ -325,11 +394,18 @@ def verify_manfred_realtime_conversation_readiness(receipt_path: str | Path) -> 
         else "Memorial public-origin gold: blocked"
     ):
         issues.append("manfred_realtime_current_label_inconsistent")
-    if receipt.get("goal_completion_claim_allowed") is True:
+    if receipt.get("goal_completion_claim_allowed") is not False:
         issues.append("manfred_realtime_goal_completion_overclaim")
     if receipt.get("realtime_conversation_claim_allowed") is True and receipt.get("blocked_checks"):
         issues.append("manfred_realtime_claim_overclaim")
-    if dict(receipt.get("captured_candidate_diagnostic") or {}).get("promotion_allowed") is True and receipt.get("blocked_checks"):
+    if diagnostic.get("promotion_allowed") is True and (
+        diagnostic.get("status") != "ready"
+        or diagnostic.get("diagnostic_status") != "ready"
+        or diagnostic.get("may_update_fixture_manifest") is not True
+        or diagnostic.get("captured_row_count") != 2
+        or not isinstance(diagnostic.get("row_failure_codes"), list)
+        or bool(diagnostic.get("row_failure_codes"))
+    ):
         issues.append("manfred_realtime_captured_diagnostic_overclaim")
     privacy = dict(receipt.get("privacy") or {}) if isinstance(receipt.get("privacy"), dict) else {}
     expected_privacy = {
@@ -464,7 +540,7 @@ def verify_manfred_realtime_conversation_readiness(receipt_path: str | Path) -> 
             issues.append("manfred_realtime_operator_action_ready_push_allowed")
         if next_action_href != MANFRED_PROOF_PATH:
             issues.append("manfred_realtime_ready_next_action_href_drift")
-        if next_action_label != MANFRED_PROOF_LABEL:
+        if next_action_label != MANFRED_REVIEW_LABEL:
             issues.append("manfred_realtime_ready_next_action_label_drift")
     elif blocked_checks:
         if operator_action_key != MANFRED_OPERATOR_ACTION_KEY:
@@ -475,26 +551,43 @@ def verify_manfred_realtime_conversation_readiness(receipt_path: str | Path) -> 
             issues.append("manfred_realtime_operator_action_status_mismatch")
         if operator_action and operator_action.get("user_action_required") is not True:
             issues.append("manfred_realtime_operator_action_must_require_user")
-        if operator_action and operator_action.get("delivery_policy") != "action_required_only":
-            issues.append("manfred_realtime_operator_action_delivery_policy_mismatch")
-        if operator_action and operator_action.get("telegram_push_allowed") is not True:
-            issues.append("manfred_realtime_operator_action_push_flag_mismatch")
-        if operator_action and operator_action.get("interruption_budget") != "action_required":
-            issues.append("manfred_realtime_operator_action_budget_mismatch")
-        if operator_action and operator_action.get("manual_only") is not True:
-            issues.append("manfred_realtime_operator_action_manual_only_missing")
-        if operator_action and operator_action.get("ci_must_not_auto_assert") is not True:
-            issues.append("manfred_realtime_operator_action_ci_guard_missing")
-        if operator_action and int(operator_action.get("required_check_count") or 0) <= 0:
-            issues.append("manfred_realtime_operator_action_required_checks_missing")
-        room_audio_blocked = bool({"room_audio_receipt_passed", "manual_room_checks_confirmed"}.intersection(blocked_checks))
-        expected_href = MANFRED_PROOF_PATH if room_audio_blocked else MANFRED_VOICE_GOLD_PATH
-        expected_label = MANFRED_PROOF_LABEL if room_audio_blocked else MANFRED_VOICE_GOLD_LABEL
+        if manual_room_proof_only:
+            if operator_action and operator_action.get("delivery_policy") != "action_required_only":
+                issues.append("manfred_realtime_operator_action_delivery_policy_mismatch")
+            if operator_action and operator_action.get("telegram_push_allowed") is not True:
+                issues.append("manfred_realtime_operator_action_push_flag_mismatch")
+            if operator_action and operator_action.get("interruption_budget") != "action_required":
+                issues.append("manfred_realtime_operator_action_budget_mismatch")
+            if operator_action and operator_action.get("manual_only") is not True:
+                issues.append("manfred_realtime_operator_action_manual_only_missing")
+            if operator_action and operator_action.get("ci_must_not_auto_assert") is not True:
+                issues.append("manfred_realtime_operator_action_ci_guard_missing")
+            if operator_action and int(operator_action.get("required_check_count") or 0) <= 0:
+                issues.append("manfred_realtime_operator_action_required_checks_missing")
+            expected_href = MANFRED_PROOF_PATH
+            expected_label = MANFRED_PROOF_LABEL
+        else:
+            if operator_action and operator_action.get("delivery_policy") != "queue_only":
+                issues.append("manfred_realtime_operator_action_delivery_policy_mismatch")
+            if operator_action and operator_action.get("telegram_push_allowed") is not False:
+                issues.append("manfred_realtime_operator_action_push_flag_mismatch")
+            if operator_action and operator_action.get("interruption_budget") != "none":
+                issues.append("manfred_realtime_operator_action_budget_mismatch")
+            if operator_action and operator_action.get("manual_only") is not False:
+                issues.append("manfred_realtime_operator_action_manual_only_overclaim")
+            if operator_action and operator_action.get("ci_must_not_auto_assert") is not False:
+                issues.append("manfred_realtime_operator_action_ci_guard_overclaim")
+            if operator_action and int(operator_action.get("required_check_count") or 0) != 0:
+                issues.append("manfred_realtime_operator_action_required_checks_overclaim")
+            if operator_action and operator_action.get("kind") == "manual_room_audio_attestation":
+                issues.append("manfred_realtime_operator_action_manual_kind_overclaim")
+            expected_href = MANFRED_VOICE_GOLD_PATH
+            expected_label = MANFRED_VOICE_GOLD_LABEL
         if next_action_href != expected_href:
             issues.append("manfred_realtime_blocked_next_action_href_drift")
         if next_action_label != expected_label:
             issues.append("manfred_realtime_blocked_next_action_label_drift")
-    return {"contract_name": "ea.manfred_realtime_conversation_readiness.verify.v1", "status": "pass" if not issues else "fail", "issues": issues}
+    return {"contract_name": VERIFIER_CONTRACT_NAME, "status": "pass" if not issues else "fail", "issues": issues}
 
 
 def main(argv: list[str] | None = None) -> int:
