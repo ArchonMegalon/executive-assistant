@@ -6656,6 +6656,7 @@ def test_probe_proactive_route_checks_live_receipt_before_artifact_probe(monkeyp
     assert report["probe_ok"] is True
     assert report["status"] == "ready"
     assert report["delivery_route_ready"] is True
+    assert report["next_action"] == ""
     assert report["live_receipt_checked"] is True
     assert report["live_receipt"]["ok"] is True
     assert report["artifact_probe"]["probe_ok"] is False
