@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -21,13 +22,17 @@ from materialize_manfred_realtime_conversation_readiness import MANFRED_REVIEW_L
 from materialize_manfred_realtime_conversation_readiness import MANFRED_OPERATOR_ACTION_KEY
 from materialize_manfred_realtime_conversation_readiness import MANFRED_VOICE_GOLD_LABEL
 from materialize_manfred_realtime_conversation_readiness import MANFRED_VOICE_GOLD_PATH
+from materialize_manfred_realtime_conversation_readiness import _directory_fd_snapshot
+from materialize_manfred_realtime_conversation_readiness import _duplicate_directory_fd
 from materialize_manfred_realtime_conversation_readiness import _load_evidence_receipt
 from materialize_manfred_realtime_conversation_readiness import _manual_room_proof_is_sole_remaining_blocker
 from materialize_manfred_realtime_conversation_readiness import _next_action_surface
+from materialize_manfred_realtime_conversation_readiness import _open_directory_fd
 from materialize_manfred_realtime_conversation_readiness import _operator_status_from_receipts
 from materialize_manfred_realtime_conversation_readiness import _operator_action_packet
+from materialize_manfred_realtime_conversation_readiness import _open_parent_dirfd
 from materialize_manfred_realtime_conversation_readiness import _readiness_blocked_checks
-from materialize_manfred_realtime_conversation_readiness import _read_regular_file_snapshot
+from materialize_manfred_realtime_conversation_readiness import _read_regular_file_snapshot_at
 from materialize_manfred_realtime_conversation_readiness import _validated_generated_at
 from materialize_manfred_realtime_conversation_readiness import UnsafeLocalFileError
 from scripts.source_state_head import resolve_source_state_head
@@ -46,13 +51,83 @@ def _verification_failure(issue: str) -> dict[str, Any]:
     }
 
 
-def verify_manfred_realtime_conversation_readiness(receipt_path: str | Path) -> dict[str, Any]:
+def _open_explicit_evidence_root_fd(
+    evidence_root: str | Path,
+    *,
+    anchor_fd: int,
+) -> int:
+    if not str(evidence_root).strip():
+        raise UnsafeLocalFileError("local_evidence_root_empty")
+    return _open_directory_fd(evidence_root, anchor_fd=anchor_fd)
+
+
+def verify_manfred_realtime_conversation_readiness(
+    receipt_path: str | Path,
+    *,
+    evidence_root: str | Path | None = None,
+) -> dict[str, Any]:
+    anchor_fd = -1
+    receipt_parent_fd = -1
+    evidence_root_fd = -1
     try:
-        raw_receipt = _read_regular_file_snapshot(receipt_path)
-    except FileNotFoundError:
-        return _verification_failure("manfred_realtime_receipt_missing")
-    except (OSError, UnsafeLocalFileError):
-        return _verification_failure("manfred_realtime_receipt_unsafe")
+        try:
+            anchor_fd = _open_directory_fd(".")
+            receipt_parent_fd, receipt_name = _open_parent_dirfd(
+                receipt_path,
+                create=False,
+                anchor_fd=anchor_fd,
+            )
+        except FileNotFoundError:
+            return _verification_failure("manfred_realtime_receipt_missing")
+        except (OSError, UnsafeLocalFileError):
+            return _verification_failure("manfred_realtime_receipt_unsafe")
+        try:
+            evidence_root_fd = (
+                _duplicate_directory_fd(receipt_parent_fd)
+                if evidence_root is None
+                else _open_explicit_evidence_root_fd(
+                    evidence_root,
+                    anchor_fd=anchor_fd,
+                )
+            )
+            initial_evidence_snapshot = _directory_fd_snapshot(evidence_root_fd)
+        except (OSError, UnsafeLocalFileError):
+            return _verification_failure("manfred_realtime_evidence_root_unsafe")
+        try:
+            raw_receipt = _read_regular_file_snapshot_at(
+                receipt_parent_fd,
+                receipt_name,
+            )
+        except FileNotFoundError:
+            return _verification_failure("manfred_realtime_receipt_missing")
+        except (OSError, UnsafeLocalFileError):
+            return _verification_failure("manfred_realtime_receipt_unsafe")
+        try:
+            result = _verify_bound_realtime_readiness(
+                raw_receipt,
+                evidence_root_fd=evidence_root_fd,
+            )
+            if _directory_fd_snapshot(evidence_root_fd) != initial_evidence_snapshot:
+                return _verification_failure(
+                    "manfred_realtime_evidence_root_changed_during_verification"
+                )
+            return result
+        except (OSError, UnsafeLocalFileError):
+            return _verification_failure("manfred_realtime_evidence_root_unsafe")
+    finally:
+        if evidence_root_fd >= 0:
+            os.close(evidence_root_fd)
+        if receipt_parent_fd >= 0:
+            os.close(receipt_parent_fd)
+        if anchor_fd >= 0:
+            os.close(anchor_fd)
+
+
+def _verify_bound_realtime_readiness(
+    raw_receipt: bytes,
+    *,
+    evidence_root_fd: int,
+) -> dict[str, Any]:
     try:
         parsed_receipt = json.loads(raw_receipt.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -192,7 +267,7 @@ def verify_manfred_realtime_conversation_readiness(receipt_path: str | Path) -> 
                 if row.get(raw_key) is not False:
                     issues.append(f"manfred_realtime_input_evidence_raw_flag_not_false:{key}:{raw_key}")
             _payload, actual_evidence = _load_evidence_receipt(
-                root=Path(receipt_path).parent,
+                root_fd=evidence_root_fd,
                 receipt_name=expected_name,
                 expected_contract=expected_contract,
                 current_head=current_head,
@@ -222,7 +297,9 @@ def verify_manfred_realtime_conversation_readiness(receipt_path: str | Path) -> 
         else {}
     )
     if evidence_source == "receipt_aggregation":
-        authoritative_status = _operator_status_from_receipts(Path(receipt_path).parent)
+        authoritative_status = _operator_status_from_receipts(
+            receipt_root_fd=evidence_root_fd
+        )
         if stt != dict(authoritative_status.get("spoken_conversation_stt") or {}):
             issues.append("manfred_realtime_stt_derivation_mismatch")
         if diagnostic != dict(authoritative_status.get("captured_candidate_diagnostic") or {}):
@@ -593,8 +670,12 @@ def verify_manfred_realtime_conversation_readiness(receipt_path: str | Path) -> 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify Manfred realtime conversation readiness.")
     parser.add_argument("--receipt", default=str(DEFAULT_RECEIPT))
+    parser.add_argument("--evidence-root")
     args = parser.parse_args(argv)
-    result = verify_manfred_realtime_conversation_readiness(args.receipt)
+    result = verify_manfred_realtime_conversation_readiness(
+        args.receipt,
+        evidence_root=args.evidence_root,
+    )
     print(json.dumps(result, sort_keys=True))
     return 0 if result["status"] == "pass" else 1
 

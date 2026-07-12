@@ -193,7 +193,12 @@ def _validated_generated_at(value: object) -> str:
     return normalized
 
 
-def _open_parent_dirfd(path: str | Path, *, create: bool) -> tuple[int, str]:
+def _open_parent_dirfd(
+    path: str | Path,
+    *,
+    create: bool,
+    anchor_fd: int | None = None,
+) -> tuple[int, str]:
     target = Path(path)
     target_name = target.name
     if not target_name or target_name in {".", ".."}:
@@ -210,7 +215,17 @@ def _open_parent_dirfd(path: str | Path, *, create: bool) -> tuple[int, str]:
         current_fd = os.open(os.sep, directory_flags)
     else:
         parent_parts = target.parent.parts
-        current_fd = os.open(".", directory_flags)
+        current_fd = (
+            os.open(".", directory_flags)
+            if anchor_fd is None
+            else os.dup(anchor_fd)
+        )
+        try:
+            if not stat.S_ISDIR(os.fstat(current_fd).st_mode):
+                raise UnsafeLocalFileError("local_anchor_not_directory")
+        except Exception:
+            os.close(current_fd)
+            raise
 
     try:
         for component in parent_parts:
@@ -242,6 +257,63 @@ def _open_parent_dirfd(path: str | Path, *, create: bool) -> tuple[int, str]:
     except Exception:
         os.close(current_fd)
         raise
+
+
+def _open_directory_fd(
+    path: str | Path,
+    *,
+    anchor_fd: int | None = None,
+) -> int:
+    directory_fd, _sentinel_name = _open_parent_dirfd(
+        Path(path) / ".manfred-readiness-directory-handle",
+        create=False,
+        anchor_fd=anchor_fd,
+    )
+    return directory_fd
+
+
+def _duplicate_directory_fd(directory_fd: int) -> int:
+    duplicated_fd = os.dup(directory_fd)
+    try:
+        if not stat.S_ISDIR(os.fstat(duplicated_fd).st_mode):
+            raise UnsafeLocalFileError("local_evidence_root_not_directory")
+    except Exception:
+        os.close(duplicated_fd)
+        raise
+    return duplicated_fd
+
+
+def _directory_fd_snapshot(directory_fd: int) -> tuple[int, ...]:
+    observed = os.fstat(directory_fd)
+    if not stat.S_ISDIR(observed.st_mode):
+        raise UnsafeLocalFileError("local_evidence_root_not_directory")
+    return (
+        observed.st_dev,
+        observed.st_ino,
+        observed.st_mode,
+        observed.st_nlink,
+        observed.st_size,
+        observed.st_mtime_ns,
+        observed.st_ctime_ns,
+    )
+
+
+def _directory_fd_reference_path(directory_fd: int) -> Path:
+    try:
+        opened = os.fstat(directory_fd)
+    except OSError as exc:
+        raise UnsafeLocalFileError("local_directory_fd_reference_unavailable") from exc
+    if not stat.S_ISDIR(opened.st_mode):
+        raise UnsafeLocalFileError("local_directory_fd_reference_mismatch")
+    for descriptor_root in (Path("/proc/self/fd"), Path("/dev/fd")):
+        reference = descriptor_root / str(directory_fd)
+        try:
+            referenced = os.stat(reference)
+        except OSError:
+            continue
+        if referenced.st_dev == opened.st_dev and referenced.st_ino == opened.st_ino:
+            return reference
+    raise UnsafeLocalFileError("local_directory_fd_reference_unavailable")
 
 
 def _regular_target_stat(parent_fd: int, target_name: str) -> os.stat_result | None:
@@ -341,14 +413,20 @@ def _write(path: str | Path, payload: dict[str, Any]) -> None:
         os.close(parent_fd)
 
 
-def _read_regular_file_snapshot(
-    path: str | Path,
+def _read_regular_file_snapshot_at(
+    parent_fd: int,
+    target_name: str,
     *,
     max_bytes: int = MAX_LOCAL_JSON_BYTES,
 ) -> bytes:
     if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0:
         raise UnsafeLocalFileError("local_snapshot_limit_invalid")
-    parent_fd, target_name = _open_parent_dirfd(path, create=False)
+    if (
+        not target_name
+        or target_name in {".", ".."}
+        or Path(target_name).name != target_name
+    ):
+        raise UnsafeLocalFileError("local_snapshot_name_invalid")
     file_fd = -1
     try:
         open_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
@@ -397,6 +475,21 @@ def _read_regular_file_snapshot(
     finally:
         if file_fd >= 0:
             os.close(file_fd)
+
+
+def _read_regular_file_snapshot(
+    path: str | Path,
+    *,
+    max_bytes: int = MAX_LOCAL_JSON_BYTES,
+) -> bytes:
+    parent_fd, target_name = _open_parent_dirfd(path, create=False)
+    try:
+        return _read_regular_file_snapshot_at(
+            parent_fd,
+            target_name,
+            max_bytes=max_bytes,
+        )
+    finally:
         os.close(parent_fd)
 
 
@@ -1063,14 +1156,33 @@ def _candidate_receipt_is_authoritative(candidate: dict[str, Any]) -> bool:
     )
 
 
-def _strict_diagnostic_verifier_passes(*, root: Path) -> bool:
+def _strict_diagnostic_verifier_passes(
+    *,
+    root: Path | None = None,
+    root_fd: int | None = None,
+) -> bool:
     try:
-        result = verify_diagnostic(
-            root / EVIDENCE_RECEIPTS["captured_candidate_diagnostic"][0],
-            candidate_receipt_path=root / EVIDENCE_RECEIPTS["stt_candidate"][0],
-            benchmark_receipt_path=root / EVIDENCE_RECEIPTS["stt_captured_benchmark"][0],
+        bound_root = (
+            _directory_fd_reference_path(root_fd)
+            if root_fd is not None
+            else root
         )
-    except (KeyError, OSError, OverflowError, RuntimeError, TypeError, ValueError):
+        if bound_root is None:
+            return False
+        result = verify_diagnostic(
+            bound_root / EVIDENCE_RECEIPTS["captured_candidate_diagnostic"][0],
+            candidate_receipt_path=bound_root / EVIDENCE_RECEIPTS["stt_candidate"][0],
+            benchmark_receipt_path=bound_root / EVIDENCE_RECEIPTS["stt_captured_benchmark"][0],
+        )
+    except (
+        KeyError,
+        OSError,
+        OverflowError,
+        RuntimeError,
+        TypeError,
+        UnsafeLocalFileError,
+        ValueError,
+    ):
         return False
     return bool(
         result.get("status") == "pass"
@@ -1396,14 +1508,15 @@ def _diagnostic_receipt_is_authoritative(
 
 def _load_evidence_receipt(
     *,
-    root: Path,
+    root: Path | None = None,
+    root_fd: int | None = None,
+    root_missing: bool = False,
     receipt_name: str,
     expected_contract: str,
     current_head: str,
     current_fingerprint: str,
     max_age_seconds: int,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    path = root / receipt_name
     evidence: dict[str, Any] = {
         "receipt_name": receipt_name,
         "present": False,
@@ -1423,8 +1536,15 @@ def _load_evidence_receipt(
         "raw_credentials_exposed": False,
         "raw_receipt_payload_exposed": False,
     }
+    if root_missing:
+        return {}, evidence
     try:
-        raw = _read_regular_file_snapshot(path)
+        if root_fd is not None:
+            raw = _read_regular_file_snapshot_at(root_fd, receipt_name)
+        elif root is not None:
+            raw = _read_regular_file_snapshot(root / receipt_name)
+        else:
+            raise UnsafeLocalFileError("local_evidence_root_missing")
     except FileNotFoundError:
         return {}, evidence
     except (OSError, UnsafeLocalFileError):
@@ -1519,15 +1639,42 @@ def _benchmark_claim_semantics_match(
 
 def _operator_status_from_receipts(
     receipt_root: str | Path = DEFAULT_EVIDENCE_ROOT,
+    *,
+    receipt_root_fd: int | None = None,
 ) -> dict[str, Any]:
-    root = Path(receipt_root)
+    if receipt_root_fd is None and not str(receipt_root).strip():
+        raise UnsafeLocalFileError("local_evidence_root_empty")
+    try:
+        opened_root_fd = (
+            _open_directory_fd(receipt_root)
+            if receipt_root_fd is None
+            else _duplicate_directory_fd(receipt_root_fd)
+        )
+    except FileNotFoundError:
+        return _operator_status_from_open_receipts(None)
+    try:
+        initial_root_snapshot = _directory_fd_snapshot(opened_root_fd)
+        result = _operator_status_from_open_receipts(opened_root_fd)
+        if _directory_fd_snapshot(opened_root_fd) != initial_root_snapshot:
+            raise UnsafeLocalFileError(
+                "local_evidence_root_changed_during_aggregation"
+            )
+        return result
+    finally:
+        os.close(opened_root_fd)
+
+
+def _operator_status_from_open_receipts(
+    receipt_root_fd: int | None,
+) -> dict[str, Any]:
     current_head = resolve_source_state_head(REPO_ROOT)
     current_fingerprint = resolve_source_worktree_fingerprint(REPO_ROOT)
     receipts: dict[str, dict[str, Any]] = {}
     evidence: dict[str, dict[str, Any]] = {}
     for key, (receipt_name, expected_contract) in EVIDENCE_RECEIPTS.items():
         payload, receipt_evidence = _load_evidence_receipt(
-            root=root,
+            root_fd=receipt_root_fd,
+            root_missing=receipt_root_fd is None,
             receipt_name=receipt_name,
             expected_contract=expected_contract,
             current_head=current_head,
@@ -1567,7 +1714,10 @@ def _operator_status_from_receipts(
     benchmark_authoritative, benchmark_binding, main_captured_rows = (
         _benchmark_receipt_is_authoritative(benchmark)
     )
-    strict_diagnostic_verified = _strict_diagnostic_verifier_passes(root=root)
+    strict_diagnostic_verified = bool(
+        receipt_root_fd is not None
+        and _strict_diagnostic_verifier_passes(root_fd=receipt_root_fd)
+    )
     captured_benchmark_ready = bool(
         candidate_authoritative
         and captured_source_authoritative
@@ -2218,12 +2368,13 @@ def materialize_manfred_realtime_conversation_readiness(
     generated_at: str = "",
     operator_status: dict[str, Any] | None = None,
     refresh: bool = True,
+    evidence_root: str | Path = DEFAULT_EVIDENCE_ROOT,
 ) -> dict[str, Any]:
     if operator_status is not None:
         status = _sanitize_provided_operator_status(operator_status)
         evidence_source = "provided_operator_status"
     elif refresh:
-        status = _operator_status_from_receipts()
+        status = _operator_status_from_receipts(evidence_root)
         evidence_source = "receipt_aggregation"
     else:
         status = _sanitize_provided_operator_status(_default_operator_status())
@@ -2304,10 +2455,16 @@ def materialize_manfred_realtime_conversation_readiness(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Materialize Manfred realtime conversation readiness.")
     parser.add_argument("--receipt", default=str(DEFAULT_RECEIPT))
+    parser.add_argument("--evidence-root", default=str(DEFAULT_EVIDENCE_ROOT))
     parser.add_argument("--generated-at", default="")
     parser.add_argument("--no-refresh", action="store_true")
     args = parser.parse_args(argv)
-    receipt = materialize_manfred_realtime_conversation_readiness(receipt_path=args.receipt, generated_at=args.generated_at, refresh=not args.no_refresh)
+    receipt = materialize_manfred_realtime_conversation_readiness(
+        receipt_path=args.receipt,
+        generated_at=args.generated_at,
+        refresh=not args.no_refresh,
+        evidence_root=args.evidence_root,
+    )
     print(json.dumps({"status": receipt["status"], "receipt": str(args.receipt)}, sort_keys=True))
     return 0
 

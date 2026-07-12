@@ -657,6 +657,438 @@ def _write_evidence_payloads(root: Path, payloads: dict[str, dict[str, object]])
         )
 
 
+@pytest.mark.parametrize(
+    ("ready", "expected_status"),
+    [
+        (False, "blocked_realtime_prerequisites"),
+        (True, "ready_for_realtime_conversation_review"),
+    ],
+)
+def test_manfred_realtime_custom_evidence_root_is_bound_read_only_and_redacted(
+    tmp_path: Path,
+    *,
+    ready: bool,
+    expected_status: str,
+) -> None:
+    materializer = _load_script("materialize_manfred_realtime_conversation_readiness")
+    verifier = _load_script("verify_manfred_realtime_conversation_readiness")
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    output_root = tmp_path / "custom-output"
+    output_root.mkdir()
+    payloads = _ready_evidence_payloads(
+        materializer,
+        generated_at=materializer._now(),
+    )
+    if not ready:
+        room_receipt = payloads[
+            "memorial_room_audio_public_origin.generated.json"
+        ]
+        room_receipt["status"] = "fail"
+        room_receipt["gold_claim_allowed"] = False
+        room_receipt["failed_codes"] = ["manual_attestation_missing"]
+    _write_evidence_payloads(evidence_root, payloads)
+    before = {
+        child.name: (
+            child.stat(follow_symlinks=False).st_mtime_ns,
+            child.read_bytes(),
+        )
+        for child in evidence_root.iterdir()
+    }
+    receipt_path = output_root / "manfred-realtime.generated.json"
+
+    receipt = materializer.materialize_manfred_realtime_conversation_readiness(
+        receipt_path=receipt_path,
+        generated_at=materializer._now(),
+        refresh=True,
+        evidence_root=evidence_root,
+    )
+
+    assert receipt["status"] == expected_status
+    rendered_receipt = json.dumps(receipt, sort_keys=True)
+    assert str(evidence_root) not in rendered_receipt
+    assert str(output_root) not in rendered_receipt
+    assert verifier.verify_manfred_realtime_conversation_readiness(
+        receipt_path,
+        evidence_root=evidence_root,
+    ) == {
+        "contract_name": "ea.manfred_realtime_conversation_readiness.verify.v1",
+        "status": "pass",
+        "issues": [],
+    }
+
+    sibling_default = verifier.verify_manfred_realtime_conversation_readiness(
+        receipt_path
+    )
+    assert sibling_default["status"] == "fail"
+    wrong_root = tmp_path / "wrong-evidence"
+    wrong_root.mkdir()
+    wrong_root_verification = verifier.verify_manfred_realtime_conversation_readiness(
+        receipt_path,
+        evidence_root=wrong_root,
+    )
+    assert wrong_root_verification["status"] == "fail"
+    assert {
+        child.name: (
+            child.stat(follow_symlinks=False).st_mtime_ns,
+            child.read_bytes(),
+        )
+        for child in evidence_root.iterdir()
+    } == before
+
+
+def test_manfred_realtime_verifier_rejects_unsafe_explicit_evidence_root(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script("materialize_manfred_realtime_conversation_readiness")
+    verifier = _load_script("verify_manfred_realtime_conversation_readiness")
+    receipt_path = tmp_path / "blocked.generated.json"
+    materializer.materialize_manfred_realtime_conversation_readiness(
+        receipt_path=receipt_path,
+        generated_at=materializer._now(),
+        operator_status=_operator_status(ready=False),
+    )
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    linked_root = tmp_path / "linked-evidence"
+    linked_root.symlink_to(evidence_root.name, target_is_directory=True)
+
+    verification = verifier.verify_manfred_realtime_conversation_readiness(
+        receipt_path,
+        evidence_root=linked_root,
+    )
+
+    assert verification == {
+        "contract_name": "ea.manfred_realtime_conversation_readiness.verify.v1",
+        "status": "fail",
+        "issues": ["manfred_realtime_evidence_root_unsafe"],
+    }
+    assert list(evidence_root.iterdir()) == []
+
+
+def test_manfred_realtime_missing_first_run_evidence_root_materializes_blocked(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script("materialize_manfred_realtime_conversation_readiness")
+    verifier = _load_script("verify_manfred_realtime_conversation_readiness")
+    evidence_root = tmp_path / "new-published-root"
+    receipt_path = evidence_root / "readiness.json"
+    assert not evidence_root.exists()
+
+    receipt = materializer.materialize_manfred_realtime_conversation_readiness(
+        receipt_path=receipt_path,
+        generated_at=materializer._now(),
+        evidence_root=evidence_root,
+    )
+
+    assert receipt["status"] == "blocked_realtime_prerequisites"
+    assert receipt["evidence_source"] == "receipt_aggregation"
+    assert all(
+        row["present"] is False and row["status"] == "missing"
+        for row in receipt["input_evidence"].values()
+    )
+    assert receipt_path.is_file()
+    assert verifier.verify_manfred_realtime_conversation_readiness(
+        receipt_path
+    ) == {
+        "contract_name": "ea.manfred_realtime_conversation_readiness.verify.v1",
+        "status": "pass",
+        "issues": [],
+    }
+
+
+def test_manfred_realtime_materializer_rejects_blank_evidence_root(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script("materialize_manfred_realtime_conversation_readiness")
+    receipt_path = tmp_path / "blank-root.json"
+
+    with pytest.raises(
+        materializer.UnsafeLocalFileError,
+        match="local_evidence_root_empty",
+    ):
+        materializer.materialize_manfred_realtime_conversation_readiness(
+            receipt_path=receipt_path,
+            generated_at=materializer._now(),
+            evidence_root="",
+        )
+
+    assert not receipt_path.exists()
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "ea"
+        / "scripts"
+        / "materialize_manfred_realtime_conversation_readiness.py"
+    )
+    cli_receipt = tmp_path / "blank-root-cli.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script_path),
+            "--receipt",
+            str(cli_receipt),
+            "--evidence-root",
+            "",
+            "--generated-at",
+            materializer._now(),
+        ],
+        cwd=Path(__file__).resolve().parents[1] / "ea",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode != 0
+    assert "local_evidence_root_empty" in completed.stderr
+    assert not cli_receipt.exists()
+
+
+def test_manfred_realtime_relative_evidence_root_does_not_drift_with_cwd(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script("materialize_manfred_realtime_conversation_readiness")
+    base = tmp_path / "base"
+    base.mkdir()
+    evidence_root = base / "evidence"
+    evidence_root.mkdir()
+    attacker_cwd = tmp_path / "attacker"
+    attacker_cwd.mkdir()
+    attacker_evidence = attacker_cwd / "evidence"
+    attacker_evidence.mkdir()
+    _write_evidence_payloads(
+        evidence_root,
+        _ready_evidence_payloads(materializer, generated_at=materializer._now()),
+    )
+    attacker_payloads = _ready_evidence_payloads(
+        materializer,
+        generated_at=materializer._now(),
+    )
+    attacker_room = attacker_payloads[
+        "memorial_room_audio_public_origin.generated.json"
+    ]
+    attacker_room["status"] = "fail"
+    attacker_room["gold_claim_allowed"] = False
+    attacker_room["failed_codes"] = ["attacker_replacement"]
+    _write_evidence_payloads(attacker_evidence, attacker_payloads)
+    original_load = materializer._load_evidence_receipt
+    load_count = 0
+
+    def change_cwd_after_first_read(**kwargs):
+        nonlocal load_count
+        result = original_load(**kwargs)
+        load_count += 1
+        if load_count == 1:
+            os.chdir(attacker_cwd)
+        return result
+
+    monkeypatch.setattr(
+        materializer,
+        "_load_evidence_receipt",
+        change_cwd_after_first_read,
+    )
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(base)
+        status = materializer._operator_status_from_receipts("evidence")
+    finally:
+        os.chdir(original_cwd)
+
+    assert status["status"] == "pass"
+    assert status["spoken_conversation_tts"]["room_audio_receipt"] == "pass"
+
+
+def test_manfred_realtime_verifier_binds_relative_paths_before_cwd_drift(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script("materialize_manfred_realtime_conversation_readiness")
+    verifier = _load_script("verify_manfred_realtime_conversation_readiness")
+    base = tmp_path / "base"
+    base.mkdir()
+    evidence_root = base / "evidence"
+    evidence_root.mkdir()
+    output_root = base / "output"
+    output_root.mkdir()
+    _write_evidence_payloads(
+        evidence_root,
+        _ready_evidence_payloads(materializer, generated_at=materializer._now()),
+    )
+    receipt_path = output_root / "readiness.json"
+    materializer.materialize_manfred_realtime_conversation_readiness(
+        receipt_path=receipt_path,
+        generated_at=materializer._now(),
+        evidence_root=evidence_root,
+    )
+    attacker_cwd = tmp_path / "attacker"
+    attacker_cwd.mkdir()
+    attacker_evidence = attacker_cwd / "evidence"
+    attacker_evidence.mkdir()
+    attacker_output = attacker_cwd / "output"
+    attacker_output.mkdir()
+    attacker_payloads = _ready_evidence_payloads(
+        materializer,
+        generated_at=materializer._now(),
+    )
+    attacker_room = attacker_payloads[
+        "memorial_room_audio_public_origin.generated.json"
+    ]
+    attacker_room["status"] = "fail"
+    attacker_room["gold_claim_allowed"] = False
+    attacker_room["failed_codes"] = ["attacker_replacement"]
+    _write_evidence_payloads(attacker_evidence, attacker_payloads)
+    (attacker_output / receipt_path.name).write_text(
+        "{}\n",
+        encoding="utf-8",
+    )
+    original_read = verifier._read_regular_file_snapshot_at
+    read_count = 0
+
+    def change_cwd_after_receipt_read(*args, **kwargs):
+        nonlocal read_count
+        raw = original_read(*args, **kwargs)
+        read_count += 1
+        if read_count == 1:
+            os.chdir(attacker_cwd)
+        return raw
+
+    monkeypatch.setattr(
+        verifier,
+        "_read_regular_file_snapshot_at",
+        change_cwd_after_receipt_read,
+    )
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(base)
+        verification = verifier.verify_manfred_realtime_conversation_readiness(
+            Path("output") / receipt_path.name,
+            evidence_root="evidence",
+        )
+    finally:
+        os.chdir(original_cwd)
+
+    assert verification == {
+        "contract_name": "ea.manfred_realtime_conversation_readiness.verify.v1",
+        "status": "pass",
+        "issues": [],
+    }
+
+
+def test_manfred_realtime_aggregation_rejects_root_replacement_mix(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script("materialize_manfred_realtime_conversation_readiness")
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    moved_root = tmp_path / "evidence-opened"
+    replacement_root = tmp_path / "replacement"
+    replacement_root.mkdir()
+    _write_evidence_payloads(
+        evidence_root,
+        _ready_evidence_payloads(materializer, generated_at=materializer._now()),
+    )
+    replacement_payloads = _ready_evidence_payloads(
+        materializer,
+        generated_at=materializer._now(),
+    )
+    replacement_room = replacement_payloads[
+        "memorial_room_audio_public_origin.generated.json"
+    ]
+    replacement_room["status"] = "fail"
+    replacement_room["gold_claim_allowed"] = False
+    replacement_room["failed_codes"] = ["replacement_root"]
+    _write_evidence_payloads(replacement_root, replacement_payloads)
+    original_load = materializer._load_evidence_receipt
+    load_count = 0
+
+    def replace_root_after_first_read(**kwargs):
+        nonlocal load_count
+        result = original_load(**kwargs)
+        load_count += 1
+        if load_count == 1:
+            evidence_root.rename(moved_root)
+            replacement_root.rename(evidence_root)
+            os.utime(moved_root, None)
+        return result
+
+    monkeypatch.setattr(
+        materializer,
+        "_load_evidence_receipt",
+        replace_root_after_first_read,
+    )
+
+    with pytest.raises(
+        materializer.UnsafeLocalFileError,
+        match="local_evidence_root_changed_during_aggregation",
+    ):
+        materializer._operator_status_from_receipts(evidence_root)
+
+
+def test_manfred_realtime_verifier_rejects_root_replacement_mix(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script("materialize_manfred_realtime_conversation_readiness")
+    verifier = _load_script("verify_manfred_realtime_conversation_readiness")
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    moved_root = tmp_path / "evidence-opened"
+    replacement_root = tmp_path / "replacement"
+    replacement_root.mkdir()
+    _write_evidence_payloads(
+        evidence_root,
+        _ready_evidence_payloads(materializer, generated_at=materializer._now()),
+    )
+    receipt_path = tmp_path / "readiness.json"
+    materializer.materialize_manfred_realtime_conversation_readiness(
+        receipt_path=receipt_path,
+        generated_at=materializer._now(),
+        evidence_root=evidence_root,
+    )
+    replacement_payloads = _ready_evidence_payloads(
+        materializer,
+        generated_at=materializer._now(),
+    )
+    replacement_room = replacement_payloads[
+        "memorial_room_audio_public_origin.generated.json"
+    ]
+    replacement_room["status"] = "fail"
+    replacement_room["gold_claim_allowed"] = False
+    replacement_room["failed_codes"] = ["replacement_root"]
+    _write_evidence_payloads(replacement_root, replacement_payloads)
+    original_load = verifier._load_evidence_receipt
+    load_count = 0
+
+    def replace_root_after_first_read(**kwargs):
+        nonlocal load_count
+        result = original_load(**kwargs)
+        load_count += 1
+        if load_count == 1:
+            evidence_root.rename(moved_root)
+            replacement_root.rename(evidence_root)
+            os.utime(moved_root, None)
+        return result
+
+    monkeypatch.setattr(
+        verifier,
+        "_load_evidence_receipt",
+        replace_root_after_first_read,
+    )
+
+    verification = verifier.verify_manfred_realtime_conversation_readiness(
+        receipt_path,
+        evidence_root=evidence_root,
+    )
+
+    assert verification == {
+        "contract_name": "ea.manfred_realtime_conversation_readiness.verify.v1",
+        "status": "fail",
+        "issues": [
+            "manfred_realtime_evidence_root_changed_during_verification"
+        ],
+    }
+
+
 def test_manfred_realtime_refresh_aggregates_current_redacted_receipts(
     monkeypatch,
     tmp_path: Path,
@@ -760,7 +1192,11 @@ def test_manfred_realtime_refresh_aggregates_current_redacted_receipts(
         )
 
     status = materializer._operator_status_from_receipts(tmp_path)
-    monkeypatch.setattr(materializer, "_operator_status_from_receipts", lambda: status)
+    monkeypatch.setattr(
+        materializer,
+        "_operator_status_from_receipts",
+        lambda _evidence_root: status,
+    )
     receipt_path = tmp_path / "manfred-realtime-refreshed.generated.json"
 
     receipt = materializer.materialize_manfred_realtime_conversation_readiness(
@@ -820,7 +1256,11 @@ def test_manfred_realtime_refresh_allows_only_fresh_current_ready_evidence(
         _ready_evidence_payloads(materializer, generated_at=materializer._now()),
     )
     status = materializer._operator_status_from_receipts(tmp_path)
-    monkeypatch.setattr(materializer, "_operator_status_from_receipts", lambda: status)
+    monkeypatch.setattr(
+        materializer,
+        "_operator_status_from_receipts",
+        lambda _evidence_root: status,
+    )
     receipt_path = tmp_path / "manfred-realtime-ready-aggregated.generated.json"
 
     receipt = materializer.materialize_manfred_realtime_conversation_readiness(
@@ -850,7 +1290,11 @@ def test_manfred_realtime_verifier_reaggregates_source_receipt_content(
     _write_evidence_payloads(tmp_path, payloads)
     aggregate = materializer._operator_status_from_receipts
     status = aggregate(tmp_path)
-    monkeypatch.setattr(materializer, "_operator_status_from_receipts", lambda: status)
+    monkeypatch.setattr(
+        materializer,
+        "_operator_status_from_receipts",
+        lambda _evidence_root: status,
+    )
     receipt_path = tmp_path / "manfred-realtime-source-bound.generated.json"
     materializer.materialize_manfred_realtime_conversation_readiness(
         receipt_path=receipt_path,
@@ -883,7 +1327,11 @@ def test_manfred_realtime_verifier_rejects_ready_claim_outside_aggregation(
         _ready_evidence_payloads(materializer, generated_at=materializer._now()),
     )
     status = materializer._operator_status_from_receipts(tmp_path)
-    monkeypatch.setattr(materializer, "_operator_status_from_receipts", lambda: status)
+    monkeypatch.setattr(
+        materializer,
+        "_operator_status_from_receipts",
+        lambda _evidence_root: status,
+    )
     receipt_path = tmp_path / "manfred-realtime-source-bypass.generated.json"
     materializer.materialize_manfred_realtime_conversation_readiness(
         receipt_path=receipt_path,
@@ -1112,7 +1560,11 @@ def test_manfred_realtime_readiness_surfaces_manual_room_action_only_as_sole_blo
     room_receipt["failed_codes"] = ["manual_attestation_missing"]
     _write_evidence_payloads(tmp_path, payloads)
     status = materializer._operator_status_from_receipts(tmp_path)
-    monkeypatch.setattr(materializer, "_operator_status_from_receipts", lambda: status)
+    monkeypatch.setattr(
+        materializer,
+        "_operator_status_from_receipts",
+        lambda _evidence_root: status,
+    )
     receipt_path = tmp_path / "sole-room-blocker.generated.json"
 
     receipt = materializer.materialize_manfred_realtime_conversation_readiness(
@@ -1169,7 +1621,11 @@ def test_manfred_realtime_invalid_attestation_packet_never_enables_telegram(
     ]
     _write_evidence_payloads(tmp_path, payloads)
     status = aggregate(tmp_path)
-    monkeypatch.setattr(materializer, "_operator_status_from_receipts", lambda: status)
+    monkeypatch.setattr(
+        materializer,
+        "_operator_status_from_receipts",
+        lambda _evidence_root: status,
+    )
     receipt_path = tmp_path / "invalid-attestation-packet.generated.json"
 
     receipt = materializer.materialize_manfred_realtime_conversation_readiness(
@@ -1486,7 +1942,11 @@ def test_manfred_realtime_routes_automated_voice_only_failure_without_room_or_st
     browser["ui_audio_play_ended"] = 0
     _write_evidence_payloads(tmp_path, payloads)
     status = materializer._operator_status_from_receipts(tmp_path)
-    monkeypatch.setattr(materializer, "_operator_status_from_receipts", lambda: status)
+    monkeypatch.setattr(
+        materializer,
+        "_operator_status_from_receipts",
+        lambda _evidence_root: status,
+    )
     receipt_path = tmp_path / "automated-voice-only.generated.json"
 
     receipt = materializer.materialize_manfred_realtime_conversation_readiness(
@@ -1521,7 +1981,11 @@ def test_manfred_realtime_readiness_can_be_ready_without_closing_whole_goal(monk
         _ready_evidence_payloads(materializer, generated_at=materializer._now()),
     )
     status = materializer._operator_status_from_receipts(tmp_path)
-    monkeypatch.setattr(materializer, "_operator_status_from_receipts", lambda: status)
+    monkeypatch.setattr(
+        materializer,
+        "_operator_status_from_receipts",
+        lambda _evidence_root: status,
+    )
     receipt_path = tmp_path / "manfred-realtime-ready.generated.json"
 
     receipt = materializer.materialize_manfred_realtime_conversation_readiness(
@@ -1896,7 +2360,14 @@ def test_manfred_realtime_readiness_verifier_rejects_missing_source_stamp(tmp_pa
 
 
 def test_manfred_realtime_readiness_clis_work(tmp_path: Path) -> None:
+    materializer = _load_script("materialize_manfred_realtime_conversation_readiness")
     script_root = Path(__file__).resolve().parents[1] / "ea" / "scripts"
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    _write_evidence_payloads(
+        evidence_root,
+        _ready_evidence_payloads(materializer, generated_at=materializer._now()),
+    )
     receipt_path = tmp_path / "cli-manfred-realtime.generated.json"
     materialized = subprocess.run(
         [
@@ -1904,9 +2375,10 @@ def test_manfred_realtime_readiness_clis_work(tmp_path: Path) -> None:
             str(script_root / "materialize_manfred_realtime_conversation_readiness.py"),
             "--receipt",
             str(receipt_path),
+            "--evidence-root",
+            str(evidence_root),
             "--generated-at",
             GENERATED_AT,
-            "--no-refresh",
         ],
         cwd=Path(__file__).resolve().parents[1] / "ea",
         text=True,
@@ -1915,7 +2387,9 @@ def test_manfred_realtime_readiness_clis_work(tmp_path: Path) -> None:
     )
     assert materialized.returncode == 0, materialized.stderr + materialized.stdout
     assert receipt_path.is_file()
-    assert json.loads(receipt_path.read_text(encoding="utf-8"))["evidence_source"] == "conservative_default"
+    materialized_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert materialized_receipt["evidence_source"] == "receipt_aggregation"
+    assert materialized_receipt["status"] == "ready_for_realtime_conversation_review"
 
     verified = subprocess.run(
         [
@@ -1923,6 +2397,8 @@ def test_manfred_realtime_readiness_clis_work(tmp_path: Path) -> None:
             str(script_root / "verify_manfred_realtime_conversation_readiness.py"),
             "--receipt",
             str(receipt_path),
+            "--evidence-root",
+            str(evidence_root),
         ],
         cwd=Path(__file__).resolve().parents[1] / "ea",
         text=True,
