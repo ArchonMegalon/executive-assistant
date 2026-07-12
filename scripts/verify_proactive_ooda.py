@@ -581,9 +581,12 @@ def _apply_operator_status_receipt_fallback(report: dict[str, Any], args: argpar
         merged["errors"] = _without_error_markers(merged.get("errors"), exact={"receipt_observation_missing"})
         fallback_applied = True
 
-    delivery_guard = dict(receipt.get("delivery_guard") or {})
-    if delivery_guard:
-        merged["delivery_guard"] = delivery_guard
+    receipt_delivery_guard = dict(receipt.get("delivery_guard") or {})
+    current_delivery_guard = dict(report.get("delivery_guard") or {})
+    if receipt_delivery_guard:
+        merged_delivery_guard = dict(receipt_delivery_guard)
+        merged_delivery_guard.update(current_delivery_guard)
+        merged["delivery_guard"] = merged_delivery_guard
     context_grounding = _operator_status_context_grounding(receipt)
     if context_grounding:
         merged["context_grounding"] = context_grounding

@@ -134,6 +134,63 @@ def test_verify_proactive_ooda_prefers_live_delivery_guard_state_over_stale_pers
     assert report["delivery_guard"]["notification_requires_user_action"] is True
 
 
+def test_operator_status_fallback_cannot_replace_live_delivery_guard(tmp_path, monkeypatch) -> None:
+    receipt_path = tmp_path / "operator-status.json"
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "contract_name": verifier.OPERATOR_STATUS_CONTRACT,
+                "generated_by": verifier.OPERATOR_STATUS_GENERATOR,
+                "delivery_guard": {
+                    "delivery_state": "deferred",
+                    "deferred_reason": "deferred_by_host_disk_pressure",
+                    "notification_requires_user_action": True,
+                    "host_resource_guard": {
+                        "status": "disk_pressure",
+                        "pressure_detected": True,
+                        "usage_percent": 96.8,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(verifier, "_operator_status_receipt_fresh", lambda receipt: True)
+
+    report = {
+        "ok": True,
+        "warnings": [],
+        "errors": [],
+        "delivery_guard": {
+            "delivery_state": "eligible",
+            "deferred_reason": "",
+            "host_resource_guard": {
+                "status": "ok",
+                "pressure_detected": False,
+                "usage_percent": 92.85,
+            },
+        },
+    }
+
+    merged = verifier._apply_operator_status_receipt_fallback(
+        report,
+        Namespace(
+            allow_operator_status_receipt_fallback=True,
+            operator_status_receipt=str(receipt_path),
+        ),
+    )
+
+    guard = dict(merged["delivery_guard"])
+    assert guard["delivery_state"] == "eligible"
+    assert guard["deferred_reason"] == ""
+    assert guard["notification_requires_user_action"] is True
+    assert guard["host_resource_guard"] == {
+        "status": "ok",
+        "pressure_detected": False,
+        "usage_percent": 92.85,
+    }
+
+
 def test_verify_proactive_ooda_aggregates_static_discovery_and_observations(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
