@@ -461,10 +461,13 @@ def test_docs_describe_memorial_runtime_overlay_verifier() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
     assert "deploy-ea-memorial:" in makefile
+    deploy_alias = makefile.split("deploy-ea-memorial:", 1)[1].split("\n\n", 1)[0]
+    scoped_deploy = makefile.split("deploy-ea-memorial-scoped:\n", 1)[1].split("\n\n", 1)[0]
     assert "verify-memorial-deploy-readiness:" in makefile
     assert "scripts/verify_memorial_deploy_readiness.py --pretty" in makefile
-    assert "EA_DEPLOY_PRIMARY_MODE=MEMORIAL" in makefile
-    assert "docker-compose.memorial.yml" in makefile
+    assert "deploy-ea-memorial-scoped" in deploy_alias
+    assert "scripts/deploy_ea_memorial.py" in scoped_deploy
+    assert "scripts/deploy.sh" not in deploy_alias + scoped_deploy
     assert "make deploy-ea-memorial" in readme
     assert "make verify-memorial-deploy-readiness" in readme
     assert "verify-memorial-runtime-overlay:" in makefile
@@ -861,8 +864,10 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
     assert 'Refusing to deploy with DATABASE_URL pointed at the isolated smoke database.' in deploy
     assert 'public_origin_line="$(grep -E \'^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)=' in deploy
     assert 'Refusing to deploy without a public runtime origin.' in deploy
-    assert 'Refusing to deploy from a dirty git worktree.' in deploy
-    assert 'allow_dirty_worktree="${PROPERTYQUARRY_DEPLOY_ALLOW_DIRTY_WORKTREE:-${EA_DEPLOY_ALLOW_DIRTY_WORKTREE:-0}}"' in deploy
+    assert 'Refusing to deploy from a source-dirty git worktree.' in deploy
+    assert 'from source_state_head import source_worktree_metadata' in deploy
+    assert 'EA_DEPLOY_ALLOW_DIRTY_WORKTREE' not in deploy
+    assert 'Refusing to deploy from a detached or untracked Git worktree.' in deploy
     assert 'export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"' in deploy
     assert 'export EA_DEPLOYMENT_ID_SOURCE="deploy_script_generated"' in deploy
     assert 'export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-ea_deploy_id_env}"' in deploy

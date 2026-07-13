@@ -13,8 +13,8 @@
     "source_url": "https://mobbing-konkret.jimdofree.com/notwehrgesetze-angst-der-b%C3%BCrger-waffen-boom/"
   },
   "subtitle": "Eine ruhige Seite für Erinnerungen, belegte Gedanken und öffentliche Quellen von Manfred Hoza.",
-  "disclosure": "Originalaufnahmen sind als Original gekennzeichnet. Neue Antworttexte werden aus gespeicherten Quellen formuliert und sprechen nicht an seiner Stelle.",
-  "intro": "Diese Seite ist als Gedenkort gedacht: warm, ruhig und ehrlich. Sie darf seine Stimme aus echten Aufnahmen und verlinkten Originalinterviews wiedergeben, aber sie behauptet nicht, dass er live antwortet.",
+  "disclosure": "Freigegebene Originalaufnahmen werden als Original gekennzeichnet, sobald sie verfügbar sind. Neue Antworttexte werden aus gespeicherten Quellen formuliert und sprechen nicht an seiner Stelle.",
+  "intro": "Diese Seite ist als Gedenkort gedacht: warm, ruhig und ehrlich. Der synthetische Gedenkbegleiter ordnet nur freigegebene Quellen ein, ist nicht Manfred und spricht nicht für ihn. Originalaufnahmen erscheinen erst nach einer eigenen Freigabe.",
   "audio_clips": [],
   "memory_cards": [
     {
@@ -36,9 +36,9 @@
     {
       "visibility": "public",
       "source_label": "Für Angehörige",
-      "title": "Ein Ort zum Hören",
-      "body": "Der Schwerpunkt liegt auf echten Stimmen, echten Erinnerungen und einem Chat, der seine Quellen zeigt.",
-      "public_excerpt": "Der Schwerpunkt liegt auf echten Stimmen, echten Erinnerungen und einem Chat, der seine Quellen zeigt.",
+      "title": "Ein Ort für belegte Erinnerungen",
+      "body": "Der Schwerpunkt liegt auf belegten Erinnerungen und einem Gedenkbegleiter, der seine Quellen und Grenzen zeigt. Originalaufnahmen erscheinen erst nach einer eigenen Freigabe.",
+      "public_excerpt": "Der Schwerpunkt liegt auf belegten Erinnerungen und einem Gedenkbegleiter, der seine Quellen und Grenzen zeigt. Originalaufnahmen erscheinen erst nach einer eigenen Freigabe.",
       "approved": true
     },
     {
@@ -68,8 +68,8 @@
   ],
   "candidate_recordings": [],
   "suggested_prompts": [
-    "Was ist aus den Aufnahmen wirklich belegt?",
-    "Welche Originalstellen kann ich anhören?",
+    "Was ist aus den freigegebenen Quellen wirklich belegt?",
+    "Welche Erinnerungen lassen sich öffentlich belegen?",
     "Was war ihm bei Familie wichtig?",
     "Was zeigt die Jimdo-Seite über seine Arbeit und seine Themen?"
   ],

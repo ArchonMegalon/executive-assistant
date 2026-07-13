@@ -1,4 +1,4 @@
-name: ${EA_MANFRED_COMPOSE_PROJECT:-ea-manfred-candidate}
+name: ${EA_MANFRED_COMPOSE_PROJECT:?unique ea-manfred-candidate deployment project is required}
 
 services:
   postgres:

@@ -91,6 +91,10 @@ def _memorial_chat_answer_payload(*, slug: str, request: Request, body: dict[str
             personal_memory_context=personal_memory_context,
             difficult_memory_mode=difficult_memory_mode,
         )
+    answer = shared._apply_memorial_narrator_response_policy(
+        answer,
+        question=question_text,
+    )
     shared._remember_personal_conversation_turn(
         slug=slug,
         context=personal_memory_context,
@@ -135,11 +139,11 @@ async def public_memorial_chat_help(slug: str) -> JSONResponse:
         shared._load_memorial(slug)
         return JSONResponse(
             {
-                "detail": "Use POST with JSON to chat with this memorial.",
+                "detail": "Use POST with JSON to ask the source-grounded memorial guide.",
                 "method": "POST",
                 "content_type": "application/json",
                 "endpoint": f"/memorials/{slug}/chat",
-                "example_body": {"question": "Wie hätte er Susanna schriftlich geschrieben?"},
+                "example_body": {"question": "Welche Erinnerung ist durch eine freigegebene Quelle belegt?"},
                 "page": f"/memorials/{slug}",
             },
             headers=dict(_PUBLIC_MEMORIAL_JSON_HEADERS),

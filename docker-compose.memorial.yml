@@ -1,6 +1,9 @@
 services:
   ea-api:
+    image: ${EA_MEMORIAL_IMAGE:?set an immutable revision-bound EA_MEMORIAL_IMAGE}
+    pull_policy: never
     environment:
+      - EA_SOURCE_REVISION=${EA_SOURCE_REVISION:?set EA_SOURCE_REVISION for memorial deployments}
       - EA_ENABLE_PUBLIC_MEMORIALS=${EA_ENABLE_PUBLIC_MEMORIALS:-1}
       - EA_HEALTHCHECK_MEMORIAL_SLUG=${EA_HEALTHCHECK_MEMORIAL_SLUG:-manfred}
       - EA_PUBLIC_MEMORIAL_RATE_BACKEND=${EA_PUBLIC_MEMORIAL_RATE_BACKEND:-redis}
