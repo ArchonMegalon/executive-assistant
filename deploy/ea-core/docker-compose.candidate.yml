@@ -101,8 +101,6 @@ services:
       EA_HOST: 0.0.0.0
       EA_PORT: "8090"
     command: ["python", "-m", "app.runner"]
-    ports:
-      - 127.0.0.1:${EA_CORE_API_PORT:?candidate API port is required}:8090
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/healthz >/dev/null"]
       interval: 10s
@@ -124,8 +122,6 @@ services:
       EA_RESPONSES_PROXY_PORT: "8091"
       PYTHONPATH: /app
     command: ["/bin/sh", "/app/scripts/ea_responses_proxy_start_guard.sh"]
-    ports:
-      - 127.0.0.1:${EA_CORE_RESPONSES_PORT:?candidate responses port is required}:8091
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8091/health/ready >/dev/null"]
       interval: 10s
