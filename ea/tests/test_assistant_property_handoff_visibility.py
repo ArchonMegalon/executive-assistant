@@ -809,7 +809,52 @@ def test_admin_view_runtime_bundle_uses_repo_root(monkeypatch) -> None:
     )
 
     assert admin_view_models._load_current_proactive_ooda_runtime_bundle() == {}
-    assert observed["root"] == Path("/docker/EA")
+    assert observed["root"] == Path(__file__).resolve().parents[2]
+
+
+def test_admin_gold_action_surface_requires_current_user_approval() -> None:
+    receipt = {
+        "status": "ready_for_approval_outcome_capture",
+        "next_action": "record_proactive_ooda_approval_outcome",
+        "next_action_href": "/admin/proactive-ooda/approval",
+    }
+
+    assert (
+        admin_view_models._proactive_gold_action_surface_visible(
+            {"current_packet_live_pending_count": 1},
+            receipt=receipt,
+        )
+        is True
+    )
+    assert (
+        admin_view_models._proactive_gold_action_surface_visible(
+            {
+                "current_packet_live_pending_count": 0,
+                "approval_callback_noncurrent_pending_count": 1,
+                "approval_callback_stale_pending_count": 1,
+                "current_packet_callback_stale_pending_count": 1,
+            },
+            receipt=receipt,
+        )
+        is False
+    )
+    verified_receipt = {
+        "evidence_receipts": {
+            "approval_capture_surface": {
+                "ready": True,
+                "current_packet_user_action_required": True,
+                "current_packet_matches_packet_artifacts": True,
+                "manual_outcome_capture_ready": True,
+            }
+        }
+    }
+    assert (
+        admin_view_models._proactive_gold_action_surface_visible(
+            {},
+            receipt=verified_receipt,
+        )
+        is True
+    )
 
 
 def test_admin_view_runtime_bundle_prefers_live_bundle_resolution(monkeypatch) -> None:
