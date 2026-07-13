@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from typing import Any
 
-from app.services.proactive_ooda_flat_search_policy import text_mentions_flat_property_search
+from app.services.proactive_ooda_flat_search_policy import material_mentions_flat_property_search
 
 _PROPERTY_RUNTIME_PROFILES = {"property_only", "property-only", "property"}
 _PROPERTY_DEPLOY_MODES = {"property", "propertyquarry"}
@@ -75,14 +76,22 @@ def assistant_property_task_hidden_from_ea(task_type: str) -> bool:
     return str(task_type or "").strip() in ASSISTANT_HIDDEN_PROPERTY_TASK_TYPES
 
 
+def _material_text(value: Any) -> str:
+    if isinstance(value, Mapping):
+        return " ".join(_material_text(item) for item in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(_material_text(item) for item in value)
+    return str(value or "")
+
+
 def assistant_property_signal_present(*values: Any) -> bool:
     normalized = " ".join(
-        " ".join(str(value or "").strip().lower().split())
+        " ".join(_material_text(value).strip().lower().split())
         for value in values
-        if str(value or "").strip()
+        if _material_text(value).strip()
     )
     if not normalized:
         return False
     if any(marker in normalized for marker in _ASSISTANT_PROPERTY_SIGNAL_MARKERS):
         return True
-    return text_mentions_flat_property_search(normalized)
+    return material_mentions_flat_property_search(*values)

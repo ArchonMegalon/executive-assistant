@@ -10626,6 +10626,19 @@ def _release_authority_status_path() -> Path:
     )
 
 
+def _published_release_authority_status_is_authoritative() -> bool:
+    if str(os.getenv("EA_RELEASE_AUTHORITY_STATUS_PATH") or "").strip():
+        return True
+    return not any(
+        str(os.getenv(name) or "").strip()
+        for name in (
+            "EA_RELEASE_MANIFEST_PATH",
+            "EA_DEPLOY_CONTEXT_PATH",
+            "EA_PROJECT_MODES_MANIFEST_PATH",
+        )
+    )
+
+
 def _repo_script_path(relative_path: str) -> Path:
     normalized = str(relative_path or "").strip().lstrip("/")
     candidates = [
@@ -26997,7 +27010,10 @@ class ProductService:
     def release_authority_summary(self) -> dict[str, object]:
         status_path = _release_authority_status_path()
         status_payload = _load_json_dict(status_path)
-        if str(status_payload.get("contract_name") or "").strip() == "ea.release_authority_status.v1":
+        if (
+            _published_release_authority_status_is_authoritative()
+            and str(status_payload.get("contract_name") or "").strip() == "ea.release_authority_status.v1"
+        ):
             gate_payload = dict(status_payload.get("gate") or {})
             if not gate_payload:
                 gate_payload = {

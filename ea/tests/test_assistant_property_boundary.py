@@ -196,6 +196,29 @@ def test_assistant_property_signal_present_catches_connector_tokens() -> None:
     assert assistant_property_signal_present("apartment_search_pending") is True
 
 
+def test_assistant_property_signal_present_ignores_structured_metadata_keys() -> None:
+    assert (
+        assistant_property_signal_present(
+            {
+                "observe": {"property_url": "", "summary": "Confirm the board memo owner."},
+                "decide": {"recommended_actions": ["stage_commitment_candidates"]},
+            }
+        )
+        is False
+    )
+
+
+def test_assistant_property_signal_present_checks_structured_material_values() -> None:
+    assert (
+        assistant_property_signal_present(
+            {
+                "observe": {"property_url": "", "summary": "Search for an apartment in Vienna."},
+            }
+        )
+        is True
+    )
+
+
 def test_flat_search_policy_ignores_structured_runtime_key_names() -> None:
     assert (
         material_mentions_flat_property_search(
