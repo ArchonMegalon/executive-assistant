@@ -475,20 +475,35 @@ def _memorial_runtime_status(request: Request) -> dict[str, object]:
     }
 
 
+def _public_gate_projection(value: object) -> dict[str, object]:
+    gate = dict(value) if isinstance(value, dict) else {}
+    issues = gate.get("issues")
+    issue_count = len(issues) if isinstance(issues, list) else 0
+    projection: dict[str, object] = {
+        "contract_name": str(gate.get("contract_name") or ""),
+        "status": str(gate.get("status") or "error"),
+        "issue_count": issue_count,
+    }
+    authority_posture = str(gate.get("authority_posture") or "").strip()
+    if authority_posture:
+        projection["authority_posture"] = authority_posture
+    return projection
+
+
 def _redact_release_authority(summary: dict[str, object]) -> dict[str, object]:
     return {
         "state": str(summary.get("state") or "missing"),
         "authority_posture": str(summary.get("authority_posture") or "missing_manifest"),
         "source": str(summary.get("source") or "manifest_fallback"),
-        "gate": dict(summary.get("gate") or {}),
-        "deploy_context_gate": dict(summary.get("deploy_context_gate") or {}),
+        "gate": _public_gate_projection(summary.get("gate")),
+        "deploy_context_gate": _public_gate_projection(summary.get("deploy_context_gate")),
     }
 
 
 def _redact_runtime_supply_chain(summary: dict[str, object]) -> dict[str, object]:
     return {
         "state": str(summary.get("state") or "watch"),
-        "gate": dict(summary.get("gate") or {}),
+        "gate": _public_gate_projection(summary.get("gate")),
     }
 
 

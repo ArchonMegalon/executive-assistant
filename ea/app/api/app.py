@@ -9,6 +9,7 @@ from starlette.responses import Response
 
 from app.api.dependencies import require_request_auth
 from app.api.errors import install_error_handlers
+from app.api.public_http import api_docs_enabled, install_public_http_hardening
 from app.api.threadpool_compat import inline_sync_handlers_enabled, install_inline_threadpool_compat
 from app.container import build_container
 from app.settings import get_settings, validate_startup_settings
@@ -217,10 +218,18 @@ def create_app() -> FastAPI:
     from app.api.routes.task_contracts import router as task_contracts_router
     from app.api.routes.tools import router as tools_router
 
-    app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
+    expose_api_docs = api_docs_enabled(runtime_mode=s.runtime_mode)
+    app = FastAPI(
+        title=s.app_name,
+        version=s.app_version,
+        docs_url="/api/docs" if expose_api_docs else None,
+        redoc_url="/api/redoc" if expose_api_docs else None,
+        openapi_url="/openapi.json" if expose_api_docs else None,
+    )
     install_source_revision_header(app)
     install_error_handlers(app)
     install_property_surface_boundary(app)
+    install_public_http_hardening(app, settings=s)
     app.state.container = build_container(settings=s)
     app.router.on_startup.append(_prewarm_provider_health_cache)
     _include_public_routes(
