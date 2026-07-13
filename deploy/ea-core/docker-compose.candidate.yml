@@ -61,13 +61,16 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_DB: ea
       POSTGRES_PASSWORD: ${EA_CORE_POSTGRES_PASSWORD:?candidate database password is required}
+    user: "70:70"
     read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     pids_limit: 256
     tmpfs:
-      - /tmp
-      - /run
+      - /tmp:uid=70,gid=70,mode=1770
+      - /var/run/postgresql:uid=70,gid=70,mode=0770
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -82,13 +85,16 @@ services:
     image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     restart: unless-stopped
     command: ["redis-server", "--save", "", "--appendonly", "no"]
+    user: "999:1000"
     read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     pids_limit: 128
     tmpfs:
-      - /tmp
-      - /run
+      - /tmp:uid=999,gid=1000,mode=1770
+      - /run:uid=999,gid=1000,mode=0750
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

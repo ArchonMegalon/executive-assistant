@@ -120,6 +120,15 @@ def test_ea_core_candidate_is_immutable_isolated_and_side_effect_free() -> None:
         assert environment.get("EA_TRUSTED_PROXY_CIDRS") == "127.0.0.0/8,::1/128"
         assert service.get("healthcheck"), service_name
 
+    stateful_users = {"postgres": "70:70", "redis": "999:1000"}
+    for service_name, expected_user in stateful_users.items():
+        service = services.get(service_name) or {}
+        assert service.get("user") == expected_user, service_name
+        assert service.get("read_only") is True, service_name
+        assert set(str(item) for item in list(service.get("cap_drop") or [])) == {"ALL"}, service_name
+        assert "no-new-privileges:true" in list(service.get("security_opt") or []), service_name
+        assert service.get("healthcheck"), service_name
+
     for service_name in ("responses-proxy", "worker", "scheduler", "proactive"):
         assert services[service_name]["depends_on"]["api"]["condition"] == "service_healthy"
 
