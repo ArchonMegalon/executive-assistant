@@ -68,6 +68,19 @@ RUN set -eu; \
     fi; \
     cp "$APP_SRC/requirements.txt" /app/requirements.txt; \
     if [ -f "$APP_SRC/requirements.lock" ]; then cp "$APP_SRC/requirements.lock" /app/requirements.lock; fi; \
+    mkdir -p /app/ea; \
+    cp "$APP_SRC/requirements.txt" /app/ea/requirements.txt; \
+    if [ -f "$APP_SRC/requirements.lock" ]; then cp "$APP_SRC/requirements.lock" /app/ea/requirements.lock; fi; \
+    if [ -f /tmp/src/ea/Dockerfile ]; then cp /tmp/src/ea/Dockerfile /app/ea/Dockerfile; fi; \
+    if [ -f /tmp/src/ea/Dockerfile.operator ]; then cp /tmp/src/ea/Dockerfile.operator /app/ea/Dockerfile.operator; fi; \
+    if [ -f /tmp/src/Dockerfile ]; then cp /tmp/src/Dockerfile /app/Dockerfile; fi; \
+    for compose_file in \
+      docker-compose.yml \
+      docker-compose.host-tools.yml \
+      docker-compose.fastestvpn.yml \
+      docker-compose.cloudflared.yml; do \
+      if [ -f "/tmp/src/$compose_file" ]; then cp "/tmp/src/$compose_file" "/app/$compose_file"; fi; \
+    done; \
     cp -r "$APP_SRC/app" /app/; \
     cp "$APP_SRC/docker-entrypoint.sh" /usr/local/bin/docker-entrypoint.sh; \
     if [ -d "$APP_SRC/_completion" ]; then \
@@ -115,7 +128,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
 
 USER ea
 HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=5 \
-  CMD ["/bin/sh", "-ec", "role=${EA_ROLE:-api}; case \"$role\" in worker|scheduler) exit 0 ;; *) curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/healthz >/dev/null ;; esac"]
+  CMD ["/bin/sh", "-ec", "role=${EA_ROLE:-api}; case \"$role\" in worker|scheduler) test -r /proc/1/cmdline; cmdline=$(tr '\\000' ' ' </proc/1/cmdline); case \"$cmdline\" in *'python -m app.runner'*) exit 0 ;; *) exit 1 ;; esac ;; *) curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/healthz >/dev/null ;; esac"]
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["python", "-m", "app.runner"]

@@ -73,6 +73,78 @@ def test_base_compose_applies_core_runtime_privilege_limits() -> None:
         assert set(str(item) for item in list(service.get("tmpfs") or [])) == {"/tmp", "/run"}, service_name
 
 
+def test_base_compose_keeps_worker_and_scheduler_healthchecks_enabled() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.yml")
+    services = compose.get("services") or {}
+
+    for service_name in ("ea-worker", "ea-scheduler"):
+        healthcheck = (services.get(service_name) or {}).get("healthcheck") or {}
+        assert healthcheck.get("disable") is not True, service_name
+
+    dockerfile = (ROOT / "ea" / "Dockerfile").read_text(encoding="utf-8")
+    assert "worker|scheduler) exit 0" not in dockerfile
+    assert "/proc/1/cmdline" in dockerfile
+    assert "python -m app.runner" in dockerfile
+
+
+def test_ea_core_candidate_is_immutable_isolated_and_side_effect_free() -> None:
+    compose = _load_yaml(ROOT / "deploy" / "ea-core" / "docker-compose.candidate.yml")
+    services = compose.get("services") or {}
+    assert set(services) == {
+        "postgres",
+        "redis",
+        "api",
+        "responses-proxy",
+        "worker",
+        "scheduler",
+        "proactive",
+    }
+    assert ((compose.get("networks") or {}).get("backend") or {}).get("internal") is True
+
+    for service_name in ("api", "responses-proxy", "worker", "scheduler", "proactive"):
+        service = services.get(service_name) or {}
+        assert service.get("image") == "${EA_CORE_IMAGE:?immutable EA core candidate image is required}"
+        assert "build" not in service
+        assert service.get("read_only") is True
+        assert set(str(item) for item in list(service.get("cap_drop") or [])) == {"ALL"}
+        assert "no-new-privileges:true" in list(service.get("security_opt") or [])
+        assert not list(service.get("volumes") or []), service_name
+        environment = service.get("environment") or {}
+        assert environment.get("EA_SCHEDULER_SIDE_EFFECTS_ENABLED") == "0"
+        assert environment.get("EA_PROACTIVE_OODA_ENABLED") == "0"
+        assert environment.get("EA_ENABLE_PUBLIC_TOURS") == "0"
+        assert environment.get("EA_ENABLE_PUBLIC_MEMORIALS") == "0"
+        assert service.get("healthcheck"), service_name
+
+    assert services["api"]["ports"] == [
+        "127.0.0.1:${EA_CORE_API_PORT:?candidate API port is required}:8090"
+    ]
+    assert services["responses-proxy"]["ports"] == [
+        "127.0.0.1:${EA_CORE_RESPONSES_PORT:?candidate responses port is required}:8091"
+    ]
+
+
+def test_runtime_image_carries_its_release_verification_inputs() -> None:
+    dockerfile = (ROOT / "ea" / "Dockerfile").read_text(encoding="utf-8")
+    for expected in (
+        "/app/ea/requirements.txt",
+        "/app/ea/requirements.lock",
+        "/app/ea/Dockerfile",
+        "/app/ea/Dockerfile.operator",
+        "/app/Dockerfile",
+        "docker-compose.yml",
+        "docker-compose.host-tools.yml",
+        "docker-compose.fastestvpn.yml",
+        "docker-compose.cloudflared.yml",
+    ):
+        assert expected in dockerfile
+
+    guard = (ROOT / "scripts" / "ea_responses_proxy_start_guard.sh").read_text(encoding="utf-8")
+    assert "delay_seconds=5" in guard
+    assert 'delay_seconds" -gt 300' in guard
+    assert "exec python /app/scripts/ea_responses_proxy.py" in guard
+
+
 def test_base_compose_gives_pocket_sync_a_writable_durable_archive() -> None:
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}
