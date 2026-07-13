@@ -925,7 +925,7 @@ def _parse_terminal_summary(summary: str, *, full_output: str = "") -> dict[str,
     line = summary.strip().strip("=").strip()
     match = re.fullmatch(
         r"(?P<outcomes>(?:[0-9]+ [A-Za-z]+)(?:, [0-9]+ [A-Za-z]+)*) "
-        r"in [0-9]+(?:\.[0-9]+)?s",
+        r"in [0-9]+(?:\.[0-9]+)?s(?: \([0-9]+:[0-5][0-9]:[0-5][0-9]\))?",
         line,
     )
     if match is not None:
@@ -935,10 +935,12 @@ def _parse_terminal_summary(summary: str, *, full_output: str = "") -> dict[str,
             count_text, label = outcome.split(" ", 1)
             count = _strict_xml_count(count_text)
             label = label.lower()
+            if label in {"warning", "warnings"}:
+                label = "warnings"
             if (
                 count is None
                 or label in parsed
-                or label not in {"passed", "xfailed", "xpassed"}
+                or label not in {"passed", "warnings", "xfailed", "xpassed"}
             ):
                 valid = False
                 break

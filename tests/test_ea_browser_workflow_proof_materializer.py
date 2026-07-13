@@ -579,10 +579,13 @@ def test_real_non_strict_xpass_is_blocked_by_terminal_evidence(tmp_path: Path) -
     ("summary", "passed"),
     [
         ("2 passed in 0.01s", 2),
+        ("1 passed, 1 warning in 1.00s", 1),
+        ("2 passed, 2 warnings in 64.73s (0:01:04)", 2),
         ("one passed in 0.01s", -1),
         ("2 passed, 1 passed in 0.01s", -1),
         ("2 passed, 1 failed in 0.01s", -1),
         ("2 passed, 1 skipped in 0.01s", -1),
+        ("2 passed, 1 skipped, 2 warnings in 64.73s (0:01:04)", -1),
     ],
 )
 def test_terminal_summary_parser_fails_closed(summary: str, passed: int) -> None:
