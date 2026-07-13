@@ -1,0 +1,537 @@
+{
+  "authoritative": false,
+  "authority_boundaries": {
+    "canonical_design_owner": "chummer6_design",
+    "ea_is_blocker_authority": false,
+    "ea_is_release_authority": false,
+    "release_channel_owner": "chummer6_hub_registry",
+    "release_execution_owners": [
+      "fleet",
+      "chummer6_ui",
+      "chummer_run_services"
+    ]
+  },
+  "checks": [
+    {
+      "details": {
+        "input_count": 20
+      },
+      "key": "input_integrity",
+      "message": "All required owner inputs were read and hash-bound.",
+      "status": "consistent"
+    },
+    {
+      "details": {
+        "drift_pairs": [
+          {
+            "canonical_input_key": "canonical_weekly_pulse",
+            "canonical_sha256": "643175c4a3ae7b43160263407c12693890c000c7a5ebb91f345959b71bc1aa77",
+            "mirror_input_key": "mirror_weekly_pulse",
+            "mirror_sha256": "b69bb85aab5e67ace6185ca2be5d19fa6e7f46b547fa89038c3ef50eb3be15c8"
+          }
+        ]
+      },
+      "key": "mirror_canonical_alignment",
+      "message": "EA mirror content differs from canonical design content.",
+      "status": "attention_required"
+    },
+    {
+      "details": {
+        "observed_postures": {
+          "canonical_closeout": "cleared",
+          "canonical_group_blockers": "cleared",
+          "canonical_readme": "active"
+        }
+      },
+      "key": "canonical_blk010_narrative_alignment",
+      "message": "Canonical design documents disagree about BLK-010 posture.",
+      "status": "attention_required"
+    },
+    {
+      "details": {
+        "claim_generated_at_utc": "2026-07-12T06:35:08Z",
+        "claim_input_key": "canonical_scorecard",
+        "claim_observed_value": "CAMPAIGN_OPERABILITY_READY",
+        "newer_attention_inputs": [
+          {
+            "input_key": "canonical_weekly_pulse",
+            "observed_generated_at_utc": "2026-07-13T04:39:23Z"
+          },
+          {
+            "input_key": "fleet_flagship_readiness",
+            "observed_generated_at_utc": "2026-07-13T04:39:23Z"
+          },
+          {
+            "input_key": "desktop_executable_exit_gate",
+            "observed_generated_at_utc": "2026-07-13T05:05:19.851311Z"
+          },
+          {
+            "input_key": "windows_desktop_exit_gate",
+            "observed_generated_at_utc": "2026-07-13T04:39:52Z"
+          },
+          {
+            "input_key": "windows_installer_visual_audit",
+            "observed_generated_at_utc": "2026-07-13T20:59:42Z"
+          },
+          {
+            "input_key": "release_ready",
+            "observed_generated_at_utc": "2026-07-13T15:32:07Z"
+          }
+        ]
+      },
+      "key": "campaign_operability_scorecard_freshness",
+      "message": "The generated claim is superseded by newer owner evidence.",
+      "status": "attention_required"
+    },
+    {
+      "details": {
+        "claim_generated_at_utc": "2026-07-12T06:35:08Z",
+        "claim_input_key": "canonical_final_gold_graph",
+        "claim_observed_value": "GOLD_READY",
+        "newer_attention_inputs": [
+          {
+            "input_key": "canonical_weekly_pulse",
+            "observed_generated_at_utc": "2026-07-13T04:39:23Z"
+          },
+          {
+            "input_key": "fleet_flagship_readiness",
+            "observed_generated_at_utc": "2026-07-13T04:39:23Z"
+          },
+          {
+            "input_key": "desktop_executable_exit_gate",
+            "observed_generated_at_utc": "2026-07-13T05:05:19.851311Z"
+          },
+          {
+            "input_key": "windows_desktop_exit_gate",
+            "observed_generated_at_utc": "2026-07-13T04:39:52Z"
+          },
+          {
+            "input_key": "windows_installer_visual_audit",
+            "observed_generated_at_utc": "2026-07-13T20:59:42Z"
+          },
+          {
+            "input_key": "release_ready",
+            "observed_generated_at_utc": "2026-07-13T15:32:07Z"
+          }
+        ]
+      },
+      "key": "final_gold_graph_freshness",
+      "message": "The generated claim is superseded by newer owner evidence.",
+      "status": "attention_required"
+    },
+    {
+      "details": {
+        "attention_input_keys": [
+          "fleet_flagship_readiness",
+          "desktop_executable_exit_gate",
+          "windows_desktop_exit_gate",
+          "windows_installer_visual_audit",
+          "fleet_flagship_scoped"
+        ],
+        "observed_values": {
+          "desktop_executable_exit_gate": "fail",
+          "fleet_flagship_readiness": "fail",
+          "fleet_flagship_scoped": "fail",
+          "windows_desktop_exit_gate": "failed",
+          "windows_installer_visual_audit": "fail"
+        }
+      },
+      "key": "desktop_proof_posture",
+      "message": "One or more owner desktop proof receipts are not green.",
+      "status": "attention_required"
+    },
+    {
+      "details": {
+        "observed_value": "fail",
+        "observed_verdict": "NOT_RELEASE_READY",
+        "owner_failure_count": 22
+      },
+      "key": "release_ready_posture",
+      "message": "The current release-owner receipt requires attention.",
+      "status": "attention_required"
+    },
+    {
+      "details": {
+        "portal_snapshot": {
+          "artifacts": [
+            {
+              "artifact_id": "avalonia-osx-arm64-archive",
+              "file_name": "chummer-avalonia-osx-arm64.tar.gz",
+              "kind": "archive",
+              "platform": "macos",
+              "sha256": "d38ae273d0c255bc7b410d81da697aadf4947db245002abf1275d5339a91158b"
+            },
+            {
+              "artifact_id": "avalonia-osx-arm64-installer",
+              "file_name": "chummer-avalonia-osx-arm64-installer.dmg",
+              "kind": "installer",
+              "platform": "macos",
+              "sha256": "3df54915278d172631e7d1b5deb3dd58a8c33dcd12f6920a1799ea5a03582cc0"
+            },
+            {
+              "artifact_id": "blazor-desktop-osx-arm64-archive",
+              "file_name": "chummer-blazor-desktop-osx-arm64.tar.gz",
+              "kind": "archive",
+              "platform": "macos",
+              "sha256": "64f6307ff3944d297b2debb2dd41eaeb90a48673e97cccd60d9b38b41993a97d"
+            },
+            {
+              "artifact_id": "blazor-desktop-osx-arm64-installer",
+              "file_name": "chummer-blazor-desktop-osx-arm64-installer.dmg",
+              "kind": "installer",
+              "platform": "macos",
+              "sha256": "b06a5915ac87a67c8924f4452df23776b4a091a8a957e07472ed7572d7f15395"
+            }
+          ],
+          "channel": "preview",
+          "observed_state": "published",
+          "rollout": "promoted_preview",
+          "supportability": "",
+          "version": "run-20260713-172901"
+        },
+        "registry_snapshot": {
+          "artifacts": [
+            {
+              "artifact_id": "avalonia-linux-x64-installer",
+              "file_name": "chummer-avalonia-linux-x64-installer.deb",
+              "kind": "installer",
+              "platform": "linux",
+              "sha256": "c310febe74ea2250f90bde60309bb2a290b443b29691c41de6343d6fde2a85fa"
+            },
+            {
+              "artifact_id": "avalonia-win-x64-installer",
+              "file_name": "chummer-avalonia-win-x64-installer.exe",
+              "kind": "installer",
+              "platform": "windows",
+              "sha256": "d0857d0a6e5c958f34117051669373444b785f683e701c3e0ae428abef36e8ca"
+            }
+          ],
+          "channel": "preview",
+          "observed_state": "published",
+          "rollout": "promoted_preview",
+          "supportability": "",
+          "version": "run-20260712-174412"
+        }
+      },
+      "key": "release_channel_projection_alignment",
+      "message": "Registry and Portal release-channel projections disagree.",
+      "status": "attention_required"
+    },
+    {
+      "details": {
+        "observed_value": "ready",
+        "ready_count": 6,
+        "total_journey_count": 6
+      },
+      "key": "fleet_journey_context",
+      "message": "Fleet journey gates are ready on the observed owner receipt.",
+      "status": "consistent"
+    }
+  ],
+  "contract_name": "ea.chummer_lived_system_observation",
+  "contract_version": "1.0.0",
+  "execution_policy": {
+    "docker_actions": 0,
+    "filesystem_input_mode": "read_only",
+    "network_actions": 0,
+    "output_write_mode": "atomic_receipt_only",
+    "provider_actions": 0,
+    "source_mutations": 0
+  },
+  "findings": [
+    {
+      "code": "mirror_canonical_drift",
+      "evidence_keys": [
+        "mirror_weekly_pulse",
+        "canonical_weekly_pulse"
+      ],
+      "message": "One or more EA design-mirror files do not match their canonical counterparts.",
+      "owner_action": "The EA mirror maintainer should refresh from canonical design truth without editing canonical sources."
+    },
+    {
+      "code": "canonical_blk010_narrative_contradiction",
+      "evidence_keys": [
+        "canonical_readme",
+        "canonical_group_blockers",
+        "canonical_closeout"
+      ],
+      "message": "Canonical README/blocker/closeout narratives do not state one BLK-010 posture.",
+      "owner_action": "The chummer6-design owner should reconcile the canonical narrative; EA cannot clear or reopen BLK-010."
+    },
+    {
+      "code": "campaign_operability_scorecard_freshness_superseded",
+      "evidence_keys": [
+        "canonical_scorecard",
+        "canonical_weekly_pulse",
+        "fleet_flagship_readiness",
+        "desktop_executable_exit_gate",
+        "windows_desktop_exit_gate",
+        "windows_installer_visual_audit",
+        "release_ready"
+      ],
+      "message": "A positive generated claim predates newer owner receipts that require attention.",
+      "owner_action": "The canonical design owner should regenerate and reconcile this claim from current owner evidence."
+    },
+    {
+      "code": "final_gold_graph_freshness_superseded",
+      "evidence_keys": [
+        "canonical_final_gold_graph",
+        "canonical_weekly_pulse",
+        "fleet_flagship_readiness",
+        "desktop_executable_exit_gate",
+        "windows_desktop_exit_gate",
+        "windows_installer_visual_audit",
+        "release_ready"
+      ],
+      "message": "A positive generated claim predates newer owner receipts that require attention.",
+      "owner_action": "The canonical design owner should regenerate and reconcile this claim from current owner evidence."
+    },
+    {
+      "code": "desktop_proof_not_green",
+      "evidence_keys": [
+        "fleet_flagship_readiness",
+        "desktop_executable_exit_gate",
+        "windows_desktop_exit_gate",
+        "windows_installer_visual_audit"
+      ],
+      "message": "Current Fleet/UI/Windows proof does not expose one green desktop posture.",
+      "owner_action": "Fleet, UI, and release owners should publish current promoted-artifact desktop proof."
+    },
+    {
+      "code": "release_ready_not_green",
+      "evidence_keys": [
+        "release_ready"
+      ],
+      "message": "The current owner-produced RELEASE_READY receipt is not green.",
+      "owner_action": "The Chummer release owners should resolve and republish owner-controlled release evidence."
+    },
+    {
+      "code": "release_channel_split_brain",
+      "evidence_keys": [
+        "registry_release_channel",
+        "portal_release_channel"
+      ],
+      "message": "The owner registry and workspace Portal publish different release-channel tuples.",
+      "owner_action": "Registry and Portal owners should reconcile the authoritative channel and its projection."
+    }
+  ],
+  "generated_at_utc": "2026-07-13T22:02:21Z",
+  "input_bindings": [
+    {
+      "key": "mirror_readme",
+      "media_type": "markdown",
+      "observed_contract_name": null,
+      "observed_generated_at_utc": null,
+      "owner": "ea_design_mirror",
+      "path": "/docker/EA/.codex-design/product/README.md",
+      "sha256": "2f1135e6b3604c90133bbeb3a909b0f8ac9adb00f0dc38ad2c075b9c751856df",
+      "size_bytes": 44272
+    },
+    {
+      "key": "canonical_readme",
+      "media_type": "markdown",
+      "observed_contract_name": null,
+      "observed_generated_at_utc": null,
+      "owner": "chummer6_design",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/README.md",
+      "sha256": "2f1135e6b3604c90133bbeb3a909b0f8ac9adb00f0dc38ad2c075b9c751856df",
+      "size_bytes": 44272
+    },
+    {
+      "key": "mirror_group_blockers",
+      "media_type": "markdown",
+      "observed_contract_name": null,
+      "observed_generated_at_utc": null,
+      "owner": "ea_design_mirror",
+      "path": "/docker/EA/.codex-design/product/GROUP_BLOCKERS.md",
+      "sha256": "662e99114d0aed2ab198051a88cb1ab42a50cb09c20654d63c528cc104ccc65f",
+      "size_bytes": 3154
+    },
+    {
+      "key": "canonical_group_blockers",
+      "media_type": "markdown",
+      "observed_contract_name": null,
+      "observed_generated_at_utc": null,
+      "owner": "chummer6_design",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/GROUP_BLOCKERS.md",
+      "sha256": "662e99114d0aed2ab198051a88cb1ab42a50cb09c20654d63c528cc104ccc65f",
+      "size_bytes": 3154
+    },
+    {
+      "key": "mirror_closeout",
+      "media_type": "markdown",
+      "observed_contract_name": null,
+      "observed_generated_at_utc": null,
+      "owner": "ea_design_mirror",
+      "path": "/docker/EA/.codex-design/product/CAMPAIGN_OS_FLAGSHIP_CLOSEOUT.md",
+      "sha256": "e7ef86ed0f19658238daf3f9f85d252c0cb6285056b45bd17278c06f009b1f3f",
+      "size_bytes": 3080
+    },
+    {
+      "key": "canonical_closeout",
+      "media_type": "markdown",
+      "observed_contract_name": null,
+      "observed_generated_at_utc": null,
+      "owner": "chummer6_design",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/CAMPAIGN_OS_FLAGSHIP_CLOSEOUT.md",
+      "sha256": "e7ef86ed0f19658238daf3f9f85d252c0cb6285056b45bd17278c06f009b1f3f",
+      "size_bytes": 3080
+    },
+    {
+      "key": "mirror_scorecard",
+      "media_type": "json",
+      "observed_contract_name": "chummer.campaign_operability_scorecard",
+      "observed_generated_at_utc": "2026-07-12T06:35:08Z",
+      "owner": "ea_design_mirror",
+      "path": "/docker/EA/.codex-design/product/CAMPAIGN_OPERABILITY_SCORECARD.generated.json",
+      "sha256": "58fd57bd59416dd73bdee027b71fd96b7d764738d6c813dc5cad72c838f4c529",
+      "size_bytes": 65140
+    },
+    {
+      "key": "canonical_scorecard",
+      "media_type": "json",
+      "observed_contract_name": "chummer.campaign_operability_scorecard",
+      "observed_generated_at_utc": "2026-07-12T06:35:08Z",
+      "owner": "chummer6_design",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/CAMPAIGN_OPERABILITY_SCORECARD.generated.json",
+      "sha256": "58fd57bd59416dd73bdee027b71fd96b7d764738d6c813dc5cad72c838f4c529",
+      "size_bytes": 65140
+    },
+    {
+      "key": "mirror_final_gold_graph",
+      "media_type": "json",
+      "observed_contract_name": "chummer.final_gold_graph",
+      "observed_generated_at_utc": "2026-07-12T06:35:08Z",
+      "owner": "ea_design_mirror",
+      "path": "/docker/EA/.codex-design/product/FINAL_GOLD_GRAPH.generated.json",
+      "sha256": "557c0a88d9f5d78628672e720336daf32d32135a074a156a8ce29b513fe799ee",
+      "size_bytes": 10938
+    },
+    {
+      "key": "canonical_final_gold_graph",
+      "media_type": "json",
+      "observed_contract_name": "chummer.final_gold_graph",
+      "observed_generated_at_utc": "2026-07-12T06:35:08Z",
+      "owner": "chummer6_design",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/FINAL_GOLD_GRAPH.generated.json",
+      "sha256": "557c0a88d9f5d78628672e720336daf32d32135a074a156a8ce29b513fe799ee",
+      "size_bytes": 10938
+    },
+    {
+      "key": "mirror_weekly_pulse",
+      "media_type": "json",
+      "observed_contract_name": "chummer.weekly_product_pulse",
+      "observed_generated_at_utc": "2026-07-12T06:35:00Z",
+      "owner": "ea_design_mirror",
+      "path": "/docker/EA/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+      "sha256": "b69bb85aab5e67ace6185ca2be5d19fa6e7f46b547fa89038c3ef50eb3be15c8",
+      "size_bytes": 13098
+    },
+    {
+      "key": "canonical_weekly_pulse",
+      "media_type": "json",
+      "observed_contract_name": "chummer.weekly_product_pulse",
+      "observed_generated_at_utc": "2026-07-13T04:39:23Z",
+      "owner": "chummer6_design",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/WEEKLY_PRODUCT_PULSE.generated.json",
+      "sha256": "643175c4a3ae7b43160263407c12693890c000c7a5ebb91f345959b71bc1aa77",
+      "size_bytes": 13692
+    },
+    {
+      "key": "fleet_flagship_readiness",
+      "media_type": "json",
+      "observed_contract_name": "fleet.flagship_product_readiness",
+      "observed_generated_at_utc": "2026-07-13T04:39:23Z",
+      "owner": "fleet",
+      "path": "/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json",
+      "sha256": "9986d5f6289787d9d7bc0c476d8b3800d757fc690b31675b19ac9077d464784b",
+      "size_bytes": 72903
+    },
+    {
+      "key": "fleet_journey_gates",
+      "media_type": "json",
+      "observed_contract_name": "fleet.journey_gates",
+      "observed_generated_at_utc": "2026-07-12T06:21:20Z",
+      "owner": "fleet",
+      "path": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
+      "sha256": "e374b998d77ca70354d5f57df54a500c00f51c87d5d5fc041194d685ed94790d",
+      "size_bytes": 67288
+    },
+    {
+      "key": "desktop_executable_exit_gate",
+      "media_type": "json",
+      "observed_contract_name": "chummer6-ui.desktop_executable_exit_gate",
+      "observed_generated_at_utc": "2026-07-13T05:05:19.851311Z",
+      "owner": "chummer6_ui",
+      "path": "/docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
+      "sha256": "b7b6297f8b38da3c82d87de85ec35fd4bf5561f79faad1a660164c3d8ccefb42",
+      "size_bytes": 76206
+    },
+    {
+      "key": "windows_desktop_exit_gate",
+      "media_type": "json",
+      "observed_contract_name": "chummer6-ui.windows_desktop_exit_gate",
+      "observed_generated_at_utc": "2026-07-13T04:39:52Z",
+      "owner": "chummer6_ui",
+      "path": "/docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_WINDOWS_DESKTOP_EXIT_GATE.generated.json",
+      "sha256": "6b445065fe0c38426e2d6e48431e2931a6013d19e79d8846e80f4ae81bb1e092",
+      "size_bytes": 20275
+    },
+    {
+      "key": "windows_installer_visual_audit",
+      "media_type": "json",
+      "observed_contract_name": "chummer.windows_installer_visual_audit",
+      "observed_generated_at_utc": "2026-07-13T20:59:42Z",
+      "owner": "chummer_run_services",
+      "path": "/docker/chummercomplete/chummer.run-services/.codex-studio/published/WINDOWS_INSTALLER_VISUAL_AUDIT.generated.json",
+      "sha256": "9761c6c7b1c19fb058afb33c8f07e6a8c481fac97fbcec9aa81b7f13379d1180",
+      "size_bytes": 15859
+    },
+    {
+      "key": "release_ready",
+      "media_type": "json",
+      "observed_contract_name": "chummer.release_ready",
+      "observed_generated_at_utc": "2026-07-13T15:32:07Z",
+      "owner": "chummer_run_services",
+      "path": "/docker/chummercomplete/chummer.run-services/.codex-studio/published/RELEASE_READY.generated.json",
+      "sha256": "bb05d6453314b010d26eaf4244fee92a5d7ad75728e8591640af0e33a1a4e635",
+      "size_bytes": 84096
+    },
+    {
+      "key": "registry_release_channel",
+      "media_type": "json",
+      "observed_contract_name": "Chummer.Hub.Registry.Contracts",
+      "observed_generated_at_utc": "2026-07-12T18:46:26Z",
+      "owner": "chummer6_hub_registry",
+      "path": "/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json",
+      "sha256": "6024e1367165a5b571a4ffd59759d26966377d98a2d81770f4759ed8992c9aad",
+      "size_bytes": 33891
+    },
+    {
+      "key": "portal_release_channel",
+      "media_type": "json",
+      "observed_contract_name": "Chummer.Hub.Registry.Contracts",
+      "observed_generated_at_utc": "2026-07-13T17:31:14Z",
+      "owner": "chummer_run_services",
+      "path": "/docker/chummercomplete/chummer.run-services/Chummer.Portal/downloads/RELEASE_CHANNEL.generated.json",
+      "sha256": "ab09ef1384e7dd79c8de53551e7e76f4f4b6cb03ee233f98df12e9921cd994d9",
+      "size_bytes": 32004
+    }
+  ],
+  "release_decision": null,
+  "scope": {
+    "description": "Hash-bound EA observation of Chummer owner evidence.",
+    "does_not_clear_or_reopen_blockers": true,
+    "does_not_publish_or_promote_releases": true,
+    "observation_only": true
+  },
+  "status": "attention_required",
+  "summary": {
+    "attention_required_check_count": 7,
+    "check_count": 9,
+    "consistent_check_count": 2,
+    "finding_count": 7,
+    "input_count": 20,
+    "invalid_input_check_count": 0
+  }
+}
