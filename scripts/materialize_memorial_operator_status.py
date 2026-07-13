@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -15,11 +16,15 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head, source_worktree_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / ".codex-design" / "product" / "MEMORIAL_OPERATOR_STATUS.generated.json"
+DEFAULT_OUTPUT = ROOT / ".codex-design" / "product" / "MEMORIAL_OPERATOR_STATUS.generated.json"
 WHOLE_PROJECT_GOLD_MAP = ROOT / ".codex-design" / "product" / "WHOLE_PROJECT_GOLD_MAP.generated.json"
-DEPLOY_CONTEXT = ROOT / ".codex-studio" / "published" / "deploy_context.generated.json"
-RELEASE_MANIFEST = ROOT / ".codex-studio" / "published" / "release_manifest.generated.json"
-RELEASE_AUTHORITY_STATUS = ROOT / ".codex-studio" / "published" / "release_authority_status.generated.json"
+DEFAULT_DEPLOY_CONTEXT = ROOT / ".codex-studio" / "published" / "deploy_context.generated.json"
+DEFAULT_RELEASE_MANIFEST = ROOT / ".codex-studio" / "published" / "release_manifest.generated.json"
+DEFAULT_RELEASE_AUTHORITY_STATUS = ROOT / ".codex-studio" / "published" / "release_authority_status.generated.json"
+OUTPUT = DEFAULT_OUTPUT
+DEPLOY_CONTEXT = DEFAULT_DEPLOY_CONTEXT
+RELEASE_MANIFEST = DEFAULT_RELEASE_MANIFEST
+RELEASE_AUTHORITY_STATUS = DEFAULT_RELEASE_AUTHORITY_STATUS
 MEANINGFUL_BROWSER_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_realtime_browser_meaningful_public_origin.generated.json"
 PUBLIC_VOICE_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_voice_roundtrip_public_origin.generated.json"
 PUBLIC_BROWSER_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_realtime_browser_public_origin.generated.json"
@@ -436,7 +441,17 @@ def _memorial_public_runtime_status() -> dict[str, object]:
 def _release_authority_status() -> dict[str, object]:
     payload = _load_json(RELEASE_AUTHORITY_STATUS)
     if not payload:
-        payload = _run_json(["scripts/materialize_release_authority_status.py", "--output", str(RELEASE_AUTHORITY_STATUS)])
+        payload = _run_json(
+            [
+                "scripts/materialize_release_authority_status.py",
+                "--output",
+                str(RELEASE_AUTHORITY_STATUS),
+                "--release-manifest",
+                str(RELEASE_MANIFEST),
+                "--deploy-context",
+                str(DEPLOY_CONTEXT),
+            ]
+        )
     if not isinstance(payload, dict):
         return {
             "status": "missing",
@@ -454,7 +469,7 @@ def _release_authority_status() -> dict[str, object]:
         if str(item).strip()
     ]
     next_action = str(payload.get("next_action") or "").strip()
-    status = "pass" if state == "pass" and not issues else "blocked"
+    status = "pass" if state in {"clear", "pass"} and not issues else "blocked"
     return {
         "status": status,
         "state": state,
@@ -1145,7 +1160,32 @@ def _memorial_next_command_for_action(action: str) -> str:
     return ""
 
 
-def main() -> int:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Materialize the Manfred memorial operator-status projection."
+    )
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--deploy-context", type=Path, default=DEFAULT_DEPLOY_CONTEXT)
+    parser.add_argument("--release-manifest", type=Path, default=DEFAULT_RELEASE_MANIFEST)
+    parser.add_argument(
+        "--release-authority-status",
+        type=Path,
+        default=DEFAULT_RELEASE_AUTHORITY_STATUS,
+    )
+    return parser.parse_args(argv)
+
+
+def _configure_paths(args: argparse.Namespace) -> None:
+    global OUTPUT, DEPLOY_CONTEXT, RELEASE_MANIFEST, RELEASE_AUTHORITY_STATUS
+    OUTPUT = Path(args.output).expanduser().resolve()
+    DEPLOY_CONTEXT = Path(args.deploy_context).expanduser().resolve()
+    RELEASE_MANIFEST = Path(args.release_manifest).expanduser().resolve()
+    RELEASE_AUTHORITY_STATUS = Path(args.release_authority_status).expanduser().resolve()
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    _configure_paths(args)
     source_head = resolve_source_state_head(ROOT)
     source_worktree = source_worktree_metadata(ROOT, dirty_path_limit=SOURCE_DIRTY_FILE_LIMIT)
     source_dirty_summary = _source_dirty_summary(source_worktree)

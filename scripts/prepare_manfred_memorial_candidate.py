@@ -247,34 +247,180 @@ def _copy_archive(
 
 
 def _tree_digest(root: Path) -> tuple[str, list[dict[str, object]]]:
-    root_metadata = root.lstat()
-    if (
-        not stat.S_ISDIR(root_metadata.st_mode)
-        or stat.S_ISLNK(root_metadata.st_mode)
-        or stat.S_IMODE(root_metadata.st_mode) != 0o550
-    ):
-        raise ValueError("manfred_candidate_projection_root_invalid")
-    rows: list[dict[str, object]] = []
-    for path in sorted(root.rglob("*")):
-        metadata = path.lstat()
-        if stat.S_ISDIR(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode):
-            if stat.S_IMODE(metadata.st_mode) != 0o550:
-                raise ValueError("manfred_candidate_projection_directory_mode_invalid")
-            continue
-        if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
-            raise ValueError("manfred_candidate_projection_entry_invalid")
-        mode = stat.S_IMODE(metadata.st_mode)
-        if mode not in {0o440, 0o444}:
-            raise ValueError("manfred_candidate_projection_file_mode_invalid")
-        content = path.read_bytes()
-        rows.append(
-            {
-                "path": path.relative_to(root).as_posix(),
-                "sha256": _sha256(content),
-                "size_bytes": len(content),
-                "mode": format(mode, "03o"),
-            }
+    def directory_identity(metadata: os.stat_result) -> tuple[int, ...]:
+        return (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
         )
+
+    def file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+        return (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_nlink,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        )
+
+    directory_flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_DIRECTORY", 0)
+    file_flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NONBLOCK", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        directory_flags |= os.O_NOFOLLOW
+        file_flags |= os.O_NOFOLLOW
+    try:
+        root_descriptor = os.open(root, directory_flags)
+    except OSError as exc:
+        raise ValueError("manfred_candidate_projection_root_invalid") from exc
+    rows: list[dict[str, object]] = []
+    try:
+        root_metadata = os.fstat(root_descriptor)
+        try:
+            root_path_metadata = os.stat(root, follow_symlinks=False)
+        except OSError as exc:
+            raise ValueError("manfred_candidate_projection_root_invalid") from exc
+        if (
+            not stat.S_ISDIR(root_metadata.st_mode)
+            or stat.S_ISLNK(root_path_metadata.st_mode)
+            or stat.S_IMODE(root_metadata.st_mode) != 0o550
+            or (root_metadata.st_dev, root_metadata.st_ino)
+            != (root_path_metadata.st_dev, root_path_metadata.st_ino)
+        ):
+            raise ValueError("manfred_candidate_projection_root_invalid")
+
+        def walk(directory_descriptor: int, relative: tuple[str, ...]) -> None:
+            before = os.fstat(directory_descriptor)
+            if (
+                not stat.S_ISDIR(before.st_mode)
+                or stat.S_IMODE(before.st_mode) != 0o550
+            ):
+                raise ValueError("manfred_candidate_projection_directory_mode_invalid")
+            try:
+                with os.scandir(directory_descriptor) as iterator:
+                    entries = sorted(iterator, key=lambda row: row.name)
+            except OSError as exc:
+                raise ValueError("manfred_candidate_projection_entry_invalid") from exc
+            for entry in entries:
+                name = entry.name
+                try:
+                    initial = os.stat(
+                        name,
+                        dir_fd=directory_descriptor,
+                        follow_symlinks=False,
+                    )
+                except OSError as exc:
+                    raise ValueError(
+                        "manfred_candidate_projection_changed_during_digest"
+                    ) from exc
+                projected = (*relative, name)
+                if stat.S_ISDIR(initial.st_mode) and not stat.S_ISLNK(initial.st_mode):
+                    try:
+                        child_descriptor = os.open(
+                            name,
+                            directory_flags,
+                            dir_fd=directory_descriptor,
+                        )
+                    except OSError as exc:
+                        raise ValueError(
+                            "manfred_candidate_projection_changed_during_digest"
+                        ) from exc
+                    try:
+                        opened = os.fstat(child_descriptor)
+                        if (
+                            directory_identity(initial) != directory_identity(opened)
+                            or stat.S_IMODE(opened.st_mode) != 0o550
+                        ):
+                            raise ValueError(
+                                "manfred_candidate_projection_changed_during_digest"
+                            )
+                        walk(child_descriptor, projected)
+                        if directory_identity(opened) != directory_identity(
+                            os.fstat(child_descriptor)
+                        ):
+                            raise ValueError(
+                                "manfred_candidate_projection_changed_during_digest"
+                            )
+                    finally:
+                        os.close(child_descriptor)
+                    continue
+                if not stat.S_ISREG(initial.st_mode) or stat.S_ISLNK(initial.st_mode):
+                    raise ValueError("manfred_candidate_projection_entry_invalid")
+                if initial.st_nlink != 1:
+                    raise ValueError("manfred_candidate_projection_file_links_invalid")
+                mode = stat.S_IMODE(initial.st_mode)
+                if mode not in {0o440, 0o444}:
+                    raise ValueError("manfred_candidate_projection_file_mode_invalid")
+                try:
+                    file_descriptor = os.open(
+                        name,
+                        file_flags,
+                        dir_fd=directory_descriptor,
+                    )
+                except OSError as exc:
+                    raise ValueError(
+                        "manfred_candidate_projection_changed_during_digest"
+                    ) from exc
+                try:
+                    opened = os.fstat(file_descriptor)
+                    if (
+                        file_identity(initial) != file_identity(opened)
+                        or not stat.S_ISREG(opened.st_mode)
+                        or opened.st_nlink != 1
+                    ):
+                        raise ValueError(
+                            "manfred_candidate_projection_changed_during_digest"
+                        )
+                    digest = hashlib.sha256()
+                    size = 0
+                    while True:
+                        chunk = os.read(file_descriptor, 1024 * 1024)
+                        if not chunk:
+                            break
+                        digest.update(chunk)
+                        size += len(chunk)
+                    final = os.fstat(file_descriptor)
+                    if file_identity(opened) != file_identity(final) or size != int(
+                        opened.st_size
+                    ):
+                        raise ValueError(
+                            "manfred_candidate_projection_changed_during_digest"
+                        )
+                finally:
+                    os.close(file_descriptor)
+                rows.append(
+                    {
+                        "path": PurePosixPath(*projected).as_posix(),
+                        "sha256": digest.hexdigest(),
+                        "size_bytes": size,
+                        "mode": format(mode, "03o"),
+                    }
+                )
+            if directory_identity(before) != directory_identity(
+                os.fstat(directory_descriptor)
+            ):
+                raise ValueError("manfred_candidate_projection_changed_during_digest")
+
+        walk(root_descriptor, ())
+        final_root_metadata = os.fstat(root_descriptor)
+        try:
+            final_root_path_metadata = os.stat(root, follow_symlinks=False)
+        except OSError as exc:
+            raise ValueError(
+                "manfred_candidate_projection_changed_during_digest"
+            ) from exc
+        if directory_identity(root_metadata) != directory_identity(
+            final_root_metadata
+        ) or (final_root_metadata.st_dev, final_root_metadata.st_ino) != (
+            final_root_path_metadata.st_dev,
+            final_root_path_metadata.st_ino,
+        ):
+            raise ValueError("manfred_candidate_projection_changed_during_digest")
+    finally:
+        os.close(root_descriptor)
     encoded = json.dumps(rows, separators=(",", ":"), sort_keys=True).encode("utf-8")
     return _sha256(encoded), rows
 

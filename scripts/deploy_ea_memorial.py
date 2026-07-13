@@ -32,6 +32,17 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from source_state_head import source_worktree_metadata
 
+try:
+    from scripts.prepare_manfred_memorial_candidate import (
+        _tree_digest as _candidate_projection_tree_digest,
+    )
+except ModuleNotFoundError as exc:  # pragma: no cover - direct script execution
+    if exc.name not in {"scripts", "scripts.prepare_manfred_memorial_candidate"}:
+        raise
+    from prepare_manfred_memorial_candidate import (  # type: ignore[no-redef]
+        _tree_digest as _candidate_projection_tree_digest,
+    )
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MEMORIAL_COMPOSE_FILE = "docker-compose.memorial.yml"
@@ -39,6 +50,9 @@ PROJECT_NAME = "ea"
 API_SERVICE = "ea-api"
 REDIS_SERVICE = "ea-redis"
 MEMORIAL_SLUG = "manfred"
+REQUIRED_CONTROL_TOUR_SLUG = (
+    "360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
+)
 CONTROL_TOUR_SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,127}$")
 DEPLOYMENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
 IMAGE_ID_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -101,7 +115,39 @@ ROLLBACK_ENV_PASSTHROUGH = {
 }
 MAX_HTTP_BODY_BYTES = 2 * 1024 * 1024
 MAX_FIXED_JSON_SCRIPT_OUTPUT_BYTES = 64 * 1024
+MAX_PRIVATE_RELEASE_EVIDENCE_BYTES = 2 * 1024 * 1024
+MAX_DEPLOYMENT_INPUT_BYTES = 8 * 1024 * 1024
+MAX_GIT_INDEX_LIST_BYTES = 16 * 1024 * 1024
 MAX_RECEIPT_CONTENT_TYPE_CHARS = 160
+RELEASE_EVIDENCE_ENV_ALLOWLIST = frozenset(
+    {
+        "EA_DEPLOY_BRANCH",
+        "EA_DEPLOY_COMMIT_SHA",
+        "EA_DEPLOY_COMPOSE_FILES",
+        "EA_DEPLOY_COMPOSE_OVERRIDES",
+        "EA_DEPLOY_ENABLED_MODES",
+        "EA_DEPLOY_ENABLED_PROJECT_MODES",
+        "EA_DEPLOY_PRIMARY_MODE",
+        "EA_DEPLOY_PROJECT_MODE",
+        "EA_DEPLOY_PUBLIC_ORIGIN",
+        "EA_DEPLOY_PUBLIC_ORIGIN_SOURCE",
+        "EA_DEPLOY_REPOSITORY",
+        "EA_DEPLOY_TRACKING_BRANCH",
+        "EA_DEPLOYMENT_ID",
+        "EA_DEPLOYMENT_ID_SOURCE",
+        "EA_HOST_PORT",
+        "EA_PUBLIC_APP_BASE_URL",
+        "EA_PUBLIC_ORIGIN",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "PATH",
+        "PUBLIC_ORIGIN",
+        "PROPERTYQUARRY_PUBLIC_BASE_URL",
+        "RELEASE_LABEL",
+        "TZ",
+    }
+)
 FIXED_JSON_SCRIPT_LABELS = {
     "scripts/verify_release_authority.py": "release_authority",
     "scripts/verify_memorial_deploy_readiness.py": "memorial_deploy_readiness",
@@ -141,6 +187,210 @@ SAFE_CANDIDATE_ERROR_CODES = frozenset(
         "candidate_voice_release_boundary_invalid",
     }
 )
+CONTAINER_PROJECTION_DIGEST_SCRIPT = r"""
+import hashlib
+import json
+import os
+import signal
+import stat
+import sys
+from pathlib import Path, PurePosixPath
+
+def directory_identity(metadata):
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+def file_identity(metadata):
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+root = Path(sys.argv[1])
+expected_file_count = int(sys.argv[2])
+expected_projection_bytes = int(sys.argv[3])
+if expected_file_count < 0 or expected_projection_bytes < 0:
+    raise SystemExit(17)
+maximum_entry_count = max(expected_file_count * 4 + 32, 64)
+budget = {"entries": 0, "files": 0, "bytes": 0}
+signal.signal(signal.SIGALRM, lambda _signum, _frame: (_ for _ in ()).throw(SystemExit(18)))
+signal.alarm(20)
+directory_flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_DIRECTORY", 0)
+file_flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NONBLOCK", 0)
+if hasattr(os, "O_NOFOLLOW"):
+    directory_flags |= os.O_NOFOLLOW
+    file_flags |= os.O_NOFOLLOW
+try:
+    root_descriptor = os.open(root, directory_flags)
+except OSError:
+    raise SystemExit(10)
+rows = []
+try:
+    root_metadata = os.fstat(root_descriptor)
+    root_path_metadata = os.stat(root, follow_symlinks=False)
+    if (
+        not stat.S_ISDIR(root_metadata.st_mode)
+        or stat.S_ISLNK(root_path_metadata.st_mode)
+        or stat.S_IMODE(root_metadata.st_mode) != 0o550
+        or (root_metadata.st_dev, root_metadata.st_ino)
+        != (root_path_metadata.st_dev, root_path_metadata.st_ino)
+    ):
+        raise SystemExit(10)
+
+    def walk(directory_descriptor, relative):
+        before = os.fstat(directory_descriptor)
+        if (
+            not stat.S_ISDIR(before.st_mode)
+            or stat.S_IMODE(before.st_mode) != 0o550
+        ):
+            raise SystemExit(11)
+        with os.scandir(directory_descriptor) as iterator:
+            entries = []
+            for entry in iterator:
+                budget["entries"] += 1
+                if budget["entries"] > maximum_entry_count:
+                    raise SystemExit(16)
+                entries.append(entry)
+            entries.sort(key=lambda row: row.name)
+        for entry in entries:
+            name = entry.name
+            try:
+                initial = os.stat(
+                    name,
+                    dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+            except OSError:
+                raise SystemExit(14)
+            projected = (*relative, name)
+            if stat.S_ISDIR(initial.st_mode) and not stat.S_ISLNK(initial.st_mode):
+                try:
+                    child_descriptor = os.open(
+                        name,
+                        directory_flags,
+                        dir_fd=directory_descriptor,
+                    )
+                except OSError:
+                    raise SystemExit(14)
+                try:
+                    opened = os.fstat(child_descriptor)
+                    if (
+                        directory_identity(initial) != directory_identity(opened)
+                        or stat.S_IMODE(opened.st_mode) != 0o550
+                    ):
+                        raise SystemExit(14)
+                    walk(child_descriptor, projected)
+                    if directory_identity(opened) != directory_identity(
+                        os.fstat(child_descriptor)
+                    ):
+                        raise SystemExit(14)
+                finally:
+                    os.close(child_descriptor)
+                continue
+            if not stat.S_ISREG(initial.st_mode) or stat.S_ISLNK(initial.st_mode):
+                raise SystemExit(12)
+            if initial.st_nlink != 1:
+                raise SystemExit(15)
+            budget["files"] += 1
+            budget["bytes"] += int(initial.st_size)
+            if (
+                budget["files"] > expected_file_count
+                or budget["bytes"] > expected_projection_bytes
+            ):
+                raise SystemExit(16)
+            mode = stat.S_IMODE(initial.st_mode)
+            if mode not in {0o440, 0o444}:
+                raise SystemExit(13)
+            try:
+                file_descriptor = os.open(
+                    name,
+                    file_flags,
+                    dir_fd=directory_descriptor,
+                )
+            except OSError:
+                raise SystemExit(14)
+            try:
+                opened = os.fstat(file_descriptor)
+                if (
+                    file_identity(initial) != file_identity(opened)
+                    or not stat.S_ISREG(opened.st_mode)
+                    or opened.st_nlink != 1
+                ):
+                    raise SystemExit(14)
+                digest = hashlib.sha256()
+                size = 0
+                while True:
+                    chunk = os.read(file_descriptor, 1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+                    size += len(chunk)
+                    if size > int(opened.st_size):
+                        raise SystemExit(14)
+                    if file_identity(opened) != file_identity(
+                        os.fstat(file_descriptor)
+                    ):
+                        raise SystemExit(14)
+                if (
+                    file_identity(opened) != file_identity(os.fstat(file_descriptor))
+                    or size != int(opened.st_size)
+                ):
+                    raise SystemExit(14)
+            finally:
+                os.close(file_descriptor)
+            rows.append(
+                {
+                    "path": PurePosixPath(*projected).as_posix(),
+                    "sha256": digest.hexdigest(),
+                    "size_bytes": size,
+                    "mode": format(mode, "03o"),
+                }
+            )
+        if directory_identity(before) != directory_identity(
+            os.fstat(directory_descriptor)
+        ):
+            raise SystemExit(14)
+
+    walk(root_descriptor, ())
+    final_root_metadata = os.fstat(root_descriptor)
+    final_root_path_metadata = os.stat(root, follow_symlinks=False)
+    if (
+        directory_identity(root_metadata) != directory_identity(final_root_metadata)
+        or (final_root_metadata.st_dev, final_root_metadata.st_ino)
+        != (final_root_path_metadata.st_dev, final_root_path_metadata.st_ino)
+    ):
+        raise SystemExit(14)
+finally:
+    os.close(root_descriptor)
+signal.alarm(0)
+if (
+    budget["files"] != expected_file_count
+    or budget["bytes"] != expected_projection_bytes
+):
+    raise SystemExit(17)
+encoded = json.dumps(rows, separators=(",", ":"), sort_keys=True).encode("utf-8")
+print(
+    json.dumps(
+        {
+            "projection_sha256": hashlib.sha256(encoded).hexdigest(),
+            "file_count": len(rows),
+            "projection_bytes": sum(int(item["size_bytes"]) for item in rows),
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+)
+""".strip()
 
 
 class DeployError(RuntimeError):
@@ -886,6 +1136,7 @@ class MemorialDeployLane:
         )
         if not self.receipt_dir.is_absolute():
             self.receipt_dir = self.root / self.receipt_dir
+        self.receipt_dir = self.receipt_dir.resolve()
         self.receipt_path = self.receipt_dir / f"{self.deployment_id}.json"
         self.lock_path = self.receipt_dir / f"{self.deployment_id}.lock"
         self.global_lock_path = (
@@ -1121,9 +1372,296 @@ class MemorialDeployLane:
             if key in ROLLBACK_ENV_PASSTHROUGH and key not in FORWARD_ONLY_ENV_KEYS
         }
 
-    def _run_json_script(self, script: str, *args: str, origin: str) -> dict[str, Any]:
-        completed = self._run(
-            [sys.executable, str(self.root / script), *args], check=False
+    @staticmethod
+    def _deployment_input_file_seal(path: Path) -> dict[str, object]:
+        candidate = path.expanduser()
+        if not candidate.is_absolute() or ".." in candidate.parts:
+            raise DeployError("deployment_input_path_invalid")
+        directory_flags = os.O_RDONLY | os.O_CLOEXEC
+        if hasattr(os, "O_DIRECTORY"):
+            directory_flags |= os.O_DIRECTORY
+        if hasattr(os, "O_NOFOLLOW"):
+            directory_flags |= os.O_NOFOLLOW
+        file_flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK
+        if hasattr(os, "O_NOFOLLOW"):
+            file_flags |= os.O_NOFOLLOW
+
+        try:
+            directory_descriptor = os.open("/", directory_flags)
+        except OSError as exc:  # pragma: no cover - host invariant
+            raise DeployError("deployment_input_root_unavailable") from exc
+        try:
+            for component in candidate.parts[1:-1]:
+                try:
+                    next_descriptor = os.open(
+                        component,
+                        directory_flags,
+                        dir_fd=directory_descriptor,
+                    )
+                except OSError as exc:
+                    raise DeployError(
+                        f"deployment_input_ancestor_invalid:{candidate.name}"
+                    ) from exc
+                try:
+                    metadata = os.fstat(next_descriptor)
+                    if not stat.S_ISDIR(metadata.st_mode):
+                        raise DeployError(
+                            f"deployment_input_ancestor_invalid:{candidate.name}"
+                        )
+                except BaseException:
+                    os.close(next_descriptor)
+                    raise
+                os.close(directory_descriptor)
+                directory_descriptor = next_descriptor
+
+            name = candidate.name
+            try:
+                path_metadata = os.stat(
+                    name,
+                    dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+                file_descriptor = os.open(
+                    name,
+                    file_flags,
+                    dir_fd=directory_descriptor,
+                )
+            except OSError as exc:
+                raise DeployError(
+                    f"deployment_input_file_unavailable:{candidate.name}"
+                ) from exc
+        finally:
+            os.close(directory_descriptor)
+
+        try:
+            before = os.fstat(file_descriptor)
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or stat.S_ISLNK(path_metadata.st_mode)
+                or before.st_nlink != 1
+                or before.st_uid != os.geteuid()
+                or (before.st_dev, before.st_ino)
+                != (path_metadata.st_dev, path_metadata.st_ino)
+            ):
+                raise DeployError(f"deployment_input_file_invalid:{candidate.name}")
+            if before.st_size > MAX_DEPLOYMENT_INPUT_BYTES:
+                raise DeployError(f"deployment_input_file_too_large:{candidate.name}")
+            identity = (
+                before.st_dev,
+                before.st_ino,
+                before.st_mode,
+                before.st_uid,
+                before.st_gid,
+                before.st_nlink,
+                before.st_size,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            )
+            digest = hashlib.sha256()
+            total = 0
+            while True:
+                chunk = os.read(file_descriptor, 1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_DEPLOYMENT_INPUT_BYTES:
+                    raise DeployError(
+                        f"deployment_input_file_too_large:{candidate.name}"
+                    )
+                digest.update(chunk)
+                current = os.fstat(file_descriptor)
+                if (
+                    current.st_dev,
+                    current.st_ino,
+                    current.st_mode,
+                    current.st_uid,
+                    current.st_gid,
+                    current.st_nlink,
+                    current.st_size,
+                    current.st_mtime_ns,
+                    current.st_ctime_ns,
+                ) != identity:
+                    raise DeployError(f"deployment_input_file_changed:{candidate.name}")
+            after = os.fstat(file_descriptor)
+            after_identity = (
+                after.st_dev,
+                after.st_ino,
+                after.st_mode,
+                after.st_uid,
+                after.st_gid,
+                after.st_nlink,
+                after.st_size,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            )
+            if after_identity != identity or total != after.st_size:
+                raise DeployError(f"deployment_input_file_changed:{candidate.name}")
+            return {
+                "path": candidate.as_posix(),
+                "sha256": digest.hexdigest(),
+                "size_bytes": total,
+                "mode": format(stat.S_IMODE(after.st_mode), "04o"),
+                "device": int(after.st_dev),
+                "inode": int(after.st_ino),
+                "uid": int(after.st_uid),
+                "gid": int(after.st_gid),
+                "link_count": int(after.st_nlink),
+                "mtime_ns": int(after.st_mtime_ns),
+                "ctime_ns": int(after.st_ctime_ns),
+            }
+        finally:
+            os.close(file_descriptor)
+
+    @staticmethod
+    def _deployment_input_absence_seal(path: Path) -> dict[str, object]:
+        candidate = path.expanduser()
+        if not candidate.is_absolute() or ".." in candidate.parts:
+            raise DeployError("deployment_input_path_invalid")
+        directory_flags = os.O_RDONLY | os.O_CLOEXEC
+        if hasattr(os, "O_DIRECTORY"):
+            directory_flags |= os.O_DIRECTORY
+        if hasattr(os, "O_NOFOLLOW"):
+            directory_flags |= os.O_NOFOLLOW
+        directory_descriptor = os.open("/", directory_flags)
+        try:
+            for component in candidate.parts[1:-1]:
+                try:
+                    next_descriptor = os.open(
+                        component,
+                        directory_flags,
+                        dir_fd=directory_descriptor,
+                    )
+                except OSError as exc:
+                    raise DeployError(
+                        f"deployment_input_ancestor_invalid:{candidate.name}"
+                    ) from exc
+                metadata = os.fstat(next_descriptor)
+                if not stat.S_ISDIR(metadata.st_mode):
+                    os.close(next_descriptor)
+                    raise DeployError(
+                        f"deployment_input_ancestor_invalid:{candidate.name}"
+                    )
+                os.close(directory_descriptor)
+                directory_descriptor = next_descriptor
+            try:
+                os.stat(
+                    candidate.name,
+                    dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                return {"path": candidate.as_posix(), "present": False}
+            except OSError as exc:
+                raise DeployError(
+                    f"deployment_input_optional_state_invalid:{candidate.name}"
+                ) from exc
+            raise DeployError(
+                f"deployment_input_optional_presence_race:{candidate.name}"
+            )
+        finally:
+            os.close(directory_descriptor)
+
+    @classmethod
+    def _deployment_optional_input_seal(cls, path: Path) -> dict[str, object]:
+        try:
+            return {"present": True, **cls._deployment_input_file_seal(path)}
+        except DeployError as exc:
+            if str(exc) != f"deployment_input_file_unavailable:{path.name}":
+                raise
+        return cls._deployment_input_absence_seal(path)
+
+    def _capture_deployment_input_seal(
+        self, previous: Mapping[str, Any]
+    ) -> dict[str, list[dict[str, object]]]:
+        rollback_root = Path(str(previous.get("working_dir") or ""))
+        forward_required_paths = [
+            self.root / ".env",
+            *(self.root / item for item in self.target_compose_files),
+        ]
+        rollback_required_paths = [
+            rollback_root / ".env",
+            *(
+                Path(str(item))
+                for item in list(previous.get("compose_config_files") or [])
+            ),
+        ]
+
+        def capture(paths: Sequence[Path]) -> list[dict[str, object]]:
+            return [self._deployment_input_file_seal(path) for path in paths]
+
+        def capture_optional(paths: Sequence[Path]) -> list[dict[str, object]]:
+            return [self._deployment_optional_input_seal(path) for path in paths]
+
+        first = {
+            "forward": [
+                *capture(forward_required_paths),
+                *capture_optional([self.root / ".env.local"]),
+            ],
+            "rollback": [
+                *capture(rollback_required_paths),
+                *capture_optional([rollback_root / ".env.local"]),
+            ],
+        }
+        second = {
+            "forward": [
+                *capture(forward_required_paths),
+                *capture_optional([self.root / ".env.local"]),
+            ],
+            "rollback": [
+                *capture(rollback_required_paths),
+                *capture_optional([rollback_root / ".env.local"]),
+            ],
+        }
+        if first != second:
+            raise DeployError("deployment_input_seal_unstable")
+        return first
+
+    def _require_deployment_input_seal(
+        self,
+        expected: Mapping[str, Sequence[Mapping[str, object]]],
+        *,
+        scope: str | None = None,
+    ) -> None:
+        scopes = (scope,) if scope is not None else ("forward", "rollback")
+        for current_scope in scopes:
+            if current_scope not in {"forward", "rollback"}:
+                raise DeployError("deployment_input_seal_scope_invalid")
+            expected_rows = [dict(item) for item in expected.get(current_scope, ())]
+            if not expected_rows:
+                raise DeployError(f"deployment_input_seal_missing:{current_scope}")
+            current_rows = [
+                (
+                    self._deployment_optional_input_seal(
+                        Path(str(item.get("path") or ""))
+                    )
+                    if "present" in item
+                    else self._deployment_input_file_seal(
+                        Path(str(item.get("path") or ""))
+                    )
+                )
+                for item in expected_rows
+            ]
+            if current_rows != expected_rows:
+                raise DeployError(f"deployment_input_seal_changed:{current_scope}")
+
+    def _run_json_script(
+        self,
+        script: str,
+        *args: str,
+        origin: str,
+        expected_source_seal: Mapping[str, str] | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        command = [sys.executable, str(self.root / script), *args]
+        completed = (
+            self._run_release_evidence_command(
+                command,
+                expected_source_seal=expected_source_seal,
+                label=origin,
+                env=env,
+            )
+            if expected_source_seal is not None
+            else self._run(command, env=env, check=False)
         )
         if completed.returncode != 0:
             evidence = _fixed_json_script_failure_evidence(
@@ -1139,45 +1677,592 @@ class MemorialDeployLane:
             )
         return _json_object(completed.stdout, reason=f"script_json_invalid:{script}")
 
-    def _materialize_and_verify_release_evidence(self) -> dict[str, Any]:
-        for script in (
-            "scripts/materialize_deploy_context.py",
-            "scripts/materialize_release_manifest.py",
-            "scripts/materialize_release_authority_status.py",
-            "scripts/materialize_memorial_operator_status.py",
+    def _release_evidence_environment(self) -> dict[str, str]:
+        environment = {
+            key: str(value)
+            for key, value in self.release_env.items()
+            if key in RELEASE_EVIDENCE_ENV_ALLOWLIST and str(value)
+        }
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        environment["PYTHONNOUSERSITE"] = "1"
+        return environment
+
+    def _release_evidence_source_seal(self) -> dict[str, str]:
+        evidence_env = self._release_evidence_environment()
+
+        def git_value(args: list[str], *, reason: str) -> str:
+            completed = self._run(args, env=evidence_env, check=False)
+            if completed.returncode != 0:
+                raise DeployError(reason)
+            value = (completed.stdout or "").strip()
+            if not re.fullmatch(r"[0-9a-f]{40,64}", value):
+                raise DeployError(reason)
+            return value
+
+        head = git_value(
+            ["git", "rev-parse", "HEAD"], reason="release_evidence_head_unavailable"
+        )
+        head_tree = git_value(
+            ["git", "rev-parse", "HEAD^{tree}"],
+            reason="release_evidence_head_tree_unavailable",
+        )
+        index_tree = git_value(
+            ["git", "write-tree"], reason="release_evidence_index_tree_unavailable"
+        )
+        index_list_result = self._run(
+            ["git", "ls-files", "-v", "-z"],
+            env=evidence_env,
+            check=False,
+        )
+        if index_list_result.returncode != 0:
+            raise DeployError("release_evidence_index_flags_unavailable")
+        raw_index_list = index_list_result.stdout or ""
+        if len(raw_index_list.encode("utf-8")) > MAX_GIT_INDEX_LIST_BYTES:
+            raise DeployError("release_evidence_index_flags_too_large")
+        index_records = [item for item in raw_index_list.split("\0") if item]
+        if not index_records or any(
+            len(item) < 3 or item[:2] != "H " for item in index_records
         ):
-            self._run([sys.executable, str(self.root / script)])
-
-        authority = self._run_json_script(
-            "scripts/verify_release_authority.py",
-            "--pretty",
-            origin="predeploy_release_authority",
+            raise DeployError("release_evidence_nondefault_index_flags")
+        status_result = self._run(
+            [
+                "git",
+                "-c",
+                "core.fileMode=true",
+                "status",
+                "--porcelain=v2",
+                "-z",
+                "--untracked-files=all",
+                "--ignore-submodules=none",
+            ],
+            env=evidence_env,
+            check=False,
         )
-        if str(authority.get("contract_name") or "") != "ea.release_authority_gate.v1":
-            raise DeployError("release_authority_contract_invalid")
-        if str(authority.get("status") or "").lower() != "pass":
-            raise DeployError("release_authority_not_pass")
-        if bool(authority.get("source_worktree_dirty")):
-            raise DeployError("release_authority_source_worktree_dirty")
-        if str(authority.get("deployment_id") or "") != self.deployment_id:
-            raise DeployError("release_authority_deployment_id_mismatch")
-        if str(authority.get("project_mode") or "").upper() != "MEMORIAL":
-            raise DeployError("release_authority_project_mode_mismatch")
+        if status_result.returncode != 0:
+            raise DeployError("release_evidence_source_status_unavailable")
+        raw_status = status_result.stdout or ""
+        if len(raw_status.encode("utf-8")) > MAX_PRIVATE_RELEASE_EVIDENCE_BYTES:
+            raise DeployError("release_evidence_source_status_too_large")
+        if raw_status or index_tree != head_tree:
+            raise DeployError("release_evidence_source_worktree_dirty")
+        bound_revision = str(self.receipt.get("source_revision") or "").strip()
+        if bound_revision and head != bound_revision:
+            raise DeployError("release_evidence_source_revision_mismatch")
+        return {
+            "head": head,
+            "head_tree": head_tree,
+            "index_tree": index_tree,
+            "index_flags_sha256": hashlib.sha256(
+                raw_index_list.encode("utf-8")
+            ).hexdigest(),
+            "status_sha256": hashlib.sha256(raw_status.encode("utf-8")).hexdigest(),
+        }
 
-        readiness = self._run_json_script(
-            "scripts/verify_memorial_deploy_readiness.py",
-            "--pretty",
-            origin="predeploy_memorial_readiness",
+    def _require_release_evidence_source_seal(
+        self, expected: Mapping[str, str]
+    ) -> None:
+        try:
+            current = self._release_evidence_source_seal()
+        except DeployError as exc:
+            raise DeployError("release_evidence_mutated_tracked_worktree") from exc
+        if current != dict(expected):
+            raise DeployError("release_evidence_mutated_tracked_worktree")
+
+    def _run_release_evidence_command(
+        self,
+        args: Sequence[str],
+        *,
+        expected_source_seal: Mapping[str, str],
+        label: str,
+        env: Mapping[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        if not SAFE_SCRIPT_ORIGIN_PATTERN.fullmatch(label):
+            raise DeployError("release_evidence_command_label_invalid")
+        self._require_release_evidence_source_seal(expected_source_seal)
+        command_error: BaseException | None = None
+        completed: subprocess.CompletedProcess[str] | None = None
+        try:
+            completed = self._run(
+                args,
+                env=(env or self._release_evidence_environment()),
+                check=False,
+            )
+        except BaseException as exc:  # preserve interrupts after the source audit
+            command_error = exc
+        try:
+            self._require_release_evidence_source_seal(expected_source_seal)
+        except DeployError as seal_error:
+            if command_error is not None:
+                raise DeployError(
+                    f"release_evidence_command_failed_source_seal_changed:{label}"
+                ) from command_error
+            raise seal_error
+        if command_error is not None:
+            raise command_error
+        if completed is None:  # pragma: no cover - defensive type narrowing
+            raise DeployError(f"release_evidence_command_missing_result:{label}")
+        return completed
+
+    def _run_release_evidence_materializer(
+        self,
+        script: str,
+        *args: str,
+        expected_source_seal: Mapping[str, str],
+        label: str,
+        env: Mapping[str, str] | None = None,
+    ) -> None:
+        completed = self._run_release_evidence_command(
+            [sys.executable, str(self.root / script), *args],
+            expected_source_seal=expected_source_seal,
+            label=label,
+            env=env,
         )
+        if completed.returncode != 0:
+            raise DeployError(
+                f"release_evidence_materializer_failed:{label}:{completed.returncode}"
+            )
+
+    def _private_evidence_directory(self, phase: str) -> Path:
+        if phase not in {"predeploy", "postdeploy"}:
+            raise DeployError("release_evidence_phase_invalid")
+        try:
+            relative_receipt_dir = self.receipt_dir.relative_to(self.root)
+        except ValueError:
+            relative_receipt_dir = None
+        if relative_receipt_dir is not None and (
+            not relative_receipt_dir.parts
+            or relative_receipt_dir.parts[0] != ".runtime"
+        ):
+            raise DeployError("release_evidence_receipt_directory_not_private")
+        try:
+            receipt_metadata = self.receipt_dir.lstat()
+        except OSError as exc:
+            raise DeployError("release_evidence_receipt_directory_missing") from exc
         if (
-            str(readiness.get("contract_name") or "")
-            != "ea.memorial_deploy_readiness.v1"
+            not stat.S_ISDIR(receipt_metadata.st_mode)
+            or stat.S_ISLNK(receipt_metadata.st_mode)
+            or receipt_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(receipt_metadata.st_mode) != 0o700
         ):
-            raise DeployError("memorial_deploy_readiness_contract_invalid")
-        if str(readiness.get("status") or "").lower() != "pass":
-            raise DeployError("memorial_deploy_readiness_not_pass")
-        self._record_check("release_authority", "pass")
-        self._record_check("memorial_deploy_readiness", "pass")
+            raise DeployError("release_evidence_receipt_directory_invalid")
+        evidence_root = self.receipt_dir / f"{self.deployment_id}.evidence"
+        if phase == "predeploy":
+            if os.path.lexists(evidence_root):
+                raise DeployError("release_evidence_directory_already_exists")
+            evidence_root.mkdir(mode=0o700)
+        else:
+            try:
+                root_metadata = evidence_root.lstat()
+            except OSError as exc:
+                raise DeployError("release_evidence_directory_missing") from exc
+            if (
+                not stat.S_ISDIR(root_metadata.st_mode)
+                or stat.S_ISLNK(root_metadata.st_mode)
+                or root_metadata.st_uid != os.geteuid()
+            ):
+                raise DeployError("release_evidence_directory_invalid")
+        try:
+            evidence_root.chmod(0o700)
+        except OSError as exc:
+            raise DeployError("release_evidence_directory_permissions_invalid") from exc
+        root_metadata = evidence_root.lstat()
+        if (
+            not stat.S_ISDIR(root_metadata.st_mode)
+            or stat.S_ISLNK(root_metadata.st_mode)
+            or root_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(root_metadata.st_mode) != 0o700
+        ):
+            raise DeployError("release_evidence_directory_invalid")
+
+        phase_directory = evidence_root / phase
+        if os.path.lexists(phase_directory):
+            raise DeployError("release_evidence_phase_directory_already_exists")
+        phase_directory.mkdir(mode=0o700)
+        phase_directory.chmod(0o700)
+        phase_metadata = phase_directory.lstat()
+        if (
+            not stat.S_ISDIR(phase_metadata.st_mode)
+            or stat.S_ISLNK(phase_metadata.st_mode)
+            or phase_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(phase_metadata.st_mode) != 0o700
+        ):
+            raise DeployError("release_evidence_phase_directory_invalid")
+        return phase_directory
+
+    @staticmethod
+    def _private_evidence_metadata(path: Path) -> dict[str, object]:
+        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            descriptor = os.open(path, flags)
+        except OSError as exc:
+            raise DeployError(f"release_evidence_file_unavailable:{path.name}") from exc
+        try:
+            before = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_nlink != 1
+                or before.st_uid != os.geteuid()
+            ):
+                raise DeployError(f"release_evidence_file_invalid:{path.name}")
+            if before.st_size > MAX_PRIVATE_RELEASE_EVIDENCE_BYTES:
+                raise DeployError(f"release_evidence_file_too_large:{path.name}")
+            os.fchmod(descriptor, 0o600)
+            os.fsync(descriptor)
+            before = os.fstat(descriptor)
+            identity = (
+                before.st_dev,
+                before.st_ino,
+                before.st_mode,
+                before.st_size,
+                before.st_nlink,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            )
+            digest = hashlib.sha256()
+            total = 0
+            while True:
+                chunk = os.read(descriptor, 1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_PRIVATE_RELEASE_EVIDENCE_BYTES:
+                    raise DeployError(f"release_evidence_file_too_large:{path.name}")
+                digest.update(chunk)
+            after = os.fstat(descriptor)
+            after_identity = (
+                after.st_dev,
+                after.st_ino,
+                after.st_mode,
+                after.st_size,
+                after.st_nlink,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            )
+            if identity != after_identity or total != after.st_size:
+                raise DeployError(f"release_evidence_file_changed:{path.name}")
+            return {
+                "sha256": digest.hexdigest(),
+                "size_bytes": total,
+                "mode": "0600",
+            }
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def _write_private_evidence_json(path: Path, payload: Mapping[str, object]) -> None:
+        encoded = (
+            json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
+        ).encode("utf-8")
+        if len(encoded) > MAX_PRIVATE_RELEASE_EVIDENCE_BYTES:
+            raise DeployError("release_evidence_phase_manifest_too_large")
+        temporary = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            descriptor = os.open(temporary, flags, 0o600)
+        except OSError as exc:
+            raise DeployError("release_evidence_phase_manifest_unavailable") from exc
+        try:
+            view = memoryview(encoded)
+            while view:
+                written = os.write(descriptor, view)
+                if written <= 0:
+                    raise DeployError("release_evidence_phase_manifest_write_failed")
+                view = view[written:]
+            os.fchmod(descriptor, 0o600)
+            os.fsync(descriptor)
+        except BaseException:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+        finally:
+            os.close(descriptor)
+        if os.path.lexists(path):
+            temporary.unlink(missing_ok=True)
+            raise DeployError("release_evidence_phase_manifest_already_exists")
+        os.replace(temporary, path)
+        directory_flags = os.O_RDONLY | os.O_CLOEXEC
+        if hasattr(os, "O_DIRECTORY"):
+            directory_flags |= os.O_DIRECTORY
+        directory_descriptor = os.open(path.parent, directory_flags)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+
+    def _materialize_and_verify_release_evidence(
+        self,
+        *,
+        phase: str = "predeploy",
+        deployment_input_seal: Mapping[str, Sequence[Mapping[str, object]]],
+        expected_public_origin: str | None = None,
+        expected_authority_posture: str | None = None,
+    ) -> dict[str, Any]:
+        source_seal = self._release_evidence_source_seal()
+        authority: dict[str, Any] = {}
+        readiness: dict[str, Any] = {}
+        phase_error: BaseException | None = None
+        try:
+            self._require_deployment_input_seal(deployment_input_seal)
+            evidence_directory = self._private_evidence_directory(phase)
+            paths = {
+                "deploy_context": evidence_directory / "deploy-context.json",
+                "release_manifest": evidence_directory / "release-manifest.json",
+                "release_authority_status": evidence_directory
+                / "release-authority-status.json",
+                "memorial_operator_status": evidence_directory
+                / "memorial-operator-status.json",
+                "phase_manifest": evidence_directory / "phase-manifest.json",
+            }
+            evidence_files: dict[str, dict[str, object]] = {}
+            evidence_env = self._release_evidence_environment()
+
+            self._run_release_evidence_materializer(
+                "scripts/materialize_deploy_context.py",
+                "--output",
+                str(paths["deploy_context"]),
+                expected_source_seal=source_seal,
+                label=f"{phase}_deploy_context",
+                env=evidence_env,
+            )
+            evidence_files["deploy_context"] = self._private_evidence_metadata(
+                paths["deploy_context"]
+            )
+            self._require_deployment_input_seal(deployment_input_seal)
+
+            manifest_env = dict(evidence_env)
+            manifest_env["EA_DEPLOY_CONTEXT_PATH"] = str(paths["deploy_context"])
+            self._run_release_evidence_materializer(
+                "scripts/materialize_release_manifest.py",
+                "--output",
+                str(paths["release_manifest"]),
+                expected_source_seal=source_seal,
+                label=f"{phase}_release_manifest",
+                env=manifest_env,
+            )
+            evidence_files["release_manifest"] = self._private_evidence_metadata(
+                paths["release_manifest"]
+            )
+            self._require_deployment_input_seal(deployment_input_seal)
+
+            self._run_release_evidence_materializer(
+                "scripts/materialize_release_authority_status.py",
+                "--output",
+                str(paths["release_authority_status"]),
+                "--release-manifest",
+                str(paths["release_manifest"]),
+                "--deploy-context",
+                str(paths["deploy_context"]),
+                expected_source_seal=source_seal,
+                label=f"{phase}_authority_status",
+                env=evidence_env,
+            )
+            evidence_files["release_authority_status"] = (
+                self._private_evidence_metadata(paths["release_authority_status"])
+            )
+            self._require_deployment_input_seal(deployment_input_seal)
+
+            self._run_release_evidence_materializer(
+                "scripts/materialize_memorial_operator_status.py",
+                "--output",
+                str(paths["memorial_operator_status"]),
+                "--deploy-context",
+                str(paths["deploy_context"]),
+                "--release-manifest",
+                str(paths["release_manifest"]),
+                "--release-authority-status",
+                str(paths["release_authority_status"]),
+                expected_source_seal=source_seal,
+                label=f"{phase}_operator_status",
+                env=evidence_env,
+            )
+            evidence_files["memorial_operator_status"] = (
+                self._private_evidence_metadata(paths["memorial_operator_status"])
+            )
+            self._require_deployment_input_seal(deployment_input_seal)
+
+            authority = self._run_json_script(
+                "scripts/verify_release_authority.py",
+                "--release-manifest",
+                str(paths["release_manifest"]),
+                "--pretty",
+                origin=f"{phase}_release_authority",
+                expected_source_seal=source_seal,
+                env=evidence_env,
+            )
+            self._require_deployment_input_seal(deployment_input_seal)
+            readiness = self._run_json_script(
+                "scripts/verify_memorial_deploy_readiness.py",
+                "--memorial-status",
+                str(paths["memorial_operator_status"]),
+                "--release-authority-status",
+                str(paths["release_authority_status"]),
+                "--pretty",
+                origin=f"{phase}_memorial_readiness",
+                expected_source_seal=source_seal,
+                env=evidence_env,
+            )
+            self._require_deployment_input_seal(deployment_input_seal)
+
+            if (
+                str(authority.get("contract_name") or "")
+                != "ea.release_authority_gate.v1"
+            ):
+                raise DeployError("release_authority_contract_invalid")
+            if str(authority.get("status") or "").lower() != "pass":
+                raise DeployError("release_authority_not_pass")
+            if bool(authority.get("source_worktree_dirty")):
+                raise DeployError("release_authority_source_worktree_dirty")
+            if str(authority.get("deployment_id") or "") != self.deployment_id:
+                raise DeployError("release_authority_deployment_id_mismatch")
+            if str(authority.get("commit_sha") or "") != source_seal["head"]:
+                raise DeployError("release_authority_commit_mismatch")
+            if str(authority.get("project_mode") or "").upper() != "MEMORIAL":
+                raise DeployError("release_authority_project_mode_mismatch")
+            authority_public_origin = _validate_public_origin(
+                str(authority.get("public_origin") or ""),
+                allowed_hosts=self.allowed_public_hosts,
+            )
+            if (
+                expected_public_origin is not None
+                and authority_public_origin != expected_public_origin
+            ):
+                raise DeployError("release_authority_public_origin_mismatch")
+            authority_posture = str(authority.get("authority_posture") or "").strip()
+            if not authority_posture:
+                raise DeployError("release_authority_posture_missing")
+            if (
+                expected_authority_posture is not None
+                and authority_posture != expected_authority_posture
+            ):
+                raise DeployError("release_authority_posture_mismatch")
+            if (
+                str(readiness.get("contract_name") or "")
+                != "ea.memorial_deploy_readiness.v1"
+            ):
+                raise DeployError("memorial_deploy_readiness_contract_invalid")
+            if str(readiness.get("status") or "").lower() != "pass":
+                raise DeployError("memorial_deploy_readiness_not_pass")
+
+            for name, path in paths.items():
+                if name == "phase_manifest":
+                    continue
+                if self._private_evidence_metadata(path) != evidence_files[name]:
+                    raise DeployError(f"release_evidence_file_rehashed_mismatch:{name}")
+
+            relative_directory = Path(f"{self.deployment_id}.evidence") / phase
+            receipt_files = {
+                name: {
+                    "path": (relative_directory / paths[name].name).as_posix(),
+                    **metadata,
+                }
+                for name, metadata in evidence_files.items()
+            }
+            authority_projection = {
+                "contract_name": str(authority.get("contract_name") or ""),
+                "status": str(authority.get("status") or ""),
+                "authority_posture": str(authority.get("authority_posture") or ""),
+                "deployment_id": str(authority.get("deployment_id") or ""),
+                "commit_sha": str(authority.get("commit_sha") or ""),
+                "project_mode": str(authority.get("project_mode") or ""),
+                "public_origin": str(authority.get("public_origin") or ""),
+                "source_worktree_dirty": bool(authority.get("source_worktree_dirty")),
+            }
+            readiness_projection = {
+                "contract_name": str(readiness.get("contract_name") or ""),
+                "status": str(readiness.get("status") or ""),
+                "issues": [
+                    str(item)
+                    for item in list(readiness.get("issues") or [])
+                    if str(item)
+                ],
+            }
+            candidate_image = dict(self.receipt.get("candidate_image") or {})
+            candidate_promotion = dict(
+                self.receipt.get("candidate_promotion_evidence") or {}
+            )
+            projection = dict(candidate_promotion.get("projection") or {})
+            phase_payload: dict[str, object] = {
+                "contract_name": "ea.memorial_release_evidence_phase.v1",
+                "generated_at": _utc_now(),
+                "phase": phase,
+                "deployment_id": self.deployment_id,
+                "source_revision": source_seal["head"],
+                "source_tree": source_seal["head_tree"],
+                "index_tree": source_seal["index_tree"],
+                "source_index_flags_sha256": source_seal["index_flags_sha256"],
+                "source_status_sha256": source_seal["status_sha256"],
+                "deployment_input_seal": {
+                    key: [dict(item) for item in value]
+                    for key, value in deployment_input_seal.items()
+                },
+                "candidate_image": {
+                    "reference": str(candidate_image.get("reference") or ""),
+                    "image_id": str(candidate_image.get("image_id") or ""),
+                },
+                "projection_sha256": str(projection.get("projection_sha256") or ""),
+                "evidence_files": receipt_files,
+                "authority": authority_projection,
+                "readiness": readiness_projection,
+            }
+            self._write_private_evidence_json(paths["phase_manifest"], phase_payload)
+            phase_metadata = self._private_evidence_metadata(paths["phase_manifest"])
+            receipt_files["phase_manifest"] = {
+                "path": (relative_directory / paths["phase_manifest"].name).as_posix(),
+                **phase_metadata,
+            }
+            self._require_release_evidence_source_seal(source_seal)
+            self._require_deployment_input_seal(deployment_input_seal)
+
+            release_evidence = dict(self.receipt.get("release_evidence") or {})
+            deployment_input_sha256 = hashlib.sha256(
+                json.dumps(
+                    deployment_input_seal,
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            release_evidence[phase] = {
+                "directory": relative_directory.as_posix(),
+                "directory_mode": "0700",
+                "source_seal": source_seal,
+                "deployment_input_sha256": deployment_input_sha256,
+                "files": receipt_files,
+                "authority": authority_projection,
+                "readiness": readiness_projection,
+            }
+            self.receipt["release_evidence"] = release_evidence
+            self._write_receipt()
+            self._record_check(f"release_authority_{phase}", "pass")
+            self._record_check(f"memorial_deploy_readiness_{phase}", "pass")
+        except BaseException as exc:
+            phase_error = exc
+
+        final_seal_error: DeployError | None = None
+        try:
+            self._require_release_evidence_source_seal(source_seal)
+            self._require_deployment_input_seal(deployment_input_seal)
+        except DeployError as exc:
+            final_seal_error = exc
+        if phase_error is not None:
+            if final_seal_error is not None:
+                if isinstance(phase_error, DeployError) and (
+                    str(phase_error) == "release_evidence_mutated_tracked_worktree"
+                    or str(phase_error).startswith("deployment_input_seal_changed:")
+                ):
+                    raise phase_error
+                raise DeployError(
+                    f"release_evidence_phase_failed_integrity_changed:{phase}"
+                ) from phase_error
+            raise phase_error
+        if final_seal_error is not None:
+            raise final_seal_error
         return authority
 
     def _validate_compose(
@@ -1880,6 +2965,14 @@ class MemorialDeployLane:
             or payload.get("live_ea_project_unchanged") is not True
         ):
             raise DeployError("memorial_candidate_receipt_contract_invalid")
+        try:
+            projection_sha256, projection_files = _candidate_projection_tree_digest(
+                expected_data_root
+            )
+        except (OSError, ValueError) as exc:
+            raise DeployError("memorial_candidate_projection_unverifiable") from exc
+        if projection_sha256 != str(payload.get("projection_sha256") or ""):
+            raise DeployError("memorial_candidate_projection_digest_mismatch")
         evidence = {
             "path": str(path),
             "sha256": hashlib.sha256(raw).hexdigest(),
@@ -1898,7 +2991,11 @@ class MemorialDeployLane:
                 "release_root": str(expected_data_root),
                 "commit": source_revision,
                 "prepared_image_id": str(candidate.get("image_id") or ""),
-                "projection_sha256": str(payload.get("projection_sha256") or ""),
+                "projection_sha256": projection_sha256,
+                "file_count": len(projection_files),
+                "projection_bytes": sum(
+                    int(item["size_bytes"]) for item in projection_files
+                ),
                 "tree_revalidated": True,
             },
             "compose_project": candidate_project,
@@ -1991,6 +3088,7 @@ class MemorialDeployLane:
         candidate: Mapping[str, Any],
         source_revision: str,
         expected_mounts: Sequence[Mapping[str, object]],
+        expected_projection: Mapping[str, Any],
     ) -> dict[str, Any]:
         inspection = self._inspect_container(API_SERVICE)
         self._require_compose_identity(
@@ -2038,6 +3136,15 @@ class MemorialDeployLane:
                 or self.root in source.parents
             ):
                 source_mount_destinations.append(str(item["destination"]))
+        mounted_projection = self._mounted_projection_digest(expected_projection)
+        if mounted_projection != {
+            "projection_sha256": str(
+                expected_projection.get("projection_sha256") or ""
+            ),
+            "file_count": expected_projection.get("file_count"),
+            "projection_bytes": expected_projection.get("projection_bytes"),
+        }:
+            raise DeployError("deployed_api_projection_digest_mismatch")
         return {
             "image_id": image_id,
             "image_reference": str(candidate.get("reference") or ""),
@@ -2048,8 +3155,70 @@ class MemorialDeployLane:
             "matches_rendered_compose_mounts": True,
             "source_mount_destinations": sorted(source_mount_destinations),
             "source_revision": source_revision,
+            "mounted_projection": mounted_projection,
             **_container_runtime_config_digests(inspection),
         }
+
+    def _mounted_projection_digest(
+        self, expected_projection: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        expected_file_count = expected_projection.get("file_count")
+        expected_projection_bytes = expected_projection.get("projection_bytes")
+        if (
+            type(expected_file_count) is not int
+            or int(expected_file_count) < 0
+            or type(expected_projection_bytes) is not int
+            or int(expected_projection_bytes) < 0
+        ):
+            raise DeployError("deployed_api_projection_expectation_invalid")
+        completed = self._run(
+            [
+                "/usr/bin/timeout",
+                "--signal=KILL",
+                "30s",
+                "docker",
+                "exec",
+                API_SERVICE,
+                "python3",
+                "-c",
+                CONTAINER_PROJECTION_DIGEST_SCRIPT,
+                "/data/memorial_data",
+                str(expected_file_count),
+                str(expected_projection_bytes),
+            ],
+            check=False,
+        )
+        if completed.returncode != 0:
+            verifier_failures = {
+                10: "root_invalid",
+                11: "directory_mode_invalid",
+                12: "entry_invalid",
+                13: "file_mode_invalid",
+                14: "tree_changed",
+                15: "file_links_invalid",
+                16: "budget_exceeded",
+                17: "expectation_mismatch",
+                18: "deadline_exceeded",
+                124: "host_timeout",
+                137: "host_timeout",
+            }
+            reason = verifier_failures.get(completed.returncode, "command_failed")
+            raise DeployError(f"deployed_api_projection_verifier_failed:{reason}")
+        payload = _json_object(
+            completed.stdout,
+            reason="deployed_api_projection_digest_invalid",
+        )
+        if (
+            set(payload) != {"projection_sha256", "file_count", "projection_bytes"}
+            or SHA256_HEX_PATTERN.fullmatch(str(payload.get("projection_sha256") or ""))
+            is None
+            or type(payload.get("file_count")) is not int
+            or int(payload["file_count"]) < 0
+            or type(payload.get("projection_bytes")) is not int
+            or int(payload["projection_bytes"]) < 0
+        ):
+            raise DeployError("deployed_api_projection_digest_invalid")
+        return payload
 
     def _previous_api(self) -> dict[str, Any]:
         inspection = self._inspect_container(API_SERVICE)
@@ -2642,7 +3811,9 @@ class MemorialDeployLane:
         previous: Mapping[str, Any],
         rollback_tag: str,
         baseline: Mapping[str, Any],
+        deployment_input_seal: Mapping[str, Sequence[Mapping[str, object]]],
     ) -> dict[str, Any]:
+        self._require_deployment_input_seal(deployment_input_seal, scope="rollback")
         prior_openapi_value = baseline.get("openapi")
         prior_openapi = (
             dict(prior_openapi_value) if isinstance(prior_openapi_value, dict) else {}
@@ -2676,6 +3847,7 @@ class MemorialDeployLane:
             ["docker", "image", "tag", str(previous["image_id"]), prior_reference],
             env=rollback_env,
         )
+        self._require_deployment_input_seal(deployment_input_seal, scope="rollback")
         self._run(
             self._rollback_compose(
                 rollback_root,
@@ -2768,6 +3940,8 @@ class MemorialDeployLane:
         self._write_receipt()
         if not (self.root / ".env").is_file():
             raise DeployError("env_file_missing")
+        if self.control_tour_slug != REQUIRED_CONTROL_TOUR_SLUG:
+            raise DeployError("memorial_control_tour_slug_required")
         release_source = self._release_source_metadata()
         source_state = source_worktree_metadata(self.root, dirty_path_limit=10000)
         if bool(source_state.get("source_worktree_dirty")):
@@ -2786,8 +3960,13 @@ class MemorialDeployLane:
             candidate=candidate,
             source_revision=source_revision,
         )
-        authority = self._materialize_and_verify_release_evidence()
+        deployment_input_seal = self._capture_deployment_input_seal(previous)
+        authority = self._materialize_and_verify_release_evidence(
+            deployment_input_seal=deployment_input_seal
+        )
+        self._require_deployment_input_seal(deployment_input_seal)
         target_mounts = self._validate_compose(candidate=candidate)
+        self._require_deployment_input_seal(deployment_input_seal)
         public_origin = _validate_public_origin(
             str(authority.get("public_origin") or ""),
             allowed_hosts=self.allowed_public_hosts,
@@ -2816,6 +3995,7 @@ class MemorialDeployLane:
             "public_origin": public_origin,
             "candidate": candidate,
             "candidate_promotion": candidate_promotion,
+            "deployment_input_seal": deployment_input_seal,
             "non_memorial_controls": non_memorial_controls,
             "target_mounts": target_mounts,
         }
@@ -2836,6 +4016,7 @@ class MemorialDeployLane:
                 self._write_receipt()
                 return self.receipt
 
+            self._require_deployment_input_seal(context["deployment_input_seal"])
             self._ensure_redis()
             rollback_tag = self._protect_previous_image(previous)
             self.receipt["rollback"] = {
@@ -2848,12 +4029,16 @@ class MemorialDeployLane:
             self._write_receipt()
             mutation_started = True
 
+            self._require_deployment_input_seal(context["deployment_input_seal"])
             self._recreate_api()
             api_detail = self._wait_container(API_SERVICE, require_health=True)
             api_identity = self._verify_forward_api(
                 candidate=dict(context["candidate"]),
                 source_revision=str(context["source_revision"]),
                 expected_mounts=list(context["target_mounts"]),
+                expected_projection=dict(
+                    dict(context["candidate_promotion"]).get("projection") or {}
+                ),
             )
             self._record_check(
                 "api_container", "pass", **api_detail, identity=api_identity
@@ -2865,27 +4050,16 @@ class MemorialDeployLane:
             self._verify_candidate_origins(str(context["public_origin"]))
             self._verify_non_memorial_controls(non_memorial_controls)
 
-            # Refresh the public-access projection only after both edge probes pass.
-            self._run(
-                [
-                    sys.executable,
-                    str(self.root / "scripts/materialize_memorial_operator_status.py"),
-                ]
+            # Rebuild the public-access projection in private release evidence only
+            # after both edge probes pass. Any failure here enters rollback.
+            self._materialize_and_verify_release_evidence(
+                phase="postdeploy",
+                deployment_input_seal=context["deployment_input_seal"],
+                expected_public_origin=str(context["public_origin"]),
+                expected_authority_posture=str(
+                    dict(context["authority"]).get("authority_posture") or ""
+                ),
             )
-            final_authority = self._run_json_script(
-                "scripts/verify_release_authority.py",
-                "--pretty",
-                origin="postdeploy_release_authority",
-            )
-            if str(final_authority.get("status") or "").lower() != "pass":
-                raise DeployError("postdeploy_release_authority_not_pass")
-            final_readiness = self._run_json_script(
-                "scripts/verify_memorial_deploy_readiness.py",
-                "--pretty",
-                origin="postdeploy_memorial_readiness",
-            )
-            if str(final_readiness.get("status") or "").lower() != "pass":
-                raise DeployError("postdeploy_memorial_readiness_not_pass")
 
             self.receipt["status"] = "pass"
             self.receipt["completed_at"] = _utc_now()
@@ -2905,6 +4079,7 @@ class MemorialDeployLane:
                         previous,
                         rollback_tag,
                         non_memorial_controls,
+                        context["deployment_input_seal"],
                     )
                     self.receipt["status"] = "failed_rolled_back"
                     self.receipt["rollback"] = rollback

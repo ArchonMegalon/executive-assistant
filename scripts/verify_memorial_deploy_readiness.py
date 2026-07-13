@@ -31,16 +31,24 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
-def _release_authority_payload() -> dict[str, object]:
-    if RELEASE_AUTHORITY_PATH == ROOT / ".codex-studio" / "published" / "release_authority_status.generated.json":
+def _release_authority_payload(
+    *, release_authority_status_path: Path = RELEASE_AUTHORITY_PATH
+) -> dict[str, object]:
+    if release_authority_status_path.resolve() == RELEASE_AUTHORITY_PATH.resolve():
         payload = build_release_authority_status()
         return payload if isinstance(payload, dict) else {}
-    return _load_json(RELEASE_AUTHORITY_PATH)
+    return _load_json(release_authority_status_path)
 
 
-def build_payload() -> dict[str, object]:
-    memorial_status = _load_json(MEMORIAL_STATUS_PATH)
-    release_authority = _release_authority_payload()
+def build_payload(
+    *,
+    memorial_status_path: Path = MEMORIAL_STATUS_PATH,
+    release_authority_status_path: Path = RELEASE_AUTHORITY_PATH,
+) -> dict[str, object]:
+    memorial_status = _load_json(memorial_status_path)
+    release_authority = _release_authority_payload(
+        release_authority_status_path=release_authority_status_path
+    )
 
     public_runtime = memorial_status.get("public_runtime_mode_detail")
     public_runtime = public_runtime if isinstance(public_runtime, dict) else {}
@@ -87,8 +95,8 @@ def build_payload() -> dict[str, object]:
         "status": "pass" if not issues else "fail",
         "issues": issues,
         "next_action": next_action,
-        "memorial_operator_status_path": _display_path(MEMORIAL_STATUS_PATH),
-        "release_authority_status_path": _display_path(RELEASE_AUTHORITY_PATH),
+        "memorial_operator_status_path": _display_path(memorial_status_path),
+        "release_authority_status_path": _display_path(release_authority_status_path),
         "memorial_public_runtime": {
             "status": runtime_status,
             "reason": runtime_reason,
@@ -107,20 +115,28 @@ def build_payload() -> dict[str, object]:
     }
 
 
-def main() -> int:
-    if any(arg in {"--help", "-h"} for arg in __import__("sys").argv[1:]):
-        print(
-            "Usage:\n"
-            "  python3 scripts/verify_memorial_deploy_readiness.py [--pretty]\n\n"
-            "Verify memorial deploy readiness before running deploy-ea-memorial."
-        )
-        return 0
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Verify memorial deploy readiness before running deploy-ea-memorial."
     )
+    parser.add_argument(
+        "--memorial-status",
+        type=Path,
+        default=MEMORIAL_STATUS_PATH,
+        help="Memorial operator-status artifact to verify.",
+    )
+    parser.add_argument(
+        "--release-authority-status",
+        type=Path,
+        default=RELEASE_AUTHORITY_PATH,
+        help="Release-authority status artifact to verify.",
+    )
     parser.add_argument("--pretty", action="store_true", help="Print indented JSON.")
-    args = parser.parse_args()
-    payload = build_payload()
+    args = parser.parse_args(argv)
+    payload = build_payload(
+        memorial_status_path=args.memorial_status.expanduser().resolve(),
+        release_authority_status_path=args.release_authority_status.expanduser().resolve(),
+    )
     if args.pretty:
         print(json.dumps(payload, indent=2, ensure_ascii=True))
     else:

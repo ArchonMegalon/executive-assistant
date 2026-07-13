@@ -150,17 +150,32 @@ Preflight is fail-closed and performs no Docker mutation. It verifies:
 - a private passing runtime-v3 candidate receipt bound to the exact image,
   revision, memorial projection root/digest, isolated project/port, unchanged
   live EA snapshot, and provider-free browser proof;
+- a fresh preflight recomputation of the projection tree digest, file modes,
+  file count, and byte count using the candidate producer's exact algorithm;
+  receipt-only claims or a tree changed after candidate proof fail closed;
 - attached release branch, configured upstream, and durable release root;
 - a real configured public origin;
-- an exact committed source revision.
-- the live local OpenAPI sorted path set/count/digest; when
-  `EA_MEMORIAL_CONTROL_TOUR_SLUG` is set, `200` HTML plus the exact JSON body
-  digest for that tour.
+- an exact committed source revision;
+- an exact clean source seal covering `HEAD`, the committed tree, the index
+  tree, file modes, submodules, and tracked/untracked worktree status before
+  and after every release-evidence subprocess;
+- no-follow content and identity seals for forward and rollback Compose files,
+  `.env`, and the optional `.env.local` presence/content, rechecked before and
+  after evidence work and immediately before forward or rollback recreation;
+- the live local OpenAPI sorted path set/count/digest; and
+- the required priority control-tour slug, with `200` HTML plus the exact JSON
+  body digest captured for mandatory post-deploy equality.
 
 The preflight receipt is written privately under
 `.runtime/deployments/memorial/<deployment-id>.json`. Because deployment IDs are
 single-use, use a fresh ID for the actual deployment after a standalone
 preflight.
+
+Release context, manifest, authority, and operator projections are materialized
+under a new `0700` per-deployment `predeploy/` evidence directory, never at
+their tracked default paths. Each `0600` artifact is hash-bound into a private
+phase manifest with the source tree, candidate image, projection digest, and
+gate result. Any checkout mutation fails before the next evidence command.
 
 ## Deploy
 
@@ -198,6 +213,9 @@ Success requires all of the following:
 - its image ID equals the preflight-resolved candidate ID, its project/service
   labels are `ea`/`ea-api`, and its Compose working directory/config files are
   exactly the release topology;
+- the running API recomputes the digest, file modes, file count, and byte count
+  from its actual `/data/memorial_data` bind mount; any check/use swap or drift
+  from the preflight projection triggers automatic rollback;
 - read-only `/app/app`, `/app/scripts`, and `/data/memorial_data` mounts resolve
   to the clean release root;
 - local `/health` returns `200`;
@@ -215,9 +233,16 @@ Success requires all of the following:
   browser checks, zero automatic provider work, zero WebSockets, zero failed
   requests/page errors, and zero same-origin HTTP 4xx/5xx responses;
 - the post-deploy OpenAPI path set is a superset of the captured live baseline;
-- when configured, the priority 3D tour still returns `200` for HTML and JSON,
-  with the exact pre-deploy JSON digest unchanged;
-- refreshed release authority and memorial deploy readiness remain `pass`.
+- the required priority 3D control tour
+  `360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6` still returns
+  `200` for HTML and JSON, with the exact pre-deploy JSON digest unchanged;
+- a distinct private `postdeploy/` evidence set is rebuilt from scratch and
+  refreshed release authority and memorial deploy readiness remain `pass`,
+  with the exact predeploy public origin and authority posture unchanged.
+
+Post-deploy evidence refresh remains inside the rollback-protected section. A
+source-seal, evidence, or gate failure after API recreation restores the prior
+API before the deploy can report `pass`.
 
 The receipt stores statuses, response sizes and digests, the verified source
 revision, image IDs, sanitized candidate-gate counters, mount-identity digests,

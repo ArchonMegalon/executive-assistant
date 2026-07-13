@@ -138,7 +138,24 @@ class FakeRunner:
         self.rendered_pull_policy = "never"
         self.rendered_memorial_data_source = str(self.root / "memorial_data")
         self.rendered_memorial_data_read_only = True
+        self.mounted_projection_sha256 = ""
         self.rollback_render_environment: dict[str, str] = {}
+        self.materializer_seen = False
+        self.materializer_call_count = 0
+        self.materializer_mutated = False
+        self.materializer_tracked_write: Path | None = None
+        self.materializer_tracked_write_on_call = 1
+        self.tracked_status = ""
+        self.tracked_status_after_materialization: str | None = None
+        self.head_revision = "b" * 40
+        self.head_after_materialization: str | None = None
+        self.head_tree = "d" * 40
+        self.head_tree_after_materialization: str | None = None
+        self.index_list = "H scripts/deploy_ea_memorial.py\0"
+        self.authority_public_origin = "https://memorial.example.org"
+        self.postdeploy_authority_public_origin: str | None = None
+        self.authority_posture = "authoritative_runtime"
+        self.postdeploy_authority_posture: str | None = None
 
     @staticmethod
     def _api_mounts(root: Path, *, memorial: bool) -> list[dict[str, object]]:
@@ -167,6 +184,23 @@ class FakeRunner:
             )
         return mounts
 
+    def _materialize_private_output(self, argv: list[str]) -> None:
+        self.materializer_seen = True
+        self.materializer_call_count += 1
+        if (
+            self.materializer_tracked_write is not None
+            and self.materializer_call_count == self.materializer_tracked_write_on_call
+        ):
+            self.materializer_tracked_write.parent.mkdir(parents=True, exist_ok=True)
+            self.materializer_tracked_write.write_text(
+                "mutated by materializer\n", encoding="utf-8"
+            )
+            self.materializer_mutated = True
+        if "--output" in argv:
+            output = Path(argv[argv.index("--output") + 1])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text('{"status":"pass"}\n', encoding="utf-8")
+
     def run(
         self,
         args: Sequence[str],
@@ -185,6 +219,36 @@ class FakeRunner:
             stdout = "Docker Compose version v2"
         elif argv[:2] == ["docker-compose", "version"]:
             returncode = 1
+        elif argv == [
+            "git",
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=no",
+        ]:
+            if (
+                self.materializer_mutated
+                and self.tracked_status_after_materialization is not None
+            ):
+                stdout = self.tracked_status_after_materialization
+            else:
+                stdout = self.tracked_status
+        elif argv == [
+            "git",
+            "-c",
+            "core.fileMode=true",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        ]:
+            if (
+                self.materializer_mutated
+                and self.tracked_status_after_materialization is not None
+            ):
+                stdout = self.tracked_status_after_materialization
+            else:
+                stdout = self.tracked_status
         elif argv[:4] == ["git", "symbolic-ref", "--quiet", "--short"]:
             if self.branch:
                 stdout = self.branch + "\n"
@@ -195,8 +259,32 @@ class FakeRunner:
                 stdout = self.upstream + "\n"
             else:
                 returncode = 1
-        elif argv[:3] == ["git", "rev-parse", "HEAD"]:
-            stdout = "b" * 40 + "\n"
+        elif argv == ["git", "rev-parse", "HEAD"]:
+            revision = (
+                self.head_after_materialization
+                if self.materializer_seen
+                and self.head_after_materialization is not None
+                else self.head_revision
+            )
+            stdout = revision + "\n"
+        elif argv == ["git", "rev-parse", "HEAD^{tree}"]:
+            tree = (
+                self.head_tree_after_materialization
+                if self.materializer_seen
+                and self.head_tree_after_materialization is not None
+                else self.head_tree
+            )
+            stdout = tree + "\n"
+        elif argv == ["git", "write-tree"]:
+            tree = (
+                self.head_tree_after_materialization
+                if self.materializer_seen
+                and self.head_tree_after_materialization is not None
+                else self.head_tree
+            )
+            stdout = tree + "\n"
+        elif argv == ["git", "ls-files", "-v", "-z"]:
+            stdout = self.index_list
         elif argv[:3] == ["docker", "image", "inspect"]:
             reference = argv[-1]
             image_id = self.image_refs.get(reference, self.candidate_image)
@@ -216,6 +304,27 @@ class FakeRunner:
         elif argv[:3] == ["docker", "image", "tag"]:
             source, destination = argv[-2:]
             self.image_refs[destination] = self.image_refs.get(source, source)
+        elif argv[:3] == ["docker", "exec", "ea-api"] or argv[:6] == [
+            "/usr/bin/timeout",
+            "--signal=KILL",
+            "30s",
+            "docker",
+            "exec",
+            "ea-api",
+        ]:
+            projection_sha256, rows = deploy._candidate_projection_tree_digest(
+                self.root / "memorial_data"
+            )
+            stdout = json.dumps(
+                {
+                    "projection_sha256": (
+                        self.mounted_projection_sha256 or projection_sha256
+                    ),
+                    "file_count": len(rows),
+                    "projection_bytes": sum(int(item["size_bytes"]) for item in rows),
+                },
+                sort_keys=True,
+            )
         elif argv[:2] == ["docker", "inspect"]:
             name = argv[-1]
             if name == "ea-redis" and not self.redis_present:
@@ -405,10 +514,22 @@ class FakeRunner:
                 {
                     "contract_name": "ea.release_authority_gate.v1",
                     "status": self.authority_status,
+                    "authority_posture": (
+                        self.postdeploy_authority_posture
+                        if self.materializer_call_count >= 8
+                        and self.postdeploy_authority_posture is not None
+                        else self.authority_posture
+                    ),
                     "source_worktree_dirty": False,
                     "deployment_id": "memorial-release-001",
+                    "commit_sha": "b" * 40,
                     "project_mode": "MEMORIAL",
-                    "public_origin": "https://memorial.example.org",
+                    "public_origin": (
+                        self.postdeploy_authority_public_origin
+                        if self.materializer_call_count >= 8
+                        and self.postdeploy_authority_public_origin is not None
+                        else self.authority_public_origin
+                    ),
                 }
             )
         elif any(item.endswith("verify_memorial_deploy_readiness.py") for item in argv):
@@ -421,6 +542,7 @@ class FakeRunner:
         elif any(
             item.endswith("materialize_memorial_operator_status.py") for item in argv
         ):
+            self._materialize_private_output(argv)
             stdout = json.dumps({"status": "blocked"})
         elif any(
             item.endswith("verify_manfred_memorial_candidate.py") for item in argv
@@ -465,6 +587,7 @@ class FakeRunner:
                     }
                 )
         elif any("materialize_" in Path(item).name for item in argv):
+            self._materialize_private_output(argv)
             stdout = json.dumps({"status": "pass"})
         result = _completed(argv, stdout=stdout, stderr=stderr, returncode=returncode)
         if check and returncode:
@@ -495,7 +618,7 @@ def _lane(
     deployment_id: str = "memorial-release-001",
     receipt_dir: Path | None = None,
     global_lock_path: Path | None = None,
-    control_tour_slug: str = "",
+    control_tour_slug: str = deploy.REQUIRED_CONTROL_TOUR_SLUG,
 ) -> deploy.MemorialDeployLane:
     def safe_http(url: str, timeout: float) -> deploy.HttpResponse:
         if url.endswith("/openapi.json"):
@@ -607,6 +730,10 @@ def _lane(
 
     candidate_receipt = root / ".runtime" / "candidate-runtime-receipt.json"
     candidate_receipt.parent.mkdir(parents=True, exist_ok=True)
+    projection_root = root / "memorial_data"
+    projection_root.mkdir(exist_ok=True)
+    projection_root.chmod(0o550)
+    projection_sha256, _ = deploy._candidate_projection_tree_digest(projection_root)
     candidate_receipt.write_text(
         json.dumps(
             {
@@ -630,7 +757,7 @@ def _lane(
                 "projection_tree_revalidated": True,
                 "release_id": (root / "memorial_data").name,
                 "release_root": str((root / "memorial_data").resolve()),
-                "projection_sha256": "e" * 64,
+                "projection_sha256": projection_sha256,
                 "compose_project": "ea-manfred-candidate-test0001",
                 "compose_project_isolated": True,
                 "compose_environment_bound_to_candidate_env": True,
@@ -917,6 +1044,85 @@ def test_default_global_lock_is_host_stable_across_receipt_roots(
 
     assert lane.global_lock_path == Path("/run/lock/ea-memorial-ea-api.lock")
     assert release_root not in lane.global_lock_path.parents
+
+
+def test_preflight_requires_the_flagship_control_tour(
+    release_root: Path,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner, control_tour_slug="")
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="memorial_control_tour_slug_required",
+    ):
+        lane.preflight()
+
+    assert runner.calls == []
+
+
+def test_candidate_projection_is_rehashed_before_promotion(
+    release_root: Path,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    candidate = {
+        "reference": runner.candidate_reference,
+        "image_id": runner.candidate_image,
+    }
+
+    evidence = lane._validate_candidate_promotion_receipt(
+        candidate=candidate,
+        source_revision="b" * 40,
+    )
+    assert evidence["projection"]["tree_revalidated"] is True
+    assert evidence["projection"]["file_count"] == 0
+
+    projection_root = release_root / "memorial_data"
+    projection_root.chmod(0o750)
+    changed = projection_root / "changed-after-candidate-proof.json"
+    changed.write_text("{}\n", encoding="utf-8")
+    changed.chmod(0o444)
+    projection_root.chmod(0o550)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="memorial_candidate_projection_digest_mismatch",
+    ):
+        lane._validate_candidate_promotion_receipt(
+            candidate=candidate,
+            source_revision="b" * 40,
+        )
+    assert runner.calls == []
+
+
+def test_post_recreate_projection_mismatch_rolls_back(
+    release_root: Path,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.mounted_projection_sha256 = "f" * 64
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match=("deployment_failed_rolled_back:deployed_api_projection_digest_mismatch"),
+    ):
+        lane.deploy()
+
+    assert runner.api_mode == "prior"
+    assert lane.receipt["status"] == "failed_rolled_back"
+    assert any(
+        call[:6]
+        == [
+            "/usr/bin/timeout",
+            "--signal=KILL",
+            "30s",
+            "docker",
+            "exec",
+            "ea-api",
+        ]
+        for call in runner.calls
+    )
 
 
 def test_release_root_policy_rejects_temporary_paths_and_accepts_workspace(
@@ -1233,6 +1439,424 @@ def test_dirty_source_fails_before_evidence_or_docker_mutation(
 
     assert not any("materialize_" in " ".join(call) for call in runner.calls)
     assert not any("up" in call for call in runner.calls)
+
+
+def test_private_release_evidence_preserves_tracked_defaults_and_binds_phase(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tracked_default = (
+        release_root / ".codex-studio" / "published" / "deploy_context.generated.json"
+    )
+    tracked_default.parent.mkdir(parents=True)
+    tracked_default.write_text('{"stale":"committed"}\n', encoding="utf-8")
+    before = tracked_default.read_bytes()
+    runner = FakeRunner(release_root)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+    lane.release_env["OPENAI_API_KEY"] = "provider-secret-sentinel"
+
+    receipt = lane.deploy(preflight_only=True)
+
+    assert tracked_default.read_bytes() == before
+    assert set(receipt["release_evidence"]) == {"predeploy"}
+    evidence = receipt["release_evidence"]["predeploy"]
+    assert evidence["directory"] == ("memorial-release-001.evidence/predeploy")
+    assert evidence["directory_mode"] == "0700"
+    assert evidence["source_seal"]["head"] == "b" * 40
+    assert evidence["source_seal"]["head_tree"] == "d" * 40
+    assert set(evidence["files"]) == {
+        "deploy_context",
+        "release_manifest",
+        "release_authority_status",
+        "memorial_operator_status",
+        "phase_manifest",
+    }
+    for detail in evidence["files"].values():
+        path = lane.receipt_dir / detail["path"]
+        assert path.is_file()
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert detail["mode"] == "0600"
+        assert len(detail["sha256"]) == 64
+    phase_manifest_path = lane.receipt_dir / evidence["files"]["phase_manifest"]["path"]
+    phase_manifest = json.loads(phase_manifest_path.read_text(encoding="utf-8"))
+    assert phase_manifest["contract_name"] == ("ea.memorial_release_evidence_phase.v1")
+    assert phase_manifest["phase"] == "predeploy"
+    assert phase_manifest["deployment_id"] == lane.deployment_id
+    assert phase_manifest["source_revision"] == "b" * 40
+    assert phase_manifest["candidate_image"]["image_id"] == runner.candidate_image
+    assert len(phase_manifest["projection_sha256"]) == 64
+    assert {
+        item["path"] for item in phase_manifest["deployment_input_seal"]["forward"]
+    } == {
+        str(release_root / ".env"),
+        str(release_root / ".env.local"),
+        str(release_root / "docker-compose.yml"),
+        str(release_root / deploy.MEMORIAL_COMPOSE_FILE),
+    }
+    assert len(evidence["deployment_input_sha256"]) == 64
+
+    materializer_calls = [
+        call
+        for call in runner.calls
+        if any("materialize_" in Path(item).name for item in call)
+    ]
+    assert len(materializer_calls) == 4
+    assert all("--output" in call for call in materializer_calls)
+    assert all(
+        str(lane.receipt_dir / "memorial-release-001.evidence" / "predeploy")
+        in call[call.index("--output") + 1]
+        for call in materializer_calls
+    )
+    evidence_call_indexes = [runner.calls.index(call) for call in materializer_calls]
+    authority_call = next(
+        call
+        for call in runner.calls
+        if any(item.endswith("verify_release_authority.py") for item in call)
+    )
+    readiness_call = next(
+        call
+        for call in runner.calls
+        if any(item.endswith("verify_memorial_deploy_readiness.py") for item in call)
+    )
+    assert "--release-manifest" in authority_call
+    assert "--memorial-status" in readiness_call
+    assert "--release-authority-status" in readiness_call
+    assert all(
+        "OPENAI_API_KEY" not in runner.call_envs[index]
+        for index in evidence_call_indexes
+    )
+    manifest_index = runner.calls.index(materializer_calls[1])
+    assert runner.call_envs[manifest_index]["EA_DEPLOY_CONTEXT_PATH"].endswith(
+        "/predeploy/deploy-context.json"
+    )
+
+
+def test_memorial_operator_help_is_side_effect_free() -> None:
+    output = (
+        deploy.ROOT
+        / ".codex-design"
+        / "product"
+        / "MEMORIAL_OPERATOR_STATUS.generated.json"
+    )
+    existed = output.exists()
+    before = output.read_bytes() if existed else b""
+
+    completed = subprocess.run(  # nosec B603 - fixed local script
+        [
+            "python3",
+            str(deploy.ROOT / "scripts/materialize_memorial_operator_status.py"),
+            "--help",
+        ],
+        cwd=deploy.ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert completed.returncode == 0
+    assert "--release-authority-status" in completed.stdout
+    assert output.exists() is existed
+    assert (output.read_bytes() if output.exists() else b"") == before
+
+
+def test_clear_release_authority_projects_as_operator_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts import materialize_memorial_operator_status as operator_status
+
+    authority = tmp_path / "release-authority.json"
+    authority.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.release_authority_status.v1",
+                "state": "clear",
+                "authority_posture": "authoritative_runtime",
+                "issues": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(operator_status, "RELEASE_AUTHORITY_STATUS", authority)
+
+    projected = operator_status._release_authority_status()
+
+    assert projected["status"] == "pass"
+    assert projected["state"] == "clear"
+
+
+def test_readiness_verifier_uses_explicit_private_artifacts(tmp_path: Path) -> None:
+    from scripts import verify_memorial_deploy_readiness as readiness
+
+    memorial_status = tmp_path / "memorial-operator.json"
+    release_authority = tmp_path / "release-authority.json"
+    memorial_status.write_text(
+        json.dumps(
+            {
+                "public_runtime_mode_detail": {
+                    "status": "pass",
+                    "reason": "memorial_runtime_declared",
+                    "next_action": "maintain_memorial_public_runtime",
+                    "project_mode": "MEMORIAL",
+                    "enabled_project_modes": ["MEMORIAL"],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    release_authority.write_text(
+        json.dumps(
+            {
+                "state": "clear",
+                "authority_posture": "authoritative_runtime",
+                "issues": [],
+                "gate": {"status": "pass", "issues": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = readiness.build_payload(
+        memorial_status_path=memorial_status,
+        release_authority_status_path=release_authority,
+    )
+
+    assert payload["status"] == "pass"
+    assert payload["memorial_operator_status_path"] == str(memorial_status)
+    assert payload["release_authority_status_path"] == str(release_authority)
+
+
+def test_release_manifest_cache_is_scoped_to_explicit_context_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts import materialize_release_manifest as release_manifest
+
+    first = tmp_path / "first-context.json"
+    second = tmp_path / "second-context.json"
+    first.write_text(
+        json.dumps({"contract_name": "ea.deploy_context.v1", "deployment_id": "first"}),
+        encoding="utf-8",
+    )
+    second.write_text(
+        json.dumps(
+            {"contract_name": "ea.deploy_context.v1", "deployment_id": "second"}
+        ),
+        encoding="utf-8",
+    )
+    release_manifest._DEPLOY_CONTEXT_CACHE.clear()
+
+    monkeypatch.setenv("EA_DEPLOY_CONTEXT_PATH", str(first))
+    first_payload = release_manifest._deploy_context()
+    monkeypatch.setenv("EA_DEPLOY_CONTEXT_PATH", str(second))
+    second_payload = release_manifest._deploy_context()
+
+    assert first_payload["deployment_id"] == "first"
+    assert second_payload["deployment_id"] == "second"
+    assert len(release_manifest._DEPLOY_CONTEXT_CACHE) == 2
+
+
+def test_materializer_tracked_write_stops_evidence_before_next_script(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.materializer_tracked_write = (
+        release_root / ".codex-studio" / "published" / "deploy_context.generated.json"
+    )
+    runner.tracked_status_after_materialization = (
+        "1 .M N... 100644 100644 100644 deadbeef deadbeef "
+        ".codex-studio/published/deploy_context.generated.json\0"
+    )
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="^release_evidence_mutated_tracked_worktree$",
+    ):
+        lane.deploy(preflight_only=True)
+
+    assert runner.materializer_call_count == 1
+    assert not any("up" in call for call in runner.calls)
+    assert not any(call[:3] == ["docker", "image", "tag"] for call in runner.calls)
+
+
+def test_materializer_ignored_env_write_stops_before_next_script(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.materializer_tracked_write = release_root / ".env"
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="^deployment_input_seal_changed:forward$",
+    ):
+        lane.deploy(preflight_only=True)
+
+    assert runner.materializer_call_count == 1
+    assert not any("up" in call for call in runner.calls)
+
+
+def test_materializer_optional_env_creation_stops_before_next_script(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.materializer_tracked_write = release_root / ".env.local"
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="^deployment_input_seal_changed:forward$",
+    ):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert runner.materializer_call_count == 1
+    assert not any("up" in call for call in runner.calls)
+
+
+def test_nondefault_git_index_flags_fail_before_evidence(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.index_list = "S scripts/deploy_ea_memorial.py\0"
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="^release_evidence_nondefault_index_flags$",
+    ):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert runner.materializer_call_count == 0
+    assert not any("up" in call for call in runner.calls)
+
+
+def test_clean_head_switch_during_evidence_is_rejected(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.head_after_materialization = "e" * 40
+    runner.head_tree_after_materialization = "f" * 40
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="^release_evidence_mutated_tracked_worktree$",
+    ):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert runner.materializer_call_count == 1
+    assert not any("up" in call for call in runner.calls)
+
+
+def test_postdeploy_evidence_mutation_triggers_automatic_rollback(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.materializer_tracked_write = (
+        release_root / ".codex-studio" / "published" / "deploy_context.generated.json"
+    )
+    runner.materializer_tracked_write_on_call = 5
+    runner.tracked_status_after_materialization = (
+        "1 .M N... 100644 100644 100644 deadbeef deadbeef "
+        ".codex-studio/published/deploy_context.generated.json\0"
+    )
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match=(
+            "deployment_failed_rolled_back:release_evidence_mutated_tracked_worktree"
+        ),
+    ):
+        lane.deploy()
+
+    assert runner.materializer_call_count == 5
+    assert runner.api_mode == "prior"
+    assert lane.receipt["status"] == "failed_rolled_back"
+
+
+def test_postdeploy_optional_env_creation_uses_sealed_prior_root_for_rollback(
+    release_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prior_root = tmp_path / "prior-live"
+    prior_root.mkdir()
+    (prior_root / ".env").write_text("EA_HOST_PORT=8090\n", encoding="utf-8")
+    (prior_root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    runner = FakeRunner(release_root, baseline_root=prior_root)
+    runner.materializer_tracked_write = release_root / ".env.local"
+    runner.materializer_tracked_write_on_call = 5
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match=("deployment_failed_rolled_back:deployment_input_seal_changed:forward"),
+    ):
+        lane.deploy()
+
+    assert runner.api_mode == "prior"
+    assert lane.receipt["status"] == "failed_rolled_back"
+    assert not (prior_root / ".env.local").exists()
+
+
+def test_postdeploy_authority_origin_drift_triggers_automatic_rollback(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.postdeploy_authority_public_origin = "https://other.example.org"
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+    lane.allowed_public_hosts = ("memorial.example.org", "other.example.org")
+
+    with pytest.raises(
+        deploy.DeployError,
+        match=(
+            "deployment_failed_rolled_back:release_authority_public_origin_mismatch"
+        ),
+    ):
+        lane.deploy()
+
+    assert runner.api_mode == "prior"
+    assert lane.receipt["status"] == "failed_rolled_back"
 
 
 def test_happy_path_mutates_only_redis_and_api(
@@ -1819,7 +2443,7 @@ def test_openapi_security_change_has_no_waiver(
     assert receipt["rollback"]["status"] == "pass"
 
 
-def test_optional_tour_control_survives_unchanged(
+def test_required_tour_control_survives_unchanged(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = FakeRunner(release_root)
@@ -1835,12 +2459,12 @@ def test_optional_tour_control_survives_unchanged(
     receipt = _lane(
         release_root,
         runner,
-        control_tour_slug="control-tour",
+        control_tour_slug=deploy.REQUIRED_CONTROL_TOUR_SLUG,
     ).deploy()
 
     before = receipt["predeploy_non_memorial_controls"]["tour"]
     after = receipt["postdeploy_non_memorial_controls"]["tour"]
-    assert before["slug"] == "control-tour"
+    assert before["slug"] == deploy.REQUIRED_CONTROL_TOUR_SLUG
     assert before["json"]["body_sha256"] != after["json"]["body_sha256"]
     assert (
         before["json"]["canonical_json_sha256"]
@@ -1851,7 +2475,7 @@ def test_optional_tour_control_survives_unchanged(
     assert before["html"]["status_code"] == after["html"]["status_code"] == 200
 
 
-def test_optional_tour_json_drift_rolls_back(
+def test_required_tour_json_drift_rolls_back(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = FakeRunner(release_root)
@@ -1864,7 +2488,7 @@ def test_optional_tour_json_drift_rolls_back(
     lane = _lane(
         release_root,
         runner,
-        control_tour_slug="control-tour",
+        control_tour_slug=deploy.REQUIRED_CONTROL_TOUR_SLUG,
     )
 
     with pytest.raises(deploy.DeployError, match="deployment_failed_rolled_back"):

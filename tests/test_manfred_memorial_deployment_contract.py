@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import copy
+import json
+import os
 import stat
+import subprocess
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -19,6 +23,130 @@ from scripts import verify_manfred_memorial_candidate as candidate_verify
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_PATH = ROOT / "deploy/manfred-memorial/docker-compose.candidate.yml"
 PROJECT = "ea-manfred-candidate-deployment-contract-a1b2c3d4"
+
+
+def test_projection_digest_matches_the_in_container_verifier(tmp_path: Path) -> None:
+    root = tmp_path / "projection"
+    nested = root / "public_memorials" / "manfred"
+    nested.mkdir(parents=True)
+    payload = nested / "memorial.json"
+    payload.write_text('{"slug":"manfred"}\n', encoding="utf-8")
+    payload.chmod(0o444)
+    nested.chmod(0o550)
+    nested.parent.chmod(0o550)
+    root.chmod(0o550)
+
+    projection_sha256, rows = candidate_prep._tree_digest(root)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            memorial_deploy.CONTAINER_PROJECTION_DIGEST_SCRIPT,
+            str(root),
+            str(len(rows)),
+            str(sum(int(item["size_bytes"]) for item in rows)),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "projection_sha256": projection_sha256,
+        "file_count": len(rows),
+        "projection_bytes": sum(int(item["size_bytes"]) for item in rows),
+    }
+
+
+def test_projection_digest_rejects_multiply_linked_files(tmp_path: Path) -> None:
+    root = tmp_path / "projection"
+    root.mkdir()
+    source = root / "source.json"
+    source.write_text("{}\n", encoding="utf-8")
+    alias = root / "alias.json"
+    os.link(source, alias)
+    source.chmod(0o444)
+    root.chmod(0o550)
+
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_projection_file_links_invalid",
+    ):
+        candidate_prep._tree_digest(root)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            memorial_deploy.CONTAINER_PROJECTION_DIGEST_SCRIPT,
+            str(root),
+            "2",
+            str(source.stat().st_size * 2),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 15
+
+
+def test_in_container_projection_digest_rejects_declared_budget_overrun(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "projection"
+    root.mkdir()
+    payload = root / "huge-sparse.bin"
+    with payload.open("wb") as handle:
+        handle.truncate(1024 * 1024 * 1024)
+    payload.chmod(0o444)
+    root.chmod(0o550)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            memorial_deploy.CONTAINER_PROJECTION_DIGEST_SCRIPT,
+            str(root),
+            "1",
+            "1",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert completed.returncode == 16
+
+
+def test_projection_digest_rejects_content_changes_during_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "projection"
+    root.mkdir()
+    payload = root / "memorial.json"
+    payload.write_bytes(b"a" * (2 * 1024 * 1024))
+    payload.chmod(0o444)
+    root.chmod(0o550)
+    original_read = candidate_prep.os.read
+    changed = False
+
+    def mutate_then_read(descriptor: int, size: int) -> bytes:
+        nonlocal changed
+        if not changed:
+            changed = True
+            payload.chmod(0o644)
+            with payload.open("ab") as handle:
+                handle.write(b"changed")
+            payload.chmod(0o444)
+        return original_read(descriptor, size)
+
+    monkeypatch.setattr(candidate_prep.os, "read", mutate_then_read)
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_projection_changed_during_digest",
+    ):
+        candidate_prep._tree_digest(root)
 
 
 def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:

@@ -148,20 +148,31 @@ def _env_or_deploy_context_value(name: str, *, context_key: str | None = None, r
     return str(_env_file_values(resolved_root).get(name) or "").strip()
 
 
+def _deploy_context_path(root: Path | None = None) -> Path:
+    resolved_root = (root or ROOT).resolve()
+    configured = str(os.environ.get("EA_DEPLOY_CONTEXT_PATH") or "").strip()
+    if configured:
+        path = Path(configured).expanduser()
+        if not path.is_absolute():
+            path = resolved_root / path
+    else:
+        path = resolved_root / ".codex-studio" / "published" / "deploy_context.generated.json"
+    return path.resolve()
+
+
 def _deploy_context(root: Path | None = None) -> dict[str, Any]:
-    resolved_root = root or ROOT
-    cached = _DEPLOY_CONTEXT_CACHE.get(resolved_root)
+    context_path = _deploy_context_path(root)
+    cached = _DEPLOY_CONTEXT_CACHE.get(context_path)
     if cached is not None:
         return cached
-    path = resolved_root / ".codex-studio" / "published" / "deploy_context.generated.json"
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(context_path.read_text(encoding="utf-8"))
         context = dict(payload or {}) if isinstance(payload, dict) else {}
         if str(context.get("contract_name") or "").strip() != "ea.deploy_context.v1":
             context = {}
     except Exception:
         context = {}
-    _DEPLOY_CONTEXT_CACHE[resolved_root] = context
+    _DEPLOY_CONTEXT_CACHE[context_path] = context
     return context
 
 
