@@ -114,6 +114,10 @@ def test_ea_core_candidate_is_immutable_isolated_and_side_effect_free() -> None:
         assert environment.get("EA_PROACTIVE_OODA_ENABLED") == "0"
         assert environment.get("EA_ENABLE_PUBLIC_TOURS") == "0"
         assert environment.get("EA_ENABLE_PUBLIC_MEMORIALS") == "0"
+        assert environment.get("EA_ENABLE_API_DOCS") == "0"
+        assert environment.get("EA_ALLOWED_PUBLIC_HOSTS") == "myexternalbrain.com"
+        assert environment.get("EA_TRUST_PROXY_HEADERS") == "1"
+        assert environment.get("EA_TRUSTED_PROXY_CIDRS") == "127.0.0.0/8,::1/128"
         assert service.get("healthcheck"), service_name
 
     for service_name in ("responses-proxy", "worker", "scheduler", "proactive"):
