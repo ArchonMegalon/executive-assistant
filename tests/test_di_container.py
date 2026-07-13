@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
+import sys
+from contextlib import nullcontext
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -294,6 +296,91 @@ def test_container_module_uses_bootstrap_helpers_for_runtime_components() -> Non
     assert "def _build_evidence_runtime(" in source
     assert "def _build_tool_runtime(" in source
     assert "def _build_onemin_manager(" in source
+
+
+def test_postgres_container_bootstrap_holds_transaction_advisory_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[object] = []
+
+    class _Context:
+        def __init__(self, label: str, value: object) -> None:
+            self.label = label
+            self.value = value
+
+        def __enter__(self):
+            events.append(f"enter:{self.label}")
+            return self.value
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            events.append(f"exit:{self.label}")
+
+    class _Cursor:
+        def execute(self, statement: str, params: object = None) -> None:
+            events.append(("execute", statement, params))
+
+    class _Connection:
+        def transaction(self) -> _Context:
+            return _Context("transaction", self)
+
+        def cursor(self) -> _Context:
+            return _Context("cursor", _Cursor())
+
+    fake_connection = _Connection()
+    monkeypatch.setitem(
+        sys.modules,
+        "psycopg",
+        SimpleNamespace(
+            connect=lambda database_url, autocommit: (
+                events.append(("connect", database_url, autocommit))
+                or _Context("connection", fake_connection)
+            )
+        ),
+    )
+    sentinel = object()
+
+    def _fake_unlocked(settings, profile):
+        events.append("build")
+        return sentinel
+
+    monkeypatch.setattr(app_container, "_build_container_for_settings_unlocked", _fake_unlocked)
+
+    result = app_container._build_container_for_settings(
+        SimpleNamespace(database_url="postgresql://db/ea"),
+        SimpleNamespace(storage_backend="postgres"),
+    )
+
+    assert result is sentinel
+    lock_event = (
+        "execute",
+        "SELECT pg_advisory_xact_lock(%s)",
+        (app_container._POSTGRES_BOOTSTRAP_ADVISORY_LOCK_KEY,),
+    )
+    assert events.index(lock_event) < events.index("build") < events.index("exit:transaction")
+    assert ("execute", "SET LOCAL lock_timeout = '120s'", None) in events
+
+
+def test_memory_container_bootstrap_does_not_acquire_postgres_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sentinel = object()
+    monkeypatch.setattr(
+        app_container,
+        "_build_container_for_settings_unlocked",
+        lambda settings, profile: sentinel,
+    )
+    monkeypatch.setattr(
+        app_container,
+        "_postgres_bootstrap_lock",
+        lambda settings: (_ for _ in ()).throw(AssertionError("postgres lock must not be used")),
+    )
+
+    result = app_container._build_container_for_settings(
+        SimpleNamespace(database_url=""),
+        SimpleNamespace(storage_backend="memory"),
+    )
+
+    assert result is sentinel
 
 
 def test_routes_use_app_state_container_dependency() -> None:
@@ -609,6 +696,8 @@ def test_prod_mode_rejects_channel_runtime_fallback_during_startup(
         monkeypatch.setattr(app_container, "build_artifact_repo", lambda _settings: _FakeArtifactRepo())
         monkeypatch.setattr(app_container, "build_task_contract_service", lambda **kwargs: _FakeTaskContracts())
         monkeypatch.setattr(app_container, "build_provider_binding_service_repo", lambda _settings: None)
+        monkeypatch.setattr(app_container, "_postgres_bootstrap_lock", lambda _settings: nullcontext())
+
         def _raise_runtime_failure(*args, **kwargs) -> None:
             raise RuntimeError("forced failure")
 
@@ -665,6 +754,7 @@ def test_prod_mode_rejects_memory_runtime_fallback_during_startup(
         monkeypatch.setattr(app_container, "build_artifact_repo", lambda _settings: _FakeArtifactRepo())
         monkeypatch.setattr(app_container, "build_task_contract_service", lambda **kwargs: _FakeTaskContracts())
         monkeypatch.setattr(app_container, "build_provider_binding_service_repo", lambda _settings: None)
+        monkeypatch.setattr(app_container, "_postgres_bootstrap_lock", lambda _settings: nullcontext())
         monkeypatch.setattr(app_container, "build_channel_runtime", lambda **kwargs: _FakeChannelRuntime())
 
         def _raise_runtime_failure(*_args: object, **_kwargs: object) -> None:

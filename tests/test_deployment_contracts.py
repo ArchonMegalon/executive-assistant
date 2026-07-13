@@ -116,6 +116,9 @@ def test_ea_core_candidate_is_immutable_isolated_and_side_effect_free() -> None:
         assert environment.get("EA_ENABLE_PUBLIC_MEMORIALS") == "0"
         assert service.get("healthcheck"), service_name
 
+    for service_name in ("responses-proxy", "worker", "scheduler", "proactive"):
+        assert services[service_name]["depends_on"]["api"]["condition"] == "service_healthy"
+
     # Docker does not publish host ports from an internal-only bridge. Keep the
     # candidate genuinely isolated and probe it from an ephemeral container on
     # the private backend network instead of advertising unusable bindings.

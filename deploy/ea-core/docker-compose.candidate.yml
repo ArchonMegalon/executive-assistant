@@ -129,6 +129,8 @@ services:
       retries: 20
       start_period: 20s
     depends_on:
+      api:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -141,6 +143,8 @@ services:
       EA_ROLE: worker
     command: ["python", "-m", "app.runner"]
     depends_on:
+      api:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -153,6 +157,8 @@ services:
       EA_ROLE: scheduler
     command: ["python", "-m", "app.runner"]
     depends_on:
+      api:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -174,6 +180,8 @@ services:
       timeout: 10s
       retries: 5
     depends_on:
+      api:
+        condition: service_healthy
       postgres:
         condition: service_healthy
 

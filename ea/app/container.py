@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Iterator
 
 from app.repositories.artifacts import InMemoryArtifactRepository
 from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
@@ -51,6 +53,9 @@ from app.settings import (
     settings_with_storage_backend,
     validate_startup_settings,
 )
+
+
+_POSTGRES_BOOTSTRAP_ADVISORY_LOCK_KEY = 0x45415F434F5245
 
 
 def _database_url(settings: Settings) -> str:
@@ -209,7 +214,33 @@ def _build_preference_profiles(settings: Settings) -> PreferenceProfileService:
     )
 
 
+@contextmanager
+def _postgres_bootstrap_lock(settings: Settings) -> Iterator[None]:
+    """Serialize constructor-issued DDL across concurrently starting roles."""
+    try:
+        import psycopg
+    except Exception as exc:  # pragma: no cover - import guard
+        raise RuntimeError("psycopg is required for postgres container bootstrap") from exc
+
+    with psycopg.connect(_database_url(settings), autocommit=True) as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL lock_timeout = '120s'")
+                cur.execute(
+                    "SELECT pg_advisory_xact_lock(%s)",
+                    (_POSTGRES_BOOTSTRAP_ADVISORY_LOCK_KEY,),
+                )
+            yield
+
+
 def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -> AppContainer:
+    if profile.storage_backend != "postgres":
+        return _build_container_for_settings_unlocked(settings, profile)
+    with _postgres_bootstrap_lock(settings):
+        return _build_container_for_settings_unlocked(settings, profile)
+
+
+def _build_container_for_settings_unlocked(settings: Settings, profile: RuntimeProfile) -> AppContainer:
     provider_registry = _build_provider_registry(settings)
     brain_router = BrainRouterService(provider_registry=provider_registry)
     artifacts = _build_artifacts(settings)
