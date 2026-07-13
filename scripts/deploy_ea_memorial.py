@@ -989,7 +989,9 @@ class MemorialDeployLane:
         self._record_check("memorial_deploy_readiness", "pass")
         return authority
 
-    def _validate_compose(self, *, candidate: Mapping[str, Any]) -> None:
+    def _validate_compose(
+        self, *, candidate: Mapping[str, Any]
+    ) -> list[dict[str, object]]:
         self._run(self._target_compose("config", "--quiet"))
         rendered = _json_object(
             self._run(self._target_compose("config", "--format", "json")).stdout,
@@ -1005,6 +1007,22 @@ class MemorialDeployLane:
             raise DeployError("memorial_compose_candidate_image_mismatch")
         if str(api_config.get("pull_policy") or "").lower() != "never":
             raise DeployError("memorial_compose_pull_policy_invalid")
+        target_mounts = self._rendered_mount_identities(
+            rendered, api_config, root=self.root
+        )
+        memorial_mount = {
+            "type": "bind",
+            "source": str(self._configured_memorial_data_root()),
+            "destination": "/data/memorial_data",
+            "read_write": False,
+        }
+        memorial_mounts = [
+            item
+            for item in target_mounts
+            if item.get("destination") == "/data/memorial_data"
+        ]
+        if memorial_mounts != [memorial_mount]:
+            raise DeployError("memorial_compose_data_mount_mismatch")
         services = self._run(
             self._target_compose("config", "--services")
         ).stdout.splitlines()
@@ -1017,7 +1035,10 @@ class MemorialDeployLane:
             services=[API_SERVICE, REDIS_SERVICE],
             candidate_image=str(candidate.get("reference") or ""),
             pull_policy="never",
+            mount_identity_count=len(target_mounts),
+            mount_identity_sha256=_identity_digest(target_mounts),
         )
+        return target_mounts
 
     def _inspect_container_optional(self, name: str) -> dict[str, Any] | None:
         completed = self._run(["docker", "inspect", name], check=False)
@@ -1777,6 +1798,7 @@ class MemorialDeployLane:
         *,
         candidate: Mapping[str, Any],
         source_revision: str,
+        expected_mounts: Sequence[Mapping[str, object]],
     ) -> dict[str, Any]:
         inspection = self._inspect_container(API_SERVICE)
         self._require_compose_identity(
@@ -1807,27 +1829,23 @@ class MemorialDeployLane:
         if container_env.get("EA_SOURCE_REVISION") != source_revision:
             raise DeployError("deployed_api_source_revision_env_mismatch")
         mount_identities = _mount_identities(inspection)
-        actual_mounts = {
-            (
-                str(item["type"]),
-                str(Path(str(item["source"])).resolve()),
-                str(item["destination"]),
-                bool(item["read_write"]),
-            )
-            for item in mount_identities
-        }
-        expected_mounts = {
-            ("bind", str((self.root / "ea" / "app").resolve()), "/app/app", False),
-            ("bind", str((self.root / "scripts").resolve()), "/app/scripts", False),
-            (
-                "bind",
-                str(self._configured_memorial_data_root()),
-                "/data/memorial_data",
-                False,
-            ),
-        }
-        if not expected_mounts <= actual_mounts:
+        normalized_expected_mounts = [dict(item) for item in expected_mounts]
+        if not normalized_expected_mounts:
+            raise DeployError("deployed_api_expected_mounts_missing")
+        if mount_identities != normalized_expected_mounts:
             raise DeployError("deployed_api_source_mounts_mismatch")
+        memorial_data_root = self._configured_memorial_data_root()
+        source_mount_destinations: list[str] = []
+        for item in normalized_expected_mounts:
+            if str(item["type"]) != "bind":
+                continue
+            source = Path(str(item["source"])).resolve()
+            if (
+                source == memorial_data_root
+                or source == self.root
+                or self.root in source.parents
+            ):
+                source_mount_destinations.append(str(item["destination"]))
         return {
             "image_id": image_id,
             "image_reference": str(candidate.get("reference") or ""),
@@ -1835,7 +1853,8 @@ class MemorialDeployLane:
             "compose_config_files": topology["compose_config_files"],
             "mount_identity_sha256": _identity_digest(mount_identities),
             "mount_identity_count": len(mount_identities),
-            "source_mount_destinations": sorted(item[2] for item in expected_mounts),
+            "matches_rendered_compose_mounts": True,
+            "source_mount_destinations": sorted(source_mount_destinations),
             "source_revision": source_revision,
             **_container_runtime_config_digests(inspection),
         }
@@ -2487,7 +2506,7 @@ class MemorialDeployLane:
             source_revision=source_revision,
         )
         authority = self._materialize_and_verify_release_evidence()
-        self._validate_compose(candidate=candidate)
+        target_mounts = self._validate_compose(candidate=candidate)
         public_origin = _validate_public_origin(
             str(authority.get("public_origin") or ""),
             allowed_hosts=self.allowed_public_hosts,
@@ -2517,6 +2536,7 @@ class MemorialDeployLane:
             "candidate": candidate,
             "candidate_promotion": candidate_promotion,
             "non_memorial_controls": non_memorial_controls,
+            "target_mounts": target_mounts,
         }
 
     def deploy(self, *, preflight_only: bool = False) -> dict[str, Any]:
@@ -2552,6 +2572,7 @@ class MemorialDeployLane:
             api_identity = self._verify_forward_api(
                 candidate=dict(context["candidate"]),
                 source_revision=str(context["source_revision"]),
+                expected_mounts=list(context["target_mounts"]),
             )
             self._record_check(
                 "api_container", "pass", **api_detail, identity=api_identity

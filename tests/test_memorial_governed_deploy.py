@@ -96,6 +96,7 @@ class FakeRunner:
         self.forward_project = "ea"
         self.forward_service = "ea-api"
         self.forward_source_mounts = True
+        self.forward_extra_mount = False
         self.rollback_mount_mismatch = False
         self.rollback_env_mismatch = False
         self.rollback_mode = False
@@ -129,6 +130,8 @@ class FakeRunner:
         self.forward_tour_json = SAFE_TOUR
         self.rendered_candidate_reference = self.candidate_reference
         self.rendered_pull_policy = "never"
+        self.rendered_memorial_data_source = str(self.root / "memorial_data")
+        self.rendered_memorial_data_read_only = True
         self.rollback_render_environment: dict[str, str] = {}
 
     @staticmethod
@@ -257,6 +260,15 @@ class FakeRunner:
             )
             if forward and not self.forward_source_mounts:
                 mounts = []
+            if forward and self.forward_extra_mount:
+                mounts.append(
+                    {
+                        "Type": "bind",
+                        "Source": str(working_root / "unexpected"),
+                        "Destination": "/unexpected",
+                        "RW": False,
+                    }
+                )
             if name == "ea-api" and self.rollback_mode and self.rollback_mount_mismatch:
                 mounts.append(
                     {
@@ -310,6 +322,26 @@ class FakeRunner:
                             "ea-api": {
                                 "image": self.rendered_candidate_reference,
                                 "pull_policy": self.rendered_pull_policy,
+                                "volumes": [
+                                    {
+                                        "type": "bind",
+                                        "source": str(self.root / "ea" / "app"),
+                                        "target": "/app/app",
+                                        "read_only": True,
+                                    },
+                                    {
+                                        "type": "bind",
+                                        "source": str(self.root / "scripts"),
+                                        "target": "/app/scripts",
+                                        "read_only": True,
+                                    },
+                                    {
+                                        "type": "bind",
+                                        "source": self.rendered_memorial_data_source,
+                                        "target": "/data/memorial_data",
+                                        "read_only": self.rendered_memorial_data_read_only,
+                                    },
+                                ],
                             }
                         },
                     }
@@ -971,6 +1003,35 @@ def test_rendered_compose_requires_exact_candidate_and_never_pull(
     )
 
     with pytest.raises(deploy.DeployError, match=reason):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+
+
+@pytest.mark.parametrize(
+    ("attribute", "value"),
+    [
+        ("rendered_memorial_data_source", "/wrong/memorial-data"),
+        ("rendered_memorial_data_read_only", False),
+    ],
+)
+def test_rendered_compose_requires_exact_read_only_memorial_data_mount(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    attribute: str,
+    value: object,
+) -> None:
+    runner = FakeRunner(release_root)
+    setattr(runner, attribute, value)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError, match="memorial_compose_data_mount_mismatch"
+    ):
         _lane(release_root, runner).deploy(preflight_only=True)
 
     assert not any("up" in call for call in runner.calls)
@@ -1752,6 +1813,7 @@ def test_optional_tour_json_drift_rolls_back(
         ("forward_project", "other", "deployed_api_project_mismatch"),
         ("forward_service", "other-api", "deployed_api_service_mismatch"),
         ("forward_source_mounts", False, "deployed_api_source_mounts_mismatch"),
+        ("forward_extra_mount", True, "deployed_api_source_mounts_mismatch"),
     ],
 )
 def test_forward_api_identity_mismatch_rolls_back(
