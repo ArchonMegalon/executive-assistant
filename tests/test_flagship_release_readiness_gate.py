@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
+import hashlib
 import importlib.util
 import json
 import os
@@ -60,7 +61,9 @@ def _write_release_authority_inputs(
             "project_mode": "EA_CORE",
             "enabled_project_modes": ["EA_CORE"],
             "compose_files": ["docker-compose.yml", "docker-compose.prod.yml"],
-            "artifact_set": [".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"],
+            "artifact_set": [
+                ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"
+            ],
             "dirty_worktree": dirty_worktree,
         },
     )
@@ -76,7 +79,9 @@ def _preserve_real_implementation_scope() -> None:
         REAL_SCOPE.write_text(original, encoding="utf-8")
 
 
-def test_flagship_release_readiness_gate_fails_closed_on_blocked_journey(tmp_path: Path) -> None:
+def test_flagship_release_readiness_gate_fails_closed_on_blocked_journey(
+    tmp_path: Path,
+) -> None:
     pulse = tmp_path / "pulse.json"
     receipt = tmp_path / "receipt.json"
     browser = tmp_path / "browser.json"
@@ -94,7 +99,9 @@ def test_flagship_release_readiness_gate_fails_closed_on_blocked_journey(tmp_pat
             "release_health": {"state": "blocked"},
             "flagship_readiness": {"state": "clear"},
             "journey_gate_health": {"state": "blocked", "blocked_count": 1},
-            "supporting_signals": {"launch_readiness": "Hold launch expansion pending cross-host journey coverage."},
+            "supporting_signals": {
+                "launch_readiness": "Hold launch expansion pending cross-host journey coverage."
+            },
         },
     )
     _write_json(receipt, {"status": "pass"})
@@ -146,7 +153,9 @@ def test_flagship_release_readiness_gate_accepts_committed_journey_snapshot_when
     assert _verify_canonical_pulse(tmp_path, pulse, journey_missing=True) == []
 
 
-def test_flagship_release_readiness_gate_fails_when_external_receipt_and_snapshot_are_absent(tmp_path: Path) -> None:
+def test_flagship_release_readiness_gate_fails_when_external_receipt_and_snapshot_are_absent(
+    tmp_path: Path,
+) -> None:
     pulse = tmp_path / "pulse.json"
     receipt = tmp_path / "receipt.json"
     browser = tmp_path / "browser.json"
@@ -163,7 +172,9 @@ def test_flagship_release_readiness_gate_fails_when_external_receipt_and_snapsho
             "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
             "release_health": {"state": "clear"},
             "flagship_readiness": {"state": "clear"},
-            "supporting_signals": {"launch_readiness": "Release truth is clear enough to widen claims."},
+            "supporting_signals": {
+                "launch_readiness": "Release truth is clear enough to widen claims."
+            },
         },
     )
     _write_json(receipt, {"status": "pass"})
@@ -215,7 +226,9 @@ def test_flagship_release_readiness_gate_rejects_unsourced_journey_snapshot_when
             "release_health": {"state": "clear"},
             "flagship_readiness": {"state": "clear"},
             "journey_gate_health": {"state": "ready", "blocked_count": 0},
-            "supporting_signals": {"launch_readiness": "Release truth is clear enough to widen claims."},
+            "supporting_signals": {
+                "launch_readiness": "Release truth is clear enough to widen claims."
+            },
         },
     )
     _write_json(receipt, {"status": "pass"})
@@ -266,7 +279,9 @@ def test_flagship_release_readiness_gate_rejects_ea_local_pulse_and_missing_ea_s
             "release_health": {"state": "clear"},
             "flagship_readiness": {"state": "clear"},
             "journey_gate_health": {"state": "ready", "blocked_count": 0},
-            "supporting_signals": {"launch_readiness": "Release truth is clear enough to widen claims."},
+            "supporting_signals": {
+                "launch_readiness": "Release truth is clear enough to widen claims."
+            },
         },
     )
     _write_json(receipt, {"status": "pass"})
@@ -301,7 +316,10 @@ def test_flagship_release_readiness_gate_rejects_ea_local_pulse_and_missing_ea_s
     assert result.returncode == 1
     assert "expected chummer.weekly_product_pulse" in result.stdout
     assert "expected products/chummer/PRODUCT_HEALTH_SCORECARD.yaml" in result.stdout
-    assert "implementation scope no longer requires mirrored design-source compilation" in result.stdout
+    assert (
+        "implementation scope no longer requires mirrored design-source compilation"
+        in result.stdout
+    )
 
 
 def test_flagship_release_readiness_gate_rejects_fresh_green_mirror_on_exact_hash_drift(
@@ -322,7 +340,9 @@ def test_flagship_release_readiness_gate_rejects_fresh_green_mirror_on_exact_has
     )
 
     assert "weekly product pulse mirror parity is drift, expected ok" in issues
-    assert "weekly product pulse mirror does not prove exact source hash parity" in issues
+    assert (
+        "weekly product pulse mirror does not prove exact source hash parity" in issues
+    )
 
 
 def test_flagship_release_readiness_gate_rejects_stale_and_malformed_canonical_pulses(
@@ -341,30 +361,43 @@ def test_flagship_release_readiness_gate_rejects_stale_and_malformed_canonical_p
     )
     malformed_issues = _verify_canonical_pulse(tmp_path, malformed)
 
-    assert "weekly product pulse generated_at is stale (older than 8 days)" in stale_issues
+    assert (
+        "weekly product pulse generated_at is stale (older than 8 days)" in stale_issues
+    )
     assert "weekly product pulse as_of is stale (older than 8 days)" in stale_issues
-    assert "weekly product pulse contract version is 3.0, expected 3" in malformed_issues
+    assert (
+        "weekly product pulse contract version is 3.0, expected 3" in malformed_issues
+    )
     assert "weekly product pulse generated_at is missing or invalid" in malformed_issues
-    assert "weekly release_health is missing, expected green_or_explained" in malformed_issues
+    assert (
+        "weekly release_health is missing, expected green_or_explained"
+        in malformed_issues
+    )
     assert "weekly launch_readiness must be a non-empty string" in malformed_issues
 
 
 def test_flagship_release_readiness_gate_uses_structured_launch_action_not_exact_human_copy(
     tmp_path: Path,
 ) -> None:
-    assert _verify_canonical_pulse(
-        tmp_path,
-        _canonical_pulse(
-            launch_readiness="Current governed launch evidence supports a bounded expansion."
-        ),
-    ) == []
+    assert (
+        _verify_canonical_pulse(
+            tmp_path,
+            _canonical_pulse(
+                launch_readiness="Current governed launch evidence supports a bounded expansion."
+            ),
+        )
+        == []
+    )
 
     frozen = _canonical_pulse(
         launch_action="freeze_launch",
         launch_readiness="Current governed launch evidence is green.",
     )
     issues = _verify_canonical_pulse(tmp_path, frozen)
-    assert "weekly launch-governance action is freeze_launch, expected launch_expand" in issues
+    assert (
+        "weekly launch-governance action is freeze_launch, expected launch_expand"
+        in issues
+    )
 
 
 def test_flagship_release_readiness_gate_detects_swap_during_parity(
@@ -389,14 +422,20 @@ def test_flagship_release_readiness_gate_detects_swap_during_parity(
             binding_key=binding_key,
             expected_absolute_local_path=expected_absolute_local_path,
         )
-        os.replace(replacement, tmp_path / "mirror" / "WEEKLY_PRODUCT_PULSE.generated.json")
+        os.replace(
+            replacement, tmp_path / "mirror" / "WEEKLY_PRODUCT_PULSE.generated.json"
+        )
         return rows
 
     monkeypatch.setattr(VERIFIER, "inspect_manifest", swapping_inspector)
     issues = _verify_canonical_pulse(tmp_path, _canonical_pulse())
 
-    assert "weekly product pulse mirror changed during mirror parity inspection" in issues
-    assert "weekly product pulse mirror does not prove exact source hash parity" in issues
+    assert (
+        "weekly product pulse mirror changed during mirror parity inspection" in issues
+    )
+    assert (
+        "weekly product pulse mirror does not prove exact source hash parity" in issues
+    )
 
 
 @pytest.mark.parametrize(
@@ -508,12 +547,16 @@ def test_flagship_release_readiness_gate_detects_source_swap_after_inspector_pos
     read_count = 0
     source = tmp_path / "source" / "WEEKLY_PRODUCT_PULSE.generated.json"
 
-    def swapping_reader(*args: object, **kwargs: object) -> tuple[bytes, str, list[str]]:
+    def swapping_reader(
+        *args: object, **kwargs: object
+    ) -> tuple[bytes, str, list[str]]:
         nonlocal read_count
         read_count += 1
         if read_count == 3:
             replacement = source.with_name("replacement-pulse.json")
-            _write_json(replacement, {**_canonical_pulse(), "summary": "swapped source"})
+            _write_json(
+                replacement, {**_canonical_pulse(), "summary": "swapped source"}
+            )
             os.replace(replacement, source)
         return original_reader(*args, **kwargs)
 
@@ -525,7 +568,9 @@ def test_flagship_release_readiness_gate_detects_source_swap_after_inspector_pos
         "weekly product pulse canonical source descriptor identity changed before read"
         in issues
     )
-    assert "weekly product pulse mirror does not prove exact source hash parity" in issues
+    assert (
+        "weekly product pulse mirror does not prove exact source hash parity" in issues
+    )
 
 
 @pytest.mark.parametrize(
@@ -597,6 +642,272 @@ def test_flagship_release_readiness_gate_rejects_duplicate_keys_in_bound_pulse(
     assert "weekly product pulse contains duplicate JSON keys" in issues
 
 
+@pytest.mark.parametrize(
+    ("case", "expected_issue"),
+    [
+        (
+            "wrong_source_cases",
+            "browser workflow proof source-backed cases are not exact",
+        ),
+        ("wrong_real_cases", "browser workflow proof real-browser cases are not exact"),
+        (
+            "float_exit",
+            "browser workflow proof real-browser exit_code is not exact integer 0",
+        ),
+        (
+            "bool_exit",
+            "browser workflow proof real-browser exit_code is not exact integer 0",
+        ),
+        (
+            "terminal_passed",
+            "browser workflow proof real-browser terminal_passed_count is not exact integer 2",
+        ),
+        (
+            "terminal_xfail",
+            "browser workflow proof real-browser terminal_xfail_count is not exact integer 0",
+        ),
+        (
+            "terminal_xpass",
+            "browser workflow proof real-browser terminal_xpass_count is not exact integer 0",
+        ),
+        (
+            "junit_failure",
+            "browser workflow proof real-browser junit_declared_failure_count is not exact integer 0",
+        ),
+        (
+            "junit_inconsistent",
+            "browser workflow proof real-browser JUnit declared totals are not consistent",
+        ),
+        ("stale", "browser workflow proof generated_at is stale (older than 1 day)"),
+        ("future", "browser workflow proof generated_at is in the future"),
+        (
+            "revision",
+            "browser workflow proof source_revision does not match release manifest commit_sha",
+        ),
+        ("nested_blocked", "browser workflow proof real-browser lane is not pass"),
+        (
+            "nested_limitations",
+            "browser workflow proof real-browser limitations are not empty",
+        ),
+        (
+            "current_limitations",
+            "browser workflow proof current_limitations is not an empty list",
+        ),
+        (
+            "blocking_reasons",
+            "browser workflow proof blocking_reasons is not an empty list",
+        ),
+        ("dirty", "browser workflow proof source_worktree_dirty is not false"),
+    ],
+)
+def test_flagship_release_readiness_gate_rejects_forged_browser_proof_pass(
+    tmp_path: Path,
+    case: str,
+    expected_issue: str,
+) -> None:
+    def forge_browser_proof(paths: dict[str, Path]) -> None:
+        proof = json.loads(paths["browser"].read_text(encoding="utf-8"))
+        source_lane = proof["source_backed_journey_proof"]
+        real_lane = proof["real_browser_e2e_proof"]
+        if case == "wrong_source_cases":
+            source_lane["cases"] = ["forged_case"]
+        elif case == "wrong_real_cases":
+            real_lane["cases"] = ["forged_case"]
+        elif case == "float_exit":
+            real_lane["exit_code"] = 0.0
+        elif case == "bool_exit":
+            real_lane["exit_code"] = False
+        elif case == "terminal_passed":
+            real_lane["terminal_passed_count"] = 1
+        elif case == "terminal_xfail":
+            real_lane["terminal_xfail_count"] = 1
+        elif case == "terminal_xpass":
+            real_lane["terminal_xpass_count"] = 1
+        elif case == "junit_failure":
+            real_lane["junit_declared_failure_count"] = 1
+        elif case == "junit_inconsistent":
+            real_lane["junit_totals_consistent"] = False
+        elif case == "stale":
+            proof["generated_at"] = (NOW - timedelta(days=2)).isoformat()
+        elif case == "future":
+            proof["generated_at"] = (NOW + timedelta(minutes=6)).isoformat()
+        elif case == "revision":
+            proof["source_revision"] = "b" * 40
+        elif case == "nested_blocked":
+            real_lane["status"] = "blocked"
+        elif case == "nested_limitations":
+            real_lane["limitations"] = ["browser did not run"]
+        elif case == "current_limitations":
+            proof["current_limitations"] = ["preview only"]
+        elif case == "blocking_reasons":
+            proof["blocking_reasons"] = ["nested failure"]
+        elif case == "dirty":
+            proof["source_worktree_dirty"] = True
+        _write_json(paths["browser"], proof)
+
+    issues = _verify_canonical_pulse(
+        tmp_path,
+        _canonical_pulse(),
+        mutate=forge_browser_proof,
+    )
+
+    assert expected_issue in issues
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected_issue"),
+    [
+        (
+            "contract_name",
+            "forged.browser_proof",
+            "browser workflow proof contract_name is not ea.browser_workflow_proof",
+        ),
+        (
+            "version",
+            True,
+            "browser workflow proof version is not exact integer 3",
+        ),
+        (
+            "kind",
+            "claim",
+            "browser workflow proof kind is not proof_receipt",
+        ),
+        (
+            "product",
+            "other",
+            "browser workflow proof product is not executive-assistant",
+        ),
+        (
+            "surface",
+            "other",
+            "browser workflow proof surface is not browser_workflow_proof",
+        ),
+        (
+            "generated_by",
+            "forged.py",
+            "browser workflow proof generated_by is not scripts/materialize_ea_browser_workflow_proof.py",
+        ),
+    ],
+)
+def test_flagship_release_readiness_gate_rejects_browser_proof_metadata_drift(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    expected_issue: str,
+) -> None:
+    def forge_metadata(paths: dict[str, Path]) -> None:
+        proof = json.loads(paths["browser"].read_text(encoding="utf-8"))
+        proof[field] = value
+        _write_json(paths["browser"], proof)
+
+    issues = _verify_canonical_pulse(
+        tmp_path,
+        _canonical_pulse(),
+        mutate=forge_metadata,
+    )
+
+    assert expected_issue in issues
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_issue"),
+    [
+        (
+            "missing",
+            "browser workflow proof source_state_samples are not exact",
+        ),
+        (
+            "stage",
+            "browser workflow proof source state sample stage is not after_source",
+        ),
+        (
+            "revision",
+            "browser workflow proof source state sample after_source revision does not match release manifest commit_sha",
+        ),
+        (
+            "dirty",
+            "browser workflow proof source state sample after_source dirty is not false",
+        ),
+    ],
+)
+def test_flagship_release_readiness_gate_rejects_inexact_source_state_samples(
+    tmp_path: Path,
+    mutation: str,
+    expected_issue: str,
+) -> None:
+    def forge_samples(paths: dict[str, Path]) -> None:
+        proof = json.loads(paths["browser"].read_text(encoding="utf-8"))
+        if mutation == "missing":
+            proof.pop("source_state_samples")
+        elif mutation == "stage":
+            proof["source_state_samples"][1]["stage"] = "after_forged_lane"
+        elif mutation == "revision":
+            proof["source_state_samples"][1]["revision"] = "b" * 40
+        elif mutation == "dirty":
+            proof["source_state_samples"][1]["dirty"] = True
+        _write_json(paths["browser"], proof)
+
+    issues = _verify_canonical_pulse(
+        tmp_path,
+        _canonical_pulse(),
+        mutate=forge_samples,
+    )
+
+    assert expected_issue in issues
+
+
+def test_flagship_release_readiness_gate_rejects_malformed_browser_revision(
+    tmp_path: Path,
+) -> None:
+    def forge_revision(paths: dict[str, Path]) -> None:
+        proof = json.loads(paths["browser"].read_text(encoding="utf-8"))
+        proof["source_revision"] = "A" * 40
+        for sample in proof["source_state_samples"]:
+            sample["revision"] = "A" * 40
+        _write_json(paths["browser"], proof)
+
+    issues = _verify_canonical_pulse(
+        tmp_path,
+        _canonical_pulse(),
+        mutate=forge_revision,
+    )
+
+    assert (
+        "browser workflow proof source_revision is not a canonical lowercase 40- or 64-hex revision"
+        in issues
+    )
+
+
+def test_flagship_release_readiness_gate_rejects_handwritten_minimal_lane(
+    tmp_path: Path,
+) -> None:
+    def forge_lane(paths: dict[str, Path]) -> None:
+        proof = json.loads(paths["browser"].read_text(encoding="utf-8"))
+        proof["real_browser_e2e_proof"] = {
+            "status": "pass",
+            "test_file": VERIFIER.BROWSER_REAL_TEST_FILE,
+            "cases": VERIFIER.BROWSER_REAL_CASES,
+            "exit_code": 0,
+            "limitations": [],
+        }
+        _write_json(paths["browser"], proof)
+
+    issues = _verify_canonical_pulse(
+        tmp_path,
+        _canonical_pulse(),
+        mutate=forge_lane,
+    )
+
+    assert (
+        "browser workflow proof real-browser selection_mode is not exact_node_ids"
+        in issues
+    )
+    assert (
+        "browser workflow proof real-browser executed_count is not exact integer 2"
+        in issues
+    )
+
+
 @pytest.mark.parametrize("bound_path", ["manifest", "pulse", "source"])
 def test_flagship_release_readiness_gate_rejects_symlinked_parity_inputs(
     tmp_path: Path, bound_path: str
@@ -626,7 +937,9 @@ def test_flagship_release_readiness_gate_rejects_old_launch_decision_id(
 
     issues = _verify_canonical_pulse(tmp_path, pulse)
 
-    assert "weekly launch-governance action is missing, expected launch_expand" in issues
+    assert (
+        "weekly launch-governance action is missing, expected launch_expand" in issues
+    )
 
 
 def test_flagship_release_readiness_gate_rejects_inconsistent_generated_at_and_as_of(
@@ -637,8 +950,12 @@ def test_flagship_release_readiness_gate_rejects_inconsistent_generated_at_and_a
 
     issues = _verify_canonical_pulse(tmp_path, pulse)
 
-    assert "weekly product pulse generated_at and as_of dates are inconsistent" in issues
-    assert "weekly launch-governance action is missing, expected launch_expand" in issues
+    assert (
+        "weekly product pulse generated_at and as_of dates are inconsistent" in issues
+    )
+    assert (
+        "weekly launch-governance action is missing, expected launch_expand" in issues
+    )
 
 
 def test_flagship_release_readiness_gate_rejects_mapping_launch_readiness(
@@ -659,9 +976,12 @@ def test_design_mirror_manifest_binds_absolute_canonical_pulse_source() -> None:
     )
     row = next(item for item in rows if item["key"] == "weekly_product_pulse")
 
-    assert row["local_path"] == (
-        ROOT / ".codex-design" / "product" / "WEEKLY_PRODUCT_PULSE.generated.json"
-    ).as_posix()
+    assert (
+        row["local_path"]
+        == (
+            ROOT / ".codex-design" / "product" / "WEEKLY_PRODUCT_PULSE.generated.json"
+        ).as_posix()
+    )
     assert row["source_path"] == (
         "/docker/chummercomplete/chummer-design/products/chummer/"
         "WEEKLY_PRODUCT_PULSE.generated.json"
@@ -672,7 +992,9 @@ def test_design_mirror_manifest_binds_absolute_canonical_pulse_source() -> None:
     assert row["kind"] == "file"
 
 
-def test_flagship_release_readiness_gate_rejects_failed_release_authority(tmp_path: Path) -> None:
+def test_flagship_release_readiness_gate_rejects_failed_release_authority(
+    tmp_path: Path,
+) -> None:
     pulse = tmp_path / "pulse.json"
     receipt = tmp_path / "receipt.json"
     browser = tmp_path / "browser.json"
@@ -698,7 +1020,9 @@ def test_flagship_release_readiness_gate_rejects_failed_release_authority(tmp_pa
             "release_health": {"state": "clear"},
             "flagship_readiness": {"state": "clear"},
             "journey_gate_health": {"state": "ready", "blocked_count": 0},
-            "supporting_signals": {"launch_readiness": "Release truth is clear enough to widen claims."},
+            "supporting_signals": {
+                "launch_readiness": "Release truth is clear enough to widen claims."
+            },
         },
     )
     _write_json(receipt, {"status": "pass"})
@@ -755,6 +1079,148 @@ def _load_verifier() -> ModuleType:
 
 
 VERIFIER = _load_verifier()
+
+
+def _valid_browser_proof(
+    *,
+    generated_at: datetime = NOW,
+    source_revision: str = "a" * 40,
+    source_tree: str = "b" * 40,
+) -> dict[str, object]:
+    run_id = "c" * 32
+
+    def lane(
+        test_file: str, cases: list[str], *, real_browser: bool
+    ) -> dict[str, object]:
+        xml_text = (
+            "<testsuites><testsuite "
+            f'tests="{len(cases)}" failures="0" errors="0" skipped="0">'
+            + "".join(f'<testcase classname="proof" name="{case}" />' for case in cases)
+            + "</testsuite></testsuites>"
+        )
+        return {
+            "status": "pass",
+            "run_id": run_id,
+            "trust_model": VERIFIER.BROWSER_PROOF_TRUST_MODEL,
+            "source_revision": source_revision,
+            "source_tree": source_tree,
+            "test_file": test_file,
+            "cases": list(cases),
+            "selection_mode": "exact_node_ids",
+            "node_ids": [f"{test_file}::{case}" for case in cases],
+            "runner_root_kind": VERIFIER.BROWSER_RUNNER_ROOT_KIND,
+            "snapshot_read_only": True,
+            "environment_policy": VERIFIER._expected_lane_environment_policy(
+                real_browser
+            ),
+            "argv_template": VERIFIER._expected_lane_argv_template(test_file, cases),
+            "python_identity": {
+                "executable": "/usr/bin/python3",
+                "sha256": "d" * 64,
+                "version": "3.12.0",
+                "dependency_root": "/opt/ea-dependencies",
+                "dependency_versions": {
+                    "playwright": "1.0",
+                    "pytest": "9.0",
+                    "uvicorn": "1.0",
+                },
+            },
+            "browser_identity": (
+                {"executable": "/opt/chromium/chrome", "sha256": "e" * 64}
+                if real_browser
+                else None
+            ),
+            "report_format": "junit_xml_embedded",
+            "junit_xml": xml_text,
+            "junit_xml_sha256": hashlib.sha256(xml_text.encode()).hexdigest(),
+            "exit_code": 0,
+            "duration_seconds": 0.1,
+            "output_excerpt": [f"{len(cases)} passed in 0.01s"],
+            "terminal_summary": f"{len(cases)} passed in 0.01s",
+            "executed_count": len(cases),
+            "passed_count": len(cases),
+            "terminal_passed_count": len(cases),
+            "failed_count": 0,
+            "error_count": 0,
+            "skipped_count": 0,
+            "xfail_count": 0,
+            "xpass_count": 0,
+            "terminal_xfail_count": 0,
+            "terminal_xpass_count": 0,
+            "junit_declared_tests_count": len(cases),
+            "junit_declared_failure_count": 0,
+            "junit_declared_error_count": 0,
+            "junit_declared_skipped_count": 0,
+            "junit_totals_consistent": True,
+            "executed_cases": list(cases),
+            "passed_cases": list(cases),
+            "limitations": [],
+            "blocking_reasons": [],
+        }
+
+    return {
+        "contract_name": VERIFIER.BROWSER_PROOF_CONTRACT_NAME,
+        "version": VERIFIER.BROWSER_PROOF_CONTRACT_VERSION,
+        "product": VERIFIER.BROWSER_PROOF_PRODUCT,
+        "surface": VERIFIER.BROWSER_PROOF_SURFACE,
+        "kind": VERIFIER.BROWSER_PROOF_KIND,
+        "generated_by": VERIFIER.BROWSER_PROOF_GENERATED_BY,
+        "generated_at": generated_at.isoformat().replace("+00:00", "Z"),
+        "run_id": run_id,
+        "trust_model": VERIFIER.BROWSER_PROOF_TRUST_MODEL,
+        "environment_policy": {
+            "name": VERIFIER.BROWSER_ENVIRONMENT_POLICY_NAME,
+            "version": VERIFIER.BROWSER_ENVIRONMENT_POLICY_VERSION,
+        },
+        "status": "pass",
+        "source_revision": source_revision,
+        "source_tree": source_tree,
+        "source_worktree_dirty": False,
+        "source_state_samples": [
+            {
+                "stage": stage,
+                "revision": source_revision,
+                "tree": source_tree,
+                "dirty": False,
+            }
+            for stage in VERIFIER.BROWSER_SOURCE_STATE_STAGES
+        ],
+        "snapshot": {
+            "archive_format": "git_archive_tar",
+            "read_only": True,
+            "source_revision": source_revision,
+            "source_tree": source_tree,
+            "seal_algorithm": VERIFIER.BROWSER_SNAPSHOT_SEAL_ALGORITHM,
+            "read_only_enforcement": (VERIFIER.BROWSER_SNAPSHOT_READ_ONLY_ENFORCEMENT),
+            "seal_samples": [
+                {"stage": stage, "sha256": "f" * 64}
+                for stage in VERIFIER.BROWSER_SNAPSHOT_SEAL_STAGES
+            ],
+            "mutation_watch": {
+                "algorithm": VERIFIER.BROWSER_SNAPSHOT_MUTATION_WATCH_ALGORITHM,
+                "samples": [
+                    {"stage": stage, "event_count": 0, "overflow": False}
+                    for stage in VERIFIER.BROWSER_SNAPSHOT_MUTATION_WATCH_STAGES
+                ],
+            },
+        },
+        "operator_summary": "Current local unsigned process evidence is green.",
+        "seed_source": VERIFIER.BROWSER_PROOF_SEED_SOURCE,
+        "release_claim_summary": VERIFIER.BROWSER_PROOF_RELEASE_CLAIM_SUMMARY,
+        "expected_browser_signals": list(VERIFIER.BROWSER_PROOF_EXPECTED_SIGNALS),
+        "source_backed_journey_proof": lane(
+            VERIFIER.BROWSER_SOURCE_BACKED_TEST_FILE,
+            VERIFIER.BROWSER_SOURCE_BACKED_CASES,
+            real_browser=False,
+        ),
+        "real_browser_e2e_proof": lane(
+            VERIFIER.BROWSER_REAL_TEST_FILE,
+            VERIFIER.BROWSER_REAL_CASES,
+            real_browser=True,
+        ),
+        "blocking_reasons": [],
+        "current_limitations": [],
+    }
 
 
 def _canonical_pulse(
@@ -831,7 +1297,7 @@ def _verify_canonical_pulse(
         },
     )
     _write_json(receipt, {"status": "pass"})
-    _write_json(browser, {"status": "pass"})
+    _write_json(browser, _valid_browser_proof())
     if not journey_missing:
         _write_json(
             journey,
@@ -871,4 +1337,133 @@ def _verify_canonical_pulse(
         canonical_pulse_source_path=source_path,
         observed_at=NOW,
         required_contract_paths=(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_issue"),
+    [
+        ("v2", "browser workflow proof version is not exact integer 3"),
+        (
+            "junit",
+            "browser workflow proof real-browser embedded JUnit sha256 does not match",
+        ),
+        (
+            "digest",
+            "browser workflow proof real-browser embedded JUnit sha256 does not match",
+        ),
+        ("argv", "browser workflow proof real-browser argv template is not exact"),
+        (
+            "policy",
+            "browser workflow proof real-browser environment policy is not exact",
+        ),
+        ("run", "browser workflow proof real-browser run_id linkage is not exact"),
+        (
+            "tree",
+            "browser workflow proof real-browser source_tree linkage is not exact",
+        ),
+        (
+            "format",
+            "browser workflow proof real-browser report_format is not junit_xml_embedded",
+        ),
+        (
+            "seal",
+            "browser workflow proof snapshot seal changed during proof",
+        ),
+        (
+            "mutation",
+            "browser workflow proof snapshot mutation watch sample after_source is not zero and exact",
+        ),
+        (
+            "source_browser",
+            "browser workflow proof source-backed browser_identity must be null",
+        ),
+        (
+            "nan",
+            "browser workflow proof missing or invalid",
+        ),
+        ("seed", "browser workflow proof seed_source is not exact"),
+        (
+            "claim",
+            "browser workflow proof release_claim_summary is not exact",
+        ),
+        (
+            "signals",
+            "browser workflow proof expected_browser_signals are not exact",
+        ),
+        ("schema", "browser workflow proof top-level schema is not exact v3"),
+    ],
+)
+def test_flagship_release_readiness_gate_rejects_v3_evidence_tampering(
+    tmp_path: Path, case: str, expected_issue: str
+) -> None:
+    def tamper(paths: dict[str, Path]) -> None:
+        proof = json.loads(paths["browser"].read_text(encoding="utf-8"))
+        lane = proof["real_browser_e2e_proof"]
+        if case == "v2":
+            proof["version"] = 2
+        elif case == "junit":
+            lane["junit_xml"] += " "
+        elif case == "digest":
+            lane["junit_xml_sha256"] = "0" * 64
+        elif case == "argv":
+            lane["argv_template"].append("--collect-only")
+        elif case == "policy":
+            lane["environment_policy"]["allowed_keys"].append("CI")
+        elif case == "run":
+            lane["run_id"] = "f" * 32
+        elif case == "tree":
+            lane["source_tree"] = "f" * 40
+        elif case == "format":
+            lane["report_format"] = "junit_xml"
+        elif case == "seal":
+            proof["snapshot"]["seal_samples"][1]["sha256"] = "0" * 64
+        elif case == "mutation":
+            proof["snapshot"]["mutation_watch"]["samples"][0]["event_count"] = 1
+        elif case == "source_browser":
+            proof["source_backed_journey_proof"]["browser_identity"] = {
+                "executable": "/opt/chromium/chrome",
+                "sha256": "e" * 64,
+            }
+        elif case == "nan":
+            lane["duration_seconds"] = float("nan")
+        elif case == "seed":
+            proof["seed_source"] = "unbound.json"
+        elif case == "claim":
+            proof["release_claim_summary"] = ""
+        elif case == "signals":
+            proof["expected_browser_signals"] = []
+        elif case == "schema":
+            proof["signature"] = "not-authority"
+        _write_json(paths["browser"], proof)
+
+    issues = _verify_canonical_pulse(
+        tmp_path,
+        _canonical_pulse(),
+        mutate=tamper,
+    )
+
+    assert any(expected_issue in issue for issue in issues)
+
+
+def test_browser_lane_validator_rejects_nonfinite_duration() -> None:
+    proof = _valid_browser_proof()
+    lane = proof["real_browser_e2e_proof"]
+    assert isinstance(lane, dict)
+    lane["duration_seconds"] = float("nan")
+
+    issues = VERIFIER._browser_lane_issues(
+        lane,
+        label="real-browser",
+        expected_test_file=VERIFIER.BROWSER_REAL_TEST_FILE,
+        expected_cases=VERIFIER.BROWSER_REAL_CASES,
+        real_browser=True,
+        expected_run_id=proof["run_id"],
+        expected_revision=proof["source_revision"],
+        expected_tree=proof["source_tree"],
+    )
+
+    assert (
+        "browser workflow proof real-browser duration_seconds is not nonnegative"
+        in issues
     )

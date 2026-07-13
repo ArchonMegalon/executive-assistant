@@ -5,11 +5,21 @@ import argparse
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
+import re
 import stat
 from typing import Any
 
+from materialize_ea_browser_workflow_proof import (
+    DEPENDENCY_NAMES as BROWSER_DEPENDENCY_NAMES,
+    MAX_JUNIT_BYTES as BROWSER_MAX_JUNIT_BYTES,
+    _environment_policy as _expected_lane_environment_policy,
+    _normalized_argv_template as _expected_lane_argv_template,
+    _parse_junit_xml as _reparse_embedded_junit_xml,
+    _parse_terminal_summary as _reparse_terminal_summary,
+)
 from verify_full_design_mirror_parity import inspect_manifest
 from verify_release_authority import validate_release_authority
 
@@ -57,6 +67,124 @@ PULSE_READY_LAUNCH_ACTION = "launch_expand"
 PULSE_MAX_AGE = timedelta(days=8)
 PULSE_MAX_FUTURE_SKEW = timedelta(minutes=5)
 PULSE_MAX_BYTES = 1024 * 1024
+BROWSER_PROOF_CONTRACT_NAME = "ea.browser_workflow_proof"
+BROWSER_PROOF_CONTRACT_VERSION = 3
+BROWSER_PROOF_PRODUCT = "executive-assistant"
+BROWSER_PROOF_SURFACE = "browser_workflow_proof"
+BROWSER_PROOF_KIND = "proof_receipt"
+BROWSER_PROOF_GENERATED_BY = "scripts/materialize_ea_browser_workflow_proof.py"
+BROWSER_PROOF_TRUST_MODEL = "local_unsigned_process_evidence"
+BROWSER_PROOF_SEED_SOURCE = ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json"
+BROWSER_PROOF_RELEASE_CLAIM_SUMMARY = (
+    "EA can only claim flagship-grade release truth when release authority, "
+    "browser workflow proof, and release asset verification agree with this gate seed."
+)
+BROWSER_PROOF_EXPECTED_SIGNALS = [
+    "/register leads with email-first workspace setup, workspace shape, Google connection, and first brief setup",
+    "/app/today renders Morning Memo, Send board materials, and Approve reply to Sofia N.",
+    "/app/queue renders decisions, drafts, and commitments tied to workspace objects",
+    "/app/people renders stakeholder memory, open loops, and recent evidence",
+    "/app/settings keeps memo timing, approvals, and workspace rules visible without leading with operator noise",
+]
+BROWSER_ENVIRONMENT_POLICY_NAME = "ea.browser_workflow_proof.hermetic"
+BROWSER_ENVIRONMENT_POLICY_VERSION = 1
+BROWSER_PROOF_MAX_AGE = timedelta(days=1)
+BROWSER_PROOF_MAX_FUTURE_SKEW = timedelta(minutes=5)
+BROWSER_SOURCE_BACKED_TEST_FILE = "tests/test_product_browser_journeys.py"
+BROWSER_REAL_TEST_FILE = "tests/e2e/test_product_workflows.py"
+BROWSER_SOURCE_BACKED_CASES = [
+    "test_workspace_pages_render_seeded_product_objects",
+    "test_browser_journey_updates_after_approval_and_commitment_closure",
+    "test_browser_action_routes_match_rendered_forms",
+    "test_browser_handoff_and_people_memory_actions_work",
+]
+BROWSER_REAL_CASES = [
+    "test_activation_and_memo_flow_in_real_browser",
+    "test_draft_and_commitment_workflows_in_real_browser",
+]
+BROWSER_SOURCE_STATE_STAGES = [
+    "before_tests",
+    "after_source",
+    "after_browser",
+    "before_publish",
+]
+BROWSER_SNAPSHOT_SEAL_ALGORITHM = "sha256-content-posix-stat-v1"
+BROWSER_SNAPSHOT_SEAL_STAGES = ["before_source", "after_source", "after_browser"]
+BROWSER_SNAPSHOT_READ_ONLY_ENFORCEMENT = (
+    "owner_mode_bits_plus_content_stat_seal_and_inotify_watch"
+)
+BROWSER_SNAPSHOT_MUTATION_WATCH_ALGORITHM = "linux-inotify-v1"
+BROWSER_SNAPSHOT_MUTATION_WATCH_STAGES = ["after_source", "after_browser"]
+BROWSER_RUNNER_ROOT_KIND = "committed_mode_read_only_mutation_watched_snapshot"
+BROWSER_PROOF_KEYS = {
+    "contract_name",
+    "product",
+    "surface",
+    "version",
+    "kind",
+    "generated_at",
+    "generated_by",
+    "run_id",
+    "trust_model",
+    "environment_policy",
+    "source_revision",
+    "source_tree",
+    "source_worktree_dirty",
+    "source_state_samples",
+    "snapshot",
+    "status",
+    "operator_summary",
+    "seed_source",
+    "release_claim_summary",
+    "expected_browser_signals",
+    "source_backed_journey_proof",
+    "real_browser_e2e_proof",
+    "blocking_reasons",
+    "current_limitations",
+}
+BROWSER_LANE_KEYS = {
+    "status",
+    "run_id",
+    "trust_model",
+    "source_revision",
+    "source_tree",
+    "test_file",
+    "cases",
+    "selection_mode",
+    "node_ids",
+    "runner_root_kind",
+    "snapshot_read_only",
+    "environment_policy",
+    "argv_template",
+    "python_identity",
+    "browser_identity",
+    "exit_code",
+    "duration_seconds",
+    "output_excerpt",
+    "terminal_summary",
+    "report_format",
+    "junit_xml",
+    "junit_xml_sha256",
+    "limitations",
+    "blocking_reasons",
+    "executed_count",
+    "passed_count",
+    "failed_count",
+    "error_count",
+    "skipped_count",
+    "xfail_count",
+    "xpass_count",
+    "executed_cases",
+    "passed_cases",
+    "junit_declared_tests_count",
+    "junit_declared_failure_count",
+    "junit_declared_error_count",
+    "junit_declared_skipped_count",
+    "junit_totals_consistent",
+    "terminal_passed_count",
+    "terminal_xfail_count",
+    "terminal_xpass_count",
+}
 
 REQUIRED_RELEASE_CONTRACT_PATHS = (
     ROOT / ".codex-design" / "repo" / "EA_FLAGSHIP_TRUTH_PLANE.md",
@@ -77,6 +205,7 @@ def _json(path: Path) -> dict[str, Any]:
         payload = json.loads(
             path.read_text(encoding="utf-8"),
             object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
         )
     except Exception:
         return {}
@@ -135,6 +264,10 @@ def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             raise _DuplicateJSONKey(key)
         payload[key] = value
     return payload
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant is forbidden: {value}")
 
 
 def _file_identity(value: os.stat_result) -> tuple[int, ...]:
@@ -254,11 +387,13 @@ def _read_bound_file(
 def _parse_bound_pulse(content: bytes) -> tuple[dict[str, Any], list[str]]:
     try:
         payload = json.loads(
-            content.decode("utf-8"), object_pairs_hook=_unique_json_object
+            content.decode("utf-8"),
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
         )
     except _DuplicateJSONKey:
         return {}, ["weekly product pulse contains duplicate JSON keys"]
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
         return {}, ["weekly product pulse is not valid UTF-8 JSON"]
     if not isinstance(payload, dict):
         return {}, ["weekly product pulse JSON root is not an object"]
@@ -509,6 +644,544 @@ def _text(path: Path) -> str:
         return ""
 
 
+def _exact_empty_list(value: object) -> bool:
+    return type(value) is list and not value
+
+
+def _is_canonical_revision(value: object) -> bool:
+    return (
+        type(value) is str
+        and re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", value) is not None
+    )
+
+
+def _is_canonical_sha256(value: object) -> bool:
+    return type(value) is str and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def _browser_python_identity_issues(identity: object, *, label: str) -> list[str]:
+    if not isinstance(identity, dict):
+        return [f"browser workflow proof {label} python_identity is invalid"]
+    issues: list[str] = []
+    expected_keys = {
+        "executable",
+        "sha256",
+        "version",
+        "dependency_root",
+        "dependency_versions",
+    }
+    if set(identity) != expected_keys:
+        issues.append(
+            f"browser workflow proof {label} python_identity schema is not exact"
+        )
+    executable = identity.get("executable")
+    if (
+        type(executable) is not str
+        or not os.path.isabs(executable)
+        or os.path.normpath(executable) != executable
+    ):
+        issues.append(
+            f"browser workflow proof {label} python executable is not canonical absolute"
+        )
+    if not _is_canonical_sha256(identity.get("sha256")):
+        issues.append(f"browser workflow proof {label} python sha256 is not canonical")
+    if type(identity.get("version")) is not str or not identity.get("version"):
+        issues.append(f"browser workflow proof {label} python version is invalid")
+    dependency_root = identity.get("dependency_root")
+    if (
+        type(dependency_root) is not str
+        or not os.path.isabs(dependency_root)
+        or os.path.normpath(dependency_root) != dependency_root
+    ):
+        issues.append(
+            f"browser workflow proof {label} dependency_root is not canonical absolute"
+        )
+    dependencies = identity.get("dependency_versions")
+    if not isinstance(dependencies, dict) or set(dependencies) != set(
+        BROWSER_DEPENDENCY_NAMES
+    ):
+        issues.append(
+            f"browser workflow proof {label} dependency versions schema is not exact"
+        )
+    elif any(
+        type(dependencies[name]) is not str or not dependencies[name]
+        for name in BROWSER_DEPENDENCY_NAMES
+    ):
+        issues.append(
+            f"browser workflow proof {label} dependency versions are incomplete"
+        )
+    return issues
+
+
+def _browser_executable_identity_issues(
+    identity: object, *, label: str, required: bool
+) -> list[str]:
+    if not required:
+        return (
+            []
+            if identity is None
+            else [f"browser workflow proof {label} browser_identity must be null"]
+        )
+    if not isinstance(identity, dict) or set(identity) != {"executable", "sha256"}:
+        return [f"browser workflow proof {label} browser_identity is not exact"]
+    executable = identity.get("executable")
+    issues: list[str] = []
+    if (
+        type(executable) is not str
+        or not os.path.isabs(executable)
+        or os.path.normpath(executable) != executable
+    ):
+        issues.append(
+            f"browser workflow proof {label} browser executable is not canonical absolute"
+        )
+    if not _is_canonical_sha256(identity.get("sha256")):
+        issues.append(
+            f"browser workflow proof {label} browser executable sha256 is not canonical"
+        )
+    return issues
+
+
+def _browser_lane_issues(
+    lane: object,
+    *,
+    label: str,
+    expected_test_file: str,
+    expected_cases: list[str],
+    real_browser: bool,
+    expected_run_id: object,
+    expected_revision: object,
+    expected_tree: object,
+) -> list[str]:
+    if not isinstance(lane, dict):
+        return [f"browser workflow proof {label} lane is missing or invalid"]
+    issues: list[str] = []
+    if set(lane) != BROWSER_LANE_KEYS:
+        issues.append(f"browser workflow proof {label} lane schema is not exact")
+    if type(lane.get("status")) is not str or lane.get("status") != "pass":
+        issues.append(f"browser workflow proof {label} lane is not pass")
+    if type(lane.get("exit_code")) is not int or lane.get("exit_code") != 0:
+        issues.append(
+            f"browser workflow proof {label} exit_code is not exact integer 0"
+        )
+    if (
+        type(lane.get("test_file")) is not str
+        or lane.get("test_file") != expected_test_file
+    ):
+        issues.append(f"browser workflow proof {label} test_file is not exact")
+    if type(lane.get("cases")) is not list or lane.get("cases") != expected_cases:
+        issues.append(f"browser workflow proof {label} cases are not exact")
+    for field, expected in (
+        ("run_id", expected_run_id),
+        ("source_revision", expected_revision),
+        ("source_tree", expected_tree),
+        ("trust_model", BROWSER_PROOF_TRUST_MODEL),
+    ):
+        if type(lane.get(field)) is not str or lane.get(field) != expected:
+            issues.append(
+                f"browser workflow proof {label} {field} linkage is not exact"
+            )
+    expected_node_ids = [f"{expected_test_file}::{case}" for case in expected_cases]
+    if lane.get("selection_mode") != "exact_node_ids":
+        issues.append(
+            f"browser workflow proof {label} selection_mode is not exact_node_ids"
+        )
+    if (
+        type(lane.get("node_ids")) is not list
+        or lane.get("node_ids") != expected_node_ids
+    ):
+        issues.append(f"browser workflow proof {label} node_ids are not exact")
+    if lane.get("report_format") != "junit_xml_embedded":
+        issues.append(
+            f"browser workflow proof {label} report_format is not junit_xml_embedded"
+        )
+    if lane.get("runner_root_kind") != BROWSER_RUNNER_ROOT_KIND:
+        issues.append(
+            f"browser workflow proof {label} runner root is not the committed snapshot"
+        )
+    if lane.get("snapshot_read_only") is not True:
+        issues.append(f"browser workflow proof {label} snapshot_read_only is not true")
+    expected_policy = _expected_lane_environment_policy(real_browser)
+    if lane.get("environment_policy") != expected_policy:
+        issues.append(f"browser workflow proof {label} environment policy is not exact")
+    if lane.get("argv_template") != _expected_lane_argv_template(
+        expected_test_file, expected_cases
+    ):
+        issues.append(f"browser workflow proof {label} argv template is not exact")
+    issues.extend(
+        _browser_python_identity_issues(lane.get("python_identity"), label=label)
+    )
+    issues.extend(
+        _browser_executable_identity_issues(
+            lane.get("browser_identity"),
+            label=label,
+            required=real_browser,
+        )
+    )
+    duration = lane.get("duration_seconds")
+    if (
+        type(duration) not in {int, float}
+        or not math.isfinite(float(duration))
+        or duration < 0
+    ):
+        issues.append(
+            f"browser workflow proof {label} duration_seconds is not nonnegative"
+        )
+    excerpt = lane.get("output_excerpt")
+    if (
+        type(excerpt) is not list
+        or len(excerpt) > 40
+        or any(type(item) is not str for item in excerpt)
+    ):
+        issues.append(f"browser workflow proof {label} output_excerpt is invalid")
+
+    xml_text = lane.get("junit_xml")
+    xml_sha = lane.get("junit_xml_sha256")
+    if (
+        type(xml_text) is not str
+        or len(xml_text.encode("utf-8")) > BROWSER_MAX_JUNIT_BYTES
+    ):
+        issues.append(f"browser workflow proof {label} embedded JUnit XML is invalid")
+        reparsed_junit: dict[str, Any] = {}
+    else:
+        recomputed_sha = hashlib.sha256(xml_text.encode("utf-8")).hexdigest()
+        if not _is_canonical_sha256(xml_sha) or xml_sha != recomputed_sha:
+            issues.append(
+                f"browser workflow proof {label} embedded JUnit sha256 does not match"
+            )
+        reparsed_junit = _reparse_embedded_junit_xml(xml_text)
+    terminal_summary = lane.get("terminal_summary")
+    if type(terminal_summary) is not str or not terminal_summary:
+        issues.append(f"browser workflow proof {label} terminal_summary is invalid")
+        reparsed_terminal: dict[str, int] = {}
+    else:
+        reparsed_terminal = _reparse_terminal_summary(terminal_summary)
+    if reparsed_terminal.get("terminal_xpass_count", 0) > 0:
+        reparsed_junit["xpass_count"] = max(
+            int(reparsed_junit.get("xpass_count", 0)),
+            reparsed_terminal["terminal_xpass_count"],
+        )
+    for field in (
+        "executed_count",
+        "passed_count",
+        "failed_count",
+        "error_count",
+        "skipped_count",
+        "xfail_count",
+        "xpass_count",
+        "executed_cases",
+        "passed_cases",
+        "junit_declared_tests_count",
+        "junit_declared_failure_count",
+        "junit_declared_error_count",
+        "junit_declared_skipped_count",
+        "junit_totals_consistent",
+    ):
+        if lane.get(field) != reparsed_junit.get(field):
+            issues.append(
+                f"browser workflow proof {label} {field} does not match embedded JUnit"
+            )
+    for field in (
+        "terminal_passed_count",
+        "terminal_xfail_count",
+        "terminal_xpass_count",
+    ):
+        if lane.get(field) != reparsed_terminal.get(field):
+            issues.append(
+                f"browser workflow proof {label} {field} does not match terminal_summary"
+            )
+    expected_count = len(expected_cases)
+    for field, expected in (
+        ("executed_count", expected_count),
+        ("passed_count", expected_count),
+        ("terminal_passed_count", expected_count),
+        ("junit_declared_tests_count", expected_count),
+        ("failed_count", 0),
+        ("error_count", 0),
+        ("skipped_count", 0),
+        ("xfail_count", 0),
+        ("xpass_count", 0),
+        ("terminal_xfail_count", 0),
+        ("terminal_xpass_count", 0),
+        ("junit_declared_failure_count", 0),
+        ("junit_declared_error_count", 0),
+        ("junit_declared_skipped_count", 0),
+    ):
+        if type(lane.get(field)) is not int or lane.get(field) != expected:
+            issues.append(
+                f"browser workflow proof {label} {field} is not exact integer {expected}"
+            )
+    for field in ("executed_cases", "passed_cases"):
+        if type(lane.get(field)) is not list or lane.get(field) != expected_cases:
+            issues.append(f"browser workflow proof {label} {field} are not exact")
+    if lane.get("junit_totals_consistent") is not True:
+        issues.append(
+            f"browser workflow proof {label} JUnit declared totals are not consistent"
+        )
+    if not _exact_empty_list(lane.get("limitations")):
+        issues.append(f"browser workflow proof {label} limitations are not empty")
+    if not _exact_empty_list(lane.get("blocking_reasons")):
+        issues.append(f"browser workflow proof {label} blocking_reasons are not empty")
+    return issues
+
+
+def _browser_proof_issues(
+    browser: dict[str, Any],
+    *,
+    release_manifest: dict[str, Any],
+    observed_at: datetime | None,
+) -> list[str]:
+    issues: list[str] = []
+    if set(browser) != BROWSER_PROOF_KEYS:
+        issues.append("browser workflow proof top-level schema is not exact v3")
+    exact_fields = (
+        ("contract_name", BROWSER_PROOF_CONTRACT_NAME),
+        ("product", BROWSER_PROOF_PRODUCT),
+        ("surface", BROWSER_PROOF_SURFACE),
+        ("kind", BROWSER_PROOF_KIND),
+        ("generated_by", BROWSER_PROOF_GENERATED_BY),
+    )
+    for field, expected in exact_fields:
+        if type(browser.get(field)) is not str or browser.get(field) != expected:
+            issues.append(f"browser workflow proof {field} is not {expected}")
+    if (
+        type(browser.get("version")) is not int
+        or browser.get("version") != BROWSER_PROOF_CONTRACT_VERSION
+    ):
+        issues.append(
+            "browser workflow proof version is not exact integer "
+            f"{BROWSER_PROOF_CONTRACT_VERSION}"
+        )
+    if type(browser.get("status")) is not str or browser.get("status") != "pass":
+        issues.append("browser workflow proof top-level status is not pass")
+    run_id = browser.get("run_id")
+    if type(run_id) is not str or re.fullmatch(r"[0-9a-f]{32}", run_id) is None:
+        issues.append("browser workflow proof run_id is not canonical")
+    if browser.get("trust_model") != BROWSER_PROOF_TRUST_MODEL:
+        issues.append(
+            "browser workflow proof trust_model is not local_unsigned_process_evidence"
+        )
+    expected_top_policy = {
+        "name": BROWSER_ENVIRONMENT_POLICY_NAME,
+        "version": BROWSER_ENVIRONMENT_POLICY_VERSION,
+    }
+    if browser.get("environment_policy") != expected_top_policy:
+        issues.append("browser workflow proof environment_policy is not exact")
+    if browser.get("seed_source") != BROWSER_PROOF_SEED_SOURCE:
+        issues.append("browser workflow proof seed_source is not exact")
+    if browser.get("release_claim_summary") != BROWSER_PROOF_RELEASE_CLAIM_SUMMARY:
+        issues.append("browser workflow proof release_claim_summary is not exact")
+    if browser.get("expected_browser_signals") != BROWSER_PROOF_EXPECTED_SIGNALS:
+        issues.append("browser workflow proof expected_browser_signals are not exact")
+
+    now = observed_at or datetime.now(timezone.utc)
+    if now.tzinfo is None or now.utcoffset() is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = now.astimezone(timezone.utc)
+    generated_at = _utc_datetime(browser.get("generated_at"))
+    if generated_at is None:
+        issues.append("browser workflow proof generated_at is missing or invalid")
+    elif generated_at > now + BROWSER_PROOF_MAX_FUTURE_SKEW:
+        issues.append("browser workflow proof generated_at is in the future")
+    elif now - generated_at > BROWSER_PROOF_MAX_AGE:
+        issues.append("browser workflow proof generated_at is stale (older than 1 day)")
+
+    for field in ("limitations", "current_limitations", "blocking_reasons"):
+        if field == "limitations" and field not in browser:
+            continue
+        if not _exact_empty_list(browser.get(field)):
+            issues.append(f"browser workflow proof {field} is not an empty list")
+
+    release_revision = release_manifest.get("commit_sha")
+    source_revision = browser.get("source_revision")
+    source_tree = browser.get("source_tree")
+    if not _is_canonical_revision(release_revision):
+        issues.append(
+            "release manifest commit_sha is not a canonical lowercase 40- or 64-hex revision"
+        )
+    if not _is_canonical_revision(source_revision):
+        issues.append(
+            "browser workflow proof source_revision is not a canonical lowercase 40- or 64-hex revision"
+        )
+    if source_revision != release_revision:
+        issues.append(
+            "browser workflow proof source_revision does not match release manifest commit_sha"
+        )
+    if browser.get("source_worktree_dirty") is not False:
+        issues.append("browser workflow proof source_worktree_dirty is not false")
+    if (
+        not _is_canonical_revision(source_tree)
+        or not _is_canonical_revision(source_revision)
+        or len(str(source_tree)) != len(str(source_revision))
+    ):
+        issues.append("browser workflow proof source_tree is not canonical")
+
+    snapshot = browser.get("snapshot")
+    if not isinstance(snapshot, dict) or set(snapshot) != {
+        "archive_format",
+        "read_only",
+        "source_revision",
+        "source_tree",
+        "seal_algorithm",
+        "read_only_enforcement",
+        "seal_samples",
+        "mutation_watch",
+    }:
+        issues.append("browser workflow proof snapshot schema is not exact")
+    else:
+        if any(
+            (
+                snapshot.get("archive_format") != "git_archive_tar",
+                snapshot.get("read_only") is not True,
+                snapshot.get("source_revision") != source_revision,
+                snapshot.get("source_tree") != source_tree,
+                snapshot.get("seal_algorithm") != BROWSER_SNAPSHOT_SEAL_ALGORITHM,
+                snapshot.get("read_only_enforcement")
+                != BROWSER_SNAPSHOT_READ_ONLY_ENFORCEMENT,
+            )
+        ):
+            issues.append("browser workflow proof snapshot linkage is not exact")
+        seal_samples = snapshot.get("seal_samples")
+        if type(seal_samples) is not list or len(seal_samples) != len(
+            BROWSER_SNAPSHOT_SEAL_STAGES
+        ):
+            issues.append("browser workflow proof snapshot seal samples are not exact")
+        else:
+            seal_digests: list[str] = []
+            for expected_stage, seal_sample in zip(
+                BROWSER_SNAPSHOT_SEAL_STAGES, seal_samples, strict=True
+            ):
+                if (
+                    not isinstance(seal_sample, dict)
+                    or set(seal_sample) != {"stage", "sha256"}
+                    or seal_sample.get("stage") != expected_stage
+                    or not _is_canonical_sha256(seal_sample.get("sha256"))
+                ):
+                    issues.append(
+                        f"browser workflow proof snapshot seal sample {expected_stage} is invalid"
+                    )
+                    continue
+                seal_digests.append(seal_sample["sha256"])
+            if (
+                len(seal_digests) != len(BROWSER_SNAPSHOT_SEAL_STAGES)
+                or len(set(seal_digests)) != 1
+            ):
+                issues.append(
+                    "browser workflow proof snapshot seal changed during proof"
+                )
+        mutation_watch = snapshot.get("mutation_watch")
+        if not isinstance(mutation_watch, dict) or set(mutation_watch) != {
+            "algorithm",
+            "samples",
+        }:
+            issues.append("browser workflow proof snapshot mutation watch is not exact")
+        elif (
+            mutation_watch.get("algorithm") != BROWSER_SNAPSHOT_MUTATION_WATCH_ALGORITHM
+        ):
+            issues.append(
+                "browser workflow proof snapshot mutation watch algorithm is not exact"
+            )
+        else:
+            mutation_samples = mutation_watch.get("samples")
+            if type(mutation_samples) is not list or len(mutation_samples) != len(
+                BROWSER_SNAPSHOT_MUTATION_WATCH_STAGES
+            ):
+                issues.append(
+                    "browser workflow proof snapshot mutation watch samples are not exact"
+                )
+            else:
+                for expected_stage, mutation_sample in zip(
+                    BROWSER_SNAPSHOT_MUTATION_WATCH_STAGES,
+                    mutation_samples,
+                    strict=True,
+                ):
+                    if (
+                        not isinstance(mutation_sample, dict)
+                        or set(mutation_sample) != {"stage", "event_count", "overflow"}
+                        or mutation_sample.get("stage") != expected_stage
+                        or type(mutation_sample.get("event_count")) is not int
+                        or mutation_sample.get("event_count") != 0
+                        or mutation_sample.get("overflow") is not False
+                    ):
+                        issues.append(
+                            "browser workflow proof snapshot mutation watch sample "
+                            f"{expected_stage} is not zero and exact"
+                        )
+
+    samples = browser.get("source_state_samples")
+    if type(samples) is not list or len(samples) != len(BROWSER_SOURCE_STATE_STAGES):
+        issues.append("browser workflow proof source_state_samples are not exact")
+    else:
+        for expected_stage, sample in zip(
+            BROWSER_SOURCE_STATE_STAGES, samples, strict=True
+        ):
+            if not isinstance(sample, dict) or set(sample) != {
+                "stage",
+                "revision",
+                "tree",
+                "dirty",
+            }:
+                issues.append(
+                    f"browser workflow proof source state sample {expected_stage} is invalid"
+                )
+                continue
+            if sample.get("stage") != expected_stage:
+                issues.append(
+                    f"browser workflow proof source state sample stage is not {expected_stage}"
+                )
+            sample_revision = sample.get("revision")
+            if not _is_canonical_revision(sample_revision):
+                issues.append(
+                    f"browser workflow proof source state sample {expected_stage} revision is not canonical"
+                )
+            if sample_revision != release_revision:
+                issues.append(
+                    f"browser workflow proof source state sample {expected_stage} revision does not match release manifest commit_sha"
+                )
+            sample_tree = sample.get("tree")
+            if not _is_canonical_revision(sample_tree) or sample_tree != source_tree:
+                issues.append(
+                    f"browser workflow proof source state sample {expected_stage} tree does not match source_tree"
+                )
+            if sample.get("dirty") is not False:
+                issues.append(
+                    f"browser workflow proof source state sample {expected_stage} dirty is not false"
+                )
+    source_lane = browser.get("source_backed_journey_proof")
+    browser_lane = browser.get("real_browser_e2e_proof")
+    issues.extend(
+        _browser_lane_issues(
+            source_lane,
+            label="source-backed",
+            expected_test_file=BROWSER_SOURCE_BACKED_TEST_FILE,
+            expected_cases=BROWSER_SOURCE_BACKED_CASES,
+            real_browser=False,
+            expected_run_id=run_id,
+            expected_revision=source_revision,
+            expected_tree=source_tree,
+        )
+    )
+    issues.extend(
+        _browser_lane_issues(
+            browser_lane,
+            label="real-browser",
+            expected_test_file=BROWSER_REAL_TEST_FILE,
+            expected_cases=BROWSER_REAL_CASES,
+            real_browser=True,
+            expected_run_id=run_id,
+            expected_revision=source_revision,
+            expected_tree=source_tree,
+        )
+    )
+    if (
+        isinstance(source_lane, dict)
+        and isinstance(browser_lane, dict)
+        and source_lane.get("python_identity") != browser_lane.get("python_identity")
+    ):
+        issues.append("browser workflow proof lane Python identities do not match")
+    return issues
+
+
 def verify(
     *,
     pulse_path: Path,
@@ -575,11 +1248,6 @@ def verify(
         )
 
     receipt_status = str(receipt.get("status") or "").strip().lower()
-    browser_status = (
-        str(browser.get("status") or browser.get("receipt_status") or "")
-        .strip()
-        .lower()
-    )
     release_health = _state(pulse, "release_health")
     flagship_readiness = _state(pulse, "flagship_readiness")
     journey_health = _state(pulse, "journey_gate_health")
@@ -613,10 +1281,13 @@ def verify(
         issues.append(
             f"flagship release receipt is {receipt_status or 'missing'}, expected pass"
         )
-    if browser_status != "pass":
-        issues.append(
-            f"browser workflow proof is {browser_status or 'missing'}, expected pass"
+    issues.extend(
+        _browser_proof_issues(
+            browser,
+            release_manifest=release_manifest,
+            observed_at=observed_at,
         )
+    )
     if pulse_contract != PULSE_CONTRACT_NAME:
         issues.append(
             f"weekly product pulse contract is {pulse_contract or 'missing'}, expected {PULSE_CONTRACT_NAME}"
