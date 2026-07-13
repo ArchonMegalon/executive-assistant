@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
 import urllib.parse
 
 try:
@@ -15,7 +14,7 @@ except Exception:  # pragma: no cover - compat path when the responses surface i
     def _codex_profiles(*_args: object, **_kwargs: object) -> tuple[dict[str, object], ...]:
         return ()
 from app.container import AppContainer
-from app.product.projections.handoffs import handoff_action_options, handoff_action_plan, handoff_from_human_task
+from app.product.projections.handoffs import handoff_action_options, handoff_from_human_task
 from app.product.service import build_product_service
 from app.services.assistant_property_lane import (
     assistant_property_lane_enabled,
@@ -1495,7 +1494,11 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     proactive_gold_action_state = _humanize(
         str(proactive_ooda_gold_receipt.get("status") or "watch")
     ).title()
-    proactive_runtime_bundle = _load_current_proactive_ooda_runtime_bundle()
+    # The live proactive probe shells into the runtime compose stack and is
+    # relevant only to the goal-evidence surface. Running it while building
+    # every admin section made otherwise local office/operator pages inherit a
+    # 30-second external probe budget.
+    proactive_runtime_bundle = _load_current_proactive_ooda_runtime_bundle() if section == "goals" else {}
     proactive_goal_action_visible = _proactive_goal_action_surface_visible(
         proactive_runtime_bundle,
         proactive_operator_receipt=proactive_ooda_operator_receipt,

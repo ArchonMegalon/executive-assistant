@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import html
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -287,7 +286,17 @@ def test_admin_proactive_ooda_operator_status_refresh_keeps_live_probe_enabled(
     assert calls[0]["allow_live_route_probe"] is True
 
 
-def test_admin_surfaces_render_live_runtime_state() -> None:
+def test_admin_surfaces_render_live_runtime_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import admin_view_models
+
+    def _unexpected_proactive_live_probe() -> dict[str, object]:
+        raise AssertionError("non-goal admin surfaces must not run the proactive live probe")
+
+    monkeypatch.setattr(
+        admin_view_models,
+        "_load_current_proactive_ooda_runtime_bundle",
+        _unexpected_proactive_live_probe,
+    )
     principal_id = "exec-admin-surface"
     client = _operator_client(principal_id=principal_id)
     _seed_admin_state(client, principal_id=principal_id)

@@ -583,7 +583,7 @@ def settings_support_detail(
         ],
         object_sections=[
             {
-                "eyebrow": "Fix status",
+                "eyebrow": "Fix verification",
                 "title": "Did the fix reach the channel and workspace link",
                 "items": [
                     _object_detail_row(
@@ -1079,12 +1079,6 @@ def settings_google_detail(
         "/app/actions/google/connect?"
         + urllib.parse.urlencode({"return_to": "/app/settings/google", "scope_bundle": "identity"})
     )
-    email_connect_recipient = _google_connect_email_recipient(
-        principal_id=context.principal_id,
-        access_email=str(context.access_email or ""),
-        primary_email=primary_email,
-    )
-    email_connect_href = ""
     covered_sync_candidates = int(sync.get("covered_signal_candidates") or 0)
     action = _google_connect_action(sync, return_to="/app/settings/google")
     resolved_verify_state = verify_status or str(sync.get("last_send_verification_state") or "").strip()

@@ -19,15 +19,15 @@ from fastapi.testclient import TestClient
 
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import Browser, BrowserContext, Error as PlaywrightError, Page, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Error as PlaywrightError, Page, sync_playwright  # noqa: E402
 
 Config = uvicorn.Config
 Server = uvicorn.Server
 
-from app.api.app import create_app
-from app.domain.models import ToolInvocationResult
-from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
-from tests.product_test_helpers import seed_founder_fixture, seed_product_state, seed_team_fixture
+from app.api.app import create_app  # noqa: E402
+from app.domain.models import ToolInvocationResult  # noqa: E402
+from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService  # noqa: E402
+from tests.product_test_helpers import seed_founder_fixture, seed_product_state, seed_team_fixture  # noqa: E402
 
 
 def _free_port() -> int:
@@ -133,15 +133,22 @@ def _png_visual_bytes(value: bytes) -> bytes:
 
 def _assert_visual_baseline(page: Page, snapshot_name: str, *, full_page: bool = True) -> None:
     baseline_dir = Path(__file__).resolve().with_name("visual_baselines")
-    baseline_dir.mkdir(parents=True, exist_ok=True)
     baseline_path = baseline_dir / snapshot_name
-    actual = _take_visual_screenshot(page, full_page=full_page)
+    try:
+        actual = _take_visual_screenshot(page, full_page=full_page)
+    except Exception as exc:
+        raise AssertionError(f"could not capture visual snapshot {snapshot_name} at {page.url}: {exc}") from exc
     if _truthy_env("CI") and not _truthy_env("EA_STRICT_VISUAL_BASELINES"):
         assert actual.startswith(b"\x89PNG\r\n\x1a\n")
         assert len(actual) > 4096
         return
-    if _truthy_env("EA_UPDATE_VISUAL_BASELINES") or not baseline_path.exists():
+    if _truthy_env("EA_UPDATE_VISUAL_BASELINES"):
+        baseline_dir.mkdir(parents=True, exist_ok=True)
         baseline_path.write_bytes(actual)
+    assert baseline_path.is_file(), (
+        f"visual baseline is missing: {baseline_path}; "
+        "baseline creation requires an explicit EA_UPDATE_VISUAL_BASELINES=1 review run"
+    )
     expected = baseline_path.read_bytes()
     actual_visual = _png_visual_bytes(actual)
     expected_visual = _png_visual_bytes(expected)
@@ -157,16 +164,37 @@ def _assert_visual_baseline(page: Page, snapshot_name: str, *, full_page: bool =
 
 
 def _take_visual_screenshot(page: Page, *, full_page: bool) -> bytes:
-    last_error: Exception | None = None
-    for _ in range(3):
-        try:
-            return page.screenshot(full_page=full_page, animations="disabled", caret="hide")
-        except Exception as exc:
-            last_error = exc
-            page.wait_for_timeout(250)
-            page.wait_for_load_state("networkidle")
-    assert last_error is not None
-    raise last_error
+    options = {
+        "full_page": full_page,
+        "animations": "disabled",
+        "caret": "hide",
+        "scale": "css",
+        "timeout": 15_000,
+    }
+    try:
+        return page.screenshot(**options)
+    except PlaywrightError as exc:
+        if not _is_retryable_screenshot_error(exc):
+            raise
+        initial_error_text = str(exc)
+
+    # Chromium can leave one page's capture channel unusable after a transient
+    # Page.captureScreenshot failure. Repeating the same command on that page
+    # does not recover it, so take one bounded capture from a fresh page in the
+    # same authenticated context instead.
+    recovery_page = page.context.new_page()
+    try:
+        response = recovery_page.goto(page.url, wait_until="domcontentloaded", timeout=15_000)
+        assert response is not None and response.ok, f"screenshot recovery navigation failed for {page.url}"
+        recovery_page.locator("body").wait_for(state="attached", timeout=5_000)
+        return recovery_page.screenshot(**options)
+    except Exception as recovery_error:
+        raise AssertionError(
+            f"visual screenshot failed for {page.url}; initial capture error: {initial_error_text}; "
+            f"fresh-page recovery error: {recovery_error}"
+        ) from recovery_error
+    finally:
+        recovery_page.close()
 
 
 def _visual_baseline_matches_with_bottom_padding(actual: bytes, expected: bytes) -> bool:
@@ -203,6 +231,11 @@ def _is_retryable_page_error(exc: Exception) -> bool:
     return "ERR_INSUFFICIENT_RESOURCES" in text or "Page crashed" in text
 
 
+def _is_retryable_screenshot_error(exc: Exception) -> bool:
+    text = str(exc)
+    return "Page.captureScreenshot" in text and "Unable to capture screenshot" in text
+
+
 class ResilientPage:
     def __init__(self, context: BrowserContext) -> None:
         self._context = context
@@ -223,7 +256,7 @@ class ResilientPage:
     def _normalized_wait_kwargs(kwargs: dict[str, object]) -> dict[str, object]:
         normalized = dict(kwargs)
         if normalized.get("wait_until") == "networkidle":
-            normalized["wait_until"] = "load"
+            normalized["wait_until"] = "domcontentloaded"
         return normalized
 
     def goto(self, url: str, **kwargs):
@@ -257,7 +290,7 @@ class ResilientPage:
                 last_error = exc
                 self._replace_page()
                 if isinstance(url, str):
-                    self._page.goto(url, wait_until="load")
+                    self._page.goto(url, wait_until="domcontentloaded")
                     self._last_url = url
                     return None
         assert last_error is not None
@@ -265,7 +298,7 @@ class ResilientPage:
 
     def wait_for_load_state(self, state=None, **kwargs):
         last_error: Exception | None = None
-        normalized_state = "load" if state == "networkidle" else state
+        normalized_state = "domcontentloaded" if state == "networkidle" else state
         for _ in range(3):
             try:
                 return self._page.wait_for_load_state(normalized_state, **kwargs)
@@ -275,7 +308,7 @@ class ResilientPage:
                 last_error = exc
                 self._replace_page()
                 if self._last_url and self._last_url != "about:blank":
-                    self._page.goto(self._last_url, wait_until="load")
+                    self._page.goto(self._last_url, wait_until="domcontentloaded")
                     return None
         assert last_error is not None
         raise last_error
@@ -399,8 +432,6 @@ def browser() -> Iterator[Browser]:
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-software-rasterizer",
             ],
         )
         try:
@@ -774,7 +805,7 @@ def test_people_memory_correction_and_handoff_actions_in_real_browser(page: Page
 
 def test_founder_fixture_in_real_browser(browser: Browser, founder_browser_server: dict[str, object]) -> None:
     context = browser.new_context()
-    page = context.new_page()
+    page = ResilientPage(context)
     try:
         base_url = str(founder_browser_server["base_url"])
 
@@ -791,7 +822,7 @@ def test_founder_fixture_in_real_browser(browser: Browser, founder_browser_serve
 
 def test_team_fixture_in_real_browser(browser: Browser, team_browser_server: dict[str, object]) -> None:
     context = browser.new_context()
-    page = context.new_page()
+    page = ResilientPage(context)
     try:
         base_url = str(team_browser_server["base_url"])
 
@@ -824,7 +855,7 @@ def test_operator_scoped_browser_queue_hides_other_operator_work(browser: Browse
             "X-EA-Operator-ID": "operator-office",
         }
     )
-    page = context.new_page()
+    page = ResilientPage(context)
     try:
         base_url = str(team_browser_server["base_url"])
 
@@ -841,9 +872,9 @@ def test_operator_scoped_browser_queue_hides_other_operator_work(browser: Browse
         context.close()
 
 
-def test_core_surface_visual_regression(browser: Browser, product_browser_server: dict[str, object]) -> None:
-    base_url = str(product_browser_server["base_url"])
-    cases = (
+@pytest.mark.parametrize(
+    ("path", "snapshot_name", "full_page"),
+    (
         ("/", "landing-page.png", True),
         ("/register", "get-started-page.png", True),
         ("/app/today", "today-page.png", True),
@@ -851,16 +882,25 @@ def test_core_surface_visual_regression(browser: Browser, product_browser_server
         ("/app/queue", "inbox-page.png", True),
         ("/app/commitments", "followups-page.png", True),
         ("/admin/audit-trail", "admin-audit-page.png", True),
-    )
-    for path, snapshot_name, full_page in cases:
-        context = browser.new_context(viewport={"width": 1440, "height": 1100})
-        page = context.new_page()
-        try:
-            response = page.goto(f"{base_url}{path}", wait_until="networkidle")
-            assert response is not None and response.ok
-            _assert_visual_baseline(page, snapshot_name, full_page=full_page)
-        finally:
-            context.close()
+    ),
+    ids=("landing", "get-started", "today", "briefing-viewport", "inbox", "followups", "admin-audit"),
+)
+def test_core_surface_visual_regression(
+    browser: Browser,
+    product_browser_server: dict[str, object],
+    path: str,
+    snapshot_name: str,
+    full_page: bool,
+) -> None:
+    base_url = str(product_browser_server["base_url"])
+    context = browser.new_context(viewport={"width": 1440, "height": 1100})
+    page = ResilientPage(context)
+    try:
+        response = page.goto(f"{base_url}{path}", wait_until="networkidle")
+        assert response is not None and response.ok
+        _assert_visual_baseline(page, snapshot_name, full_page=full_page)
+    finally:
+        context.close()
 
 
 def test_people_correction_and_support_bundle_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
@@ -902,6 +942,9 @@ def test_support_fix_verification_flow_in_real_browser(page: Page, product_brows
     base_url = str(product_browser_server["base_url"])
     client = product_browser_server["client"]
 
+    page.emulate_media(reduced_motion="reduce")
+    page.set_viewport_size({"width": 390, "height": 844})
+
     updated = client.post(
         "/app/actions/settings/morning-memo",
         data={
@@ -920,6 +963,17 @@ def test_support_fix_verification_flow_in_real_browser(page: Page, product_brows
     response = page.goto(f"{base_url}/app/settings/support", wait_until="networkidle")
     assert response is not None and response.ok
     assert "Fix verification" in page.content()
+    assert page.evaluate("() => window.matchMedia('(prefers-reduced-motion: reduce)').matches") is True
+    assert page.get_by_role("main").count() == 1
+    assert page.get_by_role("heading", name="Support and recovery", exact=True).count() == 1
+    horizontal_overflow = page.evaluate(
+        "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
+    )
+    assert horizontal_overflow <= 1
+    page.keyboard.press("Tab")
+    assert page.evaluate(
+        "() => document.activeElement?.matches('a, button, input, select, textarea, [tabindex]:not([tabindex=\"-1\"])')"
+    ) is True
 
     next_action_row = page.locator(".object-row", has_text="Next action")
     with page.expect_response(lambda value: "/app/actions/support/fix-verification/request" in value.url and value.request.method == "POST") as request_response:
@@ -1128,7 +1182,7 @@ def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operat
             "X-EA-Operator-ID": str(seeded["operator_id"]),
         }
     )
-    page = context.new_page()
+    page = ResilientPage(context)
     try:
         response = page.goto(f"{base_url}/admin/office", wait_until="networkidle")
         assert response is not None and response.ok
@@ -1175,7 +1229,7 @@ def test_operator_queue_claim_and_complete_stays_in_operator_lane(browser: Brows
             "X-EA-Operator-ID": str(seeded["operator_id"]),
         }
     )
-    page = context.new_page()
+    page = ResilientPage(context)
     try:
         response = page.goto(f"{base_url}/admin/office", wait_until="networkidle")
         assert response is not None and response.ok
