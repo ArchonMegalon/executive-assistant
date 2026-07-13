@@ -22,18 +22,11 @@
     },
     {
       "details": {
-        "drift_pairs": [
-          {
-            "canonical_input_key": "canonical_weekly_pulse",
-            "canonical_sha256": "643175c4a3ae7b43160263407c12693890c000c7a5ebb91f345959b71bc1aa77",
-            "mirror_input_key": "mirror_weekly_pulse",
-            "mirror_sha256": "b69bb85aab5e67ace6185ca2be5d19fa6e7f46b547fa89038c3ef50eb3be15c8"
-          }
-        ]
+        "compared_pair_count": 6
       },
       "key": "mirror_canonical_alignment",
-      "message": "EA mirror content differs from canonical design content.",
-      "status": "attention_required"
+      "message": "All observed EA mirror files match canonical content by SHA-256.",
+      "status": "consistent"
     },
     {
       "details": {
@@ -240,15 +233,6 @@
   },
   "findings": [
     {
-      "code": "mirror_canonical_drift",
-      "evidence_keys": [
-        "mirror_weekly_pulse",
-        "canonical_weekly_pulse"
-      ],
-      "message": "One or more EA design-mirror files do not match their canonical counterparts.",
-      "owner_action": "The EA mirror maintainer should refresh from canonical design truth without editing canonical sources."
-    },
-    {
       "code": "canonical_blk010_narrative_contradiction",
       "evidence_keys": [
         "canonical_readme",
@@ -315,7 +299,7 @@
       "owner_action": "Registry and Portal owners should reconcile the authoritative channel and its projection."
     }
   ],
-  "generated_at_utc": "2026-07-13T22:02:21Z",
+  "generated_at_utc": "2026-07-13T22:10:19Z",
   "input_bindings": [
     {
       "key": "mirror_readme",
@@ -323,7 +307,7 @@
       "observed_contract_name": null,
       "observed_generated_at_utc": null,
       "owner": "ea_design_mirror",
-      "path": "/docker/EA/.codex-design/product/README.md",
+      "path": "/home/tibor/.local/share/ea-releases/ea-core-flagship-hardening-20260713/.codex-design/product/README.md",
       "sha256": "2f1135e6b3604c90133bbeb3a909b0f8ac9adb00f0dc38ad2c075b9c751856df",
       "size_bytes": 44272
     },
@@ -343,7 +327,7 @@
       "observed_contract_name": null,
       "observed_generated_at_utc": null,
       "owner": "ea_design_mirror",
-      "path": "/docker/EA/.codex-design/product/GROUP_BLOCKERS.md",
+      "path": "/home/tibor/.local/share/ea-releases/ea-core-flagship-hardening-20260713/.codex-design/product/GROUP_BLOCKERS.md",
       "sha256": "662e99114d0aed2ab198051a88cb1ab42a50cb09c20654d63c528cc104ccc65f",
       "size_bytes": 3154
     },
@@ -363,7 +347,7 @@
       "observed_contract_name": null,
       "observed_generated_at_utc": null,
       "owner": "ea_design_mirror",
-      "path": "/docker/EA/.codex-design/product/CAMPAIGN_OS_FLAGSHIP_CLOSEOUT.md",
+      "path": "/home/tibor/.local/share/ea-releases/ea-core-flagship-hardening-20260713/.codex-design/product/CAMPAIGN_OS_FLAGSHIP_CLOSEOUT.md",
       "sha256": "e7ef86ed0f19658238daf3f9f85d252c0cb6285056b45bd17278c06f009b1f3f",
       "size_bytes": 3080
     },
@@ -383,7 +367,7 @@
       "observed_contract_name": "chummer.campaign_operability_scorecard",
       "observed_generated_at_utc": "2026-07-12T06:35:08Z",
       "owner": "ea_design_mirror",
-      "path": "/docker/EA/.codex-design/product/CAMPAIGN_OPERABILITY_SCORECARD.generated.json",
+      "path": "/home/tibor/.local/share/ea-releases/ea-core-flagship-hardening-20260713/.codex-design/product/CAMPAIGN_OPERABILITY_SCORECARD.generated.json",
       "sha256": "58fd57bd59416dd73bdee027b71fd96b7d764738d6c813dc5cad72c838f4c529",
       "size_bytes": 65140
     },
@@ -403,7 +387,7 @@
       "observed_contract_name": "chummer.final_gold_graph",
       "observed_generated_at_utc": "2026-07-12T06:35:08Z",
       "owner": "ea_design_mirror",
-      "path": "/docker/EA/.codex-design/product/FINAL_GOLD_GRAPH.generated.json",
+      "path": "/home/tibor/.local/share/ea-releases/ea-core-flagship-hardening-20260713/.codex-design/product/FINAL_GOLD_GRAPH.generated.json",
       "sha256": "557c0a88d9f5d78628672e720336daf32d32135a074a156a8ce29b513fe799ee",
       "size_bytes": 10938
     },
@@ -421,11 +405,11 @@
       "key": "mirror_weekly_pulse",
       "media_type": "json",
       "observed_contract_name": "chummer.weekly_product_pulse",
-      "observed_generated_at_utc": "2026-07-12T06:35:00Z",
+      "observed_generated_at_utc": "2026-07-13T04:39:23Z",
       "owner": "ea_design_mirror",
-      "path": "/docker/EA/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
-      "sha256": "b69bb85aab5e67ace6185ca2be5d19fa6e7f46b547fa89038c3ef50eb3be15c8",
-      "size_bytes": 13098
+      "path": "/home/tibor/.local/share/ea-releases/ea-core-flagship-hardening-20260713/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+      "sha256": "643175c4a3ae7b43160263407c12693890c000c7a5ebb91f345959b71bc1aa77",
+      "size_bytes": 13692
     },
     {
       "key": "canonical_weekly_pulse",
@@ -527,10 +511,10 @@
   },
   "status": "attention_required",
   "summary": {
-    "attention_required_check_count": 7,
+    "attention_required_check_count": 6,
     "check_count": 9,
-    "consistent_check_count": 2,
-    "finding_count": 7,
+    "consistent_check_count": 3,
+    "finding_count": 6,
     "input_count": 20,
     "invalid_input_check_count": 0
   }
