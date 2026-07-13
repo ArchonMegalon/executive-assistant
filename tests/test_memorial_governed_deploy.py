@@ -446,6 +446,7 @@ class FakeRunner:
                         "schema": "ea.manfred_memorial_candidate_smoke.v1",
                         "status": self.candidate_status,
                         "checks": [
+                            "singular_memorial_alias",
                             "source_grounded_narrator_boundary",
                             "voice_provider_boundary_blocked",
                             "browser_provider_websocket_boundary",
@@ -490,6 +491,7 @@ def _lane(
     runner: FakeRunner,
     *,
     http_get=None,  # type: ignore[no-untyped-def]
+    http_no_redirect=None,  # type: ignore[no-untyped-def]
     deployment_id: str = "memorial-release-001",
     receipt_dir: Path | None = None,
     global_lock_path: Path | None = None,
@@ -784,10 +786,12 @@ def _lane(
                 "candidate_left_running_for_soak": True,
                 "promotion_authority": False,
                 "first_smoke_checks": [
+                    "singular_memorial_alias",
                     "source_grounded_narrator_boundary",
                     "voice_provider_boundary_blocked",
                 ],
                 "second_smoke_checks": [
+                    "singular_memorial_alias",
                     "source_grounded_narrator_boundary",
                     "voice_provider_boundary_blocked",
                 ],
@@ -823,11 +827,31 @@ def _lane(
             return safe_http(url, timeout)
         return (http_get or safe_http)(url, timeout)
 
+    def safe_no_redirect(
+        url: str,
+        timeout: float,
+        method: str,
+    ) -> deploy.HttpResponse:
+        del url, timeout
+        return deploy.HttpResponse(
+            308,
+            "text/plain; charset=utf-8",
+            b"" if method == "HEAD" else b"Permanent Redirect",
+            headers={
+                "Location": "/memorials/manfred?from=ea-launch-verifier",
+                "Cache-Control": "no-store",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+                "X-Robots-Tag": "noindex, nofollow",
+            },
+        )
+
     return deploy.MemorialDeployLane(
         root=root,
         env=env,
         runner=runner,
         http_get=selected_http,
+        http_no_redirect=http_no_redirect or safe_no_redirect,
         sleep=lambda _: None,
         wait_seconds=0,
         receipt_dir=receipt_dir or root / ".runtime" / "test-receipts",
@@ -1440,6 +1464,20 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
         ("live_ea_api_unchanged", False),
         ("provider_calls_performed", True),
         ("release_root", "/different/memorial-data"),
+        (
+            "first_smoke_checks",
+            [
+                "source_grounded_narrator_boundary",
+                "voice_provider_boundary_blocked",
+            ],
+        ),
+        (
+            "second_smoke_checks",
+            [
+                "source_grounded_narrator_boundary",
+                "voice_provider_boundary_blocked",
+            ],
+        ),
         ("browser_surface.http_errors", 1),
         ("browser_surface.failed_requests", None),
     ],
@@ -2350,6 +2388,170 @@ def test_public_manifest_must_match_local_manifest(release_root: Path) -> None:
         )
 
 
+def test_deployed_surface_probes_canonical_and_singular_alias_origins(
+    release_root: Path,
+) -> None:
+    runner = FakeRunner(release_root)
+    observed_urls: list[str] = []
+    observed_alias_requests: list[tuple[str, str]] = []
+
+    def recording_http(url: str, timeout: float) -> deploy.HttpResponse:
+        observed_urls.append(url)
+        if url.endswith("/health"):
+            return deploy.HttpResponse(200, "application/json", b'{"status":"ok"}')
+        if url.endswith(".json"):
+            return deploy.HttpResponse(
+                200,
+                "application/json",
+                SAFE_MANIFEST,
+                "b" * 40,
+            )
+        return deploy.HttpResponse(200, "text/html", SAFE_HTML, "b" * 40)
+
+    def recording_no_redirect(
+        url: str,
+        timeout: float,
+        method: str,
+    ) -> deploy.HttpResponse:
+        del timeout
+        observed_alias_requests.append((method, url))
+        return deploy.HttpResponse(
+            308,
+            "text/plain; charset=utf-8",
+            b"" if method == "HEAD" else b"Permanent Redirect",
+            headers={
+                "Location": "/memorials/manfred?from=ea-launch-verifier",
+                "Cache-Control": "no-store",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+                "X-Robots-Tag": "noindex, nofollow",
+            },
+        )
+
+    lane = _lane(
+        release_root,
+        runner,
+        http_get=recording_http,
+        http_no_redirect=recording_no_redirect,
+    )
+    lane._verify_deployed_surface(
+        "https://memorial.example.org",
+        source_revision="b" * 40,
+    )
+
+    assert {
+        "http://127.0.0.1:8090/memorials/manfred",
+        "https://memorial.example.org/memorials/manfred",
+    } <= set(observed_urls)
+    assert observed_alias_requests == [
+        (
+            "GET",
+            "http://127.0.0.1:8090/memorial/manfred?from=ea-launch-verifier",
+        ),
+        (
+            "HEAD",
+            "http://127.0.0.1:8090/memorial/manfred?from=ea-launch-verifier",
+        ),
+        (
+            "GET",
+            "https://memorial.example.org/memorial/manfred?from=ea-launch-verifier",
+        ),
+        (
+            "HEAD",
+            "https://memorial.example.org/memorial/manfred?from=ea-launch-verifier",
+        ),
+    ]
+    assert lane.receipt["alias_probes"][0]["query_preserved"] is True
+    assert lane.receipt["alias_probes"][1]["query_preserved"] is True
+
+
+@pytest.mark.parametrize(
+    ("response", "reason"),
+    [
+        (
+            deploy.HttpResponse(200, "text/html", SAFE_HTML),
+            "memorial_alias_status_invalid",
+        ),
+        (
+            deploy.HttpResponse(301, "text/plain", b""),
+            "memorial_alias_status_invalid",
+        ),
+        (
+            deploy.HttpResponse(302, "text/plain", b""),
+            "memorial_alias_status_invalid",
+        ),
+        (
+            deploy.HttpResponse(
+                307,
+                "text/plain",
+                b"",
+                headers={"Location": "/memorials/manfred?from=ea-launch-verifier"},
+            ),
+            "memorial_alias_status_invalid",
+        ),
+        (
+            deploy.HttpResponse(
+                308,
+                "text/plain",
+                b"",
+                headers={
+                    "Location": "https://attacker.invalid/",
+                    "Cache-Control": "no-store",
+                    "Referrer-Policy": "no-referrer",
+                    "X-Content-Type-Options": "nosniff",
+                    "X-Robots-Tag": "noindex, nofollow",
+                },
+            ),
+            "memorial_alias_location_invalid",
+        ),
+        (
+            deploy.HttpResponse(
+                308,
+                "text/plain",
+                b"",
+                headers={
+                    "Location": "/memorials/manfred?from=ea-launch-verifier",
+                    "Cache-Control": "public, max-age=3600",
+                    "Referrer-Policy": "no-referrer",
+                    "X-Content-Type-Options": "nosniff",
+                    "X-Robots-Tag": "noindex, nofollow",
+                },
+            ),
+            "memorial_alias_headers_invalid",
+        ),
+        (
+            deploy.HttpResponse(
+                308,
+                "text/plain",
+                b"unexpected-head-body",
+                headers={
+                    "Location": "/memorials/manfred?from=ea-launch-verifier",
+                    "Cache-Control": "no-store",
+                    "Referrer-Policy": "no-referrer",
+                    "X-Content-Type-Options": "nosniff",
+                    "X-Robots-Tag": "noindex, nofollow",
+                },
+            ),
+            "memorial_alias_head_body_invalid",
+        ),
+    ],
+)
+def test_singular_alias_probe_rejects_followed_or_malformed_first_hop(
+    release_root: Path,
+    response: deploy.HttpResponse,
+    reason: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(
+        release_root,
+        runner,
+        http_no_redirect=lambda _url, _timeout, _method: response,
+    )
+
+    with pytest.raises(deploy.DeployError, match=reason):
+        lane._verify_singular_memorial_alias("https://memorial.example.org")
+
+
 def test_memorial_probe_rejects_stale_runtime_source_revision(
     release_root: Path,
 ) -> None:
@@ -2437,6 +2639,7 @@ def test_nonzero_candidate_verifier_records_safe_origin_after_local_evidence(
             "status": "pass",
             "checks": [
                 "browser_provider_websocket_boundary",
+                "singular_memorial_alias",
                 "source_grounded_narrator_boundary",
                 "voice_provider_boundary_blocked",
             ],

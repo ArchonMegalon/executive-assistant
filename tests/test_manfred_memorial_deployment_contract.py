@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import copy
 import stat
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 import yaml
 
 from scripts import build_manfred_memorial_image as image_builder
+from scripts import deploy_ea_memorial as memorial_deploy
 from scripts import prepare_manfred_memorial_candidate as candidate_prep
 from scripts import run_manfred_memorial_candidate as candidate_runner
 from scripts import verify_manfred_memorial_candidate as candidate_verify
@@ -101,6 +104,162 @@ def test_candidate_keeps_spatial_scaffold_unregistered(
     assert "/tours/viewer/{slug}/{asset_path}" in paths
     assert "/v1/internal/governed-spatial-render/compose" not in paths
     assert "/v1/internal/governed-spatial-render/build" not in paths
+
+
+def test_public_memorial_singular_alias_is_permanent_safe_and_schema_hidden() -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.routes.public_memorial_surface import router
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    for method in ("GET", "HEAD"):
+        response = client.request(
+            method,
+            "/memorial/manfred?from=family",
+            follow_redirects=False,
+        )
+        assert response.status_code == 308
+        assert response.headers["location"] == "/memorials/manfred?from=family"
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["referrer-policy"] == "no-referrer"
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["x-robots-tag"] == "noindex, nofollow"
+        if method == "HEAD":
+            assert response.content == b""
+
+    duplicate_query = client.get(
+        "/memorial/manfred?tag=one&tag=two",
+        follow_redirects=False,
+    )
+    assert duplicate_query.headers["location"] == ("/memorials/manfred?tag=one&tag=two")
+
+    for unsafe_path in (
+        "/memorial/a%3Fb",
+        "/memorial/a%23b",
+        "/memorial/a%2Fb",
+        "/memorial/a%5Cb",
+        "/memorial/a%0D%0ALocation%3Aevil",
+    ):
+        rejected = client.get(unsafe_path, follow_redirects=False)
+        assert rejected.status_code == 404
+        assert "location" not in rejected.headers
+
+    assert "/memorial/manfred" not in app.openapi()["paths"]
+
+
+def test_candidate_alias_verifier_inspects_exact_get_and_head_first_hops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[tuple[str, str, bool, set[int]]] = []
+
+    def fake_request(  # type: ignore[no-untyped-def]
+        base_url,
+        path,
+        *,
+        method="GET",
+        expected=None,
+        follow_redirects=True,
+        **_kwargs,
+    ):
+        observed.append((method, path, follow_redirects, set(expected or set())))
+        return (
+            308,
+            b"" if method == "HEAD" else b"Permanent Redirect",
+            {
+                "location": "/memorials/manfred?from=ea-launch-verifier",
+                "cache-control": "no-store",
+                "referrer-policy": "no-referrer",
+                "x-content-type-options": "nosniff",
+                "x-robots-tag": "noindex, nofollow",
+            },
+        )
+
+    monkeypatch.setattr(candidate_verify, "_request", fake_request)
+    candidate_verify._verify_singular_memorial_alias("https://memorial.example.org")
+
+    assert observed == [
+        (
+            "GET",
+            "/memorial/manfred?from=ea-launch-verifier",
+            False,
+            {308},
+        ),
+        (
+            "HEAD",
+            "/memorial/manfred?from=ea-launch-verifier",
+            False,
+            {308},
+        ),
+    ]
+
+
+def test_no_redirect_clients_observe_308_without_requesting_canonical_target() -> None:
+    observed: list[tuple[str, str]] = []
+
+    class RedirectHandler(BaseHTTPRequestHandler):
+        def _respond(self, *, include_body: bool) -> None:
+            observed.append((self.command, self.path))
+            if self.path.startswith("/memorials/"):
+                self.send_response(418)
+                self.end_headers()
+                return
+            self.send_response(308)
+            self.send_header(
+                "Location",
+                "/memorials/manfred?from=ea-launch-verifier",
+            )
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Robots-Tag", "noindex, nofollow")
+            self.end_headers()
+            if include_body:
+                self.wfile.write(b"Permanent Redirect")
+
+        def do_GET(self) -> None:  # noqa: N802
+            self._respond(include_body=True)
+
+        def do_HEAD(self) -> None:  # noqa: N802
+            self._respond(include_body=False)
+
+        def log_message(self, format_string: str, *args: object) -> None:
+            del format_string, args
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address[:2]
+        origin = f"http://{host}:{port}"
+        candidate_verify._verify_singular_memorial_alias(origin)
+        for method in ("GET", "HEAD"):
+            response = memorial_deploy._default_http_no_redirect(
+                f"{origin}/memorial/manfred?from=ea-launch-verifier",
+                5,
+                method,
+            )
+            assert response.status == 308
+            assert response.headers is not None
+            assert response.headers["Location"] == (
+                "/memorials/manfred?from=ea-launch-verifier"
+            )
+            if method == "HEAD":
+                assert response.body == b""
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert observed == [
+        ("GET", "/memorial/manfred?from=ea-launch-verifier"),
+        ("HEAD", "/memorial/manfred?from=ea-launch-verifier"),
+        ("GET", "/memorial/manfred?from=ea-launch-verifier"),
+        ("HEAD", "/memorial/manfred?from=ea-launch-verifier"),
+    ]
 
 
 def test_docker_context_excludes_secret_and_memorial_material() -> None:

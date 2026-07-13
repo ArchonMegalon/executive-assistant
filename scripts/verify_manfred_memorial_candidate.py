@@ -33,6 +33,20 @@ VERIFIER_REQUEST_HEADERS = {
 }
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(  # type: ignore[no-untyped-def]
+        self,
+        req,
+        fp,
+        code,
+        msg,
+        headers,
+        newurl,
+    ):
+        del req, fp, code, msg, headers, newurl
+        return None
+
+
 def _http_origin(value: str) -> tuple[str, str, int] | None:
     try:
         parsed = urlparse(value)
@@ -73,6 +87,7 @@ def _request(
     payload: dict[str, object] | None = None,
     headers: dict[str, str] | None = None,
     expected: set[int] | None = None,
+    follow_redirects: bool = True,
 ) -> tuple[int, bytes, dict[str, str]]:
     data = None
     request_headers = dict(headers or {})
@@ -90,7 +105,12 @@ def _request(
         method=method,
     )
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        open_request = (
+            urllib.request.urlopen
+            if follow_redirects
+            else urllib.request.build_opener(_NoRedirectHandler()).open
+        )
+        with open_request(request, timeout=20) as response:
             status = int(response.status)
             body = response.read(2 * 1024 * 1024 + 1)
             response_headers = {
@@ -116,6 +136,35 @@ def _json_body(body: bytes, *, path: str) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise RuntimeError(f"candidate_http_json_invalid:{path}")
     return payload
+
+
+def _verify_singular_memorial_alias(base_url: str) -> None:
+    query = "from=ea-launch-verifier"
+    path = f"/memorial/manfred?{query}"
+    expected_location = f"/memorials/manfred?{query}"
+    expected_headers = {
+        "cache-control": "no-store",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-robots-tag": "noindex, nofollow",
+    }
+    for method in ("GET", "HEAD"):
+        status, body, headers = _request(
+            base_url,
+            path,
+            method=method,
+            expected={308},
+            follow_redirects=False,
+        )
+        if status != 308 or headers.get("location") != expected_location:
+            raise RuntimeError("candidate_memorial_alias_invalid")
+        if any(
+            str(headers.get(name) or "").strip().casefold() != value
+            for name, value in expected_headers.items()
+        ):
+            raise RuntimeError("candidate_memorial_alias_invalid")
+        if method == "HEAD" and body:
+            raise RuntimeError("candidate_memorial_alias_invalid")
 
 
 def _contains_forbidden_recipient_field(value: object) -> bool:
@@ -559,10 +608,13 @@ def verify_candidate(
     checks.append("public_projection")
 
     _request(base_url, "/memorials/manfred", method="HEAD")
+    _verify_singular_memorial_alias(base_url)
     _request(base_url, "/memorials/manfred/archive.json")
     _request(base_url, "/memorials/manfred/app.webmanifest")
     _request(base_url, "/memorials/manfred/service-worker.js")
-    checks.extend(["head_surface_no_prewarm", "archive", "pwa"])
+    checks.extend(
+        ["head_surface_no_prewarm", "singular_memorial_alias", "archive", "pwa"]
+    )
 
     _request(
         base_url,

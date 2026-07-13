@@ -3,7 +3,13 @@ from __future__ import annotations
 import mimetypes
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+)
 
 from app.api.routes.public_memorial_surface_support import (
     _asset_file,
@@ -62,26 +68,26 @@ def _public_surface_html_error_response(status_code: int, detail: str) -> HTMLRe
     del detail
     return HTMLResponse(
         (
-            "<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\">"
-            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            '<!doctype html><html lang="de"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
             "<title>Erinnerungsseite gerade nicht erreichbar</title>"
             "<style>"
             ":root{color-scheme:light;--ink:#2d211a;--ink-soft:#67584c;--line:rgba(72,53,36,.16);--paper:rgba(255,251,246,.95);"
             "--shadow:0 28px 60px rgba(66,45,29,.12);--accent:#8c6949;}"
-            "*{box-sizing:border-box;}body{margin:0;min-height:100vh;font-family:\"Avenir Next\",\"Segoe UI\",\"Helvetica Neue\",sans-serif;"
+            '*{box-sizing:border-box;}body{margin:0;min-height:100vh;font-family:"Avenir Next","Segoe UI","Helvetica Neue",sans-serif;'
             "color:var(--ink);background:radial-gradient(circle at top, rgba(195,177,151,.28), transparent 38%),"
             "linear-gradient(180deg,#f5eee6 0%,#ebe1d4 48%,#f6f0e8 100%);display:flex;align-items:center;justify-content:center;padding:24px;}"
             "main{width:min(720px,100%);background:var(--paper);border:1px solid var(--line);border-radius:28px;padding:30px 28px;"
-            "box-shadow:var(--shadow);}h1{margin:0 0 14px;font-family:\"Iowan Old Style\",\"Palatino Linotype\",Georgia,serif;"
+            'box-shadow:var(--shadow);}h1{margin:0 0 14px;font-family:"Iowan Old Style","Palatino Linotype",Georgia,serif;'
             "font-size:clamp(2rem,5vw,3rem);line-height:1.04;}p{margin:0 0 12px;line-height:1.6;color:var(--ink-soft);}"
             ".kicker{display:inline-block;margin-bottom:14px;font-size:.82rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);}"
             ".actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}.actions a{display:inline-flex;align-items:center;min-height:44px;padding:10px 16px;"
             "border:1px solid var(--line);border-radius:999px;color:var(--ink);font-weight:700;text-underline-offset:3px;}"
-            "</style></head><body><main><div class=\"kicker\">Erinnerungsseite</div>"
+            '</style></head><body><main><div class="kicker">Erinnerungsseite</div>'
             "<h1>Diese Seite ist gerade nicht erreichbar.</h1>"
             "<p>Der Link kann vorübergehend nicht verfügbar sein. Private oder technische Details werden hier nicht angezeigt.</p>"
             "<p>Versuche es bitte noch einmal. Wenn die Seite weiter fehlt, frage die Person, von der du den Link erhalten hast.</p>"
-            "<div class=\"actions\"><a href=\"\">Erneut versuchen</a><a href=\"/\">Zur Startseite</a></div>"
+            '<div class="actions"><a href="">Erneut versuchen</a><a href="/">Zur Startseite</a></div>'
             "</main></body></html>"
         ),
         status_code=status_code,
@@ -117,7 +123,10 @@ def public_memorial_manifest(slug: str) -> JSONResponse:
 def public_memorial_archive_manifest(slug: str) -> JSONResponse:
     try:
         _load_memorial(slug)
-        return JSONResponse(_public_memorial_archive_registry(slug), headers=dict(_PUBLIC_MEMORIAL_SUPPORT_HEADERS))
+        return JSONResponse(
+            _public_memorial_archive_registry(slug),
+            headers=dict(_PUBLIC_MEMORIAL_SUPPORT_HEADERS),
+        )
     except HTTPException as exc:
         return _public_surface_error_response(exc.status_code, str(exc.detail))
 
@@ -150,7 +159,9 @@ def public_memorial_archive_publication(slug: str, publication_slug: str) -> Res
         return _public_surface_html_error_response(exc.status_code, str(exc.detail))
     html_path = _memorial_archive_publication_html_path(slug, publication_slug)
     if not html_path.is_file():
-        redirect_url = _memorial_archive_publication_redirect_url(slug, publication_slug)
+        redirect_url = _memorial_archive_publication_redirect_url(
+            slug, publication_slug
+        )
         if redirect_url:
             return RedirectResponse(
                 url=redirect_url,
@@ -162,17 +173,26 @@ def public_memorial_archive_publication(slug: str, publication_slug: str) -> Res
                     "X-Robots-Tag": "noindex, nofollow",
                 },
             )
-        return _public_surface_html_error_response(404, "memorial_archive_publication_not_found")
-    return HTMLResponse(html_path.read_text(encoding="utf-8"), headers=dict(_PUBLIC_MEMORIAL_HTML_HEADERS))
+        return _public_surface_html_error_response(
+            404, "memorial_archive_publication_not_found"
+        )
+    return HTMLResponse(
+        html_path.read_text(encoding="utf-8"),
+        headers=dict(_PUBLIC_MEMORIAL_HTML_HEADERS),
+    )
 
 
 @router.get("/memorials/{slug}/app.webmanifest")
 def public_memorial_pwa_manifest(slug: str, request: Request) -> JSONResponse:
     try:
         payload = _load_memorial(slug)
-        prefer_install_surface = str(request.query_params.get("surface") or "").strip().lower() == "page"
+        prefer_install_surface = (
+            str(request.query_params.get("surface") or "").strip().lower() == "page"
+        )
         return JSONResponse(
-            _memorial_pwa_manifest_payload(slug, payload, prefer_install_surface=prefer_install_surface),
+            _memorial_pwa_manifest_payload(
+                slug, payload, prefer_install_surface=prefer_install_surface
+            ),
             media_type="application/manifest+json",
             headers=dict(_PUBLIC_MEMORIAL_SUPPORT_HEADERS),
         )
@@ -248,6 +268,24 @@ def public_memorial_file(slug: str, asset_path: str) -> FileResponse:
             "Cache-Control": "public, max-age=3600, immutable",
             **_PUBLIC_MEMORIAL_STATIC_ASSET_HEADERS,
         },
+    )
+
+
+@router.api_route(
+    "/memorial/manfred",
+    methods=["GET", "HEAD"],
+    include_in_schema=False,
+)
+def manfred_memorial_singular_alias(request: Request) -> RedirectResponse:
+    target = "/memorials/manfred"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    if any(ord(character) < 32 or ord(character) == 127 for character in target):
+        raise HTTPException(status_code=400, detail="memorial_alias_url_invalid")
+    return RedirectResponse(
+        url=target,
+        status_code=308,
+        headers=dict(_PUBLIC_MEMORIAL_SUPPORT_HEADERS),
     )
 
 

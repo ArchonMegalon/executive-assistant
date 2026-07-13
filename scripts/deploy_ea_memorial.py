@@ -133,6 +133,7 @@ SAFE_CANDIDATE_ERROR_CODES = frozenset(
         "candidate_http_response_too_large",
         "candidate_http_status_unexpected",
         "candidate_memorial_slug_mismatch",
+        "candidate_memorial_alias_invalid",
         "candidate_narrator_boundary_invalid",
         "candidate_public_headers_incomplete",
         "candidate_public_manifest_private_data_exposed",
@@ -152,6 +153,7 @@ class HttpResponse:
     content_type: str
     body: bytes
     source_revision: str = ""
+    headers: Mapping[str, str] | None = None
 
 
 class Runner(Protocol):
@@ -491,11 +493,90 @@ def _default_http_get(url: str, timeout_seconds: float) -> HttpResponse:
                 source_revision=str(
                     response.headers.get("X-EA-Source-Revision") or ""
                 ).strip(),
+                headers={
+                    name: str(response.headers.get(name) or "").strip()
+                    for name in (
+                        "Location",
+                        "Cache-Control",
+                        "Referrer-Policy",
+                        "X-Content-Type-Options",
+                        "X-Robots-Tag",
+                    )
+                },
             )
     except urllib.error.HTTPError as exc:
         raise DeployError(f"http_status_invalid:{url}:{int(exc.code or 0)}") from exc
     except (OSError, urllib.error.URLError) as exc:
         raise DeployError(f"http_probe_failed:{url}:{type(exc).__name__}") from exc
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(  # type: ignore[no-untyped-def]
+        self,
+        req,
+        fp,
+        code,
+        msg,
+        headers,
+        newurl,
+    ):
+        del req, fp, code, msg, headers, newurl
+        return None
+
+
+def _default_http_no_redirect(
+    url: str,
+    timeout_seconds: float,
+    method: str,
+) -> HttpResponse:
+    if method not in {"GET", "HEAD"}:
+        raise DeployError("http_no_redirect_method_invalid")
+    request = urllib.request.Request(
+        url,
+        method=method,
+        headers={
+            "Accept": "text/html,*/*;q=0.1",
+            "User-Agent": "EA-Memorial-Scoped-Deploy/1.0",
+        },
+    )
+    response: Any
+    try:
+        response = urllib.request.build_opener(_NoRedirectHandler()).open(
+            request,
+            timeout=timeout_seconds,
+        )
+    except urllib.error.HTTPError as exc:
+        if int(exc.code or 0) not in {301, 302, 303, 307, 308}:
+            raise DeployError(
+                f"http_status_invalid:{url}:{int(exc.code or 0)}"
+            ) from exc
+        response = exc
+    except (OSError, urllib.error.URLError) as exc:
+        raise DeployError(f"http_probe_failed:{url}:{type(exc).__name__}") from exc
+    try:
+        body = response.read(MAX_HTTP_BODY_BYTES + 1)
+        if len(body) > MAX_HTTP_BODY_BYTES:
+            raise DeployError(f"http_body_too_large:{url}")
+        return HttpResponse(
+            status=int(getattr(response, "status", 0) or response.getcode() or 0),
+            content_type=str(response.headers.get("Content-Type") or ""),
+            body=body,
+            source_revision=str(
+                response.headers.get("X-EA-Source-Revision") or ""
+            ).strip(),
+            headers={
+                name: str(response.headers.get(name) or "").strip()
+                for name in (
+                    "Location",
+                    "Cache-Control",
+                    "Referrer-Policy",
+                    "X-Content-Type-Options",
+                    "X-Robots-Tag",
+                )
+            },
+        )
+    finally:
+        response.close()
 
 
 def _validate_public_origin(value: str, *, allowed_hosts: Sequence[str]) -> str:
@@ -742,6 +823,9 @@ class MemorialDeployLane:
         env: Mapping[str, str] | None = None,
         runner: Runner | None = None,
         http_get: Callable[[str, float], HttpResponse] = _default_http_get,
+        http_no_redirect: Callable[
+            [str, float, str], HttpResponse
+        ] = _default_http_no_redirect,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         wait_seconds: float = 90.0,
@@ -755,6 +839,7 @@ class MemorialDeployLane:
         self.env = dict(os.environ if env is None else env)
         self.runner = runner or SubprocessRunner()
         self.http_get = http_get
+        self.http_no_redirect = http_no_redirect
         self.sleep = sleep
         self.monotonic = monotonic
         self.wait_seconds = max(float(wait_seconds), 0.0)
@@ -1652,6 +1737,7 @@ class MemorialDeployLane:
             ],
         }
         required_smoke_checks = {
+            "singular_memorial_alias",
             "source_grounded_narrator_boundary",
             "voice_provider_boundary_blocked",
         }
@@ -2200,6 +2286,55 @@ class MemorialDeployLane:
                 raise DeployError(f"http_probe_exhausted:{url}:{last_error}")
             self.sleep(self.poll_seconds)
 
+    def _verify_singular_memorial_alias(self, origin: str) -> dict[str, Any]:
+        query = "from=ea-launch-verifier"
+        url = f"{origin}/memorial/{MEMORIAL_SLUG}?{query}"
+        expected_location = f"/memorials/{MEMORIAL_SLUG}?{query}"
+        expected_headers = {
+            "cache-control": "no-store",
+            "referrer-policy": "no-referrer",
+            "x-content-type-options": "nosniff",
+            "x-robots-tag": "noindex, nofollow",
+        }
+        methods: list[dict[str, Any]] = []
+        for method in ("GET", "HEAD"):
+            response = self.http_no_redirect(
+                url,
+                self.request_timeout_seconds,
+                method,
+            )
+            headers = {
+                str(name).strip().casefold(): str(value).strip()
+                for name, value in dict(response.headers or {}).items()
+            }
+            if response.status != 308:
+                raise DeployError("memorial_alias_status_invalid")
+            if headers.get("location") != expected_location:
+                raise DeployError("memorial_alias_location_invalid")
+            if any(
+                headers.get(name, "").casefold() != value
+                for name, value in expected_headers.items()
+            ):
+                raise DeployError("memorial_alias_headers_invalid")
+            if method == "HEAD" and response.body:
+                raise DeployError("memorial_alias_head_body_invalid")
+            methods.append(
+                {
+                    "method": method,
+                    "status_code": response.status,
+                    "location": expected_location,
+                    "headers": dict(expected_headers),
+                    "body_bytes": len(response.body),
+                }
+            )
+        return {
+            "origin": origin,
+            "alias_path": f"/memorial/{MEMORIAL_SLUG}",
+            "canonical_path": f"/memorials/{MEMORIAL_SLUG}",
+            "query_preserved": True,
+            "methods": methods,
+        }
+
     def _wait_json_control(self, url: str) -> tuple[dict[str, Any], dict[str, Any]]:
         deadline = self.monotonic() + self.wait_seconds
         last_error = ""
@@ -2407,10 +2542,21 @@ class MemorialDeployLane:
                 expected_source_revision=source_revision,
             ),
         ]
+        alias_probes = [
+            self._verify_singular_memorial_alias(local),
+            self._verify_singular_memorial_alias(public_origin),
+        ]
         if probes[2]["body_sha256"] != probes[4]["body_sha256"]:
             raise DeployError("public_memorial_manifest_differs_from_local")
         self.receipt["probes"] = probes
-        self._record_check("local_and_public_memorial", "pass")
+        self.receipt["alias_probes"] = alias_probes
+        self._record_check(
+            "local_and_public_memorial",
+            "pass",
+            alias_method_probes=sum(
+                len(list(item.get("methods") or [])) for item in alias_probes
+            ),
+        )
 
     def _verify_candidate_origin(
         self, *, label: str, base_url: str, public_origin: str
@@ -2427,6 +2573,7 @@ class MemorialDeployLane:
             origin=label,
         )
         required_checks = {
+            "singular_memorial_alias",
             "source_grounded_narrator_boundary",
             "voice_provider_boundary_blocked",
             "browser_provider_websocket_boundary",
