@@ -8734,13 +8734,18 @@ def probe_proactive_route(
             or "repair_proactive_runtime_inputs"
         ).strip()
     else:
+        ready_default_action = (
+            ""
+            if status == "ready" and bool(live_receipt_payload.get("ok"))
+            else "inspect_proactive_delivery_route"
+        )
         next_action = str(
             followthrough_next_action
             or route_next_action
             or guard_next_action
             or runtime_next_action
             or live_receipt_next_action
-            or "inspect_proactive_delivery_route"
+            or ready_default_action
         ).strip()
     blocking_reason = str(
         route_error
