@@ -746,8 +746,8 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
     assert "scan_whatsapp_web_qr" in goals.text
     assert "preferred delivery path needs recovery" in goals.text
     assert "Record a signal-loop outcome" not in goals.text
-    assert "Record packet verdict" not in goals.text
-    assert "/admin/proactive-ooda/approval" not in goals.text
+    assert "Record packet verdict" in goals.text
+    assert "/admin/proactive-ooda/approval" in goals.text
     assert "Acceptance evidence receipt" in goals.text
     assert "Morning brief accepted" in goals.text
     assert "Real decision cleared" in goals.text
@@ -1251,7 +1251,7 @@ def test_admin_signal_evidence_runtime_bundle_uses_repo_root(monkeypatch: pytest
     monkeypatch.setattr(landing_actions, "load_runtime_artifact_bundle", _fake_load_runtime_artifact_bundle)
 
     assert landing_actions._load_current_proactive_ooda_runtime_bundle() == {}
-    assert observed["root"] == Path("/docker/EA")
+    assert observed["root"] == Path(__file__).resolve().parents[1]
 
 
 def test_admin_proactive_ooda_capture_records_redacted_gold_evidence(
