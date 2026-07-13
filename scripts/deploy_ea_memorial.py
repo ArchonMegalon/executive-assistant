@@ -263,10 +263,19 @@ def _mount_identities(inspection: Mapping[str, Any]) -> list[dict[str, object]]:
     for raw_mount in list(inspection.get("Mounts") or []):
         if not isinstance(raw_mount, dict):
             continue
+        mount_type = str(raw_mount.get("Type") or "")
+        source = str(
+            (
+                raw_mount.get("Name")
+                if mount_type == "volume"
+                else raw_mount.get("Source")
+            )
+            or ""
+        )
         identities.append(
             {
-                "type": str(raw_mount.get("Type") or ""),
-                "source": str(raw_mount.get("Source") or ""),
+                "type": mount_type,
+                "source": source,
                 "destination": str(raw_mount.get("Destination") or ""),
                 "read_write": bool(raw_mount.get("RW")),
             }

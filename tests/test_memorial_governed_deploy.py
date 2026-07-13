@@ -1005,6 +1005,51 @@ def test_rendered_process_config_matches_compose_dollar_escape_runtime() -> None
     }
 
 
+def test_rendered_mount_identity_matches_named_volume_runtime_source(
+    tmp_path: Path,
+) -> None:
+    runtime = deploy._mount_identities(
+        {
+            "Mounts": [
+                {
+                    "Type": "bind",
+                    "Source": str(tmp_path / "config"),
+                    "Destination": "/app/config",
+                    "RW": False,
+                },
+                {
+                    "Type": "volume",
+                    "Name": "ea_ea_artifacts",
+                    "Source": "/var/lib/docker/volumes/ea_ea_artifacts/_data",
+                    "Destination": "/data/artifacts",
+                    "RW": True,
+                },
+            ]
+        }
+    )
+    rendered = deploy.MemorialDeployLane._rendered_mount_identities(
+        {"volumes": {"artifacts": {"name": "ea_ea_artifacts"}}},
+        {
+            "volumes": [
+                {
+                    "type": "bind",
+                    "source": str(tmp_path / "config"),
+                    "target": "/app/config",
+                    "read_only": True,
+                },
+                {
+                    "type": "volume",
+                    "source": "artifacts",
+                    "target": "/data/artifacts",
+                },
+            ]
+        },
+        root=tmp_path,
+    )
+
+    assert runtime == rendered
+
+
 def test_rollback_render_environment_drift_fails_before_mutation(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
