@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from app.api.routes.public_memorials import (
     _asset_file,
+    _apply_memorial_transport_security,
     _ensure_memorial_guest_cookie,
     _load_memorial,
     _load_private_profile,
+    _memorial_https_redirect,
     _memorial_archive_publication_html_path,
     _memorial_archive_publication_redirect_url,
     _memorial_html,
@@ -23,9 +25,11 @@ from app.services.public_clickrank import request_hostname
 
 __all__ = [
     "_asset_file",
+    "_apply_memorial_transport_security",
     "_ensure_memorial_guest_cookie",
     "_load_memorial",
     "_load_private_profile",
+    "_memorial_https_redirect",
     "_memorial_archive_publication_html_path",
     "_memorial_archive_publication_redirect_url",
     "_memorial_html",

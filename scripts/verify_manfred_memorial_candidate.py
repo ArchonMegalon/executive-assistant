@@ -11,6 +11,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -31,6 +32,8 @@ VERIFIER_REQUEST_HEADERS = {
     "User-Agent": "EA-Memorial-Launch-Verifier/1.0",
     "Accept": "application/json,text/html;q=0.9,*/*;q=0.1",
 }
+MEMORIAL_GUEST_COOKIE = "ea_memorial_guest"
+MEMORIAL_HSTS = "max-age=31536000"
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -165,6 +168,107 @@ def _verify_singular_memorial_alias(base_url: str) -> None:
             raise RuntimeError("candidate_memorial_alias_invalid")
         if method == "HEAD" and body:
             raise RuntimeError("candidate_memorial_alias_invalid")
+
+
+def _canonical_public_https_origin(value: str) -> tuple[str, str]:
+    try:
+        parsed = urlparse(str(value or "").strip())
+        port = parsed.port
+    except ValueError as exc:
+        raise RuntimeError("candidate_public_origin_transport_invalid") from exc
+    hostname = str(parsed.hostname or "").strip().rstrip(".").casefold()
+    if (
+        parsed.scheme.casefold() != "https"
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RuntimeError("candidate_public_origin_transport_invalid")
+    authority = f"[{hostname}]" if ":" in hostname else hostname
+    if port is not None and port != 443:
+        authority = f"{authority}:{port}"
+    return authority, f"https://{authority}"
+
+
+def _verify_memorial_transport_security(
+    base_url: str,
+    public_origin: str,
+) -> dict[str, object]:
+    authority, canonical_origin = _canonical_public_https_origin(public_origin)
+    page_path = "/memorials/manfred"
+    proxy_headers = {
+        "Host": authority,
+        "X-Forwarded-Proto": "https",
+        "CF-Visitor": '{"scheme":"https"}',
+    }
+    status, _body, headers = _request(
+        base_url,
+        page_path,
+        headers=proxy_headers,
+        expected={200},
+        follow_redirects=False,
+    )
+    if (
+        status != 200
+        or headers.get("strict-transport-security", "").strip()
+        != MEMORIAL_HSTS
+        or "location" in headers
+    ):
+        raise RuntimeError("candidate_memorial_transport_https_invalid")
+
+    raw_cookie = str(headers.get("set-cookie") or "").strip()
+    cookies = SimpleCookie()
+    try:
+        cookies.load(raw_cookie)
+    except CookieError as exc:
+        raise RuntimeError("candidate_memorial_transport_cookie_invalid") from exc
+    guest_cookie = cookies.get(MEMORIAL_GUEST_COOKIE)
+    if (
+        guest_cookie is None
+        or not guest_cookie["secure"]
+        or not guest_cookie["httponly"]
+        or str(guest_cookie["samesite"] or "").casefold() != "lax"
+        or str(guest_cookie["path"] or "") != page_path
+        or str(guest_cookie["max-age"] or "") != "31536000"
+    ):
+        raise RuntimeError("candidate_memorial_transport_cookie_invalid")
+
+    redirect_path = f"{page_path}?from=ea-transport-verifier"
+    redirect_status, _redirect_body, redirect_headers = _request(
+        base_url,
+        redirect_path,
+        headers={"Host": authority},
+        expected={308},
+        follow_redirects=False,
+    )
+    expected_location = f"{canonical_origin}{redirect_path}"
+    if (
+        redirect_status != 308
+        or redirect_headers.get("location") != expected_location
+        or "set-cookie" in redirect_headers
+    ):
+        raise RuntimeError("candidate_memorial_transport_redirect_invalid")
+
+    return {
+        "status": "pass",
+        "public_origin": canonical_origin,
+        "proxy_scheme_headers_consistent": True,
+        "cookie": {
+            "name": MEMORIAL_GUEST_COOKIE,
+            "secure": True,
+            "http_only": True,
+            "same_site": "Lax",
+            "path": page_path,
+            "max_age_seconds": 31_536_000,
+        },
+        "hsts": MEMORIAL_HSTS,
+        "http_redirect_status": redirect_status,
+        "http_redirect_location": expected_location,
+    }
 
 
 def _contains_forbidden_recipient_field(value: object) -> bool:
@@ -607,6 +711,12 @@ def verify_candidate(
         raise RuntimeError("candidate_public_headers_incomplete")
     checks.append("public_projection")
 
+    transport_security = _verify_memorial_transport_security(
+        base_url,
+        public_origin,
+    )
+    checks.append("memorial_transport_security")
+
     _request(base_url, "/memorials/manfred", method="HEAD")
     _verify_singular_memorial_alias(base_url)
     _request(base_url, "/memorials/manfred/archive.json")
@@ -720,6 +830,7 @@ def verify_candidate(
         "page_get_performed": browser_audit,
         "operator_surface_used": False,
         "private_audio_served": False,
+        "transport_security": transport_security,
         "contribution": contribution,
         "browser_audit": browser_evidence,
     }

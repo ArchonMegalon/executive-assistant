@@ -481,25 +481,136 @@ def _cookie_value_from_header(raw_cookie_header: object, name: str) -> str:
     return str(morsel.value or "").strip() if morsel else ""
 
 
-def _request_uses_https(request: Request) -> bool:
-    if str(request.url.scheme).strip().lower() == "https":
-        return True
-    if not trust_forwarded_ip():
+def _configured_memorial_https_origin() -> tuple[str, str] | None:
+    raw = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = urllib.parse.urlsplit(raw)
+        port = parsed.port
+    except (TypeError, ValueError):
+        return None
+    hostname = str(parsed.hostname or "").strip().rstrip(".").lower()
+    if (
+        parsed.scheme.lower() != "https"
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        return None
+    authority = f"[{hostname}]" if ":" in hostname else hostname
+    if port is not None and port != 443:
+        authority = f"{authority}:{port}"
+    return hostname, f"https://{authority}"
+
+
+def _request_matches_configured_memorial_host(request: Request) -> bool:
+    configured = _configured_memorial_https_origin()
+    if configured is None:
         return False
+    host_values = request.headers.getlist("host")
+    if len(host_values) != 1:
+        return False
+    raw_host = str(host_values[0] or "").strip()
+    if (
+        not raw_host
+        or any(character in raw_host for character in ("@", "/", "\\", "?", "#", ","))
+        or any(ord(character) < 33 or ord(character) == 127 for character in raw_host)
+    ):
+        return False
+    try:
+        parsed_host = urllib.parse.urlsplit(f"//{raw_host}")
+        parsed_host.port
+    except (TypeError, ValueError):
+        return False
+    hostname = str(parsed_host.hostname or "").strip().rstrip(".").lower()
+    return bool(hostname) and hostname == configured[0]
+
+
+def _forwarded_transport_scheme(request: Request) -> str:
+    schemes: list[str] = []
+
     forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
     if forwarded_proto:
-        first_proto = forwarded_proto.split(",", 1)[0].strip()
-        if first_proto == "https":
-            return True
+        if "," in forwarded_proto or forwarded_proto not in {"http", "https"}:
+            return ""
+        schemes.append(forwarded_proto)
+
     cf_visitor = str(request.headers.get("cf-visitor") or "").strip()
     if cf_visitor:
         try:
-            parsed = json.loads(cf_visitor)
-        except Exception:
-            parsed = {}
-        if str((parsed or {}).get("scheme") or "").strip().lower() == "https":
-            return True
-    return False
+            parsed_cf_visitor = json.loads(cf_visitor)
+        except (TypeError, ValueError):
+            return ""
+        if not isinstance(parsed_cf_visitor, dict):
+            return ""
+        cf_scheme = str(parsed_cf_visitor.get("scheme") or "").strip().lower()
+        if cf_scheme not in {"http", "https"}:
+            return ""
+        schemes.append(cf_scheme)
+
+    forwarded = str(request.headers.get("forwarded") or "").strip()
+    if forwarded:
+        if "," in forwarded:
+            return ""
+        forwarded_values: dict[str, str] = {}
+        for raw_part in forwarded.split(";"):
+            part = raw_part.strip()
+            if not part or "=" not in part:
+                return ""
+            key, raw_value = part.split("=", 1)
+            key = key.strip().lower()
+            value = raw_value.strip()
+            if not key or key in forwarded_values:
+                return ""
+            if value.startswith('"') or value.endswith('"'):
+                if len(value) < 2 or not (value.startswith('"') and value.endswith('"')):
+                    return ""
+                value = value[1:-1]
+            if not value or any(ord(character) < 33 or ord(character) == 127 for character in value):
+                return ""
+            forwarded_values[key] = value
+        forwarded_scheme = forwarded_values.get("proto", "").lower()
+        if forwarded_scheme not in {"http", "https"}:
+            return ""
+        schemes.append(forwarded_scheme)
+
+    if not schemes or len(set(schemes)) != 1:
+        return ""
+    return schemes[0]
+
+
+def _request_uses_https(request: Request) -> bool:
+    if str(request.url.scheme).strip().lower() == "https":
+        return True
+    if not trust_forwarded_ip() and not _request_matches_configured_memorial_host(request):
+        return False
+    return _forwarded_transport_scheme(request) == "https"
+
+
+def _memorial_https_redirect(request: Request) -> RedirectResponse | None:
+    configured = _configured_memorial_https_origin()
+    if configured is None or not _request_matches_configured_memorial_host(request):
+        return None
+    if _request_uses_https(request):
+        return None
+    path = str(request.url.path or "")
+    query = str(request.url.query or "")
+    target = f"{configured[1]}{path}"
+    if query:
+        target = f"{target}?{query}"
+    if any(ord(character) < 32 or ord(character) == 127 for character in target):
+        return None
+    return RedirectResponse(url=target, status_code=308)
+
+
+def _apply_memorial_transport_security(response: Response, request: Request) -> Response:
+    if _request_uses_https(request):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    return response
 
 
 def _ensure_memorial_guest_cookie(response: Response, request: Request, *, slug: str) -> None:

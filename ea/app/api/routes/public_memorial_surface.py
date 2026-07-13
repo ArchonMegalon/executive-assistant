@@ -13,9 +13,11 @@ from fastapi.responses import (
 
 from app.api.routes.public_memorial_surface_support import (
     _asset_file,
+    _apply_memorial_transport_security,
     _ensure_memorial_guest_cookie,
     _load_memorial,
     _load_private_profile,
+    _memorial_https_redirect,
     _memorial_archive_publication_html_path,
     _memorial_archive_publication_redirect_url,
     _memorial_html,
@@ -133,6 +135,9 @@ def public_memorial_archive_manifest(slug: str) -> JSONResponse:
 
 @router.get("/memorials/{slug}/archive")
 def public_memorial_archive_index(slug: str, request: Request) -> HTMLResponse:
+    redirect = _memorial_https_redirect(request)
+    if redirect is not None:
+        return redirect
     try:
         payload = _load_public_surface_memorial(slug)
         private_profile = _load_private_profile(slug)
@@ -146,24 +151,29 @@ def public_memorial_archive_index(slug: str, request: Request) -> HTMLResponse:
             headers=dict(_PUBLIC_MEMORIAL_HTML_HEADERS),
         )
         _ensure_memorial_guest_cookie(response, request, slug=slug)
-        return response
+        return _apply_memorial_transport_security(response, request)
     except HTTPException as exc:
-        return _public_surface_html_error_response(exc.status_code, str(exc.detail))
+        response = _public_surface_html_error_response(exc.status_code, str(exc.detail))
+        return _apply_memorial_transport_security(response, request)
 
 
 @router.get("/memorials/{slug}/archive/{publication_slug}")
-def public_memorial_archive_publication(slug: str, publication_slug: str) -> Response:
+def public_memorial_archive_publication(slug: str, publication_slug: str, request: Request) -> Response:
+    redirect = _memorial_https_redirect(request)
+    if redirect is not None:
+        return redirect
     try:
         _load_memorial(slug)
     except HTTPException as exc:
-        return _public_surface_html_error_response(exc.status_code, str(exc.detail))
+        response = _public_surface_html_error_response(exc.status_code, str(exc.detail))
+        return _apply_memorial_transport_security(response, request)
     html_path = _memorial_archive_publication_html_path(slug, publication_slug)
     if not html_path.is_file():
         redirect_url = _memorial_archive_publication_redirect_url(
             slug, publication_slug
         )
         if redirect_url:
-            return RedirectResponse(
+            response = RedirectResponse(
                 url=redirect_url,
                 status_code=307,
                 headers={
@@ -173,13 +183,14 @@ def public_memorial_archive_publication(slug: str, publication_slug: str) -> Res
                     "X-Robots-Tag": "noindex, nofollow",
                 },
             )
-        return _public_surface_html_error_response(
-            404, "memorial_archive_publication_not_found"
-        )
-    return HTMLResponse(
+            return _apply_memorial_transport_security(response, request)
+        response = _public_surface_html_error_response(404, "memorial_archive_publication_not_found")
+        return _apply_memorial_transport_security(response, request)
+    response = HTMLResponse(
         html_path.read_text(encoding="utf-8"),
         headers=dict(_PUBLIC_MEMORIAL_HTML_HEADERS),
     )
+    return _apply_memorial_transport_security(response, request)
 
 
 @router.get("/memorials/{slug}/app.webmanifest")
@@ -291,6 +302,9 @@ def manfred_memorial_singular_alias(request: Request) -> RedirectResponse:
 
 @router.get("/memorials/{slug}", response_class=HTMLResponse)
 def public_memorial_page(slug: str, request: Request) -> HTMLResponse:
+    redirect = _memorial_https_redirect(request)
+    if redirect is not None:
+        return redirect
     try:
         payload = _load_public_surface_memorial(slug)
         private_profile = _load_private_profile(slug)
@@ -305,13 +319,17 @@ def public_memorial_page(slug: str, request: Request) -> HTMLResponse:
             headers=dict(_PUBLIC_MEMORIAL_HTML_HEADERS),
         )
         _ensure_memorial_guest_cookie(response, request, slug=slug)
-        return response
+        return _apply_memorial_transport_security(response, request)
     except HTTPException as exc:
-        return _public_surface_html_error_response(exc.status_code, str(exc.detail))
+        response = _public_surface_html_error_response(exc.status_code, str(exc.detail))
+        return _apply_memorial_transport_security(response, request)
 
 
 @router.head("/memorials/{slug}")
 def public_memorial_head(slug: str, request: Request) -> HTMLResponse:
+    redirect = _memorial_https_redirect(request)
+    if redirect is not None:
+        return redirect
     try:
         payload = _load_public_surface_memorial(slug)
         private_profile = _load_private_profile(slug)
@@ -325,6 +343,7 @@ def public_memorial_head(slug: str, request: Request) -> HTMLResponse:
             headers=dict(_PUBLIC_MEMORIAL_HTML_HEADERS),
         )
         _ensure_memorial_guest_cookie(response, request, slug=slug)
-        return response
+        return _apply_memorial_transport_security(response, request)
     except HTTPException as exc:
-        return _public_surface_html_error_response(exc.status_code, str(exc.detail))
+        response = _public_surface_html_error_response(exc.status_code, str(exc.detail))
+        return _apply_memorial_transport_security(response, request)

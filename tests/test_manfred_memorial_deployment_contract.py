@@ -325,6 +325,135 @@ def test_candidate_alias_verifier_inspects_exact_get_and_head_first_hops(
     ]
 
 
+def test_candidate_transport_verifier_proves_gateway_cookie_hsts_and_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[dict[str, object]] = []
+
+    def fake_request(  # type: ignore[no-untyped-def]
+        base_url,
+        path,
+        *,
+        headers=None,
+        expected=None,
+        follow_redirects=True,
+        **_kwargs,
+    ):
+        observed.append(
+            {
+                "base_url": base_url,
+                "path": path,
+                "headers": dict(headers or {}),
+                "expected": set(expected or set()),
+                "follow_redirects": follow_redirects,
+            }
+        )
+        if (headers or {}).get("X-Forwarded-Proto") == "https":
+            return (
+                200,
+                b"memorial",
+                {
+                    "set-cookie": (
+                        "ea_memorial_guest=redacted; HttpOnly; Max-Age=31536000; "
+                        "Path=/memorials/manfred; SameSite=Lax; Secure"
+                    ),
+                    "strict-transport-security": "max-age=31536000",
+                },
+            )
+        return (
+            308,
+            b"Permanent Redirect",
+            {
+                "location": (
+                    "https://myexternalbrain.com/memorials/manfred"
+                    "?from=ea-transport-verifier"
+                )
+            },
+        )
+
+    monkeypatch.setattr(candidate_verify, "_request", fake_request)
+
+    evidence = candidate_verify._verify_memorial_transport_security(
+        "http://127.0.0.1:18095",
+        "https://myexternalbrain.com",
+    )
+
+    assert evidence == {
+        "status": "pass",
+        "public_origin": "https://myexternalbrain.com",
+        "proxy_scheme_headers_consistent": True,
+        "cookie": {
+            "name": "ea_memorial_guest",
+            "secure": True,
+            "http_only": True,
+            "same_site": "Lax",
+            "path": "/memorials/manfred",
+            "max_age_seconds": 31_536_000,
+        },
+        "hsts": "max-age=31536000",
+        "http_redirect_status": 308,
+        "http_redirect_location": (
+            "https://myexternalbrain.com/memorials/manfred"
+            "?from=ea-transport-verifier"
+        ),
+    }
+    assert observed == [
+        {
+            "base_url": "http://127.0.0.1:18095",
+            "path": "/memorials/manfred",
+            "headers": {
+                "Host": "myexternalbrain.com",
+                "X-Forwarded-Proto": "https",
+                "CF-Visitor": '{"scheme":"https"}',
+            },
+            "expected": {200},
+            "follow_redirects": False,
+        },
+        {
+            "base_url": "http://127.0.0.1:18095",
+            "path": "/memorials/manfred?from=ea-transport-verifier",
+            "headers": {"Host": "myexternalbrain.com"},
+            "expected": {308},
+            "follow_redirects": False,
+        },
+    ]
+
+
+@pytest.mark.parametrize(
+    "set_cookie",
+    [
+        "ea_memorial_guest=redacted; HttpOnly; Path=/memorials/manfred; SameSite=Lax",
+        "ea_memorial_guest=redacted; Max-Age=31536000; Path=/memorials/manfred; SameSite=Lax; Secure",
+        "ea_memorial_guest=redacted; HttpOnly; Max-Age=31536000; Path=/; SameSite=Lax; Secure",
+    ],
+)
+def test_candidate_transport_verifier_rejects_incomplete_cookie(
+    monkeypatch: pytest.MonkeyPatch,
+    set_cookie: str,
+) -> None:
+    monkeypatch.setattr(
+        candidate_verify,
+        "_request",
+        lambda *_args, **_kwargs: (
+            200,
+            b"memorial",
+            {
+                "set-cookie": set_cookie,
+                "strict-transport-security": "max-age=31536000",
+            },
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="candidate_memorial_transport_cookie_invalid",
+    ):
+        candidate_verify._verify_memorial_transport_security(
+            "http://127.0.0.1:18095",
+            "https://myexternalbrain.com",
+        )
+
+
 def test_no_redirect_clients_observe_308_without_requesting_canonical_target() -> None:
     observed: list[tuple[str, str]] = []
 
