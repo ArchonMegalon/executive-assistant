@@ -18,13 +18,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "ea") not in sys.path:
     sys.path.insert(0, str(ROOT / "ea"))
 
-from app.yaml_inputs import load_yaml_dict
+from app.yaml_inputs import load_yaml_dict  # noqa: E402
 
 LOCAL_PRODUCT_ROOT = ROOT / ".codex-design" / "product"
+CANONICAL_PRODUCT_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
+CANONICAL_EA_ROOT = Path(os.environ.get("EA_CANONICAL_ROOT") or "/docker/EA")
 DEFAULT_DESIGN_ROOT = Path(
     os.environ.get("EA_DESIGN_ROOT")
     or os.environ.get("EA_MIRROR_FIXTURE_ROOT")
-    or LOCAL_PRODUCT_ROOT
+    or CANONICAL_PRODUCT_ROOT
 )
 QUEUE_OVERLAY_PATH = ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml"
 EXPECTED_QUEUE_PACKAGE_ID = "audit-task-4257456"
@@ -74,7 +76,10 @@ def _sha256(path: Path) -> str:
 
 
 def _expected_queue_source_items() -> list[str]:
-    return [(ROOT / binding.local_path.relative_to(ROOT)).as_posix() for binding in _bindings()]
+    return [
+        (CANONICAL_EA_ROOT / binding.local_path.relative_to(ROOT)).as_posix()
+        for binding in _bindings()
+    ]
 
 
 def _acceptable_queue_source_items() -> tuple[list[str], ...]:

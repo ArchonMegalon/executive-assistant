@@ -12,6 +12,31 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "verify_design_mirror_bundle.py"
 REPAIR_SCRIPT = ROOT / "scripts" / "repair_design_mirror_bundle.sh"
+CANONICAL_PRODUCT_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
+FULL_MIRROR_MANIFEST = ROOT / ".codex-design" / "repo" / "DESIGN_MIRROR_MANIFEST.yaml"
+
+
+def _snapshot_full_mirror(tmp_path: Path) -> list[tuple[Path, Path | None]]:
+    manifest = yaml.safe_load(FULL_MIRROR_MANIFEST.read_text(encoding="utf-8")) or {}
+    snapshots: list[tuple[Path, Path | None]] = []
+    for index, binding in enumerate(manifest.get("bindings") or []):
+        local_path = ROOT / str(binding.get("local_path") or "")
+        if local_path.is_file():
+            backup = tmp_path / f"full-mirror-{index}.backup"
+            shutil.copy2(local_path, backup)
+            snapshots.append((local_path, backup))
+        else:
+            snapshots.append((local_path, None))
+    return snapshots
+
+
+def _restore_full_mirror(snapshots: list[tuple[Path, Path | None]]) -> None:
+    for local_path, backup in snapshots:
+        if backup is None:
+            if local_path.exists():
+                local_path.unlink()
+            continue
+        shutil.copy2(backup, local_path)
 
 
 def test_design_mirror_bundle_bindings_cover_the_audited_queue_slice() -> None:
@@ -39,6 +64,14 @@ def test_design_mirror_bundle_bindings_cover_the_audited_queue_slice() -> None:
     assert overlay_row["source_items"] == [
         "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
     ]
+
+
+def test_design_mirror_bundle_default_never_self_compares_local_product_root() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert 'CANONICAL_PRODUCT_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")' in source
+    assert "or CANONICAL_PRODUCT_ROOT" in source
+    assert "or LOCAL_PRODUCT_ROOT\n)" not in source
 
 
 def test_repair_design_mirror_bundle_help_mentions_bounded_bundle() -> None:
@@ -89,6 +122,7 @@ def test_repair_design_mirror_bundle_restores_drifted_queue_staging(tmp_path) ->
     local_queue = ROOT / ".codex-design" / "product" / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
     source_queue = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
     backup_queue = tmp_path / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml.backup"
+    mirror_snapshots = _snapshot_full_mirror(tmp_path)
 
     shutil.copy2(local_queue, backup_queue)
     try:
@@ -115,11 +149,13 @@ def test_repair_design_mirror_bundle_restores_drifted_queue_staging(tmp_path) ->
         assert local_queue.read_text(encoding="utf-8") == source_queue.read_text(encoding="utf-8")
     finally:
         shutil.copy2(backup_queue, local_queue)
+        _restore_full_mirror(mirror_snapshots)
 
 
 def test_repair_design_mirror_bundle_restores_drifted_queue_overlay_source_items(tmp_path) -> None:
     queue_overlay = ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml"
     backup_overlay = tmp_path / "QUEUE.generated.yaml.backup"
+    mirror_snapshots = _snapshot_full_mirror(tmp_path)
 
     shutil.copy2(queue_overlay, backup_overlay)
     try:
@@ -155,3 +191,4 @@ def test_repair_design_mirror_bundle_restores_drifted_queue_overlay_source_items
         ]
     finally:
         shutil.copy2(backup_overlay, queue_overlay)
+        _restore_full_mirror(mirror_snapshots)
