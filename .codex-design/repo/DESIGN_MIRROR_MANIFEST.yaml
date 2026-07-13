@@ -1,5 +1,10 @@
 version: 1
 bindings:
+  - key: weekly_product_pulse
+    kind: file
+    local_path: .codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json
+    source_path: /docker/chummercomplete/chummer-design/products/chummer/WEEKLY_PRODUCT_PULSE.generated.json
+    required: true
   - key: next_90_day_queue_staging
     kind: file
     local_path: .codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
