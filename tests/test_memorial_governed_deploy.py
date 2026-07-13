@@ -976,6 +976,35 @@ def test_rendered_compose_requires_exact_candidate_and_never_pull(
     assert not any("up" in call for call in runner.calls)
 
 
+def test_rendered_process_config_matches_compose_dollar_escape_runtime() -> None:
+    image_config = {
+        "Cmd": ["python", "-c", "print('$$IMAGE_LITERAL')"],
+        "Entrypoint": ["/usr/local/bin/docker-entrypoint.sh"],
+        "User": "ea",
+    }
+    service = {
+        "entrypoint": [
+            "/bin/sh",
+            "-ec",
+            'umask 0007; exec /usr/local/bin/docker-entrypoint.sh "$$@"',
+            "--",
+        ]
+    }
+
+    rendered = deploy.MemorialDeployLane._rendered_process_config(service, image_config)
+
+    assert rendered == {
+        "Cmd": ["python", "-c", "print('$$IMAGE_LITERAL')"],
+        "Entrypoint": [
+            "/bin/sh",
+            "-ec",
+            'umask 0007; exec /usr/local/bin/docker-entrypoint.sh "$@"',
+            "--",
+        ],
+        "User": "ea",
+    }
+
+
 def test_rollback_render_environment_drift_fails_before_mutation(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

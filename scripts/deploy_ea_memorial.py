@@ -329,6 +329,12 @@ def _normalized_command(value: object) -> list[str]:
     raise DeployError("container_process_config_invalid")
 
 
+def _compose_runtime_command(value: object) -> list[str]:
+    """Normalize Compose-rendered process fields to Docker runtime values."""
+
+    return [item.replace("$$", "$") for item in _normalized_command(value)]
+
+
 def _process_config_identity(config: Mapping[str, Any]) -> str:
     process = {
         "command": _normalized_command(config.get("Cmd")),
@@ -1143,14 +1149,18 @@ class MemorialDeployLane:
     def _rendered_process_config(
         service: Mapping[str, Any], image_config: Mapping[str, Any]
     ) -> dict[str, Any]:
+        command_from_compose = (
+            "command" in service and service.get("command") is not None
+        )
         command = (
-            service.get("command")
-            if "command" in service and service.get("command") is not None
-            else image_config.get("Cmd")
+            service.get("command") if command_from_compose else image_config.get("Cmd")
+        )
+        entrypoint_from_compose = (
+            "entrypoint" in service and service.get("entrypoint") is not None
         )
         entrypoint = (
             service.get("entrypoint")
-            if "entrypoint" in service and service.get("entrypoint") is not None
+            if entrypoint_from_compose
             else image_config.get("Entrypoint")
         )
         user = (
@@ -1159,8 +1169,16 @@ class MemorialDeployLane:
             else image_config.get("User")
         )
         return {
-            "Cmd": _normalized_command(command),
-            "Entrypoint": _normalized_command(entrypoint),
+            "Cmd": (
+                _compose_runtime_command(command)
+                if command_from_compose
+                else _normalized_command(command)
+            ),
+            "Entrypoint": (
+                _compose_runtime_command(entrypoint)
+                if entrypoint_from_compose
+                else _normalized_command(entrypoint)
+            ),
             "User": str(user or ""),
         }
 
