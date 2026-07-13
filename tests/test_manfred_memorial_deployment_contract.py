@@ -435,3 +435,45 @@ def test_candidate_browser_classifies_same_origin_http_errors_exactly() -> None:
         response_url="https://memorial.example.at/app.css",
         status=399,
     )
+
+
+def test_candidate_http_uses_fixed_verifier_identity_and_bounded_accept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, str] = {}
+
+    class Response:
+        status = 200
+        headers: dict[str, str] = {}
+
+        def __enter__(self):  # type: ignore[no-untyped-def]
+            return self
+
+        def __exit__(self, *_args):  # type: ignore[no-untyped-def]
+            return False
+
+        def read(self, _limit: int) -> bytes:
+            return b"{}"
+
+    def fake_urlopen(request, *, timeout: int):  # type: ignore[no-untyped-def]
+        assert timeout == 20
+        captured.update({name.lower(): value for name, value in request.header_items()})
+        return Response()
+
+    monkeypatch.setattr(candidate_verify.urllib.request, "urlopen", fake_urlopen)
+
+    candidate_verify._request(
+        "https://myexternalbrain.com",
+        "/healthz",
+        headers={
+            "User-Agent": "Mozilla/5.0 should-not-win",
+            "Accept": "text/plain should-not-win",
+            "X-EA-Test": "retained",
+        },
+    )
+
+    assert captured["user-agent"] == "EA-Memorial-Launch-Verifier/1.0"
+    assert captured["accept"] == candidate_verify.VERIFIER_REQUEST_HEADERS["Accept"]
+    assert len(captured["accept"]) <= 64
+    assert captured["x-ea-test"] == "retained"
+    assert "mozilla" not in captured["user-agent"].casefold()

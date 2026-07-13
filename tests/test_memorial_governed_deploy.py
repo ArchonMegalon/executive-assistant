@@ -62,6 +62,9 @@ class FakeRunner:
         candidate_status: str = "pass",
         candidate_websockets: int = 0,
         candidate_http_errors: int = 0,
+        candidate_failure_origin: str = "",
+        candidate_failure_error: str = "candidate_browser_runtime_unavailable",
+        candidate_failure_secret: str = "",
     ) -> None:
         self.root = root
         self.baseline_root = baseline_root or root
@@ -85,6 +88,9 @@ class FakeRunner:
         self.candidate_status = candidate_status
         self.candidate_websockets = candidate_websockets
         self.candidate_http_errors = candidate_http_errors
+        self.candidate_failure_origin = candidate_failure_origin
+        self.candidate_failure_error = candidate_failure_error
+        self.candidate_failure_secret = candidate_failure_secret
         self.image_refs = {
             self.prior_image_reference: self.old_image,
             self.candidate_reference: self.candidate_image,
@@ -419,28 +425,44 @@ class FakeRunner:
         elif any(
             item.endswith("verify_manfred_memorial_candidate.py") for item in argv
         ):
-            stdout = json.dumps(
-                {
-                    "schema": "ea.manfred_memorial_candidate_smoke.v1",
-                    "status": self.candidate_status,
-                    "checks": [
-                        "source_grounded_narrator_boundary",
-                        "voice_provider_boundary_blocked",
-                        "browser_provider_websocket_boundary",
-                    ],
-                    "provider_calls_performed": False,
-                    "page_get_performed": True,
-                    "browser_audit": {
-                        "status": "pass",
-                        "automatic_provider_requests": 0,
-                        "automatic_websockets": self.candidate_websockets,
-                        "external_requests": 0,
-                        "failed_requests": 0,
-                        "page_errors": 0,
-                        "http_errors": self.candidate_http_errors,
-                    },
-                }
-            )
+            base_url = argv[argv.index("--base-url") + 1]
+            origin = "public" if base_url.startswith("https://") else "local"
+            if origin == self.candidate_failure_origin:
+                returncode = 7
+                stdout = json.dumps(
+                    {
+                        "schema": "ea.manfred_memorial_candidate_smoke.v1",
+                        "status": "fail",
+                        "error": (
+                            f"{self.candidate_failure_error}:"
+                            f"{self.candidate_failure_secret}"
+                        ),
+                    }
+                )
+                stderr = f"verifier stderr {self.candidate_failure_secret}"
+            else:
+                stdout = json.dumps(
+                    {
+                        "schema": "ea.manfred_memorial_candidate_smoke.v1",
+                        "status": self.candidate_status,
+                        "checks": [
+                            "source_grounded_narrator_boundary",
+                            "voice_provider_boundary_blocked",
+                            "browser_provider_websocket_boundary",
+                        ],
+                        "provider_calls_performed": False,
+                        "page_get_performed": True,
+                        "browser_audit": {
+                            "status": "pass",
+                            "automatic_provider_requests": 0,
+                            "automatic_websockets": self.candidate_websockets,
+                            "external_requests": 0,
+                            "failed_requests": 0,
+                            "page_errors": 0,
+                            "http_errors": self.candidate_http_errors,
+                        },
+                    }
+                )
         elif any("materialize_" in Path(item).name for item in argv):
             stdout = json.dumps({"status": "pass"})
         result = _completed(argv, stdout=stdout, stderr=stderr, returncode=returncode)
@@ -1763,6 +1785,9 @@ def test_optional_tour_control_survives_unchanged(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = FakeRunner(release_root)
+    runner.forward_tour_json = (
+        b'{\n  "title": "Control tour",\n  "slug": "control-tour"\n}\n'
+    )
     monkeypatch.setattr(
         deploy,
         "source_worktree_metadata",
@@ -1778,7 +1803,13 @@ def test_optional_tour_control_survives_unchanged(
     before = receipt["predeploy_non_memorial_controls"]["tour"]
     after = receipt["postdeploy_non_memorial_controls"]["tour"]
     assert before["slug"] == "control-tour"
-    assert before["json"]["body_sha256"] == after["json"]["body_sha256"]
+    assert before["json"]["body_sha256"] != after["json"]["body_sha256"]
+    assert (
+        before["json"]["canonical_json_sha256"]
+        == after["json"]["canonical_json_sha256"]
+    )
+    assert "_json_payload" not in before
+    assert "_json_payload" not in after
     assert before["html"]["status_code"] == after["html"]["status_code"] == 200
 
 
@@ -2376,6 +2407,67 @@ def test_candidate_browser_or_provider_boundary_failure_rolls_back(
     receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
     assert "candidate_verifier_contract_failed" in receipt["failure"]["reason"]
     assert receipt["rollback"]["status"] == "pass"
+
+
+def test_nonzero_candidate_verifier_records_safe_origin_after_local_evidence(
+    release_root: Path,
+) -> None:
+    secret = "provider-secret-must-not-enter-receipt"
+    runner = FakeRunner(
+        release_root,
+        candidate_failure_origin="public",
+        candidate_failure_error="candidate_http_status_unexpected",
+        candidate_failure_secret=f"/healthz:403:{secret}",
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match=(
+            "fixed_json_script_failed:manfred_candidate_verifier:public:"
+            "candidate_http_status_unexpected:7"
+        ),
+    ) as raised:
+        lane._verify_candidate_origins("https://memorial.example.org")
+
+    receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
+    assert receipt["candidate_verifier"] == [
+        {
+            "origin": "local",
+            "status": "pass",
+            "checks": [
+                "browser_provider_websocket_boundary",
+                "source_grounded_narrator_boundary",
+                "voice_provider_boundary_blocked",
+            ],
+            "provider_calls_performed": False,
+            "browser": {
+                "automatic_provider_requests": 0,
+                "automatic_websockets": 0,
+                "external_requests": 0,
+                "failed_requests": 0,
+                "page_errors": 0,
+                "http_errors": 0,
+            },
+        }
+    ]
+    failure = next(
+        check for check in receipt["checks"] if check["name"] == "fixed_json_script"
+    )
+    assert failure == {
+        "name": "fixed_json_script",
+        "status": "fail",
+        "script": "manfred_candidate_verifier",
+        "origin": "public",
+        "return_code": 7,
+        "error_code": "candidate_http_status_unexpected",
+        "stdout_bytes": failure["stdout_bytes"],
+        "stdout_size_capped": False,
+    }
+    serialized = json.dumps(receipt, sort_keys=True)
+    assert secret not in serialized
+    assert secret not in str(raised.value)
+    assert "stderr" not in failure
 
 
 def test_candidate_verifier_browser_flag_is_explicit() -> None:

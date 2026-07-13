@@ -100,6 +100,46 @@ ROLLBACK_ENV_PASSTHROUGH = {
     "XDG_RUNTIME_DIR",
 }
 MAX_HTTP_BODY_BYTES = 2 * 1024 * 1024
+MAX_FIXED_JSON_SCRIPT_OUTPUT_BYTES = 64 * 1024
+MAX_RECEIPT_CONTENT_TYPE_CHARS = 160
+FIXED_JSON_SCRIPT_LABELS = {
+    "scripts/verify_release_authority.py": "release_authority",
+    "scripts/verify_memorial_deploy_readiness.py": "memorial_deploy_readiness",
+    "scripts/verify_manfred_memorial_candidate.py": "manfred_candidate_verifier",
+}
+SAFE_SCRIPT_ORIGIN_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+SAFE_CANDIDATE_ERROR_CODES = frozenset(
+    {
+        "candidate_browser_accessibility_contract_failed",
+        "candidate_browser_automatic_provider_work_detected",
+        "candidate_browser_automatic_websocket_detected",
+        "candidate_browser_desktop_layout_contract_failed",
+        "candidate_browser_executable_invalid",
+        "candidate_browser_executable_unavailable",
+        "candidate_browser_external_request_detected",
+        "candidate_browser_page_unavailable",
+        "candidate_browser_performance_contract_failed",
+        "candidate_browser_provider_boundary_invalid",
+        "candidate_browser_runtime_error",
+        "candidate_browser_runtime_unavailable",
+        "candidate_browser_same_origin_http_error",
+        "candidate_contribution_mode_conflict",
+        "candidate_contribution_receipt_invalid",
+        "candidate_contribution_receipt_missing",
+        "candidate_contribution_receipt_permissions_invalid",
+        "candidate_contribution_withdrawal_invalid",
+        "candidate_health_timeout",
+        "candidate_http_json_invalid",
+        "candidate_http_response_too_large",
+        "candidate_http_status_unexpected",
+        "candidate_memorial_slug_mismatch",
+        "candidate_narrator_boundary_invalid",
+        "candidate_public_headers_incomplete",
+        "candidate_public_manifest_private_data_exposed",
+        "candidate_share_packet_private_data_exposed",
+        "candidate_voice_release_boundary_invalid",
+    }
+)
 
 
 class DeployError(RuntimeError):
@@ -380,6 +420,54 @@ def _canonical_json_sha256(value: object) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _fixed_json_script_failure_evidence(
+    *,
+    script: str,
+    origin: str,
+    completed: subprocess.CompletedProcess[str],
+) -> dict[str, object]:
+    script_label = FIXED_JSON_SCRIPT_LABELS.get(script)
+    if not script_label:
+        raise DeployError("fixed_json_script_not_allowlisted")
+    normalized_origin = str(origin or "").strip().lower()
+    if not SAFE_SCRIPT_ORIGIN_PATTERN.fullmatch(normalized_origin):
+        raise DeployError("fixed_json_script_origin_invalid")
+
+    raw_stdout = completed.stdout if isinstance(completed.stdout, str) else ""
+    encoded_stdout: bytes | None = (
+        raw_stdout.encode("utf-8", errors="replace")
+        if len(raw_stdout) <= MAX_FIXED_JSON_SCRIPT_OUTPUT_BYTES
+        else None
+    )
+    stdout_within_parse_limit = encoded_stdout is not None and (
+        len(encoded_stdout) <= MAX_FIXED_JSON_SCRIPT_OUTPUT_BYTES
+    )
+    error_code = "fixed_json_script_failed"
+    if stdout_within_parse_limit:
+        try:
+            payload = json.loads(raw_stdout)
+        except (TypeError, ValueError):
+            payload = None
+        if isinstance(payload, dict) and script_label == "manfred_candidate_verifier":
+            candidate = str(payload.get("error") or "").split(":", 1)[0].strip()
+            if candidate in SAFE_CANDIDATE_ERROR_CODES:
+                error_code = candidate
+
+    return_code = int(completed.returncode)
+    return {
+        "script": script_label,
+        "origin": normalized_origin,
+        "return_code": (return_code if -255 <= return_code <= 255 else 256),
+        "error_code": error_code,
+        "stdout_bytes": (
+            len(encoded_stdout or b"")
+            if stdout_within_parse_limit
+            else MAX_FIXED_JSON_SCRIPT_OUTPUT_BYTES + 1
+        ),
+        "stdout_size_capped": not stdout_within_parse_limit,
+    }
 
 
 def _default_http_get(url: str, timeout_seconds: float) -> HttpResponse:
@@ -948,8 +1036,22 @@ class MemorialDeployLane:
             if key in ROLLBACK_ENV_PASSTHROUGH and key not in FORWARD_ONLY_ENV_KEYS
         }
 
-    def _run_json_script(self, script: str, *args: str) -> dict[str, Any]:
-        completed = self._run([sys.executable, str(self.root / script), *args])
+    def _run_json_script(self, script: str, *args: str, origin: str) -> dict[str, Any]:
+        completed = self._run(
+            [sys.executable, str(self.root / script), *args], check=False
+        )
+        if completed.returncode != 0:
+            evidence = _fixed_json_script_failure_evidence(
+                script=script,
+                origin=origin,
+                completed=completed,
+            )
+            self._record_check("fixed_json_script", "fail", **evidence)
+            raise DeployError(
+                "fixed_json_script_failed:"
+                f"{evidence['script']}:{evidence['origin']}:"
+                f"{evidence['error_code']}:{evidence['return_code']}"
+            )
         return _json_object(completed.stdout, reason=f"script_json_invalid:{script}")
 
     def _materialize_and_verify_release_evidence(self) -> dict[str, Any]:
@@ -962,7 +1064,9 @@ class MemorialDeployLane:
             self._run([sys.executable, str(self.root / script)])
 
         authority = self._run_json_script(
-            "scripts/verify_release_authority.py", "--pretty"
+            "scripts/verify_release_authority.py",
+            "--pretty",
+            origin="predeploy_release_authority",
         )
         if str(authority.get("contract_name") or "") != "ea.release_authority_gate.v1":
             raise DeployError("release_authority_contract_invalid")
@@ -976,7 +1080,9 @@ class MemorialDeployLane:
             raise DeployError("release_authority_project_mode_mismatch")
 
         readiness = self._run_json_script(
-            "scripts/verify_memorial_deploy_readiness.py", "--pretty"
+            "scripts/verify_memorial_deploy_readiness.py",
+            "--pretty",
+            origin="predeploy_memorial_readiness",
         )
         if (
             str(readiness.get("contract_name") or "")
@@ -2111,9 +2217,12 @@ class MemorialDeployLane:
                 return payload, {
                     "url": url,
                     "status_code": 200,
-                    "content_type": response.content_type,
+                    "content_type": str(response.content_type or "")[
+                        :MAX_RECEIPT_CONTENT_TYPE_CHARS
+                    ],
                     "body_bytes": len(response.body),
                     "body_sha256": hashlib.sha256(response.body).hexdigest(),
+                    "canonical_json_sha256": _canonical_json_sha256(payload),
                 }
             except (DeployError, UnicodeDecodeError) as exc:
                 last_error = str(exc)
@@ -2134,6 +2243,10 @@ class MemorialDeployLane:
     def _sanitized_openapi_control(control: Mapping[str, Any]) -> dict[str, Any]:
         return {key: value for key, value in control.items() if key != "_contract"}
 
+    @staticmethod
+    def _sanitized_tour_control(control: Mapping[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in control.items() if key != "_json_payload"}
+
     def _capture_non_memorial_controls(self) -> dict[str, Any]:
         controls: dict[str, Any] = {"openapi": self._capture_openapi_control()}
         predeploy_operations = dict(
@@ -2144,16 +2257,18 @@ class MemorialDeployLane:
         if self.control_tour_slug:
             base = f"{self._local_origin()}/tours/{self.control_tour_slug}"
             html = self._wait_http(base, kind="control_html")
-            _payload, tour_json = self._wait_json_control(f"{base}.json")
+            payload, tour_json = self._wait_json_control(f"{base}.json")
             controls["tour"] = {
                 "slug": self.control_tour_slug,
                 "html": html,
                 "json": tour_json,
+                "_json_payload": payload,
             }
-        receipt_controls = {
-            **controls,
+        receipt_controls: dict[str, Any] = {
             "openapi": self._sanitized_openapi_control(controls["openapi"]),
         }
+        if "tour" in controls:
+            receipt_controls["tour"] = self._sanitized_tour_control(controls["tour"])
         receipt_controls["openapi"]["retirement_policy_id"] = (
             OPENAPI_RETIREMENT_POLICY_ID
         )
@@ -2245,9 +2360,15 @@ class MemorialDeployLane:
                 raise DeployError("predeploy_control_tour_invalid")
             base = f"{self._local_origin()}/tours/{slug}"
             html = self._wait_http(base, kind="control_html")
-            _payload, tour_json = self._wait_json_control(f"{base}.json")
+            payload, tour_json = self._wait_json_control(f"{base}.json")
             prior_json = dict(prior_tour.get("json") or {})
-            if tour_json["body_sha256"] != prior_json.get("body_sha256"):
+            prior_payload = prior_tour.get("_json_payload")
+            if (
+                not isinstance(prior_payload, dict)
+                or payload != prior_payload
+                or tour_json["canonical_json_sha256"]
+                != prior_json.get("canonical_json_sha256")
+            ):
                 raise DeployError("postdeploy_control_tour_json_changed")
             evidence["tour"] = {"slug": slug, "html": html, "json": tour_json}
 
@@ -2303,6 +2424,7 @@ class MemorialDeployLane:
             "--wait-seconds",
             str(max(1, min(600, int(self.wait_seconds or 1)))),
             "--browser-audit",
+            origin=label,
         )
         required_checks = {
             "source_grounded_narrator_boundary",
@@ -2324,6 +2446,12 @@ class MemorialDeployLane:
             or str(browser.get("status") or "").lower() != "pass"
             or not _has_exact_zero_browser_counts(browser)
         ):
+            self._record_check(
+                "candidate_verifier_origin",
+                "fail",
+                origin=label,
+                error_code="candidate_verifier_contract_failed",
+            )
             raise DeployError(f"candidate_verifier_contract_failed:{label}")
         return {
             "origin": label,
@@ -2346,14 +2474,20 @@ class MemorialDeployLane:
                 label="local",
                 base_url=self._local_origin(),
                 public_origin=public_origin,
-            ),
+            )
+        ]
+        self.receipt["candidate_verifier"] = list(evidence)
+        self._record_check("candidate_verifier_origin", "pass", origin="local")
+
+        evidence.append(
             self._verify_candidate_origin(
                 label="public",
                 base_url=public_origin,
                 public_origin=public_origin,
-            ),
-        ]
+            )
+        )
         self.receipt["candidate_verifier"] = evidence
+        self._record_check("candidate_verifier_origin", "pass", origin="public")
         self._record_check("local_and_public_candidate_verifier", "pass")
 
     def _rollback(
@@ -2592,12 +2726,16 @@ class MemorialDeployLane:
                 ]
             )
             final_authority = self._run_json_script(
-                "scripts/verify_release_authority.py", "--pretty"
+                "scripts/verify_release_authority.py",
+                "--pretty",
+                origin="postdeploy_release_authority",
             )
             if str(final_authority.get("status") or "").lower() != "pass":
                 raise DeployError("postdeploy_release_authority_not_pass")
             final_readiness = self._run_json_script(
-                "scripts/verify_memorial_deploy_readiness.py", "--pretty"
+                "scripts/verify_memorial_deploy_readiness.py",
+                "--pretty",
+                origin="postdeploy_memorial_readiness",
             )
             if str(final_readiness.get("status") or "").lower() != "pass":
                 raise DeployError("postdeploy_memorial_readiness_not_pass")

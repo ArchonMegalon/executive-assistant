@@ -27,6 +27,10 @@ BROWSER_ZERO_COUNT_FIELDS = (
     "page_errors",
     "http_errors",
 )
+VERIFIER_REQUEST_HEADERS = {
+    "User-Agent": "EA-Memorial-Launch-Verifier/1.0",
+    "Accept": "application/json,text/html;q=0.9,*/*;q=0.1",
+}
 
 
 def _http_origin(value: str) -> tuple[str, str, int] | None:
@@ -72,6 +76,10 @@ def _request(
 ) -> tuple[int, bytes, dict[str, str]]:
     data = None
     request_headers = dict(headers or {})
+    # Cloudflare may reject urllib's default user agent. Keep this automation
+    # identity explicit and stable; callers may add headers but cannot replace
+    # the verifier identity or its bounded response preference.
+    request_headers.update(VERIFIER_REQUEST_HEADERS)
     if payload is not None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request_headers["Content-Type"] = "application/json"
