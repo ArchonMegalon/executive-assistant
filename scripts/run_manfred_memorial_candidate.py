@@ -13,6 +13,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -67,6 +68,8 @@ DOCKER_ENV_PASSTHROUGH = (
 EXPECTED_CANDIDATE_NETWORKS = ("backend", "ingress")
 EXPECTED_CANDIDATE_VOLUMES = ("artifacts", "postgres_data", "redis_data")
 EXPECTED_CANDIDATE_SERVICES = ("api", "gateway", "postgres", "redis")
+PORT_RELEASE_WAIT_SECONDS = 10.0
+PORT_RELEASE_POLL_SECONDS = 0.1
 
 
 class GovernedSignalInterrupt(BaseException):
@@ -358,6 +361,11 @@ def _assert_live_http() -> None:
 
 
 HTTP_METHODS = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
+OPENAPI_RETIREMENT_POLICY_ID = "ea.openapi.safety-retirement.governed-spatial-routes.v1"
+OPENAPI_RETIREMENT_ALLOWED_OPERATIONS = (
+    "POST /v1/internal/governed-spatial-render/build",
+    "POST /v1/internal/governed-spatial-render/compose",
+)
 
 
 def _resolve_openapi_ref(document: dict[str, object], ref: str) -> object:
@@ -557,8 +565,18 @@ def _openapi_contract_evidence(contract: dict[str, object]) -> dict[str, object]
 
 def _assert_openapi_contract_preserved(
     live: dict[str, object], candidate: dict[str, object]
-) -> dict[str, int | bool]:
-    counts: dict[str, int | bool] = {}
+) -> dict[str, object]:
+    allowed_retirements = list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS)
+    live_operations = dict(live.get("operations") or {})
+    candidate_operations = dict(candidate.get("operations") or {})
+    if [
+        name for name in allowed_retirements if name in live_operations
+    ] != allowed_retirements or any(
+        name in candidate_operations for name in allowed_retirements
+    ):
+        raise RuntimeError("manfred_candidate_openapi_contract_regression")
+
+    counts: dict[str, int] = {}
     for category, count_key in (
         ("operations", "missing_or_changed_operation_count"),
         ("schemas", "missing_or_changed_schema_count"),
@@ -569,12 +587,24 @@ def _assert_openapi_contract_preserved(
         changed = sum(
             1
             for name, value in live_rows.items()
-            if name not in candidate_rows or candidate_rows[name] != value
+            if (
+                category != "operations"
+                or name not in OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+            )
+            and (name not in candidate_rows or candidate_rows[name] != value)
         )
         counts[count_key] = changed
     if any(int(value) for value in counts.values()):
         raise RuntimeError("manfred_candidate_openapi_contract_regression")
-    return {**counts, "candidate_preserves_live_contract": True}
+    return {
+        **counts,
+        "retirement_policy_id": OPENAPI_RETIREMENT_POLICY_ID,
+        "retirement_allowed_operations": allowed_retirements,
+        "retired_operations": list(allowed_retirements),
+        "retired_operation_count": len(allowed_retirements),
+        "retirement_policy_exact_match": True,
+        "candidate_preserves_live_contract": True,
+    }
 
 
 def _openapi_contract_snapshot(
@@ -798,6 +828,25 @@ def _assert_loopback_port_free(port: int) -> None:
         raise RuntimeError("manfred_candidate_loopback_port_unavailable") from exc
     finally:
         probe.close()
+
+
+def _wait_for_loopback_port_free(
+    port: int,
+    *,
+    timeout_seconds: float = PORT_RELEASE_WAIT_SECONDS,
+    poll_seconds: float = PORT_RELEASE_POLL_SECONDS,
+) -> None:
+    deadline = time.monotonic() + max(0.0, float(timeout_seconds))
+    interval = max(0.01, float(poll_seconds))
+    while True:
+        try:
+            _assert_loopback_port_free(port)
+            return
+        except RuntimeError:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            time.sleep(min(interval, remaining))
 
 
 @contextlib.contextmanager
@@ -1449,7 +1498,7 @@ def prove_candidate(
                 except BaseException:
                     recovery_errors.append("candidate_resources_remain")
                 try:
-                    _assert_loopback_port_free(port)
+                    _wait_for_loopback_port_free(port)
                 except BaseException:
                     recovery_errors.append("candidate_port_remains_bound")
                 try:

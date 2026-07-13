@@ -16,6 +16,10 @@ from scripts import run_manfred_memorial_candidate as runner
 PROJECT = "ea-manfred-candidate-20260713-a1b2c3d4"
 COMMIT = "a" * 40
 IMAGE_ID = "sha256:" + "b" * 64
+EXPECTED_OPENAPI_RETIREMENT_OPERATIONS = [
+    "POST /v1/internal/governed-spatial-render/build",
+    "POST /v1/internal/governed-spatial-render/compose",
+]
 
 
 def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
@@ -369,6 +373,88 @@ def test_preflight_rejects_unlabeled_exact_named_project_resource(
         runner._assert_candidate_project_absent(PROJECT)
 
 
+def test_cleanup_port_wait_retries_transient_release_race(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[int] = []
+    sleeps: list[float] = []
+
+    def assert_port_free(port: int) -> None:
+        attempts.append(port)
+        if len(attempts) < 3:
+            raise RuntimeError("manfred_candidate_loopback_port_unavailable")
+
+    monkeypatch.setattr(runner, "_assert_loopback_port_free", assert_port_free)
+    monkeypatch.setattr(runner.time, "sleep", sleeps.append)
+
+    runner._wait_for_loopback_port_free(
+        18091,
+        timeout_seconds=1.0,
+        poll_seconds=0.1,
+    )
+
+    assert attempts == [18091, 18091, 18091]
+    assert sleeps == [0.1, 0.1]
+
+
+def test_cleanup_port_wait_fails_closed_after_bounded_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = [100.0]
+    attempts: list[int] = []
+    sleeps: list[float] = []
+
+    def assert_port_free(port: int) -> None:
+        attempts.append(port)
+        raise RuntimeError("manfred_candidate_loopback_port_unavailable")
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    monkeypatch.setattr(runner, "_assert_loopback_port_free", assert_port_free)
+    monkeypatch.setattr(runner.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(runner.time, "sleep", sleep)
+
+    with pytest.raises(RuntimeError, match="loopback_port_unavailable"):
+        runner._wait_for_loopback_port_free(
+            18091,
+            timeout_seconds=0.25,
+            poll_seconds=0.1,
+        )
+
+    assert attempts == [18091, 18091, 18091, 18091]
+    assert sum(sleeps) == pytest.approx(0.25)
+    assert max(sleeps) <= 0.1
+
+
+def test_preflight_port_check_remains_immediate_and_does_not_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[int] = []
+    monkeypatch.setattr(
+        runner,
+        "_assert_candidate_project_absent",
+        lambda project: {"project": project},
+    )
+
+    def assert_port_free(port: int) -> None:
+        attempts.append(port)
+        raise RuntimeError("manfred_candidate_loopback_port_unavailable")
+
+    monkeypatch.setattr(runner, "_assert_loopback_port_free", assert_port_free)
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_loopback_port_free",
+        lambda _port: pytest.fail("preflight must not use the cleanup retry"),
+    )
+
+    with pytest.raises(RuntimeError, match="loopback_port_unavailable"):
+        runner._candidate_preflight(PROJECT, 18091)
+
+    assert attempts == [18091]
+
+
 def test_same_project_different_ports_conflict_on_project_lock() -> None:
     project = "ea-manfred-candidate-project-lock-a1b2c3d4"
     with runner._hold_candidate_locks(project, 18991):
@@ -472,6 +558,12 @@ def _meaningful_openapi_document() -> dict[str, object]:
                     }
                 },
             },
+            "/v1/internal/governed-spatial-render/build": {
+                "post": {"responses": {"202": {}}}
+            },
+            "/v1/internal/governed-spatial-render/compose": {
+                "post": {"responses": {"200": {}}}
+            },
         },
         "components": {
             "schemas": {
@@ -489,9 +581,16 @@ def _meaningful_openapi_document() -> dict[str, object]:
     }
 
 
+def _retire_governed_spatial_operations(document: dict[str, object]) -> None:
+    for operation in EXPECTED_OPENAPI_RETIREMENT_OPERATIONS:
+        _method, path = operation.split(" ", 1)
+        document["paths"].pop(path)
+
+
 def test_openapi_contract_allows_additions_and_persists_only_bounded_evidence() -> None:
     live_document = _meaningful_openapi_document()
     candidate_document = copy.deepcopy(live_document)
+    _retire_governed_spatial_operations(candidate_document)
     candidate_document["paths"]["/candidate-only"] = {
         "post": {"security": [], "responses": {"204": {}}}
     }
@@ -502,8 +601,21 @@ def test_openapi_contract_allows_additions_and_persists_only_bounded_evidence() 
         "missing_or_changed_operation_count": 0,
         "missing_or_changed_schema_count": 0,
         "missing_or_changed_security_scheme_count": 0,
+        "retirement_policy_id": (
+            "ea.openapi.safety-retirement.governed-spatial-routes.v1"
+        ),
+        "retirement_allowed_operations": EXPECTED_OPENAPI_RETIREMENT_OPERATIONS,
+        "retired_operations": EXPECTED_OPENAPI_RETIREMENT_OPERATIONS,
+        "retired_operation_count": 2,
+        "retirement_policy_exact_match": True,
         "candidate_preserves_live_contract": True,
     }
+    assert list(runner.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS) == (
+        EXPECTED_OPENAPI_RETIREMENT_OPERATIONS
+    )
+    assert not any(
+        "*" in operation for operation in runner.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+    )
     evidence = runner._openapi_contract_evidence(live)
     assert set(evidence) == {
         "path_count",
@@ -528,6 +640,7 @@ def test_openapi_contract_allows_additions_and_persists_only_bounded_evidence() 
 def test_openapi_contract_rejects_meaningful_drift(drift: str) -> None:
     live_document = _meaningful_openapi_document()
     candidate_document = copy.deepcopy(live_document)
+    _retire_governed_spatial_operations(candidate_document)
     item_path = candidate_document["paths"]["/items/{item_id}"]
     if drift == "method":
         item_path["post"] = item_path.pop("get")
@@ -543,6 +656,48 @@ def test_openapi_contract_rejects_meaningful_drift(drift: str) -> None:
         candidate_document["components"]["securitySchemes"]["BearerAuth"]["scheme"] = (
             "basic"
         )
+
+    live = runner._canonical_openapi_contract(live_document)
+    candidate = runner._canonical_openapi_contract(candidate_document)
+    with pytest.raises(RuntimeError, match="openapi_contract_regression"):
+        runner._assert_openapi_contract_preserved(live, candidate)
+
+
+@pytest.mark.parametrize("case", ["retained_equivalent", "live_policy_stale"])
+def test_openapi_retirement_rejects_partial_or_stale_policy(case: str) -> None:
+    live_document = _meaningful_openapi_document()
+    candidate_document = copy.deepcopy(live_document)
+    if case == "retained_equivalent":
+        candidate_document["paths"].pop("/v1/internal/governed-spatial-render/compose")
+    else:
+        live_document["paths"].pop("/v1/internal/governed-spatial-render/build")
+        _retire_governed_spatial_operations(candidate_document)
+
+    live = runner._canonical_openapi_contract(live_document)
+    candidate = runner._canonical_openapi_contract(candidate_document)
+    with pytest.raises(RuntimeError, match="openapi_contract_regression"):
+        runner._assert_openapi_contract_preserved(live, candidate)
+
+
+def test_openapi_retirement_does_not_waive_changed_retained_route() -> None:
+    live_document = _meaningful_openapi_document()
+    candidate_document = copy.deepcopy(live_document)
+    candidate_document["paths"].pop("/v1/internal/governed-spatial-render/compose")
+    candidate_document["paths"]["/v1/internal/governed-spatial-render/build"]["post"][
+        "responses"
+    ] = {"500": {}}
+
+    live = runner._canonical_openapi_contract(live_document)
+    candidate = runner._canonical_openapi_contract(candidate_document)
+    with pytest.raises(RuntimeError, match="openapi_contract_regression"):
+        runner._assert_openapi_contract_preserved(live, candidate)
+
+
+def test_openapi_retirement_rejects_any_other_operation_omission() -> None:
+    live_document = _meaningful_openapi_document()
+    candidate_document = copy.deepcopy(live_document)
+    _retire_governed_spatial_operations(candidate_document)
+    candidate_document["paths"].pop("/healthz")
 
     live = runner._canonical_openapi_contract(live_document)
     candidate = runner._canonical_openapi_contract(candidate_document)
@@ -624,6 +779,51 @@ def test_cleanup_detects_any_main_project_snapshot_change(
             receipt_path=tmp_path / "runtime.json",
             wait_seconds=60,
         )
+
+
+def test_cleanup_reports_persistent_bound_port_without_weakening_absence_proof(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    monkeypatch.setattr(
+        runner, "_candidate_preflight", lambda project, port: {"project": project}
+    )
+    absence_checks: list[str] = []
+    monkeypatch.setattr(runner, "_run", lambda _argv, **_kwargs: b"")
+    monkeypatch.setattr(
+        runner,
+        "_assert_redis",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("candidate-smoke-failed")),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_assert_candidate_project_absent",
+        lambda project: absence_checks.append(project) or {},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_loopback_port_free",
+        lambda _port: (_ for _ in ()).throw(
+            RuntimeError("manfred_candidate_loopback_port_unavailable")
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "candidate-smoke-failed;manfred_candidate_recovery_failed:"
+            "candidate_port_remains_bound"
+        ),
+    ):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=tmp_path / "runtime.json",
+            wait_seconds=60,
+        )
+
+    assert absence_checks == [PROJECT]
 
 
 def test_post_start_keyboard_interrupt_cleans_candidate_and_is_preserved(

@@ -67,6 +67,14 @@ OPENAPI_EVIDENCE_FIELDS = frozenset(
         "contract_digest_sha256",
     }
 )
+OPENAPI_HTTP_METHODS = frozenset(
+    {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
+)
+OPENAPI_RETIREMENT_POLICY_ID = "ea.openapi.safety-retirement.governed-spatial-routes.v1"
+OPENAPI_RETIREMENT_ALLOWED_OPERATIONS = (
+    "POST /v1/internal/governed-spatial-render/build",
+    "POST /v1/internal/governed-spatial-render/compose",
+)
 FORWARD_ONLY_ENV_KEYS = {
     "EA_MEMORIAL_IMAGE",
     "EA_SOURCE_REVISION",
@@ -424,6 +432,203 @@ def _json_object(raw: str, *, reason: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise DeployError(reason)
     return payload
+
+
+def _resolve_openapi_ref(document: Mapping[str, Any], ref: str) -> object:
+    if not ref.startswith("#/"):
+        return None
+    current: object = document
+    for raw_part in ref[2:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(current, dict) or part not in current:
+            raise DeployError("openapi_ref_invalid")
+        current = current[part]
+    return current
+
+
+def _canonical_openapi_value(
+    value: object,
+    *,
+    document: Mapping[str, Any],
+    seen_refs: frozenset[str] = frozenset(),
+) -> object:
+    if isinstance(value, dict):
+        ref = str(value.get("$ref") or "")
+        canonical: dict[str, object] = {}
+        for key in sorted(value):
+            if key == "$ref":
+                continue
+            canonical[str(key)] = _canonical_openapi_value(
+                value[key], document=document, seen_refs=seen_refs
+            )
+        if ref:
+            canonical["$ref"] = ref
+            if ref not in seen_refs:
+                canonical["$resolved"] = _canonical_openapi_value(
+                    _resolve_openapi_ref(document, ref),
+                    document=document,
+                    seen_refs=seen_refs.union({ref}),
+                )
+        return canonical
+    if isinstance(value, list):
+        return [
+            _canonical_openapi_value(item, document=document, seen_refs=seen_refs)
+            for item in value
+        ]
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    raise DeployError("openapi_value_invalid")
+
+
+def _collect_referenced_openapi_schemas(
+    value: object,
+    *,
+    document: Mapping[str, Any],
+    names: set[str],
+    visited_refs: set[str],
+) -> None:
+    if isinstance(value, dict):
+        ref = str(value.get("$ref") or "")
+        if ref and ref not in visited_refs:
+            visited_refs.add(ref)
+            prefix = "#/components/schemas/"
+            if ref.startswith(prefix):
+                names.add(
+                    ref.removeprefix(prefix).replace("~1", "/").replace("~0", "~")
+                )
+            _collect_referenced_openapi_schemas(
+                _resolve_openapi_ref(document, ref),
+                document=document,
+                names=names,
+                visited_refs=visited_refs,
+            )
+        for item in value.values():
+            _collect_referenced_openapi_schemas(
+                item,
+                document=document,
+                names=names,
+                visited_refs=visited_refs,
+            )
+    elif isinstance(value, list):
+        for item in value:
+            _collect_referenced_openapi_schemas(
+                item,
+                document=document,
+                names=names,
+                visited_refs=visited_refs,
+            )
+
+
+def _canonical_openapi_contract(document: Mapping[str, Any]) -> dict[str, Any]:
+    paths_value = document.get("paths")
+    paths_payload = dict(paths_value) if isinstance(paths_value, dict) else {}
+    components_value = document.get("components")
+    components = dict(components_value) if isinstance(components_value, dict) else {}
+    schemas_value = components.get("schemas")
+    schemas = dict(schemas_value) if isinstance(schemas_value, dict) else {}
+    security_value = components.get("securitySchemes")
+    security_schemes = dict(security_value) if isinstance(security_value, dict) else {}
+    root_security = document.get("security", [])
+    operations: dict[str, object] = {}
+    referenced_schema_names: set[str] = set()
+    referenced_security_names: set[str] = set()
+    for path, raw_path_item in sorted(paths_payload.items()):
+        if not str(path).startswith("/") or not isinstance(raw_path_item, dict):
+            raise DeployError("openapi_paths_invalid")
+        path_parameters = list(raw_path_item.get("parameters") or [])
+        for method, raw_operation in sorted(raw_path_item.items()):
+            normalized_method = str(method).lower()
+            if normalized_method not in OPENAPI_HTTP_METHODS:
+                continue
+            if not isinstance(raw_operation, dict):
+                raise DeployError("openapi_operation_invalid")
+            effective_security = (
+                raw_operation["security"]
+                if "security" in raw_operation
+                else root_security
+            )
+            for requirement in list(effective_security or []):
+                if not isinstance(requirement, dict):
+                    raise DeployError("openapi_security_invalid")
+                referenced_security_names.update(str(name) for name in requirement)
+            parameters = path_parameters + list(raw_operation.get("parameters") or [])
+            canonical_parameters = [
+                _canonical_openapi_value(item, document=document) for item in parameters
+            ]
+            canonical_parameters.sort(
+                key=lambda item: json.dumps(
+                    item, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+                )
+            )
+            contract_fields = {
+                "security": effective_security,
+                "parameters": parameters,
+                "requestBody": raw_operation.get("requestBody"),
+                "responses": raw_operation.get("responses", {}),
+            }
+            _collect_referenced_openapi_schemas(
+                contract_fields,
+                document=document,
+                names=referenced_schema_names,
+                visited_refs=set(),
+            )
+            operations[f"{normalized_method.upper()} {path}"] = {
+                "security": _canonical_openapi_value(
+                    effective_security, document=document
+                ),
+                "parameters": canonical_parameters,
+                "requestBody": _canonical_openapi_value(
+                    raw_operation.get("requestBody"), document=document
+                ),
+                "responses": _canonical_openapi_value(
+                    raw_operation.get("responses", {}), document=document
+                ),
+            }
+    if not operations:
+        raise DeployError("openapi_operations_missing")
+    if referenced_schema_names - set(schemas) or referenced_security_names - set(
+        security_schemes
+    ):
+        raise DeployError("openapi_component_missing")
+    return {
+        "operations": operations,
+        "schemas": {
+            name: _canonical_openapi_value(schemas[name], document=document)
+            for name in sorted(referenced_schema_names)
+        },
+        "security_schemes": {
+            name: _canonical_openapi_value(security_schemes[name], document=document)
+            for name in sorted(referenced_security_names)
+        },
+    }
+
+
+def _openapi_control_evidence(
+    *, contract: Mapping[str, Any], probe: Mapping[str, Any]
+) -> dict[str, Any]:
+    operations = dict(contract.get("operations") or {})
+    schemas = dict(contract.get("schemas") or {})
+    security_schemes = dict(contract.get("security_schemes") or {})
+    paths = sorted({key.split(" ", 1)[1] for key in operations})
+    encoded_paths = json.dumps(paths, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    encoded_contract = json.dumps(
+        contract,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return {
+        "paths": paths,
+        "path_count": len(paths),
+        "operation_count": len(operations),
+        "schema_count": len(schemas),
+        "security_scheme_count": len(security_schemes),
+        "path_set_sha256": hashlib.sha256(encoded_paths).hexdigest(),
+        "contract_sha256": hashlib.sha256(encoded_contract).hexdigest(),
+        "probe": dict(probe),
+    }
 
 
 class MemorialDeployLane:
@@ -1391,6 +1596,15 @@ class MemorialDeployLane:
             or not _has_exact_zero_browser_counts(browser)
             or not required_smoke_checks <= first_checks
             or not required_smoke_checks <= second_checks
+            or openapi.get("retirement_policy_id") != OPENAPI_RETIREMENT_POLICY_ID
+            or openapi.get("retirement_allowed_operations")
+            != list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS)
+            or openapi.get("retired_operations")
+            != list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS)
+            or type(openapi.get("retired_operation_count")) is not int
+            or openapi["retired_operation_count"]
+            != len(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS)
+            or openapi.get("retirement_policy_exact_match") is not True
             or openapi.get("candidate_preserves_live_contract") is not True
             or type(openapi.get("missing_or_changed_operation_count")) is not int
             or openapi["missing_or_changed_operation_count"] != 0
@@ -1467,6 +1681,13 @@ class MemorialDeployLane:
             "openapi": {
                 "live": live_openapi_before,
                 "candidate": candidate_openapi,
+                "retirement_policy_id": OPENAPI_RETIREMENT_POLICY_ID,
+                "retirement_allowed_operations": list(
+                    OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+                ),
+                "retired_operations": list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS),
+                "retired_operation_count": len(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS),
+                "retirement_policy_exact_match": True,
                 "candidate_preserves_live_contract": True,
                 "missing_or_changed_operation_count": 0,
                 "missing_or_changed_schema_count": 0,
@@ -1857,32 +2078,23 @@ class MemorialDeployLane:
     def _capture_openapi_control(self) -> dict[str, Any]:
         url = f"{self._local_origin()}/openapi.json"
         payload, probe = self._wait_json_control(url)
-        raw_paths = payload.get("paths")
-        if not isinstance(raw_paths, dict) or not raw_paths:
-            raise DeployError("predeploy_openapi_paths_invalid")
-        paths = sorted(
-            {
-                str(path)
-                for path in raw_paths
-                if isinstance(path, str)
-                and path.startswith("/")
-                and not any(ord(character) < 32 for character in path)
-            }
-        )
-        if len(paths) != len(raw_paths):
-            raise DeployError("predeploy_openapi_paths_invalid")
-        encoded = json.dumps(paths, ensure_ascii=False, separators=(",", ":")).encode(
-            "utf-8"
-        )
+        contract = _canonical_openapi_contract(payload)
         return {
-            "paths": paths,
-            "path_count": len(paths),
-            "path_set_sha256": hashlib.sha256(encoded).hexdigest(),
-            "probe": probe,
+            **_openapi_control_evidence(contract=contract, probe=probe),
+            "_contract": contract,
         }
+
+    @staticmethod
+    def _sanitized_openapi_control(control: Mapping[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in control.items() if key != "_contract"}
 
     def _capture_non_memorial_controls(self) -> dict[str, Any]:
         controls: dict[str, Any] = {"openapi": self._capture_openapi_control()}
+        predeploy_operations = dict(
+            dict(controls["openapi"].get("_contract") or {}).get("operations") or {}
+        )
+        if not set(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS) <= set(predeploy_operations):
+            raise DeployError("predeploy_openapi_retirement_operations_missing")
         if self.control_tour_slug:
             base = f"{self._local_origin()}/tours/{self.control_tour_slug}"
             html = self._wait_http(base, kind="control_html")
@@ -1892,7 +2104,17 @@ class MemorialDeployLane:
                 "html": html,
                 "json": tour_json,
             }
-        self.receipt["predeploy_non_memorial_controls"] = controls
+        receipt_controls = {
+            **controls,
+            "openapi": self._sanitized_openapi_control(controls["openapi"]),
+        }
+        receipt_controls["openapi"]["retirement_policy_id"] = (
+            OPENAPI_RETIREMENT_POLICY_ID
+        )
+        receipt_controls["openapi"]["retirement_allowed_operations"] = list(
+            OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+        )
+        self.receipt["predeploy_non_memorial_controls"] = receipt_controls
         self._record_check(
             "predeploy_non_memorial_controls",
             "pass",
@@ -1903,20 +2125,67 @@ class MemorialDeployLane:
 
     def _verify_non_memorial_controls(self, baseline: Mapping[str, Any]) -> None:
         prior_openapi = dict(baseline.get("openapi") or {})
-        prior_paths = {str(path) for path in list(prior_openapi.get("paths") or [])}
-        if not prior_paths:
-            raise DeployError("predeploy_openapi_paths_invalid")
+        prior_contract_value = prior_openapi.get("_contract")
+        prior_contract = (
+            dict(prior_contract_value) if isinstance(prior_contract_value, dict) else {}
+        )
+        prior_operations = dict(prior_contract.get("operations") or {})
+        prior_schemas = dict(prior_contract.get("schemas") or {})
+        prior_security = dict(prior_contract.get("security_schemes") or {})
+        if not prior_operations:
+            raise DeployError("predeploy_openapi_contract_invalid")
         current_openapi = self._capture_openapi_control()
-        current_paths = {str(path) for path in list(current_openapi.get("paths") or [])}
-        missing_paths = sorted(prior_paths - current_paths)
-        if missing_paths:
-            raise DeployError("postdeploy_openapi_path_regression")
+        current_contract = dict(current_openapi.get("_contract") or {})
+        current_operations = dict(current_contract.get("operations") or {})
+        current_schemas = dict(current_contract.get("schemas") or {})
+        current_security = dict(current_contract.get("security_schemes") or {})
+        missing_operations = sorted(set(prior_operations) - set(current_operations))
+        if missing_operations != list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS):
+            raise DeployError("postdeploy_openapi_operation_retirement_mismatch")
+        missing_or_changed_schemas = sorted(
+            name
+            for name, value in prior_schemas.items()
+            if name not in current_schemas or current_schemas[name] != value
+        )
+        if missing_or_changed_schemas:
+            raise DeployError("postdeploy_openapi_schema_regression")
+        missing_or_changed_security = sorted(
+            name
+            for name, value in prior_security.items()
+            if name not in current_security or current_security[name] != value
+        )
+        if missing_or_changed_security:
+            raise DeployError("postdeploy_openapi_security_regression")
+        changed_operations = sorted(
+            name
+            for name, value in prior_operations.items()
+            if name in current_operations and current_operations[name] != value
+        )
+        if changed_operations:
+            raise DeployError("postdeploy_openapi_operation_changed")
 
         evidence: dict[str, Any] = {
             "openapi": {
-                **current_openapi,
-                "baseline_path_count": len(prior_paths),
-                "added_path_count": len(current_paths - prior_paths),
+                **self._sanitized_openapi_control(current_openapi),
+                "baseline_path_count": int(prior_openapi.get("path_count") or 0),
+                "baseline_operation_count": len(prior_operations),
+                "added_path_count": len(
+                    set(current_openapi.get("paths") or [])
+                    - set(prior_openapi.get("paths") or [])
+                ),
+                "added_operation_count": len(
+                    set(current_operations) - set(prior_operations)
+                ),
+                "retirement_policy_id": OPENAPI_RETIREMENT_POLICY_ID,
+                "retirement_allowed_operations": list(
+                    OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+                ),
+                "retired_operations": missing_operations,
+                "retired_operation_count": len(missing_operations),
+                "retirement_policy_exact_match": True,
+                "changed_operation_count": 0,
+                "missing_or_changed_schema_count": 0,
+                "missing_or_changed_security_scheme_count": 0,
             }
         }
         prior_tour = baseline.get("tour")
@@ -2042,8 +2311,24 @@ class MemorialDeployLane:
         self._record_check("local_and_public_candidate_verifier", "pass")
 
     def _rollback(
-        self, previous: Mapping[str, Any], rollback_tag: str
+        self,
+        previous: Mapping[str, Any],
+        rollback_tag: str,
+        baseline: Mapping[str, Any],
     ) -> dict[str, Any]:
+        prior_openapi_value = baseline.get("openapi")
+        prior_openapi = (
+            dict(prior_openapi_value) if isinstance(prior_openapi_value, dict) else {}
+        )
+        prior_contract_value = prior_openapi.get("_contract")
+        prior_contract = (
+            dict(prior_contract_value) if isinstance(prior_contract_value, dict) else {}
+        )
+        prior_operations = dict(prior_contract.get("operations") or {})
+        if not prior_operations or not set(
+            OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+        ) <= set(prior_operations):
+            raise DeployError("rollback_openapi_baseline_invalid")
         rollback_root = Path(str(previous["working_dir"])).resolve()
         rollback_files = [
             str(item).strip()
@@ -2114,6 +2399,22 @@ class MemorialDeployLane:
         ):
             raise DeployError("rollback_process_config_identity_mismatch")
         health_probe = self._wait_http(f"{self._local_origin()}/health", kind="health")
+        restored_openapi = self._capture_openapi_control()
+        restored_contract = dict(restored_openapi.get("_contract") or {})
+        if restored_contract != prior_contract:
+            raise DeployError("rollback_openapi_contract_mismatch")
+        bounded_openapi_evidence = {
+            key: restored_openapi[key]
+            for key in (
+                "path_count",
+                "operation_count",
+                "schema_count",
+                "security_scheme_count",
+                "path_set_sha256",
+                "contract_sha256",
+                "probe",
+            )
+        }
         return {
             "status": "pass",
             "completed_at": _utc_now(),
@@ -2126,6 +2427,14 @@ class MemorialDeployLane:
             **restored_runtime_config,
             "container": ready,
             "health_probe": health_probe,
+            "openapi": {
+                **bounded_openapi_evidence,
+                "matches_predeploy_contract": True,
+                "retirement_policy_id": OPENAPI_RETIREMENT_POLICY_ID,
+                "restored_retirement_operations": list(
+                    OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+                ),
+            },
         }
 
     def preflight(self) -> dict[str, Any]:
@@ -2187,10 +2496,12 @@ class MemorialDeployLane:
         mutation_started = False
         rollback_tag = ""
         previous: dict[str, Any] = {}
+        non_memorial_controls: dict[str, Any] = {}
         self._acquire_lock()
         try:
             context = self.preflight()
             previous = dict(context["previous"])
+            non_memorial_controls = dict(context["non_memorial_controls"])
             if preflight_only:
                 self.receipt["status"] = "preflight_only_pass"
                 self.receipt["completed_at"] = _utc_now()
@@ -2223,7 +2534,7 @@ class MemorialDeployLane:
                 source_revision=str(context["source_revision"]),
             )
             self._verify_candidate_origins(str(context["public_origin"]))
-            self._verify_non_memorial_controls(dict(context["non_memorial_controls"]))
+            self._verify_non_memorial_controls(non_memorial_controls)
 
             # Refresh the public-access projection only after both edge probes pass.
             self._run(
@@ -2257,7 +2568,11 @@ class MemorialDeployLane:
             }
             if mutation_started and previous and rollback_tag:
                 try:
-                    rollback = self._rollback(previous, rollback_tag)
+                    rollback = self._rollback(
+                        previous,
+                        rollback_tag,
+                        non_memorial_controls,
+                    )
                     self.receipt["status"] = "failed_rolled_back"
                     self.receipt["rollback"] = rollback
                     self.receipt["completed_at"] = _utc_now()

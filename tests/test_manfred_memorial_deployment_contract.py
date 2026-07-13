@@ -45,6 +45,10 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
     environment = api["environment"]
     assert environment["EA_RUNTIME_MODE"] == "prod"
     assert environment["EA_STORAGE_BACKEND"] == "postgres"
+    assert environment["EA_ENABLE_LEGACY_RUNTIME_SURFACES"] == "1"
+    assert environment["PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES"] == "1"
+    assert environment["EA_ENABLE_PUBLIC_TOURS"] == "1"
+    assert environment["PROPERTYQUARRY_ENABLE_PUBLIC_TOURS"] == "1"
     assert environment["EA_ENABLE_PUBLIC_MEMORIALS"] == "1"
     assert environment["EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES"] == "0"
     assert environment["EA_PUBLIC_MEMORIAL_RATE_BACKEND"] == "redis"
@@ -73,6 +77,30 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
     assert "/app/app/services" not in rendered
     assert services["postgres"]["image"].count("@sha256:") == 1
     assert services["redis"]["image"].count("@sha256:") == 1
+
+
+def test_candidate_keeps_spatial_scaffold_unregistered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in (
+        "EA_ENABLE_LEGACY_RUNTIME_SURFACES",
+        "PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES",
+        "EA_ENABLE_PUBLIC_TOURS",
+        "PROPERTYQUARRY_ENABLE_PUBLIC_TOURS",
+        "EA_ENABLE_PUBLIC_MEMORIALS",
+        "PROPERTYQUARRY_ENABLE_PUBLIC_MEMORIALS",
+    ):
+        monkeypatch.setenv(name, "1")
+    monkeypatch.setenv("EA_RUNTIME_MODE", "dev")
+
+    from app.api.app import create_app
+
+    with pytest.warns(UserWarning, match="Duplicate Operation ID public_tour_page"):
+        paths = create_app().openapi()["paths"]
+
+    assert "/tours/viewer/{slug}/{asset_path}" in paths
+    assert "/v1/internal/governed-spatial-render/compose" not in paths
+    assert "/v1/internal/governed-spatial-render/build" not in paths
 
 
 def test_docker_context_excludes_secret_and_memorial_material() -> None:

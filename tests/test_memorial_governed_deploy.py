@@ -99,8 +99,32 @@ class FakeRunner:
         self.rollback_mount_mismatch = False
         self.rollback_env_mismatch = False
         self.rollback_mode = False
-        self.prior_openapi_paths = ["/health", "/memorials/{slug}", "/tours/{slug}"]
-        self.forward_openapi_paths = list(self.prior_openapi_paths)
+        retirement_paths = [
+            operation.split(" ", 1)[1]
+            for operation in deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+        ]
+        self.prior_openapi_paths = [
+            "/health",
+            "/memorials/{slug}",
+            "/tours/{slug}",
+            *retirement_paths,
+        ]
+        self.forward_openapi_paths = [
+            path for path in self.prior_openapi_paths if path not in retirement_paths
+        ]
+        self.rollback_openapi_paths: list[str] | None = None
+        self.forward_openapi_changed_operation = False
+        self.prior_openapi_schema_type = "object"
+        self.forward_openapi_schema_type = "object"
+        self.prior_openapi_property_types = {
+            name: "string"
+            for name in ("description", "title", "summary", "tags", "examples")
+        }
+        self.forward_openapi_property_types = dict(self.prior_openapi_property_types)
+        self.prior_openapi_response_description = "safe response"
+        self.forward_openapi_response_description = "safe response"
+        self.prior_openapi_security_header = "X-EA-API-Token"
+        self.forward_openapi_security_header = "X-EA-API-Token"
         self.prior_tour_json = SAFE_TOUR
         self.forward_tour_json = SAFE_TOUR
         self.rendered_candidate_reference = self.candidate_reference
@@ -419,13 +443,88 @@ def _lane(
 ) -> deploy.MemorialDeployLane:
     def safe_http(url: str, timeout: float) -> deploy.HttpResponse:
         if url.endswith("/openapi.json"):
+            forward = runner.api_mode == "forward"
             paths = (
-                runner.forward_openapi_paths
-                if runner.api_mode == "forward"
+                runner.rollback_openapi_paths
+                if runner.rollback_mode and runner.rollback_openapi_paths is not None
+                else runner.forward_openapi_paths
+                if forward
                 else runner.prior_openapi_paths
             )
+            path_contract: dict[str, object] = {}
+            retirement_paths = {
+                operation.split(" ", 1)[1]
+                for operation in deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+            }
+            for path in paths:
+                method = "post" if path in retirement_paths else "get"
+                response_description = (
+                    runner.forward_openapi_response_description
+                    if forward
+                    else runner.prior_openapi_response_description
+                )
+                response_status = (
+                    "201"
+                    if forward
+                    and runner.forward_openapi_changed_operation
+                    and path == "/health"
+                    else "200"
+                )
+                path_contract[path] = {
+                    method: {
+                        "responses": {
+                            response_status: {
+                                "description": response_description,
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "$ref": "#/components/schemas/Control"
+                                        }
+                                    }
+                                },
+                            }
+                        }
+                    }
+                }
+            schema_type = (
+                runner.forward_openapi_schema_type
+                if forward
+                else runner.prior_openapi_schema_type
+            )
+            property_types = (
+                runner.forward_openapi_property_types
+                if forward
+                else runner.prior_openapi_property_types
+            )
+            security_header = (
+                runner.forward_openapi_security_header
+                if forward
+                else runner.prior_openapi_security_header
+            )
             body = json.dumps(
-                {"openapi": "3.1.0", "paths": {path: {} for path in paths}},
+                {
+                    "openapi": "3.1.0",
+                    "security": [{"ApiToken": []}],
+                    "paths": path_contract,
+                    "components": {
+                        "schemas": {
+                            "Control": {
+                                "type": schema_type,
+                                "properties": {
+                                    name: {"type": property_type}
+                                    for name, property_type in property_types.items()
+                                },
+                            }
+                        },
+                        "securitySchemes": {
+                            "ApiToken": {
+                                "type": "apiKey",
+                                "in": "header",
+                                "name": security_header,
+                            }
+                        },
+                    },
+                },
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode("utf-8")
@@ -578,6 +677,17 @@ def _lane(
                         "path_digest_sha256": "1" * 64,
                         "contract_digest_sha256": "3" * 64,
                     },
+                    "retirement_policy_id": deploy.OPENAPI_RETIREMENT_POLICY_ID,
+                    "retirement_allowed_operations": list(
+                        deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+                    ),
+                    "retired_operations": list(
+                        deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+                    ),
+                    "retired_operation_count": len(
+                        deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+                    ),
+                    "retirement_policy_exact_match": True,
                     "candidate_preserves_live_contract": True,
                     "missing_or_changed_operation_count": 0,
                     "missing_or_changed_schema_count": 0,
@@ -1047,6 +1157,14 @@ def test_happy_path_mutates_only_redis_and_api(
     assert len(promotion["projection"]["projection_sha256"]) == 64
     assert len(promotion["live_ea"]["snapshot_sha256"]) == 64
     assert promotion["openapi"]["candidate_preserves_live_contract"] is True
+    assert (
+        promotion["openapi"]["retirement_policy_id"]
+        == deploy.OPENAPI_RETIREMENT_POLICY_ID
+    )
+    assert promotion["openapi"]["retired_operations"] == list(
+        deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+    )
+    assert promotion["openapi"]["retired_operation_count"] == 2
     assert promotion["browser"]["http_errors"] == 0
     assert "first_smoke_checks" not in promotion
     assert "second_smoke_checks" not in promotion
@@ -1057,8 +1175,18 @@ def test_happy_path_mutates_only_redis_and_api(
     predeploy_openapi = receipt["predeploy_non_memorial_controls"]["openapi"]
     postdeploy_openapi = receipt["postdeploy_non_memorial_controls"]["openapi"]
     assert predeploy_openapi["paths"] == sorted(runner.prior_openapi_paths)
-    assert postdeploy_openapi["path_count"] == predeploy_openapi["path_count"]
+    assert postdeploy_openapi["path_count"] == predeploy_openapi["path_count"] - 2
     assert postdeploy_openapi["added_path_count"] == 0
+    assert postdeploy_openapi["retired_operations"] == list(
+        deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+    )
+    assert postdeploy_openapi["retired_operation_count"] == 2
+    assert postdeploy_openapi["retirement_policy_exact_match"] is True
+    assert postdeploy_openapi["changed_operation_count"] == 0
+    assert postdeploy_openapi["missing_or_changed_schema_count"] == 0
+    assert postdeploy_openapi["missing_or_changed_security_scheme_count"] == 0
+    assert "_contract" not in predeploy_openapi
+    assert "_contract" not in postdeploy_openapi
 
 
 def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
@@ -1145,6 +1273,11 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
         ("port_lock", {}),
         ("candidate_container_images", {}),
         ("candidate_api_container_id", "different-container"),
+        ("openapi_contract.retirement_policy_id", "mutable-policy"),
+        ("openapi_contract.retirement_allowed_operations", []),
+        ("openapi_contract.retired_operations", []),
+        ("openapi_contract.retired_operation_count", 1),
+        ("openapi_contract.retirement_policy_exact_match", False),
         ("openapi_contract.candidate_preserves_live_contract", False),
         ("live_ea_project_after", {}),
         ("live_ea_api_unchanged", False),
@@ -1214,7 +1347,107 @@ def test_candidate_openapi_evidence_rejects_extra_unbounded_fields(
     assert not any("up" in call for call in runner.calls)
 
 
-def test_openapi_path_regression_rolls_back(
+def test_deploy_openapi_canonicalizer_matches_candidate_producer() -> None:
+    from scripts import run_manfred_memorial_candidate as candidate
+
+    presentation_named_properties = (
+        "description",
+        "title",
+        "summary",
+        "tags",
+        "examples",
+    )
+    document: dict[str, object] = {
+        "openapi": "3.1.0",
+        "security": [{"ApiToken": []}],
+        "paths": {
+            "/control/{control_id}": {
+                "parameters": [
+                    {
+                        "name": "control_id",
+                        "in": "path",
+                        "required": True,
+                        "description": "stable path parameter",
+                        "schema": {"type": "string"},
+                    }
+                ],
+                "get": {
+                    "summary": "presentation field outside the contract projection",
+                    "tags": ["control"],
+                    "parameters": [
+                        {
+                            "name": "mode",
+                            "in": "query",
+                            "schema": {
+                                "type": "string",
+                                "examples": ["safe"],
+                            },
+                        }
+                    ],
+                    "requestBody": {
+                        "description": "stable request description",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/Control"}
+                            }
+                        },
+                    },
+                    "responses": {
+                        "200": {
+                            "description": "stable response description",
+                            "headers": {
+                                "X-Control": {
+                                    "description": "stable response header",
+                                    "schema": {"type": "string"},
+                                }
+                            },
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/Control"}
+                                }
+                            },
+                        }
+                    },
+                },
+            }
+        },
+        "components": {
+            "schemas": {
+                "Control": {
+                    "type": "object",
+                    "title": "Control schema",
+                    "properties": {
+                        name: {"type": "string", "title": f"{name} field"}
+                        for name in presentation_named_properties
+                    },
+                }
+            },
+            "securitySchemes": {
+                "ApiToken": {
+                    "type": "apiKey",
+                    "in": "header",
+                    "name": "X-EA-API-Token",
+                    "description": "stable security description",
+                }
+            },
+        },
+    }
+
+    deploy_contract = deploy._canonical_openapi_contract(document)
+    candidate_contract = candidate._canonical_openapi_contract(document)
+
+    assert deploy_contract == candidate_contract
+    operation = deploy_contract["operations"]["GET /control/{control_id}"]
+    assert set(operation) == {"security", "parameters", "requestBody", "responses"}
+    assert operation["responses"]["200"]["description"] == (
+        "stable response description"
+    )
+    assert set(deploy_contract["schemas"]["Control"]["properties"]) == set(
+        presentation_named_properties
+    )
+
+
+def test_openapi_operation_outside_exact_retirement_rolls_back(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = FakeRunner(release_root)
@@ -1230,7 +1463,164 @@ def test_openapi_path_regression_rolls_back(
         lane.deploy()
 
     receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
-    assert "postdeploy_openapi_path_regression" in receipt["failure"]["reason"]
+    assert (
+        "postdeploy_openapi_operation_retirement_mismatch"
+        in receipt["failure"]["reason"]
+    )
+    assert receipt["rollback"]["status"] == "pass"
+
+
+def test_openapi_partial_safety_retirement_rolls_back(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    retained_retirement_path = deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS[0].split(
+        " ", 1
+    )[1]
+    runner.forward_openapi_paths.append(retained_retirement_path)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(deploy.DeployError, match="deployment_failed_rolled_back"):
+        lane.deploy()
+
+    receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
+    assert (
+        "postdeploy_openapi_operation_retirement_mismatch"
+        in receipt["failure"]["reason"]
+    )
+    assert receipt["rollback"]["status"] == "pass"
+
+
+def test_predeploy_requires_both_safety_retirement_operations(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    missing_path = deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS[0].split(" ", 1)[1]
+    runner.prior_openapi_paths.remove(missing_path)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="predeploy_openapi_retirement_operations_missing",
+    ):
+        lane.deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+
+
+def test_openapi_changed_retained_operation_has_no_waiver(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.forward_openapi_changed_operation = True
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(deploy.DeployError, match="deployment_failed_rolled_back"):
+        lane.deploy()
+
+    receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
+    assert "postdeploy_openapi_operation_changed" in receipt["failure"]["reason"]
+    assert receipt["rollback"]["status"] == "pass"
+
+
+def test_openapi_schema_change_has_no_waiver(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.forward_openapi_schema_type = "string"
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(deploy.DeployError, match="deployment_failed_rolled_back"):
+        lane.deploy()
+
+    receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
+    assert "postdeploy_openapi_schema_regression" in receipt["failure"]["reason"]
+    assert receipt["rollback"]["status"] == "pass"
+
+
+@pytest.mark.parametrize(
+    "property_name",
+    ["description", "title", "summary", "tags", "examples"],
+)
+def test_openapi_presentation_named_schema_property_change_has_no_waiver(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    property_name: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.forward_openapi_property_types[property_name] = "integer"
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(deploy.DeployError, match="deployment_failed_rolled_back"):
+        lane.deploy()
+
+    receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
+    assert "postdeploy_openapi_schema_regression" in receipt["failure"]["reason"]
+    assert receipt["rollback"]["status"] == "pass"
+
+
+def test_openapi_response_description_change_has_no_waiver(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.forward_openapi_response_description = "changed response description"
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(deploy.DeployError, match="deployment_failed_rolled_back"):
+        lane.deploy()
+
+    receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
+    assert "postdeploy_openapi_operation_changed" in receipt["failure"]["reason"]
+    assert receipt["rollback"]["status"] == "pass"
+
+
+def test_openapi_security_change_has_no_waiver(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.forward_openapi_security_header = "X-Changed-Token"
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(deploy.DeployError, match="deployment_failed_rolled_back"):
+        lane.deploy()
+
+    receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
+    assert "postdeploy_openapi_security_regression" in receipt["failure"]["reason"]
     assert receipt["rollback"]["status"] == "pass"
 
 
@@ -1578,6 +1968,17 @@ def test_public_failure_rolls_back_once_with_base_and_prod_only(
     payload = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
     assert payload["status"] == "failed_rolled_back"
     assert payload["rollback"]["status"] == "pass"
+    rollback_openapi = payload["rollback"]["openapi"]
+    assert rollback_openapi["matches_predeploy_contract"] is True
+    assert rollback_openapi["restored_retirement_operations"] == list(
+        deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+    )
+    assert (
+        rollback_openapi["contract_sha256"]
+        == payload["predeploy_non_memorial_controls"]["openapi"]["contract_sha256"]
+    )
+    assert "_contract" not in rollback_openapi
+    assert "paths" not in rollback_openapi
     rollback_index = runner.calls.index(rollback)
     assert not deploy.FORWARD_ONLY_ENV_KEYS.intersection(
         runner.call_envs[rollback_index]
@@ -1590,6 +1991,54 @@ def test_public_failure_rolls_back_once_with_base_and_prod_only(
         runner.prior_image_reference,
     ] in runner.calls
     assert payload["failure"]["reason"].startswith("http_probe_exhausted:")
+
+
+@pytest.mark.parametrize("rollback_contract", ["candidate", "partial"])
+def test_rollback_fails_when_healthy_runtime_does_not_restore_openapi_contract(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    rollback_contract: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    if rollback_contract == "candidate":
+        runner.rollback_openapi_paths = list(runner.forward_openapi_paths)
+    else:
+        missing_operation_path = deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS[0].split(
+            " ", 1
+        )[1]
+        runner.rollback_openapi_paths = [
+            path
+            for path in runner.prior_openapi_paths
+            if path != missing_operation_path
+        ]
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    requested_urls: list[str] = []
+
+    def failing_public_http(url: str, timeout: float) -> deploy.HttpResponse:
+        requested_urls.append(url)
+        if url.startswith("https://") and not url.endswith(".json"):
+            raise deploy.DeployError("http_status_invalid:404")
+        if url.endswith(".json"):
+            return deploy.HttpResponse(200, "application/json", SAFE_MANIFEST, "b" * 40)
+        if url.endswith("/health"):
+            return deploy.HttpResponse(200, "application/json", b'{"status":"ok"}')
+        return deploy.HttpResponse(200, "text/html", SAFE_HTML, "b" * 40)
+
+    lane = _lane(release_root, runner, http_get=failing_public_http)
+
+    with pytest.raises(deploy.DeployError, match="deployment_and_rollback_failed"):
+        lane.deploy()
+
+    receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "rollback_failed"
+    assert receipt["failure"]["reason"].startswith("http_probe_exhausted:")
+    assert receipt["rollback"]["reason"] == "rollback_openapi_contract_mismatch"
+    assert runner.api_mode == "prior"
+    assert sum(url.endswith("/health") for url in requested_urls) >= 2
 
 
 def test_rollback_mount_mismatch_preserves_primary_and_rollback_failures(
