@@ -110,7 +110,11 @@ def _container(module, service: str) -> dict[str, object]:
             "ReadonlyRootfs": True,
             "CapDrop": ["ALL"],
             "SecurityOpt": ["no-new-privileges:true"],
-            "Binds": None,
+            "Binds": (
+                [f"{PROJECT}_postgres_data:/var/lib/postgresql/data:rw"]
+                if service == "postgres"
+                else None
+            ),
         },
         "Mounts": mounts,
         "NetworkSettings": {
@@ -514,6 +518,51 @@ def test_stateful_services_must_also_drop_all_capabilities(
 
     assert "service_postgres_cap_drop_all_missing" in receipt["issues"]
     assert "service_redis_cap_drop_all_missing" in receipt["issues"]
+
+
+def test_named_volume_bind_spec_is_not_misclassified_as_host_bind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _module()
+    fake = FakeDocker(module)
+    monkeypatch.setattr(module.subprocess, "run", fake)
+
+    receipt = _receipt(module, fake)
+
+    assert receipt["status"] == "pass"
+    postgres = next(
+        row
+        for row in receipt["observations"]["services"]
+        if row["service"] == "postgres"
+    )
+    assert postgres["no_bind_mounts"] is True
+
+
+@pytest.mark.parametrize(
+    "mounts,binds",
+    (
+        ([{"Type": "bind", "Source": "/host", "Destination": "/data"}], ["/host:/data:ro"]),
+        ([{"Destination": "/data"}], ["named-volume:/data:rw"]),
+        ([], ["named-volume:/data:rw"]),
+        ("invalid", None),
+    ),
+)
+def test_host_or_ambiguous_mount_inventory_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    mounts: object,
+    binds: object,
+) -> None:
+    module = _module()
+    fake = FakeDocker(module)
+    worker = fake.containers["worker"]
+    worker["Mounts"] = mounts
+    worker["HostConfig"]["Binds"] = binds
+    monkeypatch.setattr(module.subprocess, "run", fake)
+
+    receipt = _receipt(module, fake)
+
+    assert receipt["status"] == "fail"
+    assert "service_worker_bind_mount_present" in receipt["issues"]
 
 
 def test_runtime_probe_failures_do_not_project_raw_bodies_or_subprocess_output(

@@ -814,7 +814,8 @@ def build_receipt(
             config = _mapping(inspection.get("Config"))
             labels = _mapping(config.get("Labels"))
             environment = config.get("Env")
-            mounts = _sequence(inspection.get("Mounts"))
+            raw_mounts = inspection.get("Mounts")
+            mounts = _sequence(raw_mounts)
             networks = _mapping(
                 _mapping(inspection.get("NetworkSettings")).get("Networks")
             )
@@ -842,8 +843,25 @@ def build_receipt(
             no_new_privileges = bool(
                 {"no-new-privileges", "no-new-privileges:true"} & security_options
             )
-            no_bind_mounts = not _sequence(host_config.get("Binds")) and all(
-                _mapping(mount).get("Type") != "bind" for mount in mounts
+            raw_bind_specs = host_config.get("Binds")
+            bind_specs = _sequence(raw_bind_specs)
+            bind_specs_valid = (
+                raw_bind_specs is None
+                or (
+                    isinstance(raw_bind_specs, (list, tuple))
+                    and all(isinstance(item, str) and bool(item) for item in bind_specs)
+                )
+            )
+            mount_inventory_valid = isinstance(raw_mounts, (list, tuple)) and all(
+                isinstance(mount, Mapping)
+                and str(mount.get("Type") or "").strip().lower()
+                in {"tmpfs", "volume"}
+                for mount in mounts
+            )
+            no_bind_mounts = (
+                bind_specs_valid
+                and mount_inventory_valid
+                and len(bind_specs) <= len(mounts)
             )
             observation: dict[str, object] = {
                 "service": service,
