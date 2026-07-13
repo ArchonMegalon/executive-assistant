@@ -18,6 +18,7 @@ from app.api.routes.public_memorial_surface_support import (
     _load_memorial,
     _load_private_profile,
     _memorial_https_redirect,
+    _memorial_transport_rejection,
     _memorial_archive_publication_html_path,
     _memorial_archive_publication_redirect_url,
     _memorial_html,
@@ -134,7 +135,10 @@ def public_memorial_archive_manifest(slug: str) -> JSONResponse:
 
 
 @router.get("/memorials/{slug}/archive")
-def public_memorial_archive_index(slug: str, request: Request) -> HTMLResponse:
+def public_memorial_archive_index(slug: str, request: Request) -> Response:
+    rejection = _memorial_transport_rejection(request)
+    if rejection is not None:
+        return rejection
     redirect = _memorial_https_redirect(request)
     if redirect is not None:
         return redirect
@@ -159,6 +163,9 @@ def public_memorial_archive_index(slug: str, request: Request) -> HTMLResponse:
 
 @router.get("/memorials/{slug}/archive/{publication_slug}")
 def public_memorial_archive_publication(slug: str, publication_slug: str, request: Request) -> Response:
+    rejection = _memorial_transport_rejection(request)
+    if rejection is not None:
+        return rejection
     redirect = _memorial_https_redirect(request)
     if redirect is not None:
         return redirect
@@ -287,7 +294,10 @@ def public_memorial_file(slug: str, asset_path: str) -> FileResponse:
     methods=["GET", "HEAD"],
     include_in_schema=False,
 )
-def manfred_memorial_singular_alias(request: Request) -> RedirectResponse:
+def manfred_memorial_singular_alias(request: Request) -> Response:
+    rejection = _memorial_transport_rejection(request)
+    if rejection is not None:
+        return rejection
     target = "/memorials/manfred"
     if request.url.query:
         target = f"{target}?{request.url.query}"
@@ -301,7 +311,10 @@ def manfred_memorial_singular_alias(request: Request) -> RedirectResponse:
 
 
 @router.get("/memorials/{slug}", response_class=HTMLResponse)
-def public_memorial_page(slug: str, request: Request) -> HTMLResponse:
+def public_memorial_page(slug: str, request: Request) -> Response:
+    rejection = _memorial_transport_rejection(request)
+    if rejection is not None:
+        return rejection
     redirect = _memorial_https_redirect(request)
     if redirect is not None:
         return redirect
@@ -326,7 +339,10 @@ def public_memorial_page(slug: str, request: Request) -> HTMLResponse:
 
 
 @router.head("/memorials/{slug}")
-def public_memorial_head(slug: str, request: Request) -> HTMLResponse:
+def public_memorial_head(slug: str, request: Request) -> Response:
+    rejection = _memorial_transport_rejection(request)
+    if rejection is not None:
+        return rejection
     redirect = _memorial_https_redirect(request)
     if redirect is not None:
         return redirect

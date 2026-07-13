@@ -196,15 +196,15 @@ def _safe_tag(raw: str, *, commit: str) -> str:
     }
     raw_tag = str(raw or "")
     tag = raw_tag or default_tag
-    lowered = tag.lower()
+    normalized_lowered = tag.strip().lower()
+    if normalized_lowered == "latest" or normalized_lowered.endswith(":latest"):
+        raise ValueError("manfred_image_mutable_tag_forbidden")
     if (
         not tag
         or tag != tag.strip()
         or any(character.isspace() for character in tag)
     ):
         raise ValueError("manfred_image_tag_invalid")
-    if lowered == "latest" or lowered.endswith(":latest"):
-        raise ValueError("manfred_image_mutable_tag_forbidden")
     if tag not in allowed_tags:
         raise ValueError("manfred_image_tag_revision_mismatch")
     return tag

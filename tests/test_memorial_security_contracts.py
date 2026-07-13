@@ -2252,7 +2252,9 @@ def test_public_memorial_direct_https_sets_secure_cookie_and_hsts(
     "proxy_headers",
     [
         {"x-forwarded-proto": "https"},
+        {"x-forwarded-proto": "https", "x-forwarded-host": "myexternalbrain.com"},
         {"forwarded": "for=192.0.2.10;proto=https"},
+        {"forwarded": "for=192.0.2.10;proto=https;host=myexternalbrain.com"},
         {"cf-visitor": '{"scheme":"https"}'},
         {
             "x-forwarded-proto": "https",
@@ -2288,7 +2290,7 @@ def test_public_memorial_configured_host_accepts_https_proxy_scheme_without_glob
         "unrelated.example@myexternalbrain.com",
     ],
 )
-def test_public_memorial_unrelated_host_cannot_spoof_https_transport(
+def test_public_memorial_unrelated_host_fails_closed_before_render(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     request_host: str,
@@ -2306,10 +2308,53 @@ def test_public_memorial_unrelated_host_cannot_spoof_https_transport(
         follow_redirects=False,
     )
 
-    assert response.status_code == 200
-    assert "Secure" not in response.headers.get("set-cookie", "")
+    assert response.status_code == 421
+    assert "set-cookie" not in response.headers
     assert "Strict-Transport-Security" not in response.headers
     assert "location" not in response.headers
+
+
+@pytest.mark.parametrize(
+    "proxy_headers",
+    [
+        {"x-forwarded-proto": "https", "x-forwarded-host": "unrelated.example"},
+        {"forwarded": "for=192.0.2.10;proto=https;host=unrelated.example"},
+    ],
+)
+def test_public_memorial_forwarded_host_disagreement_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    proxy_headers: dict[str, str],
+) -> None:
+    client = _configured_transport_memorial(monkeypatch, tmp_path)
+
+    response = client.get(
+        "/memorials/manfred",
+        headers={"host": "myexternalbrain.com", **proxy_headers},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 421
+    assert "set-cookie" not in response.headers
+    assert "Strict-Transport-Security" not in response.headers
+    assert "location" not in response.headers
+
+
+def test_public_memorial_direct_https_rejects_forwarded_host_disagreement(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client = _configured_transport_memorial(monkeypatch, tmp_path)
+
+    response = client.get(
+        "https://myexternalbrain.com/memorials/manfred",
+        headers={"x-forwarded-host": "unrelated.example", "x-forwarded-proto": "https"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 421
+    assert "set-cookie" not in response.headers
+    assert "Strict-Transport-Security" not in response.headers
 
 
 @pytest.mark.parametrize(
@@ -2350,7 +2395,7 @@ def test_public_memorial_configured_http_routes_redirect_to_exact_https_origin(
         {"x-forwarded-proto": "https", "cf-visitor": '{"scheme":"http"}'},
     ],
 )
-def test_public_memorial_malformed_proxy_scheme_fails_closed_to_https_redirect(
+def test_public_memorial_malformed_proxy_scheme_is_rejected_without_redirect(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     malformed_headers: dict[str, str],
@@ -2363,9 +2408,35 @@ def test_public_memorial_malformed_proxy_scheme_fails_closed_to_https_redirect(
         follow_redirects=False,
     )
 
-    assert response.status_code == 308
-    assert response.headers["location"] == "https://myexternalbrain.com/memorials/manfred?source=malformed"
+    assert response.status_code == 400
+    assert "location" not in response.headers
     assert "set-cookie" not in response.headers
+
+
+def test_public_memorial_isolated_candidate_loopback_is_explicit_and_header_strict(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client = _configured_transport_memorial(monkeypatch, tmp_path)
+    monkeypatch.setenv("EA_MANFRED_COMPOSE_PROJECT", "ea-manfred-candidate-security-proof")
+    monkeypatch.setenv("EA_MANFRED_HOST_PORT", "18098")
+
+    response = client.get(
+        "/memorials/manfred",
+        headers={"host": "127.0.0.1:18098"},
+        follow_redirects=False,
+    )
+    malformed = client.get(
+        "/memorials/manfred",
+        headers={"host": "127.0.0.1:18098", "x-forwarded-proto": "https"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Secure" not in response.headers.get("set-cookie", "")
+    assert "Strict-Transport-Security" not in response.headers
+    assert malformed.status_code == 400
+    assert "set-cookie" not in malformed.headers
 
 
 def test_public_memorial_page_establishes_guest_scope_without_enabling_personal_memory(

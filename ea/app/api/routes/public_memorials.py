@@ -507,40 +507,111 @@ def _configured_memorial_https_origin() -> tuple[str, str] | None:
     return hostname, f"https://{authority}"
 
 
-def _request_matches_configured_memorial_host(request: Request) -> bool:
-    configured = _configured_memorial_https_origin()
-    if configured is None:
-        return False
-    host_values = request.headers.getlist("host")
-    if len(host_values) != 1:
-        return False
-    raw_host = str(host_values[0] or "").strip()
+def _single_memorial_request_header(request: Request, name: str) -> tuple[bool, str]:
+    values = request.headers.getlist(name)
+    if not values:
+        return False, ""
+    if len(values) != 1:
+        return True, ""
+    value = str(values[0] or "").strip()
+    if not value or any(ord(character) < 32 or ord(character) == 127 for character in value):
+        return True, ""
+    return True, value
+
+
+def _memorial_authority(value: object) -> tuple[str, int | None] | None:
+    raw = str(value or "").strip()
     if (
-        not raw_host
-        or any(character in raw_host for character in ("@", "/", "\\", "?", "#", ","))
-        or any(ord(character) < 33 or ord(character) == 127 for character in raw_host)
+        not raw
+        or any(character in raw for character in ("@", "/", "\\", "?", "#", ","))
+        or any(ord(character) < 33 or ord(character) == 127 for character in raw)
     ):
-        return False
+        return None
     try:
-        parsed_host = urllib.parse.urlsplit(f"//{raw_host}")
-        parsed_host.port
+        parsed = urllib.parse.urlsplit(f"//{raw}")
+        port = parsed.port
     except (TypeError, ValueError):
+        return None
+    hostname = str(parsed.hostname or "").strip().rstrip(".").lower()
+    if not hostname or parsed.username is not None or parsed.password is not None:
+        return None
+    return hostname, port
+
+
+def _memorial_authority_matches_configured(value: object) -> bool:
+    configured = _configured_memorial_https_origin()
+    authority = _memorial_authority(value)
+    if configured is None or authority is None:
         return False
-    hostname = str(parsed_host.hostname or "").strip().rstrip(".").lower()
-    return bool(hostname) and hostname == configured[0]
+    configured_url = urllib.parse.urlsplit(configured[1])
+    expected_port = configured_url.port or 443
+    hostname, port = authority
+    return hostname == configured[0] and (port or 443) == expected_port
+
+
+def _request_matches_configured_memorial_host(request: Request) -> bool:
+    present, raw_host = _single_memorial_request_header(request, "host")
+    if not present:
+        return False
+    return _memorial_authority_matches_configured(raw_host)
+
+
+def _request_is_isolated_memorial_candidate_loopback(request: Request) -> bool:
+    project = str(os.getenv("EA_MANFRED_COMPOSE_PROJECT") or "").strip().lower()
+    expected_port_raw = str(os.getenv("EA_MANFRED_HOST_PORT") or "").strip()
+    if not project.startswith("ea-manfred-candidate-") or not expected_port_raw.isdigit():
+        return False
+    expected_port = int(expected_port_raw)
+    if expected_port < 1 or expected_port > 65535:
+        return False
+    present, raw_host = _single_memorial_request_header(request, "host")
+    if not present:
+        return False
+    authority = _memorial_authority(raw_host)
+    if authority is None:
+        return False
+    hostname, port = authority
+    return hostname in {"127.0.0.1", "localhost", "::1"} and port == expected_port
+
+
+def _forwarded_header_parameters(request: Request) -> tuple[bool, dict[str, str] | None]:
+    present, forwarded = _single_memorial_request_header(request, "forwarded")
+    if not present:
+        return False, {}
+    if not forwarded or "," in forwarded:
+        return True, None
+    forwarded_values: dict[str, str] = {}
+    for raw_part in forwarded.split(";"):
+        part = raw_part.strip()
+        if not part or "=" not in part:
+            return True, None
+        key, raw_value = part.split("=", 1)
+        key = key.strip().lower()
+        value = raw_value.strip()
+        if not key or key in forwarded_values:
+            return True, None
+        if value.startswith('"') or value.endswith('"'):
+            if len(value) < 2 or not (value.startswith('"') and value.endswith('"')):
+                return True, None
+            value = value[1:-1]
+        if not value or any(ord(character) < 33 or ord(character) == 127 for character in value):
+            return True, None
+        forwarded_values[key] = value
+    return True, forwarded_values
 
 
 def _forwarded_transport_scheme(request: Request) -> str:
     schemes: list[str] = []
 
-    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
-    if forwarded_proto:
+    forwarded_proto_present, forwarded_proto = _single_memorial_request_header(request, "x-forwarded-proto")
+    forwarded_proto = forwarded_proto.lower()
+    if forwarded_proto_present:
         if "," in forwarded_proto or forwarded_proto not in {"http", "https"}:
             return ""
         schemes.append(forwarded_proto)
 
-    cf_visitor = str(request.headers.get("cf-visitor") or "").strip()
-    if cf_visitor:
+    cf_visitor_present, cf_visitor = _single_memorial_request_header(request, "cf-visitor")
+    if cf_visitor_present:
         try:
             parsed_cf_visitor = json.loads(cf_visitor)
         except (TypeError, ValueError):
@@ -552,27 +623,10 @@ def _forwarded_transport_scheme(request: Request) -> str:
             return ""
         schemes.append(cf_scheme)
 
-    forwarded = str(request.headers.get("forwarded") or "").strip()
-    if forwarded:
-        if "," in forwarded:
+    forwarded_present, forwarded_values = _forwarded_header_parameters(request)
+    if forwarded_present:
+        if forwarded_values is None:
             return ""
-        forwarded_values: dict[str, str] = {}
-        for raw_part in forwarded.split(";"):
-            part = raw_part.strip()
-            if not part or "=" not in part:
-                return ""
-            key, raw_value = part.split("=", 1)
-            key = key.strip().lower()
-            value = raw_value.strip()
-            if not key or key in forwarded_values:
-                return ""
-            if value.startswith('"') or value.endswith('"'):
-                if len(value) < 2 or not (value.startswith('"') and value.endswith('"')):
-                    return ""
-                value = value[1:-1]
-            if not value or any(ord(character) < 33 or ord(character) == 127 for character in value):
-                return ""
-            forwarded_values[key] = value
         forwarded_scheme = forwarded_values.get("proto", "").lower()
         if forwarded_scheme not in {"http", "https"}:
             return ""
@@ -581,6 +635,61 @@ def _forwarded_transport_scheme(request: Request) -> str:
     if not schemes or len(set(schemes)) != 1:
         return ""
     return schemes[0]
+
+
+def _memorial_transport_rejection(request: Request) -> Response | None:
+    if _configured_memorial_https_origin() is None:
+        return None
+
+    configured_host = _request_matches_configured_memorial_host(request)
+    candidate_loopback = _request_is_isolated_memorial_candidate_loopback(request)
+    if not configured_host and not candidate_loopback:
+        return Response(
+            status_code=421,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
+
+    proxy_header_names = ("x-forwarded-proto", "cf-visitor", "forwarded", "x-forwarded-host")
+    proxy_headers_present = any(request.headers.getlist(name) for name in proxy_header_names)
+    if candidate_loopback and proxy_headers_present:
+        return Response(
+            status_code=400,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
+
+    forwarded_present, forwarded_values = _forwarded_header_parameters(request)
+    if forwarded_present and forwarded_values is None:
+        return Response(
+            status_code=400,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
+
+    forwarded_host_present, forwarded_host = _single_memorial_request_header(request, "x-forwarded-host")
+    if forwarded_host_present and not _memorial_authority_matches_configured(forwarded_host):
+        return Response(
+            status_code=421,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
+    if forwarded_values and forwarded_values.get("host") and not _memorial_authority_matches_configured(
+        forwarded_values["host"]
+    ):
+        return Response(
+            status_code=421,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
+
+    if str(request.url.scheme or "").strip().lower() == "https":
+        return None
+
+    scheme_headers_present = any(
+        request.headers.getlist(name) for name in ("x-forwarded-proto", "cf-visitor", "forwarded")
+    )
+    if scheme_headers_present and not _forwarded_transport_scheme(request):
+        return Response(
+            status_code=400,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
+    return None
 
 
 def _request_uses_https(request: Request) -> bool:
@@ -2936,6 +3045,7 @@ def _memorial_video_call_avatar_fallback_html(video_call_avatar: dict[str, objec
         <div class="hero-portrait-line" id="memorial-video-call-avatar-fallback" style="margin-top: 14px; max-width: 520px;">
           <strong>{provider_html}</strong>
           <span id="memorial-video-call-avatar-detail">{detail_html}</span>
+          <span>Gleich kannst du mit mir reden.</span>
         </div>"""
 
 
@@ -10016,6 +10126,8 @@ def _minimal_public_memorial_html(
     video_call_avatar_fallback_html: str = "",
 ) -> str:
     safe_person_name = html.escape(person_name)
+    person_first_name = person_name.strip().split(maxsplit=1)[0] if person_name.strip() else "Person"
+    safe_person_first_name = html.escape(person_first_name)
     safe_subtitle = html.escape(subtitle)
     voice_release_enforced = _memorial_voice_release_enforced()
     voice_release_allowed = True
@@ -10920,7 +11032,7 @@ def _minimal_public_memorial_html(
   </head>
   <body>
     <a class="skip-link" href="#memorial-story">Zum Inhalt springen</a>
-    <a class="skip-link" href="#memorial-conversation-region">Zum Gedenkbegleiter springen</a>
+    <a class="skip-link" href="#memorial-conversation-region">Zum Gespräch mit {safe_person_name}</a>
     <header>
       <div class="wrap hero">
         <div class="hero-shell">
@@ -11012,7 +11124,7 @@ def _minimal_public_memorial_html(
         </div>
         <p class="hero-guidance">{html.escape(voice_guidance)}</p>
         <form class="text-turn-form memorial-js-required-form" id="memorial-text-turn-form" method="post" action="/memorials/{html.escape(slug)}/chat" hidden inert aria-hidden="true" aria-disabled="true" data-js-ready="false">
-          <label for="memorial-text-turn-input">Dem Gedenkbegleiter schreiben</label>
+          <label for="memorial-text-turn-input">Oder ohne Mikrofon schreiben</label>
           <div class="text-turn-controls">
             <input id="memorial-text-turn-input" name="question" type="text" maxlength="2000" autocomplete="off" enterkeyhint="send" placeholder="Welche belegte Erinnerung möchtest du einordnen?">
             <button type="submit" id="memorial-text-turn-submit">Senden</button>
@@ -11043,9 +11155,10 @@ def _minimal_public_memorial_html(
         </div>
         {video_call_avatar_fallback_html}
         <details class="conversation-settings">
-          <summary>Einstellungen</summary>
+          <summary>Gesprächseinstellungen</summary>
           <div class="conversation-settings-copy">
             <p>Mit deiner Zustimmung werden kurze Dialogerinnerungen pseudonym auf unserem Server gespeichert und mit diesem Browser verknüpft. Du kannst sie jederzeit wieder löschen.</p>
+            <p>Bei Gesprächen mit der KI-gestützten, synthetischen {safe_person_first_name}-Stimme gilt: eingesetzte Sprachdienste verarbeiten das Audio erst nach deinem ausdrücklichen Start.</p>
           </div>
           <div class="conversation-settings-grid">
             <div class="conversation-toggle"{voice_autostart_attributes}>
@@ -11084,7 +11197,7 @@ def _minimal_public_memorial_html(
             <p id="memorial-speech-transcript-live-text"></p>
             <p class="status-note" id="memorial-speech-transcript-effective" hidden></p>
           </div>
-        <div class="speech-transcript" id="memorial-speech-transcript" role="log" aria-label="Dialogverlauf mit dem Gedenkbegleiter"></div>
+        <div class="speech-transcript" id="memorial-speech-transcript" role="log" aria-label="Gesprächsverlauf"></div>
         </section>
         <div class="chat-tools" id="memorial-chat-tools" hidden>
           <button type="button" class="chat-tool" id="memorial-read-answer">Antwort lesen</button>
