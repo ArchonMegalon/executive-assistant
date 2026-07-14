@@ -181,6 +181,45 @@ def _run(
     return completed.stdout
 
 
+def _run_bounded_output(
+    argv: list[str],
+    *,
+    timeout: int,
+    environment: dict[str, str],
+    stdout_limit: int,
+    stderr_limit: int,
+    output_limit_error: str,
+) -> bytes:
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        completed = subprocess.run(
+            argv,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            timeout=timeout,
+            env=dict(environment),
+        )
+        stdout_file.flush()
+        stderr_file.flush()
+        stdout_size = os.fstat(stdout_file.fileno()).st_size
+        stderr_size = os.fstat(stderr_file.fileno()).st_size
+        stdout_file.seek(0)
+        stderr_file.seek(0)
+        stdout = stdout_file.read(max(0, int(stdout_limit)) + 1)
+        stderr = stderr_file.read(max(0, int(stderr_limit)) + 1)
+    if stdout_size > stdout_limit or stderr_size > stderr_limit:
+        raise RuntimeError(output_limit_error)
+    if completed.returncode:
+        raise subprocess.CalledProcessError(
+            completed.returncode,
+            argv,
+            output=stdout,
+            stderr=stderr,
+        )
+    return stdout
+
+
 def _compose_argv(
     project_name: str,
     env_file: Path,
@@ -399,6 +438,40 @@ OPENAPI_RETIREMENT_ALLOWED_OPERATIONS = (
     "POST /v1/internal/governed-spatial-render/build",
     "POST /v1/internal/governed-spatial-render/compose",
 )
+MAX_OPENAPI_DOCUMENT_BYTES = 8 * 1024 * 1024
+MAX_OPENAPI_SNAPSHOT_STDERR_BYTES = 1024 * 1024
+CANDIDATE_OPENAPI_SNAPSHOT_SOURCE = "candidate_api_container_app.openapi"
+CANDIDATE_OPENAPI_RETIREMENT_SINGLETON_HEADERS = frozenset(
+    {
+        "content-security-policy",
+        "content-type",
+        "x-content-type-options",
+        "x-correlation-id",
+        "x-frame-options",
+    }
+)
+CANDIDATE_OPENAPI_SNAPSHOT_SCRIPT = f"""
+import json
+import sys
+
+from app.main import app
+
+payload = {{
+    "docs_url": app.docs_url,
+    "document": app.openapi(),
+    "openapi_url": app.openapi_url,
+    "redoc_url": app.redoc_url,
+}}
+raw = json.dumps(
+    payload,
+    ensure_ascii=False,
+    separators=(",", ":"),
+    sort_keys=True,
+).encode("utf-8")
+if len(raw) > {MAX_OPENAPI_DOCUMENT_BYTES}:
+    raise SystemExit(86)
+sys.stdout.buffer.write(raw)
+""".strip()
 
 
 def _resolve_openapi_ref(document: dict[str, object], ref: str) -> object:
@@ -640,6 +713,23 @@ def _assert_openapi_contract_preserved(
     }
 
 
+def _openapi_document(
+    body: bytes,
+    *,
+    invalid_error: str,
+    too_large_error: str,
+) -> dict[str, object]:
+    if len(body) > MAX_OPENAPI_DOCUMENT_BYTES:
+        raise RuntimeError(too_large_error)
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(invalid_error) from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(invalid_error)
+    return payload
+
+
 def _openapi_contract_snapshot(
     base_url: str,
 ) -> tuple[dict[str, object], dict[str, object]]:
@@ -652,19 +742,69 @@ def _openapi_contract_snapshot(
         with urllib.request.urlopen(request, timeout=20) as response:
             if int(response.status or 0) != 200:
                 raise RuntimeError("manfred_candidate_openapi_status_invalid")
-            body = response.read(8 * 1024 * 1024 + 1)
+            body = response.read(MAX_OPENAPI_DOCUMENT_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            f"manfred_candidate_openapi_status_invalid:{int(exc.code)}"
+        ) from exc
     except (OSError, urllib.error.URLError) as exc:
         raise RuntimeError("manfred_candidate_openapi_unreachable") from exc
-    if len(body) > 8 * 1024 * 1024:
-        raise RuntimeError("manfred_candidate_openapi_response_too_large")
-    try:
-        payload = json.loads(body)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RuntimeError("manfred_candidate_openapi_invalid") from exc
-    if not isinstance(payload, dict):
-        raise RuntimeError("manfred_candidate_openapi_invalid")
+    payload = _openapi_document(
+        body,
+        invalid_error="manfred_candidate_openapi_invalid",
+        too_large_error="manfred_candidate_openapi_response_too_large",
+    )
     contract = _canonical_openapi_contract(payload)
     return contract, _openapi_contract_evidence(contract)
+
+
+def _candidate_openapi_contract_snapshot(
+    compose: list[str],
+    environment: dict[str, str],
+) -> tuple[dict[str, object], dict[str, object]]:
+    try:
+        body = _run_bounded_output(
+            [
+                *compose,
+                "exec",
+                "-T",
+                "api",
+                "python",
+                "-c",
+                CANDIDATE_OPENAPI_SNAPSHOT_SCRIPT,
+            ],
+            timeout=120,
+            environment=environment,
+            stdout_limit=MAX_OPENAPI_DOCUMENT_BYTES,
+            stderr_limit=MAX_OPENAPI_SNAPSHOT_STDERR_BYTES,
+            output_limit_error=(
+                "manfred_candidate_internal_openapi_snapshot_output_too_large"
+            ),
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(
+            "manfred_candidate_internal_openapi_snapshot_unavailable"
+        ) from exc
+    envelope = _openapi_document(
+        body,
+        invalid_error="manfred_candidate_internal_openapi_snapshot_invalid",
+        too_large_error="manfred_candidate_internal_openapi_snapshot_too_large",
+    )
+    if (
+        envelope.get("docs_url") is not None
+        or envelope.get("openapi_url") is not None
+        or envelope.get("redoc_url") is not None
+    ):
+        raise RuntimeError("manfred_candidate_internal_openapi_docs_exposed")
+    document = envelope.get("document")
+    if not isinstance(document, dict):
+        raise RuntimeError("manfred_candidate_internal_openapi_snapshot_invalid")
+    contract = _canonical_openapi_contract(document)
+    return contract, {
+        **_openapi_contract_evidence(contract),
+        "snapshot_source": CANDIDATE_OPENAPI_SNAPSHOT_SOURCE,
+        "public_docs_config_retired": True,
+    }
 
 
 def _spatial_projection_evidence(
@@ -1761,6 +1901,135 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _candidate_openapi_retirement_headers(
+    response_headers: object,
+) -> dict[str, str]:
+    items = getattr(response_headers, "items", None)
+    if not callable(items):
+        raise RuntimeError("manfred_candidate_openapi_retirement_headers_invalid")
+    normalized: dict[str, str] = {}
+    singleton_seen: set[str] = set()
+    try:
+        rows = list(items())
+    except Exception as exc:
+        raise RuntimeError(
+            "manfred_candidate_openapi_retirement_headers_invalid"
+        ) from exc
+    for raw_name, raw_value in rows:
+        name = str(raw_name or "").strip().lower()
+        value = str(raw_value or "").strip()
+        if (
+            not name
+            or any(character not in HTTP_HEADER_NAME_CHARACTERS for character in name)
+            or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        ):
+            raise RuntimeError(
+                "manfred_candidate_openapi_retirement_headers_invalid"
+            )
+        if name in CANDIDATE_OPENAPI_RETIREMENT_SINGLETON_HEADERS:
+            if name in singleton_seen or "," in value:
+                raise RuntimeError(
+                    "manfred_candidate_openapi_retirement_headers_ambiguous"
+                )
+            singleton_seen.add(name)
+            normalized[name] = value
+        elif name in normalized:
+            normalized[name] = f"{normalized[name]}, {value}"
+        else:
+            normalized[name] = value
+    return normalized
+
+
+def _candidate_openapi_csp_denies_framing(value: str) -> bool:
+    directives: dict[str, tuple[str, ...]] = {}
+    for raw_directive in str(value or "").split(";"):
+        parts = raw_directive.strip().split()
+        if not parts:
+            continue
+        name = parts[0].lower()
+        if name in directives:
+            return False
+        directives[name] = tuple(parts[1:])
+    return directives.get("frame-ancestors") == ("'none'",)
+
+
+def _assert_candidate_openapi_retired(base_url: str) -> dict[str, object]:
+    path = "/openapi.json"
+    request = urllib.request.Request(
+        f"{str(base_url or '').rstrip('/')}{path}",
+        method="GET",
+        headers={
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+            "User-Agent": "EA-Manfred-OpenAPI-Retirement-Verifier/1.0",
+        },
+    )
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+    try:
+        with opener.open(request, timeout=20) as response:
+            status = int(response.status or 0)
+            body = response.read(MAX_OPENAPI_DOCUMENT_BYTES + 1)
+            headers = _candidate_openapi_retirement_headers(response.headers)
+    except urllib.error.HTTPError as exc:
+        status = int(exc.code)
+        body = exc.read(MAX_OPENAPI_DOCUMENT_BYTES + 1)
+        headers = _candidate_openapi_retirement_headers(exc.headers)
+    except (OSError, urllib.error.URLError) as exc:
+        raise RuntimeError(
+            "manfred_candidate_openapi_retirement_unreachable"
+        ) from exc
+    if status != 404:
+        raise RuntimeError(
+            f"manfred_candidate_openapi_retirement_status_invalid:{status}"
+        )
+    payload = _openapi_document(
+        body,
+        invalid_error="manfred_candidate_openapi_retirement_payload_invalid",
+        too_large_error="manfred_candidate_openapi_retirement_payload_too_large",
+    )
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        raise RuntimeError("manfred_candidate_openapi_retirement_payload_invalid")
+    correlation_id = error.get("correlation_id")
+    content_type = str(headers.get("content-type") or "")
+    content_media_type = content_type.partition(";")[0].strip().lower()
+    security_headers = {
+        "content_security_policy": str(
+            headers.get("content-security-policy") or ""
+        ),
+        "x_content_type_options": str(
+            headers.get("x-content-type-options") or ""
+        ),
+        "x_frame_options": str(headers.get("x-frame-options") or ""),
+    }
+    if (
+        set(error) != {"code", "message", "details", "correlation_id"}
+        or error.get("code") != "not_found"
+        or error.get("message") != "not_found"
+        or error.get("details") != "not_found"
+        or type(correlation_id) is not str
+        or not correlation_id
+        or str(headers.get("x-correlation-id") or "") != correlation_id
+        or content_media_type != "application/json"
+        or not _candidate_openapi_csp_denies_framing(
+            security_headers["content_security_policy"]
+        )
+        or security_headers["x_content_type_options"].lower() != "nosniff"
+        or security_headers["x_frame_options"].upper() != "DENY"
+    ):
+        raise RuntimeError("manfred_candidate_openapi_retirement_contract_invalid")
+    return {
+        "path": path,
+        "status": 404,
+        "error_code": "not_found",
+        "content_type": content_type,
+        "media_type": content_media_type,
+        "correlation_header_matches_body": True,
+        "security_headers": security_headers,
+        "public_endpoint_retired": True,
+    }
+
+
 def _spatial_http_probe(
     base_url: str,
     path: str,
@@ -2075,17 +2344,23 @@ def prove_candidate(
             spatial_handoff = _spatial_handoff_runtime_proof(base_url, projection)
             browser_surface = audit_browser_surface(base_url)
             _assert_logs_clean(compose, compose_environment)
-            candidate_openapi_contract, candidate_openapi = _openapi_contract_snapshot(
-                base_url
-            )
-            openapi_preservation = _assert_openapi_contract_preserved(
-                live_openapi_contract, candidate_openapi_contract
-            )
             container_images = _candidate_container_image_evidence(
                 compose=compose,
                 environment=compose_environment,
                 project=project,
                 projection=projection,
+            )
+            candidate_openapi_retirement = _assert_candidate_openapi_retired(
+                base_url
+            )
+            candidate_openapi_contract, candidate_openapi = (
+                _candidate_openapi_contract_snapshot(
+                    compose,
+                    compose_environment,
+                )
+            )
+            openapi_preservation = _assert_openapi_contract_preserved(
+                live_openapi_contract, candidate_openapi_contract
             )
             image_id = str(projection["prepared_image_id"])
             image_source_revision = str(projection["projection_commit"])
@@ -2144,6 +2419,7 @@ def prove_candidate(
                 "openapi_contract": {
                     "live_before": live_openapi_before,
                     "candidate": candidate_openapi,
+                    "candidate_public_endpoint": candidate_openapi_retirement,
                     "live_after": live_openapi_after,
                     **openapi_preservation,
                 },

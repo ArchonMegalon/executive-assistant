@@ -3,10 +3,12 @@ from __future__ import annotations
 import contextlib
 import copy
 import errno
+import io
 import json
 import os
 import signal
 import socket
+from email.message import Message
 from pathlib import Path
 
 import pytest
@@ -232,6 +234,16 @@ def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> Non
         runner,
         "_openapi_contract_snapshot",
         lambda _base: copy.deepcopy(_openapi_snapshot()),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_candidate_openapi_contract_snapshot",
+        lambda _compose, _environment: copy.deepcopy(_openapi_snapshot()),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_assert_candidate_openapi_retired",
+        lambda _base: {"status": 404, "public_endpoint_retired": True},
     )
 
 
@@ -971,6 +983,231 @@ def _retire_governed_spatial_operations(document: dict[str, object]) -> None:
     for operation in EXPECTED_OPENAPI_RETIREMENT_OPERATIONS:
         _method, path = operation.split(" ", 1)
         document["paths"].pop(path)
+
+
+def test_candidate_openapi_snapshot_is_internal_bounded_and_docs_retired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = _meaningful_openapi_document()
+    _retire_governed_spatial_operations(document)
+    envelope = {
+        "docs_url": None,
+        "document": document,
+        "openapi_url": None,
+        "redoc_url": None,
+    }
+    commands: list[list[str]] = []
+    environments: list[dict[str, str]] = []
+
+    def run(
+        argv: list[str],
+        *,
+        timeout: int,
+        environment: dict[str, str],
+        stdout_limit: int,
+        stderr_limit: int,
+        output_limit_error: str,
+    ) -> bytes:
+        commands.append(list(argv))
+        environments.append(environment)
+        assert timeout == 120
+        assert stdout_limit == runner.MAX_OPENAPI_DOCUMENT_BYTES
+        assert stderr_limit == runner.MAX_OPENAPI_SNAPSHOT_STDERR_BYTES
+        assert output_limit_error.endswith("snapshot_output_too_large")
+        return json.dumps(envelope, separators=(",", ":"), sort_keys=True).encode(
+            "utf-8"
+        )
+
+    monkeypatch.setattr(runner, "_run_bounded_output", run)
+    contract, evidence = runner._candidate_openapi_contract_snapshot(
+        ["docker", "compose", "--project-name", PROJECT],
+        {"PATH": "/usr/bin:/bin"},
+    )
+
+    assert contract == runner._canonical_openapi_contract(document)
+    assert evidence["snapshot_source"] == runner.CANDIDATE_OPENAPI_SNAPSHOT_SOURCE
+    assert evidence["public_docs_config_retired"] is True
+    assert evidence["operation_count"] == 2
+    assert environments == [{"PATH": "/usr/bin:/bin"}]
+    assert commands[0][-6:-3] == ["exec", "-T", "api"]
+    assert commands[0][-3:-1] == ["python", "-c"]
+    assert commands[0][-1] == runner.CANDIDATE_OPENAPI_SNAPSHOT_SCRIPT
+
+    exposed = copy.deepcopy(envelope)
+    exposed["openapi_url"] = "/openapi.json"
+    monkeypatch.setattr(
+        runner,
+        "_run_bounded_output",
+        lambda *_args, **_kwargs: json.dumps(exposed).encode("utf-8"),
+    )
+    with pytest.raises(RuntimeError, match="internal_openapi_docs_exposed"):
+        runner._candidate_openapi_contract_snapshot(["docker", "compose"], {})
+
+
+def test_candidate_openapi_public_endpoint_must_be_structured_secure_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    correlation_id = "6c43cd88-b5a4-4ec1-914d-b723a9668197"
+    body = json.dumps(
+        {
+            "error": {
+                "code": "not_found",
+                "message": "not_found",
+                "details": "not_found",
+                "correlation_id": correlation_id,
+            }
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "Content-Security-Policy": "frame-ancestors 'none'; base-uri 'self'",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-Correlation-ID": correlation_id,
+    }
+
+    class Opener:
+        def open(self, request: object, *, timeout: int) -> object:
+            assert timeout == 20
+            raise runner.urllib.error.HTTPError(
+                getattr(request, "full_url"),
+                404,
+                "Not Found",
+                headers,
+                io.BytesIO(body),
+            )
+
+    monkeypatch.setattr(
+        runner.urllib.request,
+        "build_opener",
+        lambda *_handlers: Opener(),
+    )
+    evidence = runner._assert_candidate_openapi_retired(
+        "http://127.0.0.1:18091"
+    )
+    assert evidence["status"] == 404
+    assert evidence["public_endpoint_retired"] is True
+    assert evidence["correlation_header_matches_body"] is True
+
+    headers["X-Frame-Options"] = "SAMEORIGIN"
+    with pytest.raises(RuntimeError, match="openapi_retirement_contract_invalid"):
+        runner._assert_candidate_openapi_retired("http://127.0.0.1:18091")
+    headers["X-Frame-Options"] = "DENY"
+
+    for name, hostile_value in (
+        ("Content-Type", "application/jsonp"),
+        (
+            "Content-Security-Policy",
+            "default-src frame-ancestors 'none'",
+        ),
+        (
+            "Content-Security-Policy",
+            "frame-ancestors 'self'; frame-ancestors 'none'",
+        ),
+    ):
+        expected_value = headers[name]
+        headers[name] = hostile_value
+        with pytest.raises(
+            RuntimeError, match="openapi_retirement_contract_invalid"
+        ):
+            runner._assert_candidate_openapi_retired(
+                "http://127.0.0.1:18091"
+            )
+        headers[name] = expected_value
+
+
+@pytest.mark.parametrize("oversized_stream", ["stdout", "stderr"])
+def test_candidate_openapi_snapshot_host_capture_is_memory_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+    oversized_stream: str,
+) -> None:
+    class Completed:
+        returncode = 0
+
+    def run(
+        _argv: list[str],
+        *,
+        stdout: object,
+        stderr: object,
+        **_kwargs: object,
+    ) -> Completed:
+        if oversized_stream == "stdout":
+            stdout.write(b"12345")
+        else:
+            stderr.write(b"12345")
+        return Completed()
+
+    monkeypatch.setattr(runner.subprocess, "run", run)
+    with pytest.raises(RuntimeError, match="bounded-output-rejected"):
+        runner._run_bounded_output(
+            ["safe-command"],
+            timeout=1,
+            environment={"PATH": "/usr/bin:/bin"},
+            stdout_limit=4,
+            stderr_limit=4,
+            output_limit_error="bounded-output-rejected",
+        )
+
+
+@pytest.mark.parametrize(
+    ("duplicate_name", "hostile_value"),
+    [
+        ("Content-Type", "text/plain"),
+        ("Content-Security-Policy", "default-src *"),
+        ("X-Content-Type-Options", "sniff"),
+        ("X-Correlation-ID", "hostile-correlation"),
+        ("X-Frame-Options", "SAMEORIGIN"),
+    ],
+)
+def test_candidate_openapi_retirement_rejects_duplicate_critical_headers(
+    monkeypatch: pytest.MonkeyPatch,
+    duplicate_name: str,
+    hostile_value: str,
+) -> None:
+    correlation_id = "6c43cd88-b5a4-4ec1-914d-b723a9668197"
+    body = json.dumps(
+        {
+            "error": {
+                "code": "not_found",
+                "message": "not_found",
+                "details": "not_found",
+                "correlation_id": correlation_id,
+            }
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    expected_headers = {
+        "Content-Type": "application/json",
+        "Content-Security-Policy": "frame-ancestors 'none'; base-uri 'self'",
+        "X-Content-Type-Options": "nosniff",
+        "X-Correlation-ID": correlation_id,
+        "X-Frame-Options": "DENY",
+    }
+    headers = Message()
+    for name, value in expected_headers.items():
+        if name.lower() == duplicate_name.lower():
+            headers[name] = hostile_value
+        headers[name] = value
+
+    class Opener:
+        def open(self, request: object, *, timeout: int) -> object:
+            assert timeout == 20
+            raise runner.urllib.error.HTTPError(
+                getattr(request, "full_url"),
+                404,
+                "Not Found",
+                headers,
+                io.BytesIO(body),
+            )
+
+    monkeypatch.setattr(
+        runner.urllib.request,
+        "build_opener",
+        lambda *_handlers: Opener(),
+    )
+    with pytest.raises(RuntimeError, match="openapi_retirement_headers_ambiguous"):
+        runner._assert_candidate_openapi_retired("http://127.0.0.1:18091")
 
 
 def test_openapi_contract_allows_additions_and_persists_only_bounded_evidence() -> None:
