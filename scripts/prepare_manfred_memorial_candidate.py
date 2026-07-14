@@ -1217,10 +1217,9 @@ def _exclusive_write_at(
         try:
             metadata = os.fstat(descriptor)
             identity = (metadata.st_dev, metadata.st_ino)
-            if not _unlink_file_if_identity(
+            if not _quarantine_entry_nondestructive(
                 parent_descriptor,
                 name,
-                identity,
             ):
                 cleanup_failed = True
         except (OSError, ValueError):
@@ -1336,6 +1335,45 @@ def _entry_identity(
     if not expected_type(metadata.st_mode):
         return None
     return metadata.st_dev, metadata.st_ino
+
+
+def _entry_exists_at(parent_descriptor: int, name: str) -> bool:
+    try:
+        os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _quarantine_entry_nondestructive(
+    parent_descriptor: int,
+    name: str,
+    *,
+    maximum_attempts: int = 16,
+) -> bool:
+    if name in {"", ".", ".."} or "/" in name:
+        raise ValueError("manfred_candidate_spatial_output_name_invalid")
+    for _attempt in range(maximum_attempts):
+        if not _entry_exists_at(parent_descriptor, name):
+            os.fsync(parent_descriptor)
+            return not _entry_exists_at(parent_descriptor, name)
+        quarantine_name = f".{name}.{uuid.uuid4().hex}.rollback"
+        try:
+            _rename_noreplace(
+                parent_descriptor,
+                name,
+                parent_descriptor,
+                quarantine_name,
+            )
+        except ValueError:
+            if not _entry_exists_at(parent_descriptor, name):
+                os.fsync(parent_descriptor)
+                return True
+            continue
+        if not _entry_exists_at(parent_descriptor, quarantine_name):
+            return False
+        os.fsync(parent_descriptor)
+    return not _entry_exists_at(parent_descriptor, name)
 
 
 def _restore_quarantined_entry(
@@ -1662,6 +1700,7 @@ def materialize_spatial_handoff(
     staging_identity: tuple[int, int] | None = None
     installed_identity: tuple[int, int] | None = None
     retained_files: dict[str, tuple[int, tuple[int, int]]] = {}
+    retained_receipt: dict[str, tuple[int, tuple[int, int]]] = {}
     try:
         try:
             os.mkdir(temporary_name, 0o700, dir_fd=bundle_parent_descriptor)
@@ -1741,7 +1780,15 @@ def materialize_spatial_handoff(
             handoff_receipt_path.name,
             receipt_bytes,
             mode=0o600,
+            retain_as=handoff_receipt_path.name,
+            retained_files=retained_receipt,
         )
+        if (
+            set(retained_receipt) != {handoff_receipt_path.name}
+            or retained_receipt[handoff_receipt_path.name][1]
+            != receipt_identity
+        ):
+            raise ValueError("manfred_candidate_spatial_retention_invalid")
         if (
             _read_file_at_identity(
                 receipt_parent_descriptor,
@@ -1769,23 +1816,36 @@ def materialize_spatial_handoff(
     except BaseException:
         rollback_failures: list[str] = []
         if receipt_identity is not None:
+            receipt_cleanup_failed = False
             try:
-                if not _unlink_file_if_identity(
+                if not _quarantine_entry_nondestructive(
                     receipt_parent_descriptor,
                     handoff_receipt_path.name,
-                    receipt_identity,
                 ):
-                    rollback_failures.append("receipt")
+                    receipt_cleanup_failed = True
             except (OSError, ValueError):
+                receipt_cleanup_failed = True
+            if retained_receipt and not _scrub_retained_spatial_files(
+                retained_receipt
+            ):
+                receipt_cleanup_failed = True
+            if receipt_cleanup_failed:
                 rollback_failures.append("receipt")
         if retained_files and not _scrub_retained_spatial_files(retained_files):
             rollback_failures.append("staging_files")
         if staging_identity is not None:
+            cleanup_name = (
+                handoff_bundle_dir.name if bundle_installed else temporary_name
+            )
             try:
-                if not _remove_bundle_if_identity(
+                _remove_bundle_if_identity(
                     bundle_parent_descriptor,
-                    handoff_bundle_dir.name if bundle_installed else temporary_name,
+                    cleanup_name,
                     staging_identity,
+                )
+                if not _quarantine_entry_nondestructive(
+                    bundle_parent_descriptor,
+                    cleanup_name,
                 ):
                     rollback_failures.append("bundle")
             except (OSError, ValueError):
@@ -1803,6 +1863,8 @@ def materialize_spatial_handoff(
             )
         raise
     finally:
+        for descriptor, _identity in retained_receipt.values():
+            os.close(descriptor)
         for descriptor, _identity in retained_files.values():
             os.close(descriptor)
         if staging_descriptor >= 0:

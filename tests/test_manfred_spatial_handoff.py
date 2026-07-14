@@ -545,11 +545,15 @@ def test_materializer_rejects_stage_path_replacement_between_snapshot_and_rename
     source, authority, source_snapshot = _build_property_package(
         tmp_path, monkeypatch
     )
+    authority_bytes = authority.read_bytes()
+    authority_mode = stat.S_IMODE(authority.stat().st_mode)
     bundle_target = tmp_path / "out" / "public_property_tours" / SLUG
     receipt_target = tmp_path / "out" / "receipts" / "handoff.json"
     original_rename = prepare._rename_noreplace
     preserved_name = ".verified-stage-preserved"
     swapped = False
+    attacker_root_mode: int | None = None
+    attacker_file_mode: int | None = None
 
     def racing_rename(  # type: ignore[no-untyped-def]
         source_parent_descriptor,
@@ -557,7 +561,7 @@ def test_materializer_rejects_stage_path_replacement_between_snapshot_and_rename
         destination_parent_descriptor,
         destination_name,
     ):
-        nonlocal swapped
+        nonlocal attacker_file_mode, attacker_root_mode, swapped
         if not swapped and destination_name == SLUG:
             os.rename(
                 source_name,
@@ -580,8 +584,14 @@ def test_materializer_rejects_stage_path_replacement_between_snapshot_and_rename
                 )
                 try:
                     os.write(marker_descriptor, b"must-not-install")
+                    attacker_file_mode = stat.S_IMODE(
+                        os.fstat(marker_descriptor).st_mode
+                    )
                 finally:
                     os.close(marker_descriptor)
+                attacker_root_mode = stat.S_IMODE(
+                    os.fstat(attacker_descriptor).st_mode
+                )
             finally:
                 os.close(attacker_descriptor)
             swapped = True
@@ -593,7 +603,7 @@ def test_materializer_rejects_stage_path_replacement_between_snapshot_and_rename
         )
 
     monkeypatch.setattr(prepare, "_rename_noreplace", racing_rename)
-    with pytest.raises(RuntimeError, match="rollback_incomplete:bundle"):
+    with pytest.raises(ValueError, match="output_install_drift"):
         prepare.materialize_spatial_handoff(
             source_bundle_dir=source,
             upstream_authority_receipt_path=authority,
@@ -603,9 +613,24 @@ def test_materializer_rejects_stage_path_replacement_between_snapshot_and_rename
         )
 
     assert swapped is True
-    assert (bundle_target / "attacker.txt").read_bytes() == b"must-not-install"
+    assert not os.path.lexists(bundle_target)
     assert not receipt_target.exists()
     preserved = bundle_target.parent / preserved_name
+    attacker_quarantines = tuple(
+        path
+        for path in bundle_target.parent.iterdir()
+        if path != preserved and path.name.startswith(f".{SLUG}.")
+    )
+    assert len(attacker_quarantines) == 1
+    assert (attacker_quarantines[0] / "attacker.txt").read_bytes() == (
+        b"must-not-install"
+    )
+    assert stat.S_IMODE(attacker_quarantines[0].stat().st_mode) == (
+        attacker_root_mode
+    )
+    assert stat.S_IMODE(
+        (attacker_quarantines[0] / "attacker.txt").stat().st_mode
+    ) == attacker_file_mode
     assert preserved.is_dir()
     assert stat.S_IMODE(preserved.stat().st_mode) == 0o000
     preserved.chmod(0o755)
@@ -620,8 +645,103 @@ def test_materializer_rejects_stage_path_replacement_between_snapshot_and_rename
         stat.S_IMODE(child.stat().st_mode) == 0o000
         for child in preserved_files
     )
+    assert prepare._spatial_tree_snapshot(
+        source,
+        require_sanitized_modes=True,
+    ) == source_snapshot
+    assert authority.read_bytes() == authority_bytes
+    assert stat.S_IMODE(authority.stat().st_mode) == authority_mode
     for child in preserved.rglob("*"):
         child.chmod(0o755 if child.is_dir() else 0o644)
+
+
+def test_materializer_scrubs_original_receipt_and_quarantines_path_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source, authority, source_snapshot = _build_property_package(
+        tmp_path, monkeypatch
+    )
+    authority_bytes = authority.read_bytes()
+    authority_mode = stat.S_IMODE(authority.stat().st_mode)
+    bundle_target = tmp_path / "out" / "public_property_tours" / SLUG
+    receipt_target = tmp_path / "out" / "receipts" / "handoff.json"
+    preserved_name = ".verified-receipt-preserved"
+    original_read = prepare._read_file_at_identity
+    swapped = False
+
+    def racing_read(  # type: ignore[no-untyped-def]
+        parent_descriptor,
+        name,
+        identity,
+        *,
+        maximum,
+    ):
+        nonlocal swapped
+        original_read(
+            parent_descriptor,
+            name,
+            identity,
+            maximum=maximum,
+        )
+        os.rename(
+            name,
+            preserved_name,
+            src_dir_fd=parent_descriptor,
+            dst_dir_fd=parent_descriptor,
+        )
+        attacker_descriptor = os.open(
+            name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+            dir_fd=parent_descriptor,
+        )
+        try:
+            os.write(attacker_descriptor, b"attacker-receipt")
+        finally:
+            os.close(attacker_descriptor)
+        swapped = True
+        raise ValueError("injected_post_receipt_swap")
+
+    monkeypatch.setattr(prepare, "_read_file_at_identity", racing_read)
+    with pytest.raises(ValueError, match="injected_post_receipt_swap"):
+        prepare.materialize_spatial_handoff(
+            source_bundle_dir=source,
+            upstream_authority_receipt_path=authority,
+            handoff_bundle_dir=bundle_target,
+            handoff_receipt_path=receipt_target,
+            target_origin=TARGET_ORIGIN,
+        )
+
+    assert swapped is True
+    assert not os.path.lexists(bundle_target)
+    assert not os.path.lexists(receipt_target)
+    preserved_receipt = receipt_target.parent / preserved_name
+    assert preserved_receipt.stat().st_size == 0
+    assert stat.S_IMODE(preserved_receipt.stat().st_mode) == 0o000
+    receipt_quarantines = tuple(
+        path
+        for path in receipt_target.parent.iterdir()
+        if path != preserved_receipt
+        and path.name.startswith(f".{receipt_target.name}.")
+    )
+    assert len(receipt_quarantines) == 1
+    assert receipt_quarantines[0].read_bytes() == b"attacker-receipt"
+    assert stat.S_IMODE(receipt_quarantines[0].stat().st_mode) == 0o600
+    assert prepare._spatial_tree_snapshot(
+        source,
+        require_sanitized_modes=True,
+    ) == source_snapshot
+    assert authority.read_bytes() == authority_bytes
+    assert stat.S_IMODE(authority.stat().st_mode) == authority_mode
+
+    preserved_receipt.chmod(0o600)
+    bundle_quarantines = tuple(bundle_target.parent.iterdir())
+    assert len(bundle_quarantines) == 1
+    for path in bundle_quarantines:
+        path.chmod(0o755)
+        prepare._make_tree_removable(path)
+        shutil.rmtree(path)
 
 
 def test_bundle_rollback_quarantines_by_identity_before_deleting(
@@ -739,6 +859,68 @@ def test_exclusive_receipt_write_quarantines_partial_final_inode(
     assert quarantined[0].name.startswith(".handoff.json.")
     assert quarantined[0].stat().st_size == 0
     assert stat.S_IMODE(quarantined[0].stat().st_mode) == 0o000
+
+
+def test_exclusive_write_quarantines_substitute_after_partial_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "receipts"
+    parent.mkdir()
+    parent_descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    original_write = prepare.os.write
+    preserved_name = ".partial-original-preserved"
+    failed = False
+
+    def substituted_write(descriptor, content):  # type: ignore[no-untyped-def]
+        nonlocal failed
+        if not failed:
+            failed = True
+            original_write(descriptor, content[:3])
+            os.rename(
+                "handoff.json",
+                preserved_name,
+                src_dir_fd=parent_descriptor,
+                dst_dir_fd=parent_descriptor,
+            )
+            attacker_descriptor = os.open(
+                "handoff.json",
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+                dir_fd=parent_descriptor,
+            )
+            try:
+                original_write(attacker_descriptor, b"attacker-partial")
+            finally:
+                os.close(attacker_descriptor)
+            raise OSError("injected substituted partial write")
+        return original_write(descriptor, content)
+
+    monkeypatch.setattr(prepare.os, "write", substituted_write)
+    try:
+        with pytest.raises(OSError, match="injected substituted"):
+            prepare._exclusive_write_at(
+                parent_descriptor,
+                "handoff.json",
+                b'{"status":"pass"}\n',
+                mode=0o600,
+            )
+    finally:
+        os.close(parent_descriptor)
+
+    assert not os.path.lexists(parent / "handoff.json")
+    preserved = parent / preserved_name
+    assert preserved.stat().st_size == 0
+    assert stat.S_IMODE(preserved.stat().st_mode) == 0o000
+    attacker_quarantines = tuple(
+        path
+        for path in parent.iterdir()
+        if path != preserved and path.name.startswith(".handoff.json.")
+    )
+    assert len(attacker_quarantines) == 1
+    assert attacker_quarantines[0].read_bytes() == b"attacker-partial"
+    assert stat.S_IMODE(attacker_quarantines[0].stat().st_mode) == 0o600
+    preserved.chmod(0o600)
 
 
 def test_exclusive_write_retries_until_all_short_writes_complete(
