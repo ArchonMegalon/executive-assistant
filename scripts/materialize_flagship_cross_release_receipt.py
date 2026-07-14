@@ -260,6 +260,75 @@ def _git_tree(*, repository: Path, commit: str, expected_tree: str) -> None:
     _require(result.returncode == 0 and observed == expected_tree, "ea_git_tree_mismatch")
 
 
+def _git_remote_ref_binding(
+    *, repository: Path, commit: str, remote_ref: str
+) -> tuple[str, bool]:
+    _require(
+        remote_ref.startswith("refs/remotes/") and len(remote_ref) <= 512,
+        "ea_source_remote_ref_invalid",
+    )
+    try:
+        validated = subprocess.run(
+            ["git", "check-ref-format", remote_ref],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=8.0,
+            close_fds=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        raise EvidenceValidationError("ea_source_remote_ref_unreadable") from None
+    _require(validated.returncode == 0, "ea_source_remote_ref_invalid")
+    try:
+        resolved = subprocess.run(
+            [
+                "git",
+                "-C",
+                os.fspath(repository),
+                "rev-parse",
+                "--verify",
+                f"{remote_ref}^{{commit}}",
+            ],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=8.0,
+            close_fds=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        raise EvidenceValidationError("ea_source_remote_ref_unreadable") from None
+    remote_ref_commit_sha = resolved.stdout.strip()
+    _require(
+        resolved.returncode == 0 and bool(GIT_OBJECT_RE.fullmatch(remote_ref_commit_sha)),
+        "ea_source_remote_ref_unreadable",
+    )
+    try:
+        reachable = subprocess.run(
+            [
+                "git",
+                "-C",
+                os.fspath(repository),
+                "merge-base",
+                "--is-ancestor",
+                commit,
+                remote_ref_commit_sha,
+            ],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=8.0,
+            close_fds=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        raise EvidenceValidationError("ea_source_remote_ref_unreadable") from None
+    _require(reachable.returncode in {0, 1}, "ea_source_remote_ref_unreadable")
+    return remote_ref_commit_sha, reachable.returncode == 0
+
+
 def _all_checks_true(value: object) -> bool:
     checks = _mapping(value)
     return bool(checks) and all(item is True for item in checks.values())
@@ -574,6 +643,7 @@ def _validate_property(
 def _validate_ea_core(
     evidence: Mapping[str, LoadedEvidence],
     *,
+    repository: Path,
     commit: str,
     tree: str,
     image_id: str,
@@ -603,14 +673,75 @@ def _validate_ea_core(
     _require(authority.get("state") in {"clear", "watch", "missing"}, "ea_authority_state_invalid")
     _require(authority.get("commit_sha") == commit, "ea_authority_commit_mismatch")
     _require(authority.get("deployment_id") == deployment_id, "ea_authority_deployment_mismatch")
+    source_remote_ref = str(authority.get("source_remote_ref") or "")
+    source_remote_ref_commit_sha = str(
+        authority.get("source_remote_ref_commit_sha") or ""
+    )
+    source_remote_ref_evidence = str(
+        authority.get("source_remote_ref_evidence") or ""
+    )
+    source_commit_reachable = authority.get(
+        "source_commit_reachable_from_remote_ref"
+    )
+    _require(
+        source_remote_ref.startswith("refs/remotes/"),
+        "ea_authority_source_remote_ref_invalid",
+    )
+    _require(
+        source_remote_ref.removeprefix("refs/remotes/")
+        == str(authority.get("tracking_branch") or ""),
+        "ea_authority_source_remote_ref_tracking_mismatch",
+    )
+    _require(
+        bool(GIT_OBJECT_RE.fullmatch(source_remote_ref_commit_sha)),
+        "ea_authority_source_remote_ref_commit_invalid",
+    )
+    _require(
+        source_remote_ref_evidence == "local_remote_tracking_ref",
+        "ea_authority_source_remote_ref_evidence_invalid",
+    )
+    _require(
+        type(source_commit_reachable) is bool,
+        "ea_authority_source_remote_reachability_invalid",
+    )
     gate = _mapping(authority.get("gate"))
     deploy_gate = _mapping(authority.get("deploy_context_gate"))
     _require(gate.get("contract_name") == "ea.release_authority_gate.v1", "ea_authority_gate_identity_invalid")
     _require(deploy_gate.get("contract_name") == "ea.deploy_context_gate.v1", "ea_deploy_gate_identity_invalid")
     _require(gate.get("commit_sha") == commit, "ea_authority_gate_commit_mismatch")
     _require(gate.get("deployment_id") == deployment_id, "ea_authority_gate_deployment_mismatch")
+    _require(
+        gate.get("source_remote_ref") == source_remote_ref,
+        "ea_authority_gate_source_remote_ref_mismatch",
+    )
+    _require(
+        gate.get("source_remote_ref_commit_sha") == source_remote_ref_commit_sha,
+        "ea_authority_gate_source_remote_ref_commit_mismatch",
+    )
+    _require(
+        gate.get("source_remote_ref_evidence") == source_remote_ref_evidence,
+        "ea_authority_gate_source_remote_ref_evidence_mismatch",
+    )
+    _require(
+        gate.get("source_commit_reachable_from_remote_ref")
+        is source_commit_reachable,
+        "ea_authority_gate_source_remote_reachability_mismatch",
+    )
     _require(deploy_gate.get("commit_sha") == commit, "ea_deploy_gate_commit_mismatch")
     _require(deploy_gate.get("deployment_id") == deployment_id, "ea_deploy_gate_deployment_mismatch")
+    observed_remote_ref_commit_sha, observed_reachable = _git_remote_ref_binding(
+        repository=repository,
+        commit=commit,
+        remote_ref=source_remote_ref,
+    )
+    _require(
+        observed_remote_ref_commit_sha == source_remote_ref_commit_sha,
+        "ea_source_remote_ref_commit_mismatch",
+    )
+    _require(
+        observed_reachable is source_commit_reachable,
+        "ea_source_remote_reachability_mismatch",
+    )
 
     runtime_ready = runtime.get("status") == "pass" and runtime.get("issues") == []
     authority_ready = all(
@@ -624,6 +755,7 @@ def _validate_ea_core(
             gate.get("status") == "pass",
             gate.get("authority_posture") == "authoritative_runtime",
             gate.get("issues") == [],
+            source_commit_reachable is True,
             deploy_gate.get("status") == "pass",
             deploy_gate.get("issues") == [],
         )
@@ -653,6 +785,9 @@ def _validate_ea_core(
         "runtime_receipt_sha256": evidence["ea_core_runtime"].sha256,
         "release_authority_receipt_sha256": evidence["ea_release_authority"].sha256,
         "release_authority_posture": authority.get("authority_posture"),
+        "source_remote_ref": source_remote_ref,
+        "source_remote_ref_commit_sha": source_remote_ref_commit_sha,
+        "source_commit_reachable_from_remote_ref": source_commit_reachable,
     }
 
 
@@ -827,6 +962,7 @@ def build_receipt(
     property_3d = _validate_property(loaded, blockers=blockers)
     ea_core = _validate_ea_core(
         loaded,
+        repository=ea_repository,
         commit=ea_commit,
         tree=ea_tree,
         image_id=ea_image_id,
@@ -876,6 +1012,7 @@ def build_receipt(
             "sha256_and_mode_bound": True,
             "cross_receipt_identity_bindings_exact": True,
             "ea_git_commit_tree_binding_exact": True,
+            "ea_source_remote_ref_binding_exact": True,
         },
         "input_bindings": [loaded[spec.key].binding() for spec in EVIDENCE_SPECS],
         "ea_core": ea_core,
@@ -895,7 +1032,7 @@ def build_receipt(
         },
         "execution_policy": {
             "filesystem_inputs": "read_only",
-            "git_actions": "read_only_tree_binding",
+            "git_actions": "read_only_tree_and_remote_ref_binding",
             "docker_actions": 0,
             "network_actions": 0,
             "provider_actions": 0,

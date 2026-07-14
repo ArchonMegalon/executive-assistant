@@ -27,6 +27,17 @@ def _load_script(name: str):
     return module
 
 
+def _remote_source_binding(
+    commit_sha: str, *, tracking_branch: str = "origin/main"
+) -> dict[str, object]:
+    return {
+        "source_remote_ref": f"refs/remotes/{tracking_branch}",
+        "source_remote_ref_commit_sha": commit_sha,
+        "source_remote_ref_evidence": "local_remote_tracking_ref",
+        "source_commit_reachable_from_remote_ref": True,
+    }
+
+
 def test_base_compose_omits_host_docker_control_for_core_services() -> None:
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}
@@ -601,6 +612,10 @@ def test_release_manifest_materializer_emits_authority_fields(monkeypatch: objec
             "branch",
             "tracking_branch",
             "commit_sha",
+            "source_remote_ref",
+            "source_remote_ref_commit_sha",
+            "source_remote_ref_evidence",
+            "source_commit_reachable_from_remote_ref",
             "dirty_worktree",
             "source_worktree_dirty",
             "source_dirty_count",
@@ -627,6 +642,47 @@ def test_release_manifest_materializer_emits_authority_fields(monkeypatch: objec
     persisted = json.loads(output_path.read_text(encoding="utf-8"))
     assert persisted == manifest
     assert str(manifest["deployment_id"]).strip()
+
+
+def test_release_manifest_remote_ref_evidence_is_offline_and_fail_closed(
+    monkeypatch: object,
+) -> None:
+    module = _load_script("materialize_release_manifest")
+    commit_sha = "a" * 40
+    remote_commit_sha = "b" * 40
+    git_calls: list[tuple[str, ...]] = []
+    returncodes = [0, 1]
+
+    def fake_git(*args: str) -> str:
+        git_calls.append(tuple(args))
+        return {
+            ("rev-parse", "--symbolic-full-name", "@{u}"): "refs/remotes/origin/main",
+            (
+                "rev-parse",
+                "--verify",
+                "refs/remotes/origin/main^{commit}",
+            ): remote_commit_sha,
+        }.get(tuple(args), "")
+
+    def fake_git_returncode(*args: str) -> int:
+        git_calls.append(tuple(args))
+        return returncodes.pop(0)
+
+    monkeypatch.setattr(module, "_git", fake_git)
+    monkeypatch.setattr(module, "_git_returncode", fake_git_returncode)
+
+    reachable = module._source_remote_ref_evidence(commit_sha=commit_sha)
+    stale = module._source_remote_ref_evidence(commit_sha=commit_sha)
+
+    assert reachable == {
+        "source_remote_ref": "refs/remotes/origin/main",
+        "source_remote_ref_commit_sha": remote_commit_sha,
+        "source_remote_ref_evidence": "local_remote_tracking_ref",
+        "source_commit_reachable_from_remote_ref": True,
+    }
+    assert stale["source_commit_reachable_from_remote_ref"] is False
+    assert all(call[0] in {"merge-base", "rev-parse"} for call in git_calls)
+    assert not any(call[0] in {"fetch", "ls-remote", "pull", "push"} for call in git_calls)
 
 
 def test_release_manifest_prefers_public_app_origin(monkeypatch: object, tmp_path: Path) -> None:
@@ -1121,6 +1177,7 @@ def test_release_authority_status_materializer_emits_gate_summary(tmp_path: Path
                 "branch": "main",
                 "tracking_branch": "origin/main",
                 "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+                **_remote_source_binding("0123456789abcdef0123456789abcdef01234567"),
                 "deploy_context_generated_at": "2026-06-23T07:10:00Z",
                 "deploy_context_branch": "main",
                 "deploy_context_tracking_branch": "origin/main",
@@ -1191,6 +1248,10 @@ def test_release_authority_status_materializer_emits_gate_summary(tmp_path: Path
     assert payload["deploy_context_gate"]["status"] == "pass"
     assert payload["gate"]["contract_name"] == "ea.release_authority_gate.v1"
     assert payload["gate"]["status"] == "pass"
+    assert payload["source_remote_ref"] == "refs/remotes/origin/main"
+    assert payload["source_remote_ref_commit_sha"] == payload["commit_sha"]
+    assert payload["source_commit_reachable_from_remote_ref"] is True
+    assert payload["gate"]["source_commit_reachable_from_remote_ref"] is True
     persisted = json.loads(output_path.read_text(encoding="utf-8"))
     assert persisted == payload
 
@@ -1208,6 +1269,7 @@ def test_release_authority_status_materializer_combines_local_deploy_and_dirty_w
                 "branch": "main",
                 "tracking_branch": "origin/main",
                 "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+                **_remote_source_binding("0123456789abcdef0123456789abcdef01234567"),
                 "deploy_context_generated_at": "2026-06-23T07:10:00Z",
                 "deploy_context_branch": "main",
                 "deploy_context_tracking_branch": "origin/main",
@@ -1284,6 +1346,7 @@ def test_release_authority_status_materializer_pretty_flag_outputs_indented_json
                 "branch": "main",
                 "tracking_branch": "origin/main",
                 "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+                **_remote_source_binding("0123456789abcdef0123456789abcdef01234567"),
                 "deploy_context_generated_at": "2026-06-23T07:10:00Z",
                 "deploy_context_branch": "main",
                 "deploy_context_tracking_branch": "origin/main",
@@ -1511,6 +1574,7 @@ def test_release_authority_verifier_rejects_missing_public_origin() -> None:
         "branch": "main",
         "tracking_branch": "origin/main",
         "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        **_remote_source_binding("0123456789abcdef0123456789abcdef01234567"),
         "deploy_context_generated_at": "2026-06-23T07:12:00Z",
         "deploy_context_branch": "main",
         "deploy_context_tracking_branch": "origin/main",
@@ -1544,6 +1608,7 @@ def test_release_authority_verifier_rejects_local_deployment_and_dirty_worktree(
         "branch": "main",
         "tracking_branch": "origin/main",
         "commit_sha": "89abcdef0123456789abcdef0123456789abcdef",
+        **_remote_source_binding("89abcdef0123456789abcdef0123456789abcdef"),
         "deployment_id": "local-20260622T000000Z-89abcdef0123",
         "deployment_id_source": "local_fallback",
         "public_origin": "https://ea.example.test",
@@ -1573,6 +1638,7 @@ def test_release_authority_verifier_does_not_report_stale_deploy_context_for_loc
         "branch": "main",
         "tracking_branch": "origin/main",
         "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        **_remote_source_binding("a" * 40),
         "deploy_context_generated_at": "2026-06-22T18:42:00Z",
         "deploy_context_branch": "main",
         "deploy_context_tracking_branch": "origin/main",
@@ -1606,6 +1672,7 @@ def test_release_authority_verifier_allows_generated_only_dirty_worktree() -> No
         "branch": "main",
         "tracking_branch": "origin/main",
         "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        **_remote_source_binding("a" * 40),
         "deploy_context_generated_at": "2026-06-23T07:13:00Z",
         "deploy_context_branch": "main",
         "deploy_context_tracking_branch": "origin/main",
@@ -1643,6 +1710,7 @@ def test_release_authority_verifier_rejects_stale_deploy_context_commit() -> Non
         "branch": "main",
         "tracking_branch": "origin/main",
         "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        **_remote_source_binding("a" * 40),
         "deploy_context_generated_at": "2026-06-22T18:42:00Z",
         "deploy_context_branch": "main",
         "deploy_context_tracking_branch": "origin/main",
@@ -1675,6 +1743,7 @@ def test_release_authority_verifier_accepts_authoritative_runtime_manifest() -> 
         "branch": "main",
         "tracking_branch": "origin/main",
         "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        **_remote_source_binding("a" * 40),
         "deploy_context_generated_at": "2026-06-23T07:14:00Z",
         "deploy_context_branch": "main",
         "deploy_context_tracking_branch": "origin/main",
@@ -1699,6 +1768,66 @@ def test_release_authority_verifier_accepts_authoritative_runtime_manifest() -> 
     assert module._derive_authority_posture(issues) == "authoritative_runtime"
 
 
+def test_release_authority_verifier_fails_closed_without_remote_reachability() -> None:
+    module = _load_script("verify_release_authority")
+    commit_sha = "a" * 40
+    release_manifest = {
+        "contract_name": "ea.release_manifest.v1",
+        "repository": "EA",
+        "branch": "release/candidate",
+        "tracking_branch": "origin/main",
+        "commit_sha": commit_sha,
+        **_remote_source_binding(commit_sha),
+        "deploy_context_generated_at": "2026-07-14T02:00:00Z",
+        "deploy_context_branch": "release/candidate",
+        "deploy_context_tracking_branch": "origin/main",
+        "deploy_context_commit_sha": commit_sha,
+        "deployment_id": "deploy-candidate-123",
+        "deployment_id_source": "explicit",
+        "public_origin": "https://ea.example.test",
+        "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
+        "release_label": "candidate-123",
+        "project_mode": "EA_CORE",
+        "enabled_project_modes": ["EA_CORE"],
+        "compose_files": ["docker-compose.yml", "docker-compose.prod.yml"],
+        "artifact_set": [".codex-studio/published/release_manifest.generated.json"],
+        "source_worktree_dirty": False,
+    }
+    project_modes = {"modes": [{"key": "EA_CORE"}]}
+
+    stale = dict(release_manifest)
+    stale["source_remote_ref_commit_sha"] = "b" * 40
+    stale["source_commit_reachable_from_remote_ref"] = False
+    stale_issues = module.validate_release_authority(
+        release_manifest=stale,
+        project_modes=project_modes,
+    )
+
+    assert stale_issues == ["source_commit_not_reachable_from_remote_ref"]
+    assert module._derive_authority_posture(stale_issues) == "source_not_remote"
+
+    legacy = dict(release_manifest)
+    for key in (
+        "source_remote_ref",
+        "source_remote_ref_commit_sha",
+        "source_remote_ref_evidence",
+        "source_commit_reachable_from_remote_ref",
+    ):
+        legacy.pop(key)
+    legacy_issues = module.validate_release_authority(
+        release_manifest=legacy,
+        project_modes=project_modes,
+    )
+
+    assert {
+        "source_remote_ref_missing",
+        "source_remote_ref_commit_sha_missing",
+        "source_remote_ref_evidence_invalid",
+        "source_commit_not_reachable_from_remote_ref",
+    } <= set(legacy_issues)
+    assert module._derive_authority_posture(legacy_issues) == "source_not_remote"
+
+
 def test_release_authority_pretty_payload_includes_context_fields(tmp_path: Path) -> None:
     manifest_path = tmp_path / "release_manifest.generated.json"
     project_modes_path = tmp_path / "PROJECT_MODES.generated.json"
@@ -1710,6 +1839,7 @@ def test_release_authority_pretty_payload_includes_context_fields(tmp_path: Path
                 "branch": "main",
                 "tracking_branch": "origin/main",
                 "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                **_remote_source_binding("a" * 40),
                 "deploy_context_generated_at": "2026-06-23T07:15:00Z",
                 "deploy_context_branch": "main",
                 "deploy_context_tracking_branch": "origin/main",

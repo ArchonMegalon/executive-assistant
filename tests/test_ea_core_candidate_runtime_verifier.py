@@ -138,6 +138,11 @@ class FakeDocker:
         self.release_gate_status = "pass"
         self.deploy_gate_status = "pass"
         self.supply_gate_status = "pass"
+        self.source_remote_ref = "refs/remotes/origin/main"
+        self.source_remote_ref_commit_sha = REVISION
+        self.source_remote_ref_evidence = "local_remote_tracking_ref"
+        self.source_commit_reachable_from_remote_ref: object = True
+        self.release_commit = REVISION
         self.docs_location = "/docs"
         self.security_headers = {
             "content-security-policy": "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
@@ -167,8 +172,22 @@ class FakeDocker:
             body = {
                 "release_authority": {
                     "authority_posture": self.release_posture,
+                    "commit_sha": self.release_commit,
+                    "tracking_branch": "origin/main",
+                    "source_remote_ref": self.source_remote_ref,
+                    "source_remote_ref_commit_sha": self.source_remote_ref_commit_sha,
+                    "source_remote_ref_evidence": self.source_remote_ref_evidence,
+                    "source_commit_reachable_from_remote_ref": self.source_commit_reachable_from_remote_ref,
                 },
-                "release_authority_gate": {"status": self.release_gate_status},
+                "release_authority_gate": {
+                    "status": self.release_gate_status,
+                    "commit_sha": self.release_commit,
+                    "tracking_branch": "origin/main",
+                    "source_remote_ref": self.source_remote_ref,
+                    "source_remote_ref_commit_sha": self.source_remote_ref_commit_sha,
+                    "source_remote_ref_evidence": self.source_remote_ref_evidence,
+                    "source_commit_reachable_from_remote_ref": self.source_commit_reachable_from_remote_ref,
+                },
                 "deploy_context_gate": {"status": self.deploy_gate_status},
                 "runtime_supply_chain_gate": {"status": self.supply_gate_status},
             }
@@ -595,6 +614,41 @@ def test_runtime_probe_failures_do_not_project_raw_bodies_or_subprocess_output(
         "raw_http_bodies_emitted": False,
         "raw_subprocess_output_emitted": False,
     }
+
+
+@pytest.mark.parametrize("reachability", (False, None))
+def test_release_authority_probe_requires_exact_remote_ref_reachability(
+    monkeypatch: pytest.MonkeyPatch,
+    reachability: object,
+) -> None:
+    module = _module()
+    fake = FakeDocker(module)
+    fake.source_commit_reachable_from_remote_ref = reachability
+    monkeypatch.setattr(module.subprocess, "run", fake)
+
+    receipt = _receipt(module, fake)
+
+    assert receipt["status"] == "fail"
+    assert "release_authority_probe_failed" in receipt["issues"]
+    release_probe = receipt["observations"]["probes"]["release_authority"]
+    assert release_probe["source_remote_binding_passed"] is False
+
+
+def test_release_authority_probe_binds_remote_proof_to_candidate_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _module()
+    fake = FakeDocker(module)
+    fake.release_commit = "f" * 40
+    monkeypatch.setattr(module.subprocess, "run", fake)
+
+    receipt = _receipt(module, fake)
+
+    assert receipt["status"] == "fail"
+    assert "release_authority_probe_failed" in receipt["issues"]
+    release_probe = receipt["observations"]["probes"]["release_authority"]
+    assert release_probe["source_commit_matches_candidate"] is False
+    assert release_probe["source_remote_binding_passed"] is False
 
 
 def test_docker_failure_emits_only_bounded_error_code(

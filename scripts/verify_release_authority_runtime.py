@@ -148,17 +148,29 @@ def verify_runtime_release_authority(
         ("branch", "branch"),
         ("tracking_branch", "tracking_branch"),
         ("commit_sha", "commit_sha"),
+        ("source_remote_ref", "source_remote_ref"),
+        ("source_remote_ref_commit_sha", "source_remote_ref_commit_sha"),
+        ("source_remote_ref_evidence", "source_remote_ref_evidence"),
     )
     for artifact_key, version_key in field_pairs:
         if str(artifact.get(artifact_key) or "") != str(version.get(version_key) or ""):
             issues.append(f"version_mismatch:{artifact_key}")
         if str(artifact.get(artifact_key) or "") != str(runtime_release.get(artifact_key) or ""):
             issues.append(f"release_endpoint_mismatch:{artifact_key}")
+    artifact_reachable = artifact.get("source_commit_reachable_from_remote_ref")
+    if artifact_reachable is not version.get("source_commit_reachable_from_remote_ref"):
+        issues.append("version_mismatch:source_commit_reachable_from_remote_ref")
+    if artifact_reachable is not runtime_release.get(
+        "source_commit_reachable_from_remote_ref"
+    ):
+        issues.append("release_endpoint_mismatch:source_commit_reachable_from_remote_ref")
 
     gate = dict(runtime_release.get("gate") or {})
     deploy_context_gate = dict(runtime_release.get("deploy_context_gate") or {})
     if dict(release.get("release_authority_gate") or {}) != gate:
         issues.append("release_authority_gate_not_inlined")
+    if dict(artifact.get("gate") or {}) != gate:
+        issues.append("release_authority_gate_mismatch")
     if dict(release.get("deploy_context_gate") or {}) != deploy_context_gate:
         issues.append("deploy_context_gate_not_inlined")
     if dict(artifact.get("deploy_context_gate") or {}) != deploy_context_gate:
@@ -172,6 +184,31 @@ def verify_runtime_release_authority(
             issues.append("release_authority_state_not_clear")
         if str(runtime_release.get("authority_posture") or "") != "authoritative_runtime":
             issues.append("release_authority_posture_not_authoritative")
+        source_remote_ref = str(runtime_release.get("source_remote_ref") or "")
+        source_remote_ref_commit_sha = str(
+            runtime_release.get("source_remote_ref_commit_sha") or ""
+        )
+        tracking_branch = str(runtime_release.get("tracking_branch") or "")
+        commit_sha = str(runtime_release.get("commit_sha") or "")
+        source_remote_binding_proven = all(
+            (
+                bool(tracking_branch),
+                source_remote_ref == f"refs/remotes/{tracking_branch}",
+                len(source_remote_ref_commit_sha) == 40,
+                all(character in "0123456789abcdef" for character in source_remote_ref_commit_sha),
+                runtime_release.get("source_remote_ref_evidence")
+                == "local_remote_tracking_ref",
+                runtime_release.get("source_commit_reachable_from_remote_ref") is True,
+                gate.get("source_remote_ref") == source_remote_ref,
+                gate.get("source_remote_ref_commit_sha") == source_remote_ref_commit_sha,
+                gate.get("source_remote_ref_evidence") == "local_remote_tracking_ref",
+                gate.get("source_commit_reachable_from_remote_ref") is True,
+                gate.get("tracking_branch") == tracking_branch,
+                gate.get("commit_sha") == commit_sha,
+            )
+        )
+        if not source_remote_binding_proven:
+            issues.append("source_remote_binding_not_proven")
 
     return {
         "contract_name": "ea.release_authority_runtime.v1",
@@ -186,6 +223,16 @@ def verify_runtime_release_authority(
         "release_authority_source": str(runtime_release.get("source") or ""),
         "release_authority_state": str(runtime_release.get("state") or ""),
         "release_authority_posture": str(runtime_release.get("authority_posture") or ""),
+        "source_remote_ref": str(runtime_release.get("source_remote_ref") or ""),
+        "source_remote_ref_commit_sha": str(
+            runtime_release.get("source_remote_ref_commit_sha") or ""
+        ),
+        "source_remote_ref_evidence": str(
+            runtime_release.get("source_remote_ref_evidence") or ""
+        ),
+        "source_commit_reachable_from_remote_ref": (
+            runtime_release.get("source_commit_reachable_from_remote_ref") is True
+        ),
         "deployment_id": str(runtime_release.get("deployment_id") or ""),
         "deployment_id_source": str(runtime_release.get("deployment_id_source") or ""),
         "public_origin": str(runtime_release.get("public_origin") or ""),

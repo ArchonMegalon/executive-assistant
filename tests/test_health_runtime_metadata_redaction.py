@@ -56,6 +56,10 @@ def test_version_redacts_runtime_metadata_for_non_loopback(monkeypatch) -> None:
         "branch": "main",
         "tracking_branch": "origin/main",
         "commit_sha": "a" * 40,
+        "source_remote_ref": "refs/remotes/origin/main",
+        "source_remote_ref_commit_sha": "a" * 40,
+        "source_remote_ref_evidence": "local_remote_tracking_ref",
+        "source_commit_reachable_from_remote_ref": True,
         "deployment_id": "deploy-123",
         "deployment_id_source": "explicit",
         "public_origin": "https://ea.example.test",
@@ -78,6 +82,39 @@ def test_version_redacts_runtime_metadata_for_non_loopback(monkeypatch) -> None:
     assert "deployment_id" not in payload
     assert "public_origin" not in payload
     assert "branch" not in payload
+    assert "source_remote_ref" not in payload
+    assert "source_commit_reachable_from_remote_ref" not in payload
+
+
+def test_version_loopback_projects_remote_source_binding(monkeypatch) -> None:
+    summary = {
+        "state": "clear",
+        "authority_posture": "authoritative_runtime",
+        "source": "published_status_artifact",
+        "tracking_branch": "origin/main",
+        "commit_sha": "a" * 40,
+        "source_remote_ref": "refs/remotes/origin/main",
+        "source_remote_ref_commit_sha": "b" * 40,
+        "source_remote_ref_evidence": "local_remote_tracking_ref",
+        "source_commit_reachable_from_remote_ref": True,
+    }
+    product = SimpleNamespace(release_authority_summary=lambda: dict(summary))
+    monkeypatch.setattr(health, "build_product_service", lambda container: product)
+    container = SimpleNamespace(
+        settings=SimpleNamespace(
+            app_name="EA",
+            app_version="1.0",
+            role="api",
+            storage_backend="postgres",
+        )
+    )
+
+    payload = asyncio.run(health.version(_request(client_host="127.0.0.1"), container))
+
+    assert payload["source_remote_ref"] == "refs/remotes/origin/main"
+    assert payload["source_remote_ref_commit_sha"] == "b" * 40
+    assert payload["source_remote_ref_evidence"] == "local_remote_tracking_ref"
+    assert payload["source_commit_reachable_from_remote_ref"] is True
 
 
 def test_release_authority_redacts_internal_metadata_for_non_loopback(monkeypatch) -> None:
@@ -90,6 +127,10 @@ def test_release_authority_redacts_internal_metadata_for_non_loopback(monkeypatc
         "branch": "main",
         "tracking_branch": "origin/main",
         "commit_sha": "b" * 40,
+        "source_remote_ref": "refs/remotes/origin/main",
+        "source_remote_ref_commit_sha": "b" * 40,
+        "source_remote_ref_evidence": "local_remote_tracking_ref",
+        "source_commit_reachable_from_remote_ref": True,
         "gate": {"contract_name": "ea.release_authority_gate.v1", "status": "pass", "issues": []},
         "deploy_context_gate": {"contract_name": "ea.deploy_context_gate.v1", "status": "pass", "issues": []},
     }
@@ -116,4 +157,6 @@ def test_release_authority_redacts_internal_metadata_for_non_loopback(monkeypatc
     assert "manifest_path" not in payload["release_authority"]
     assert "deploy_context_path" not in payload["release_authority"]
     assert "commit_sha" not in payload["release_authority"]
+    assert "source_remote_ref" not in payload["release_authority"]
+    assert "source_commit_reachable_from_remote_ref" not in payload["release_authority"]
     assert "requirements_lock_path" not in payload["runtime_supply_chain"]

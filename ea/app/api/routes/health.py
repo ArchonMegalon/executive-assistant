@@ -565,7 +565,7 @@ async def health_ready(container: AppContainer = Depends(get_container)) -> dict
 
 
 @router.get("/version")
-async def version(request: Request, container: AppContainer = Depends(get_container)) -> dict[str, str]:
+async def version(request: Request, container: AppContainer = Depends(get_container)) -> dict[str, object]:
     release_authority_summary = build_product_service(container).release_authority_summary()
     payload = {
         "app_name": container.settings.app_name,
@@ -585,6 +585,17 @@ async def version(request: Request, container: AppContainer = Depends(get_contai
             "branch": str(release_authority_summary.get("branch") or ""),
             "tracking_branch": str(release_authority_summary.get("tracking_branch") or ""),
             "commit_sha": str(release_authority_summary.get("commit_sha") or ""),
+            "source_remote_ref": str(release_authority_summary.get("source_remote_ref") or ""),
+            "source_remote_ref_commit_sha": str(
+                release_authority_summary.get("source_remote_ref_commit_sha") or ""
+            ),
+            "source_remote_ref_evidence": str(
+                release_authority_summary.get("source_remote_ref_evidence") or ""
+            ),
+            "source_commit_reachable_from_remote_ref": (
+                release_authority_summary.get("source_commit_reachable_from_remote_ref")
+                is True
+            ),
             "deployment_id": str(release_authority_summary.get("deployment_id") or ""),
             "deployment_id_source": str(release_authority_summary.get("deployment_id_source") or ""),
             "public_origin": str(release_authority_summary.get("public_origin") or ""),

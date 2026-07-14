@@ -46,6 +46,17 @@ def _git_repo(path: Path) -> tuple[str, str]:
     commit = subprocess.check_output(
         ["git", "-C", os.fspath(path), "rev-parse", "HEAD"], text=True
     ).strip()
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            os.fspath(path),
+            "update-ref",
+            "refs/remotes/origin/main",
+            commit,
+        ],
+        check=True,
+    )
     tree = subprocess.check_output(
         ["git", "-C", os.fspath(path), "show", "-s", "--format=%T", "HEAD"], text=True
     ).strip()
@@ -332,6 +343,11 @@ def _fixture(tmp_path: Path) -> dict[str, Any]:
             "authority_posture": "authoritative_runtime",
             "issues": [],
             "commit_sha": ea_commit,
+            "tracking_branch": "origin/main",
+            "source_remote_ref": "refs/remotes/origin/main",
+            "source_remote_ref_commit_sha": ea_commit,
+            "source_remote_ref_evidence": "local_remote_tracking_ref",
+            "source_commit_reachable_from_remote_ref": True,
             "deployment_id": EA_DEPLOYMENT,
             "deployment_id_source": "deployment_system",
             "source_worktree_dirty": False,
@@ -342,6 +358,10 @@ def _fixture(tmp_path: Path) -> dict[str, Any]:
                 "authority_posture": "authoritative_runtime",
                 "issues": [],
                 "commit_sha": ea_commit,
+                "source_remote_ref": "refs/remotes/origin/main",
+                "source_remote_ref_commit_sha": ea_commit,
+                "source_remote_ref_evidence": "local_remote_tracking_ref",
+                "source_commit_reachable_from_remote_ref": True,
                 "deployment_id": EA_DEPLOYMENT,
             },
             "deploy_context_gate": {
@@ -394,6 +414,7 @@ def test_current_valid_evidence_is_deterministic_honest_and_secret_free(tmp_path
         "sha256_and_mode_bound": True,
         "cross_receipt_identity_bindings_exact": True,
         "ea_git_commit_tree_binding_exact": True,
+        "ea_source_remote_ref_binding_exact": True,
     }
     property_projection = first["property_3d_tour_generation"]
     assert property_projection["polished_reconstruction_ready"] is True
@@ -547,6 +568,98 @@ def test_ea_git_tree_and_runtime_authority_bindings_are_fail_closed(tmp_path: Pa
     with pytest.raises(materialize.EvidenceValidationError) as authority_error:
         _build(fixture)
     assert "ea_authority_deployment_mismatch" in authority_error.value.codes
+
+
+def test_ea_remote_ref_binding_blocks_unpublished_candidate_offline(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    unrelated_commit = subprocess.check_output(
+        [
+            "git",
+            "-C",
+            os.fspath(fixture["repository"]),
+            "commit-tree",
+            fixture["ea_tree"],
+        ],
+        input="unrelated remote tip\n",
+        text=True,
+    ).strip()
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            os.fspath(fixture["repository"]),
+            "update-ref",
+            "refs/remotes/origin/main",
+            unrelated_commit,
+        ],
+        check=True,
+    )
+    authority_path = fixture["paths"]["ea_release_authority"]
+    authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    authority.update(
+        {
+            "state": "watch",
+            "authority_posture": "source_not_remote",
+            "issues": ["source_commit_not_reachable_from_remote_ref"],
+            "source_remote_ref_commit_sha": unrelated_commit,
+            "source_commit_reachable_from_remote_ref": False,
+        }
+    )
+    authority["gate"].update(
+        {
+            "status": "fail",
+            "authority_posture": "source_not_remote",
+            "issues": ["source_commit_not_reachable_from_remote_ref"],
+            "source_remote_ref_commit_sha": unrelated_commit,
+            "source_commit_reachable_from_remote_ref": False,
+        }
+    )
+    _write_json(authority_path, authority)
+
+    receipt = _build(fixture)
+
+    assert receipt["safe_to_promote_now"] is False
+    assert receipt["ea_core"]["release_authority_ready"] is False
+    assert receipt["ea_core"]["source_commit_reachable_from_remote_ref"] is False
+    assert "ea_core_release_authority_not_green" in {
+        item["code"] for item in receipt["launch_gate"]["blockers"]
+    }
+
+
+def test_ea_remote_ref_binding_rejects_fabricated_reachability(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    unrelated_commit = subprocess.check_output(
+        [
+            "git",
+            "-C",
+            os.fspath(fixture["repository"]),
+            "commit-tree",
+            fixture["ea_tree"],
+        ],
+        input="unrelated remote tip\n",
+        text=True,
+    ).strip()
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            os.fspath(fixture["repository"]),
+            "update-ref",
+            "refs/remotes/origin/main",
+            unrelated_commit,
+        ],
+        check=True,
+    )
+    authority_path = fixture["paths"]["ea_release_authority"]
+    authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    authority["source_remote_ref_commit_sha"] = unrelated_commit
+    authority["gate"]["source_remote_ref_commit_sha"] = unrelated_commit
+    _write_json(authority_path, authority)
+
+    with pytest.raises(materialize.EvidenceValidationError) as exc:
+        _build(fixture)
+
+    assert "ea_source_remote_reachability_mismatch" in exc.value.codes
 
 
 def test_cli_writes_valid_blocked_receipt_and_returns_gate_failure(tmp_path: Path) -> None:

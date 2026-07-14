@@ -35,6 +35,10 @@ def test_release_authority_runtime_verifier_accepts_matching_runtime(tmp_path: P
                 "branch": "main",
                 "tracking_branch": "origin/main",
                 "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "source_remote_ref": "refs/remotes/origin/main",
+                "source_remote_ref_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "source_remote_ref_evidence": "local_remote_tracking_ref",
+                "source_commit_reachable_from_remote_ref": True,
                 "manifest_path": "/tmp/release_manifest.generated.json",
                 "project_modes_path": "/tmp/PROJECT_MODES.generated.json",
                 "deploy_context_gate": {
@@ -42,7 +46,17 @@ def test_release_authority_runtime_verifier_accepts_matching_runtime(tmp_path: P
                     "status": "pass",
                     "issues": [],
                 },
-                "gate": {"contract_name": "ea.release_authority_gate.v1", "status": "pass", "issues": []},
+                "gate": {
+                    "contract_name": "ea.release_authority_gate.v1",
+                    "status": "pass",
+                    "issues": [],
+                    "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "tracking_branch": "origin/main",
+                    "source_remote_ref": "refs/remotes/origin/main",
+                    "source_remote_ref_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "source_remote_ref_evidence": "local_remote_tracking_ref",
+                    "source_commit_reachable_from_remote_ref": True,
+                },
             }
         ),
         encoding="utf-8",
@@ -60,6 +74,10 @@ def test_release_authority_runtime_verifier_accepts_matching_runtime(tmp_path: P
             "branch": "main",
             "tracking_branch": "origin/main",
             "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_remote_ref": "refs/remotes/origin/main",
+            "source_remote_ref_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_remote_ref_evidence": "local_remote_tracking_ref",
+            "source_commit_reachable_from_remote_ref": True,
         },
         "http://runtime.test/health/release-authority": {
             "release_authority": {
@@ -73,19 +91,43 @@ def test_release_authority_runtime_verifier_accepts_matching_runtime(tmp_path: P
                 "branch": "main",
                 "tracking_branch": "origin/main",
                 "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "source_remote_ref": "refs/remotes/origin/main",
+                "source_remote_ref_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "source_remote_ref_evidence": "local_remote_tracking_ref",
+                "source_commit_reachable_from_remote_ref": True,
                 "deploy_context_gate": {
                     "contract_name": "ea.deploy_context_gate.v1",
                     "status": "pass",
                     "issues": [],
                 },
-                "gate": {"contract_name": "ea.release_authority_gate.v1", "status": "pass", "issues": []},
+                "gate": {
+                    "contract_name": "ea.release_authority_gate.v1",
+                    "status": "pass",
+                    "issues": [],
+                    "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "tracking_branch": "origin/main",
+                    "source_remote_ref": "refs/remotes/origin/main",
+                    "source_remote_ref_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "source_remote_ref_evidence": "local_remote_tracking_ref",
+                    "source_commit_reachable_from_remote_ref": True,
+                },
             },
             "deploy_context_gate": {
                 "contract_name": "ea.deploy_context_gate.v1",
                 "status": "pass",
                 "issues": [],
             },
-            "release_authority_gate": {"contract_name": "ea.release_authority_gate.v1", "status": "pass", "issues": []},
+            "release_authority_gate": {
+                "contract_name": "ea.release_authority_gate.v1",
+                "status": "pass",
+                "issues": [],
+                "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "tracking_branch": "origin/main",
+                "source_remote_ref": "refs/remotes/origin/main",
+                "source_remote_ref_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "source_remote_ref_evidence": "local_remote_tracking_ref",
+                "source_commit_reachable_from_remote_ref": True,
+            },
         },
     }
 
@@ -93,12 +135,14 @@ def test_release_authority_runtime_verifier_accepts_matching_runtime(tmp_path: P
         artifact_path=artifact,
         base_url="http://runtime.test",
         fetch_json=lambda url: dict(responses[url]),
+        require_authoritative=True,
     )
 
     assert result["contract_name"] == "ea.release_authority_runtime.v1"
     assert result["status"] == "pass"
     assert result["issues"] == []
-    assert result["require_authoritative"] is False
+    assert result["require_authoritative"] is True
+    assert result["source_commit_reachable_from_remote_ref"] is True
     assert result["deploy_context_gate_status"] == "pass"
     assert result["deploy_context_gate_issues"] == []
     assert result["release_authority_gate_status"] == "pass"

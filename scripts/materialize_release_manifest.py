@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess  # nosec B404
 import sys
 from typing import Any, Callable, cast
@@ -58,6 +59,7 @@ _MODE_PREFIXES = {
 _ENV_FILE_CACHE: dict[Path, dict[str, str]] = {}
 _DEPLOY_CONTEXT_CACHE: dict[Path, dict[str, Any]] = {}
 _DEFAULT_COMPOSE_FILES = ("docker-compose.yml", "docker-compose.prod.yml")
+_GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _load_source_worktree_metadata() -> Callable[[Path], dict[str, object]]:
@@ -187,6 +189,18 @@ def _git(*args: str) -> str:
     if completed.returncode != 0:
         return ""
     return completed.stdout.strip()
+
+
+def _git_returncode(*args: str) -> int:
+    completed = subprocess.run(  # nosec B603,B607
+        ["git", *args],
+        cwd=ROOT,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return completed.returncode
 
 
 def _artifacts() -> list[str]:
@@ -360,6 +374,37 @@ def _tracking_branch() -> str:
     return _git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
 
 
+def _source_remote_ref_evidence(*, commit_sha: str) -> dict[str, object]:
+    """Bind HEAD to the declared, already-fetched upstream without network I/O."""
+    remote_ref = _git("rev-parse", "--symbolic-full-name", "@{u}")
+    remote_ref_is_tracking = remote_ref.startswith("refs/remotes/")
+    remote_ref_commit_sha = (
+        _git("rev-parse", "--verify", f"{remote_ref}^{{commit}}")
+        if remote_ref_is_tracking
+        else ""
+    )
+    remote_ref_resolved = bool(_GIT_COMMIT_RE.fullmatch(remote_ref_commit_sha))
+    reachable = bool(
+        _GIT_COMMIT_RE.fullmatch(commit_sha)
+        and remote_ref_resolved
+        and _git_returncode(
+            "merge-base",
+            "--is-ancestor",
+            commit_sha,
+            remote_ref_commit_sha,
+        )
+        == 0
+    )
+    return {
+        "source_remote_ref": remote_ref if remote_ref_is_tracking else "",
+        "source_remote_ref_commit_sha": remote_ref_commit_sha if remote_ref_resolved else "",
+        "source_remote_ref_evidence": (
+            "local_remote_tracking_ref" if remote_ref_resolved else "unavailable"
+        ),
+        "source_commit_reachable_from_remote_ref": reachable,
+    }
+
+
 def _dirty_worktree() -> bool:
     return bool(_git("status", "--short"))
 
@@ -369,6 +414,7 @@ def build_manifest(*, output_path: Path = DEFAULT_OUTPUT, generated_at: str | No
     branch = _git("rev-parse", "--abbrev-ref", "HEAD")
     commit_sha = _git("rev-parse", "HEAD")
     tracking_branch = _tracking_branch()
+    source_remote_ref_evidence = _source_remote_ref_evidence(commit_sha=commit_sha)
     dirty_worktree = _dirty_worktree()
     worktree_metadata = source_worktree_metadata(ROOT)
     source_worktree_dirty = bool(worktree_metadata.get("source_worktree_dirty"))
@@ -406,6 +452,7 @@ def build_manifest(*, output_path: Path = DEFAULT_OUTPUT, generated_at: str | No
         "branch": branch,
         "tracking_branch": tracking_branch,
         "commit_sha": commit_sha,
+        **source_remote_ref_evidence,
         "dirty_worktree": dirty_worktree,
         "source_worktree_dirty": source_worktree_dirty,
         "source_dirty_count": source_dirty_count,

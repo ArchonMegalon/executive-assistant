@@ -576,12 +576,48 @@ def _run_runtime_probes(
         release_gate = _mapping(payload.get("release_authority_gate"))
         deploy_gate = _mapping(payload.get("deploy_context_gate"))
         supply_gate = _mapping(payload.get("runtime_supply_chain_gate"))
+        source_remote_ref = str(release_summary.get("source_remote_ref") or "")
+        source_remote_ref_commit_sha = str(
+            release_summary.get("source_remote_ref_commit_sha") or ""
+        )
+        tracking_branch = str(release_summary.get("tracking_branch") or "")
+        source_commit_matches_candidate = (
+            release_summary.get("commit_sha") == revision
+            and release_gate.get("commit_sha") == revision
+        )
+        source_remote_ref_matches_tracking_branch = (
+            bool(tracking_branch)
+            and source_remote_ref == f"refs/remotes/{tracking_branch}"
+            and release_gate.get("tracking_branch") == tracking_branch
+        )
+        source_remote_binding_passed = all(
+            (
+                source_commit_matches_candidate,
+                source_remote_ref_matches_tracking_branch,
+                source_remote_ref.startswith("refs/remotes/"),
+                bool(REVISION_RE.fullmatch(source_remote_ref_commit_sha)),
+                release_summary.get("source_remote_ref_evidence")
+                == "local_remote_tracking_ref",
+                release_summary.get("source_commit_reachable_from_remote_ref") is True,
+                release_gate.get("source_remote_ref") == source_remote_ref,
+                release_gate.get("source_remote_ref_commit_sha")
+                == source_remote_ref_commit_sha,
+                release_gate.get("source_remote_ref_evidence")
+                == "local_remote_tracking_ref",
+                release_gate.get("source_commit_reachable_from_remote_ref") is True,
+            )
+        )
         details = {
             "authoritative_runtime": release_summary.get("authority_posture")
             == "authoritative_runtime",
             "deploy_context_gate_passed": deploy_gate.get("status") == "pass",
             "release_authority_gate_passed": release_gate.get("status") == "pass",
             "runtime_supply_chain_gate_passed": supply_gate.get("status") == "pass",
+            "source_commit_matches_candidate": source_commit_matches_candidate,
+            "source_remote_binding_passed": source_remote_binding_passed,
+            "source_remote_ref_matches_tracking_branch": (
+                source_remote_ref_matches_tracking_branch
+            ),
         }
         passed = result["status"] == 200 and all(details.values())
         _record_http_probe(
