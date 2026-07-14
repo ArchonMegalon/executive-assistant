@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import http.server
@@ -55,19 +56,18 @@ class _FakeButton:
         return self.page.labels[self.index]
 
     def bounding_box(self) -> dict[str, float]:
-        return {"x": 0.0, "y": 0.0, "width": 100.0, "height": 44.0}
+        return {
+            "x": 0.0,
+            "y": float(self.index * 50),
+            "width": 100.0,
+            "height": 44.0,
+        }
 
     def is_visible(self) -> bool:
         return True
 
     def is_enabled(self) -> bool:
         return True
-
-    def click(self, *, force: bool, no_wait_after: bool, timeout: int) -> None:
-        assert force is True
-        assert no_wait_after is True
-        assert timeout == 5_000
-        self.page.active = self.index
 
     def evaluate(self, _script: str) -> bool:
         return True
@@ -84,6 +84,13 @@ class _FakeCanvas:
     def bounding_box(self) -> dict[str, float]:
         return {"x": 0.0, "y": 0.0, "width": 320.0, "height": 240.0}
 
+    def evaluate(self, script: str) -> str:
+        assert "readPixels" in script
+        assert 'toDataURL("image/png")' in script
+        value = 7 if self.page.static_pixels else self.page.active + 1
+        png = b"\x89PNG\r\n\x1a\n" + bytes([value]) * 128
+        return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
 
 class _FakeLiveStatus:
     def __init__(self, page: _FakePage) -> None:
@@ -93,11 +100,26 @@ class _FakeLiveStatus:
         return f"Room route: {self.page.labels[self.page.active]}"
 
 
+class _FakeMouse:
+    def __init__(self, page: _FakePage) -> None:
+        self.page = page
+        self.clicked_indices: list[int] = []
+
+    def click(self, x: float, y: float) -> None:
+        assert x == 50.0
+        index = int(y // 50)
+        assert y == float(index * 50 + 22)
+        assert 0 <= index < len(self.page.labels)
+        self.clicked_indices.append(index)
+        self.page.active = index
+
+
 class _FakePage:
     def __init__(self, labels: list[str], *, static_pixels: bool = False) -> None:
         self.labels = labels
         self.static_pixels = static_pixels
         self.active = -1
+        self.mouse = _FakeMouse(self)
 
     def locator(self, selector: str):  # type: ignore[no-untyped-def]
         if selector == "#viewport canvas":
@@ -107,19 +129,10 @@ class _FakePage:
         index = int(selector.split("'")[1])
         return _FakeButton(self, index)
 
-    def wait_for_function(self, _script: str, *, arg, timeout: int) -> None:  # type: ignore[no-untyped-def]
-        assert timeout == 5_000
-        assert self.active == arg["index"]
-        assert self.labels[self.active] == arg["label"]
-
-    def evaluate(self, _script: str) -> None:
+    def evaluate(self, script: str, arg=None):  # type: ignore[no-untyped-def]
+        if "__pqReconstructionDebug" in script:
+            return self.active == arg["index"]
         return None
-
-    def screenshot(self, **kwargs) -> bytes:  # type: ignore[no-untyped-def]
-        assert kwargs["animations"] == "disabled"
-        value = 7 if self.static_pixels else self.active + 1
-        return bytes([value]) * 128
-
 
 class _FakeResponse:
     def __init__(
@@ -233,17 +246,61 @@ def test_browser_gate_binds_asset_requests_to_the_exact_candidate_origin() -> No
 
 
 def test_route_gate_interacts_all_stops_and_binds_unique_camera_pixels() -> None:
-    rows = browser_gate._route_interactions(_FakePage(LABELS), LABELS)
+    page = _FakePage(LABELS)
+    rows = browser_gate._route_interactions(page, LABELS)
 
     assert [row["label"] for row in rows] == LABELS
     assert len({row["camera_canvas_screenshot_sha256"] for row in rows}) == 9
     assert all(row["active_state_verified"] is True for row in rows)
+    assert page.mouse.clicked_indices == [*range(1, 9), 0]
 
 
 def test_route_gate_rejects_static_camera_pixels() -> None:
     with pytest.raises(RuntimeError, match="camera_state_static"):
         browser_gate._route_interactions(
             _FakePage(LABELS, static_pixels=True), LABELS
+        )
+
+
+def test_viewer_status_poll_is_bounded_and_csp_safe() -> None:
+    class StatusPage:
+        def __init__(self) -> None:
+            self.polls = 0
+            self.waits: list[int] = []
+
+        def evaluate(self, script: str, expected: str) -> bool:
+            assert script == browser_gate._VIEWER_STATUS_SCRIPT
+            assert expected == "ready"
+            self.polls += 1
+            return self.polls == 3
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            self.waits.append(milliseconds)
+
+    page = StatusPage()
+    browser_gate._wait_for_viewer_status(
+        page,
+        expected="ready",
+        timeout_ms=500,
+    )
+
+    assert page.polls == 3
+    assert page.waits == [100, 100]
+
+
+def test_viewer_status_poll_fails_closed_when_state_never_arrives() -> None:
+    class StatusPage:
+        def evaluate(self, _script: str, _expected: str) -> bool:
+            return False
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            assert milliseconds == 100
+
+    with pytest.raises(RuntimeError, match="viewer_status_unavailable"):
+        browser_gate._wait_for_viewer_status(
+            StatusPage(),
+            expected="unavailable",
+            timeout_ms=250,
         )
 
 
@@ -338,9 +395,12 @@ def test_browser_gate_derives_commit_from_version_response(
         assert maximum == 64 * 1024
         return (
             json.dumps(
-                {"commit_sha": COMMIT, "repository": "EA", "role": "api"}
+                {"commit_sha": "b" * 40, "repository": "EA", "role": "api"}
             ).encode("utf-8"),
-            {"content-type": "application/json"},
+            {
+                "content-type": "application/json",
+                "x-ea-source-revision": COMMIT,
+            },
         )
 
     monkeypatch.setattr(browser_gate, "_http_get", version_response)
@@ -356,16 +416,19 @@ def test_browser_gate_derives_commit_from_version_response(
 
 
 @pytest.mark.parametrize(
-    ("commit_sha", "content_type"),
+    ("commit_sha", "content_type", "source_revision"),
     [
-        (123, "application/json"),
-        (COMMIT, "text/plain; note=application/json"),
+        (123, "application/json", COMMIT),
+        (COMMIT, "text/plain; note=application/json", COMMIT),
+        (COMMIT, "application/json", "not-a-commit"),
+        (COMMIT, "application/json", "c" * 40),
     ],
 )
 def test_browser_gate_rejects_untyped_or_mislabeled_version_evidence(
     monkeypatch: pytest.MonkeyPatch,
     commit_sha: object,
     content_type: str,
+    source_revision: str,
 ) -> None:
     def version_response(  # type: ignore[no-untyped-def]
         _base_url, _path, *, expected_status, maximum
@@ -376,7 +439,10 @@ def test_browser_gate_rejects_untyped_or_mislabeled_version_evidence(
             json.dumps(
                 {"commit_sha": commit_sha, "repository": "EA", "role": "api"}
             ).encode("utf-8"),
-            {"content-type": content_type},
+            {
+                "content-type": content_type,
+                "x-ea-source-revision": source_revision,
+            },
         )
 
     monkeypatch.setattr(browser_gate, "_http_get", version_response)
@@ -385,6 +451,55 @@ def test_browser_gate_rejects_untyped_or_mislabeled_version_evidence(
             "http://127.0.0.1:18090",
             expected_commit=COMMIT,
         )
+
+
+@pytest.mark.parametrize(
+    "revision_headers",
+    [
+        [
+            ("X-EA-Source-Revision", "b" * 40),
+            ("x-ea-source-revision", COMMIT),
+        ],
+        [
+            ("x-ea-source-revision", COMMIT),
+            ("X-EA-SOURCE-REVISION", "b" * 40),
+        ],
+    ],
+)
+def test_browser_gate_rejects_duplicate_runtime_revision_headers(
+    revision_headers: list[tuple[str, str]],
+) -> None:
+    class DuplicateRevisionHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            body = json.dumps(
+                {"commit_sha": "c" * 40, "repository": "EA", "role": "api"}
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            for name, value in revision_headers:
+                self.send_header(name, value)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    server = http.server.ThreadingHTTPServer(
+        ("127.0.0.1", 0), DuplicateRevisionHandler
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with pytest.raises(RuntimeError, match="http_header_ambiguous"):
+            browser_gate._candidate_version(
+                f"http://127.0.0.1:{server.server_port}",
+                expected_commit=COMMIT,
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def test_browser_gate_hashes_the_exact_local_package(
@@ -903,7 +1018,7 @@ def _valid_receipt() -> dict[str, object]:
             "webgl_fallback": {
                 "status": 200,
                 "viewport": {"width": 1200, "height": 900},
-                "viewer_status": "not-ready",
+                "viewer_status": "unavailable",
                 "fallback_visible": True,
                 "enabled_route_button_count": 0,
                 "enabled_button_count": 0,

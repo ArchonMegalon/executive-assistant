@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -34,6 +36,17 @@ RECEIPT_SCHEMA = "ea.manfred_spatial_candidate_browser.v3"
 _SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_SOURCE_REVISION_HEADER = "x-ea-source-revision"
+_SINGLETON_EVIDENCE_HEADERS = frozenset(
+    {
+        "content-encoding",
+        "content-length",
+        "content-type",
+        _SOURCE_REVISION_HEADER,
+        "x-propertyquarry-asset-sha256",
+        "x-propertyquarry-viewer-revision",
+    }
+)
 _EXPECTED_ROUTE_STOP_COUNT = 9
 _MAX_HTTP_BYTES = 8 * 1024 * 1024
 _REQUEST_MEDIA_TYPES = {
@@ -62,6 +75,64 @@ _WEBGL_FALLBACK_INIT = """
     return original.call(this, kind, ...args);
   };
 })();
+"""
+_ROUTE_CAMERA_READY_SCRIPT = """
+({index}) => {
+  const debug = window.__pqReconstructionDebug;
+  if (!debug || typeof debug.getRenderMetrics !== "function") return false;
+  const metrics = debug.getRenderMetrics();
+  return Boolean(
+    metrics &&
+    metrics.ready === true &&
+    Number(metrics.activeRouteIndex) === Number(index) &&
+    metrics.viewMode === "room" &&
+    metrics.isTransitioning === false &&
+    Number(metrics.frameCount || 0) > 0
+  );
+}
+"""
+_BOUNDED_CANVAS_SCREENSHOT_SCRIPT = """
+element => {
+  const gl =
+    element.getContext("webgl2") ||
+    element.getContext("webgl") ||
+    element.getContext("experimental-webgl");
+  const attributes = gl && gl.getContextAttributes();
+  const bufferWidth = Number(gl && gl.drawingBufferWidth || 0);
+  const bufferHeight = Number(gl && gl.drawingBufferHeight || 0);
+  const width = Math.min(160, bufferWidth);
+  const height = Math.min(96, bufferHeight);
+  if (
+    !gl ||
+    !attributes ||
+    attributes.preserveDrawingBuffer !== true ||
+    width < 1 ||
+    height < 1
+  ) return null;
+  const pixels = new Uint8Array(width * height * 4);
+  const x = Math.floor((bufferWidth - width) / 2);
+  const y = Math.floor((bufferHeight - height) / 2);
+  gl.readPixels(x, y, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  if (gl.getError() !== gl.NO_ERROR) return null;
+  const proof = document.createElement("canvas");
+  proof.width = width;
+  proof.height = height;
+  const context = proof.getContext("2d");
+  if (!context) return null;
+  const image = context.createImageData(width, height);
+  for (let row = 0; row < height; row += 1) {
+    const source = pixels.subarray(
+      row * width * 4,
+      (row + 1) * width * 4,
+    );
+    image.data.set(source, (height - row - 1) * width * 4);
+  }
+  context.putImageData(image, 0, 0);
+  return proof.toDataURL("image/png");
+}
+"""
+_VIEWER_STATUS_SCRIPT = """
+expected => document.documentElement.dataset.viewerStatus === expected
 """
 _VIEWER_STATE_SCRIPT = """
 () => {
@@ -209,6 +280,22 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _response_headers(values: object) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    for raw_name, raw_value in values.items():
+        name = str(raw_name).strip().lower()
+        value = str(raw_value).strip()
+        if name in normalized and name in _SINGLETON_EVIDENCE_HEADERS:
+            raise RuntimeError(
+                "manfred_candidate_spatial_browser_http_header_ambiguous"
+            )
+        if name in normalized:
+            normalized[name] = f"{normalized[name]}, {value}"
+        else:
+            normalized[name] = value
+    return normalized
+
+
 def _http_get(
     base_url: str,
     path: str,
@@ -230,17 +317,11 @@ def _http_get(
         with opener.open(request, timeout=20) as response:
             status = int(response.status or 0)
             body = response.read(maximum + 1)
-            headers = {
-                str(name).lower(): str(value).strip()
-                for name, value in response.headers.items()
-            }
+            headers = _response_headers(response.headers)
     except urllib.error.HTTPError as exc:
         status = int(exc.code)
         body = exc.read(maximum + 1)
-        headers = {
-            str(name).lower(): str(value).strip()
-            for name, value in exc.headers.items()
-        }
+        headers = _response_headers(exc.headers)
     except (OSError, urllib.error.URLError) as exc:
         raise RuntimeError(
             "manfred_candidate_spatial_browser_http_unreachable"
@@ -270,12 +351,19 @@ def _candidate_version(
         body,
         error="manfred_candidate_spatial_browser_version_invalid",
     )
-    raw_commit = payload.get("commit_sha")
-    if type(raw_commit) is not str:
+    raw_authority_commit = payload.get("commit_sha")
+    raw_runtime_commit = headers.get(_SOURCE_REVISION_HEADER)
+    if type(raw_authority_commit) is not str or type(raw_runtime_commit) is not str:
         raise RuntimeError(
             "manfred_candidate_spatial_browser_version_mismatch"
         )
-    observed_commit = _commit(raw_commit)
+    try:
+        _commit(raw_authority_commit)
+        observed_commit = _commit(raw_runtime_commit)
+    except ValueError as exc:
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_version_mismatch"
+        ) from exc
     if (
         observed_commit != expected_commit
         or payload.get("repository") != "EA"
@@ -760,7 +848,10 @@ element => {
             raise RuntimeError(
                 "manfred_candidate_spatial_browser_route_actionability_invalid"
             )
-        button.click(force=True, no_wait_after=True, timeout=5_000)
+        page.mouse.click(  # type: ignore[attr-defined]
+            float(bounds["x"]) + float(bounds["width"]) / 2,
+            float(bounds["y"]) + float(bounds["height"]) / 2,
+        )
         state_ready = False
         for _attempt in range(50):
             active = page.locator(  # type: ignore[attr-defined]
@@ -777,6 +868,19 @@ element => {
             raise RuntimeError(
                 "manfred_candidate_spatial_browser_route_state_unchanged"
             )
+        camera_ready = False
+        for _attempt in range(50):
+            if page.evaluate(  # type: ignore[attr-defined]
+                _ROUTE_CAMERA_READY_SCRIPT,
+                {"index": index},
+            ) is True:
+                camera_ready = True
+                break
+            page.wait_for_timeout(100)  # type: ignore[attr-defined]
+        if not camera_ready:
+            raise RuntimeError(
+                "manfred_candidate_spatial_browser_route_state_unchanged"
+            )
         page.evaluate(  # type: ignore[attr-defined]
             "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
         )
@@ -788,20 +892,22 @@ element => {
             or float(bounds.get("height") or 0) <= 0
         ):
             raise RuntimeError("manfred_candidate_spatial_browser_camera_probe_failed")
-        screenshot = page.screenshot(  # type: ignore[attr-defined]
-            animations="disabled",
-            caret="hide",
-            clip={
-                "x": float(bounds["x"]),
-                "y": float(bounds["y"]),
-                "width": float(bounds["width"]),
-                "height": float(bounds["height"]),
-            },
-            timeout=15_000,
-        )
-        if not screenshot:
+        data_url = canvas.evaluate(_BOUNDED_CANVAS_SCREENSHOT_SCRIPT)
+        prefix = "data:image/png;base64,"
+        if type(data_url) is not str or not data_url.startswith(prefix):
             raise RuntimeError("manfred_candidate_spatial_browser_camera_probe_failed")
-        digest = hashlib.sha256(bytes(screenshot)).hexdigest()
+        try:
+            screenshot = base64.b64decode(
+                data_url[len(prefix) :],
+                validate=True,
+            )
+        except (binascii.Error, ValueError) as exc:
+            raise RuntimeError(
+                "manfred_candidate_spatial_browser_camera_probe_failed"
+            ) from exc
+        if not screenshot.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise RuntimeError("manfred_candidate_spatial_browser_camera_probe_failed")
+        digest = hashlib.sha256(screenshot).hexdigest()
         if digest in observed_digests:
             raise RuntimeError("manfred_candidate_spatial_browser_camera_state_static")
         observed_digests.add(digest)
@@ -819,6 +925,32 @@ element => {
     if len(observed_digests) != _EXPECTED_ROUTE_STOP_COUNT:
         raise RuntimeError("manfred_candidate_spatial_browser_camera_state_static")
     return sorted(rows, key=lambda row: int(row["index"]))
+
+
+def _wait_for_viewer_status(
+    page: object,
+    *,
+    expected: str,
+    timeout_ms: int,
+) -> None:
+    if expected not in {"ready", "unavailable"}:
+        raise ValueError("manfred_candidate_spatial_browser_viewer_status_invalid")
+    attempts = max(1, (int(timeout_ms) + 99) // 100)
+    for attempt in range(attempts):
+        try:
+            ready = page.evaluate(  # type: ignore[attr-defined]
+                _VIEWER_STATUS_SCRIPT,
+                expected,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "manfred_candidate_spatial_browser_viewer_status_unavailable"
+            ) from exc
+        if ready is True:
+            return
+        if attempt + 1 < attempts:
+            page.wait_for_timeout(100)  # type: ignore[attr-defined]
+    raise RuntimeError("manfred_candidate_spatial_browser_viewer_status_unavailable")
 
 
 def _audit_landing(browser: object, *, url: str, viewer_path: str) -> dict[str, object]:
@@ -950,16 +1082,11 @@ def _audit_surface(
             and all(item is not response for item in observed_responses)
         ):
             observed_responses.append(response)
-        if name == "webgl_fallback":
-            page.wait_for_function(
-                "document.documentElement.dataset.viewerStatus === 'not-ready'",
-                timeout=15_000,
-            )
-        else:
-            page.wait_for_function(
-                "document.documentElement.dataset.viewerStatus === 'ready'",
-                timeout=20_000,
-            )
+        _wait_for_viewer_status(
+            page,
+            expected="unavailable" if name == "webgl_fallback" else "ready",
+            timeout_ms=15_000 if name == "webgl_fallback" else 20_000,
+        )
         page.wait_for_load_state("load", timeout=15_000)
         page.wait_for_timeout(250)
         state = dict(page.evaluate(_VIEWER_STATE_SCRIPT))
@@ -1024,7 +1151,7 @@ def _audit_surface(
             raise RuntimeError("manfred_candidate_spatial_browser_motion_mismatch")
         if name == "webgl_fallback":
             if (
-                state.get("viewer_status") != "not-ready"
+                state.get("viewer_status") != "unavailable"
                 or state.get("fallback_visible") is not True
                 or state.get("fallback_role") != "alert"
                 or "3d preview is unavailable"
@@ -1061,7 +1188,7 @@ def _audit_surface(
             return {
                 "status": 200,
                 "viewport": {"width": width, "height": height},
-                "viewer_status": "not-ready",
+                "viewer_status": "unavailable",
                 "fallback_visible": True,
                 "enabled_route_button_count": 0,
                 "enabled_button_count": 0,
@@ -1970,7 +2097,7 @@ def validate_spatial_candidate_browser_receipt(
         or not isinstance(fallback.get("viewport"), dict)
         or not exact_int(dict(fallback["viewport"]).get("width"), 1200)
         or not exact_int(dict(fallback["viewport"]).get("height"), 900)
-        or fallback.get("viewer_status") != "not-ready"
+        or fallback.get("viewer_status") != "unavailable"
         or fallback.get("fallback_visible") is not True
         or fallback.get("alert_role") != "alert"
         or fallback.get("live_status_role") != "status"
