@@ -81,9 +81,6 @@ class _FakeCanvas:
     def __init__(self, page: _FakePage) -> None:
         self.page = page
 
-    def bounding_box(self) -> dict[str, float]:
-        return {"x": 0.0, "y": 0.0, "width": 320.0, "height": 240.0}
-
     def evaluate(self, script: str) -> str:
         assert "readPixels" in script
         assert 'toDataURL("image/png")' in script

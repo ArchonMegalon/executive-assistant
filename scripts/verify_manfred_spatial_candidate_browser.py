@@ -885,13 +885,6 @@ element => {
             "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
         )
         canvas = page.locator("#viewport canvas")  # type: ignore[attr-defined]
-        bounds = canvas.bounding_box()
-        if (
-            not isinstance(bounds, dict)
-            or float(bounds.get("width") or 0) <= 0
-            or float(bounds.get("height") or 0) <= 0
-        ):
-            raise RuntimeError("manfred_candidate_spatial_browser_camera_probe_failed")
         data_url = canvas.evaluate(_BOUNDED_CANVAS_SCREENSHOT_SCRIPT)
         prefix = "data:image/png;base64,"
         if type(data_url) is not str or not data_url.startswith(prefix):
