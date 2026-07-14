@@ -525,6 +525,301 @@ def test_materializer_never_overwrites_bundle_or_receipt_race_targets(
         )
     assert receipt_target.read_text(encoding="utf-8") == "attacker"
     assert not bundle_target.exists()
+    quarantined = tuple(bundle_target.parent.iterdir())
+    assert len(quarantined) == 2
+    assert all(path.name.startswith(".") for path in quarantined)
+    assert all(
+        stat.S_IMODE(path.stat().st_mode) == 0o000
+        for path in quarantined
+    )
+    for path in quarantined:
+        path.chmod(0o755)
+        prepare._make_tree_removable(path)
+        shutil.rmtree(path)
+
+
+def test_materializer_rejects_stage_path_replacement_between_snapshot_and_rename(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source, authority, source_snapshot = _build_property_package(
+        tmp_path, monkeypatch
+    )
+    bundle_target = tmp_path / "out" / "public_property_tours" / SLUG
+    receipt_target = tmp_path / "out" / "receipts" / "handoff.json"
+    original_rename = prepare._rename_noreplace
+    preserved_name = ".verified-stage-preserved"
+    swapped = False
+
+    def racing_rename(  # type: ignore[no-untyped-def]
+        source_parent_descriptor,
+        source_name,
+        destination_parent_descriptor,
+        destination_name,
+    ):
+        nonlocal swapped
+        if not swapped and destination_name == SLUG:
+            os.rename(
+                source_name,
+                preserved_name,
+                src_dir_fd=source_parent_descriptor,
+                dst_dir_fd=source_parent_descriptor,
+            )
+            os.mkdir(source_name, 0o755, dir_fd=source_parent_descriptor)
+            attacker_descriptor = os.open(
+                source_name,
+                os.O_RDONLY | os.O_DIRECTORY,
+                dir_fd=source_parent_descriptor,
+            )
+            try:
+                marker_descriptor = os.open(
+                    "attacker.txt",
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o644,
+                    dir_fd=attacker_descriptor,
+                )
+                try:
+                    os.write(marker_descriptor, b"must-not-install")
+                finally:
+                    os.close(marker_descriptor)
+            finally:
+                os.close(attacker_descriptor)
+            swapped = True
+        return original_rename(
+            source_parent_descriptor,
+            source_name,
+            destination_parent_descriptor,
+            destination_name,
+        )
+
+    monkeypatch.setattr(prepare, "_rename_noreplace", racing_rename)
+    with pytest.raises(RuntimeError, match="rollback_incomplete:bundle"):
+        prepare.materialize_spatial_handoff(
+            source_bundle_dir=source,
+            upstream_authority_receipt_path=authority,
+            handoff_bundle_dir=bundle_target,
+            handoff_receipt_path=receipt_target,
+            target_origin=TARGET_ORIGIN,
+        )
+
+    assert swapped is True
+    assert (bundle_target / "attacker.txt").read_bytes() == b"must-not-install"
+    assert not receipt_target.exists()
+    preserved = bundle_target.parent / preserved_name
+    assert preserved.is_dir()
+    assert stat.S_IMODE(preserved.stat().st_mode) == 0o000
+    preserved.chmod(0o755)
+    preserved_files = tuple(
+        child for child in preserved.rglob("*") if child.is_file()
+    )
+    assert {
+        child.relative_to(preserved).as_posix() for child in preserved_files
+    } == set(source_snapshot)
+    assert all(child.stat().st_size == 0 for child in preserved_files)
+    assert all(
+        stat.S_IMODE(child.stat().st_mode) == 0o000
+        for child in preserved_files
+    )
+    for child in preserved.rglob("*"):
+        child.chmod(0o755 if child.is_dir() else 0o644)
+
+
+def test_bundle_rollback_quarantines_by_identity_before_deleting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "rollback"
+    target = parent / "bundle"
+    victim = parent / "victim"
+    moved_original = parent / "moved-original"
+    target.mkdir(parents=True)
+    victim.mkdir()
+    (target / "original.txt").write_text("original", encoding="utf-8")
+    (victim / "victim.txt").write_text("victim", encoding="utf-8")
+    target_metadata = target.stat()
+    identity = (target_metadata.st_dev, target_metadata.st_ino)
+    parent_descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    original_rename = prepare._rename_noreplace
+    swapped = False
+
+    def racing_rename(  # type: ignore[no-untyped-def]
+        source_parent_descriptor,
+        source_name,
+        destination_parent_descriptor,
+        destination_name,
+    ):
+        nonlocal swapped
+        if not swapped and source_name == "bundle":
+            os.rename(
+                "bundle",
+                "moved-original",
+                src_dir_fd=source_parent_descriptor,
+                dst_dir_fd=source_parent_descriptor,
+            )
+            os.rename(
+                "victim",
+                "bundle",
+                src_dir_fd=source_parent_descriptor,
+                dst_dir_fd=source_parent_descriptor,
+            )
+            swapped = True
+        return original_rename(
+            source_parent_descriptor,
+            source_name,
+            destination_parent_descriptor,
+            destination_name,
+        )
+
+    monkeypatch.setattr(prepare, "_rename_noreplace", racing_rename)
+    try:
+        removed = prepare._remove_bundle_if_identity(
+            parent_descriptor,
+            "bundle",
+            identity,
+        )
+    finally:
+        os.close(parent_descriptor)
+
+    assert swapped is True
+    assert removed is False
+    assert (target / "victim.txt").read_text(encoding="utf-8") == "victim"
+    assert (moved_original / "original.txt").read_text(
+        encoding="utf-8"
+    ) == "original"
+
+
+@pytest.mark.parametrize("failure", ["write", "fsync"])
+def test_exclusive_receipt_write_quarantines_partial_final_inode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    parent = tmp_path / "receipts"
+    parent.mkdir()
+    parent_descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    if failure == "write":
+        original_write = prepare.os.write
+        failed = False
+
+        def failing_write(descriptor, content):  # type: ignore[no-untyped-def]
+            nonlocal failed
+            if not failed:
+                failed = True
+                original_write(descriptor, content[:3])
+                raise OSError("injected write failure")
+            return original_write(descriptor, content)
+
+        monkeypatch.setattr(prepare.os, "write", failing_write)
+    else:
+        original_fsync = prepare.os.fsync
+        failed = False
+
+        def failing_fsync(descriptor):  # type: ignore[no-untyped-def]
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise OSError("injected fsync failure")
+            return original_fsync(descriptor)
+
+        monkeypatch.setattr(prepare.os, "fsync", failing_fsync)
+    try:
+        with pytest.raises(OSError, match="injected"):
+            prepare._exclusive_write_at(
+                parent_descriptor,
+                "handoff.json",
+                b'{"status":"pass"}\n',
+                mode=0o600,
+            )
+    finally:
+        os.close(parent_descriptor)
+
+    assert not (parent / "handoff.json").exists()
+    quarantined = list(parent.iterdir())
+    assert len(quarantined) == 1
+    assert quarantined[0].name.startswith(".handoff.json.")
+    assert quarantined[0].stat().st_size == 0
+    assert stat.S_IMODE(quarantined[0].stat().st_mode) == 0o000
+
+
+def test_exclusive_write_retries_until_all_short_writes_complete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "receipts"
+    parent.mkdir()
+    parent_descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    original_write = prepare.os.write
+    calls = 0
+
+    def short_write(descriptor, content):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        return original_write(descriptor, content[: max(1, len(content) // 2)])
+
+    monkeypatch.setattr(prepare.os, "write", short_write)
+    content = b'{"status":"pass","complete":true}\n'
+    try:
+        prepare._exclusive_write_at(
+            parent_descriptor,
+            "handoff.json",
+            content,
+            mode=0o600,
+        )
+    finally:
+        os.close(parent_descriptor)
+
+    assert calls > 1
+    assert (parent / "handoff.json").read_bytes() == content
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "bundle_under_source",
+        "receipt_under_source",
+        "bundle_equal_authority",
+        "receipt_equal_authority",
+        "bundle_under_authority",
+        "receipt_under_authority",
+    ],
+)
+def test_materializer_never_places_ea_outputs_in_property_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    source, authority, source_snapshot = _build_property_package(
+        tmp_path, monkeypatch
+    )
+    bundle_target = tmp_path / "handoff" / SLUG
+    receipt_target = tmp_path / "handoff" / "handoff.json"
+    if case == "bundle_under_source":
+        bundle_target = source / "ea-output" / SLUG
+    elif case == "receipt_under_source":
+        receipt_target = source / "ea-output.json"
+    elif case == "bundle_equal_authority":
+        bundle_target = authority
+    elif case == "receipt_equal_authority":
+        receipt_target = authority
+    elif case == "bundle_under_authority":
+        bundle_target = authority / SLUG
+    else:
+        receipt_target = authority / "ea-output.json"
+
+    authority_bytes = authority.read_bytes()
+    with pytest.raises(ValueError, match="materialization_target_invalid"):
+        prepare.materialize_spatial_handoff(
+            source_bundle_dir=source,
+            upstream_authority_receipt_path=authority,
+            handoff_bundle_dir=bundle_target,
+            handoff_receipt_path=receipt_target,
+            target_origin=TARGET_ORIGIN,
+        )
+    assert prepare._spatial_tree_snapshot(
+        source,
+        require_sanitized_modes=True,
+    ) == source_snapshot
+    assert authority.read_bytes() == authority_bytes
 
 
 def test_spatial_tree_snapshot_rejects_root_swap_to_symlink_race(
@@ -769,6 +1064,18 @@ def test_spatial_runtime_smoke_requires_html_json_viewer_and_proof_only_404(
             "secret_material_recorded": False,
         },
     )
+    validated: list[dict[str, object]] = []
+
+    def validate_receipt(receipt, **kwargs):  # type: ignore[no-untyped-def]
+        validated.append(dict(kwargs))
+        assert receipt["secret_material_recorded"] is False
+        return receipt
+
+    monkeypatch.setattr(
+        runner,
+        "validate_spatial_candidate_browser_receipt",
+        validate_receipt,
+    )
     proof = runner._spatial_handoff_runtime_proof(
         "http://127.0.0.1:18090",
         {
@@ -789,9 +1096,86 @@ def test_spatial_runtime_smoke_requires_html_json_viewer_and_proof_only_404(
     assert proof["candidate_browser_gate"]["secret_material_recorded"] is False
     assert proof["ea_public_activation_authority"] is False
     assert proof["upstream_public_activation_authority"] is True
+    assert validated == [
+        {
+            "slug": SLUG,
+            "viewer_relpath": "generated-reconstruction/viewer.html",
+            "route_labels": ROUTE_LABELS,
+            "candidate_commit": "e" * 40,
+            "package_sha256": "f" * 64,
+        }
+    ]
     assert len(paths) == 8
     assert {
         status
         for _method, path, status in paths
         if path.endswith("reconstruction.json")
     } == {404}
+
+
+def test_spatial_runtime_rejects_boolean_only_browser_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, _authority, _snapshot = _build_property_package(
+        tmp_path, monkeypatch
+    )
+
+    def probe(  # type: ignore[no-untyped-def]
+        _base_url, path, *, method, expected_status, accept="*/*"
+    ):
+        del method, expected_status, accept
+        if path.endswith(".json") and "/viewer/" not in path:
+            return (
+                json.dumps(
+                    {
+                        "generated_viewer": {
+                            "url": (
+                                f"/tours/viewer/{SLUG}/"
+                                "generated-reconstruction/viewer.html"
+                            )
+                        }
+                    }
+                ).encode("utf-8"),
+                {"content-type": "application/json"},
+            )
+        return b"", {"content-type": "text/html"}
+
+    monkeypatch.setattr(runner, "_spatial_http_probe", probe)
+    monkeypatch.setattr(
+        runner,
+        "verify_spatial_bundle",
+        lambda *_args, **_kwargs: {"pass": True, "status": "pass"},
+    )
+    monkeypatch.setattr(
+        runner,
+        "audit_spatial_candidate_browser",
+        lambda **_kwargs: {
+            "status": "pass",
+            "all_route_stops_interacted": True,
+            "camera_state_changes_verified": True,
+            "required_asset_requests_verified": True,
+            "secret_material_recorded": False,
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="browser_gate_blocked"):
+        runner._spatial_handoff_runtime_proof(
+            "http://127.0.0.1:18090",
+            {
+                "projection_commit": "e" * 40,
+                "spatial_handoff": {
+                    "included": True,
+                    "slug": SLUG,
+                    "release_root": str(bundle.parent),
+                    "viewer_relpath": (
+                        "generated-reconstruction/viewer.html"
+                    ),
+                    "proof_relpath": (
+                        "generated-reconstruction/reconstruction.json"
+                    ),
+                    "route_labels": ROUTE_LABELS,
+                    "upstream_package_sha256": "f" * 64,
+                },
+            },
+        )

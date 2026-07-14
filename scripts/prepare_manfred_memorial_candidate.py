@@ -542,7 +542,11 @@ def _open_directory_path_nofollow(
 
 
 def _spatial_tree_snapshot(
-    root: Path, *, require_sanitized_modes: bool
+    root: Path,
+    *,
+    require_sanitized_modes: bool,
+    expected_root_identity: tuple[int, int] | None = None,
+    expected_file_identities: dict[str, tuple[int, int]] | None = None,
 ) -> dict[str, bytes]:
     root = Path(os.path.abspath(os.fspath(root.expanduser())))
     nofollow = getattr(os, "O_NOFOLLOW", None)
@@ -703,6 +707,11 @@ def _spatial_tree_snapshot(
                     file_identity(initial) != file_identity(opened)
                     or not stat.S_ISREG(opened.st_mode)
                     or opened.st_nlink != 1
+                    or (
+                        expected_file_identities is not None
+                        and (opened.st_dev, opened.st_ino)
+                        != expected_file_identities.get(relpath)
+                    )
                 ):
                     raise ValueError("manfred_candidate_spatial_source_changed")
                 chunks: list[bytes] = []
@@ -743,6 +752,11 @@ def _spatial_tree_snapshot(
 
     try:
         root_metadata = os.fstat(root_descriptor)
+        if expected_root_identity is not None and (
+            root_metadata.st_dev,
+            root_metadata.st_ino,
+        ) != expected_root_identity:
+            raise ValueError("manfred_candidate_spatial_root_identity_changed")
         validate_directory(root_metadata, root_entry=True)
         try:
             root_path_metadata = os.stat(root, follow_symlinks=False)
@@ -761,12 +775,24 @@ def _spatial_tree_snapshot(
             != directory_identity(final_root_metadata)
             or directory_identity(final_root_metadata)
             != directory_identity(final_root_path_metadata)
+            or (
+                expected_root_identity is not None
+                and (
+                    final_root_metadata.st_dev,
+                    final_root_metadata.st_ino,
+                )
+                != expected_root_identity
+            )
         ):
             raise ValueError("manfred_candidate_spatial_source_changed")
     finally:
         os.close(root_descriptor)
     if not files:
         raise ValueError("manfred_candidate_spatial_bundle_empty")
+    if expected_file_identities is not None and set(files) != set(
+        expected_file_identities
+    ):
+        raise ValueError("manfred_candidate_spatial_source_changed")
     return files
 
 
@@ -1151,9 +1177,15 @@ def _exclusive_write_at(
     content: bytes,
     *,
     mode: int,
+    retain_as: str | None = None,
+    retained_files: dict[str, tuple[int, tuple[int, int]]] | None = None,
 ) -> tuple[int, int]:
     if name in {"", ".", ".."} or "/" in name:
         raise ValueError("manfred_candidate_spatial_output_name_invalid")
+    if (retain_as is None) != (retained_files is None):
+        raise ValueError("manfred_candidate_spatial_retention_invalid")
+    if retain_as is not None and retain_as in retained_files:
+        raise ValueError("manfred_candidate_spatial_retention_invalid")
     flags = (
         os.O_WRONLY
         | os.O_CREAT
@@ -1175,13 +1207,50 @@ def _exclusive_write_at(
         os.fchmod(descriptor, mode)
         os.fsync(descriptor)
         metadata = os.fstat(descriptor)
-        return metadata.st_dev, metadata.st_ino
+        identity = (metadata.st_dev, metadata.st_ino)
+        if retain_as is not None and retained_files is not None:
+            retained_files[retain_as] = (os.dup(descriptor), identity)
+        return identity
+    except BaseException as exc:
+        cleanup_failed = False
+        identity: tuple[int, int] | None = None
+        try:
+            metadata = os.fstat(descriptor)
+            identity = (metadata.st_dev, metadata.st_ino)
+            if not _unlink_file_if_identity(
+                parent_descriptor,
+                name,
+                identity,
+            ):
+                cleanup_failed = True
+        except (OSError, ValueError):
+            cleanup_failed = True
+        try:
+            metadata = os.fstat(descriptor)
+            if identity is not None and (
+                metadata.st_dev,
+                metadata.st_ino,
+            ) != identity:
+                cleanup_failed = True
+            os.ftruncate(descriptor, 0)
+            os.fchmod(descriptor, 0o000)
+            os.fsync(descriptor)
+        except OSError:
+            cleanup_failed = True
+        if cleanup_failed:
+            raise RuntimeError(
+                "manfred_candidate_spatial_partial_output_rollback_incomplete"
+            ) from exc
+        raise
     finally:
         os.close(descriptor)
 
 
 def _write_spatial_bundle_at(
-    root_descriptor: int, files: dict[str, bytes]
+    root_descriptor: int,
+    files: dict[str, bytes],
+    *,
+    retained_files: dict[str, tuple[int, tuple[int, int]]] | None = None,
 ) -> None:
     directory_flags = (
         os.O_RDONLY
@@ -1207,6 +1276,8 @@ def _write_spatial_bundle_at(
                 parts[-1],
                 content,
                 mode=0o644,
+                retain_as=relpath if retained_files is not None else None,
+                retained_files=retained_files,
             )
             os.fsync(descriptor)
         finally:
@@ -1249,35 +1320,257 @@ def _rename_noreplace(
     raise ValueError("manfred_candidate_spatial_output_install_failed")
 
 
-def _remove_bundle_if_identity(
-    parent_descriptor: int, name: str, identity: tuple[int, int]
-) -> None:
+def _entry_identity(
+    parent_descriptor: int,
+    name: str,
+    *,
+    directory: bool,
+) -> tuple[int, int] | None:
     try:
         metadata = os.stat(
             name, dir_fd=parent_descriptor, follow_symlinks=False
         )
     except OSError:
+        return None
+    expected_type = stat.S_ISDIR if directory else stat.S_ISREG
+    if not expected_type(metadata.st_mode):
+        return None
+    return metadata.st_dev, metadata.st_ino
+
+
+def _restore_quarantined_entry(
+    parent_descriptor: int,
+    quarantine_name: str,
+    original_name: str,
+) -> None:
+    if _entry_identity(
+        parent_descriptor,
+        original_name,
+        directory=False,
+    ) is not None or _entry_identity(
+        parent_descriptor,
+        original_name,
+        directory=True,
+    ) is not None:
         return
-    if (metadata.st_dev, metadata.st_ino) != identity or not stat.S_ISDIR(
-        metadata.st_mode
-    ):
+    try:
+        _rename_noreplace(
+            parent_descriptor,
+            quarantine_name,
+            parent_descriptor,
+            original_name,
+        )
+    except ValueError:
         return
-    shutil.rmtree(Path(f"/proc/{os.getpid()}/fd/{parent_descriptor}") / name)
+
+
+def _remove_bundle_if_identity(
+    parent_descriptor: int, name: str, identity: tuple[int, int]
+) -> bool:
+    if _entry_identity(
+        parent_descriptor,
+        name,
+        directory=True,
+    ) != identity:
+        return False
+    quarantine_name = f".{name}.{uuid.uuid4().hex}.rollback"
+    _rename_noreplace(
+        parent_descriptor,
+        name,
+        parent_descriptor,
+        quarantine_name,
+    )
+    if _entry_identity(
+        parent_descriptor,
+        quarantine_name,
+        directory=True,
+    ) != identity:
+        _restore_quarantined_entry(
+            parent_descriptor,
+            quarantine_name,
+            name,
+        )
+        return False
+    flags = (
+        os.O_RDONLY
+        | os.O_CLOEXEC
+        | os.O_DIRECTORY
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(
+        quarantine_name,
+        flags,
+        dir_fd=parent_descriptor,
+    )
+    try:
+        metadata = os.fstat(descriptor)
+        if (metadata.st_dev, metadata.st_ino) != identity:
+            _restore_quarantined_entry(
+                parent_descriptor,
+                quarantine_name,
+                name,
+            )
+            return False
+        current = os.stat(
+            quarantine_name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            current.st_dev,
+            current.st_ino,
+        ) != identity or not stat.S_ISDIR(current.st_mode):
+            raise ValueError("manfred_candidate_spatial_rollback_identity_drift")
+        os.fchmod(descriptor, 0o000)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    os.fsync(parent_descriptor)
+    return True
+
+
+def _scrub_retained_spatial_files(
+    retained_files: dict[str, tuple[int, tuple[int, int]]],
+) -> bool:
+    scrubbed = True
+    for descriptor, identity in retained_files.values():
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                (metadata.st_dev, metadata.st_ino) != identity
+                or not stat.S_ISREG(metadata.st_mode)
+            ):
+                scrubbed = False
+                continue
+            os.ftruncate(descriptor, 0)
+            os.fchmod(descriptor, 0o000)
+            os.fsync(descriptor)
+            final = os.fstat(descriptor)
+            if (
+                (final.st_dev, final.st_ino) != identity
+                or final.st_size != 0
+                or stat.S_IMODE(final.st_mode) != 0o000
+            ):
+                scrubbed = False
+        except OSError:
+            scrubbed = False
+    return scrubbed
 
 
 def _unlink_file_if_identity(
     parent_descriptor: int, name: str, identity: tuple[int, int]
-) -> None:
-    try:
-        metadata = os.stat(
-            name, dir_fd=parent_descriptor, follow_symlinks=False
+) -> bool:
+    if _entry_identity(
+        parent_descriptor,
+        name,
+        directory=False,
+    ) != identity:
+        return False
+    quarantine_name = f".{name}.{uuid.uuid4().hex}.rollback"
+    _rename_noreplace(
+        parent_descriptor,
+        name,
+        parent_descriptor,
+        quarantine_name,
+    )
+    if _entry_identity(
+        parent_descriptor,
+        quarantine_name,
+        directory=False,
+    ) != identity:
+        _restore_quarantined_entry(
+            parent_descriptor,
+            quarantine_name,
+            name,
         )
-    except OSError:
-        return
-    if (metadata.st_dev, metadata.st_ino) == identity and stat.S_ISREG(
-        metadata.st_mode
-    ):
-        os.unlink(name, dir_fd=parent_descriptor)
+        return False
+    flags = (
+        os.O_WRONLY
+        | os.O_CLOEXEC
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(
+        quarantine_name,
+        flags,
+        dir_fd=parent_descriptor,
+    )
+    try:
+        metadata = os.fstat(descriptor)
+        if (metadata.st_dev, metadata.st_ino) != identity:
+            _restore_quarantined_entry(
+                parent_descriptor,
+                quarantine_name,
+                name,
+            )
+            return False
+        os.ftruncate(descriptor, 0)
+        os.fchmod(descriptor, 0o000)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    if _entry_identity(
+        parent_descriptor,
+        quarantine_name,
+        directory=False,
+    ) != identity:
+        return False
+    os.fsync(parent_descriptor)
+    return True
+
+
+def _read_file_at_identity(
+    parent_descriptor: int,
+    name: str,
+    identity: tuple[int, int],
+    *,
+    maximum: int,
+) -> bytes:
+    flags = (
+        os.O_RDONLY
+        | os.O_CLOEXEC
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(name, flags, dir_fd=parent_descriptor)
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            (metadata.st_dev, metadata.st_ino) != identity
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or metadata.st_size <= 0
+            or metadata.st_size > maximum
+        ):
+            raise ValueError("manfred_candidate_spatial_output_identity_drift")
+        chunks: list[bytes] = []
+        remaining = int(metadata.st_size)
+        while remaining:
+            chunk = os.read(descriptor, min(1024 * 1024, remaining))
+            if not chunk:
+                raise ValueError(
+                    "manfred_candidate_spatial_output_identity_drift"
+                )
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        final = os.fstat(descriptor)
+        if (
+            final.st_dev,
+            final.st_ino,
+            final.st_size,
+            final.st_mtime_ns,
+            final.st_ctime_ns,
+        ) != (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        ):
+            raise ValueError("manfred_candidate_spatial_output_identity_drift")
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
 
 
 def materialize_spatial_handoff(
@@ -1301,11 +1594,15 @@ def materialize_spatial_handoff(
         os.path.abspath(os.fspath(handoff_receipt_path.expanduser()))
     )
     target_origin = _validate_public_base_url(target_origin)
+    output_paths = (handoff_bundle_dir, handoff_receipt_path)
+    property_inputs = (source_bundle_dir, upstream_authority_receipt_path)
     if (
         handoff_bundle_dir.name != PROPERTY_AUTHORIZED_SLUG
-        or handoff_bundle_dir == source_bundle_dir
-        or source_bundle_dir in handoff_bundle_dir.parents
-        or upstream_authority_receipt_path == handoff_receipt_path
+        or any(
+            output == property_input or property_input in output.parents
+            for output in output_paths
+            for property_input in property_inputs
+        )
     ):
         raise ValueError("manfred_candidate_spatial_materialization_target_invalid")
     snapshot = _spatial_tree_snapshot(
@@ -1363,6 +1660,8 @@ def materialize_spatial_handoff(
     bundle_installed = False
     receipt_identity: tuple[int, int] | None = None
     staging_identity: tuple[int, int] | None = None
+    installed_identity: tuple[int, int] | None = None
+    retained_files: dict[str, tuple[int, tuple[int, int]]] = {}
     try:
         try:
             os.mkdir(temporary_name, 0o700, dir_fd=bundle_parent_descriptor)
@@ -1380,7 +1679,17 @@ def materialize_spatial_handoff(
             ) from exc
         staging_metadata = os.fstat(staging_descriptor)
         staging_identity = (staging_metadata.st_dev, staging_metadata.st_ino)
-        _write_spatial_bundle_at(staging_descriptor, snapshot)
+        _write_spatial_bundle_at(
+            staging_descriptor,
+            snapshot,
+            retained_files=retained_files,
+        )
+        if set(retained_files) != set(snapshot):
+            raise ValueError("manfred_candidate_spatial_retention_invalid")
+        retained_identities = {
+            relpath: identity
+            for relpath, (_descriptor, identity) in retained_files.items()
+        }
         staging_path = handoff_bundle_dir.parent / temporary_name
         path_metadata = os.lstat(staging_path)
         if (path_metadata.st_dev, path_metadata.st_ino) != staging_identity:
@@ -1389,14 +1698,12 @@ def materialize_spatial_handoff(
             staging_path, slug=str(validated["slug"])
         )
         staged_snapshot = _spatial_tree_snapshot(
-            staging_path, require_sanitized_modes=True
+            staging_path,
+            require_sanitized_modes=True,
+            expected_root_identity=staging_identity,
+            expected_file_identities=retained_identities,
         )
-        final_path_metadata = os.lstat(staging_path)
-        if (
-            (final_path_metadata.st_dev, final_path_metadata.st_ino)
-            != staging_identity
-            or staged_snapshot != snapshot
-        ):
+        if staged_snapshot != snapshot:
             raise ValueError("manfred_candidate_spatial_output_digest_drift")
         _rename_noreplace(
             bundle_parent_descriptor,
@@ -1405,27 +1712,99 @@ def materialize_spatial_handoff(
             handoff_bundle_dir.name,
         )
         bundle_installed = True
+        installed_identity = _entry_identity(
+            bundle_parent_descriptor,
+            handoff_bundle_dir.name,
+            directory=True,
+        )
+        if installed_identity is None:
+            raise ValueError("manfred_candidate_spatial_output_install_drift")
+        try:
+            installed_snapshot = _spatial_tree_snapshot(
+                handoff_bundle_dir,
+                require_sanitized_modes=True,
+                expected_root_identity=staging_identity,
+                expected_file_identities=retained_identities,
+            )
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                "manfred_candidate_spatial_output_install_drift"
+            ) from exc
+        if (
+            installed_identity != staging_identity
+            or installed_snapshot != snapshot
+        ):
+            raise ValueError("manfred_candidate_spatial_output_install_drift")
+        os.fsync(bundle_parent_descriptor)
         receipt_identity = _exclusive_write_at(
             receipt_parent_descriptor,
             handoff_receipt_path.name,
             receipt_bytes,
             mode=0o600,
         )
-    except BaseException:
-        if receipt_identity is not None:
-            _unlink_file_if_identity(
+        if (
+            _read_file_at_identity(
                 receipt_parent_descriptor,
                 handoff_receipt_path.name,
                 receipt_identity,
+                maximum=MAX_SPATIAL_AUTHORITY_RECEIPT_BYTES,
             )
+            != receipt_bytes
+        ):
+            raise ValueError("manfred_candidate_spatial_output_receipt_drift")
+        try:
+            final_installed_snapshot = _spatial_tree_snapshot(
+                handoff_bundle_dir,
+                require_sanitized_modes=True,
+                expected_root_identity=staging_identity,
+                expected_file_identities=retained_identities,
+            )
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                "manfred_candidate_spatial_output_install_drift"
+            ) from exc
+        if final_installed_snapshot != snapshot:
+            raise ValueError("manfred_candidate_spatial_output_install_drift")
+        os.fsync(receipt_parent_descriptor)
+    except BaseException:
+        rollback_failures: list[str] = []
+        if receipt_identity is not None:
+            try:
+                if not _unlink_file_if_identity(
+                    receipt_parent_descriptor,
+                    handoff_receipt_path.name,
+                    receipt_identity,
+                ):
+                    rollback_failures.append("receipt")
+            except (OSError, ValueError):
+                rollback_failures.append("receipt")
+        if retained_files and not _scrub_retained_spatial_files(retained_files):
+            rollback_failures.append("staging_files")
         if staging_identity is not None:
-            _remove_bundle_if_identity(
-                bundle_parent_descriptor,
-                handoff_bundle_dir.name if bundle_installed else temporary_name,
-                staging_identity,
+            try:
+                if not _remove_bundle_if_identity(
+                    bundle_parent_descriptor,
+                    handoff_bundle_dir.name if bundle_installed else temporary_name,
+                    staging_identity,
+                ):
+                    rollback_failures.append("bundle")
+            except (OSError, ValueError):
+                rollback_failures.append("bundle")
+        if staging_descriptor >= 0:
+            try:
+                os.fchmod(staging_descriptor, 0o000)
+                os.fsync(staging_descriptor)
+            except (OSError, ValueError):
+                rollback_failures.append("staging")
+        if rollback_failures:
+            raise RuntimeError(
+                "manfred_candidate_spatial_rollback_incomplete:"
+                + ",".join(sorted(set(rollback_failures)))
             )
         raise
     finally:
+        for descriptor, _identity in retained_files.values():
+            os.close(descriptor)
         if staging_descriptor >= 0:
             os.close(staging_descriptor)
         os.close(bundle_parent_descriptor)

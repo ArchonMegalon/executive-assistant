@@ -47,6 +47,7 @@ from scripts.verify_manfred_memorial_candidate import (  # noqa: E402
 )
 from scripts.verify_manfred_spatial_candidate_browser import (  # noqa: E402
     audit_spatial_candidate_browser,
+    validate_spatial_candidate_browser_receipt,
 )
 
 
@@ -1631,13 +1632,26 @@ def _spatial_handoff_runtime_proof(
             or spatial.get("projection_sha256")
             or ""
         ),
+        package_dir=bundle,
     )
-    if (
-        browser_receipt.get("status") != "pass"
-        or browser_receipt.get("all_route_stops_interacted") is not True
-        or browser_receipt.get("camera_state_changes_verified") is not True
-        or browser_receipt.get("required_asset_requests_verified") is not True
-    ):
+    try:
+        validate_spatial_candidate_browser_receipt(
+            browser_receipt,
+            slug=slug,
+            viewer_relpath=viewer_relpath,
+            route_labels=list(spatial.get("route_labels") or []),
+            candidate_commit=str(projection.get("projection_commit") or ""),
+            package_sha256=str(
+                spatial.get("upstream_package_sha256")
+                or spatial.get("projection_sha256")
+                or ""
+            ),
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_gate_blocked"
+        ) from exc
+    if browser_receipt.get("secret_material_recorded") is not False:
         raise RuntimeError("manfred_candidate_spatial_browser_gate_blocked")
     return {
         "included": True,
