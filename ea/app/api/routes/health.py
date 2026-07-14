@@ -565,9 +565,12 @@ async def health_ready(container: AppContainer = Depends(get_container)) -> dict
 
 
 @router.get("/version")
-async def version(request: Request, container: AppContainer = Depends(get_container)) -> dict[str, object]:
+async def version(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> dict[str, str | bool]:
     release_authority_summary = build_product_service(container).release_authority_summary()
-    payload = {
+    payload: dict[str, str | bool] = {
         "app_name": container.settings.app_name,
         "version": container.settings.app_version,
         "role": container.settings.role,

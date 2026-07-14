@@ -438,6 +438,10 @@ OPENAPI_RETIREMENT_ALLOWED_OPERATIONS = (
     "POST /v1/internal/governed-spatial-render/build",
     "POST /v1/internal/governed-spatial-render/compose",
 )
+OPENAPI_COMPATIBLE_EVOLUTION_POLICY_ID = (
+    "ea.openapi.compatible-evolution.version-remote-reachability.v1"
+)
+OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS = ("GET /version",)
 MAX_OPENAPI_DOCUMENT_BYTES = 8 * 1024 * 1024
 MAX_OPENAPI_SNAPSHOT_STDERR_BYTES = 1024 * 1024
 CANDIDATE_OPENAPI_SNAPSHOT_SOURCE = "candidate_api_container_app.openapi"
@@ -669,10 +673,54 @@ def _openapi_contract_evidence(contract: dict[str, object]) -> dict[str, object]
     }
 
 
+def _version_openapi_evolution_preserved(
+    live_operation: object,
+    candidate_operation: object,
+) -> bool:
+    if not isinstance(live_operation, dict) or not isinstance(
+        candidate_operation, dict
+    ):
+        return False
+    live = json.loads(json.dumps(live_operation))
+    candidate = json.loads(json.dumps(candidate_operation))
+    try:
+        live_schema = live["responses"]["200"]["content"]["application/json"][
+            "schema"
+        ]
+        candidate_schema = candidate["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+    except (KeyError, TypeError):
+        return False
+    if (
+        not isinstance(live_schema, dict)
+        or not isinstance(candidate_schema, dict)
+        or live_schema.get("additionalProperties") != {"type": "string"}
+    ):
+        return False
+    additional_properties = candidate_schema.get("additionalProperties")
+    if not isinstance(additional_properties, dict) or set(additional_properties) != {
+        "anyOf"
+    }:
+        return False
+    variants = additional_properties.get("anyOf")
+    if not isinstance(variants, list) or len(variants) != 2:
+        return False
+    canonical_variants = {
+        json.dumps(value, separators=(",", ":"), sort_keys=True)
+        for value in variants
+    }
+    if canonical_variants != {'{"type":"boolean"}', '{"type":"string"}'}:
+        return False
+    candidate_schema["additionalProperties"] = {"type": "string"}
+    return candidate == live
+
+
 def _assert_openapi_contract_preserved(
     live: dict[str, object], candidate: dict[str, object]
 ) -> dict[str, object]:
     allowed_retirements = list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS)
+    allowed_evolutions = list(OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS)
     live_operations = dict(live.get("operations") or {})
     candidate_operations = dict(candidate.get("operations") or {})
     if [
@@ -683,6 +731,7 @@ def _assert_openapi_contract_preserved(
         raise RuntimeError("manfred_candidate_openapi_contract_regression")
 
     counts: dict[str, int] = {}
+    evolved_operations: list[str] = []
     for category, count_key in (
         ("operations", "missing_or_changed_operation_count"),
         ("schemas", "missing_or_changed_schema_count"),
@@ -690,15 +739,27 @@ def _assert_openapi_contract_preserved(
     ):
         live_rows = dict(live.get(category) or {})
         candidate_rows = dict(candidate.get(category) or {})
-        changed = sum(
-            1
-            for name, value in live_rows.items()
+        changed = 0
+        for name, value in live_rows.items():
             if (
-                category != "operations"
-                or name not in OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
-            )
-            and (name not in candidate_rows or candidate_rows[name] != value)
-        )
+                category == "operations"
+                and name in OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+            ):
+                continue
+            if name in candidate_rows and candidate_rows[name] == value:
+                continue
+            if (
+                category == "operations"
+                and name == "GET /version"
+                and name in candidate_rows
+                and _version_openapi_evolution_preserved(
+                    value,
+                    candidate_rows[name],
+                )
+            ):
+                evolved_operations.append(name)
+                continue
+            changed += 1
         counts[count_key] = changed
     if any(int(value) for value in counts.values()):
         raise RuntimeError("manfred_candidate_openapi_contract_regression")
@@ -709,6 +770,11 @@ def _assert_openapi_contract_preserved(
         "retired_operations": list(allowed_retirements),
         "retired_operation_count": len(allowed_retirements),
         "retirement_policy_exact_match": True,
+        "compatible_evolution_policy_id": OPENAPI_COMPATIBLE_EVOLUTION_POLICY_ID,
+        "compatible_evolution_allowed_operations": allowed_evolutions,
+        "compatible_evolved_operations": sorted(set(evolved_operations)),
+        "compatible_evolved_operation_count": len(set(evolved_operations)),
+        "compatible_evolution_policy_exact_match": True,
         "candidate_preserves_live_contract": True,
     }
 

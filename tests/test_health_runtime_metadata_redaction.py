@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+from fastapi import FastAPI
 from starlette.requests import Request
 
 from app.api.routes import health
@@ -115,6 +116,20 @@ def test_version_loopback_projects_remote_source_binding(monkeypatch) -> None:
     assert payload["source_remote_ref_commit_sha"] == "b" * 40
     assert payload["source_remote_ref_evidence"] == "local_remote_tracking_ref"
     assert payload["source_commit_reachable_from_remote_ref"] is True
+
+
+def test_version_openapi_precisely_allows_string_and_boolean_values() -> None:
+    app = FastAPI()
+    app.include_router(health.router)
+
+    schema = app.openapi()["paths"]["/version"]["get"]["responses"]["200"][
+        "content"
+    ]["application/json"]["schema"]
+
+    assert schema["type"] == "object"
+    assert schema["additionalProperties"] == {
+        "anyOf": [{"type": "string"}, {"type": "boolean"}]
+    }
 
 
 def test_release_authority_redacts_internal_metadata_for_non_loopback(monkeypatch) -> None:

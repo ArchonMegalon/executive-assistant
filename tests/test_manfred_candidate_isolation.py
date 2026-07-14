@@ -1231,6 +1231,13 @@ def test_openapi_contract_allows_additions_and_persists_only_bounded_evidence() 
         "retired_operations": EXPECTED_OPENAPI_RETIREMENT_OPERATIONS,
         "retired_operation_count": 2,
         "retirement_policy_exact_match": True,
+        "compatible_evolution_policy_id": (
+            "ea.openapi.compatible-evolution.version-remote-reachability.v1"
+        ),
+        "compatible_evolution_allowed_operations": ["GET /version"],
+        "compatible_evolved_operations": [],
+        "compatible_evolved_operation_count": 0,
+        "compatible_evolution_policy_exact_match": True,
         "candidate_preserves_live_contract": True,
     }
     assert list(runner.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS) == (
@@ -1249,6 +1256,108 @@ def test_openapi_contract_allows_additions_and_persists_only_bounded_evidence() 
         "contract_digest_sha256",
     }
     assert "operations" not in evidence
+
+
+def _add_version_openapi_operation(
+    document: dict[str, object],
+    *,
+    additional_properties: object,
+) -> None:
+    document["paths"]["/version"] = {
+        "get": {
+            "security": [],
+            "responses": {
+                "200": {
+                    "description": "Successful Response",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "title": "Response Version Version Get",
+                                "additionalProperties": additional_properties,
+                            }
+                        }
+                    },
+                }
+            },
+        }
+    }
+
+
+def test_openapi_contract_allows_only_precise_version_boolean_evolution() -> None:
+    live_document = _meaningful_openapi_document()
+    _add_version_openapi_operation(
+        live_document,
+        additional_properties={"type": "string"},
+    )
+    candidate_document = copy.deepcopy(live_document)
+    _retire_governed_spatial_operations(candidate_document)
+    candidate_document["paths"]["/version"]["get"]["responses"]["200"][
+        "content"
+    ]["application/json"]["schema"]["additionalProperties"] = {
+        "anyOf": [{"type": "string"}, {"type": "boolean"}]
+    }
+
+    result = runner._assert_openapi_contract_preserved(
+        runner._canonical_openapi_contract(live_document),
+        runner._canonical_openapi_contract(candidate_document),
+    )
+
+    assert result["compatible_evolution_policy_id"] == (
+        "ea.openapi.compatible-evolution.version-remote-reachability.v1"
+    )
+    assert result["compatible_evolution_allowed_operations"] == ["GET /version"]
+    assert result["compatible_evolved_operations"] == ["GET /version"]
+    assert result["compatible_evolved_operation_count"] == 1
+    assert result["missing_or_changed_operation_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "unconstrained",
+        "integer_instead_of_boolean",
+        "extra_variant",
+        "extra_schema_keyword",
+        "other_operation_drift",
+    ],
+)
+def test_openapi_version_evolution_policy_rejects_broader_drift(case: str) -> None:
+    live_document = _meaningful_openapi_document()
+    _add_version_openapi_operation(
+        live_document,
+        additional_properties={"type": "string"},
+    )
+    candidate_document = copy.deepcopy(live_document)
+    _retire_governed_spatial_operations(candidate_document)
+    candidate_schema = candidate_document["paths"]["/version"]["get"][
+        "responses"
+    ]["200"]["content"]["application/json"]["schema"]
+    candidate_schema["additionalProperties"] = {
+        "anyOf": [{"type": "string"}, {"type": "boolean"}]
+    }
+    if case == "unconstrained":
+        candidate_schema["additionalProperties"] = True
+    elif case == "integer_instead_of_boolean":
+        candidate_schema["additionalProperties"] = {
+            "anyOf": [{"type": "string"}, {"type": "integer"}]
+        }
+    elif case == "extra_variant":
+        candidate_schema["additionalProperties"]["anyOf"].append(
+            {"type": "null"}
+        )
+    elif case == "extra_schema_keyword":
+        candidate_schema["additionalProperties"]["not"] = {"type": "null"}
+    else:
+        candidate_document["paths"]["/version"]["get"]["responses"]["200"][
+            "description"
+        ] = "Changed response"
+
+    with pytest.raises(RuntimeError, match="openapi_contract_regression"):
+        runner._assert_openapi_contract_preserved(
+            runner._canonical_openapi_contract(live_document),
+            runner._canonical_openapi_contract(candidate_document),
+        )
 
 
 @pytest.mark.parametrize(
