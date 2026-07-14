@@ -16,12 +16,12 @@ import pytest
 
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import Browser, Page, sync_playwright
+from playwright.sync_api import Browser, Page, sync_playwright  # noqa: E402
 
 Config = uvicorn.Config
 Server = uvicorn.Server
 
-from app.api.app import create_app
+from app.api.app import create_app  # noqa: E402
 
 
 def _free_port() -> int:
@@ -448,7 +448,7 @@ def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int
                 if not isinstance(parsed, dict):
                     continue
                 turn_id = str(parsed.get("turn_id", "") or "")
-                if turn_id and slug and f"turn_" not in turn_id and not state.get("turn_id"):
+                if turn_id and slug and "turn_" not in turn_id and not state.get("turn_id"):
                     continue
                 event_type = str(parsed.get("type", "")).strip()
                 if event_type == "turn_complete":
@@ -527,7 +527,9 @@ def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
         page.set_viewport_size({"width": 1440, "height": 1100})
         assert page.locator("main#memorial-story").get_attribute("tabindex") == "-1"
         assert page.locator("aside#memorial-conversation-region").get_attribute("tabindex") == "-1"
-        assert page.locator("aside#memorial-conversation-region").get_attribute("aria-label") == "Gespräch mit Manfred Hoza"
+        assert page.locator("aside#memorial-conversation-region").get_attribute("aria-label") == (
+            "Quellengebundener Gedenkbegleiter für Manfred Hoza"
+        )
         assert page.locator("a.skip-link").evaluate_all(
             "links => links.map((link) => link.getAttribute('href'))"
         ) == ["#memorial-story", "#memorial-conversation-region"]
@@ -572,7 +574,7 @@ def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
         assert page.get_by_role("heading", name="Erinnerungen und belegte Quellen", exact=True).count() == 1
         assert page.get_by_role("heading", name="Behutsam bewahrte Spuren", exact=True).count() == 1
         assert page.get_by_role("heading", name="Öffentliche Quellen", exact=True).count() == 1
-        assert page.get_by_role("heading", name="Fragen als ruhiger Einstieg", exact=True).count() == 1
+        assert page.get_by_role("heading", name="Fragen an den Gedenkbegleiter", exact=True).count() == 1
         assert page.locator("article.memory-card").count() == 6
         assert page.locator(".source-list a").count() == 8
         assert page.locator(".prompt-list li").count() == 4
