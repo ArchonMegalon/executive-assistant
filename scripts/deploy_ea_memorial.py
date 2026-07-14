@@ -119,6 +119,23 @@ MAX_PRIVATE_RELEASE_EVIDENCE_BYTES = 2 * 1024 * 1024
 MAX_DEPLOYMENT_INPUT_BYTES = 8 * 1024 * 1024
 MAX_GIT_INDEX_LIST_BYTES = 16 * 1024 * 1024
 MAX_RECEIPT_CONTENT_TYPE_CHARS = 160
+MAX_VEXP_SENTINEL_STATE_BYTES = 1024 * 1024
+VEXP_SENTINEL_STATE_VERSION = 5
+VEXP_CERTIFICATION_SOAK_SECONDS = 7 * 24 * 60 * 60
+VEXP_SENTINEL_FILE_MAX_AGE_SECONDS = 5 * 60
+VEXP_SENTINEL_STATE_MAX_AGE_SECONDS = 75 * 60
+VEXP_SENTINEL_CLOCK_SKEW_SECONDS = 60
+VEXP_TOKEN_COVERAGE_SCHEMA = "ea.vexp_certification_token_coverage.v1"
+SAFE_VEXP_CERTIFICATION_BLOCKER_CODES = frozenset(
+    {
+        "daemon:swap_pressure_pending",
+        "host_codex:swap_pressure_pending",
+        "license:fresh_token_not_renewed",
+    }
+)
+DEFAULT_VEXP_SENTINEL_STATE_PATH = (
+    Path("~/.local/state/vexp-sentinel/state.json").expanduser()
+)
 RELEASE_EVIDENCE_ENV_ALLOWLIST = frozenset(
     {
         "EA_DEPLOY_BRANCH",
@@ -444,6 +461,529 @@ class SubprocessRunner:
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _utc_timestamp_ms(value: object) -> int | None:
+    """Return exact epoch milliseconds for a bounded, timezone-aware timestamp."""
+
+    if not isinstance(value, str) or not value or len(value) > 64:
+        return None
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    parsed = parsed.astimezone(UTC)
+    if parsed.microsecond % 1000:
+        return None
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    delta = parsed - epoch
+    return (
+        delta.days * 86_400_000
+        + delta.seconds * 1000
+        + delta.microseconds // 1000
+    )
+
+
+def _utc_timestamp_from_ms(value: int) -> str:
+    seconds, milliseconds = divmod(value, 1000)
+    parsed = datetime.fromtimestamp(seconds, tz=UTC).replace(
+        microsecond=milliseconds * 1000
+    )
+    return parsed.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _vexp_token_coverage_base(*, state_sha256: str) -> dict[str, object]:
+    return {
+        "contract_name": VEXP_TOKEN_COVERAGE_SCHEMA,
+        "status": "fail",
+        "reason": "sentinel_state_invalid",
+        "issues": [],
+        "state_sha256": state_sha256,
+        "expected_state_version": VEXP_SENTINEL_STATE_VERSION,
+        "required_window_seconds": VEXP_CERTIFICATION_SOAK_SECONDS,
+        "token_coverage_safe": False,
+        "promotion_authorized": False,
+        "operator_action_required": True,
+        "operator_guidance": [
+            (
+                "Restore a current owner-only v5 sentinel state, then rerun the "
+                "governed readiness check."
+            ),
+            (
+                "If renewal or coverage remains blocked, renew through the governed "
+                "provider workflow and wait for the sentinel to prove coverage "
+                "through certification_required_end_at."
+            ),
+            (
+                "Never place credential material in a receipt, command argument, "
+                "or support message."
+            ),
+        ],
+        "credential_material_included": False,
+        "secrets_included": False,
+    }
+
+
+def _vexp_certification_token_coverage(
+    state: Mapping[str, Any],
+    *,
+    state_sha256: str,
+    checked_at_ms: int | None = None,
+    state_file_mtime_ns: int | None = None,
+    required_window_seconds: int = VEXP_CERTIFICATION_SOAK_SECONDS,
+) -> dict[str, object]:
+    """Build a secret-free proof that a fresh token spans the certification soak."""
+
+    evidence = _vexp_token_coverage_base(state_sha256=state_sha256)
+    issues: list[str] = []
+    if (
+        type(required_window_seconds) is not int
+        or required_window_seconds <= 0
+        or required_window_seconds > 31 * 24 * 60 * 60
+    ):
+        evidence["issues"] = ["required_window_invalid"]
+        return evidence
+    evidence["required_window_seconds"] = required_window_seconds
+    if SHA256_HEX_PATTERN.fullmatch(state_sha256) is None:
+        issues.append("state_sha256_invalid")
+
+    if checked_at_ms is None:
+        checked_at_ms = int(time.time() * 1000)
+    if type(checked_at_ms) is not int or checked_at_ms <= 0:
+        evidence["issues"] = ["checked_at_invalid"]
+        return evidence
+    if type(state_file_mtime_ns) is not int or state_file_mtime_ns <= 0:
+        issues.append("state_file_mtime_invalid")
+        state_file_mtime_ms = None
+    else:
+        state_file_mtime_ms = state_file_mtime_ns // 1_000_000
+        maximum_file_mtime_ms = (
+            checked_at_ms + VEXP_SENTINEL_CLOCK_SKEW_SECONDS * 1000
+        )
+        minimum_file_mtime_ms = (
+            checked_at_ms - VEXP_SENTINEL_FILE_MAX_AGE_SECONDS * 1000
+        )
+        if state_file_mtime_ms > maximum_file_mtime_ms:
+            issues.append("state_file_mtime_from_future")
+        if state_file_mtime_ms < minimum_file_mtime_ms:
+            issues.append("state_file_mtime_stale")
+
+    version = state.get("version")
+    if type(version) is int:
+        evidence["state_version"] = version
+    if type(version) is not int or version != VEXP_SENTINEL_STATE_VERSION:
+        issues.append("state_version_invalid")
+
+    epoch_started_ms = state.get("epoch_started_ms")
+    if type(epoch_started_ms) is not int or epoch_started_ms <= 0:
+        issues.append("epoch_started_ms_invalid")
+        epoch_started_ms = None
+    epoch_started_at_ms = _utc_timestamp_ms(state.get("epoch_started_at"))
+    if epoch_started_at_ms is None:
+        issues.append("epoch_started_at_invalid")
+    elif epoch_started_ms is not None and epoch_started_at_ms != epoch_started_ms:
+        issues.append("epoch_started_timestamp_mismatch")
+
+    updated_at_ms = _utc_timestamp_ms(state.get("updated_at"))
+    if updated_at_ms is None:
+        issues.append("updated_at_invalid")
+    else:
+        maximum_future_ms = checked_at_ms + VEXP_SENTINEL_CLOCK_SKEW_SECONDS * 1000
+        minimum_state_fresh_ms = (
+            checked_at_ms - VEXP_SENTINEL_STATE_MAX_AGE_SECONDS * 1000
+        )
+        if updated_at_ms > maximum_future_ms:
+            issues.append("sentinel_state_from_future")
+        if updated_at_ms < minimum_state_fresh_ms:
+            issues.append("sentinel_state_stale")
+
+    initial_expiration_ms = state.get("epoch_initial_fresh_exp_ms")
+    if type(initial_expiration_ms) is not int or initial_expiration_ms <= 0:
+        issues.append("initial_fresh_expiration_invalid")
+        initial_expiration_ms = None
+    observed_expiration_ms = state.get("last_observed_fresh_exp_ms")
+    if type(observed_expiration_ms) is not int or observed_expiration_ms <= 0:
+        issues.append("observed_fresh_expiration_invalid")
+        observed_expiration_ms = None
+
+    renewal_count = state.get("fresh_token_renewals")
+    if type(renewal_count) is not int or renewal_count < 0:
+        issues.append("fresh_token_renewal_count_invalid")
+        renewal_count = None
+    renewed_in_epoch = state.get("fresh_token_renewed_in_epoch")
+    if type(renewed_in_epoch) is not bool:
+        issues.append("fresh_token_renewal_flag_invalid")
+        renewed_in_epoch = None
+    if renewal_count is not None and renewed_in_epoch is not None:
+        if renewed_in_epoch != (renewal_count > 0):
+            issues.append("fresh_token_renewal_state_inconsistent")
+        if initial_expiration_ms is not None and observed_expiration_ms is not None:
+            if renewal_count == 0 and observed_expiration_ms != initial_expiration_ms:
+                issues.append("fresh_token_expiration_advanced_without_renewal")
+            if renewal_count > 0 and observed_expiration_ms <= initial_expiration_ms:
+                issues.append("fresh_token_renewal_not_reflected_in_expiration")
+
+    last_license_value = state.get("last_license")
+    last_license = (
+        dict(last_license_value) if isinstance(last_license_value, dict) else None
+    )
+    if last_license is None:
+        issues.append("last_license_invalid")
+    else:
+        last_expiration_ms = last_license.get("fresh_expiration_ms")
+        if type(last_expiration_ms) is not int or last_expiration_ms <= 0:
+            issues.append("last_license_fresh_expiration_invalid")
+        elif (
+            observed_expiration_ms is not None
+            and last_expiration_ms != observed_expiration_ms
+        ):
+            issues.append("last_license_fresh_expiration_mismatch")
+        last_expiration_at_ms = _utc_timestamp_ms(
+            last_license.get("fresh_expiration_at")
+        )
+        if last_expiration_at_ms is None:
+            issues.append("last_license_fresh_expiration_at_invalid")
+        elif (
+            type(last_expiration_ms) is int
+            and last_expiration_at_ms != last_expiration_ms
+        ):
+            issues.append("last_license_fresh_expiration_timestamp_mismatch")
+        last_renewed = last_license.get("renewed")
+        if type(last_renewed) is not bool:
+            issues.append("last_license_renewed_flag_invalid")
+        elif last_renewed and renewed_in_epoch is not True:
+            issues.append("last_license_renewal_state_inconsistent")
+
+    phase = state.get("qualification_phase")
+    if not isinstance(phase, str) or phase not in {"enforced_soak", "qualified"}:
+        issues.append("qualification_phase_invalid")
+    qualified_at_value = state.get("qualified_at")
+    qualified_at_ms: int | None = None
+    if phase == "enforced_soak":
+        if qualified_at_value is not None:
+            issues.append("qualified_at_unexpected")
+    elif phase == "qualified":
+        qualified_at_ms = _utc_timestamp_ms(qualified_at_value)
+        if qualified_at_ms is None:
+            issues.append("qualified_at_invalid")
+
+    blockers_value = state.get("certification_blockers")
+    blockers: list[str] = []
+    if not isinstance(blockers_value, list) or len(blockers_value) > 64:
+        issues.append("certification_blockers_invalid")
+    else:
+        for blocker in blockers_value:
+            if (
+                not isinstance(blocker, str)
+                or len(blocker) > 128
+                or re.fullmatch(
+                    r"[a-z][a-z0-9_-]{0,31}:[a-z][a-z0-9_.-]{0,95}",
+                    blocker,
+                )
+                is None
+            ):
+                issues.append("certification_blocker_code_invalid")
+                blockers = []
+                break
+            blockers.append(blocker)
+        if len(blockers) != len(set(blockers)):
+            issues.append("certification_blocker_code_duplicate")
+        if (
+            renewed_in_epoch is True
+            and "license:fresh_token_not_renewed" in blockers
+        ):
+            issues.append("license_renewal_blocker_state_inconsistent")
+        if phase == "qualified" and blockers:
+            issues.append("qualified_state_has_certification_blockers")
+
+    if epoch_started_ms is not None:
+        required_end_ms = epoch_started_ms + required_window_seconds * 1000
+        if checked_at_ms + VEXP_SENTINEL_CLOCK_SKEW_SECONDS * 1000 < epoch_started_ms:
+            issues.append("epoch_started_in_future")
+        if updated_at_ms is not None and updated_at_ms < epoch_started_ms:
+            issues.append("sentinel_updated_before_epoch")
+        if (
+            initial_expiration_ms is not None
+            and initial_expiration_ms <= epoch_started_ms
+        ):
+            issues.append("initial_fresh_expiration_before_epoch")
+        if (
+            observed_expiration_ms is not None
+            and observed_expiration_ms <= epoch_started_ms
+        ):
+            issues.append("observed_fresh_expiration_before_epoch")
+        if qualified_at_ms is not None and qualified_at_ms < required_end_ms:
+            issues.append("qualification_completed_before_required_window")
+        if (
+            qualified_at_ms is not None
+            and qualified_at_ms
+            > checked_at_ms + VEXP_SENTINEL_CLOCK_SKEW_SECONDS * 1000
+        ):
+            issues.append("qualification_completed_in_future")
+        if (
+            qualified_at_ms is not None
+            and updated_at_ms is not None
+            and updated_at_ms < qualified_at_ms
+        ):
+            issues.append("sentinel_updated_before_qualification")
+    else:
+        required_end_ms = None
+
+    if issues:
+        evidence["issues"] = sorted(set(issues))
+        return evidence
+
+    assert epoch_started_ms is not None
+    assert required_end_ms is not None
+    assert observed_expiration_ms is not None
+    assert renewal_count is not None
+    assert renewed_in_epoch is not None
+    assert state_file_mtime_ms is not None
+    margin_ms = observed_expiration_ms - required_end_ms
+    coverage_sufficient = margin_ms >= 0
+    token_current = observed_expiration_ms > checked_at_ms
+    renewal_observed = renewed_in_epoch and renewal_count > 0
+    license_blockers = [
+        blocker for blocker in blockers if blocker.startswith("license:")
+    ]
+    projected_blockers = [
+        blocker
+        for blocker in blockers
+        if blocker in SAFE_VEXP_CERTIFICATION_BLOCKER_CODES
+    ]
+    gate_issues: list[str] = []
+    if not coverage_sufficient:
+        gate_issues.append("fresh_token_coverage_ends_before_certification_window")
+    if not token_current:
+        gate_issues.append("fresh_token_expired")
+    if not renewal_observed:
+        gate_issues.append("fresh_token_renewal_not_observed_in_epoch")
+    if license_blockers:
+        gate_issues.append("license_certification_blocker_present")
+
+    evidence.update(
+        {
+            "checked_at": _utc_timestamp_from_ms(checked_at_ms),
+            "state_file_mtime": _utc_timestamp_from_ms(state_file_mtime_ms),
+            "state_file_age_seconds": max(
+                checked_at_ms - state_file_mtime_ms, 0
+            )
+            / 1000,
+            "epoch_started_at": _utc_timestamp_from_ms(epoch_started_ms),
+            "epoch_started_ms": epoch_started_ms,
+            "certification_required_end_at": _utc_timestamp_from_ms(required_end_ms),
+            "certification_required_end_ms": required_end_ms,
+            "fresh_token_expiration_at": _utc_timestamp_from_ms(
+                observed_expiration_ms
+            ),
+            "fresh_token_expiration_ms": observed_expiration_ms,
+            "coverage_margin_seconds": max(margin_ms, 0) / 1000,
+            "coverage_shortfall_seconds": max(-margin_ms, 0) / 1000,
+            "fresh_token_renewal_observed": renewal_observed,
+            "fresh_token_renewal_count": renewal_count,
+            "qualification_phase": phase,
+            "qualified_at": (
+                _utc_timestamp_from_ms(qualified_at_ms)
+                if qualified_at_ms is not None
+                else None
+            ),
+            "certification_blockers": projected_blockers,
+            "certification_blocker_count": len(blockers),
+            "certification_blockers_sha256": _canonical_json_sha256(
+                sorted(blockers)
+            ),
+            "unprojected_certification_blocker_count": (
+                len(blockers) - len(projected_blockers)
+            ),
+            "issues": gate_issues,
+        }
+    )
+    if not gate_issues:
+        evidence.update(
+            {
+                "status": "pass",
+                "reason": "fresh_token_covers_certification_window",
+                "token_coverage_safe": True,
+                "operator_action_required": False,
+                "operator_guidance": [],
+            }
+        )
+    elif not coverage_sufficient:
+        evidence["reason"] = "fresh_token_coverage_insufficient"
+    elif not token_current:
+        evidence["reason"] = "fresh_token_expired"
+    elif not renewal_observed:
+        evidence["reason"] = "fresh_token_renewal_required"
+    else:
+        evidence["reason"] = "license_certification_blocked"
+    if gate_issues:
+        evidence["operator_guidance"] = [
+            (
+                "Renew the vexp license token through the governed provider "
+                "workflow; do not copy or expose credential material."
+            ),
+            (
+                "Wait for the sentinel to record the in-epoch renewal, clear all "
+                "license blockers, and prove coverage through "
+                "certification_required_end_at before retrying promotion."
+            ),
+        ]
+    return evidence
+
+
+def _read_trusted_vexp_sentinel_state(
+    path: Path,
+) -> tuple[dict[str, Any], dict[str, object]]:
+    """Read the private sentinel state once from a verified, single-link file."""
+
+    candidate = path.expanduser()
+    if not candidate.is_absolute() or ".." in candidate.parts:
+        raise DeployError("vexp_sentinel_state_path_invalid")
+    parent = candidate.parent
+    try:
+        parent_before = parent.lstat()
+    except OSError as exc:
+        raise DeployError("vexp_sentinel_state_parent_unavailable") from exc
+    if (
+        not stat.S_ISDIR(parent_before.st_mode)
+        or stat.S_ISLNK(parent_before.st_mode)
+        or parent_before.st_uid != os.geteuid()
+        or stat.S_IMODE(parent_before.st_mode) != 0o700
+    ):
+        raise DeployError("vexp_sentinel_state_parent_untrusted")
+
+    directory_flags = os.O_RDONLY | os.O_CLOEXEC
+    if hasattr(os, "O_DIRECTORY"):
+        directory_flags |= os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        directory_flags |= os.O_NOFOLLOW
+    try:
+        directory_descriptor = os.open(parent, directory_flags)
+    except OSError as exc:
+        raise DeployError("vexp_sentinel_state_parent_unavailable") from exc
+    try:
+        parent_opened = os.fstat(directory_descriptor)
+    except OSError as exc:
+        os.close(directory_descriptor)
+        raise DeployError("vexp_sentinel_state_parent_unavailable") from exc
+    parent_identity = (
+        parent_opened.st_dev,
+        parent_opened.st_ino,
+        parent_opened.st_mode,
+        parent_opened.st_uid,
+    )
+    if (
+        not stat.S_ISDIR(parent_opened.st_mode)
+        or parent_opened.st_uid != os.geteuid()
+        or stat.S_IMODE(parent_opened.st_mode) != 0o700
+        or (parent_before.st_dev, parent_before.st_ino)
+        != (parent_opened.st_dev, parent_opened.st_ino)
+    ):
+        os.close(directory_descriptor)
+        raise DeployError("vexp_sentinel_state_parent_untrusted")
+
+    flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NONBLOCK", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = -1
+    try:
+        descriptor = os.open(candidate.name, flags, dir_fd=directory_descriptor)
+    except OSError as exc:
+        os.close(directory_descriptor)
+        raise DeployError("vexp_sentinel_state_unavailable") from exc
+
+    def identity(metadata: os.stat_result) -> tuple[int, ...]:
+        return (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_uid,
+            metadata.st_gid,
+            metadata.st_nlink,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        )
+
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.geteuid()
+            or before.st_nlink != 1
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_size <= 0
+            or before.st_size > MAX_VEXP_SENTINEL_STATE_BYTES
+        ):
+            raise DeployError("vexp_sentinel_state_file_untrusted")
+        initial_identity = identity(before)
+        payload = bytearray()
+        while True:
+            chunk = os.read(descriptor, min(64 * 1024, before.st_size + 1))
+            if not chunk:
+                break
+            payload.extend(chunk)
+            if len(payload) > MAX_VEXP_SENTINEL_STATE_BYTES:
+                raise DeployError("vexp_sentinel_state_file_too_large")
+        after = os.fstat(descriptor)
+        try:
+            path_after = os.stat(
+                candidate.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            parent_path_after = parent.lstat()
+        except OSError as exc:
+            raise DeployError("vexp_sentinel_state_path_changed") from exc
+        if (
+            identity(after) != initial_identity
+            or identity(path_after) != initial_identity
+            or len(payload) != before.st_size
+            or stat.S_ISLNK(path_after.st_mode)
+            or (
+                parent_path_after.st_dev,
+                parent_path_after.st_ino,
+                parent_path_after.st_mode,
+                parent_path_after.st_uid,
+            )
+            != parent_identity
+        ):
+            raise DeployError("vexp_sentinel_state_changed_during_read")
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(directory_descriptor)
+
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        decoded: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in decoded:
+                raise ValueError("duplicate_key")
+            decoded[key] = value
+        return decoded
+
+    try:
+        decoded_payload = bytes(payload).decode("utf-8", errors="strict")
+        state = json.loads(
+            decoded_payload,
+            object_pairs_hook=reject_duplicate_keys,
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise DeployError("vexp_sentinel_state_json_invalid") from exc
+    if not isinstance(state, dict):
+        raise DeployError("vexp_sentinel_state_json_invalid")
+    return dict(state), {
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "size_bytes": len(payload),
+        "mode": "0600",
+        "owner_uid": before.st_uid,
+        "link_count": before.st_nlink,
+        "mtime_ns": before.st_mtime_ns,
+        "trusted_private_file": True,
+    }
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -1083,6 +1623,7 @@ class MemorialDeployLane:
         request_timeout_seconds: float = 10.0,
         receipt_dir: Path | None = None,
         global_lock_path: Path | None = None,
+        vexp_sentinel_state_path: Path | None = None,
         durable_root_check: Callable[[Path], None] = _require_durable_release_root,
     ) -> None:
         self.root = root.resolve()
@@ -1146,6 +1687,16 @@ class MemorialDeployLane:
         )
         if not self.global_lock_path.is_absolute():
             raise DeployError("global_lock_path_not_absolute")
+        self.vexp_sentinel_state_path = (
+            vexp_sentinel_state_path.expanduser()
+            if vexp_sentinel_state_path is not None
+            else DEFAULT_VEXP_SENTINEL_STATE_PATH
+        )
+        if (
+            not self.vexp_sentinel_state_path.is_absolute()
+            or ".." in self.vexp_sentinel_state_path.parts
+        ):
+            raise DeployError("vexp_sentinel_state_path_invalid")
         self._lock_handle: Any | None = None
         self._global_lock_handle: Any | None = None
         self.compose_bin: tuple[str, ...] = ()
@@ -1251,6 +1802,79 @@ class MemorialDeployLane:
         checks.append({"name": name, "status": status, **detail})
         self.receipt["checks"] = checks
         self._write_receipt()
+
+    def _require_vexp_certification_token_coverage(
+        self, boundary: str
+    ) -> dict[str, object]:
+        if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", boundary) is None:
+            raise DeployError("vexp_token_coverage_boundary_invalid")
+        checked_at_ms = int(time.time() * 1000)
+        try:
+            state, source = _read_trusted_vexp_sentinel_state(
+                self.vexp_sentinel_state_path
+            )
+        except DeployError as exc:
+            issue = str(exc)
+            if re.fullmatch(r"vexp_sentinel_[a-z0-9_]+", issue) is None:
+                issue = "vexp_sentinel_state_untrusted"
+            evidence = _vexp_token_coverage_base(state_sha256="")
+            evidence.update(
+                {
+                    "boundary": boundary,
+                    "checked_at": _utc_timestamp_from_ms(checked_at_ms),
+                    "reason": "sentinel_state_untrusted",
+                    "issues": [issue],
+                    "state_source": {
+                        "trusted_private_file": False,
+                        "credential_material_included": False,
+                    },
+                }
+            )
+        else:
+            evidence = _vexp_certification_token_coverage(
+                state,
+                state_sha256=str(source["sha256"]),
+                checked_at_ms=checked_at_ms,
+                state_file_mtime_ns=int(source["mtime_ns"]),
+            )
+            evidence["boundary"] = boundary
+            evidence["state_source"] = source
+
+        history = list(
+            self.receipt.get("vexp_certification_token_coverage_history") or []
+        )
+        history.append(dict(evidence))
+        self.receipt["vexp_certification_token_coverage_history"] = history[-32:]
+        self.receipt["vexp_certification_token_coverage"] = dict(evidence)
+        status = str(evidence.get("status") or "fail").lower()
+        self._record_check(
+            f"vexp_token_coverage_{boundary}",
+            "pass" if status == "pass" else "fail",
+            reason=str(evidence.get("reason") or "sentinel_state_invalid"),
+            state_sha256=str(evidence.get("state_sha256") or ""),
+            certification_required_end_at=str(
+                evidence.get("certification_required_end_at") or ""
+            ),
+            fresh_token_expiration_at=str(
+                evidence.get("fresh_token_expiration_at") or ""
+            ),
+            coverage_shortfall_seconds=evidence.get("coverage_shortfall_seconds"),
+            fresh_token_renewal_observed=bool(
+                evidence.get("fresh_token_renewal_observed")
+            ),
+            credential_material_included=False,
+            secrets_included=False,
+        )
+        if status == "pass":
+            return evidence
+        if str(evidence.get("reason") or "") in {
+            "fresh_token_coverage_insufficient",
+            "fresh_token_expired",
+            "fresh_token_renewal_required",
+            "license_certification_blocked",
+        }:
+            raise DeployError("vexp_certification_token_coverage_insufficient")
+        raise DeployError("vexp_certification_token_coverage_untrusted")
 
     def _run(
         self,
@@ -2182,6 +2806,54 @@ class MemorialDeployLane:
                     if str(item)
                 ],
             }
+            token_coverage = dict(
+                self.receipt.get("vexp_certification_token_coverage") or {}
+            )
+            if (
+                token_coverage.get("contract_name") != VEXP_TOKEN_COVERAGE_SCHEMA
+                or str(token_coverage.get("status") or "").lower() != "pass"
+                or token_coverage.get("token_coverage_safe") is not True
+                or token_coverage.get("promotion_authorized") is not False
+                or token_coverage.get("credential_material_included") is not False
+                or token_coverage.get("secrets_included") is not False
+            ):
+                raise DeployError("vexp_certification_token_coverage_evidence_invalid")
+            token_coverage_projection = {
+                key: token_coverage.get(key)
+                for key in (
+                    "contract_name",
+                    "status",
+                    "reason",
+                    "boundary",
+                    "state_sha256",
+                    "state_version",
+                    "checked_at",
+                    "state_file_mtime",
+                    "state_file_age_seconds",
+                    "required_window_seconds",
+                    "epoch_started_at",
+                    "epoch_started_ms",
+                    "certification_required_end_at",
+                    "certification_required_end_ms",
+                    "fresh_token_expiration_at",
+                    "fresh_token_expiration_ms",
+                    "coverage_margin_seconds",
+                    "coverage_shortfall_seconds",
+                    "fresh_token_renewal_observed",
+                    "fresh_token_renewal_count",
+                    "qualification_phase",
+                    "qualified_at",
+                    "certification_blockers",
+                    "certification_blocker_count",
+                    "certification_blockers_sha256",
+                    "unprojected_certification_blocker_count",
+                    "token_coverage_safe",
+                    "promotion_authorized",
+                    "operator_action_required",
+                    "credential_material_included",
+                    "secrets_included",
+                )
+            }
             candidate_image = dict(self.receipt.get("candidate_image") or {})
             candidate_promotion = dict(
                 self.receipt.get("candidate_promotion_evidence") or {}
@@ -2209,6 +2881,7 @@ class MemorialDeployLane:
                 "evidence_files": receipt_files,
                 "authority": authority_projection,
                 "readiness": readiness_projection,
+                "vexp_token_coverage": token_coverage_projection,
             }
             self._write_private_evidence_json(paths["phase_manifest"], phase_payload)
             phase_metadata = self._private_evidence_metadata(paths["phase_manifest"])
@@ -2236,6 +2909,7 @@ class MemorialDeployLane:
                 "files": receipt_files,
                 "authority": authority_projection,
                 "readiness": readiness_projection,
+                "vexp_token_coverage": token_coverage_projection,
             }
             self.receipt["release_evidence"] = release_evidence
             self._write_receipt()
@@ -3942,6 +4616,7 @@ class MemorialDeployLane:
             raise DeployError("env_file_missing")
         if self.control_tour_slug != REQUIRED_CONTROL_TOUR_SLUG:
             raise DeployError("memorial_control_tour_slug_required")
+        self._require_vexp_certification_token_coverage("preflight_entry")
         release_source = self._release_source_metadata()
         source_state = source_worktree_metadata(self.root, dirty_path_limit=10000)
         if bool(source_state.get("source_worktree_dirty")):
@@ -4017,7 +4692,13 @@ class MemorialDeployLane:
                 return self.receipt
 
             self._require_deployment_input_seal(context["deployment_input_seal"])
+            self._require_vexp_certification_token_coverage(
+                "before_redis_mutation"
+            )
             self._ensure_redis()
+            self._require_vexp_certification_token_coverage(
+                "before_rollback_protection"
+            )
             rollback_tag = self._protect_previous_image(previous)
             self.receipt["rollback"] = {
                 "status": "available",
@@ -4027,9 +4708,12 @@ class MemorialDeployLane:
             }
             self.receipt["status"] = "changing_api"
             self._write_receipt()
-            mutation_started = True
 
             self._require_deployment_input_seal(context["deployment_input_seal"])
+            self._require_vexp_certification_token_coverage(
+                "immediately_before_api_mutation"
+            )
+            mutation_started = True
             self._recreate_api()
             api_detail = self._wait_container(API_SERVICE, require_health=True)
             api_identity = self._verify_forward_api(
@@ -4052,6 +4736,9 @@ class MemorialDeployLane:
 
             # Rebuild the public-access projection in private release evidence only
             # after both edge probes pass. Any failure here enters rollback.
+            self._require_vexp_certification_token_coverage(
+                "before_postdeploy_evidence"
+            )
             self._materialize_and_verify_release_evidence(
                 phase="postdeploy",
                 deployment_input_seal=context["deployment_input_seal"],
@@ -4059,6 +4746,10 @@ class MemorialDeployLane:
                 expected_authority_posture=str(
                     dict(context["authority"]).get("authority_posture") or ""
                 ),
+            )
+
+            self._require_vexp_certification_token_coverage(
+                "before_promotion_success"
             )
 
             self.receipt["status"] = "pass"
