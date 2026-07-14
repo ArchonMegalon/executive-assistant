@@ -5976,6 +5976,7 @@ def _public_tour_generated_viewer_headers(
 
 
 @router.get("/tours/{slug}.json", response_class=JSONResponse)
+@router.head("/tours/{slug}.json", response_class=JSONResponse)
 def public_tour_payload(slug: str) -> JSONResponse:
     payload = _load_tour(slug)
     _require_public_tour_viewable(payload)

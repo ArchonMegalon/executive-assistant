@@ -910,3 +910,16 @@ def test_candidate_http_uses_fixed_verifier_identity_and_bounded_accept(
     assert len(captured["accept"]) <= 64
     assert captured["x-ea-test"] == "retained"
     assert "mozilla" not in captured["user-agent"].casefold()
+
+
+def test_public_tour_json_route_supports_get_and_head() -> None:
+    from app.api.routes import public_tours
+
+    methods = {
+        method
+        for route in public_tours.router.routes
+        if route.path == "/tours/{slug}.json"
+        for method in (route.methods or set())
+    }
+
+    assert methods == {"GET", "HEAD"}
