@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import errno
 import json
 import os
 import signal
+import socket
 from pathlib import Path
 
 import pytest
@@ -103,6 +105,7 @@ def _compose_payloads(env_file: Path, env: dict[str, str]) -> tuple[dict, dict]:
     declared = {
         "EA_ROLE": "api",
         "EA_PUBLIC_TOUR_DIR": "/data/public_property_tours",
+        "EA_TRUST_PROXY_HEADERS": "1",
     }
     services = {
         "api": {
@@ -279,6 +282,223 @@ def test_compose_contract_binds_project_env_file_and_mount_roots(
     with pytest.raises(RuntimeError, match="compose_project_mismatch"):
         runner._assert_compose_isolation(
             hostile_project, source, env=env, env_file=env_file
+        )
+
+
+def test_internal_transport_probe_is_api_loopback_only_and_parses_security_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+    raw = (
+        b"HTTP/1.1 200 OK\r\n"
+        b"Strict-Transport-Security: max-age=31536000\r\n"
+        b"Set-Cookie: ea_memorial_guest=redacted; Secure; HttpOnly\r\n\r\n"
+        + f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}200\n".encode("ascii")
+    )
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda argv, **_kwargs: commands.append(list(argv)) or raw,
+    )
+
+    status, body, headers = runner._candidate_api_loopback_request(
+        ["docker", "compose", "--project-name", PROJECT],
+        {"PATH": "/usr/bin:/bin"},
+        "http://127.0.0.1:18091",
+        "/memorials/manfred",
+        headers={
+            "Host": "myexternalbrain.com",
+            "X-Forwarded-Proto": "https",
+        },
+        expected={200},
+        follow_redirects=False,
+    )
+
+    assert status == 200
+    assert body == b""
+    assert headers["strict-transport-security"] == "max-age=31536000"
+    assert "Secure" in headers["set-cookie"]
+    command = commands[0]
+    assert command[command.index("exec") + 1 : command.index("curl") + 1] == [
+        "-T",
+        "api",
+        "curl",
+    ]
+    assert command[command.index("curl") + 1 : command.index("curl") + 6] == [
+        "--disable",
+        "--noproxy",
+        "*",
+        "--globoff",
+        "--path-as-is",
+    ]
+    assert command[-1] == "http://127.0.0.1:8090/memorials/manfred"
+    assert "--location" not in command
+    assert "Host: myexternalbrain.com" in command
+    assert "X-Forwarded-Proto: https" in command
+
+
+def test_internal_transport_probe_rejects_unexpected_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = (
+        b"HTTP/1.1 308 Permanent Redirect\r\n"
+        b"Location: https://myexternalbrain.com/memorials/manfred\r\n\r\n"
+        + f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}308\n".encode("ascii")
+    )
+    monkeypatch.setattr(runner, "_run", lambda *_args, **_kwargs: raw)
+    with pytest.raises(
+        RuntimeError,
+        match="candidate_http_status_unexpected:/memorials/manfred:308",
+    ):
+        runner._candidate_api_loopback_request(
+            ["docker", "compose"],
+            {},
+            "http://127.0.0.1:18091",
+            "/memorials/manfred",
+            expected={200},
+            follow_redirects=False,
+        )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Strict-Transport-Security: max-age=0\r\n"
+            b"Strict-Transport-Security: max-age=31536000\r\n\r\n"
+            + f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}200\n".encode("ascii")
+        ),
+        (
+            b"HTTP/1.1 308 Permanent Redirect\r\n"
+            b"Location: https://myexternalbrain.com/memorials/manfred\r\n\r\n"
+            + f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}200\n".encode("ascii")
+        ),
+        (
+            b"HTTP/1.1 200 OK\r\n"
+            b"X-Pad: harmless\r\n"
+            b" Strict-Transport-Security: max-age=31536000\r\n\r\n"
+            + f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}200\n".encode("ascii")
+        ),
+        (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Strict Transport Security: max-age=31536000\r\n\r\n"
+            + f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}200\n".encode("ascii")
+        ),
+        (
+            b"HTTP/1.1 200 OK\x00\r\n"
+            b"Strict-Transport-Security: max-age=31536000\r\n\r\n"
+            + f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}200\n".encode("ascii")
+        ),
+        (
+            b"HTTP/1..1 200 OK\r\n"
+            b"Strict-Transport-Security: max-age=31536000\r\n\r\n"
+            + f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}200\n".encode("ascii")
+        ),
+        (
+            b"HTTP/1.1 200\r\n"
+            b"Strict-Transport-Security: max-age=31536000\r\n\r\n"
+            + f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}200\n".encode("ascii")
+        ),
+        (
+            b"HTTP/1.1 200 OK\n"
+            b"Strict-Transport-Security: max-age=31536000\n\n"
+            + f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}200\n".encode("ascii")
+        ),
+        (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Strict-Transport-Security: max-age=31536000\n\n"
+            + f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}200\n".encode("ascii")
+        ),
+    ],
+)
+def test_internal_transport_probe_rejects_duplicate_or_status_spoofing(
+    raw: bytes,
+) -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="manfred_candidate_internal_transport_probe_invalid",
+    ):
+        runner._parse_internal_transport_headers(raw)
+
+
+@pytest.mark.parametrize(
+    "status_line",
+    [
+        "HTTP/. 200 OK",
+        "HTTP/1 200 OK",
+        "HTTP/1. 200 OK",
+        "HTTP/1..1 200 OK",
+        "HTTP/1.1 200",
+    ],
+)
+def test_internal_transport_probe_rejects_malformed_http_versions(
+    status_line: str,
+) -> None:
+    raw = (
+        f"{status_line}\r\nStrict-Transport-Security: max-age=31536000\r\n\r\n"
+        f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}200\n"
+    ).encode("ascii")
+    with pytest.raises(
+        RuntimeError,
+        match="manfred_candidate_internal_transport_probe_invalid",
+    ):
+        runner._parse_internal_transport_headers(raw)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/memorials/manfred#not-sent-by-http",
+        "/memorials/manfred#",
+        "/memorials/../manfred",
+        "/memorials/manfred\t?from=ea-transport-verifier",
+        "/mémorials/manfred",
+    ],
+)
+def test_internal_transport_probe_rejects_paths_curl_cannot_send_exactly(
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail("invalid path must fail before curl"),
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="manfred_candidate_internal_transport_request_invalid",
+    ):
+        runner._candidate_api_loopback_request(
+            ["docker", "compose"],
+            {},
+            "http://127.0.0.1:18091",
+            path,
+            expected={200},
+            follow_redirects=False,
+        )
+
+
+def test_internal_transport_probe_rejects_case_insensitive_outgoing_duplicates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail("duplicate headers must fail before curl"),
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="manfred_candidate_internal_transport_request_invalid",
+    ):
+        runner._candidate_api_loopback_request(
+            ["docker", "compose"],
+            {},
+            "http://127.0.0.1:18091",
+            "/memorials/manfred",
+            headers={"Host": "myexternalbrain.com", "host": "spoof.invalid"},
+            expected={200},
+            follow_redirects=False,
         )
 
 
@@ -506,10 +726,12 @@ def test_cleanup_port_wait_retries_transient_release_race(
         if len(attempts) < 3:
             raise RuntimeError("manfred_candidate_loopback_port_unavailable")
 
-    monkeypatch.setattr(runner, "_assert_loopback_port_free", assert_port_free)
+    monkeypatch.setattr(
+        runner, "_assert_loopback_port_not_listening", assert_port_free
+    )
     monkeypatch.setattr(runner.time, "sleep", sleeps.append)
 
-    runner._wait_for_loopback_port_free(
+    runner._wait_for_loopback_port_not_listening(
         18091,
         timeout_seconds=1.0,
         poll_seconds=0.1,
@@ -534,12 +756,14 @@ def test_cleanup_port_wait_fails_closed_after_bounded_deadline(
         sleeps.append(seconds)
         now[0] += seconds
 
-    monkeypatch.setattr(runner, "_assert_loopback_port_free", assert_port_free)
+    monkeypatch.setattr(
+        runner, "_assert_loopback_port_not_listening", assert_port_free
+    )
     monkeypatch.setattr(runner.time, "monotonic", lambda: now[0])
     monkeypatch.setattr(runner.time, "sleep", sleep)
 
     with pytest.raises(RuntimeError, match="loopback_port_unavailable"):
-        runner._wait_for_loopback_port_free(
+        runner._wait_for_loopback_port_not_listening(
             18091,
             timeout_seconds=0.25,
             poll_seconds=0.1,
@@ -548,6 +772,46 @@ def test_cleanup_port_wait_fails_closed_after_bounded_deadline(
     assert attempts == [18091, 18091, 18091, 18091]
     assert sum(sleeps) == pytest.approx(0.25)
     assert max(sleeps) <= 0.1
+
+
+def test_cleanup_distinguishes_a_listener_from_a_nonlistening_bound_socket() -> None:
+    bound = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        bound.bind(("127.0.0.1", 0))
+        bound_port = int(bound.getsockname()[1])
+        with pytest.raises(RuntimeError, match="loopback_port_unavailable"):
+            runner._assert_loopback_port_free(bound_port)
+        runner._assert_loopback_port_not_listening(bound_port)
+
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        with pytest.raises(RuntimeError, match="loopback_port_still_listening"):
+            runner._assert_loopback_port_not_listening(
+                int(listener.getsockname()[1])
+            )
+    finally:
+        bound.close()
+        listener.close()
+
+
+def test_cleanup_fails_closed_on_ambiguous_connect_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Probe:
+        def settimeout(self, _seconds: float) -> None:
+            return None
+
+        def connect_ex(self, _address: tuple[str, int]) -> int:
+            return errno.EAGAIN
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(runner, "_host_tcp_listener_present", lambda _port: False)
+    monkeypatch.setattr(runner.socket, "socket", lambda *_args: Probe())
+    with pytest.raises(RuntimeError, match="loopback_port_still_listening"):
+        runner._assert_loopback_port_not_listening(18091)
 
 
 def test_preflight_port_check_remains_immediate_and_does_not_retry(
@@ -567,7 +831,7 @@ def test_preflight_port_check_remains_immediate_and_does_not_retry(
     monkeypatch.setattr(runner, "_assert_loopback_port_free", assert_port_free)
     monkeypatch.setattr(
         runner,
-        "_wait_for_loopback_port_free",
+        "_wait_for_loopback_port_not_listening",
         lambda _port: pytest.fail("preflight must not use the cleanup retry"),
     )
 
@@ -849,7 +1113,9 @@ def test_post_start_failure_cleans_only_explicit_candidate_project(
         lambda *_args: (_ for _ in ()).throw(RuntimeError("candidate-smoke-failed")),
     )
     monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _project: {})
-    monkeypatch.setattr(runner, "_assert_loopback_port_free", lambda _port: None)
+    monkeypatch.setattr(
+        runner, "_assert_loopback_port_not_listening", lambda _port: None
+    )
     runtime_receipt = tmp_path / "runtime.json"
     runtime_receipt.write_text('{"status":"stale-pass"}\n', encoding="utf-8")
 
@@ -889,7 +1155,9 @@ def test_cleanup_detects_any_main_project_snapshot_change(
         ),
     )
     monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _project: {})
-    monkeypatch.setattr(runner, "_assert_loopback_port_free", lambda _port: None)
+    monkeypatch.setattr(
+        runner, "_assert_loopback_port_not_listening", lambda _port: None
+    )
 
     with pytest.raises(
         RuntimeError,
@@ -925,7 +1193,7 @@ def test_cleanup_reports_persistent_bound_port_without_weakening_absence_proof(
     )
     monkeypatch.setattr(
         runner,
-        "_wait_for_loopback_port_free",
+        "_wait_for_loopback_port_not_listening",
         lambda _port: (_ for _ in ()).throw(
             RuntimeError("manfred_candidate_loopback_port_unavailable")
         ),
@@ -968,7 +1236,9 @@ def test_post_start_keyboard_interrupt_cleans_candidate_and_is_preserved(
         lambda *_args: (_ for _ in ()).throw(KeyboardInterrupt()),
     )
     monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _project: {})
-    monkeypatch.setattr(runner, "_assert_loopback_port_free", lambda _port: None)
+    monkeypatch.setattr(
+        runner, "_assert_loopback_port_not_listening", lambda _port: None
+    )
 
     with pytest.raises(KeyboardInterrupt):
         runner.prove_candidate(
@@ -1004,7 +1274,9 @@ def test_post_start_sigterm_cleans_candidate_and_is_preserved(
         ),
     )
     monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _project: {})
-    monkeypatch.setattr(runner, "_assert_loopback_port_free", lambda _port: None)
+    monkeypatch.setattr(
+        runner, "_assert_loopback_port_not_listening", lambda _port: None
+    )
 
     with pytest.raises(runner.GovernedSignalInterrupt) as caught:
         runner.prove_candidate(

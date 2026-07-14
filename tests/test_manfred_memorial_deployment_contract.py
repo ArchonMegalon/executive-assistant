@@ -188,6 +188,9 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
     assert environment["EA_AUDIOBOOK_UNMIXR_AUTO_RENDER"] == "0"
     assert environment["EA_AUDIOBOOKSHELF_AUTO_IMPORT"] == "0"
     assert environment["EA_ALLOW_LOOPBACK_NO_AUTH"] == "0"
+    assert environment["EA_TRUST_PROXY_HEADERS"] == "1"
+    assert "EA_TRUSTED_PROXY_CIDRS" not in environment
+    assert "PROPERTYQUARRY_TRUSTED_PROXY_CIDRS" not in environment
     assert environment["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] == "0"
     assert environment["EA_TRUST_API_TOKEN_PRINCIPAL_HEADER"] == "0"
     assert environment["PYTHONPATH"] == "/app"
@@ -679,6 +682,7 @@ def test_runtime_runner_rejects_live_bind_or_external_network(tmp_path: Path) ->
     declared_environment = {
         "EA_ROLE": "api",
         "EA_PUBLIC_TOUR_DIR": "/data/public_property_tours",
+        "EA_TRUST_PROXY_HEADERS": "1",
     }
     base = {
         "name": PROJECT,

@@ -50,6 +50,8 @@ services:
       EA_STORAGE_BACKEND: postgres
       EA_STORAGE_FALLBACK_ALLOWED: "0"
       EA_ALLOW_LOOPBACK_NO_AUTH: "0"
+      # Keep the default loopback-only proxy CIDRs for the in-container TLS probe.
+      EA_TRUST_PROXY_HEADERS: "1"
       EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER: "0"
       EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER: "0"
       EA_TRUST_API_TOKEN_PRINCIPAL_HEADER: "0"

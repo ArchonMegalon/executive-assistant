@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import fcntl
 import hashlib
 import json
@@ -91,6 +92,17 @@ EXPECTED_CANDIDATE_VOLUMES = ("artifacts", "postgres_data", "redis_data")
 EXPECTED_CANDIDATE_SERVICES = ("api", "gateway", "postgres", "redis")
 PORT_RELEASE_WAIT_SECONDS = 10.0
 PORT_RELEASE_POLL_SECONDS = 0.1
+INTERNAL_TRANSPORT_STATUS_MARKER = "__EA_CANDIDATE_HTTP_STATUS__="
+HOST_TCP_LISTENER_TABLES = (Path("/proc/net/tcp"), Path("/proc/net/tcp6"))
+HTTP_HEADER_NAME_CHARACTERS = frozenset(
+    "!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+)
+INTERNAL_TRANSPORT_PATHS = frozenset(
+    {
+        "/memorials/manfred",
+        "/memorials/manfred?from=ea-transport-verifier",
+    }
+)
 
 
 class GovernedSignalInterrupt(BaseException):
@@ -1057,7 +1069,60 @@ def _assert_loopback_port_free(port: int) -> None:
         probe.close()
 
 
-def _wait_for_loopback_port_free(
+def _host_tcp_listener_present(
+    port: int,
+    *,
+    tables: tuple[Path, ...] | None = None,
+) -> bool:
+    selected = tables if tables is not None else HOST_TCP_LISTENER_TABLES
+    if not selected:
+        raise RuntimeError("manfred_candidate_listener_state_unavailable")
+    expected_port = f"{int(port):04X}"
+    for table in selected:
+        try:
+            lines = table.read_text(encoding="ascii").splitlines()
+        except (OSError, UnicodeError) as exc:
+            raise RuntimeError("manfred_candidate_listener_state_unavailable") from exc
+        if not lines or "local_address" not in lines[0] or "st" not in lines[0]:
+            raise RuntimeError("manfred_candidate_listener_state_invalid")
+        for line in lines[1:]:
+            if not line.strip():
+                continue
+            fields = line.split()
+            if len(fields) < 4:
+                raise RuntimeError("manfred_candidate_listener_state_invalid")
+            local_address = fields[1]
+            state = fields[3].upper()
+            _address, separator, local_port = local_address.rpartition(":")
+            if not separator or len(local_port) != 4:
+                raise RuntimeError("manfred_candidate_listener_state_invalid")
+            try:
+                int(local_port, 16)
+                int(state, 16)
+            except ValueError as exc:
+                raise RuntimeError("manfred_candidate_listener_state_invalid") from exc
+            if state == "0A" and local_port.upper() == expected_port:
+                return True
+    return False
+
+
+def _assert_loopback_port_not_listening(port: int) -> None:
+    # Recovery proves that no service is accepting traffic. A bind probe is
+    # intentionally stricter and can fail while closed candidate connections
+    # remain in TCP TIME_WAIT even after every Compose resource is gone.
+    if _host_tcp_listener_present(port):
+        raise RuntimeError("manfred_candidate_loopback_port_still_listening")
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.settimeout(0.25)
+        result = probe.connect_ex(("127.0.0.1", port))
+        if result != errno.ECONNREFUSED:
+            raise RuntimeError("manfred_candidate_loopback_port_still_listening")
+    finally:
+        probe.close()
+
+
+def _wait_for_loopback_port_not_listening(
     port: int,
     *,
     timeout_seconds: float = PORT_RELEASE_WAIT_SECONDS,
@@ -1067,7 +1132,7 @@ def _wait_for_loopback_port_free(
     interval = max(0.01, float(poll_seconds))
     while True:
         try:
-            _assert_loopback_port_free(port)
+            _assert_loopback_port_not_listening(port)
             return
         except RuntimeError:
             remaining = deadline - time.monotonic()
@@ -1319,6 +1384,16 @@ def _assert_compose_isolation(
         "/data/public_property_tours"
     ):
         raise RuntimeError("manfred_candidate_spatial_compose_environment_invalid")
+    if str(declared_environment.get("EA_TRUST_PROXY_HEADERS") or "") != "1":
+        raise RuntimeError("manfred_candidate_transport_probe_trust_invalid")
+    if any(
+        name in declared_environment or name in resolved_environment
+        for name in (
+            "EA_TRUSTED_PROXY_CIDRS",
+            "PROPERTYQUARRY_TRUSTED_PROXY_CIDRS",
+        )
+    ):
+        raise RuntimeError("manfred_candidate_transport_probe_trust_invalid")
     expected_environment_keys = set(env).union(declared_environment)
     if set(resolved_environment) != expected_environment_keys:
         raise RuntimeError("manfred_candidate_compose_environment_scope_invalid")
@@ -1512,6 +1587,164 @@ def _assert_contribution_modes(
     if private_mode != "600" or public_mode != "644":
         raise RuntimeError("manfred_candidate_contribution_permissions_invalid")
     return {"private_ledger": private_mode, "public_projection": public_mode}
+
+
+def _parse_internal_transport_headers(raw: bytes) -> tuple[int, dict[str, str]]:
+    try:
+        text = raw.decode("latin-1")
+    except UnicodeDecodeError as exc:  # pragma: no cover - latin-1 is total
+        raise RuntimeError("manfred_candidate_internal_transport_probe_invalid") from exc
+    marker = f"\n{INTERNAL_TRANSPORT_STATUS_MARKER}"
+    header_text, separator, status_text = text.rpartition(marker)
+    if not separator:
+        raise RuntimeError("manfred_candidate_internal_transport_probe_invalid")
+    if (
+        len(status_text) != 4
+        or not status_text.endswith("\n")
+        or not status_text[:3].isascii()
+        or not status_text[:3].isdigit()
+    ):
+        raise RuntimeError("manfred_candidate_internal_transport_probe_invalid")
+    status = int(status_text[:3])
+    if not header_text.endswith("\r\n\r\n"):
+        raise RuntimeError("manfred_candidate_internal_transport_probe_invalid")
+    without_crlf = header_text.replace("\r\n", "")
+    if "\r" in without_crlf or "\n" in without_crlf:
+        raise RuntimeError("manfred_candidate_internal_transport_probe_invalid")
+    blocks = header_text[:-4].split("\r\n\r\n")
+    if not blocks or any(not block for block in blocks):
+        raise RuntimeError("manfred_candidate_internal_transport_probe_invalid")
+    lines = blocks[-1].split("\r\n")
+    if (
+        not lines
+        or lines[0].startswith((" ", "\t"))
+        or any(ord(character) < 32 or ord(character) == 127 for character in lines[0])
+    ):
+        raise RuntimeError("manfred_candidate_internal_transport_probe_invalid")
+    status_parts = lines[0].split(" ", 2)
+    version = status_parts[0]
+    if (
+        len(status_parts) != 3
+        or version not in {"HTTP/1.0", "HTTP/1.1"}
+        or len(status_parts[1]) != 3
+        or not status_parts[1].isascii()
+        or not status_parts[1].isdigit()
+        or not status_parts[2]
+    ):
+        raise RuntimeError("manfred_candidate_internal_transport_probe_invalid")
+    header_status = int(status_parts[1])
+    if header_status != status:
+        raise RuntimeError("manfred_candidate_internal_transport_probe_invalid")
+    headers: dict[str, str] = {}
+    for line in lines[1:]:
+        if not line or line.startswith((" ", "\t")):
+            raise RuntimeError("manfred_candidate_internal_transport_probe_invalid")
+        name, delimiter, value = line.partition(":")
+        normalized_name = name.lower()
+        if (
+            not delimiter
+            or not name
+            or name != name.strip()
+            or any(character not in HTTP_HEADER_NAME_CHARACTERS for character in name)
+            or normalized_name in headers
+            or any(ord(character) < 32 and character != "\t" for character in value)
+            or any(ord(character) == 127 for character in value)
+        ):
+            raise RuntimeError("manfred_candidate_internal_transport_probe_invalid")
+        headers[normalized_name] = value.strip(" \t")
+    return status, headers
+
+
+def _candidate_api_loopback_request(
+    compose: list[str],
+    environment: dict[str, str],
+    base_url: str,
+    path: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, object] | None = None,
+    headers: dict[str, str] | None = None,
+    expected: set[int] | None = None,
+    follow_redirects: bool = True,
+) -> tuple[int, bytes, dict[str, str]]:
+    del base_url
+    raw_path = str(path or "")
+    try:
+        parsed = urllib.parse.urlsplit(raw_path)
+        raw_path.encode("ascii")
+    except (UnicodeEncodeError, ValueError) as exc:
+        raise RuntimeError("manfred_candidate_internal_transport_request_invalid") from exc
+    normalized_method = str(method or "").strip().upper()
+    if (
+        payload is not None
+        or follow_redirects
+        or normalized_method not in {"GET", "HEAD"}
+        or raw_path not in INTERNAL_TRANSPORT_PATHS
+        or parsed.scheme
+        or parsed.netloc
+        or any(ord(character) <= 32 or ord(character) == 127 for character in raw_path)
+    ):
+        raise RuntimeError("manfred_candidate_internal_transport_request_invalid")
+    request_headers = dict(headers or {})
+    request_headers.update(
+        {
+            "Accept": "application/json,text/html;q=0.9,*/*;q=0.1",
+            "User-Agent": "EA-Memorial-Launch-Verifier/1.0",
+        }
+    )
+    argv = [
+        *compose,
+        "exec",
+        "-T",
+        "api",
+        "curl",
+        "--disable",
+        "--noproxy",
+        "*",
+        "--globoff",
+        "--path-as-is",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "20",
+        "--request",
+        normalized_method,
+        "--output",
+        "/dev/null",
+        "--dump-header",
+        "-",
+        "--write-out",
+        f"\n{INTERNAL_TRANSPORT_STATUS_MARKER}%{{http_code}}\n",
+    ]
+    outgoing_header_names: set[str] = set()
+    for name, value in sorted(request_headers.items()):
+        normalized_name = str(name or "")
+        normalized_value = str(value or "")
+        lower_name = normalized_name.lower()
+        if (
+            not normalized_name
+            or normalized_name != normalized_name.strip()
+            or any(
+                character not in HTTP_HEADER_NAME_CHARACTERS
+                for character in normalized_name
+            )
+            or lower_name in outgoing_header_names
+            or any(
+                ord(character) < 32 or ord(character) == 127
+                for character in normalized_value
+            )
+        ):
+            raise RuntimeError("manfred_candidate_internal_transport_request_invalid")
+        outgoing_header_names.add(lower_name)
+        argv.extend(["--header", f"{normalized_name}: {normalized_value}"])
+    argv.append(f"http://127.0.0.1:8090{raw_path}")
+    status, response_headers = _parse_internal_transport_headers(
+        _run(argv, timeout=30, environment=environment)
+    )
+    allowed = expected or {200}
+    if status not in allowed:
+        raise RuntimeError(f"candidate_http_status_unexpected:{path}:{status}")
+    return status, b"", response_headers
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -1748,6 +1981,30 @@ def prove_candidate(
     base_url = f"http://127.0.0.1:{port}"
     contribution_receipt = receipt_path.parent / "candidate-contribution.private.json"
 
+    def transport_request(
+        request_base_url: str,
+        path: str,
+        *,
+        method: str = "GET",
+        payload: dict[str, object] | None = None,
+        headers: dict[str, str] | None = None,
+        expected: set[int] | None = None,
+        follow_redirects: bool = True,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        if str(request_base_url).rstrip("/") != base_url:
+            raise RuntimeError("manfred_candidate_internal_transport_origin_invalid")
+        return _candidate_api_loopback_request(
+            compose,
+            compose_environment,
+            request_base_url,
+            path,
+            method=method,
+            payload=payload,
+            headers=headers,
+            expected=expected,
+            follow_redirects=follow_redirects,
+        )
+
     with _hold_candidate_locks(project, port) as lock_evidence:
         image_locator_evidence = _assert_prepared_image_locator(projection)
         live_before = _live_snapshot()
@@ -1774,6 +2031,7 @@ def prove_candidate(
                 wait_seconds=wait_seconds,
                 submit_receipt=contribution_receipt,
                 withdraw_receipt=None,
+                transport_request=transport_request,
             )
             api_before_restart = (
                 _run(
@@ -1797,6 +2055,7 @@ def prove_candidate(
                 wait_seconds=wait_seconds,
                 submit_receipt=None,
                 withdraw_receipt=contribution_receipt,
+                transport_request=transport_request,
             )
             api_after_restart = (
                 _run(
@@ -1923,7 +2182,7 @@ def prove_candidate(
                 except BaseException:
                     recovery_errors.append("candidate_resources_remain")
                 try:
-                    _wait_for_loopback_port_free(port)
+                    _wait_for_loopback_port_not_listening(port)
                 except BaseException:
                     recovery_errors.append("candidate_port_remains_bound")
                 try:

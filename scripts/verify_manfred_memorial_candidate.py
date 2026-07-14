@@ -13,6 +13,7 @@ import urllib.request
 from datetime import datetime, timezone
 from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
+from typing import Callable
 from urllib.parse import urlparse
 
 
@@ -197,7 +198,10 @@ def _canonical_public_https_origin(value: str) -> tuple[str, str]:
 def _verify_memorial_transport_security(
     base_url: str,
     public_origin: str,
+    *,
+    request_fn: Callable[..., tuple[int, bytes, dict[str, str]]] | None = None,
 ) -> dict[str, object]:
+    request = request_fn or _request
     authority, canonical_origin = _canonical_public_https_origin(public_origin)
     page_path = "/memorials/manfred"
     proxy_headers = {
@@ -205,7 +209,7 @@ def _verify_memorial_transport_security(
         "X-Forwarded-Proto": "https",
         "CF-Visitor": '{"scheme":"https"}',
     }
-    status, _body, headers = _request(
+    status, _body, headers = request(
         base_url,
         page_path,
         headers=proxy_headers,
@@ -238,7 +242,7 @@ def _verify_memorial_transport_security(
         raise RuntimeError("candidate_memorial_transport_cookie_invalid")
 
     redirect_path = f"{page_path}?from=ea-transport-verifier"
-    redirect_status, _redirect_body, redirect_headers = _request(
+    redirect_status, _redirect_body, redirect_headers = request(
         base_url,
         redirect_path,
         headers={"Host": authority},
@@ -688,6 +692,7 @@ def verify_candidate(
     submit_receipt: Path | None,
     withdraw_receipt: Path | None,
     browser_audit: bool = False,
+    transport_request: Callable[..., tuple[int, bytes, dict[str, str]]] | None = None,
 ) -> dict[str, object]:
     _wait_for_health(base_url, wait_seconds)
     checks: list[str] = ["healthz"]
@@ -714,6 +719,7 @@ def verify_candidate(
     transport_security = _verify_memorial_transport_security(
         base_url,
         public_origin,
+        request_fn=transport_request,
     )
     checks.append("memorial_transport_security")
 
