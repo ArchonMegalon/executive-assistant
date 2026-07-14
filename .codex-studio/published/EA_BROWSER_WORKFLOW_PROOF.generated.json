@@ -4,62 +4,62 @@
   "surface": "browser_workflow_proof",
   "version": 3,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-14T09:52:05Z",
+  "generated_at": "2026-07-14T11:20:02Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
-  "run_id": "d0ab108521ce4a55ac10275c89266b8d",
+  "run_id": "41212ebabbdc497fa8515a2342559018",
   "trust_model": "local_unsigned_process_evidence",
   "environment_policy": {
     "name": "ea.browser_workflow_proof.hermetic",
     "version": 1
   },
-  "source_revision": "020589d2afb05d9e96b464ac454cbc8a39d22862",
-  "source_tree": "2134e9bd43c27243914f3c50070fc93be9bf499b",
+  "source_revision": "86c86b4d38b9a9d57cc402c1a95e4bb5e8cbeb59",
+  "source_tree": "c18356f3c84b49c36e723498938ab0085e1f6e29",
   "source_worktree_dirty": false,
   "source_state_samples": [
     {
       "stage": "before_tests",
-      "revision": "020589d2afb05d9e96b464ac454cbc8a39d22862",
-      "tree": "2134e9bd43c27243914f3c50070fc93be9bf499b",
+      "revision": "86c86b4d38b9a9d57cc402c1a95e4bb5e8cbeb59",
+      "tree": "c18356f3c84b49c36e723498938ab0085e1f6e29",
       "dirty": false
     },
     {
       "stage": "after_source",
-      "revision": "020589d2afb05d9e96b464ac454cbc8a39d22862",
-      "tree": "2134e9bd43c27243914f3c50070fc93be9bf499b",
+      "revision": "86c86b4d38b9a9d57cc402c1a95e4bb5e8cbeb59",
+      "tree": "c18356f3c84b49c36e723498938ab0085e1f6e29",
       "dirty": false
     },
     {
       "stage": "after_browser",
-      "revision": "020589d2afb05d9e96b464ac454cbc8a39d22862",
-      "tree": "2134e9bd43c27243914f3c50070fc93be9bf499b",
+      "revision": "86c86b4d38b9a9d57cc402c1a95e4bb5e8cbeb59",
+      "tree": "c18356f3c84b49c36e723498938ab0085e1f6e29",
       "dirty": false
     },
     {
       "stage": "before_publish",
-      "revision": "020589d2afb05d9e96b464ac454cbc8a39d22862",
-      "tree": "2134e9bd43c27243914f3c50070fc93be9bf499b",
+      "revision": "86c86b4d38b9a9d57cc402c1a95e4bb5e8cbeb59",
+      "tree": "c18356f3c84b49c36e723498938ab0085e1f6e29",
       "dirty": false
     }
   ],
   "snapshot": {
     "archive_format": "git_archive_tar",
     "read_only": true,
-    "source_revision": "020589d2afb05d9e96b464ac454cbc8a39d22862",
-    "source_tree": "2134e9bd43c27243914f3c50070fc93be9bf499b",
+    "source_revision": "86c86b4d38b9a9d57cc402c1a95e4bb5e8cbeb59",
+    "source_tree": "c18356f3c84b49c36e723498938ab0085e1f6e29",
     "seal_algorithm": "sha256-content-posix-stat-v1",
     "read_only_enforcement": "owner_mode_bits_plus_content_stat_seal_and_inotify_watch",
     "seal_samples": [
       {
         "stage": "before_source",
-        "sha256": "6a5473f09a0e3c61876f36d6563c7092c4d9fe2d0406897d9c7c1100048f3e3f"
+        "sha256": "f27530d1931627e0ba2a9b067f7e21d2f4066d62fc0f884d28cdbb98c30ddd68"
       },
       {
         "stage": "after_source",
-        "sha256": "6a5473f09a0e3c61876f36d6563c7092c4d9fe2d0406897d9c7c1100048f3e3f"
+        "sha256": "f27530d1931627e0ba2a9b067f7e21d2f4066d62fc0f884d28cdbb98c30ddd68"
       },
       {
         "stage": "after_browser",
-        "sha256": "6a5473f09a0e3c61876f36d6563c7092c4d9fe2d0406897d9c7c1100048f3e3f"
+        "sha256": "f27530d1931627e0ba2a9b067f7e21d2f4066d62fc0f884d28cdbb98c30ddd68"
       }
     ],
     "mutation_watch": {
@@ -91,10 +91,10 @@
   ],
   "source_backed_journey_proof": {
     "status": "pass",
-    "run_id": "d0ab108521ce4a55ac10275c89266b8d",
+    "run_id": "41212ebabbdc497fa8515a2342559018",
     "trust_model": "local_unsigned_process_evidence",
-    "source_revision": "020589d2afb05d9e96b464ac454cbc8a39d22862",
-    "source_tree": "2134e9bd43c27243914f3c50070fc93be9bf499b",
+    "source_revision": "86c86b4d38b9a9d57cc402c1a95e4bb5e8cbeb59",
+    "source_tree": "c18356f3c84b49c36e723498938ab0085e1f6e29",
     "test_file": "tests/test_product_browser_journeys.py",
     "cases": [
       "test_workspace_pages_render_seeded_product_objects",
@@ -202,15 +202,15 @@
     },
     "browser_identity": null,
     "exit_code": 0,
-    "duration_seconds": 133.759,
+    "duration_seconds": 115.726,
     "output_excerpt": [
       "....                                                                     [100%]",
-      "4 passed in 126.67s (0:02:06)"
+      "4 passed in 93.51s (0:01:33)"
     ],
-    "terminal_summary": "4 passed in 126.67s (0:02:06)",
+    "terminal_summary": "4 passed in 93.51s (0:01:33)",
     "report_format": "junit_xml_embedded",
-    "junit_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><testsuites name=\"pytest tests\"><testsuite name=\"pytest\" errors=\"0\" failures=\"0\" skipped=\"0\" tests=\"4\" time=\"126.675\" timestamp=\"2026-07-14T09:48:51.385094+00:00\" hostname=\"ubuntu\"><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_workspace_pages_render_seeded_product_objects\" time=\"79.027\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_journey_updates_after_approval_and_commitment_closure\" time=\"8.484\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_action_routes_match_rendered_forms\" time=\"8.395\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_handoff_and_people_memory_actions_work\" time=\"4.795\" /></testsuite></testsuites>",
-    "junit_xml_sha256": "3bbf456f93ec607874f9970dca26162ee6bbf0a1d28c5a4e6fe602b3160c7889",
+    "junit_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><testsuites name=\"pytest tests\"><testsuite name=\"pytest\" errors=\"0\" failures=\"0\" skipped=\"0\" tests=\"4\" time=\"93.419\" timestamp=\"2026-07-14T11:15:31.038705+00:00\" hostname=\"ubuntu\"><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_workspace_pages_render_seeded_product_objects\" time=\"21.591\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_journey_updates_after_approval_and_commitment_closure\" time=\"20.678\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_action_routes_match_rendered_forms\" time=\"28.910\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_handoff_and_people_memory_actions_work\" time=\"19.312\" /></testsuite></testsuites>",
+    "junit_xml_sha256": "6b0ff870beb98ac8aa89d7907b2f152bcc55a0be7928f75fe4612a08d22aa9ea",
     "limitations": [],
     "blocking_reasons": [],
     "executed_count": 4,
@@ -243,10 +243,10 @@
   },
   "real_browser_e2e_proof": {
     "status": "pass",
-    "run_id": "d0ab108521ce4a55ac10275c89266b8d",
+    "run_id": "41212ebabbdc497fa8515a2342559018",
     "trust_model": "local_unsigned_process_evidence",
-    "source_revision": "020589d2afb05d9e96b464ac454cbc8a39d22862",
-    "source_tree": "2134e9bd43c27243914f3c50070fc93be9bf499b",
+    "source_revision": "86c86b4d38b9a9d57cc402c1a95e4bb5e8cbeb59",
+    "source_tree": "c18356f3c84b49c36e723498938ab0085e1f6e29",
     "test_file": "tests/e2e/test_product_workflows.py",
     "cases": [
       "test_activation_and_memo_flow_in_real_browser",
@@ -369,7 +369,7 @@
       "sha256": "adc1c21ceed5c2a67184766376fe816ac03e556cc0ca3f782e8212235fe05c6f"
     },
     "exit_code": 0,
-    "duration_seconds": 60.121,
+    "duration_seconds": 154.894,
     "output_excerpt": [
       "..                                                                       [100%]",
       "=============================== warnings summary ===============================",
@@ -380,12 +380,12 @@
       "  /home/tibor/.local/lib/python3.12/site-packages/uvicorn/protocols/websockets/websockets_impl.py:17: DeprecationWarning: websockets.server.WebSocketServerProtocol is deprecated",
       "    from websockets.server import WebSocketServerProtocol",
       "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-      "2 passed, 2 warnings in 56.57s"
+      "2 passed, 2 warnings in 130.92s (0:02:10)"
     ],
-    "terminal_summary": "2 passed, 2 warnings in 56.57s",
+    "terminal_summary": "2 passed, 2 warnings in 130.92s (0:02:10)",
     "report_format": "junit_xml_embedded",
-    "junit_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><testsuites name=\"pytest tests\"><testsuite name=\"pytest\" errors=\"0\" failures=\"0\" skipped=\"0\" tests=\"2\" time=\"56.572\" timestamp=\"2026-07-14T09:51:06.057523+00:00\" hostname=\"ubuntu\"><testcase classname=\"tests.e2e.test_product_workflows\" name=\"test_activation_and_memo_flow_in_real_browser\" time=\"17.717\" /><testcase classname=\"tests.e2e.test_product_workflows\" name=\"test_draft_and_commitment_workflows_in_real_browser\" time=\"37.076\" /></testsuite></testsuites>",
-    "junit_xml_sha256": "cec939f88da5910d9f9023ae39d43983c14acc9227caa8e0270120a023cbe80b",
+    "junit_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><testsuites name=\"pytest tests\"><testsuite name=\"pytest\" errors=\"0\" failures=\"0\" skipped=\"0\" tests=\"2\" time=\"130.916\" timestamp=\"2026-07-14T11:17:27.834493+00:00\" hostname=\"ubuntu\"><testcase classname=\"tests.e2e.test_product_workflows\" name=\"test_activation_and_memo_flow_in_real_browser\" time=\"47.179\" /><testcase classname=\"tests.e2e.test_product_workflows\" name=\"test_draft_and_commitment_workflows_in_real_browser\" time=\"81.795\" /></testsuite></testsuites>",
+    "junit_xml_sha256": "3b2a82955b8b15b519bebae1a213c15b542f2069739dfad16d9d488c462b12af",
     "limitations": [],
     "blocking_reasons": [],
     "executed_count": 2,
