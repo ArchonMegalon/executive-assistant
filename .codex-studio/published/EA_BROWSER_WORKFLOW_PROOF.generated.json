@@ -4,62 +4,62 @@
   "surface": "browser_workflow_proof",
   "version": 3,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-14T08:03:12Z",
+  "generated_at": "2026-07-14T09:32:24Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
-  "run_id": "39402a545a3f421eb73c7c7f6cea9cd3",
+  "run_id": "6ae75b5ea6d44b62a0e81bdb69a3a4e7",
   "trust_model": "local_unsigned_process_evidence",
   "environment_policy": {
     "name": "ea.browser_workflow_proof.hermetic",
     "version": 1
   },
-  "source_revision": "bf60b57f20364a4c7270f4e0a1865e1dd5a6d5e0",
-  "source_tree": "0fd5f3320a2f3754980e60194d9558e91bf6271a",
+  "source_revision": "90afc837e70d7431e0281642b7db3041cc7399aa",
+  "source_tree": "c62216c51cf91e0b12240fbef9bbe9f5145c2255",
   "source_worktree_dirty": false,
   "source_state_samples": [
     {
       "stage": "before_tests",
-      "revision": "bf60b57f20364a4c7270f4e0a1865e1dd5a6d5e0",
-      "tree": "0fd5f3320a2f3754980e60194d9558e91bf6271a",
+      "revision": "90afc837e70d7431e0281642b7db3041cc7399aa",
+      "tree": "c62216c51cf91e0b12240fbef9bbe9f5145c2255",
       "dirty": false
     },
     {
       "stage": "after_source",
-      "revision": "bf60b57f20364a4c7270f4e0a1865e1dd5a6d5e0",
-      "tree": "0fd5f3320a2f3754980e60194d9558e91bf6271a",
+      "revision": "90afc837e70d7431e0281642b7db3041cc7399aa",
+      "tree": "c62216c51cf91e0b12240fbef9bbe9f5145c2255",
       "dirty": false
     },
     {
       "stage": "after_browser",
-      "revision": "bf60b57f20364a4c7270f4e0a1865e1dd5a6d5e0",
-      "tree": "0fd5f3320a2f3754980e60194d9558e91bf6271a",
+      "revision": "90afc837e70d7431e0281642b7db3041cc7399aa",
+      "tree": "c62216c51cf91e0b12240fbef9bbe9f5145c2255",
       "dirty": false
     },
     {
       "stage": "before_publish",
-      "revision": "bf60b57f20364a4c7270f4e0a1865e1dd5a6d5e0",
-      "tree": "0fd5f3320a2f3754980e60194d9558e91bf6271a",
+      "revision": "90afc837e70d7431e0281642b7db3041cc7399aa",
+      "tree": "c62216c51cf91e0b12240fbef9bbe9f5145c2255",
       "dirty": false
     }
   ],
   "snapshot": {
     "archive_format": "git_archive_tar",
     "read_only": true,
-    "source_revision": "bf60b57f20364a4c7270f4e0a1865e1dd5a6d5e0",
-    "source_tree": "0fd5f3320a2f3754980e60194d9558e91bf6271a",
+    "source_revision": "90afc837e70d7431e0281642b7db3041cc7399aa",
+    "source_tree": "c62216c51cf91e0b12240fbef9bbe9f5145c2255",
     "seal_algorithm": "sha256-content-posix-stat-v1",
     "read_only_enforcement": "owner_mode_bits_plus_content_stat_seal_and_inotify_watch",
     "seal_samples": [
       {
         "stage": "before_source",
-        "sha256": "d4ab4e1bc7b1afbe3b0454401a5c981ed7c74e65d6dc50ce76014b86d1f43c2b"
+        "sha256": "56190c8a118ff5084e5592124250571a762939a766bfb2561e904f78432f358a"
       },
       {
         "stage": "after_source",
-        "sha256": "d4ab4e1bc7b1afbe3b0454401a5c981ed7c74e65d6dc50ce76014b86d1f43c2b"
+        "sha256": "56190c8a118ff5084e5592124250571a762939a766bfb2561e904f78432f358a"
       },
       {
         "stage": "after_browser",
-        "sha256": "d4ab4e1bc7b1afbe3b0454401a5c981ed7c74e65d6dc50ce76014b86d1f43c2b"
+        "sha256": "56190c8a118ff5084e5592124250571a762939a766bfb2561e904f78432f358a"
       }
     ],
     "mutation_watch": {
@@ -91,10 +91,10 @@
   ],
   "source_backed_journey_proof": {
     "status": "pass",
-    "run_id": "39402a545a3f421eb73c7c7f6cea9cd3",
+    "run_id": "6ae75b5ea6d44b62a0e81bdb69a3a4e7",
     "trust_model": "local_unsigned_process_evidence",
-    "source_revision": "bf60b57f20364a4c7270f4e0a1865e1dd5a6d5e0",
-    "source_tree": "0fd5f3320a2f3754980e60194d9558e91bf6271a",
+    "source_revision": "90afc837e70d7431e0281642b7db3041cc7399aa",
+    "source_tree": "c62216c51cf91e0b12240fbef9bbe9f5145c2255",
     "test_file": "tests/test_product_browser_journeys.py",
     "cases": [
       "test_workspace_pages_render_seeded_product_objects",
@@ -190,7 +190,7 @@
       "tests/test_product_browser_journeys.py::test_browser_handoff_and_people_memory_actions_work"
     ],
     "python_identity": {
-      "executable": "/docker/EA/.venv/bin/python",
+      "executable": "/home/tibor/.local/share/ea-releases/ea-manfred-main-integration-20260714/.venv/bin/python",
       "sha256": "1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118",
       "version": "3.12.3",
       "dependency_root": "/home/tibor/.local/lib/python3.12/site-packages",
@@ -202,15 +202,15 @@
     },
     "browser_identity": null,
     "exit_code": 0,
-    "duration_seconds": 37.608,
+    "duration_seconds": 21.911,
     "output_excerpt": [
       "....                                                                     [100%]",
-      "4 passed in 31.10s"
+      "4 passed in 18.56s"
     ],
-    "terminal_summary": "4 passed in 31.10s",
+    "terminal_summary": "4 passed in 18.56s",
     "report_format": "junit_xml_embedded",
-    "junit_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><testsuites name=\"pytest tests\"><testsuite name=\"pytest\" errors=\"0\" failures=\"0\" skipped=\"0\" tests=\"4\" time=\"31.102\" timestamp=\"2026-07-14T08:01:20.361638+00:00\" hostname=\"ubuntu\"><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_workspace_pages_render_seeded_product_objects\" time=\"12.999\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_journey_updates_after_approval_and_commitment_closure\" time=\"3.985\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_action_routes_match_rendered_forms\" time=\"4.412\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_handoff_and_people_memory_actions_work\" time=\"3.693\" /></testsuite></testsuites>",
-    "junit_xml_sha256": "326cba4ab2d0be52d0897318efb751438871d26d5a7daf56fff999eb13aa91b1",
+    "junit_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><testsuites name=\"pytest tests\"><testsuite name=\"pytest\" errors=\"0\" failures=\"0\" skipped=\"0\" tests=\"4\" time=\"18.561\" timestamp=\"2026-07-14T09:31:04.498638+00:00\" hostname=\"ubuntu\"><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_workspace_pages_render_seeded_product_objects\" time=\"6.617\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_journey_updates_after_approval_and_commitment_closure\" time=\"1.976\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_action_routes_match_rendered_forms\" time=\"2.713\" /><testcase classname=\"tests.test_product_browser_journeys\" name=\"test_browser_handoff_and_people_memory_actions_work\" time=\"1.485\" /></testsuite></testsuites>",
+    "junit_xml_sha256": "0de0324e191bd2f4231f070753bfe4452a6871ab17c4c38ae29ed3c39dfa9f06",
     "limitations": [],
     "blocking_reasons": [],
     "executed_count": 4,
@@ -243,10 +243,10 @@
   },
   "real_browser_e2e_proof": {
     "status": "pass",
-    "run_id": "39402a545a3f421eb73c7c7f6cea9cd3",
+    "run_id": "6ae75b5ea6d44b62a0e81bdb69a3a4e7",
     "trust_model": "local_unsigned_process_evidence",
-    "source_revision": "bf60b57f20364a4c7270f4e0a1865e1dd5a6d5e0",
-    "source_tree": "0fd5f3320a2f3754980e60194d9558e91bf6271a",
+    "source_revision": "90afc837e70d7431e0281642b7db3041cc7399aa",
+    "source_tree": "c62216c51cf91e0b12240fbef9bbe9f5145c2255",
     "test_file": "tests/e2e/test_product_workflows.py",
     "cases": [
       "test_activation_and_memo_flow_in_real_browser",
@@ -354,7 +354,7 @@
       "tests/e2e/test_product_workflows.py::test_draft_and_commitment_workflows_in_real_browser"
     ],
     "python_identity": {
-      "executable": "/docker/EA/.venv/bin/python",
+      "executable": "/home/tibor/.local/share/ea-releases/ea-manfred-main-integration-20260714/.venv/bin/python",
       "sha256": "1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118",
       "version": "3.12.3",
       "dependency_root": "/home/tibor/.local/lib/python3.12/site-packages",
@@ -369,23 +369,23 @@
       "sha256": "adc1c21ceed5c2a67184766376fe816ac03e556cc0ca3f782e8212235fe05c6f"
     },
     "exit_code": 0,
-    "duration_seconds": 73.059,
+    "duration_seconds": 52.116,
     "output_excerpt": [
       "..                                                                       [100%]",
       "=============================== warnings summary ===============================",
       "tests/e2e/test_product_workflows.py::test_activation_and_memo_flow_in_real_browser",
-      "  /docker/EA/.venv/lib/python3.12/site-packages/websockets/legacy/__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions",
+      "  /home/tibor/.local/share/ea-releases/ea-manfred-main-integration-20260714/.venv/lib/python3.12/site-packages/websockets/legacy/__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions",
       "    warnings.warn(  # deprecated in 14.0 - 2024-11-09",
       "tests/e2e/test_product_workflows.py::test_activation_and_memo_flow_in_real_browser",
       "  /home/tibor/.local/lib/python3.12/site-packages/uvicorn/protocols/websockets/websockets_impl.py:17: DeprecationWarning: websockets.server.WebSocketServerProtocol is deprecated",
       "    from websockets.server import WebSocketServerProtocol",
       "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-      "2 passed, 2 warnings in 64.65s (0:01:04)"
+      "2 passed, 2 warnings in 48.54s"
     ],
-    "terminal_summary": "2 passed, 2 warnings in 64.65s (0:01:04)",
+    "terminal_summary": "2 passed, 2 warnings in 48.54s",
     "report_format": "junit_xml_embedded",
-    "junit_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><testsuites name=\"pytest tests\"><testsuite name=\"pytest\" errors=\"0\" failures=\"0\" skipped=\"0\" tests=\"2\" time=\"64.648\" timestamp=\"2026-07-14T08:01:59.405292+00:00\" hostname=\"ubuntu\"><testcase classname=\"tests.e2e.test_product_workflows\" name=\"test_activation_and_memo_flow_in_real_browser\" time=\"23.255\" /><testcase classname=\"tests.e2e.test_product_workflows\" name=\"test_draft_and_commitment_workflows_in_real_browser\" time=\"39.695\" /></testsuite></testsuites>",
-    "junit_xml_sha256": "806d5226288e3948616b11a22150e95fad69810e817e0a716a13acd6e410e937",
+    "junit_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><testsuites name=\"pytest tests\"><testsuite name=\"pytest\" errors=\"0\" failures=\"0\" skipped=\"0\" tests=\"2\" time=\"48.536\" timestamp=\"2026-07-14T09:31:27.662883+00:00\" hostname=\"ubuntu\"><testcase classname=\"tests.e2e.test_product_workflows\" name=\"test_activation_and_memo_flow_in_real_browser\" time=\"21.707\" /><testcase classname=\"tests.e2e.test_product_workflows\" name=\"test_draft_and_commitment_workflows_in_real_browser\" time=\"23.608\" /></testsuite></testsuites>",
+    "junit_xml_sha256": "1a975a16b58b4c30f49c75a5e5adeafbf80fb5f55ce29455cbbdb98a78a82cb6",
     "limitations": [],
     "blocking_reasons": [],
     "executed_count": 2,
