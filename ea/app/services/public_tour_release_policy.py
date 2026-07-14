@@ -377,6 +377,12 @@ def evaluate_public_tour_generated_viewer_release(
     photo_paths_valid = len(raw_photo_relpaths) == len(photo_relpaths) and len(
         set(photo_relpaths)
     ) == len(photo_relpaths)
+    photo_reference_panel_count = generated.get("photo_reference_panel_count")
+    layout_only = (
+        not raw_photo_relpaths
+        and type(photo_reference_panel_count) is int
+        and photo_reference_panel_count == 0
+    )
     required_assets = [
         (viewer_relpath, "viewer_document", {"text/html"}),
         (manifest_relpath, "reconstruction_manifest", {"application/json"}),
@@ -452,7 +458,10 @@ def evaluate_public_tour_generated_viewer_release(
         _text(generated.get("viewer_version")) == "propertyquarry_3d_tour_viewer_v3",
         viewer_relpath == _safe_relpath(release.get("viewer_relpath")),
         bool(
-            viewer_relpath and manifest_relpath and floorplan_relpath and photo_relpaths
+            viewer_relpath
+            and manifest_relpath
+            and floorplan_relpath
+            and (photo_relpaths or layout_only)
         ),
         photo_paths_valid,
         len(required_paths) == len(required_assets),

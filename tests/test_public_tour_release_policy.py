@@ -262,6 +262,42 @@ def test_generated_viewer_release_requires_every_bound_asset_and_review_receipt(
     )
 
 
+def test_generated_viewer_release_accepts_explicit_layout_only_bundle() -> None:
+    payload = _generated_viewer_payload()
+    generated = payload["generated_reconstruction"]
+    generated.pop("photo_relpaths")
+    generated["photo_reference_panel_count"] = 0
+    payload["generated_viewer_release"]["asset_bindings"] = [
+        row
+        for row in payload["generated_viewer_release"]["asset_bindings"]
+        if row["role"] != "photo_texture"
+    ]
+
+    decision = evaluate_public_tour_generated_viewer_release(payload)
+
+    assert decision["released"] is True
+    assert all(
+        row["role"] != "photo_texture" for row in decision["bindings"].values()
+    )
+
+
+@pytest.mark.parametrize("invalid_count", [False, None, "0", -1, 1])
+def test_generated_viewer_layout_only_marker_fails_closed_when_not_exact_zero(
+    invalid_count: object,
+) -> None:
+    payload = _generated_viewer_payload()
+    generated = payload["generated_reconstruction"]
+    generated.pop("photo_relpaths")
+    generated["photo_reference_panel_count"] = invalid_count
+    payload["generated_viewer_release"]["asset_bindings"] = [
+        row
+        for row in payload["generated_viewer_release"]["asset_bindings"]
+        if row["role"] != "photo_texture"
+    ]
+
+    assert evaluate_public_tour_generated_viewer_release(payload)["released"] is False
+
+
 @pytest.mark.parametrize(
     ("field", "missing_value"),
     [

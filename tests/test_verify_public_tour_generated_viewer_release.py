@@ -164,6 +164,35 @@ def test_verifier_passes_complete_local_release_with_stable_receipt(
     }
 
 
+def test_verifier_passes_explicit_layout_only_release(tmp_path: Path) -> None:
+    bundle = _write_bundle(tmp_path)
+    photo_relpath = "generated-reconstruction/photos/living-room.jpg"
+    (bundle / photo_relpath).unlink()
+    payload = json.loads((bundle / "tour.json").read_text(encoding="utf-8"))
+    generated = payload["generated_reconstruction"]
+    generated.pop("photo_relpaths")
+    generated["photo_reference_panel_count"] = 0
+    payload["generated_viewer_release"]["asset_bindings"] = [
+        row
+        for row in payload["generated_viewer_release"]["asset_bindings"]
+        if row["path"] != photo_relpath
+    ]
+    (bundle / "tour.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    receipt = verifier.verify_bundle(bundle)
+
+    assert receipt["status"] == "pass"
+    assert receipt["pass"] is True
+    assert receipt["blockers"] == []
+    assert receipt["checks"] == {
+        "policy_released": True,
+        "binding_count": 5,
+        "serveable_binding_count": 4,
+        "proof_only_binding_count": 1,
+        "http_verified": False,
+    }
+
+
 def test_verifier_fails_closed_for_mode_digest_and_symlink_drift(
     tmp_path: Path,
 ) -> None:
