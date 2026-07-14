@@ -49,28 +49,24 @@ class _FakeButton:
         self.page = page
         self.index = index
 
-    def count(self) -> int:
-        return 1
-
-    def inner_text(self) -> str:
-        return self.page.labels[self.index]
+    def click(self, *, timeout: int) -> None:
+        assert timeout == browser_gate._ROUTE_ACTIONABILITY_TIMEOUT_MS
+        if self.page.actionability_failure_index == self.index:
+            raise TimeoutError("route remained obstructed")
+        self.page.clicked_indices.append(self.index)
+        self.page.active = self.index
 
     def bounding_box(self) -> dict[str, float]:
-        return {
-            "x": 0.0,
-            "y": float(self.index * 50),
-            "width": 100.0,
-            "height": 44.0,
-        }
+        raise AssertionError("manual bounding-box actionability probes are forbidden")
 
     def is_visible(self) -> bool:
-        return True
+        raise AssertionError("normal Playwright click must prove visibility")
 
     def is_enabled(self) -> bool:
-        return True
+        raise AssertionError("normal Playwright click must prove enabled state")
 
     def evaluate(self, _script: str) -> bool:
-        return True
+        raise AssertionError("manual hit-testing is forbidden")
 
     def get_attribute(self, name: str) -> str:
         assert name == "data-active"
@@ -97,26 +93,19 @@ class _FakeLiveStatus:
         return f"Room route: {self.page.labels[self.page.active]}"
 
 
-class _FakeMouse:
-    def __init__(self, page: _FakePage) -> None:
-        self.page = page
-        self.clicked_indices: list[int] = []
-
-    def click(self, x: float, y: float) -> None:
-        assert x == 50.0
-        index = int(y // 50)
-        assert y == float(index * 50 + 22)
-        assert 0 <= index < len(self.page.labels)
-        self.clicked_indices.append(index)
-        self.page.active = index
-
-
 class _FakePage:
-    def __init__(self, labels: list[str], *, static_pixels: bool = False) -> None:
+    def __init__(
+        self,
+        labels: list[str],
+        *,
+        static_pixels: bool = False,
+        actionability_failure_index: int | None = None,
+    ) -> None:
         self.labels = labels
         self.static_pixels = static_pixels
+        self.actionability_failure_index = actionability_failure_index
         self.active = -1
-        self.mouse = _FakeMouse(self)
+        self.clicked_indices: list[int] = []
 
     def locator(self, selector: str):  # type: ignore[no-untyped-def]
         if selector == "#viewport canvas":
@@ -249,7 +238,45 @@ def test_route_gate_interacts_all_stops_and_binds_unique_camera_pixels() -> None
     assert [row["label"] for row in rows] == LABELS
     assert len({row["camera_canvas_screenshot_sha256"] for row in rows}) == 9
     assert all(row["active_state_verified"] is True for row in rows)
-    assert page.mouse.clicked_indices == [*range(1, 9), 0]
+    assert page.clicked_indices == [*range(1, 9), 0]
+
+
+def test_route_gate_rejects_failed_normal_playwright_actionability() -> None:
+    page = _FakePage(LABELS, actionability_failure_index=4)
+    with pytest.raises(RuntimeError, match="route_actionability_invalid"):
+        browser_gate._route_interactions(page, LABELS)
+    assert page.clicked_indices == [1, 2, 3]
+
+
+@pytest.mark.parametrize(
+    "indices",
+    [
+        [str(index) for index in range(8)],
+        ["0", "1", "2", "3", "4", "5", "6", "7", "7"],
+        ["1", "0", "2", "3", "4", "5", "6", "7", "8"],
+    ],
+)
+def test_route_contract_rejects_missing_duplicate_or_reordered_indices(
+    indices: list[str],
+) -> None:
+    state = {
+        "route_labels": LABELS,
+        "route_indices": indices,
+        "enabled_route_button_count": 9,
+    }
+    with pytest.raises(RuntimeError, match="route_contract_invalid"):
+        browser_gate._assert_route_contract(state, LABELS)
+
+
+def test_route_contract_binds_exact_labels_indices_and_enabled_count() -> None:
+    browser_gate._assert_route_contract(
+        {
+            "route_labels": LABELS,
+            "route_indices": [str(index) for index in range(9)],
+            "enabled_route_button_count": 9,
+        },
+        LABELS,
+    )
 
 
 def test_route_gate_rejects_static_camera_pixels() -> None:

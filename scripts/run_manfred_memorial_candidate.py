@@ -90,6 +90,7 @@ DOCKER_ENV_PASSTHROUGH = (
 EXPECTED_CANDIDATE_NETWORKS = ("backend", "ingress")
 EXPECTED_CANDIDATE_VOLUMES = ("artifacts", "postgres_data", "redis_data")
 EXPECTED_CANDIDATE_SERVICES = ("api", "gateway", "postgres", "redis")
+CANDIDATE_COMPOSE_DOWN_TIMEOUTS = (120, 180)
 PORT_RELEASE_WAIT_SECONDS = 10.0
 PORT_RELEASE_POLL_SECONDS = 0.1
 INTERNAL_TRANSPORT_STATUS_MARKER = "__EA_CANDIDATE_HTTP_STATUS__="
@@ -1460,6 +1461,110 @@ def _assert_candidate_project_absent(project: str) -> dict[str, object]:
     }
 
 
+def _force_remove_candidate_project(project: str) -> None:
+    safe_project = _validate_project_name(project)
+    named = _candidate_named_resources(safe_project)
+    snapshot = _project_snapshot(safe_project)
+    containers = [dict(row) for row in list(snapshot.get("containers") or [])]
+    networks = [dict(row) for row in list(snapshot.get("networks") or [])]
+    volumes = [dict(row) for row in list(snapshot.get("volumes") or [])]
+    expected_container_names = set(named["containers"])
+    expected_network_names = set(named["networks"])
+    expected_volume_names = set(named["volumes"])
+    if any(
+        not str(row.get("container_id") or "")
+        or str(row.get("name") or "") not in expected_container_names
+        or str(row.get("service") or "") not in EXPECTED_CANDIDATE_SERVICES
+        for row in containers
+    ) or any(
+        not str(row.get("network_id") or "")
+        or str(row.get("name") or "") not in expected_network_names
+        or str(row.get("compose_network") or "")
+        not in EXPECTED_CANDIDATE_NETWORKS
+        for row in networks
+    ) or any(
+        str(row.get("name") or "") not in expected_volume_names
+        or str(row.get("compose_volume") or "")
+        not in EXPECTED_CANDIDATE_VOLUMES
+        for row in volumes
+    ):
+        raise RuntimeError("manfred_candidate_forced_cleanup_scope_invalid")
+    if containers:
+        _run(
+            [
+                "docker",
+                "container",
+                "rm",
+                "--force",
+                *[str(row["container_id"]) for row in containers],
+            ],
+            timeout=60,
+        )
+    if networks:
+        _run(
+            [
+                "docker",
+                "network",
+                "rm",
+                *[str(row["network_id"]) for row in networks],
+            ],
+            timeout=60,
+        )
+    if volumes:
+        _run(
+            [
+                "docker",
+                "volume",
+                "rm",
+                *[str(row["name"]) for row in volumes],
+            ],
+            timeout=60,
+        )
+
+
+def _cleanup_candidate_project(
+    *,
+    compose: list[str],
+    environment: dict[str, str],
+    project: str,
+) -> None:
+    safe_project = _validate_project_name(project)
+    if (
+        compose[:2] != ["docker", "compose"]
+        or compose.count("--project-name") != 1
+        or any(
+            value.startswith("-p") or value.startswith("--project-name=")
+            for value in compose
+        )
+        or "COMPOSE_PROJECT_NAME" in environment
+        or "COMPOSE_FILE" in environment
+    ):
+        raise RuntimeError("manfred_candidate_cleanup_scope_invalid")
+    project_index = compose.index("--project-name")
+    if (
+        project_index + 1 >= len(compose)
+        or compose[project_index + 1] != safe_project
+    ):
+        raise RuntimeError("manfred_candidate_cleanup_scope_invalid")
+    down = [
+        *compose,
+        "down",
+        "--volumes",
+        "--remove-orphans",
+        "--timeout",
+        "30",
+    ]
+    for timeout in CANDIDATE_COMPOSE_DOWN_TIMEOUTS:
+        try:
+            _run(down, timeout=timeout, environment=environment)
+            _assert_candidate_project_absent(safe_project)
+            return
+        except BaseException:
+            continue
+    _force_remove_candidate_project(safe_project)
+    _assert_candidate_project_absent(safe_project)
+
+
 def _candidate_preflight(project: str, port: int) -> dict[str, object]:
     evidence = _assert_candidate_project_absent(project)
     _assert_loopback_port_free(port)
@@ -2505,17 +2610,10 @@ def prove_candidate(
             recovery_errors: list[str] = []
             with _shield_cleanup_interrupts():
                 try:
-                    _run(
-                        [
-                            *compose,
-                            "down",
-                            "--volumes",
-                            "--remove-orphans",
-                            "--timeout",
-                            "30",
-                        ],
-                        timeout=120,
+                    _cleanup_candidate_project(
+                        compose=compose,
                         environment=compose_environment,
+                        project=project,
                     )
                 except BaseException:
                     recovery_errors.append("candidate_compose_down_failed")

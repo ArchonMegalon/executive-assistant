@@ -1559,7 +1559,182 @@ def test_cleanup_reports_persistent_bound_port_without_weakening_absence_proof(
             wait_seconds=60,
         )
 
+    assert absence_checks == [PROJECT, PROJECT]
+
+
+def test_candidate_cleanup_retries_bounded_compose_down_after_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[tuple[list[str], int, dict[str, str]]] = []
+    attempts = 0
+
+    def run(
+        argv: list[str],
+        *,
+        timeout: int,
+        environment: dict[str, str],
+    ) -> bytes:
+        nonlocal attempts
+        commands.append((list(argv), timeout, dict(environment)))
+        attempts += 1
+        if attempts == 1:
+            raise runner.subprocess.TimeoutExpired(argv, timeout)
+        return b""
+
+    absence_checks: list[str] = []
+    monkeypatch.setattr(runner, "_run", run)
+    monkeypatch.setattr(
+        runner,
+        "_assert_candidate_project_absent",
+        lambda project: absence_checks.append(project) or {},
+    )
+
+    runner._cleanup_candidate_project(
+        compose=["docker", "compose", "--project-name", PROJECT],
+        environment={"PATH": "/usr/bin:/bin"},
+        project=PROJECT,
+    )
+
+    assert [timeout for _argv, timeout, _environment in commands] == [120, 180]
+    assert all("down" in argv and "--volumes" in argv for argv, _t, _e in commands)
+    assert all(
+        argv[argv.index("--project-name") + 1] == PROJECT
+        for argv, _timeout, _environment in commands
+    )
+    assert all(
+        environment == {"PATH": "/usr/bin:/bin"}
+        for _argv, _timeout, environment in commands
+    )
     assert absence_checks == [PROJECT]
+
+
+def test_persistent_compose_timeout_uses_exact_candidate_label_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshot = {
+        "project": PROJECT,
+        "containers": [
+            {
+                "container_id": "candidate-api-id",
+                "name": f"{PROJECT}-api-1",
+                "service": "api",
+            }
+        ],
+        "networks": [
+            {
+                "network_id": "candidate-backend-id",
+                "name": f"{PROJECT}_backend",
+                "compose_network": "backend",
+            }
+        ],
+        "volumes": [
+            {
+                "name": f"{PROJECT}_artifacts",
+                "compose_volume": "artifacts",
+            }
+        ],
+    }
+    commands: list[tuple[list[str], int]] = []
+
+    def run(argv: list[str], *, timeout: int, **_kwargs: object) -> bytes:
+        commands.append((list(argv), timeout))
+        if "down" in argv:
+            raise runner.subprocess.TimeoutExpired(argv, timeout)
+        return b""
+
+    monkeypatch.setattr(runner, "_run", run)
+    monkeypatch.setattr(runner, "_project_snapshot", lambda project: snapshot)
+    monkeypatch.setattr(
+        runner, "_assert_candidate_project_absent", lambda _project: {}
+    )
+
+    runner._cleanup_candidate_project(
+        compose=["docker", "compose", "--project-name", PROJECT],
+        environment={"PATH": "/usr/bin:/bin"},
+        project=PROJECT,
+    )
+
+    assert [timeout for argv, timeout in commands if "down" in argv] == [120, 180]
+    destructive = [argv for argv, _timeout in commands if "down" not in argv]
+    assert destructive == [
+        ["docker", "container", "rm", "--force", "candidate-api-id"],
+        ["docker", "network", "rm", "candidate-backend-id"],
+        ["docker", "volume", "rm", f"{PROJECT}_artifacts"],
+    ]
+    assert not any("ea-api" in value for argv in destructive for value in argv)
+
+
+def test_forced_cleanup_rejects_scope_mismatch_before_any_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hostile = {
+        "project": PROJECT,
+        "containers": [
+            {
+                "container_id": "live-api-id",
+                "name": "ea-api",
+                "service": "api",
+            }
+        ],
+        "networks": [],
+        "volumes": [],
+    }
+    commands: list[list[str]] = []
+    monkeypatch.setattr(runner, "_project_snapshot", lambda _project: hostile)
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda argv, **_kwargs: commands.append(list(argv)) or b"",
+    )
+
+    with pytest.raises(RuntimeError, match="forced_cleanup_scope_invalid"):
+        runner._force_remove_candidate_project(PROJECT)
+    assert commands == []
+
+
+@pytest.mark.parametrize(
+    ("compose", "environment"),
+    [
+        (["docker", "compose", "--project-name", "ea"], {}),
+        (
+            ["docker", "compose", "--project-name", PROJECT, "-p", "ea"],
+            {},
+        ),
+        (
+            ["docker", "compose", "--project-name", PROJECT, "-p=ea"],
+            {},
+        ),
+        (
+            ["docker", "compose", "--project-name", PROJECT, "-pea"],
+            {},
+        ),
+        (
+            ["docker", "compose", "--project-name", PROJECT],
+            {"COMPOSE_PROJECT_NAME": "ea"},
+        ),
+    ],
+)
+def test_candidate_cleanup_rejects_hostile_compose_scope_before_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    compose: list[str],
+    environment: dict[str, str],
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda argv, **_kwargs: commands.append(list(argv)) or b"",
+    )
+    with pytest.raises(
+        (RuntimeError, ValueError),
+        match="candidate_(cleanup_scope|project_name)_invalid",
+    ):
+        runner._cleanup_candidate_project(
+            compose=compose,
+            environment=environment,
+            project=PROJECT,
+        )
+    assert commands == []
 
 
 def test_post_start_keyboard_interrupt_cleans_candidate_and_is_preserved(
@@ -1664,6 +1839,11 @@ def test_second_interrupt_cannot_abort_bounded_cleanup(
         runner,
         "_assert_candidate_project_absent",
         lambda project: absence_checked.append(project) or {},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_force_remove_candidate_project",
+        lambda _project: (_ for _ in ()).throw(KeyboardInterrupt()),
     )
     monkeypatch.setattr(runner, "_assert_loopback_port_free", lambda _port: None)
 

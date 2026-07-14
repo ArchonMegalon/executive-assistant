@@ -48,6 +48,7 @@ _SINGLETON_EVIDENCE_HEADERS = frozenset(
     }
 )
 _EXPECTED_ROUTE_STOP_COUNT = 9
+_ROUTE_ACTIONABILITY_TIMEOUT_MS = 30_000
 _MAX_HTTP_BYTES = 8 * 1024 * 1024
 _REQUEST_MEDIA_TYPES = {
     "floorplan": "image/png",
@@ -162,6 +163,7 @@ _VIEWER_STATE_SCRIPT = """
     canvas_role: canvas ? String(canvas.getAttribute('role') || '') : '',
     canvas_label: canvas ? String(canvas.getAttribute('aria-label') || '') : '',
     route_labels: routeButtons.map((button) => String(button.textContent || '').trim()),
+    route_indices: routeButtons.map((button) => String(button.dataset.routeIndex || '')),
     enabled_route_button_count: routeButtons.filter((button) => !button.disabled).length,
     button_count: document.querySelectorAll('button').length,
     enabled_button_count: document.querySelectorAll('button:not([disabled])').length,
@@ -816,42 +818,12 @@ def _route_interactions(page: object, expected_labels: list[str]) -> list[dict[s
         label = expected_labels[index]
         selector = f".route-button[data-route-index='{index}']"
         button = page.locator(selector)  # type: ignore[attr-defined]
-        button_lines = [
-            line.strip() for line in button.inner_text().splitlines() if line.strip()
-        ]
-        if button.count() != 1 or label not in button_lines:
-            raise RuntimeError("manfred_candidate_spatial_browser_route_contract_invalid")
-        button.evaluate(
-            "element => element.scrollIntoView({block: 'center', inline: 'center'})"
-        )
-        bounds = button.bounding_box()
-        unobstructed = button.evaluate(
-            """
-element => {
-  const rect = element.getBoundingClientRect();
-  const top = document.elementFromPoint(
-    rect.left + rect.width / 2,
-    rect.top + rect.height / 2,
-  );
-  return Boolean(top && (top === element || element.contains(top)));
-}
-"""
-        )
-        if (
-            not button.is_visible()
-            or not button.is_enabled()
-            or not isinstance(bounds, dict)
-            or float(bounds.get("width") or 0) < 44
-            or float(bounds.get("height") or 0) < 44
-            or unobstructed is not True
-        ):
+        try:
+            button.click(timeout=_ROUTE_ACTIONABILITY_TIMEOUT_MS)
+        except Exception as exc:
             raise RuntimeError(
                 "manfred_candidate_spatial_browser_route_actionability_invalid"
-            )
-        page.mouse.click(  # type: ignore[attr-defined]
-            float(bounds["x"]) + float(bounds["width"]) / 2,
-            float(bounds["y"]) + float(bounds["height"]) / 2,
-        )
+            ) from exc
         state_ready = False
         for _attempt in range(50):
             active = page.locator(  # type: ignore[attr-defined]
@@ -918,6 +890,19 @@ element => {
     if len(observed_digests) != _EXPECTED_ROUTE_STOP_COUNT:
         raise RuntimeError("manfred_candidate_spatial_browser_camera_state_static")
     return sorted(rows, key=lambda row: int(row["index"]))
+
+
+def _assert_route_contract(
+    state: dict[str, object], expected_labels: list[str]
+) -> None:
+    expected_indices = [str(index) for index in range(_EXPECTED_ROUTE_STOP_COUNT)]
+    if (
+        list(state.get("route_labels") or []) != expected_labels
+        or list(state.get("route_indices") or []) != expected_indices
+        or int(state.get("enabled_route_button_count") or 0)
+        != _EXPECTED_ROUTE_STOP_COUNT
+    ):
+        raise RuntimeError("manfred_candidate_spatial_browser_route_contract_invalid")
 
 
 def _wait_for_viewer_status(
@@ -1206,12 +1191,7 @@ def _audit_surface(
             or not str(state.get("canvas_label") or "").strip()
         ):
             raise RuntimeError("manfred_candidate_spatial_browser_canvas_invalid")
-        if (
-            list(state.get("route_labels") or []) != expected_labels
-            or int(state.get("enabled_route_button_count") or 0)
-            != _EXPECTED_ROUTE_STOP_COUNT
-        ):
-            raise RuntimeError("manfred_candidate_spatial_browser_route_contract_invalid")
+        _assert_route_contract(state, expected_labels)
         if state.get("undersized_target_count") != 0:
             raise RuntimeError("manfred_candidate_spatial_browser_target_size_invalid")
         if state.get("fallback_visible") is not False:
