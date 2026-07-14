@@ -11,7 +11,6 @@ from app.api.routes.public_memorial_surface_support import (
     _load_memorial,
     _load_private_profile,
     _memorial_archive_publication_html_path,
-    _memorial_archive_publication_redirect_url,
     _memorial_html,
     _memorial_pwa_icon_file,
     _memorial_pwa_icon_svg,
@@ -142,16 +141,59 @@ def public_memorial_archive_index(slug: str, request: Request) -> HTMLResponse:
         return _public_surface_html_error_response(exc.status_code, str(exc.detail))
 
 
+def _authorized_public_memorial_archive_publication(
+    slug: str,
+    publication_slug: str,
+) -> dict[str, object] | None:
+    registry = _public_memorial_archive_registry(slug)
+    for raw_item in list(registry.get("fliplink_publications") or []):
+        if not isinstance(raw_item, dict):
+            continue
+        try:
+            registered_slug = _safe_slug(
+                str(raw_item.get("slug") or raw_item.get("id") or "")
+            )
+        except HTTPException:
+            continue
+        if registered_slug != publication_slug:
+            continue
+        if (
+            raw_item.get("approved") is not True
+            or str(raw_item.get("audience") or "").strip().lower() != "public"
+            or str(raw_item.get("sensitivity") or "").strip().upper() != "PUBLIC"
+            or str(raw_item.get("review_status") or "").strip().lower()
+            != "published"
+            or not str(raw_item.get("url") or "").strip()
+        ):
+            continue
+        return dict(raw_item)
+    return None
+
+
 @router.get("/memorials/{slug}/archive/{publication_slug}")
 def public_memorial_archive_publication(slug: str, publication_slug: str) -> Response:
     try:
         _load_memorial(slug)
+        safe_slug = _safe_slug(slug)
+        safe_publication_slug = _safe_slug(publication_slug)
+        publication = _authorized_public_memorial_archive_publication(
+            safe_slug,
+            safe_publication_slug,
+        )
     except HTTPException as exc:
         return _public_surface_html_error_response(exc.status_code, str(exc.detail))
-    html_path = _memorial_archive_publication_html_path(slug, publication_slug)
+    if publication is None:
+        return _public_surface_html_error_response(
+            404,
+            "memorial_archive_publication_not_found",
+        )
+    html_path = _memorial_archive_publication_html_path(
+        safe_slug,
+        safe_publication_slug,
+    )
     if not html_path.is_file():
-        redirect_url = _memorial_archive_publication_redirect_url(slug, publication_slug)
-        if redirect_url:
+        redirect_url = str(publication.get("url") or "").strip()
+        if redirect_url.startswith("https://"):
             return RedirectResponse(
                 url=redirect_url,
                 status_code=307,
