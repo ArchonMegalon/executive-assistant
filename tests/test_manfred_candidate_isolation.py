@@ -363,11 +363,16 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
         "asset_paths": [],
         "viewer_relpath": "",
         "proof_relpath": "",
-        "authority_receipt_sha256": "",
-        "transformed_manifest_pre_authority_sha256": "",
-        "normalization": "",
+        "route_labels": [],
+        "upstream_publication_authority": {},
+        "upstream_publication_authority_sha256": "",
+        "upstream_public_activation_authority": False,
+        "upstream_package_sha256": "",
+        "upstream_tour_manifest_sha256": "",
+        "pre_authority_manifest_canonical_sha256": "",
+        "review_evidence": {},
         "source_verifier": {},
-        "candidate_handoff_only": True,
+        "candidate_handoff_authorized": False,
         "public_activation_authority": False,
     }
     spatial_receipt_path.write_bytes(prepare._receipt_bytes(spatial_receipt))
@@ -399,6 +404,8 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
                 "spatial_receipt_sha256": prepare._sha256(
                     prepare._receipt_bytes(spatial_receipt)
                 ),
+                "spatial_upstream_public_activation_authority": False,
+                "spatial_ea_public_activation_authority": False,
             }
         )
         + "\n",
@@ -425,7 +432,7 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
             "receipt_path": str(spatial_receipt_path),
             "receipt_sha256": prepare._sha256(prepare._receipt_bytes(spatial_receipt)),
             "projection_tree_revalidated": True,
-            "public_activation_authority": False,
+            "ea_public_activation_authority": False,
         },
     }
 

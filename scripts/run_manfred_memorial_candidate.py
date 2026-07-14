@@ -25,18 +25,17 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.prepare_manfred_memorial_candidate import (  # noqa: E402
-    SPATIAL_AUTHORITY_SCHEMA,
-    SPATIAL_AUTHORITY_SCOPE,
-    SPATIAL_MANIFEST_NORMALIZATION,
+    PROPERTY_AUTHORITY_SHA256,
+    PROPERTY_PUBLICATION_AUTHORITY_SCHEMA,
     SPATIAL_PROJECTION_SCHEMA,
     SPATIAL_SLUG_RE,
     _canonical_json_bytes,
     _parse_env,
     _receipt_bytes,
-    _sanitized_spatial_manifest,
     _sha256,
-    _spatial_pre_authority_manifest_bytes,
+    _spatial_tree_snapshot,
     _tree_digest,
+    _validated_property_publication,
     _validate_project_name,
 )
 from scripts.verify_public_tour_generated_viewer_release import (  # noqa: E402
@@ -45,6 +44,9 @@ from scripts.verify_public_tour_generated_viewer_release import (  # noqa: E402
 from scripts.verify_manfred_memorial_candidate import (  # noqa: E402
     audit_browser_surface,
     verify_candidate,
+)
+from scripts.verify_manfred_spatial_candidate_browser import (  # noqa: E402
+    audit_spatial_candidate_browser,
 )
 
 
@@ -690,7 +692,6 @@ def _spatial_projection_evidence(
         or receipt.get("schema") != SPATIAL_PROJECTION_SCHEMA
         or receipt.get("status") != "pass"
         or receipt.get("release_id") != release_id
-        or receipt.get("candidate_handoff_only") is not True
         or receipt.get("public_activation_authority") is not False
         or receipt.get("spatial_release_root") != str(spatial_root)
         or projection_receipt.get("spatial_receipt_sha256") != _sha256(receipt_bytes)
@@ -702,10 +703,13 @@ def _spatial_projection_evidence(
     if (
         receipt.get("spatial_handoff_included") is not included
         or projection_receipt.get("spatial_handoff_included") is not included
+        or receipt.get("candidate_handoff_authorized") is not included
         or receipt.get("slug") != slug
         or projection_receipt.get("spatial_slug") != slug
         or receipt.get("spatial_projection_sha256") != digest
         or projection_receipt.get("spatial_projection_sha256") != digest
+        or projection_receipt.get("spatial_ea_public_activation_authority")
+        is not False
     ):
         raise RuntimeError("manfred_candidate_spatial_projection_receipt_mismatch")
     try:
@@ -734,67 +738,83 @@ def _spatial_projection_evidence(
         "receipt_path": str(receipt_path),
         "receipt_sha256": _sha256(receipt_bytes),
         "projection_tree_revalidated": True,
-        "public_activation_authority": False,
+        "ea_public_activation_authority": False,
     }
     if not included:
-        if slug or observed_files or receipt.get("asset_paths"):
+        if (
+            slug
+            or observed_files
+            or receipt.get("asset_paths")
+            or receipt.get("upstream_publication_authority")
+            or receipt.get("upstream_public_activation_authority") is not False
+            or projection_receipt.get(
+                "spatial_upstream_public_activation_authority"
+            )
+            is not False
+        ):
             raise RuntimeError("manfred_candidate_spatial_empty_projection_invalid")
         return evidence
 
     asset_paths = list(receipt.get("asset_paths") or [])
     viewer_relpath = str(receipt.get("viewer_relpath") or "")
     proof_relpath = str(receipt.get("proof_relpath") or "")
-    authority_sha256 = str(receipt.get("authority_receipt_sha256") or "")
-    authority_receipt = dict(receipt.get("authority_receipt") or {})
+    upstream_authority = dict(
+        receipt.get("upstream_publication_authority") or {}
+    )
+    authority_bytes = _canonical_json_bytes(upstream_authority)
+    authority_sha256 = str(
+        receipt.get("upstream_publication_authority_sha256") or ""
+    )
+    upstream_package_sha256 = str(receipt.get("upstream_package_sha256") or "")
+    upstream_tour_sha256 = str(
+        receipt.get("upstream_tour_manifest_sha256") or ""
+    )
     pre_authority_sha256 = str(
-        receipt.get("transformed_manifest_pre_authority_sha256") or ""
+        receipt.get("pre_authority_manifest_canonical_sha256") or ""
     )
     expected_paths = {f"{slug}/tour.json", *(f"{slug}/{path}" for path in asset_paths)}
     if (
         len(asset_paths) != 5
         or len(observed_files) != 6
         or {str(row.get("path") or "") for row in observed_files} != expected_paths
-        or receipt.get("normalization") != SPATIAL_MANIFEST_NORMALIZATION
-        or authority_receipt.get("schema") != SPATIAL_AUTHORITY_SCHEMA
-        or authority_receipt.get("status") != "pass"
-        or authority_receipt.get("scope") != SPATIAL_AUTHORITY_SCOPE
-        or authority_receipt.get("candidate_handoff_authorized") is not True
-        or authority_receipt.get("public_activation_authority") is not False
-        or authority_receipt.get("slug") != slug
-        or authority_receipt.get("target_origin") != env["EA_PUBLIC_APP_BASE_URL"]
-        or authority_receipt.get("normalization") != SPATIAL_MANIFEST_NORMALIZATION
-        or authority_receipt.get("asset_paths") != asset_paths
-        or authority_receipt.get("transformed_manifest_pre_authority_sha256")
-        != pre_authority_sha256
-        or _sha256(_receipt_bytes(authority_receipt)) != authority_sha256
-        or len(authority_sha256) != 64
-        or any(character not in "0123456789abcdef" for character in authority_sha256)
-        or len(pre_authority_sha256) != 64
-        or any(
-            character not in "0123456789abcdef" for character in pre_authority_sha256
+        or upstream_authority.get("schema")
+        != PROPERTY_PUBLICATION_AUTHORITY_SCHEMA
+        or upstream_authority.get("status") != "authorized"
+        or upstream_authority.get("public_activation_authority") is not True
+        or receipt.get("upstream_public_activation_authority") is not True
+        or projection_receipt.get(
+            "spatial_upstream_public_activation_authority"
         )
+        is not True
+        or _sha256(authority_bytes) != authority_sha256
+        or authority_sha256 != PROPERTY_AUTHORITY_SHA256
     ):
         raise RuntimeError("manfred_candidate_spatial_projection_contract_invalid")
     bundle = spatial_root / slug
     try:
-        manifest_bytes = (bundle / "tour.json").read_bytes()
-        manifest = json.loads(manifest_bytes)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RuntimeError("manfred_candidate_spatial_manifest_invalid") from exc
-    if not isinstance(manifest, dict):
-        raise RuntimeError("manfred_candidate_spatial_manifest_invalid")
-    release = dict(manifest.get("generated_viewer_release") or {})
-    canonical_final = _canonical_json_bytes(
-        _sanitized_spatial_manifest(
-            manifest,
-            authority_receipt_sha256=authority_sha256,
+        snapshot = _spatial_tree_snapshot(
+            bundle, require_sanitized_modes=False
         )
-    )
+        validated = _validated_property_publication(
+            snapshot=snapshot,
+            authority_bytes=authority_bytes,
+            target_origin=env["EA_PUBLIC_APP_BASE_URL"],
+        )
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("manfred_candidate_spatial_authority_binding_invalid") from exc
     if (
-        manifest_bytes != canonical_final
-        or release.get("publication_authority_receipt_sha256") != authority_sha256
-        or _sha256(_spatial_pre_authority_manifest_bytes(manifest))
+        validated.get("slug") != slug
+        or validated.get("asset_paths") != asset_paths
+        or validated.get("viewer_relpath") != viewer_relpath
+        or validated.get("proof_relpath") != proof_relpath
+        or validated.get("route_labels") != list(receipt.get("route_labels") or [])
+        or validated.get("upstream_publication_authority_sha256")
+        != authority_sha256
+        or validated.get("upstream_package_sha256") != upstream_package_sha256
+        or validated.get("upstream_tour_manifest_sha256") != upstream_tour_sha256
+        or validated.get("pre_authority_manifest_canonical_sha256")
         != pre_authority_sha256
+        or validated.get("review_evidence") != receipt.get("review_evidence")
     ):
         raise RuntimeError("manfred_candidate_spatial_authority_binding_invalid")
     verifier_receipt = verify_spatial_bundle(bundle, slug=slug)
@@ -808,8 +828,12 @@ def _spatial_projection_evidence(
             "asset_paths": asset_paths,
             "viewer_relpath": viewer_relpath,
             "proof_relpath": proof_relpath,
-            "authority_receipt_sha256": authority_sha256,
-            "transformed_manifest_pre_authority_sha256": pre_authority_sha256,
+            "route_labels": validated["route_labels"],
+            "upstream_publication_authority_sha256": authority_sha256,
+            "upstream_package_sha256": upstream_package_sha256,
+            "upstream_tour_manifest_sha256": upstream_tour_sha256,
+            "pre_authority_manifest_canonical_sha256": pre_authority_sha256,
+            "upstream_public_activation_authority": True,
             "local_release_verifier": verifier_receipt,
         }
     )
@@ -1537,7 +1561,8 @@ def _spatial_handoff_runtime_proof(
         return {
             "included": False,
             "routes_required": False,
-            "public_activation_authority": False,
+            "ea_public_activation_authority": False,
+            "upstream_public_activation_authority": False,
         }
     slug = str(spatial.get("slug") or "")
     viewer_relpath = str(spatial.get("viewer_relpath") or "")
@@ -1595,15 +1620,36 @@ def _spatial_handoff_runtime_proof(
     )
     if verifier_receipt.get("pass") is not True:
         raise RuntimeError("manfred_candidate_spatial_http_verifier_blocked")
+    browser_receipt = audit_spatial_candidate_browser(
+        base_url=base_url,
+        slug=slug,
+        viewer_relpath=viewer_relpath,
+        route_labels=list(spatial.get("route_labels") or []),
+        candidate_commit=str(projection.get("projection_commit") or ""),
+        package_sha256=str(
+            spatial.get("upstream_package_sha256")
+            or spatial.get("projection_sha256")
+            or ""
+        ),
+    )
+    if (
+        browser_receipt.get("status") != "pass"
+        or browser_receipt.get("all_route_stops_interacted") is not True
+        or browser_receipt.get("camera_state_changes_verified") is not True
+        or browser_receipt.get("required_asset_requests_verified") is not True
+    ):
+        raise RuntimeError("manfred_candidate_spatial_browser_gate_blocked")
     return {
         "included": True,
         "routes_required": True,
         "slug": slug,
         "routes": routes,
         "generated_viewer_release_verifier": verifier_receipt,
+        "candidate_browser_gate": browser_receipt,
         "html_json_viewer_200": True,
         "proof_only_404": True,
-        "public_activation_authority": False,
+        "ea_public_activation_authority": False,
+        "upstream_public_activation_authority": True,
     }
 
 

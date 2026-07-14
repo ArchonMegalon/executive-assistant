@@ -1,0 +1,668 @@
+#!/usr/bin/env python3
+"""Fail-closed Playwright gate for a live Manfred spatial candidate."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+from pathlib import PurePosixPath
+import urllib.parse
+
+
+RECEIPT_SCHEMA = "ea.manfred_spatial_candidate_browser.v1"
+_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
+_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_EXPECTED_ROUTE_STOP_COUNT = 9
+_SURFACES = (
+    ("desktop", 1440, 1000, False, False, False),
+    ("mobile", 390, 844, True, False, False),
+    ("reduced_motion", 1200, 900, False, True, True),
+    ("webgl_fallback", 1200, 900, False, False, False),
+)
+_WEBGL_FALLBACK_INIT = """
+(() => {
+  const original = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function(kind, ...args) {
+    const normalized = String(kind || '').toLowerCase();
+    if (normalized === 'webgl' || normalized === 'webgl2' ||
+        normalized === 'experimental-webgl') {
+      return null;
+    }
+    return original.call(this, kind, ...args);
+  };
+})();
+"""
+_VIEWER_STATE_SCRIPT = """
+() => {
+  const root = document.documentElement;
+  const canvas = document.querySelector('#viewport canvas');
+  const routeButtons = Array.from(document.querySelectorAll('.route-button'));
+  const visibleEnabledButtons = Array.from(document.querySelectorAll('button:not([disabled])'))
+    .filter((button) => {
+      const rect = button.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+  const horizontalOverflow = Math.max(
+    0,
+    root.scrollWidth - root.clientWidth,
+    document.body ? document.body.scrollWidth - document.body.clientWidth : 0,
+  );
+  const rect = canvas ? canvas.getBoundingClientRect() : null;
+  return {
+    viewer_status: String(root.dataset.viewerStatus || ''),
+    horizontal_overflow_px: Math.ceil(horizontalOverflow),
+    canvas_count: document.querySelectorAll('#viewport canvas').length,
+    canvas_visible: Boolean(
+      canvas && rect && rect.width > 0 && rect.height > 0 &&
+      getComputedStyle(canvas).visibility !== 'hidden' &&
+      getComputedStyle(canvas).display !== 'none'
+    ),
+    canvas_role: canvas ? String(canvas.getAttribute('role') || '') : '',
+    canvas_label: canvas ? String(canvas.getAttribute('aria-label') || '') : '',
+    route_labels: routeButtons.map((button) => String(button.textContent || '').trim()),
+    enabled_route_button_count: routeButtons.filter((button) => !button.disabled).length,
+    button_count: document.querySelectorAll('button').length,
+    enabled_button_count: document.querySelectorAll('button:not([disabled])').length,
+    undersized_target_count: visibleEnabledButtons.filter((button) => {
+      const rect = button.getBoundingClientRect();
+      return rect.width < 44 || rect.height < 44;
+    }).length,
+    fallback_visible: Boolean(
+      document.querySelector('#viewer-fallback') &&
+      document.querySelector('#viewer-fallback').getBoundingClientRect().height > 0
+    ),
+    fallback_role: String(document.querySelector('#viewer-fallback')?.getAttribute('role') || ''),
+    fallback_text: String(document.querySelector('#viewer-fallback')?.textContent || '').trim(),
+    live_status_role: String(document.querySelector('#viewer-live-status')?.getAttribute('role') || ''),
+    live_status_text: String(document.querySelector('#viewer-live-status')?.textContent || '').trim(),
+    reduced_motion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+  };
+}
+"""
+def _safe_slug(value: object) -> str:
+    slug = str(value or "").strip()
+    if not _SLUG_RE.fullmatch(slug) or slug in {".", ".."}:
+        raise ValueError("manfred_candidate_spatial_browser_slug_invalid")
+    return slug
+
+
+def _safe_viewer_relpath(value: object) -> str:
+    raw = str(value or "").strip().replace("\\", "/")
+    path = PurePosixPath(raw)
+    if (
+        path.is_absolute()
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or raw != "generated-reconstruction/viewer.html"
+    ):
+        raise ValueError("manfred_candidate_spatial_browser_viewer_path_invalid")
+    return raw
+
+
+def _loopback_base_url(value: object) -> str:
+    normalized = str(value or "").strip().rstrip("/")
+    parsed = urllib.parse.urlsplit(normalized)
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname not in {"127.0.0.1", "::1"}
+        or parsed.username
+        or parsed.password
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("manfred_candidate_spatial_browser_base_url_invalid")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError(
+            "manfred_candidate_spatial_browser_base_url_invalid"
+        ) from exc
+    if port is None or not 1024 <= port <= 65535:
+        raise ValueError("manfred_candidate_spatial_browser_base_url_invalid")
+    return normalized
+
+
+def _route_labels(value: object) -> list[str]:
+    labels = list(value) if isinstance(value, (list, tuple)) else []
+    if (
+        len(labels) != _EXPECTED_ROUTE_STOP_COUNT
+        or len(set(str(label) for label in labels)) != _EXPECTED_ROUTE_STOP_COUNT
+        or any(
+            not isinstance(label, str)
+            or not label.strip()
+            or label != label.strip()
+            or len(label) > 80
+            or not label.isprintable()
+            for label in labels
+        )
+    ):
+        raise ValueError("manfred_candidate_spatial_browser_route_labels_invalid")
+    return [str(label) for label in labels]
+
+
+def _commit(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if not _COMMIT_RE.fullmatch(normalized):
+        raise ValueError("manfred_candidate_spatial_browser_commit_invalid")
+    return normalized
+
+
+def _package_sha256(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if not _SHA256_RE.fullmatch(normalized):
+        raise ValueError("manfred_candidate_spatial_browser_package_digest_invalid")
+    return normalized
+
+
+def _overflow(page: object) -> int:
+    return int(
+        page.evaluate(  # type: ignore[attr-defined]
+            """
+() => Math.ceil(Math.max(
+  0,
+  document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  document.body ? document.body.scrollWidth - document.body.clientWidth : 0,
+))
+"""
+        )
+    )
+
+
+def _required_request_paths(slug: str) -> dict[str, str]:
+    quoted_slug = urllib.parse.quote(slug, safe="")
+    prefix = f"/tours/viewer/{quoted_slug}/generated-reconstruction"
+    return {
+        "floorplan": f"{prefix}/source-floorplan.png",
+        "orbit_controls": (
+            f"{prefix}/vendor/examples/jsm/controls/OrbitControls.js"
+        ),
+        "three_module": f"{prefix}/vendor/three.module.js",
+    }
+
+
+def _request_evidence(
+    observed: dict[str, dict[str, object]], expected: dict[str, str]
+) -> dict[str, dict[str, object]]:
+    evidence: dict[str, dict[str, object]] = {}
+    for role, path in sorted(expected.items()):
+        row = dict(observed.get(path) or {})
+        if int(row.get("status") or 0) != 200:
+            raise RuntimeError(
+                "manfred_candidate_spatial_browser_asset_request_failed"
+            )
+        evidence[role] = {
+            "path": path,
+            "status": 200,
+            "content_type": str(row.get("content_type") or "")[:120],
+        }
+    return evidence
+
+
+def _route_interactions(page: object, expected_labels: list[str]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    observed_digests: set[str] = set()
+    interaction_order = [*range(1, len(expected_labels)), 0]
+    for index in interaction_order:
+        label = expected_labels[index]
+        selector = f".route-button[data-route-index='{index}']"
+        button = page.locator(selector)  # type: ignore[attr-defined]
+        button_lines = [
+            line.strip() for line in button.inner_text().splitlines() if line.strip()
+        ]
+        if button.count() != 1 or label not in button_lines:
+            raise RuntimeError("manfred_candidate_spatial_browser_route_contract_invalid")
+        button.evaluate(
+            "element => element.scrollIntoView({block: 'center', inline: 'center'})"
+        )
+        bounds = button.bounding_box()
+        unobstructed = button.evaluate(
+            """
+element => {
+  const rect = element.getBoundingClientRect();
+  const top = document.elementFromPoint(
+    rect.left + rect.width / 2,
+    rect.top + rect.height / 2,
+  );
+  return Boolean(top && (top === element || element.contains(top)));
+}
+"""
+        )
+        if (
+            not button.is_visible()
+            or not button.is_enabled()
+            or not isinstance(bounds, dict)
+            or float(bounds.get("width") or 0) < 44
+            or float(bounds.get("height") or 0) < 44
+            or unobstructed is not True
+        ):
+            raise RuntimeError(
+                "manfred_candidate_spatial_browser_route_actionability_invalid"
+            )
+        button.click(force=True, no_wait_after=True, timeout=5_000)
+        state_ready = False
+        for _attempt in range(50):
+            active = page.locator(  # type: ignore[attr-defined]
+                f".route-button[data-route-index='{index}']"
+            ).get_attribute(
+                "data-active"
+            )
+            live = page.locator("#viewer-live-status").inner_text()  # type: ignore[attr-defined]
+            if active == "true" and label in live:
+                state_ready = True
+                break
+            page.wait_for_timeout(100)  # type: ignore[attr-defined]
+        if not state_ready:
+            raise RuntimeError(
+                "manfred_candidate_spatial_browser_route_state_unchanged"
+            )
+        page.evaluate(  # type: ignore[attr-defined]
+            "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
+        )
+        canvas = page.locator("#viewport canvas")  # type: ignore[attr-defined]
+        bounds = canvas.bounding_box()
+        if (
+            not isinstance(bounds, dict)
+            or float(bounds.get("width") or 0) <= 0
+            or float(bounds.get("height") or 0) <= 0
+        ):
+            raise RuntimeError("manfred_candidate_spatial_browser_camera_probe_failed")
+        screenshot = page.screenshot(  # type: ignore[attr-defined]
+            animations="disabled",
+            caret="hide",
+            clip={
+                "x": float(bounds["x"]),
+                "y": float(bounds["y"]),
+                "width": float(bounds["width"]),
+                "height": float(bounds["height"]),
+            },
+            timeout=15_000,
+        )
+        if not screenshot:
+            raise RuntimeError("manfred_candidate_spatial_browser_camera_probe_failed")
+        digest = hashlib.sha256(bytes(screenshot)).hexdigest()
+        if digest in observed_digests:
+            raise RuntimeError("manfred_candidate_spatial_browser_camera_state_static")
+        observed_digests.add(digest)
+        rows.append(
+            {
+                "index": index,
+                "label": label,
+                "active_state_verified": True,
+                "live_region_verified": True,
+                "playwright_actionability_verified": True,
+                "click_handler_state_change_verified": True,
+                "camera_canvas_screenshot_sha256": digest,
+            }
+        )
+    if len(observed_digests) != _EXPECTED_ROUTE_STOP_COUNT:
+        raise RuntimeError("manfred_candidate_spatial_browser_camera_state_static")
+    return sorted(rows, key=lambda row: int(row["index"]))
+
+
+def _audit_landing(browser: object, *, url: str, viewer_path: str) -> dict[str, object]:
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})  # type: ignore[attr-defined]
+    try:
+        page = context.new_page()
+        page_errors: list[bool] = []
+        console_errors: list[bool] = []
+        page.on("pageerror", lambda _error: page_errors.append(True))
+        page.on(
+            "console",
+            lambda message: (
+                console_errors.append(True) if message.type == "error" else None
+            ),
+        )
+        response = page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_timeout(250)
+        status = int(response.status if response is not None else 0)
+        source = page.content()
+        if (
+            status != 200
+            or page_errors
+            or console_errors
+            or _overflow(page) != 0
+            or viewer_path not in source
+        ):
+            raise RuntimeError("manfred_candidate_spatial_browser_landing_failed")
+        return {
+            "path": urllib.parse.urlsplit(url).path,
+            "status": 200,
+            "horizontal_overflow_px": 0,
+            "viewer_route_referenced": True,
+            "page_error_count": 0,
+            "console_error_count": 0,
+        }
+    finally:
+        context.close()
+
+
+def _audit_surface(
+    browser: object,
+    *,
+    base_url: str,
+    viewer_path: str,
+    surface: tuple[str, int, int, bool, bool, bool],
+    expected_labels: list[str],
+    required_paths: dict[str, str],
+) -> dict[str, object]:
+    name, width, height, is_mobile, reduced_motion, collect_routes = surface
+    context = browser.new_context(  # type: ignore[attr-defined]
+        viewport={"width": width, "height": height},
+        is_mobile=is_mobile,
+        reduced_motion="reduce" if reduced_motion else "no-preference",
+    )
+    try:
+        if name == "webgl_fallback":
+            context.add_init_script(_WEBGL_FALLBACK_INIT)
+        page = context.new_page()
+        page.set_default_timeout(15_000)
+        page_errors: list[bool] = []
+        console_errors: list[bool] = []
+        request_failures: list[bool] = []
+        viewer_subtree_non_2xx: list[bool] = []
+        observed_requests: dict[str, dict[str, object]] = {}
+        expected_origin = urllib.parse.urlsplit(base_url).netloc
+        viewer_prefix = viewer_path.rsplit("/", 1)[0] + "/"
+        page.on("pageerror", lambda _error: page_errors.append(True))
+        page.on(
+            "console",
+            lambda message: (
+                console_errors.append(True) if message.type == "error" else None
+            ),
+        )
+
+        def record_response(response: object) -> None:
+            parsed = urllib.parse.urlsplit(str(response.url))  # type: ignore[attr-defined]
+            path = parsed.path
+            status_code = int(response.status)  # type: ignore[attr-defined]
+            if (
+                parsed.netloc == expected_origin
+                and path.startswith(viewer_prefix)
+                and not 200 <= status_code < 300
+            ):
+                viewer_subtree_non_2xx.append(True)
+            if path not in required_paths.values():
+                return
+            headers = response.headers  # type: ignore[attr-defined]
+            observed_requests[path] = {
+                "status": status_code,
+                "content_type": str(headers.get("content-type") or ""),
+            }
+
+        def record_request_failure(request: object) -> None:
+            parsed = urllib.parse.urlsplit(str(request.url))  # type: ignore[attr-defined]
+            if parsed.netloc == expected_origin and parsed.path.startswith(
+                viewer_prefix
+            ):
+                request_failures.append(True)
+
+        page.on("response", record_response)
+        page.on("requestfailed", record_request_failure)
+        response = page.goto(
+            f"{base_url}{viewer_path}",
+            wait_until="domcontentloaded",
+            timeout=30_000,
+        )
+        status = int(response.status if response is not None else 0)
+        if name == "webgl_fallback":
+            page.wait_for_function(
+                "document.documentElement.dataset.viewerStatus === 'not-ready'",
+                timeout=15_000,
+            )
+        else:
+            page.wait_for_function(
+                "document.documentElement.dataset.viewerStatus === 'ready'",
+                timeout=20_000,
+            )
+        page.wait_for_timeout(250)
+        state = dict(page.evaluate(_VIEWER_STATE_SCRIPT))
+        if (
+            status != 200
+            or page_errors
+            or console_errors
+            or request_failures
+            or viewer_subtree_non_2xx
+        ):
+            raise RuntimeError("manfred_candidate_spatial_browser_surface_failed")
+        if int(state.get("horizontal_overflow_px") or 0) != 0:
+            raise RuntimeError("manfred_candidate_spatial_browser_overflow")
+        if bool(state.get("reduced_motion")) is not reduced_motion:
+            raise RuntimeError("manfred_candidate_spatial_browser_motion_mismatch")
+        if name == "webgl_fallback":
+            if (
+                state.get("viewer_status") != "not-ready"
+                or state.get("fallback_visible") is not True
+                or state.get("fallback_role") != "alert"
+                or "3d preview is unavailable"
+                not in str(state.get("fallback_text") or "").lower()
+                or "floorplan"
+                not in str(state.get("fallback_text") or "").lower()
+                or state.get("live_status_role") != "status"
+                or "unavailable"
+                not in str(state.get("live_status_text") or "").lower()
+                or state.get("enabled_route_button_count") != 0
+                or state.get("enabled_button_count") != 0
+                or int(state.get("button_count") or 0) < 18
+            ):
+                raise RuntimeError("manfred_candidate_spatial_browser_fallback_failed")
+            return {
+                "status": 200,
+                "viewport": {"width": width, "height": height},
+                "viewer_status": "not-ready",
+                "fallback_visible": True,
+                "enabled_route_button_count": 0,
+                "enabled_button_count": 0,
+                "alert_role": "alert",
+                "live_status_role": "status",
+                "accessible_fallback_verified": True,
+                "horizontal_overflow_px": 0,
+                "page_error_count": 0,
+                "console_error_count": 0,
+            }
+        if state.get("viewer_status") != "ready":
+            raise RuntimeError("manfred_candidate_spatial_browser_viewer_not_ready")
+        if (
+            int(state.get("canvas_count") or 0) != 1
+            or state.get("canvas_visible") is not True
+            or state.get("canvas_role") != "img"
+            or not str(state.get("canvas_label") or "").strip()
+        ):
+            raise RuntimeError("manfred_candidate_spatial_browser_canvas_invalid")
+        if (
+            list(state.get("route_labels") or []) != expected_labels
+            or int(state.get("enabled_route_button_count") or 0)
+            != _EXPECTED_ROUTE_STOP_COUNT
+        ):
+            raise RuntimeError("manfred_candidate_spatial_browser_route_contract_invalid")
+        if state.get("undersized_target_count") != 0:
+            raise RuntimeError("manfred_candidate_spatial_browser_target_size_invalid")
+        if state.get("fallback_visible") is not False:
+            raise RuntimeError("manfred_candidate_spatial_browser_fallback_state_invalid")
+        requests = _request_evidence(observed_requests, required_paths)
+        route_rows = (
+            _route_interactions(page, expected_labels) if collect_routes else []
+        )
+        return {
+            "status": 200,
+            "viewport": {"width": width, "height": height},
+            "mobile": is_mobile,
+            "prefers_reduced_motion": reduced_motion,
+            "viewer_status": "ready",
+            "canvas_ready": True,
+            "route_stop_count": _EXPECTED_ROUTE_STOP_COUNT,
+            "undersized_target_count": 0,
+            "required_requests": requests,
+            "route_interactions": route_rows,
+            "route_interaction_count": len(route_rows),
+            "camera_state_changes_verified": bool(route_rows),
+            "horizontal_overflow_px": 0,
+            "page_error_count": 0,
+            "console_error_count": 0,
+            "request_failure_count": 0,
+            "viewer_subtree_non_2xx_count": 0,
+        }
+    finally:
+        context.close()
+
+
+def audit_spatial_candidate_browser(
+    *,
+    base_url: str,
+    slug: str,
+    viewer_relpath: str,
+    route_labels: list[str],
+    candidate_commit: str,
+    package_sha256: str,
+) -> dict[str, object]:
+    normalized_base_url = _loopback_base_url(base_url)
+    normalized_slug = _safe_slug(slug)
+    normalized_viewer = _safe_viewer_relpath(viewer_relpath)
+    expected_labels = _route_labels(route_labels)
+    normalized_commit = _commit(candidate_commit)
+    normalized_package_sha256 = _package_sha256(package_sha256)
+    quoted_slug = urllib.parse.quote(normalized_slug, safe="")
+    viewer_path = (
+        f"/tours/viewer/{quoted_slug}/"
+        f"{urllib.parse.quote(normalized_viewer, safe='/')}"
+    )
+    landing_path = f"/tours/{quoted_slug}"
+    required_paths = _required_request_paths(normalized_slug)
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_playwright_unavailable"
+        ) from exc
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch(
+                headless=True,
+                args=["--disable-dev-shm-usage"],
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "manfred_candidate_spatial_browser_launch_failed"
+            ) from exc
+        try:
+            landing = _audit_landing(
+                browser,
+                url=f"{normalized_base_url}{landing_path}",
+                viewer_path=viewer_path,
+            )
+            proof_context = browser.new_context()
+            try:
+                proof_path = viewer_path.rsplit("/", 1)[0] + "/reconstruction.json"
+                proof_response = proof_context.request.get(
+                    f"{normalized_base_url}{proof_path}",
+                    fail_on_status_code=False,
+                    timeout=15_000,
+                )
+                if int(proof_response.status) != 404:
+                    raise RuntimeError(
+                        "manfred_candidate_spatial_browser_proof_route_exposed"
+                    )
+                proof_manifest = {
+                    "path": proof_path,
+                    "status": 404,
+                    "serveable": False,
+                }
+            finally:
+                proof_context.close()
+            surfaces = {
+                surface[0]: _audit_surface(
+                    browser,
+                    base_url=normalized_base_url,
+                    viewer_path=viewer_path,
+                    surface=surface,
+                    expected_labels=expected_labels,
+                    required_paths=required_paths,
+                )
+                for surface in _SURFACES
+            }
+        finally:
+            browser.close()
+    reduced = dict(surfaces["reduced_motion"])
+    fallback = dict(surfaces["webgl_fallback"])
+    if (
+        int(reduced.get("route_interaction_count") or 0)
+        != _EXPECTED_ROUTE_STOP_COUNT
+        or reduced.get("camera_state_changes_verified") is not True
+        or fallback.get("fallback_visible") is not True
+    ):
+        raise RuntimeError("manfred_candidate_spatial_browser_gate_failed")
+    return {
+        "schema": RECEIPT_SCHEMA,
+        "status": "pass",
+        "slug": normalized_slug,
+        "candidate_commit": normalized_commit,
+        "package_sha256": normalized_package_sha256,
+        "landing": landing,
+        "proof_manifest": proof_manifest,
+        "viewer_path": viewer_path,
+        "surfaces": surfaces,
+        "surface_count": len(surfaces),
+        "route_stop_count": _EXPECTED_ROUTE_STOP_COUNT,
+        "all_route_stops_interacted": True,
+        "camera_state_changes_verified": True,
+        "required_asset_requests_verified": True,
+        "responsive_overflow_verified": True,
+        "page_error_count": 0,
+        "console_error_count": 0,
+        "request_failure_count": 0,
+        "viewer_subtree_non_2xx_count": 0,
+        "secret_material_recorded": False,
+    }
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Run the live Playwright gate for one Manfred spatial candidate."
+    )
+    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--slug", required=True)
+    parser.add_argument("--viewer-relpath", required=True)
+    parser.add_argument("--candidate-commit", required=True)
+    parser.add_argument("--package-sha256", required=True)
+    parser.add_argument(
+        "--route-label",
+        action="append",
+        dest="route_labels",
+        required=True,
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        receipt = audit_spatial_candidate_browser(
+            base_url=args.base_url,
+            slug=args.slug,
+            viewer_relpath=args.viewer_relpath,
+            route_labels=list(args.route_labels or []),
+            candidate_commit=args.candidate_commit,
+            package_sha256=args.package_sha256,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(
+            json.dumps(
+                {
+                    "schema": RECEIPT_SCHEMA,
+                    "status": "fail",
+                    "error": str(exc)[:200],
+                    "secret_material_recorded": False,
+                },
+                sort_keys=True,
+            )
+        )
+        return 1
+    print(json.dumps(receipt, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

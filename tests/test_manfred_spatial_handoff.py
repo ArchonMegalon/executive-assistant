@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
 import stat
 
 import pytest
@@ -10,9 +12,6 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.api.routes import public_tours
-from app.services.public_tour_release_policy import (
-    PUBLIC_TOUR_GENERATED_VIEWER_RELEASE_CONTRACT,
-)
 from scripts import prepare_manfred_memorial_candidate as prepare
 from scripts import run_manfred_memorial_candidate as runner
 from scripts import verify_public_tour_generated_viewer_release as verifier
@@ -20,8 +19,15 @@ from scripts import verify_public_tour_generated_viewer_release as verifier
 
 SLUG = "generated-viewer-tour"
 TARGET_ORIGIN = "https://myexternalbrain.com"
-SOURCE_COMMIT = "a" * 40
+ARTIFACT_COMMIT = "a" * 40
+PACKAGER_COMMIT = "c" * 40
 USER_INSTRUCTION_SHA256 = "b" * 64
+RAW_RECONSTRUCTION_SHA256 = "d" * 64
+ROUTE_LABELS = [f"Stop {index}" for index in range(1, 10)]
+DISCLOSURE = (
+    "Generated interactive reconstruction from the supplied floor plan. "
+    "It is not a captured or provider-verified 3D scan."
+)
 
 
 def _request(path: str) -> Request:
@@ -41,16 +47,124 @@ def _request(path: str) -> Request:
     )
 
 
-def _assets() -> dict[str, bytes]:
+def _surface(*, fallback: bool = False) -> dict[str, object]:
     return {
-        "generated-reconstruction/viewer.html": (
-            b"<!doctype html><canvas aria-label='Layout'></canvas>"
+        "http_status": 200,
+        "viewerStatus": "not-ready" if fallback else "ready",
+        "page_errors": [],
+        "console_errors": [],
+        "horizontalOverflowPx": 0,
+        "undersizedTargets": [],
+        "alertRole": "alert",
+        "alertVisible": fallback,
+        "enabledInteractiveControlCount": 0 if fallback else 19,
+    }
+
+
+def _write_private_json(path: Path, payload: dict[str, object]) -> bytes:
+    content = (
+        json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8") + b"\n"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    path.chmod(0o600)
+    return content
+
+
+def _build_property_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Path, Path, dict[str, bytes]]:
+    browser_receipt = {
+        "schema": "propertyquarry.exact_viewer_browser_audit.v3",
+        "slug": SLUG,
+        "status": "pass",
+        "failures": [],
+        "viewer_sha256": "",
+        "reconstruction_sha256": RAW_RECONSTRUCTION_SHA256,
+        "surfaces": {
+            "desktop": _surface(),
+            "mobile": _surface(),
+            "reduced-motion": _surface(),
+            "webgl-fallback": _surface(fallback=True),
+        },
+    }
+    viewer = b"<!doctype html><canvas aria-label='Layout'></canvas>"
+    floorplan = b"floorplan-png"
+    browser_receipt["viewer_sha256"] = hashlib.sha256(viewer).hexdigest()
+    browser_path = tmp_path / "evidence" / "browser.json"
+    browser_bytes = _write_private_json(browser_path, browser_receipt)
+    browser_sha256 = hashlib.sha256(browser_bytes).hexdigest()
+
+    final_receipt = {
+        "schema": "propertyquarry.flagship_3d_review_receipt.v1",
+        "slug": SLUG,
+        "status": "polished_review_candidate_pass_guarded_not_published",
+        "source": {"commit": ARTIFACT_COMMIT, "worktree_clean": True},
+        "review_bundle": {
+            "viewer_sha256": hashlib.sha256(viewer).hexdigest(),
+            "reconstruction_sha256": RAW_RECONSTRUCTION_SHA256,
+            "floorplan_sha256": hashlib.sha256(floorplan).hexdigest(),
+            "runtime_publish_required": False,
+            "runtime_publish_ok": True,
+            "verified_provider_capture": False,
+            "satisfies_verified_tour_gate": False,
+        },
+        "visual_verification": {
+            "browser_receipt_sha256": browser_sha256,
+            "browser_status": "pass",
+            "browser_failures": [],
+            "route_status": "pass",
+            "route_failures": [],
+            "route_stop_count": 9,
+            "surfaces": [
+                "desktop",
+                "mobile",
+                "reduced-motion",
+                "webgl-fallback",
+            ],
+        },
+        "verification": {
+            "property_generated_reconstruction": {"result": "pass"},
+            "property_tour_control_and_importers": {"result": "pass"},
+            "independent_camera_geometry_accessibility_review": {
+                "result": "approved"
+            },
+            "independent_runtime_publish_safety_review": {"result": "approved"},
+        },
+        "live_guard": {
+            "runtime_mutation_detected": False,
+            "all_observed_product_routes_guarded_404": True,
+        },
+    }
+    final_path = tmp_path / "evidence" / "final.json"
+    final_bytes = _write_private_json(final_path, final_receipt)
+    final_sha256 = hashlib.sha256(final_bytes).hexdigest()
+
+    proof = {
+        "schema": prepare.PROPERTY_RECONSTRUCTION_SCHEMA,
+        "slug": SLUG,
+        "source_commit": ARTIFACT_COMMIT,
+        "synthetic": True,
+        "capture_mode": False,
+        "verified_provider_capture": False,
+        "satisfies_verified_tour_gate": False,
+        "route_labels": ROUTE_LABELS,
+        "floorplan": {
+            "source_path": (
+                f"property://{prepare.PROPERTY_REPOSITORY}/{ARTIFACT_COMMIT}/"
+                "floorplan-apartment-crop.png"
+            ),
+            "sha256": hashlib.sha256(floorplan).hexdigest(),
+        },
+        "viewer": {"sha256": hashlib.sha256(viewer).hexdigest()},
+    }
+    assets = {
+        "generated-reconstruction/viewer.html": viewer,
+        "generated-reconstruction/reconstruction.json": prepare._canonical_json_bytes(
+            proof
         ),
-        "generated-reconstruction/reconstruction.json": (
-            b'{"viewer_version":"propertyquarry_3d_tour_viewer_v3",'
-            b'"floorplan":{"source_path":"pcloud://property/source/floorplan.png"}}'
-        ),
-        "generated-reconstruction/source-floorplan.png": b"floorplan-png",
+        "generated-reconstruction/source-floorplan.png": floorplan,
         "generated-reconstruction/vendor/three.module.js": (
             b"export const Scene = class {};"
         ),
@@ -58,207 +172,544 @@ def _assets() -> dict[str, bytes]:
             b"export class OrbitControls {}"
         ),
     }
-
-
-def _raw_payload() -> dict[str, object]:
-    assets = _assets()
-    roles = {
-        "generated-reconstruction/viewer.html": ("text/html", "viewer_document"),
-        "generated-reconstruction/reconstruction.json": (
+    specs = (
+        ("generated-reconstruction/viewer.html", "text/html", "viewer_document"),
+        (
+            "generated-reconstruction/reconstruction.json",
             "application/json",
             "reconstruction_manifest",
         ),
-        "generated-reconstruction/source-floorplan.png": (
+        (
+            "generated-reconstruction/source-floorplan.png",
             "image/png",
             "floorplan_texture",
         ),
-        "generated-reconstruction/vendor/three.module.js": (
+        (
+            "generated-reconstruction/vendor/three.module.js",
             "text/javascript",
             "viewer_module",
         ),
-        "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js": (
+        (
+            "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
             "text/javascript",
             "viewer_module",
         ),
+    )
+    bindings = [
+        {
+            "path": path,
+            "sha256": hashlib.sha256(assets[path]).hexdigest(),
+            "size_bytes": len(assets[path]),
+            "mime_type": mime_type,
+            "role": role,
+        }
+        for path, mime_type, role in specs
+    ]
+    generated = {
+        "provider": "propertyquarry_generated_reconstruction",
+        "synthetic": True,
+        "capture_mode": False,
+        "verified_provider_capture": False,
+        "satisfies_verified_tour_gate": False,
+        "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+        "viewer_relpath": "generated-reconstruction/viewer.html",
+        "manifest_relpath": "generated-reconstruction/reconstruction.json",
+        "floorplan_relpath": "generated-reconstruction/source-floorplan.png",
+        "photo_relpaths": [],
+        "photo_reference_panel_count": 0,
+        "route_labels": ROUTE_LABELS,
+        "room_stop_count": 9,
+        "disclosure": DISCLOSURE,
     }
-    return {
+    release = {
+        "contract": "ea.public-tour-generated-viewer-release.v1",
+        "status": "ready",
+        "provider": "propertyquarry_generated_reconstruction",
+        "viewer_relpath": "generated-reconstruction/viewer.html",
+        "asset_bindings": bindings,
+        "browser_receipt_sha256": browser_sha256,
+        "source_provenance_receipt_sha256": final_sha256,
+        "publication_authority_receipt_sha256": None,
+        "security_review_receipt_sha256": final_sha256,
+        "accessibility_review_receipt_sha256": final_sha256,
+        "browser_interaction_verified": True,
+        "visual_quality_review_passed": True,
+        "security_review_passed": True,
+        "accessibility_review_passed": True,
+        "source_provenance_verified": True,
+        "publication_authority_verified": True,
+        "public_activation_authority": True,
+        "release_revision": "property-test-release-v1",
+        "disclosure": DISCLOSURE,
+        "synthetic": True,
+        "capture_mode": False,
+        "verified_provider_capture": False,
+        "satisfies_verified_tour_gate": False,
+        "revoked": False,
+        "disqualified": False,
+    }
+    tour = {
+        "schema": prepare.PROPERTY_PUBLIC_TOUR_PACKAGE_SCHEMA,
         "slug": SLUG,
-        "title": "Flagship layout tour",
-        "display_title": "Flagship layout tour",
-        "creation_mode": "generated_3d_reconstruction",
-        "scene_strategy": "layout_first_generated_reconstruction",
-        "principal_id": "must-not-survive-sanitization",
-        "recipient_email": "must-not-survive@example.test",
-        "facts": {"exact_address": "must-not-survive", "rooms": 3},
-        "scenes": [{"asset_relpath": "private/raw-photo.jpg"}],
-        "generated_reconstruction": {
-            "provider": "propertyquarry_generated_reconstruction",
+        "source_commit": ARTIFACT_COMMIT,
+        "synthetic": True,
+        "scene_strategy": "generated_layout_reconstruction",
+        "creation_mode": "propertyquarry_governed_publication",
+        "generated_reconstruction": generated,
+        "generated_viewer_release": release,
+        "route_labels": ROUTE_LABELS,
+    }
+    pre_authority_sha256 = hashlib.sha256(
+        prepare._canonical_json_bytes_without_lf(tour)
+    ).hexdigest()
+    expected_paths = sorted({"tour.json", *assets})
+    review_rows = {
+        "flagship_final": {
+            "schema": final_receipt["schema"],
+            "status": final_receipt["status"],
+            "sha256": final_sha256,
+        },
+        "exact_viewer_browser": {
+            "schema": browser_receipt["schema"],
+            "status": browser_receipt["status"],
+            "sha256": browser_sha256,
+        },
+    }
+    authority = {
+        "schema": prepare.PROPERTY_PUBLICATION_AUTHORITY_SCHEMA,
+        "status": "authorized",
+        "owner": prepare.PROPERTY_AUTHORITY_OWNER,
+        "repository": prepare.PROPERTY_REPOSITORY,
+        "slug": SLUG,
+        "public_activation_authority": True,
+        "publication_authority_verified": True,
+        "user_instruction_sha256": USER_INSTRUCTION_SHA256,
+        "allowed_public_origins": sorted(prepare.PROPERTY_ALLOWED_PUBLIC_ORIGINS),
+        "source": {
+            "artifact_commit": ARTIFACT_COMMIT,
+            "packager_commit": PACKAGER_COMMIT,
+            "worktree_clean": True,
+        },
+        "classification": {
+            "synthetic": True,
+            "capture_mode": False,
             "verified_provider_capture": False,
             "satisfies_verified_tour_gate": False,
-            "viewer_version": "propertyquarry_3d_tour_viewer_v3",
-            "viewer_relpath": "generated-reconstruction/viewer.html",
-            "manifest_relpath": "generated-reconstruction/reconstruction.json",
-            "floorplan_relpath": "generated-reconstruction/source-floorplan.png",
-            "photo_reference_panel_count": 0,
+            "disclosure": DISCLOSURE,
         },
-        "generated_viewer_release": {
-            "contract": PUBLIC_TOUR_GENERATED_VIEWER_RELEASE_CONTRACT,
-            "status": "ready",
-            "provider": "propertyquarry_generated_reconstruction",
-            "viewer_relpath": "generated-reconstruction/viewer.html",
-            "asset_bindings": [
-                {
-                    "path": path,
-                    "sha256": hashlib.sha256(content).hexdigest(),
-                    "size_bytes": len(content),
-                    "mime_type": roles[path][0],
-                    "role": roles[path][1],
-                }
-                for path, content in assets.items()
-            ],
-            "browser_receipt_sha256": "1" * 64,
-            "source_provenance_receipt_sha256": "2" * 64,
-            "publication_authority_receipt_sha256": None,
-            "security_review_receipt_sha256": "4" * 64,
-            "accessibility_review_receipt_sha256": "5" * 64,
-            "browser_interaction_verified": True,
-            "visual_quality_review_passed": True,
-            "security_review_passed": True,
-            "accessibility_review_passed": True,
-            "source_provenance_verified": True,
-            "publication_authority_verified": True,
-            "release_revision": "release-2026-07-14.1",
-            "disclosure": (
-                "Generated interactive reconstruction; not a captured or "
-                "provider-verified 3D scan."
+        "review_receipts": review_rows,
+        "package": {
+            "public_bundle_relpath": f"public_property_tours/{SLUG}",
+            "public_file_relpaths": expected_paths,
+            "public_file_count": 6,
+            "pre_authority_manifest_canonicalization": (
+                prepare.PROPERTY_PRE_AUTHORITY_CANONICALIZATION
             ),
-            "revoked": False,
-            "disqualified": False,
+            "pre_authority_manifest_canonical_sha256": pre_authority_sha256,
+            "asset_bindings": bindings,
         },
     }
+    authority_bytes = prepare._canonical_json_bytes(authority)
+    authority_sha256 = hashlib.sha256(authority_bytes).hexdigest()
+    release["publication_authority_receipt_sha256"] = authority_sha256
+    tour_bytes = prepare._canonical_json_bytes(tour)
+    snapshot = {"tour.json": tour_bytes, **assets}
 
-
-def _write_raw_bundle(tmp_path: Path) -> Path:
-    bundle = tmp_path / "raw" / SLUG
-    bundle.mkdir(parents=True, mode=0o700)
-    for relpath, content in _assets().items():
+    bundle = tmp_path / "property" / "public_property_tours" / SLUG
+    bundle.mkdir(parents=True)
+    for relpath, content in snapshot.items():
         target = bundle / relpath
-        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
-        target.chmod(0o600)
-    (bundle / "tour.json").write_text(json.dumps(_raw_payload()), encoding="utf-8")
-    (bundle / "tour.json").chmod(0o600)
-    extra = bundle / "generated-reconstruction" / "model.obj"
-    extra.write_bytes(b"safe raw input ignored by the positive allowlist")
-    extra.chmod(0o600)
-    return bundle
+        target.chmod(0o644)
+    for path in [bundle, *bundle.rglob("*")]:
+        if path.is_dir():
+            path.chmod(0o755)
+    authority_path = tmp_path / "property" / "publication-authority" / f"{SLUG}.json"
+    authority_path.parent.mkdir(parents=True)
+    authority_path.write_bytes(authority_bytes)
+    authority_path.chmod(0o600)
+
+    patched = {
+        "PROPERTY_AUTHORIZED_SLUG": SLUG,
+        "PROPERTY_ARTIFACT_COMMIT": ARTIFACT_COMMIT,
+        "PROPERTY_PACKAGER_COMMIT": PACKAGER_COMMIT,
+        "PROPERTY_USER_INSTRUCTION_SHA256": USER_INSTRUCTION_SHA256,
+        "PROPERTY_FINAL_REVIEW_SHA256": final_sha256,
+        "PROPERTY_BROWSER_REVIEW_SHA256": browser_sha256,
+        "PROPERTY_AUTHORITY_SHA256": authority_sha256,
+        "PROPERTY_TOUR_SHA256": hashlib.sha256(tour_bytes).hexdigest(),
+        "PROPERTY_PRE_AUTHORITY_SHA256": pre_authority_sha256,
+        "PROPERTY_FINAL_REVIEW_RECEIPT": final_path,
+        "PROPERTY_BROWSER_REVIEW_RECEIPT": browser_path,
+    }
+    for name, value in patched.items():
+        monkeypatch.setattr(prepare, name, value)
+    monkeypatch.setattr(runner, "PROPERTY_AUTHORITY_SHA256", authority_sha256)
+    return bundle, authority_path, snapshot
 
 
-def _materialize(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
-    raw = _write_raw_bundle(tmp_path)
-    sanitized = tmp_path / "sanitized" / SLUG
-    authority = tmp_path / "receipts" / "spatial-authority.json"
-    receipt = prepare.materialize_spatial_handoff_authority(
-        source_bundle_dir=raw,
-        sanitized_bundle_dir=sanitized,
-        authority_receipt_path=authority,
-        slug=SLUG,
-        source_commit=SOURCE_COMMIT,
-        target_origin=TARGET_ORIGIN,
-        user_instruction_sha256=USER_INSTRUCTION_SHA256,
-    )
-    return sanitized, authority, receipt
-
-
-def test_materializer_emits_exact_sanitized_bundle_and_bound_private_receipt(
+def _materialize(
     tmp_path: Path,
-) -> None:
-    sanitized, authority, receipt = _materialize(tmp_path)
-
-    assert stat.S_IMODE(authority.stat().st_mode) == 0o600
-    assert receipt["public_activation_authority"] is False
-    assert receipt["scope"] == prepare.SPATIAL_AUTHORITY_SCOPE
-    assert receipt["sanitized_file_count"] == 6
-    assert (
-        receipt["authority_receipt_sha256"]
-        == hashlib.sha256(authority.read_bytes()).hexdigest()
-    )
-    files = {
-        path.relative_to(sanitized).as_posix()
-        for path in sanitized.rglob("*")
-        if path.is_file()
-    }
-    assert files == {"tour.json", *_assets().keys()}
-    assert all(
-        stat.S_IMODE(path.stat().st_mode) == 0o644
-        for path in sanitized.rglob("*")
-        if path.is_file()
-    )
-    final_manifest = json.loads((sanitized / "tour.json").read_bytes())
-    assert "principal_id" not in final_manifest
-    assert "recipient_email" not in final_manifest
-    assert final_manifest["facts"] == {}
-    assert final_manifest["scenes"] == []
-    assert (
-        final_manifest["generated_viewer_release"][
-            "publication_authority_receipt_sha256"
-        ]
-        == receipt["authority_receipt_sha256"]
-    )
-    assert verifier.verify_bundle(sanitized, slug=SLUG)["pass"] is True
-    validated = prepare._validated_spatial_handoff_input(
-        bundle_dir=sanitized,
-        authority_receipt_path=authority,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Path, Path, Path, dict[str, object], dict[str, bytes]]:
+    source, authority, snapshot = _build_property_package(tmp_path, monkeypatch)
+    handoff_bundle = tmp_path / "handoff" / "public_property_tours" / SLUG
+    handoff_receipt = tmp_path / "handoff" / "receipts" / "handoff.json"
+    receipt = prepare.materialize_spatial_handoff(
+        source_bundle_dir=source,
+        upstream_authority_receipt_path=authority,
+        handoff_bundle_dir=handoff_bundle,
+        handoff_receipt_path=handoff_receipt,
         target_origin=TARGET_ORIGIN,
     )
-    assert validated["slug"] == SLUG
-    assert validated["authority_receipt_sha256"] == receipt["authority_receipt_sha256"]
+    return handoff_bundle, handoff_receipt, authority, receipt, snapshot
 
 
-def test_materializer_is_deterministic_for_identical_inputs(tmp_path: Path) -> None:
-    first_bundle, first_authority, _first = _materialize(tmp_path / "first")
-    second_bundle, second_authority, _second = _materialize(tmp_path / "second")
-
-    assert first_authority.read_bytes() == second_authority.read_bytes()
-    assert {
-        path.relative_to(first_bundle).as_posix(): path.read_bytes()
-        for path in first_bundle.rglob("*")
-        if path.is_file()
-    } == {
-        path.relative_to(second_bundle).as_posix(): path.read_bytes()
-        for path in second_bundle.rglob("*")
-        if path.is_file()
-    }
-
-
-def test_immutable_0550_0444_projection_remains_verifiable(tmp_path: Path) -> None:
-    sanitized, _authority, _receipt = _materialize(tmp_path)
-    prepare._set_modes(sanitized)
-
-    result = verifier.verify_bundle(sanitized, slug=SLUG)
-
-    assert stat.S_IMODE(sanitized.stat().st_mode) == 0o550
-    assert result["pass"] is True
-
-
-def test_sanitized_bundle_serves_html_json_viewer_and_hides_proof_manifest(
+def test_materializer_preserves_property_bytes_and_separates_ea_handoff(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    sanitized, _authority, _receipt = _materialize(tmp_path)
-    monkeypatch.setattr(public_tours, "_tour_dir", lambda: sanitized.parent)
+    bundle, handoff, authority, receipt, source_snapshot = _materialize(
+        tmp_path, monkeypatch
+    )
 
+    assert stat.S_IMODE(handoff.stat().st_mode) == 0o600
+    assert receipt["candidate_handoff_authorized"] is True
+    assert receipt["public_activation_authority"] is False
+    assert receipt["upstream_public_activation_authority"] is True
+    assert receipt["upstream_publication_authority_sha256"] == hashlib.sha256(
+        authority.read_bytes()
+    ).hexdigest()
+    handoff_sha256 = hashlib.sha256(handoff.read_bytes()).hexdigest()
+    assert handoff_sha256 == receipt["handoff_receipt_sha256"]
+    assert handoff_sha256 != receipt["upstream_publication_authority_sha256"]
+    copied = prepare._spatial_tree_snapshot(
+        bundle, require_sanitized_modes=True
+    )
+    assert copied == source_snapshot
+    tour = json.loads(copied["tour.json"])
+    assert (
+        tour["generated_viewer_release"][
+            "publication_authority_receipt_sha256"
+        ]
+        == receipt["upstream_publication_authority_sha256"]
+    )
+    assert handoff_sha256 not in copied["tour.json"].decode("utf-8")
+    assert verifier.verify_bundle(bundle, slug=SLUG)["pass"] is True
+
+
+def test_validator_requires_actual_pinned_review_and_authority_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, authority, _snapshot = _build_property_package(tmp_path, monkeypatch)
+    assert (
+        prepare._validated_spatial_handoff_input(
+            bundle_dir=bundle,
+            authority_receipt_path=authority,
+            target_origin=TARGET_ORIGIN,
+        )["upstream_public_activation_authority"]
+        is True
+    )
+
+    fake_review = Path(prepare.PROPERTY_FINAL_REVIEW_RECEIPT)
+    fake_review.write_bytes(b'{}\n')
+    fake_review.chmod(0o600)
+    with pytest.raises(ValueError, match="review_evidence_invalid"):
+        prepare._validated_spatial_handoff_input(
+            bundle_dir=bundle,
+            authority_receipt_path=authority,
+            target_origin=TARGET_ORIGIN,
+        )
+
+
+def test_validator_rejects_tour_or_upstream_authority_tamper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, authority, _snapshot = _build_property_package(tmp_path, monkeypatch)
+    payload = json.loads((bundle / "tour.json").read_bytes())
+    payload["creation_mode"] = "retargeted"
+    (bundle / "tour.json").write_bytes(prepare._canonical_json_bytes(payload))
+    (bundle / "tour.json").chmod(0o644)
+    with pytest.raises(ValueError, match="authority|digest"):
+        prepare._validated_spatial_handoff_input(
+            bundle_dir=bundle,
+            authority_receipt_path=authority,
+            target_origin=TARGET_ORIGIN,
+        )
+
+    bundle, authority, _snapshot = _build_property_package(
+        tmp_path / "authority", monkeypatch
+    )
+    authority.write_bytes(authority.read_bytes() + b" ")
+    authority.chmod(0o600)
+    with pytest.raises(ValueError, match="canonical|mismatch"):
+        prepare._validated_spatial_handoff_input(
+            bundle_dir=bundle,
+            authority_receipt_path=authority,
+            target_origin=TARGET_ORIGIN,
+        )
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["extra", "symlink", "root_symlink", "unsafe_mode", "hardlink", "oversize"],
+)
+def test_spatial_intake_rejects_extras_links_modes_and_oversize(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    bundle, authority, _snapshot = _build_property_package(tmp_path, monkeypatch)
+    if case == "extra":
+        extra = bundle / "generated-reconstruction" / "debug.json"
+        extra.write_text("{}", encoding="utf-8")
+        extra.chmod(0o644)
+    elif case == "symlink":
+        (bundle / "linked-viewer.html").symlink_to(
+            bundle / "generated-reconstruction" / "viewer.html"
+        )
+    elif case == "root_symlink":
+        linked_root = tmp_path / "linked-root"
+        linked_root.symlink_to(bundle, target_is_directory=True)
+        bundle = linked_root
+    elif case == "unsafe_mode":
+        (bundle / "generated-reconstruction" / "viewer.html").chmod(0o666)
+    elif case == "hardlink":
+        viewer = bundle / "generated-reconstruction" / "viewer.html"
+        os.link(viewer, tmp_path / "viewer-hardlink.html")
+    else:
+        monkeypatch.setattr(prepare, "MAX_SPATIAL_FILE_BYTES", 8)
+    with pytest.raises(ValueError, match="spatial_"):
+        prepare._validated_spatial_handoff_input(
+            bundle_dir=bundle,
+            authority_receipt_path=authority,
+            target_origin=TARGET_ORIGIN,
+        )
+
+
+def test_materializer_never_overwrites_bundle_or_receipt_race_targets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source, authority, _snapshot = _build_property_package(tmp_path, monkeypatch)
+    bundle_target = tmp_path / "out" / "public_property_tours" / SLUG
+    receipt_target = tmp_path / "out" / "receipts" / "handoff.json"
+    bundle_target.mkdir(parents=True)
+    marker = bundle_target / "attacker"
+    marker.write_text("keep", encoding="utf-8")
+    with pytest.raises(ValueError, match="output_exists"):
+        prepare.materialize_spatial_handoff(
+            source_bundle_dir=source,
+            upstream_authority_receipt_path=authority,
+            handoff_bundle_dir=bundle_target,
+            handoff_receipt_path=receipt_target,
+            target_origin=TARGET_ORIGIN,
+        )
+    assert marker.read_text(encoding="utf-8") == "keep"
+    assert not receipt_target.exists()
+
+    shutil.rmtree(bundle_target)
+    receipt_target.parent.mkdir(parents=True, exist_ok=True)
+    receipt_target.write_text("attacker", encoding="utf-8")
+    receipt_target.chmod(0o600)
+    with pytest.raises(ValueError, match="output_exists"):
+        prepare.materialize_spatial_handoff(
+            source_bundle_dir=source,
+            upstream_authority_receipt_path=authority,
+            handoff_bundle_dir=bundle_target,
+            handoff_receipt_path=receipt_target,
+            target_origin=TARGET_ORIGIN,
+        )
+    assert receipt_target.read_text(encoding="utf-8") == "attacker"
+    assert not bundle_target.exists()
+
+
+def test_spatial_tree_snapshot_rejects_root_swap_to_symlink_race(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, _authority, _snapshot = _build_property_package(tmp_path, monkeypatch)
+    moved = bundle.with_name(f"{bundle.name}-opened")
+    original_stat = prepare.os.stat
+    swapped = False
+
+    def racing_stat(path, *args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal swapped
+        if (
+            not swapped
+            and kwargs.get("dir_fd") is None
+            and kwargs.get("follow_symlinks") is False
+            and os.path.abspath(os.fspath(path)) == os.path.abspath(os.fspath(bundle))
+        ):
+            bundle.rename(moved)
+            bundle.symlink_to(moved, target_is_directory=True)
+            swapped = True
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(prepare.os, "stat", racing_stat)
+    with pytest.raises(ValueError, match="spatial_root_invalid"):
+        prepare._spatial_tree_snapshot(bundle, require_sanitized_modes=True)
+    assert swapped is True
+
+
+@pytest.mark.parametrize("swap_point", ["before_open", "after_walk"])
+def test_spatial_tree_snapshot_rejects_nested_directory_swap_to_symlink_race(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    swap_point: str,
+) -> None:
+    bundle, _authority, _snapshot = _build_property_package(tmp_path, monkeypatch)
+    nested = bundle / "generated-reconstruction"
+    moved = bundle / "generated-reconstruction-opened"
+    attacker = tmp_path / "attacker"
+    attacker.mkdir()
+    swapped = False
+
+    def swap() -> None:
+        nonlocal swapped
+        nested.rename(moved)
+        nested.symlink_to(attacker, target_is_directory=True)
+        swapped = True
+
+    if swap_point == "before_open":
+        original_open = prepare.os.open
+
+        def racing_open(path, flags, *args, **kwargs):  # type: ignore[no-untyped-def]
+            if (
+                not swapped
+                and kwargs.get("dir_fd") is not None
+                and os.fspath(path) == "generated-reconstruction"
+            ):
+                swap()
+            return original_open(path, flags, *args, **kwargs)
+
+        monkeypatch.setattr(prepare.os, "open", racing_open)
+    else:
+        original_stat = prepare.os.stat
+        nested_stat_calls = 0
+
+        def racing_stat(path, *args, **kwargs):  # type: ignore[no-untyped-def]
+            nonlocal nested_stat_calls
+            if (
+                kwargs.get("dir_fd") is not None
+                and kwargs.get("follow_symlinks") is False
+                and os.fspath(path) == "generated-reconstruction"
+            ):
+                nested_stat_calls += 1
+                if nested_stat_calls == 2:
+                    swap()
+            return original_stat(path, *args, **kwargs)
+
+        monkeypatch.setattr(prepare.os, "stat", racing_stat)
+    with pytest.raises(ValueError, match="spatial_source_changed"):
+        prepare._spatial_tree_snapshot(bundle, require_sanitized_modes=True)
+    assert swapped is True
+
+
+def test_projection_verifier_distinguishes_property_authority_from_ea_handoff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source, authority, _snapshot = _build_property_package(tmp_path, monkeypatch)
+    validated = prepare._validated_spatial_handoff_input(
+        bundle_dir=source,
+        authority_receipt_path=authority,
+        target_origin=TARGET_ORIGIN,
+    )
+    release_id = "release-test"
+    release_root = tmp_path / "deploy" / "releases" / release_id
+    spatial_root = release_root / "public_property_tours"
+    shutil.copytree(source, spatial_root / SLUG)
+    prepare._set_modes(release_root)
+    spatial_digest, spatial_files = prepare._tree_digest(spatial_root)
+    receipt_path = tmp_path / "deploy" / "receipts" / f"{release_id}.spatial.json"
+    receipt = {
+        "schema": prepare.SPATIAL_PROJECTION_SCHEMA,
+        "status": "pass",
+        "release_id": release_id,
+        "spatial_handoff_included": True,
+        "candidate_handoff_authorized": True,
+        "public_activation_authority": False,
+        "slug": SLUG,
+        "spatial_release_root": str(spatial_root.resolve()),
+        "spatial_projection_sha256": spatial_digest,
+        "file_count": len(spatial_files),
+        "projection_bytes": sum(int(row["size_bytes"]) for row in spatial_files),
+        "files": spatial_files,
+        "asset_paths": validated["asset_paths"],
+        "viewer_relpath": validated["viewer_relpath"],
+        "proof_relpath": validated["proof_relpath"],
+        "route_labels": validated["route_labels"],
+        "upstream_publication_authority": validated[
+            "upstream_publication_authority"
+        ],
+        "upstream_publication_authority_sha256": validated[
+            "upstream_publication_authority_sha256"
+        ],
+        "upstream_public_activation_authority": True,
+        "upstream_package_sha256": validated["upstream_package_sha256"],
+        "upstream_tour_manifest_sha256": validated[
+            "upstream_tour_manifest_sha256"
+        ],
+        "pre_authority_manifest_canonical_sha256": validated[
+            "pre_authority_manifest_canonical_sha256"
+        ],
+        "review_evidence": validated["review_evidence"],
+        "source_verifier": validated["verifier_receipt"],
+    }
+    receipt_path.parent.mkdir(parents=True)
+    receipt_bytes = prepare._receipt_bytes(receipt)
+    receipt_path.write_bytes(receipt_bytes)
+    receipt_path.chmod(0o600)
+    projection_receipt = {
+        "spatial_receipt_path": str(receipt_path.resolve()),
+        "spatial_receipt_sha256": hashlib.sha256(receipt_bytes).hexdigest(),
+        "spatial_release_root": str(spatial_root.resolve()),
+        "spatial_handoff_included": True,
+        "spatial_slug": SLUG,
+        "spatial_projection_sha256": spatial_digest,
+        "spatial_file_count": len(spatial_files),
+        "spatial_projection_bytes": sum(
+            int(row["size_bytes"]) for row in spatial_files
+        ),
+        "spatial_upstream_public_activation_authority": True,
+        "spatial_ea_public_activation_authority": False,
+    }
+    evidence = runner._spatial_projection_evidence(
+        {
+            "EA_MANFRED_SPATIAL_RELEASE_ROOT": str(spatial_root.resolve()),
+            "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED": "1",
+            "EA_MANFRED_SPATIAL_SLUG": SLUG,
+            "EA_MANFRED_SPATIAL_SHA256": spatial_digest,
+            "EA_PUBLIC_APP_BASE_URL": TARGET_ORIGIN,
+        },
+        projection_receipt=projection_receipt,
+        release_root=release_root.resolve(),
+        release_id=release_id,
+    )
+    assert evidence["upstream_public_activation_authority"] is True
+    assert evidence["ea_public_activation_authority"] is False
+    assert evidence["upstream_package_sha256"] == validated[
+        "upstream_package_sha256"
+    ]
+
+
+def test_property_bundle_serves_html_json_viewer_and_hides_proof_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, _authority, _snapshot = _build_property_package(tmp_path, monkeypatch)
+    monkeypatch.setattr(public_tours, "_tour_dir", lambda: bundle.parent)
     page = public_tours.public_tour_page(
-        SLUG,
-        _request(f"/tours/{SLUG}"),
-        container=object(),
+        SLUG, _request(f"/tours/{SLUG}"), container=object()
     )
     payload = public_tours.public_tour_payload(SLUG)
     viewer = public_tours.public_tour_generated_viewer_file(
-        SLUG,
-        "generated-reconstruction/viewer.html",
+        SLUG, "generated-reconstruction/viewer.html"
     )
-
     assert page.status_code == 200
     assert payload.status_code == 200
     assert viewer.status_code == 200
@@ -268,95 +719,20 @@ def test_sanitized_bundle_serves_html_json_viewer_and_hides_proof_manifest(
     )
     with pytest.raises(HTTPException) as blocked:
         public_tours.public_tour_generated_viewer_file(
-            SLUG,
-            "generated-reconstruction/reconstruction.json",
+            SLUG, "generated-reconstruction/reconstruction.json"
         )
     assert blocked.value.status_code == 404
-
-
-def test_authority_normalization_and_exact_bundle_tamper_fail_closed(
-    tmp_path: Path,
-) -> None:
-    sanitized, authority, _receipt = _materialize(tmp_path)
-    payload = json.loads((sanitized / "tour.json").read_bytes())
-    payload["title"] = "retargeted after authority"
-    (sanitized / "tour.json").write_bytes(prepare._canonical_json_bytes(payload))
-
-    with pytest.raises(
-        ValueError,
-        match="spatial_authority_receipt_mismatch",
-    ):
-        prepare._validated_spatial_handoff_input(
-            bundle_dir=sanitized,
-            authority_receipt_path=authority,
-            target_origin=TARGET_ORIGIN,
-        )
-
-
-@pytest.mark.parametrize(
-    "case",
-    ["private_path", "symlink", "root_symlink", "unsafe_mode", "oversize"],
-)
-def test_spatial_intake_rejects_private_paths_links_modes_and_oversize(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    case: str,
-) -> None:
-    if case in {"private_path", "symlink", "root_symlink"}:
-        raw = _write_raw_bundle(tmp_path)
-        if case == "private_path":
-            forbidden = raw / "private" / "raw-export.json"
-            forbidden.parent.mkdir()
-            forbidden.write_text("{}", encoding="utf-8")
-            forbidden.chmod(0o600)
-        elif case == "symlink":
-            (raw / "linked-viewer.html").symlink_to(
-                raw / "generated-reconstruction" / "viewer.html"
-            )
-        else:
-            linked_root = tmp_path / "linked-root"
-            linked_root.symlink_to(raw, target_is_directory=True)
-            raw = linked_root
-        with pytest.raises(ValueError, match="spatial_"):
-            prepare.materialize_spatial_handoff_authority(
-                source_bundle_dir=raw,
-                sanitized_bundle_dir=tmp_path / "sanitized" / SLUG,
-                authority_receipt_path=tmp_path / "authority.json",
-                slug=SLUG,
-                source_commit=SOURCE_COMMIT,
-                target_origin=TARGET_ORIGIN,
-                user_instruction_sha256=USER_INSTRUCTION_SHA256,
-            )
-        return
-
-    sanitized, authority, _receipt = _materialize(tmp_path)
-    viewer = sanitized / "generated-reconstruction" / "viewer.html"
-    if case == "unsafe_mode":
-        viewer.chmod(0o666)
-    else:
-        monkeypatch.setattr(prepare, "MAX_SPATIAL_FILE_BYTES", 8)
-    with pytest.raises(ValueError, match="spatial_"):
-        prepare._validated_spatial_handoff_input(
-            bundle_dir=sanitized,
-            authority_receipt_path=authority,
-            target_origin=TARGET_ORIGIN,
-        )
 
 
 def test_spatial_runtime_smoke_requires_html_json_viewer_and_proof_only_404(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    sanitized, _authority, _receipt = _materialize(tmp_path)
+    bundle, _authority, _snapshot = _build_property_package(tmp_path, monkeypatch)
     paths: list[tuple[str, str, int]] = []
 
     def probe(  # type: ignore[no-untyped-def]
-        _base_url,
-        path,
-        *,
-        method,
-        expected_status,
-        accept="*/*",
+        _base_url, path, *, method, expected_status, accept="*/*"
     ):
         del accept
         paths.append((method, path, expected_status))
@@ -382,22 +758,37 @@ def test_spatial_runtime_smoke_requires_html_json_viewer_and_proof_only_404(
         "verify_spatial_bundle",
         lambda *_args, **_kwargs: {"pass": True, "status": "pass"},
     )
+    monkeypatch.setattr(
+        runner,
+        "audit_spatial_candidate_browser",
+        lambda **_kwargs: {
+            "status": "pass",
+            "all_route_stops_interacted": True,
+            "camera_state_changes_verified": True,
+            "required_asset_requests_verified": True,
+            "secret_material_recorded": False,
+        },
+    )
     proof = runner._spatial_handoff_runtime_proof(
         "http://127.0.0.1:18090",
         {
+            "projection_commit": "e" * 40,
             "spatial_handoff": {
                 "included": True,
                 "slug": SLUG,
-                "release_root": str(sanitized.parent),
+                "release_root": str(bundle.parent),
                 "viewer_relpath": "generated-reconstruction/viewer.html",
                 "proof_relpath": "generated-reconstruction/reconstruction.json",
-            }
+                "route_labels": ROUTE_LABELS,
+                "upstream_package_sha256": "f" * 64,
+            },
         },
     )
-
     assert proof["html_json_viewer_200"] is True
     assert proof["proof_only_404"] is True
-    assert proof["public_activation_authority"] is False
+    assert proof["candidate_browser_gate"]["secret_material_recorded"] is False
+    assert proof["ea_public_activation_authority"] is False
+    assert proof["upstream_public_activation_authority"] is True
     assert len(paths) == 8
     assert {
         status
