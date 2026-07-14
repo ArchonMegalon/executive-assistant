@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import http.server
 import json
 from pathlib import Path
 import shutil
+import threading
+import urllib.parse
+import urllib.request
 
 import pytest
 
@@ -14,6 +18,7 @@ from scripts import verify_manfred_spatial_candidate_browser as browser_gate
 
 LABELS = [f"Stop {index}" for index in range(1, 10)]
 COMMIT = "a" * 40
+BASE_URL = "http://127.0.0.1:18090"
 SLUG = "tour-slug"
 VIEWER_RELPATH = "generated-reconstruction/viewer.html"
 RECEIPT_LOCAL_PATHS = [
@@ -116,6 +121,29 @@ class _FakePage:
         return bytes([value]) * 128
 
 
+class _FakeResponse:
+    def __init__(
+        self,
+        *,
+        url: str,
+        body: bytes,
+        content_type: str,
+        status: int = 200,
+    ) -> None:
+        self.url = url
+        self.status = status
+        self.headers = {"content-type": content_type}
+        self._body = body
+
+    def body(self) -> bytes:
+        return self._body
+
+
+class _FakeNavigationPage:
+    def __init__(self, url: str) -> None:
+        self.url = url
+
+
 @pytest.mark.parametrize(
     ("value", "error"),
     [
@@ -149,12 +177,29 @@ def test_browser_gate_requires_exact_viewer_path_and_nine_unique_labels() -> Non
         browser_gate._route_labels([*LABELS[:-1], LABELS[-2]])
 
 
+@pytest.mark.parametrize("value", [True, 1, {"commit": COMMIT}, [COMMIT]])
+def test_browser_gate_rejects_coerced_commit_and_package_digest_types(
+    value: object,
+) -> None:
+    with pytest.raises(ValueError, match="commit_invalid"):
+        browser_gate._commit(value)
+    with pytest.raises(ValueError, match="package_digest_invalid"):
+        browser_gate._package_sha256(value)
+
+
 def test_browser_gate_requires_all_three_browser_asset_requests() -> None:
     expected = browser_gate._required_request_paths("tour-slug")
     observed = {
-        path: {
+        role: {
+            "url": f"{BASE_URL}{path}",
+            "path": path,
             "status": 200,
             "content_type": browser_gate._REQUEST_MEDIA_TYPES[role],
+            "sha256": "a" * 64,
+            "size_bytes": 100,
+            "response_count": 1,
+            "body_matches_local_package": True,
+            "exact_candidate_url_verified": True,
         }
         for role, path in expected.items()
     }
@@ -162,7 +207,7 @@ def test_browser_gate_requires_all_three_browser_asset_requests() -> None:
     evidence = browser_gate._request_evidence(observed, expected)
 
     assert set(evidence) == {"floorplan", "orbit_controls", "three_module"}
-    observed[expected["floorplan"]]["status"] = 404
+    observed["floorplan"]["status"] = 404
     with pytest.raises(RuntimeError, match="asset_request_failed"):
         browser_gate._request_evidence(observed, expected)
 
@@ -370,6 +415,30 @@ def test_browser_gate_hashes_the_exact_local_package(
         )
 
 
+@pytest.mark.parametrize("release_revision", [True, 7, {"value": "v1"}, ["v1"]])
+def test_browser_gate_rejects_non_string_source_release_revision(
+    tmp_path: Path,
+    release_revision: object,
+) -> None:
+    bundle, _snapshot, _digest, _bindings = _build_local_package(tmp_path)
+    tour_path = bundle / "tour.json"
+    tour = json.loads(tour_path.read_bytes())
+    tour["generated_viewer_release"]["release_revision"] = release_revision
+    tour_path.write_bytes(prepare._canonical_json_bytes(tour))
+    tour_path.chmod(0o644)
+    snapshot = prepare._spatial_tree_snapshot(
+        bundle,
+        require_sanitized_modes=False,
+    )
+    with pytest.raises(ValueError, match="package_invalid"):
+        browser_gate._verified_local_package(
+            bundle,
+            slug=SLUG,
+            viewer_relpath=VIEWER_RELPATH,
+            expected_package_sha256=prepare._spatial_package_sha256(snapshot),
+        )
+
+
 def test_browser_gate_rejects_same_byte_local_package_root_replacement(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -458,10 +527,206 @@ def test_browser_gate_binds_http_assets_to_local_package_bytes(
         )
 
 
+@pytest.mark.parametrize(
+    ("response_url", "page_url"),
+    [
+        ("http://attacker.test/viewer.html", "http://attacker.test/viewer.html"),
+        (
+            f"{BASE_URL}/tours/{SLUG}",
+            "http://attacker.test/client-redirect",
+        ),
+    ],
+)
+def test_browser_gate_rejects_redirected_or_retargeted_navigation(
+    response_url: str,
+    page_url: str,
+) -> None:
+    expected_url = f"{BASE_URL}/tours/{SLUG}"
+    response = _FakeResponse(
+        url=response_url,
+        body=b"<html></html>",
+        content_type="text/html",
+    )
+    with pytest.raises(RuntimeError, match="navigation_identity_invalid"):
+        browser_gate._navigation_evidence(
+            _FakeNavigationPage(page_url),
+            response,
+            expected_url=expected_url,
+        )
+
+
+def test_browser_gate_rejects_any_variant_playwright_response_occurrence(
+    tmp_path: Path,
+) -> None:
+    _bundle, snapshot, _digest, _bindings = _build_local_package(tmp_path)
+    expectations = browser_gate._browser_resource_expectations(
+        BASE_URL,
+        slug=SLUG,
+        viewer_relpath=VIEWER_RELPATH,
+        snapshot=snapshot,
+    )
+    responses = [
+        _FakeResponse(
+            url=str(row["url"]),
+            body=snapshot[str(row["relpath"])],
+            content_type=str(row["content_type"]),
+        )
+        for row in expectations.values()
+    ]
+    evidence = browser_gate._browser_response_evidence(
+        responses,
+        expectations=expectations,
+    )
+    assert set(evidence) == set(expectations)
+
+    with pytest.raises(RuntimeError, match="response_url_invalid"):
+        browser_gate._browser_response_evidence(
+            responses,
+            expectations=expectations,
+            invalid_urls=[
+                (
+                    "http://attacker.test"
+                    f"{expectations['viewer_document']['path']}"
+                )
+            ],
+        )
+
+    viewer = expectations["viewer_document"]
+    responses.append(
+        _FakeResponse(
+            url=str(viewer["url"]),
+            body=b"attacker viewer variant",
+            content_type="text/html",
+        )
+    )
+    with pytest.raises(RuntimeError, match="response_body_mismatch"):
+        browser_gate._browser_response_evidence(
+            responses,
+            expectations=expectations,
+        )
+
+
+def test_user_agent_varying_server_cannot_split_urllib_and_browser_evidence(
+    tmp_path: Path,
+) -> None:
+    _bundle, snapshot, _digest, bindings = _build_local_package(tmp_path)
+    prefix = f"/tours/viewer/{SLUG}/"
+
+    class VaryingHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            path = urllib.parse.urlsplit(self.path).path
+            relpath = urllib.parse.unquote(path.removeprefix(prefix))
+            binding = bindings.get(relpath)
+            if binding is None:
+                self.send_error(404)
+                return
+            if binding["role"] == "reconstruction_manifest":
+                body = b'{"detail":"tour_asset_not_found"}'
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json")
+            else:
+                body = snapshot[relpath]
+                if (
+                    "Mozilla/5.0" in str(self.headers.get("User-Agent") or "")
+                    and binding["role"] == "viewer_document"
+                ):
+                    body = b"<!doctype html><title>attacker variant</title>"
+                self.send_response(200)
+                self.send_header("Content-Type", str(binding["mime_type"]))
+                self.send_header(
+                    "X-PropertyQuarry-Asset-SHA256",
+                    str(binding["sha256"]),
+                )
+                self.send_header(
+                    "X-PropertyQuarry-Viewer-Revision",
+                    "test-release-v1",
+                )
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), VaryingHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        urllib_evidence = browser_gate._http_package_binding(
+            base_url,
+            slug=SLUG,
+            snapshot=snapshot,
+            bindings=bindings,
+            release_revision="test-release-v1",
+        )
+        assert urllib_evidence["http_assets_match_local_package"] is True
+        expectations = browser_gate._browser_resource_expectations(
+            base_url,
+            slug=SLUG,
+            viewer_relpath=VIEWER_RELPATH,
+            snapshot=snapshot,
+        )
+        chromium_responses: list[_FakeResponse] = []
+        for row in expectations.values():
+            request = urllib.request.Request(
+                str(row["url"]),
+                headers={"User-Agent": "Mozilla/5.0 Chromium"},
+            )
+            with urllib.request.urlopen(request, timeout=5) as response:
+                chromium_responses.append(
+                    _FakeResponse(
+                        url=str(response.url),
+                        body=response.read(),
+                        content_type=str(
+                            response.headers.get("Content-Type") or ""
+                        ),
+                        status=int(response.status),
+                    )
+                )
+        with pytest.raises(RuntimeError, match="response_body_mismatch"):
+            browser_gate._browser_response_evidence(
+                chromium_responses,
+                expectations=expectations,
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def _valid_receipt() -> dict[str, object]:
     viewer_path = f"/tours/viewer/{SLUG}/{VIEWER_RELPATH}"
+    viewer_url = f"{BASE_URL}{viewer_path}"
+    landing_url = f"{BASE_URL}/tours/{SLUG}"
     proof_path = viewer_path.rsplit("/", 1)[0] + "/reconstruction.json"
     required_paths = browser_gate._required_request_paths(SLUG)
+    required_relpaths = {
+        "floorplan": "generated-reconstruction/source-floorplan.png",
+        "orbit_controls": (
+            "generated-reconstruction/vendor/examples/jsm/controls/"
+            "OrbitControls.js"
+        ),
+        "three_module": "generated-reconstruction/vendor/three.module.js",
+    }
+
+    def consumed_row(
+        path: str,
+        relpath: str,
+        content_type: str,
+    ) -> dict[str, object]:
+        local = local_by_path[relpath]
+        return {
+            "url": f"{BASE_URL}{path}",
+            "path": path,
+            "status": 200,
+            "content_type": content_type,
+            "sha256": local["sha256"],
+            "size_bytes": local["size_bytes"],
+            "response_count": 1,
+            "body_matches_local_package": True,
+            "exact_candidate_url_verified": True,
+        }
 
     def normal_surface(
         width: int,
@@ -493,13 +758,23 @@ def _valid_receipt() -> dict[str, object]:
             "route_stop_count": 9,
             "undersized_target_count": 0,
             "required_requests": {
-                role: {
-                    "path": path,
-                    "status": 200,
-                    "content_type": browser_gate._REQUEST_MEDIA_TYPES[role],
-                }
+                role: consumed_row(
+                    path,
+                    required_relpaths[role],
+                    browser_gate._REQUEST_MEDIA_TYPES[role],
+                )
                 for role, path in required_paths.items()
             },
+            "viewer_response": consumed_row(
+                viewer_path,
+                VIEWER_RELPATH,
+                "text/html",
+            ),
+            "browser_response_count": 4,
+            "browser_consumed_package_verified": True,
+            "page_url": viewer_url,
+            "response_url": viewer_url,
+            "exact_candidate_url_verified": True,
             "route_interactions": interactions,
             "route_interaction_count": len(interactions),
             "camera_state_changes_verified": collect_routes,
@@ -540,6 +815,7 @@ def _valid_receipt() -> dict[str, object]:
         "schema": browser_gate.RECEIPT_SCHEMA,
         "status": "pass",
         "slug": SLUG,
+        "candidate_origin": BASE_URL,
         "candidate_commit": COMMIT,
         "candidate_commit_source": "GET /version",
         "candidate_version": {
@@ -592,6 +868,9 @@ def _valid_receipt() -> dict[str, object]:
             "viewer_route_referenced": True,
             "page_error_count": 0,
             "console_error_count": 0,
+            "page_url": landing_url,
+            "response_url": landing_url,
+            "exact_candidate_url_verified": True,
         },
         "proof_manifest": {
             "path": proof_path,
@@ -634,6 +913,24 @@ def _valid_receipt() -> dict[str, object]:
                 "horizontal_overflow_px": 0,
                 "page_error_count": 0,
                 "console_error_count": 0,
+                "required_requests": {
+                    role: consumed_row(
+                        path,
+                        required_relpaths[role],
+                        browser_gate._REQUEST_MEDIA_TYPES[role],
+                    )
+                    for role, path in required_paths.items()
+                },
+                "viewer_response": consumed_row(
+                    viewer_path,
+                    VIEWER_RELPATH,
+                    "text/html",
+                ),
+                "browser_response_count": 4,
+                "browser_consumed_package_verified": True,
+                "page_url": viewer_url,
+                "response_url": viewer_url,
+                "exact_candidate_url_verified": True,
             },
         },
         "surface_count": 4,
@@ -641,6 +938,7 @@ def _valid_receipt() -> dict[str, object]:
         "all_route_stops_interacted": True,
         "camera_state_changes_verified": True,
         "required_asset_requests_verified": True,
+        "browser_consumed_package_verified": True,
         "responsive_overflow_verified": True,
         "page_error_count": 0,
         "console_error_count": 0,
@@ -653,6 +951,7 @@ def _valid_receipt() -> dict[str, object]:
 def _validate_receipt(receipt: dict[str, object]) -> dict[str, object]:
     return browser_gate.validate_spatial_candidate_browser_receipt(
         receipt,
+        base_url=BASE_URL,
         slug=SLUG,
         viewer_relpath=VIEWER_RELPATH,
         route_labels=LABELS,
@@ -677,6 +976,7 @@ def test_strict_receipt_validator_accepts_the_complete_bound_receipt() -> None:
         ("secret", "contract_invalid"),
         ("proof_as_viewer", "package_invalid"),
         ("duplicate_camera", "surfaces_invalid"),
+        ("camera_type", "surfaces_invalid"),
         ("top_float", "contract_invalid"),
         ("package_float", "package_invalid"),
         ("http_float", "package_invalid"),
@@ -690,6 +990,14 @@ def test_strict_receipt_validator_accepts_the_complete_bound_receipt() -> None:
         ("proof_bool", "proof_invalid"),
         ("fallback_bool", "surfaces_invalid"),
         ("version_bool", "version_invalid"),
+        ("origin", "contract_invalid"),
+        ("landing_url", "landing_invalid"),
+        ("surface_url", "surfaces_invalid"),
+        ("browser_sha", "surfaces_invalid"),
+        ("viewer_size", "surfaces_invalid"),
+        ("browser_count_float", "surfaces_invalid"),
+        ("browser_bool", "surfaces_invalid"),
+        ("release_type", "package_invalid"),
     ],
 )
 def test_strict_receipt_validator_rejects_unbound_or_partial_evidence(
@@ -709,6 +1017,8 @@ def test_strict_receipt_validator_rejects_unbound_or_partial_evidence(
         receipt["package_sha256"] = "d" * 64
     elif mutation == "secret":
         receipt["secret_material_recorded"] = True
+    elif mutation == "origin":
+        receipt["candidate_origin"] = "http://127.0.0.1:18091"
     elif mutation == "proof_as_viewer":
         package = dict(receipt["package_binding"])
         assets = list(package["http_assets"])
@@ -731,6 +1041,11 @@ def test_strict_receipt_validator_rejects_unbound_or_partial_evidence(
             interactions[1]["camera_canvas_screenshot_sha256"] = interactions[0][
                 "camera_canvas_screenshot_sha256"
             ]
+        elif mutation == "camera_type":
+            surfaces = dict(receipt["surfaces"])
+            reduced = dict(surfaces["reduced_motion"])
+            interactions = list(reduced["route_interactions"])
+            interactions[0]["camera_canvas_screenshot_sha256"] = int("1" * 64)
         elif mutation == "top_float":
             receipt["surface_count"] = 4.0
         elif mutation == "package_float":
@@ -783,9 +1098,53 @@ def test_strict_receipt_validator_rejects_unbound_or_partial_evidence(
             fallback = surfaces["webgl_fallback"]
             assert isinstance(fallback, dict)
             fallback["fallback_visible"] = 1
-        else:
+        elif mutation == "version_bool":
             version = receipt["candidate_version"]
             assert isinstance(version, dict)
             version["commit_observed_over_http"] = 1
+        elif mutation == "landing_url":
+            landing = receipt["landing"]
+            assert isinstance(landing, dict)
+            landing["page_url"] = "http://attacker.test/tours/tour-slug"
+        elif mutation == "surface_url":
+            surfaces = receipt["surfaces"]
+            assert isinstance(surfaces, dict)
+            desktop = surfaces["desktop"]
+            assert isinstance(desktop, dict)
+            desktop["response_url"] = "http://attacker.test/viewer.html"
+        elif mutation == "browser_sha":
+            surfaces = receipt["surfaces"]
+            assert isinstance(surfaces, dict)
+            reduced = surfaces["reduced_motion"]
+            assert isinstance(reduced, dict)
+            requests = reduced["required_requests"]
+            assert isinstance(requests, dict)
+            floorplan = requests["floorplan"]
+            assert isinstance(floorplan, dict)
+            floorplan["sha256"] = "f" * 64
+        elif mutation == "viewer_size":
+            surfaces = receipt["surfaces"]
+            assert isinstance(surfaces, dict)
+            desktop = surfaces["desktop"]
+            assert isinstance(desktop, dict)
+            viewer = desktop["viewer_response"]
+            assert isinstance(viewer, dict)
+            viewer["size_bytes"] = int(viewer["size_bytes"]) + 1
+        elif mutation == "browser_count_float":
+            surfaces = receipt["surfaces"]
+            assert isinstance(surfaces, dict)
+            desktop = surfaces["desktop"]
+            assert isinstance(desktop, dict)
+            desktop["browser_response_count"] = 4.0
+        elif mutation == "browser_bool":
+            surfaces = receipt["surfaces"]
+            assert isinstance(surfaces, dict)
+            fallback = surfaces["webgl_fallback"]
+            assert isinstance(fallback, dict)
+            fallback["browser_consumed_package_verified"] = 1
+        else:
+            package = receipt["package_binding"]
+            assert isinstance(package, dict)
+            package["release_revision"] = 123
     with pytest.raises(RuntimeError, match=error):
         _validate_receipt(receipt)

@@ -1086,6 +1086,50 @@ def test_spatial_tree_snapshot_rejects_nested_directory_swap_to_symlink_race(
     assert swapped is True
 
 
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("commit", int("1" * 40)),
+        ("projection_sha256", int("1" * 64)),
+    ],
+)
+def test_projection_receipt_rejects_non_string_commit_and_digest(
+    tmp_path: Path,
+    field: str,
+    invalid_value: object,
+) -> None:
+    release_root = tmp_path / "deploy" / "releases" / "release-test"
+    release_root.mkdir(parents=True)
+    release_root.chmod(0o550)
+    receipt_path = tmp_path / "deploy" / "receipts" / "release-test.json"
+    projection_sha256, projection_files = runner._tree_digest(release_root)
+    payload: dict[str, object] = {
+        "schema": "ea.manfred_memorial_candidate_projection.v2",
+        "status": "pass",
+        "release_id": release_root.name,
+        "release_root": str(release_root.resolve()),
+        "projection_sha256": projection_sha256,
+        "commit": "b" * 40,
+        "image": "ea:test",
+        "image_id": f"sha256:{'c' * 64}",
+        "compose_project": "ea-test",
+        "projection_operator_gid": os.getgid(),
+        "file_count": len(projection_files),
+        "projection_bytes": 0,
+    }
+    payload[field] = invalid_value
+    _write_private_json(receipt_path, payload)
+
+    with pytest.raises(RuntimeError, match="projection_receipt_mismatch"):
+        runner._projection_evidence(
+            {
+                "EA_MANFRED_RELEASE_ROOT": str(release_root),
+                "EA_MANFRED_IMAGE": "ea:test",
+                "EA_MANFRED_COMPOSE_PROJECT": "ea-test",
+            }
+        )
+
+
 def test_projection_verifier_distinguishes_property_authority_from_ea_handoff(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1258,20 +1302,21 @@ def test_spatial_runtime_smoke_requires_html_json_viewer_and_proof_only_404(
         "validate_spatial_candidate_browser_receipt",
         validate_receipt,
     )
+    projection: dict[str, object] = {
+        "projection_commit": "e" * 40,
+        "spatial_handoff": {
+            "included": True,
+            "slug": SLUG,
+            "release_root": str(bundle.parent),
+            "viewer_relpath": "generated-reconstruction/viewer.html",
+            "proof_relpath": "generated-reconstruction/reconstruction.json",
+            "route_labels": ROUTE_LABELS,
+            "upstream_package_sha256": "f" * 64,
+        },
+    }
     proof = runner._spatial_handoff_runtime_proof(
         "http://127.0.0.1:18090",
-        {
-            "projection_commit": "e" * 40,
-            "spatial_handoff": {
-                "included": True,
-                "slug": SLUG,
-                "release_root": str(bundle.parent),
-                "viewer_relpath": "generated-reconstruction/viewer.html",
-                "proof_relpath": "generated-reconstruction/reconstruction.json",
-                "route_labels": ROUTE_LABELS,
-                "upstream_package_sha256": "f" * 64,
-            },
-        },
+        projection,
     )
     assert proof["html_json_viewer_200"] is True
     assert proof["proof_only_404"] is True
@@ -1280,6 +1325,7 @@ def test_spatial_runtime_smoke_requires_html_json_viewer_and_proof_only_404(
     assert proof["upstream_public_activation_authority"] is True
     assert validated == [
         {
+            "base_url": "http://127.0.0.1:18090",
             "slug": SLUG,
             "viewer_relpath": "generated-reconstruction/viewer.html",
             "route_labels": ROUTE_LABELS,
@@ -1293,6 +1339,22 @@ def test_spatial_runtime_smoke_requires_html_json_viewer_and_proof_only_404(
         for _method, path, status in paths
         if path.endswith("reconstruction.json")
     } == {404}
+    for field, invalid_value in (
+        ("projection_commit", int("1" * 40)),
+        ("upstream_package_sha256", int("1" * 64)),
+    ):
+        invalid_projection = dict(projection)
+        invalid_spatial = dict(projection["spatial_handoff"])
+        if field == "projection_commit":
+            invalid_projection[field] = invalid_value
+        else:
+            invalid_spatial[field] = invalid_value
+        invalid_projection["spatial_handoff"] = invalid_spatial
+        with pytest.raises(RuntimeError, match="spatial_runtime_contract_invalid"):
+            runner._spatial_handoff_runtime_proof(
+                "http://127.0.0.1:18090",
+                invalid_projection,
+            )
 
 
 def test_spatial_runtime_rejects_boolean_only_browser_receipt(

@@ -763,20 +763,25 @@ def _spatial_projection_evidence(
         receipt.get("upstream_publication_authority") or {}
     )
     authority_bytes = _canonical_json_bytes(upstream_authority)
-    authority_sha256 = str(
-        receipt.get("upstream_publication_authority_sha256") or ""
-    )
-    upstream_package_sha256 = str(receipt.get("upstream_package_sha256") or "")
-    upstream_tour_sha256 = str(
-        receipt.get("upstream_tour_manifest_sha256") or ""
-    )
-    pre_authority_sha256 = str(
-        receipt.get("pre_authority_manifest_canonical_sha256") or ""
+    authority_sha256 = receipt.get("upstream_publication_authority_sha256")
+    upstream_package_sha256 = receipt.get("upstream_package_sha256")
+    upstream_tour_sha256 = receipt.get("upstream_tour_manifest_sha256")
+    pre_authority_sha256 = receipt.get(
+        "pre_authority_manifest_canonical_sha256"
     )
     expected_paths = {f"{slug}/tour.json", *(f"{slug}/{path}" for path in asset_paths)}
     if (
         len(asset_paths) != 5
         or len(observed_files) != 6
+        or any(
+            type(value) is not str
+            for value in (
+                authority_sha256,
+                upstream_package_sha256,
+                upstream_tour_sha256,
+                pre_authority_sha256,
+            )
+        )
         or {str(row.get("path") or "") for row in observed_files} != expected_paths
         or upstream_authority.get("schema")
         != PROPERTY_PUBLICATION_AUTHORITY_SCHEMA
@@ -857,19 +862,27 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         payload = json.loads(receipt_path.read_bytes())
     except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise RuntimeError("manfred_candidate_projection_receipt_invalid") from exc
-    digest = (
-        str(payload.get("projection_sha256") or "") if isinstance(payload, dict) else ""
-    )
-    commit = str(payload.get("commit") or "") if isinstance(payload, dict) else ""
-    image = str(payload.get("image") or "") if isinstance(payload, dict) else ""
-    image_id = str(payload.get("image_id") or "") if isinstance(payload, dict) else ""
+    if not isinstance(payload, dict):
+        raise RuntimeError("manfred_candidate_projection_receipt_mismatch")
+    raw_digest = payload.get("projection_sha256")
+    raw_commit = payload.get("commit")
+    raw_image = payload.get("image")
+    raw_image_id = payload.get("image_id")
+    if any(
+        type(value) is not str
+        for value in (raw_digest, raw_commit, raw_image, raw_image_id)
+    ):
+        raise RuntimeError("manfred_candidate_projection_receipt_mismatch")
+    digest = raw_digest
+    commit = raw_commit
+    image = raw_image
+    image_id = raw_image_id
     try:
         operator_gid = int(payload.get("projection_operator_gid"))
     except (TypeError, ValueError):
         operator_gid = -1
     if (
-        not isinstance(payload, dict)
-        or payload.get("schema") != "ea.manfred_memorial_candidate_projection.v2"
+        payload.get("schema") != "ea.manfred_memorial_candidate_projection.v2"
         or payload.get("status") != "pass"
         or str(payload.get("release_id") or "") != release_id
         or str(payload.get("release_root") or "") != str(release_root)
@@ -1621,31 +1634,28 @@ def _spatial_handoff_runtime_proof(
     )
     if verifier_receipt.get("pass") is not True:
         raise RuntimeError("manfred_candidate_spatial_http_verifier_blocked")
+    projection_commit = projection.get("projection_commit")
+    package_digest = spatial.get("upstream_package_sha256")
+    if type(projection_commit) is not str or type(package_digest) is not str:
+        raise RuntimeError("manfred_candidate_spatial_runtime_contract_invalid")
     browser_receipt = audit_spatial_candidate_browser(
         base_url=base_url,
         slug=slug,
         viewer_relpath=viewer_relpath,
         route_labels=list(spatial.get("route_labels") or []),
-        candidate_commit=str(projection.get("projection_commit") or ""),
-        package_sha256=str(
-            spatial.get("upstream_package_sha256")
-            or spatial.get("projection_sha256")
-            or ""
-        ),
+        candidate_commit=projection_commit,
+        package_sha256=package_digest,
         package_dir=bundle,
     )
     try:
         validate_spatial_candidate_browser_receipt(
             browser_receipt,
+            base_url=base_url,
             slug=slug,
             viewer_relpath=viewer_relpath,
             route_labels=list(spatial.get("route_labels") or []),
-            candidate_commit=str(projection.get("projection_commit") or ""),
-            package_sha256=str(
-                spatial.get("upstream_package_sha256")
-                or spatial.get("projection_sha256")
-                or ""
-            ),
+            candidate_commit=projection_commit,
+            package_sha256=package_digest,
         )
     except (RuntimeError, ValueError) as exc:
         raise RuntimeError(
