@@ -27,6 +27,8 @@ def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     release_root = (tmp_path / "releases" / "release-a").resolve()
     runtime_root = (tmp_path / "runtime").resolve()
     release_root.mkdir(parents=True)
+    spatial_root = release_root / "public_property_tours"
+    spatial_root.mkdir()
     runtime_root.mkdir(parents=True)
     values = {
         "EA_MANFRED_COMPOSE_PROJECT": PROJECT,
@@ -34,6 +36,10 @@ def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         "EA_MANFRED_ENV_FILE": str(env_file),
         "EA_MANFRED_RELEASE_ROOT": str(release_root),
         "EA_MANFRED_RUNTIME_ROOT": str(runtime_root),
+        "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED": "0",
+        "EA_MANFRED_SPATIAL_RELEASE_ROOT": str(spatial_root),
+        "EA_MANFRED_SPATIAL_SHA256": prepare._sha256(b"[]"),
+        "EA_MANFRED_SPATIAL_SLUG": "",
         "EA_MANFRED_HOST_PORT": "18091",
         "EA_MANFRED_POSTGRES_PASSWORD": "p" * 64,
         "DATABASE_URL": "postgresql://ea:private@postgres:5432/ea",
@@ -86,9 +92,18 @@ def _compose_payloads(env_file: Path, env: dict[str, str]) -> tuple[dict, dict]:
             "source": str(runtime_root / "state"),
             "target": "/data/memorial/state",
         },
+        {
+            "type": "bind",
+            "source": env["EA_MANFRED_SPATIAL_RELEASE_ROOT"],
+            "target": "/data/public_property_tours",
+            "read_only": True,
+        },
         {"type": "volume", "source": "artifacts", "target": "/data/artifacts"},
     ]
-    declared = {"EA_ROLE": "api"}
+    declared = {
+        "EA_ROLE": "api",
+        "EA_PUBLIC_TOUR_DIR": "/data/public_property_tours",
+    }
     services = {
         "api": {
             "image": env["EA_MANFRED_IMAGE"],
@@ -267,6 +282,56 @@ def test_compose_contract_binds_project_env_file_and_mount_roots(
         )
 
 
+def test_spatial_bind_environment_and_api_only_scope_fail_closed(
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    payload, source = _compose_payloads(env_file, env)
+
+    missing_bind = copy.deepcopy(payload)
+    missing_bind["services"]["api"]["volumes"] = [
+        mount
+        for mount in missing_bind["services"]["api"]["volumes"]
+        if mount.get("target") != "/data/public_property_tours"
+    ]
+    with pytest.raises(RuntimeError, match="compose_mount_root_mismatch"):
+        runner._assert_compose_isolation(
+            missing_bind, source, env=env, env_file=env_file
+        )
+
+    wrong_environment = copy.deepcopy(source)
+    wrong_environment["services"]["api"]["environment"]["EA_PUBLIC_TOUR_DIR"] = (
+        "/tmp/public-tours"
+    )
+    with pytest.raises(RuntimeError, match="spatial_compose_environment_invalid"):
+        runner._assert_compose_isolation(
+            payload, wrong_environment, env=env, env_file=env_file
+        )
+
+    gateway_bind = copy.deepcopy(payload)
+    gateway_bind["services"]["gateway"]["volumes"] = [
+        {
+            "type": "bind",
+            "source": env["EA_MANFRED_SPATIAL_RELEASE_ROOT"],
+            "target": "/data/public_property_tours",
+            "read_only": True,
+        }
+    ]
+    with pytest.raises(RuntimeError, match="spatial_compose_scope_invalid"):
+        runner._assert_compose_isolation(
+            gateway_bind, source, env=env, env_file=env_file
+        )
+
+    invalid_env = dict(env)
+    invalid_env.pop("EA_MANFRED_SPATIAL_SHA256")
+    env_file.write_text(
+        "".join(f"{name}={value}\n" for name, value in sorted(invalid_env.items())),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="env_allowlist_invalid"):
+        runner._assert_env_allowlist(env_file)
+
+
 def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
     tmp_path: Path,
 ) -> None:
@@ -278,8 +343,35 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
     )
     prepare._set_modes(release_root)
     projection_sha256, projected_files = prepare._tree_digest(release_root)
+    spatial_root = release_root / "public_property_tours"
+    spatial_sha256, spatial_files = prepare._tree_digest(spatial_root)
     receipt_path = release_root.parent.parent / "receipts" / f"{release_root.name}.json"
     receipt_path.parent.mkdir(parents=True)
+    spatial_receipt_path = receipt_path.with_name(f"{release_root.name}.spatial.json")
+    spatial_receipt = {
+        "schema": prepare.SPATIAL_PROJECTION_SCHEMA,
+        "status": "pass",
+        "created_at": "2026-07-14T00:00:00Z",
+        "release_id": release_root.name,
+        "spatial_handoff_included": False,
+        "slug": "",
+        "spatial_release_root": str(spatial_root),
+        "spatial_projection_sha256": spatial_sha256,
+        "file_count": 0,
+        "projection_bytes": 0,
+        "files": spatial_files,
+        "asset_paths": [],
+        "viewer_relpath": "",
+        "proof_relpath": "",
+        "authority_receipt_sha256": "",
+        "transformed_manifest_pre_authority_sha256": "",
+        "normalization": "",
+        "source_verifier": {},
+        "candidate_handoff_only": True,
+        "public_activation_authority": False,
+    }
+    spatial_receipt_path.write_bytes(prepare._receipt_bytes(spatial_receipt))
+    spatial_receipt_path.chmod(0o600)
     receipt_path.write_text(
         json.dumps(
             {
@@ -297,6 +389,16 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
                 "projection_bytes": sum(
                     int(row["size_bytes"]) for row in projected_files
                 ),
+                "spatial_handoff_included": False,
+                "spatial_slug": "",
+                "spatial_release_root": str(spatial_root),
+                "spatial_projection_sha256": spatial_sha256,
+                "spatial_file_count": 0,
+                "spatial_projection_bytes": 0,
+                "spatial_receipt_path": str(spatial_receipt_path),
+                "spatial_receipt_sha256": prepare._sha256(
+                    prepare._receipt_bytes(spatial_receipt)
+                ),
             }
         )
         + "\n",
@@ -304,7 +406,8 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
     )
     receipt_path.chmod(0o600)
 
-    assert runner._projection_evidence(env) == {
+    evidence = runner._projection_evidence(env)
+    assert evidence == {
         "release_id": release_root.name,
         "release_root": str(release_root),
         "projection_sha256": projection_sha256,
@@ -312,6 +415,18 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
         "prepared_image_locator": env["EA_MANFRED_IMAGE"],
         "prepared_image_id": IMAGE_ID,
         "projection_tree_revalidated": True,
+        "spatial_handoff": {
+            "included": False,
+            "slug": "",
+            "release_root": str(spatial_root),
+            "projection_sha256": spatial_sha256,
+            "file_count": 0,
+            "projection_bytes": 0,
+            "receipt_path": str(spatial_receipt_path),
+            "receipt_sha256": prepare._sha256(prepare._receipt_bytes(spatial_receipt)),
+            "projection_tree_revalidated": True,
+            "public_activation_authority": False,
+        },
     }
 
     prepare._make_tree_removable(release_root)

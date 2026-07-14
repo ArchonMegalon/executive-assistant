@@ -21,6 +21,13 @@ from urllib.parse import urlparse
 
 
 RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_projection.v2"
+SPATIAL_AUTHORITY_SCHEMA = "ea.manfred_spatial_handoff_authority.v1"
+SPATIAL_PROJECTION_SCHEMA = "ea.manfred_memorial_spatial_projection.v1"
+SPATIAL_AUTHORITY_SCOPE = "candidate_spatial_handoff"
+SPATIAL_MANIFEST_NORMALIZATION = (
+    "canonical-json-utf8-lf-sort-keys-compact-with-"
+    "generated_viewer_release.publication_authority_receipt_sha256-null"
+)
 PROJECT_NAME_PREFIX = "ea-manfred-candidate-"
 PRIVATE_CONTEXT_FILENAME = "memorial_private_context.json"
 HELPER_IMAGE = "postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229"
@@ -57,6 +64,100 @@ PUBLIC_ASSET_SUFFIXES = {
 }
 MAX_ASSET_BYTES = 128 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
+MAX_SPATIAL_SOURCE_FILES = 64
+MAX_SPATIAL_SOURCE_BYTES = 256 * 1024 * 1024
+MAX_SPATIAL_FILE_BYTES = 32 * 1024 * 1024
+MAX_SPATIAL_AUTHORITY_RECEIPT_BYTES = 1024 * 1024
+SPATIAL_LAYOUT_ROLE_COUNTS = {
+    "floorplan_texture": 1,
+    "reconstruction_manifest": 1,
+    "viewer_document": 1,
+    "viewer_module": 2,
+}
+SPATIAL_VIEWER_MODULE_PATHS = {
+    "generated-reconstruction/vendor/three.module.js",
+    "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
+}
+SPATIAL_MANIFEST_PUBLIC_KEYS = {
+    "brand_name",
+    "brief",
+    "creation_mode",
+    "display_title",
+    "facts",
+    "generated_reconstruction",
+    "generated_viewer_release",
+    "privacy_mode",
+    "scene_count",
+    "scene_strategy",
+    "scenes",
+    "slug",
+    "title",
+    "tour_privacy_mode",
+    "tour_title",
+    "variant_key",
+    "variant_label",
+}
+SPATIAL_PRIVATE_KEYS = {
+    "actor",
+    "api_key",
+    "auth_header",
+    "authorization",
+    "cookie",
+    "cookies",
+    "debug",
+    "external_id",
+    "headers",
+    "internal_ref",
+    "owner_id",
+    "person_id",
+    "principal_id",
+    "private_recipient_email",
+    "raw_signal_json",
+    "recipient",
+    "recipient_email",
+    "recipient_name",
+    "recipient_phone",
+    "refresh_token",
+    "runtime_inputs_json",
+    "session",
+    "source_ref",
+    "token",
+}
+SPATIAL_PRIVATE_KEY_MARKERS = (
+    "access_token",
+    "api_key",
+    "auth_header",
+    "cookie",
+    "credential",
+    "private",
+    "recipient",
+    "refresh_token",
+    "secret",
+)
+SPATIAL_PRIVATE_PATH_TOKENS = {
+    ".env",
+    "backup",
+    "cookie",
+    "cookies",
+    "credential",
+    "credentials",
+    "debug",
+    "private",
+    "probe",
+    "raw",
+    "raw-bundle",
+    "raw-export",
+    "secret",
+    "secrets",
+    "session",
+    "test",
+    "tmp",
+    "token",
+    "tokens",
+}
+SPATIAL_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _validate_project_name(value: object) -> str:
@@ -134,6 +235,564 @@ def _safe_relative(value: object, *, suffix_required: bool = False) -> Path:
 
 def _sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def _canonical_json_bytes(payload: object) -> bytes:
+    return (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        + b"\n"
+    )
+
+
+def _receipt_bytes(payload: dict[str, object]) -> bytes:
+    return (
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode(
+            "utf-8"
+        )
+        + b"\n"
+    )
+
+
+def _spatial_path_has_private_raw_pattern(path: str) -> bool:
+    lowered = str(path or "").strip().replace("\\", "/").lower()
+    tokens = {
+        token
+        for part in PurePosixPath(lowered).parts
+        for token in re.split(r"[^a-z0-9.]+", part)
+        if token
+    }
+    return bool(tokens.intersection(SPATIAL_PRIVATE_PATH_TOKENS))
+
+
+def _spatial_redact_value(value: object) -> object:
+    if isinstance(value, dict):
+        redacted: dict[str, object] = {}
+        for raw_key, child in value.items():
+            key = str(raw_key or "").strip()
+            lowered = key.lower()
+            if (
+                not key
+                or lowered in SPATIAL_PRIVATE_KEYS
+                or any(marker in lowered for marker in SPATIAL_PRIVATE_KEY_MARKERS)
+            ):
+                continue
+            redacted[key] = _spatial_redact_value(child)
+        return redacted
+    if isinstance(value, list):
+        return [_spatial_redact_value(child) for child in value]
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    raise ValueError("manfred_candidate_spatial_manifest_value_invalid")
+
+
+def _spatial_release_contract(
+    payload: dict[str, object], *, expected_slug: str = ""
+) -> tuple[str, list[str], str, str]:
+    slug = str(payload.get("slug") or "").strip()
+    if (
+        not SPATIAL_SLUG_RE.fullmatch(slug)
+        or slug in {".", ".."}
+        or (expected_slug and slug != expected_slug)
+    ):
+        raise ValueError("manfred_candidate_spatial_slug_invalid")
+    release_raw = payload.get("generated_viewer_release")
+    generated_raw = payload.get("generated_reconstruction")
+    if not isinstance(release_raw, dict) or not isinstance(generated_raw, dict):
+        raise ValueError("manfred_candidate_spatial_release_contract_invalid")
+    bindings_raw = release_raw.get("asset_bindings")
+    if not isinstance(bindings_raw, list) or len(bindings_raw) != 5:
+        raise ValueError("manfred_candidate_spatial_asset_allowlist_invalid")
+    role_counts: dict[str, int] = {}
+    paths: list[str] = []
+    proof_relpath = ""
+    viewer_relpath = ""
+    floorplan_relpath = ""
+    module_paths: set[str] = set()
+    for raw_binding in bindings_raw:
+        if not isinstance(raw_binding, dict):
+            raise ValueError("manfred_candidate_spatial_asset_allowlist_invalid")
+        path = _safe_relative(raw_binding.get("path")).as_posix()
+        role = str(raw_binding.get("role") or "").strip().lower()
+        if (
+            not path.startswith("generated-reconstruction/")
+            or _spatial_path_has_private_raw_pattern(path)
+            or role not in SPATIAL_LAYOUT_ROLE_COUNTS
+        ):
+            raise ValueError("manfred_candidate_spatial_asset_allowlist_invalid")
+        paths.append(path)
+        role_counts[role] = role_counts.get(role, 0) + 1
+        if role == "reconstruction_manifest":
+            proof_relpath = path
+        elif role == "viewer_document":
+            viewer_relpath = path
+        elif role == "floorplan_texture":
+            floorplan_relpath = path
+        elif role == "viewer_module":
+            module_paths.add(path)
+    if (
+        role_counts != SPATIAL_LAYOUT_ROLE_COUNTS
+        or len(set(paths)) != 5
+        or str(release_raw.get("viewer_relpath") or "").strip() != viewer_relpath
+        or str(generated_raw.get("manifest_relpath") or "").strip() != proof_relpath
+        or viewer_relpath != "generated-reconstruction/viewer.html"
+        or proof_relpath != "generated-reconstruction/reconstruction.json"
+        or floorplan_relpath
+        != str(generated_raw.get("floorplan_relpath") or "").strip()
+        or not floorplan_relpath.startswith("generated-reconstruction/")
+        or Path(floorplan_relpath).suffix.lower() != ".png"
+        or module_paths != SPATIAL_VIEWER_MODULE_PATHS
+    ):
+        raise ValueError("manfred_candidate_spatial_asset_allowlist_invalid")
+    return slug, sorted(paths), viewer_relpath, proof_relpath
+
+
+def _sanitized_spatial_manifest(
+    payload: dict[str, object], *, authority_receipt_sha256: str | None
+) -> dict[str, object]:
+    slug, _paths, _viewer, _proof = _spatial_release_contract(payload)
+    sanitized: dict[str, object] = {}
+    for key in sorted(SPATIAL_MANIFEST_PUBLIC_KEYS):
+        if key in payload:
+            sanitized[key] = _spatial_redact_value(payload[key])
+    sanitized["slug"] = slug
+    sanitized["facts"] = {}
+    sanitized["scenes"] = []
+    sanitized["scene_count"] = 0
+    sanitized["tour_privacy_mode"] = "anonymous_public"
+    release = sanitized.get("generated_viewer_release")
+    if not isinstance(release, dict):
+        raise ValueError("manfred_candidate_spatial_release_contract_invalid")
+    release["publication_authority_receipt_sha256"] = authority_receipt_sha256
+    if release.get("publication_authority_verified") is not True:
+        raise ValueError("manfred_candidate_spatial_authority_not_verified")
+    if str(sanitized.get("scene_strategy") or "").strip() == (
+        "generated_listing_summary"
+    ) or str(sanitized.get("creation_mode") or "").strip() == (
+        "hosted_listing_fallback"
+    ):
+        raise ValueError("manfred_candidate_spatial_fallback_forbidden")
+    return sanitized
+
+
+def _spatial_pre_authority_manifest_bytes(payload: dict[str, object]) -> bytes:
+    return _canonical_json_bytes(
+        _sanitized_spatial_manifest(payload, authority_receipt_sha256=None)
+    )
+
+
+def _safe_spatial_source_mode(mode: int, *, directory: bool) -> bool:
+    normalized = stat.S_IMODE(mode)
+    if normalized & 0o7000 or normalized & 0o002:
+        return False
+    if directory:
+        return bool(normalized & 0o500 == 0o500)
+    return bool(normalized & 0o400)
+
+
+def _read_spatial_file_snapshot(path: Path, *, require_sanitized_modes: bool) -> bytes:
+    try:
+        initial = path.lstat()
+    except OSError as exc:
+        raise ValueError("manfred_candidate_spatial_source_invalid") from exc
+    expected_mode = 0o644
+    if (
+        not stat.S_ISREG(initial.st_mode)
+        or stat.S_ISLNK(initial.st_mode)
+        or initial.st_nlink != 1
+        or initial.st_size <= 0
+        or initial.st_size > MAX_SPATIAL_FILE_BYTES
+        or (require_sanitized_modes and stat.S_IMODE(initial.st_mode) != expected_mode)
+        or (
+            not require_sanitized_modes
+            and not _safe_spatial_source_mode(initial.st_mode, directory=False)
+        )
+    ):
+        raise ValueError("manfred_candidate_spatial_source_invalid")
+    flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NONBLOCK", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError("manfred_candidate_spatial_source_invalid") from exc
+    try:
+        opened = os.fstat(descriptor)
+        identity = (
+            initial.st_dev,
+            initial.st_ino,
+            initial.st_mode,
+            initial.st_nlink,
+            initial.st_size,
+            initial.st_mtime_ns,
+            initial.st_ctime_ns,
+        )
+        opened_identity = (
+            opened.st_dev,
+            opened.st_ino,
+            opened.st_mode,
+            opened.st_nlink,
+            opened.st_size,
+            opened.st_mtime_ns,
+            opened.st_ctime_ns,
+        )
+        if identity != opened_identity:
+            raise ValueError("manfred_candidate_spatial_source_changed")
+        chunks: list[bytes] = []
+        remaining = int(opened.st_size)
+        while remaining:
+            chunk = os.read(descriptor, min(1024 * 1024, remaining))
+            if not chunk:
+                raise ValueError("manfred_candidate_spatial_source_changed")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        final = os.fstat(descriptor)
+        final_identity = (
+            final.st_dev,
+            final.st_ino,
+            final.st_mode,
+            final.st_nlink,
+            final.st_size,
+            final.st_mtime_ns,
+            final.st_ctime_ns,
+        )
+        if final_identity != opened_identity:
+            raise ValueError("manfred_candidate_spatial_source_changed")
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
+def _spatial_tree_snapshot(
+    root: Path, *, require_sanitized_modes: bool
+) -> dict[str, bytes]:
+    root = Path(os.path.abspath(os.fspath(root.expanduser())))
+    try:
+        root_metadata = root.lstat()
+    except OSError as exc:
+        raise ValueError("manfred_candidate_spatial_root_invalid") from exc
+    if (
+        not stat.S_ISDIR(root_metadata.st_mode)
+        or stat.S_ISLNK(root_metadata.st_mode)
+        or (require_sanitized_modes and stat.S_IMODE(root_metadata.st_mode) != 0o755)
+        or (
+            not require_sanitized_modes
+            and not _safe_spatial_source_mode(root_metadata.st_mode, directory=True)
+        )
+    ):
+        raise ValueError("manfred_candidate_spatial_root_invalid")
+    files: dict[str, bytes] = {}
+    total_bytes = 0
+
+    def walk(directory: Path, relative: tuple[str, ...]) -> None:
+        nonlocal total_bytes
+        try:
+            entries = sorted(os.scandir(directory), key=lambda item: item.name)
+        except OSError as exc:
+            raise ValueError("manfred_candidate_spatial_source_invalid") from exc
+        for entry in entries:
+            if entry.name in {"", ".", ".."} or "/" in entry.name:
+                raise ValueError("manfred_candidate_spatial_path_invalid")
+            path = Path(entry.path)
+            metadata = path.lstat()
+            projected = (*relative, entry.name)
+            relpath = PurePosixPath(*projected).as_posix()
+            if stat.S_ISLNK(metadata.st_mode):
+                raise ValueError("manfred_candidate_spatial_symlink_forbidden")
+            if stat.S_ISDIR(metadata.st_mode):
+                if (
+                    require_sanitized_modes and stat.S_IMODE(metadata.st_mode) != 0o755
+                ) or (
+                    not require_sanitized_modes
+                    and not _safe_spatial_source_mode(metadata.st_mode, directory=True)
+                ):
+                    raise ValueError("manfred_candidate_spatial_mode_invalid")
+                walk(path, projected)
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError("manfred_candidate_spatial_nonregular_forbidden")
+            content = _read_spatial_file_snapshot(
+                path, require_sanitized_modes=require_sanitized_modes
+            )
+            files[relpath] = content
+            total_bytes += len(content)
+            if (
+                len(files) > MAX_SPATIAL_SOURCE_FILES
+                or total_bytes > MAX_SPATIAL_SOURCE_BYTES
+            ):
+                raise ValueError("manfred_candidate_spatial_bundle_oversize")
+
+    walk(root, ())
+    if not files:
+        raise ValueError("manfred_candidate_spatial_bundle_empty")
+    return files
+
+
+def _write_spatial_bundle(root: Path, *, slug: str, files: dict[str, bytes]) -> Path:
+    bundle = root / slug
+    bundle.mkdir(parents=True, mode=0o755)
+    bundle.chmod(0o755)
+    for relpath, content in sorted(files.items()):
+        target = bundle / _safe_relative(relpath)
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+        cursor = target.parent
+        while cursor != root:
+            cursor.chmod(0o755)
+            cursor = cursor.parent
+        target.write_bytes(content)
+        target.chmod(0o644)
+    root.chmod(0o755)
+    return bundle
+
+
+def _verify_spatial_bundle_before_copy(bundle: Path, *, slug: str) -> dict[str, object]:
+    verifier = Path(__file__).with_name(
+        "verify_public_tour_generated_viewer_release.py"
+    )
+    try:
+        raw = _run(
+            [
+                sys.executable,
+                str(verifier),
+                "--bundle-dir",
+                str(bundle),
+                "--slug",
+                slug,
+            ]
+        )
+        receipt = json.loads(raw)
+    except (
+        subprocess.CalledProcessError,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+    ) as exc:
+        raise ValueError("manfred_candidate_spatial_verifier_blocked") from exc
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("pass") is not True
+        or receipt.get("status") != "pass"
+        or receipt.get("slug") != slug
+        or dict(receipt.get("checks") or {}).get("binding_count") != 5
+    ):
+        raise ValueError("manfred_candidate_spatial_verifier_blocked")
+    return receipt
+
+
+def _validated_authority_receipt(
+    path: Path,
+    *,
+    slug: str,
+    target_origin: str,
+    transformed_manifest_pre_authority_sha256: str,
+    asset_paths: list[str],
+) -> tuple[dict[str, object], bytes]:
+    content = _read_spatial_file_snapshot(path, require_sanitized_modes=False)
+    metadata = path.lstat()
+    if (
+        stat.S_IMODE(metadata.st_mode) != 0o600
+        or len(content) > MAX_SPATIAL_AUTHORITY_RECEIPT_BYTES
+    ):
+        raise ValueError("manfred_candidate_spatial_authority_receipt_invalid")
+    try:
+        payload = json.loads(content)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("manfred_candidate_spatial_authority_receipt_invalid") from exc
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema") != SPATIAL_AUTHORITY_SCHEMA
+        or payload.get("status") != "pass"
+        or payload.get("scope") != SPATIAL_AUTHORITY_SCOPE
+        or payload.get("candidate_handoff_authorized") is not True
+        or payload.get("public_activation_authority") is not False
+        or payload.get("slug") != slug
+        or payload.get("target_origin") != target_origin
+        or payload.get("normalization") != SPATIAL_MANIFEST_NORMALIZATION
+        or payload.get("transformed_manifest_pre_authority_sha256")
+        != transformed_manifest_pre_authority_sha256
+        or payload.get("asset_paths") != asset_paths
+        or not COMMIT_RE.fullmatch(str(payload.get("source_commit") or ""))
+        or not SHA256_RE.fullmatch(str(payload.get("user_instruction_sha256") or ""))
+    ):
+        raise ValueError("manfred_candidate_spatial_authority_receipt_mismatch")
+    return payload, content
+
+
+def materialize_spatial_handoff_authority(
+    *,
+    source_bundle_dir: Path,
+    sanitized_bundle_dir: Path,
+    authority_receipt_path: Path,
+    slug: str,
+    source_commit: str,
+    target_origin: str,
+    user_instruction_sha256: str,
+) -> dict[str, object]:
+    source_bundle_dir = Path(os.path.abspath(os.fspath(source_bundle_dir.expanduser())))
+    sanitized_bundle_dir = Path(
+        os.path.abspath(os.fspath(sanitized_bundle_dir.expanduser()))
+    )
+    authority_receipt_path = Path(
+        os.path.abspath(os.fspath(authority_receipt_path.expanduser()))
+    )
+    if not COMMIT_RE.fullmatch(str(source_commit or "").strip().lower()):
+        raise ValueError("manfred_candidate_spatial_source_commit_invalid")
+    source_commit = str(source_commit).strip().lower()
+    if not SHA256_RE.fullmatch(str(user_instruction_sha256 or "").strip().lower()):
+        raise ValueError("manfred_candidate_spatial_instruction_digest_invalid")
+    user_instruction_sha256 = str(user_instruction_sha256).strip().lower()
+    target_origin = _validate_public_base_url(target_origin)
+    if (
+        sanitized_bundle_dir.name != slug
+        or sanitized_bundle_dir == source_bundle_dir
+        or source_bundle_dir in sanitized_bundle_dir.parents
+        or authority_receipt_path == source_bundle_dir
+        or source_bundle_dir in authority_receipt_path.parents
+    ):
+        raise ValueError("manfred_candidate_spatial_materialization_target_invalid")
+    if sanitized_bundle_dir.exists() or authority_receipt_path.exists():
+        raise ValueError("manfred_candidate_spatial_materialization_target_exists")
+    snapshot = _spatial_tree_snapshot(source_bundle_dir, require_sanitized_modes=False)
+    try:
+        raw_payload = json.loads(snapshot["tour.json"])
+    except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("manfred_candidate_spatial_manifest_invalid") from exc
+    if not isinstance(raw_payload, dict):
+        raise ValueError("manfred_candidate_spatial_manifest_invalid")
+    observed_slug, asset_paths, _viewer, _proof = _spatial_release_contract(
+        raw_payload, expected_slug=slug
+    )
+    allowed_paths = {"tour.json", *asset_paths}
+    missing = allowed_paths - set(snapshot)
+    if missing or any(
+        _spatial_path_has_private_raw_pattern(path) for path in set(snapshot)
+    ):
+        raise ValueError("manfred_candidate_spatial_asset_allowlist_invalid")
+    pre_authority = _spatial_pre_authority_manifest_bytes(raw_payload)
+    pre_authority_sha256 = _sha256(pre_authority)
+    receipt = {
+        "schema": SPATIAL_AUTHORITY_SCHEMA,
+        "status": "pass",
+        "scope": SPATIAL_AUTHORITY_SCOPE,
+        "candidate_handoff_authorized": True,
+        "public_activation_authority": False,
+        "slug": observed_slug,
+        "source_commit": source_commit,
+        "target_origin": target_origin,
+        "user_instruction_sha256": user_instruction_sha256,
+        "normalization": SPATIAL_MANIFEST_NORMALIZATION,
+        "transformed_manifest_pre_authority_sha256": pre_authority_sha256,
+        "asset_paths": asset_paths,
+    }
+    authority_bytes = _receipt_bytes(receipt)
+    authority_sha256 = _sha256(authority_bytes)
+    final_manifest = _canonical_json_bytes(
+        _sanitized_spatial_manifest(
+            raw_payload,
+            authority_receipt_sha256=authority_sha256,
+        )
+    )
+    selected = {path: snapshot[path] for path in asset_paths}
+    selected["tour.json"] = final_manifest
+    sanitized_bundle_dir.parent.mkdir(parents=True, exist_ok=True)
+    temporary_root = Path(
+        tempfile.mkdtemp(
+            prefix=f".{sanitized_bundle_dir.name}.",
+            dir=str(sanitized_bundle_dir.parent),
+        )
+    )
+    receipt_installed = False
+    bundle_installed = False
+    try:
+        staged_bundle = _write_spatial_bundle(
+            temporary_root, slug=observed_slug, files=selected
+        )
+        _verify_spatial_bundle_before_copy(staged_bundle, slug=observed_slug)
+        authority_receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_bytes(authority_receipt_path, authority_bytes, mode=0o600)
+        receipt_installed = True
+        os.replace(staged_bundle, sanitized_bundle_dir)
+        bundle_installed = True
+        shutil.rmtree(temporary_root)
+    except BaseException:
+        if receipt_installed:
+            authority_receipt_path.unlink(missing_ok=True)
+        if bundle_installed and sanitized_bundle_dir.is_dir():
+            shutil.rmtree(sanitized_bundle_dir)
+        raise
+    finally:
+        if temporary_root.exists():
+            shutil.rmtree(temporary_root)
+    return {
+        **receipt,
+        "authority_receipt_path": str(authority_receipt_path.resolve()),
+        "authority_receipt_sha256": authority_sha256,
+        "sanitized_bundle_dir": str(sanitized_bundle_dir.resolve()),
+        "sanitized_file_count": len(selected),
+    }
+
+
+def _validated_spatial_handoff_input(
+    *,
+    bundle_dir: Path,
+    authority_receipt_path: Path,
+    target_origin: str,
+) -> dict[str, object]:
+    snapshot = _spatial_tree_snapshot(bundle_dir, require_sanitized_modes=True)
+    try:
+        payload = json.loads(snapshot["tour.json"])
+    except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("manfred_candidate_spatial_manifest_invalid") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("manfred_candidate_spatial_manifest_invalid")
+    slug, asset_paths, viewer_relpath, proof_relpath = _spatial_release_contract(
+        payload
+    )
+    if bundle_dir.name != slug:
+        raise ValueError("manfred_candidate_spatial_slug_invalid")
+    if set(snapshot) != {"tour.json", *asset_paths} or len(snapshot) != 6:
+        raise ValueError("manfred_candidate_spatial_asset_allowlist_invalid")
+    final_manifest = _canonical_json_bytes(
+        _sanitized_spatial_manifest(
+            payload,
+            authority_receipt_sha256=str(
+                dict(payload.get("generated_viewer_release") or {}).get(
+                    "publication_authority_receipt_sha256"
+                )
+                or ""
+            ),
+        )
+    )
+    if snapshot["tour.json"] != final_manifest:
+        raise ValueError("manfred_candidate_spatial_manifest_not_canonical")
+    pre_authority_sha256 = _sha256(_spatial_pre_authority_manifest_bytes(payload))
+    authority_payload, authority_bytes = _validated_authority_receipt(
+        authority_receipt_path,
+        slug=slug,
+        target_origin=target_origin,
+        transformed_manifest_pre_authority_sha256=pre_authority_sha256,
+        asset_paths=asset_paths,
+    )
+    authority_sha256 = _sha256(authority_bytes)
+    release = dict(payload.get("generated_viewer_release") or {})
+    if release.get("publication_authority_receipt_sha256") != authority_sha256:
+        raise ValueError("manfred_candidate_spatial_authority_digest_mismatch")
+    verifier_receipt = _verify_spatial_bundle_before_copy(bundle_dir, slug=slug)
+    return {
+        "included": True,
+        "slug": slug,
+        "files": snapshot,
+        "asset_paths": asset_paths,
+        "viewer_relpath": viewer_relpath,
+        "proof_relpath": proof_relpath,
+        "authority_receipt": authority_payload,
+        "authority_receipt_sha256": authority_sha256,
+        "transformed_manifest_pre_authority_sha256": pre_authority_sha256,
+        "verifier_receipt": verifier_receipt,
+    }
 
 
 def _copy_regular(
@@ -571,6 +1230,10 @@ def _write_env(
     public_base_url: str,
     host_port: int,
     project_name: str,
+    spatial_release_root: Path | None = None,
+    spatial_handoff_included: bool = False,
+    spatial_slug: str = "",
+    spatial_sha256: str = "",
     rotate_secrets: bool = False,
 ) -> None:
     current = _parse_env(path)
@@ -583,12 +1246,26 @@ def _write_env(
     signing_secret = (
         "" if rotate_secrets else current.get("EA_SIGNING_SECRET", "")
     ) or secrets.token_urlsafe(64)
+    resolved_spatial_root = (
+        spatial_release_root or (release_root / "public_property_tours")
+    ).resolve()
+    normalized_spatial_sha256 = spatial_sha256 or _sha256(b"[]")
+    if not SHA256_RE.fullmatch(normalized_spatial_sha256):
+        raise ValueError("manfred_candidate_spatial_digest_invalid")
+    if spatial_handoff_included != bool(spatial_slug):
+        raise ValueError("manfred_candidate_spatial_slug_invalid")
     values = {
         "EA_MANFRED_COMPOSE_PROJECT": _validate_project_name(project_name),
         "EA_MANFRED_IMAGE": image,
         "EA_MANFRED_ENV_FILE": str(path.resolve()),
         "EA_MANFRED_RELEASE_ROOT": str(release_root.resolve()),
         "EA_MANFRED_RUNTIME_ROOT": str(runtime_root.resolve()),
+        "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED": (
+            "1" if spatial_handoff_included else "0"
+        ),
+        "EA_MANFRED_SPATIAL_RELEASE_ROOT": str(resolved_spatial_root),
+        "EA_MANFRED_SPATIAL_SHA256": normalized_spatial_sha256,
+        "EA_MANFRED_SPATIAL_SLUG": spatial_slug,
         "EA_MANFRED_HOST_PORT": str(host_port),
         "EA_MANFRED_POSTGRES_PASSWORD": postgres_password,
         "DATABASE_URL": f"postgresql://ea:{postgres_password}@postgres:5432/ea",
@@ -646,6 +1323,8 @@ def prepare_candidate(
     public_base_url: str,
     host_port: int,
     project_name: str,
+    spatial_tour_bundle_dir: Path | None = None,
+    spatial_authority_receipt: Path | None = None,
     runtime_uid: int = 10001,
     runtime_gid: int = 10001,
     rotate_secrets: bool = False,
@@ -660,6 +1339,30 @@ def prepare_candidate(
     image_id, image_commit = _image_revision(image)
     if image_commit != commit:
         raise ValueError("manfred_candidate_image_revision_mismatch")
+    if bool(spatial_tour_bundle_dir) != bool(spatial_authority_receipt):
+        raise ValueError("manfred_candidate_spatial_input_pair_required")
+    spatial_handoff: dict[str, object] = {
+        "included": False,
+        "slug": "",
+        "files": {},
+        "asset_paths": [],
+        "viewer_relpath": "",
+        "proof_relpath": "",
+        "authority_receipt": {},
+        "authority_receipt_sha256": "",
+        "transformed_manifest_pre_authority_sha256": "",
+        "verifier_receipt": {},
+    }
+    if spatial_tour_bundle_dir and spatial_authority_receipt:
+        spatial_handoff = _validated_spatial_handoff_input(
+            bundle_dir=Path(
+                os.path.abspath(os.fspath(spatial_tour_bundle_dir.expanduser()))
+            ),
+            authority_receipt_path=Path(
+                os.path.abspath(os.fspath(spatial_authority_receipt.expanduser()))
+            ),
+            target_origin=public_base_url,
+        )
 
     slug = "manfred"
     public_documents: dict[str, bytes] = {}
@@ -688,6 +1391,8 @@ def prepare_candidate(
         public_root = staging / "public_memorials" / slug
         private_root = staging / "private_memorial_profiles" / slug
         archive_root = staging / "memorial_archive"
+        spatial_root = staging / "public_property_tours"
+        spatial_root.mkdir(mode=0o700)
         file_receipts: list[dict[str, object]] = []
         for name, content in public_documents.items():
             info = _write_bytes(public_root / name, content, mode=0o444)
@@ -774,7 +1479,25 @@ def prepare_candidate(
             }
             for row in archive_receipts
         )
+        spatial_slug = str(spatial_handoff.get("slug") or "")
+        if spatial_handoff.get("included") is True:
+            spatial_files = dict(spatial_handoff.get("files") or {})
+            for relpath, content in sorted(spatial_files.items()):
+                if not isinstance(content, bytes):
+                    raise ValueError("manfred_candidate_spatial_source_invalid")
+                info = _write_bytes(
+                    spatial_root / spatial_slug / _safe_relative(relpath),
+                    content,
+                    mode=0o444,
+                )
+                file_receipts.append(
+                    {
+                        "path": (f"public_property_tours/{spatial_slug}/{relpath}"),
+                        **info,
+                    }
+                )
         _set_modes(staging)
+        spatial_projection_sha256, spatial_projected_files = _tree_digest(spatial_root)
         projection_sha256, projected_files = _tree_digest(staging)
         release_id = f"{commit[:12]}-{projection_sha256[:12]}"
         release_root = releases_root / release_id
@@ -813,6 +1536,10 @@ def prepare_candidate(
             public_base_url=public_base_url,
             host_port=host_port,
             project_name=project_name,
+            spatial_release_root=release_root / "public_property_tours",
+            spatial_handoff_included=bool(spatial_handoff.get("included")),
+            spatial_slug=spatial_slug,
+            spatial_sha256=spatial_projection_sha256,
             rotate_secrets=rotate_secrets,
         )
         created_at = (
@@ -821,6 +1548,44 @@ def prepare_candidate(
             .isoformat()
             .replace("+00:00", "Z")
         )
+        spatial_receipt_path = receipts_root / f"{release_id}.spatial.json"
+        spatial_receipt = {
+            "schema": SPATIAL_PROJECTION_SCHEMA,
+            "status": "pass",
+            "created_at": created_at,
+            "release_id": release_id,
+            "spatial_handoff_included": bool(spatial_handoff.get("included")),
+            "slug": spatial_slug,
+            "spatial_release_root": str(
+                (release_root / "public_property_tours").resolve()
+            ),
+            "spatial_projection_sha256": spatial_projection_sha256,
+            "file_count": len(spatial_projected_files),
+            "projection_bytes": sum(
+                int(row["size_bytes"]) for row in spatial_projected_files
+            ),
+            "files": spatial_projected_files,
+            "asset_paths": list(spatial_handoff.get("asset_paths") or []),
+            "viewer_relpath": str(spatial_handoff.get("viewer_relpath") or ""),
+            "proof_relpath": str(spatial_handoff.get("proof_relpath") or ""),
+            "authority_receipt": dict(spatial_handoff.get("authority_receipt") or {}),
+            "authority_receipt_sha256": str(
+                spatial_handoff.get("authority_receipt_sha256") or ""
+            ),
+            "transformed_manifest_pre_authority_sha256": str(
+                spatial_handoff.get("transformed_manifest_pre_authority_sha256") or ""
+            ),
+            "normalization": (
+                SPATIAL_MANIFEST_NORMALIZATION
+                if spatial_handoff.get("included")
+                else ""
+            ),
+            "source_verifier": dict(spatial_handoff.get("verifier_receipt") or {}),
+            "candidate_handoff_only": True,
+            "public_activation_authority": False,
+        }
+        spatial_receipt_bytes = _receipt_bytes(spatial_receipt)
+        _atomic_receipt(spatial_receipt_path, spatial_receipt)
         receipt = {
             "schema": RECEIPT_SCHEMA,
             "status": "pass",
@@ -846,7 +1611,19 @@ def prepare_candidate(
             "runtime_uid": runtime_uid,
             "runtime_gid": runtime_gid,
             "projection_operator_gid": operator_gid,
-            "spatial_handoff_included": False,
+            "spatial_handoff_included": bool(spatial_handoff.get("included")),
+            "spatial_slug": spatial_slug,
+            "spatial_release_root": str(
+                (release_root / "public_property_tours").resolve()
+            ),
+            "spatial_projection_sha256": spatial_projection_sha256,
+            "spatial_file_count": len(spatial_projected_files),
+            "spatial_projection_bytes": sum(
+                int(row["size_bytes"]) for row in spatial_projected_files
+            ),
+            "spatial_receipt_path": str(spatial_receipt_path.resolve()),
+            "spatial_receipt_sha256": _sha256(spatial_receipt_bytes),
+            "spatial_public_activation_authority": False,
         }
         _atomic_receipt(receipts_root / f"{release_id}.json", receipt)
         return receipt
@@ -877,6 +1654,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Unique ea-manfred-candidate-<deployment> Compose project name.",
     )
     parser.add_argument("--rotate-secrets", action="store_true")
+    parser.add_argument(
+        "--spatial-tour-bundle-dir",
+        help="Optional exact sanitized six-file generated-viewer bundle.",
+    )
+    parser.add_argument(
+        "--spatial-authority-receipt",
+        help="Mode-0600 candidate-scoped authority receipt paired with the bundle.",
+    )
     return parser
 
 
@@ -891,6 +1676,16 @@ def main(argv: list[str] | None = None) -> int:
             public_base_url=args.public_base_url,
             host_port=args.host_port,
             project_name=args.project_name,
+            spatial_tour_bundle_dir=(
+                Path(args.spatial_tour_bundle_dir)
+                if args.spatial_tour_bundle_dir
+                else None
+            ),
+            spatial_authority_receipt=(
+                Path(args.spatial_authority_receipt)
+                if args.spatial_authority_receipt
+                else None
+            ),
             rotate_secrets=args.rotate_secrets,
         )
     except (

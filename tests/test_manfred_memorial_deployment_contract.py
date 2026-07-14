@@ -393,8 +393,7 @@ def test_candidate_transport_verifier_proves_gateway_cookie_hsts_and_redirect(
         "hsts": "max-age=31536000",
         "http_redirect_status": 308,
         "http_redirect_location": (
-            "https://myexternalbrain.com/memorials/manfred"
-            "?from=ea-transport-verifier"
+            "https://myexternalbrain.com/memorials/manfred?from=ea-transport-verifier"
         ),
     }
     assert observed == [
@@ -623,12 +622,17 @@ def test_runtime_runner_rejects_live_bind_or_external_network(tmp_path: Path) ->
     env_file = (tmp_path / "candidate.env").resolve()
     release_root = (tmp_path / "release").resolve()
     runtime_root = (tmp_path / "runtime").resolve()
+    spatial_root = (release_root / "public_property_tours").resolve()
     env = {
         "EA_MANFRED_COMPOSE_PROJECT": PROJECT,
         "EA_MANFRED_IMAGE": "ea-runtime:manfred-abcdef123456",
         "EA_MANFRED_HOST_PORT": "18090",
         "EA_MANFRED_RELEASE_ROOT": str(release_root),
         "EA_MANFRED_RUNTIME_ROOT": str(runtime_root),
+        "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED": "0",
+        "EA_MANFRED_SPATIAL_RELEASE_ROOT": str(spatial_root),
+        "EA_MANFRED_SPATIAL_SHA256": candidate_prep._sha256(b"[]"),
+        "EA_MANFRED_SPATIAL_SLUG": "",
     }
     mounts = [
         {
@@ -664,9 +668,18 @@ def test_runtime_runner_rejects_live_bind_or_external_network(tmp_path: Path) ->
             "source": str(runtime_root / "state"),
             "target": "/data/memorial/state",
         },
+        {
+            "type": "bind",
+            "source": str(spatial_root),
+            "target": "/data/public_property_tours",
+            "read_only": True,
+        },
         {"type": "volume", "source": "artifacts", "target": "/data/artifacts"},
     ]
-    declared_environment = {"EA_ROLE": "api"}
+    declared_environment = {
+        "EA_ROLE": "api",
+        "EA_PUBLIC_TOUR_DIR": "/data/public_property_tours",
+    }
     base = {
         "name": PROJECT,
         "services": {

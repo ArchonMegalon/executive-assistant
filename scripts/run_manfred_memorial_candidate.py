@@ -15,6 +15,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,9 +25,22 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.prepare_manfred_memorial_candidate import (  # noqa: E402
+    SPATIAL_AUTHORITY_SCHEMA,
+    SPATIAL_AUTHORITY_SCOPE,
+    SPATIAL_MANIFEST_NORMALIZATION,
+    SPATIAL_PROJECTION_SCHEMA,
+    SPATIAL_SLUG_RE,
+    _canonical_json_bytes,
     _parse_env,
+    _receipt_bytes,
+    _sanitized_spatial_manifest,
+    _sha256,
+    _spatial_pre_authority_manifest_bytes,
     _tree_digest,
     _validate_project_name,
+)
+from scripts.verify_public_tour_generated_viewer_release import (  # noqa: E402
+    verify_bundle as verify_spatial_bundle,
 )
 from scripts.verify_manfred_memorial_candidate import (  # noqa: E402
     audit_browser_surface,
@@ -45,6 +59,10 @@ ALLOWED_ENV_KEYS = {
     "EA_MANFRED_POSTGRES_PASSWORD",
     "EA_MANFRED_RELEASE_ROOT",
     "EA_MANFRED_RUNTIME_ROOT",
+    "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED",
+    "EA_MANFRED_SPATIAL_RELEASE_ROOT",
+    "EA_MANFRED_SPATIAL_SHA256",
+    "EA_MANFRED_SPATIAL_SLUG",
     "EA_PUBLIC_APP_BASE_URL",
     "EA_SIGNING_SECRET",
 }
@@ -634,6 +652,170 @@ def _openapi_contract_snapshot(
     return contract, _openapi_contract_evidence(contract)
 
 
+def _spatial_projection_evidence(
+    env: dict[str, str],
+    *,
+    projection_receipt: dict[str, object],
+    release_root: Path,
+    release_id: str,
+) -> dict[str, object]:
+    spatial_root = Path(env["EA_MANFRED_SPATIAL_RELEASE_ROOT"]).resolve()
+    expected_root = (release_root / "public_property_tours").resolve()
+    expected_receipt_path = (
+        release_root.parent.parent / "receipts" / f"{release_id}.spatial.json"
+    )
+    receipt_path = Path(str(projection_receipt.get("spatial_receipt_path") or ""))
+    if (
+        spatial_root != expected_root
+        or str(projection_receipt.get("spatial_release_root") or "")
+        != str(expected_root)
+        or not receipt_path.is_absolute()
+        or receipt_path != expected_receipt_path
+        or not receipt_path.is_file()
+        or receipt_path.is_symlink()
+        or stat.S_IMODE(receipt_path.stat().st_mode) != 0o600
+        or receipt_path.stat().st_nlink != 1
+    ):
+        raise RuntimeError("manfred_candidate_spatial_projection_receipt_invalid")
+    try:
+        receipt_bytes = receipt_path.read_bytes()
+        receipt = json.loads(receipt_bytes)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "manfred_candidate_spatial_projection_receipt_invalid"
+        ) from exc
+    if (
+        not isinstance(receipt, dict)
+        or _receipt_bytes(receipt) != receipt_bytes
+        or receipt.get("schema") != SPATIAL_PROJECTION_SCHEMA
+        or receipt.get("status") != "pass"
+        or receipt.get("release_id") != release_id
+        or receipt.get("candidate_handoff_only") is not True
+        or receipt.get("public_activation_authority") is not False
+        or receipt.get("spatial_release_root") != str(spatial_root)
+        or projection_receipt.get("spatial_receipt_sha256") != _sha256(receipt_bytes)
+    ):
+        raise RuntimeError("manfred_candidate_spatial_projection_receipt_mismatch")
+    included = env["EA_MANFRED_SPATIAL_HANDOFF_INCLUDED"] == "1"
+    slug = env["EA_MANFRED_SPATIAL_SLUG"]
+    digest = env["EA_MANFRED_SPATIAL_SHA256"]
+    if (
+        receipt.get("spatial_handoff_included") is not included
+        or projection_receipt.get("spatial_handoff_included") is not included
+        or receipt.get("slug") != slug
+        or projection_receipt.get("spatial_slug") != slug
+        or receipt.get("spatial_projection_sha256") != digest
+        or projection_receipt.get("spatial_projection_sha256") != digest
+    ):
+        raise RuntimeError("manfred_candidate_spatial_projection_receipt_mismatch")
+    try:
+        observed_digest, observed_files = _tree_digest(spatial_root)
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(
+            "manfred_candidate_spatial_projection_tree_unverifiable"
+        ) from exc
+    observed_bytes = sum(int(row["size_bytes"]) for row in observed_files)
+    if (
+        observed_digest != digest
+        or receipt.get("files") != observed_files
+        or receipt.get("file_count") != len(observed_files)
+        or receipt.get("projection_bytes") != observed_bytes
+        or projection_receipt.get("spatial_file_count") != len(observed_files)
+        or projection_receipt.get("spatial_projection_bytes") != observed_bytes
+    ):
+        raise RuntimeError("manfred_candidate_spatial_projection_tree_digest_mismatch")
+    evidence: dict[str, object] = {
+        "included": included,
+        "slug": slug,
+        "release_root": str(spatial_root),
+        "projection_sha256": digest,
+        "file_count": len(observed_files),
+        "projection_bytes": observed_bytes,
+        "receipt_path": str(receipt_path),
+        "receipt_sha256": _sha256(receipt_bytes),
+        "projection_tree_revalidated": True,
+        "public_activation_authority": False,
+    }
+    if not included:
+        if slug or observed_files or receipt.get("asset_paths"):
+            raise RuntimeError("manfred_candidate_spatial_empty_projection_invalid")
+        return evidence
+
+    asset_paths = list(receipt.get("asset_paths") or [])
+    viewer_relpath = str(receipt.get("viewer_relpath") or "")
+    proof_relpath = str(receipt.get("proof_relpath") or "")
+    authority_sha256 = str(receipt.get("authority_receipt_sha256") or "")
+    authority_receipt = dict(receipt.get("authority_receipt") or {})
+    pre_authority_sha256 = str(
+        receipt.get("transformed_manifest_pre_authority_sha256") or ""
+    )
+    expected_paths = {f"{slug}/tour.json", *(f"{slug}/{path}" for path in asset_paths)}
+    if (
+        len(asset_paths) != 5
+        or len(observed_files) != 6
+        or {str(row.get("path") or "") for row in observed_files} != expected_paths
+        or receipt.get("normalization") != SPATIAL_MANIFEST_NORMALIZATION
+        or authority_receipt.get("schema") != SPATIAL_AUTHORITY_SCHEMA
+        or authority_receipt.get("status") != "pass"
+        or authority_receipt.get("scope") != SPATIAL_AUTHORITY_SCOPE
+        or authority_receipt.get("candidate_handoff_authorized") is not True
+        or authority_receipt.get("public_activation_authority") is not False
+        or authority_receipt.get("slug") != slug
+        or authority_receipt.get("target_origin") != env["EA_PUBLIC_APP_BASE_URL"]
+        or authority_receipt.get("normalization") != SPATIAL_MANIFEST_NORMALIZATION
+        or authority_receipt.get("asset_paths") != asset_paths
+        or authority_receipt.get("transformed_manifest_pre_authority_sha256")
+        != pre_authority_sha256
+        or _sha256(_receipt_bytes(authority_receipt)) != authority_sha256
+        or len(authority_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in authority_sha256)
+        or len(pre_authority_sha256) != 64
+        or any(
+            character not in "0123456789abcdef" for character in pre_authority_sha256
+        )
+    ):
+        raise RuntimeError("manfred_candidate_spatial_projection_contract_invalid")
+    bundle = spatial_root / slug
+    try:
+        manifest_bytes = (bundle / "tour.json").read_bytes()
+        manifest = json.loads(manifest_bytes)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("manfred_candidate_spatial_manifest_invalid") from exc
+    if not isinstance(manifest, dict):
+        raise RuntimeError("manfred_candidate_spatial_manifest_invalid")
+    release = dict(manifest.get("generated_viewer_release") or {})
+    canonical_final = _canonical_json_bytes(
+        _sanitized_spatial_manifest(
+            manifest,
+            authority_receipt_sha256=authority_sha256,
+        )
+    )
+    if (
+        manifest_bytes != canonical_final
+        or release.get("publication_authority_receipt_sha256") != authority_sha256
+        or _sha256(_spatial_pre_authority_manifest_bytes(manifest))
+        != pre_authority_sha256
+    ):
+        raise RuntimeError("manfred_candidate_spatial_authority_binding_invalid")
+    verifier_receipt = verify_spatial_bundle(bundle, slug=slug)
+    if (
+        verifier_receipt.get("pass") is not True
+        or dict(verifier_receipt.get("checks") or {}).get("binding_count") != 5
+    ):
+        raise RuntimeError("manfred_candidate_spatial_release_verifier_blocked")
+    evidence.update(
+        {
+            "asset_paths": asset_paths,
+            "viewer_relpath": viewer_relpath,
+            "proof_relpath": proof_relpath,
+            "authority_receipt_sha256": authority_sha256,
+            "transformed_manifest_pre_authority_sha256": pre_authority_sha256,
+            "local_release_verifier": verifier_receipt,
+        }
+    )
+    return evidence
+
+
 def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
     release_root = Path(env["EA_MANFRED_RELEASE_ROOT"]).resolve()
     if release_root.is_symlink() or not release_root.is_dir():
@@ -693,6 +875,12 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         != sum(int(row["size_bytes"]) for row in observed_files)
     ):
         raise RuntimeError("manfred_candidate_projection_tree_digest_mismatch")
+    spatial = _spatial_projection_evidence(
+        env,
+        projection_receipt=payload,
+        release_root=release_root,
+        release_id=release_id,
+    )
     return {
         "release_id": release_id,
         "release_root": str(release_root),
@@ -701,6 +889,7 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         "prepared_image_locator": image,
         "prepared_image_id": image_id,
         "projection_tree_revalidated": True,
+        "spatial_handoff": spatial,
     }
 
 
@@ -1088,6 +1277,10 @@ def _assert_compose_isolation(
         raise RuntimeError("manfred_candidate_compose_env_file_mismatch")
     resolved_environment = dict(api.get("environment") or {})
     declared_environment = dict(source_api.get("environment") or {})
+    if str(declared_environment.get("EA_PUBLIC_TOUR_DIR") or "") != (
+        "/data/public_property_tours"
+    ):
+        raise RuntimeError("manfred_candidate_spatial_compose_environment_invalid")
     expected_environment_keys = set(env).union(declared_environment)
     if set(resolved_environment) != expected_environment_keys:
         raise RuntimeError("manfred_candidate_compose_environment_scope_invalid")
@@ -1147,6 +1340,10 @@ def _assert_compose_isolation(
             str((Path(env["EA_MANFRED_RUNTIME_ROOT"]) / "state").resolve()),
             False,
         ),
+        "/data/public_property_tours": (
+            str(Path(env["EA_MANFRED_SPATIAL_RELEASE_ROOT"]).resolve()),
+            True,
+        ),
     }
     actual_binds: dict[str, tuple[str, bool]] = {}
     volume_mounts: list[dict[str, object]] = []
@@ -1181,7 +1378,7 @@ def _assert_compose_isolation(
         if str(dict(value or {}).get("name") or "") != f"{project}_{name}":
             raise RuntimeError("manfred_candidate_compose_volume_name_invalid")
 
-    for service in services.values():
+    for service_name, service in services.items():
         service_payload = dict(service or {})
         if service_payload.get("build") or service_payload.get("container_name"):
             raise RuntimeError("manfred_candidate_compose_service_not_isolated")
@@ -1189,8 +1386,14 @@ def _assert_compose_isolation(
             if not isinstance(mount, dict):
                 continue
             source = str(mount.get("source") or "")
+            target = str(mount.get("target") or "")
             if source.startswith("/docker/EA") or source == "/var/run/docker.sock":
                 raise RuntimeError("manfred_candidate_compose_live_bind_forbidden")
+            if service_name != "api" and (
+                target == "/data/public_property_tours"
+                or source == env["EA_MANFRED_SPATIAL_RELEASE_ROOT"]
+            ):
+                raise RuntimeError("manfred_candidate_spatial_compose_scope_invalid")
 
 
 def _assert_env_allowlist(env_file: Path) -> dict[str, str]:
@@ -1206,7 +1409,11 @@ def _assert_env_allowlist(env_file: Path) -> dict[str, str]:
         raise RuntimeError("manfred_candidate_project_name_invalid") from exc
     if env["EA_MANFRED_ENV_FILE"] != str(env_file.resolve()):
         raise RuntimeError("manfred_candidate_env_file_binding_invalid")
-    for name in ("EA_MANFRED_RELEASE_ROOT", "EA_MANFRED_RUNTIME_ROOT"):
+    for name in (
+        "EA_MANFRED_RELEASE_ROOT",
+        "EA_MANFRED_RUNTIME_ROOT",
+        "EA_MANFRED_SPATIAL_RELEASE_ROOT",
+    ):
         path = Path(env[name]).expanduser()
         if (
             not path.is_absolute()
@@ -1215,6 +1422,21 @@ def _assert_env_allowlist(env_file: Path) -> dict[str, str]:
             or not path.is_dir()
         ):
             raise RuntimeError("manfred_candidate_env_path_invalid")
+    release_root = Path(env["EA_MANFRED_RELEASE_ROOT"]).resolve()
+    spatial_root = Path(env["EA_MANFRED_SPATIAL_RELEASE_ROOT"]).resolve()
+    if spatial_root != (release_root / "public_property_tours").resolve():
+        raise RuntimeError("manfred_candidate_spatial_env_root_mismatch")
+    included = env["EA_MANFRED_SPATIAL_HANDOFF_INCLUDED"]
+    slug = env["EA_MANFRED_SPATIAL_SLUG"]
+    digest = env["EA_MANFRED_SPATIAL_SHA256"]
+    if (
+        included not in {"0", "1"}
+        or (included == "1") != bool(slug)
+        or (slug and not SPATIAL_SLUG_RE.fullmatch(slug))
+        or len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+    ):
+        raise RuntimeError("manfred_candidate_spatial_env_invalid")
     try:
         port = int(env["EA_MANFRED_HOST_PORT"])
     except ValueError as exc:
@@ -1252,6 +1474,137 @@ def _assert_contribution_modes(
     if private_mode != "600" or public_mode != "644":
         raise RuntimeError("manfred_candidate_contribution_permissions_invalid")
     return {"private_ledger": private_mode, "public_projection": public_mode}
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(  # type: ignore[override]
+        self,
+        req: urllib.request.Request,
+        fp: object,
+        code: int,
+        msg: str,
+        headers: object,
+        newurl: str,
+    ) -> None:
+        del req, fp, code, msg, headers, newurl
+        return None
+
+
+def _spatial_http_probe(
+    base_url: str,
+    path: str,
+    *,
+    method: str,
+    expected_status: int,
+    accept: str = "*/*",
+) -> tuple[bytes, dict[str, str]]:
+    request = urllib.request.Request(
+        f"{base_url.rstrip('/')}{path}",
+        method=method,
+        headers={
+            "Accept": accept,
+            "Accept-Encoding": "identity",
+            "User-Agent": "EA-Manfred-Spatial-Handoff-Verifier/1.0",
+        },
+    )
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+    try:
+        with opener.open(request, timeout=20) as response:
+            status = int(response.status or 0)
+            body = response.read(8 * 1024 * 1024 + 1) if method == "GET" else b""
+            headers = {
+                str(name).lower(): str(value).strip()
+                for name, value in response.headers.items()
+            }
+    except urllib.error.HTTPError as exc:
+        status = int(exc.code)
+        body = b""
+        headers = {
+            str(name).lower(): str(value).strip() for name, value in exc.headers.items()
+        }
+    except (OSError, urllib.error.URLError) as exc:
+        raise RuntimeError("manfred_candidate_spatial_http_unreachable") from exc
+    if status != expected_status or len(body) > 8 * 1024 * 1024:
+        raise RuntimeError("manfred_candidate_spatial_http_status_invalid")
+    return body, headers
+
+
+def _spatial_handoff_runtime_proof(
+    base_url: str, projection: dict[str, object]
+) -> dict[str, object]:
+    spatial = dict(projection.get("spatial_handoff") or {})
+    if spatial.get("included") is not True:
+        return {
+            "included": False,
+            "routes_required": False,
+            "public_activation_authority": False,
+        }
+    slug = str(spatial.get("slug") or "")
+    viewer_relpath = str(spatial.get("viewer_relpath") or "")
+    proof_relpath = str(spatial.get("proof_relpath") or "")
+    if not slug or not viewer_relpath or not proof_relpath:
+        raise RuntimeError("manfred_candidate_spatial_runtime_contract_invalid")
+    quoted_slug = urllib.parse.quote(slug, safe="")
+    html_path = f"/tours/{quoted_slug}"
+    json_path = f"/tours/{quoted_slug}.json"
+    viewer_path = (
+        f"/tours/viewer/{quoted_slug}/{urllib.parse.quote(viewer_relpath, safe='/')}"
+    )
+    proof_path = (
+        f"/tours/viewer/{quoted_slug}/{urllib.parse.quote(proof_relpath, safe='/')}"
+    )
+    routes: dict[str, dict[str, object]] = {}
+    for label, path, expected, accept in (
+        ("html", html_path, 200, "text/html"),
+        ("json", json_path, 200, "application/json"),
+        ("viewer", viewer_path, 200, "text/html"),
+        ("proof_only", proof_path, 404, "application/json"),
+    ):
+        for method in ("GET", "HEAD"):
+            body, headers = _spatial_http_probe(
+                base_url,
+                path,
+                method=method,
+                expected_status=expected,
+                accept=accept,
+            )
+            routes[f"{label}_{method.lower()}"] = {
+                "path": path,
+                "status": expected,
+                "content_type": str(headers.get("content-type") or ""),
+            }
+            if label == "json" and method == "GET":
+                try:
+                    payload = json.loads(body)
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise RuntimeError(
+                        "manfred_candidate_spatial_json_invalid"
+                    ) from exc
+                generated_viewer = (
+                    dict(payload.get("generated_viewer") or {})
+                    if isinstance(payload, dict)
+                    else {}
+                )
+                if generated_viewer.get("url") != viewer_path:
+                    raise RuntimeError("manfred_candidate_spatial_json_viewer_mismatch")
+    bundle = Path(str(spatial.get("release_root") or "")) / slug
+    verifier_receipt = verify_spatial_bundle(
+        bundle,
+        base_url=base_url,
+        slug=slug,
+    )
+    if verifier_receipt.get("pass") is not True:
+        raise RuntimeError("manfred_candidate_spatial_http_verifier_blocked")
+    return {
+        "included": True,
+        "routes_required": True,
+        "slug": slug,
+        "routes": routes,
+        "generated_viewer_release_verifier": verifier_receipt,
+        "html_json_viewer_200": True,
+        "proof_only_404": True,
+        "public_activation_authority": False,
+    }
 
 
 def _assert_logs_clean(compose: list[str], environment: dict[str, str]) -> None:
@@ -1390,6 +1743,7 @@ def prove_candidate(
             contribution_modes = _assert_contribution_modes(
                 compose, compose_environment
             )
+            spatial_handoff = _spatial_handoff_runtime_proof(base_url, projection)
             browser_surface = audit_browser_surface(base_url)
             _assert_logs_clean(compose, compose_environment)
             candidate_openapi_contract, candidate_openapi = _openapi_contract_snapshot(
@@ -1449,6 +1803,7 @@ def prove_candidate(
                 "provider_calls_performed": False,
                 "redis_ping": "PONG",
                 "contribution_modes": contribution_modes,
+                "spatial_handoff_runtime": spatial_handoff,
                 "contribution_survived_restart": bool(
                     second_smoke.get("contribution", {}).get(
                         "survived_candidate_restart"

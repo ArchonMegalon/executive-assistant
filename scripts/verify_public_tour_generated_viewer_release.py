@@ -33,8 +33,8 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _REVISION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 _GENERATED_PREFIX = "generated-reconstruction/"
-_EXPECTED_FILE_MODE = 0o644
-_EXPECTED_DIRECTORY_MODE = 0o755
+_EXPECTED_FILE_MODES = frozenset({0o444, 0o644})
+_EXPECTED_DIRECTORY_MODES = frozenset({0o550, 0o755})
 _MAX_TOUR_JSON_BYTES = 4 * 1024 * 1024
 _HTTP_TIMEOUT_SECONDS = 15.0
 
@@ -250,14 +250,16 @@ def _path_component_blockers(bundle_dir: Path, relpath: str) -> list[dict[str, o
                 )
             )
             break
-        expected_mode = _EXPECTED_FILE_MODE if is_final else _EXPECTED_DIRECTORY_MODE
+        expected_modes = _EXPECTED_FILE_MODES if is_final else _EXPECTED_DIRECTORY_MODES
         actual_mode = stat.S_IMODE(path_stat.st_mode)
-        if actual_mode != expected_mode:
+        if actual_mode not in expected_modes:
             blockers.append(
                 _block(
                     "unsafe_file_mode" if is_final else "unsafe_directory_mode",
                     path=display_path,
-                    expected=_mode_string(expected_mode),
+                    expected="|".join(
+                        _mode_string(mode) for mode in sorted(expected_modes)
+                    ),
                     actual=_mode_string(actual_mode),
                 )
             )
@@ -523,12 +525,14 @@ def verify_bundle(
         blockers.append(_block("bundle_symlink_forbidden"))
     elif not stat.S_ISDIR(bundle_stat.st_mode):
         blockers.append(_block("bundle_not_directory"))
-    elif stat.S_IMODE(bundle_stat.st_mode) != _EXPECTED_DIRECTORY_MODE:
+    elif stat.S_IMODE(bundle_stat.st_mode) not in _EXPECTED_DIRECTORY_MODES:
         blockers.append(
             _block(
                 "unsafe_directory_mode",
                 path=".",
-                expected=_mode_string(_EXPECTED_DIRECTORY_MODE),
+                expected="|".join(
+                    _mode_string(mode) for mode in sorted(_EXPECTED_DIRECTORY_MODES)
+                ),
                 actual=_mode_string(bundle_stat.st_mode),
             )
         )
