@@ -1537,6 +1537,28 @@ def test_admin_proactive_ooda_capture_writes_runtime_approval_artifact_and_syncs
         tmp_path,
         proactive_gold_receipt=proactive_gold_receipt,
     )
+    monkeypatch.setattr(
+        landing_actions,
+        "_materialize_admin_proactive_ooda_operator_status",
+        lambda *, output_path, **_kwargs: _write_json(
+            output_path,
+            {
+                "contract_name": "ea.proactive_ooda_operator_status.v1",
+                "status": "ready_with_live_receipt",
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        landing_actions,
+        "_materialize_admin_proactive_ooda_gold_acceptance",
+        lambda *, output_path, **_kwargs: _write_json(
+            output_path,
+            {
+                "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+                "status": "blocked_missing_proactive_packet_evidence",
+            },
+        ),
+    )
     monkeypatch.setattr(landing_actions, "EA_PROACTIVE_OODA_APPROVAL_OUTCOME_RECEIPT", approval_outcome_receipt)
     monkeypatch.setattr(
         landing_actions,
