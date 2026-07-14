@@ -3,10 +3,10 @@
   "surface": "flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-07-14T03:18:19Z",
+  "generated_at": "2026-07-14T08:03:21Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
-  "source_git_head": "e84c47934408e99285a040f55af666170ca84e1c",
-  "source_tree_fingerprint": "3e65711a00533225e883748b492cd2057e77044f6aa0cf12d3fb7e4b3c619c46",
+  "source_git_head": "35fd1c1537b16b408f9c3592afbd8e54dc431275",
+  "source_tree_fingerprint": "5f56a16903d8ec8aae9fa27a28d76b1321760251607a9237779072e3e803fed6",
   "head_semantics": "source_state",
   "status": "blocked",
   "operator_summary": "EA flagship release truth is materialized, but the current browser-proof or release-doc state still blocks the claim.",
@@ -140,6 +140,10 @@
     "project_modes_present": true,
     "state": "blocked",
     "issues": [
+      "source_remote_ref_missing",
+      "source_remote_ref_commit_sha_missing",
+      "source_remote_ref_evidence_invalid",
+      "source_commit_not_reachable_from_remote_ref",
       "deployment_id_local_fallback"
     ]
   },
@@ -186,7 +190,7 @@
     }
   ],
   "blocking_reasons": [
-    "release authority: deployment_id_local_fallback"
+    "release authority: source_remote_ref_missing, source_remote_ref_commit_sha_missing, source_remote_ref_evidence_invalid, source_commit_not_reachable_from_remote_ref, deployment_id_local_fallback"
   ],
   "current_limitations": [],
   "release_truth": {
