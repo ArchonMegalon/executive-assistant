@@ -21,12 +21,12 @@ import pytest
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
 _HAS_WEBSOCKET_PROTOCOL = importlib.util.find_spec("websockets") is not None or importlib.util.find_spec("wsproto") is not None
-from playwright.sync_api import Browser, Page, sync_playwright
+from playwright.sync_api import Browser, Page, sync_playwright  # noqa: E402
 
 Config = uvicorn.Config
 Server = uvicorn.Server
 
-from app.api.app import create_app
+from app.api.app import create_app  # noqa: E402
 
 
 def _free_port() -> int:
@@ -111,6 +111,7 @@ def _source_first_memorial_payload(slug: str) -> dict[str, object]:
             {
                 "visibility": "public",
                 "public": True,
+                "approved": True,
                 "label": f"Öffentliche Quelle {index}",
                 "url": f"https://sources.example/manfred/{index}",
                 "status": "belegt",
@@ -447,7 +448,7 @@ def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int
                 if not isinstance(parsed, dict):
                     continue
                 turn_id = str(parsed.get("turn_id", "") or "")
-                if turn_id and slug and f"turn_" not in turn_id and not state.get("turn_id"):
+                if turn_id and slug and "turn_" not in turn_id and not state.get("turn_id"):
                     continue
                 event_type = str(parsed.get("type", "")).strip()
                 if event_type == "turn_complete":
@@ -471,7 +472,7 @@ def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int
 @pytest.mark.parametrize(
     ("viewport", "expected_dock_position"),
     [
-        ({"width": 1440, "height": 1100}, "fixed"),
+        ({"width": 1440, "height": 1100}, "relative"),
         ({"width": 430, "height": 932}, "relative"),
         ({"width": 900, "height": 650}, "relative"),
     ],

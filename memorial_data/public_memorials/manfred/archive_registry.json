@@ -13,6 +13,7 @@
   ],
   "fliplink_publications": [
     {
+      "approved": true,
       "audience": "public",
       "description": "Erkl\u00e4rt Quellen, Grenzen, KI-Nutzung und den Unterschied zwischen Archiv und Gespr\u00e4ch.",
       "id": "manfred-how-this-memorial-works",
@@ -29,6 +30,7 @@
       "viewer_type": "smart_document"
     },
     {
+      "approved": true,
       "audience": "public",
       "description": "Ein gepr\u00fcfter \u00dcberblick \u00fcber Leben, Quellen und zentrale Erinnerungsmuster.",
       "id": "manfred-life-overview",
@@ -45,6 +47,7 @@
       "viewer_type": "smart_document"
     },
     {
+      "approved": true,
       "audience": "public",
       "description": "Kleine kuratierte Erinnerungs- und Quellenkarten f\u00fcr den \u00f6ffentlichen Einstieg.",
       "id": "manfred-public-memory-cards-v01",
@@ -61,6 +64,7 @@
       "viewer_type": "flipbook"
     },
     {
+      "approved": true,
       "audience": "public",
       "description": "Offenlegung zu Quellenlagen, Unsicherheiten, \u00dcberarbeitung und KI-Assistenz.",
       "id": "manfred-source-disclosure",
@@ -77,6 +81,6 @@
       "viewer_type": "smart_document"
     }
   ],
-  "generated_at": "2026-07-11T07:07:13Z",
+  "generated_at": "2026-07-14T03:22:30Z",
   "slug": "manfred"
 }

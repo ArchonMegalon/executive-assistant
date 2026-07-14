@@ -48,6 +48,7 @@ DEFAULT_GENERATED_REGISTRY_FILENAME = "archive_registry.generated.json"
 ALLOWED_AUDIENCES = {"public", "family", "reviewer", "private"}
 ALLOWED_VIEWER_TYPES = {"smart_document", "flipbook", "flipbook_3d", "document"}
 SAFE_PUBLICATION_KEYS = {
+    "approved",
     "id",
     "title",
     "audience",
@@ -99,10 +100,10 @@ def sha256_bytes(payload: bytes) -> str:
 def normalize_manifest(manifest: dict[str, Any], *, manifest_path: Path) -> dict[str, Any]:
     payload = dict(manifest)
     document_id = str(payload.get("document_id") or manifest_path.parent.name).strip()
-    audience = str(payload.get("audience") or "public").strip().lower()
+    audience = str(payload.get("audience") or "").strip().lower()
     if audience not in ALLOWED_AUDIENCES:
-        audience = "public"
-    sensitivity = str(payload.get("sensitivity") or "PUBLIC").strip().upper() or "PUBLIC"
+        audience = ""
+    sensitivity = str(payload.get("sensitivity") or "").strip().upper()
     viewer_type = str(payload.get("viewer_type") or "smart_document").strip().lower()
     if viewer_type not in ALLOWED_VIEWER_TYPES:
         viewer_type = "smart_document"
@@ -122,7 +123,7 @@ def normalize_manifest(manifest: dict[str, Any], *, manifest_path: Path) -> dict
             "version": version,
             "source_owner": source_owner,
             "correction_contact": correction_contact,
-            "approved": bool(payload.get("approved")),
+            "approved": payload.get("approved") is True,
             "archive_section_title": str(payload.get("archive_section_title") or {
                 "public": "Oeffentliches Archiv",
                 "family": "Familienarchiv",
@@ -136,8 +137,9 @@ def normalize_manifest(manifest: dict[str, Any], *, manifest_path: Path) -> dict
             "contact_or_correction_path": correction_contact,
             "fliplink_slug": str(payload.get("fliplink_slug") or document_id).strip() or document_id,
             "noindex": bool(payload.get("noindex")) if "noindex" in payload else audience != "public",
-            "share_with_memorial_app": bool(payload.get("share_with_memorial_app", audience == "public")),
-            "public": bool(payload.get("public", audience == "public")),
+            "share_with_memorial_app": audience == "public"
+            and bool(payload.get("share_with_memorial_app", True)),
+            "public": audience == "public" and bool(payload.get("public", True)),
             "source_files": [str(item).strip() for item in list(payload.get("source_files") or []) if str(item).strip()],
         }
     )
@@ -148,15 +150,16 @@ def normalize_manifest(manifest: dict[str, Any], *, manifest_path: Path) -> dict
 
 def publication_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     publication = {
+        "approved": manifest.get("approved") is True,
         "id": str(manifest.get("document_id") or "").strip(),
         "title": str(manifest.get("title") or "").strip(),
-        "audience": str(manifest.get("audience") or "public").strip().lower(),
+        "audience": str(manifest.get("audience") or "").strip().lower(),
         "viewer_type": str(manifest.get("viewer_type") or "smart_document").strip().lower(),
         "type": str(manifest.get("viewer_type") or "smart_document").strip().lower(),
         "url": str(manifest.get("fliplink_url") or "").strip(),
         "thumbnail": str(manifest.get("thumbnail") or "").strip(),
         "description": str(manifest.get("description") or manifest.get("title") or "").strip(),
-        "sensitivity": str(manifest.get("sensitivity") or "PUBLIC").strip().upper(),
+        "sensitivity": str(manifest.get("sensitivity") or "").strip().upper(),
         "review_status": str(manifest.get("review_status") or "draft").strip().lower(),
         "version": str(manifest.get("version") or "").strip(),
         "publication_id": str(manifest.get("fliplink_publication_id") or "").strip(),
@@ -164,6 +167,19 @@ def publication_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "noindex": bool(manifest.get("noindex")),
     }
     return publication
+
+
+def _publication_is_publicly_releasable(publication: dict[str, Any]) -> bool:
+    return (
+        publication.get("approved") is True
+        and str(publication.get("audience") or "").strip().lower() == "public"
+        and str(publication.get("sensitivity") or "").strip().upper() == "PUBLIC"
+        and str(publication.get("review_status") or "").strip().lower()
+        == "published"
+        and bool(str(publication.get("id") or "").strip())
+        and bool(str(publication.get("title") or "").strip())
+        and bool(str(publication.get("url") or "").strip())
+    )
 
 
 def registry_from_manifests(*, slug: str, manifests: list[dict[str, Any]], include_nonpublic: bool = True) -> dict[str, Any]:
@@ -178,7 +194,11 @@ def registry_from_manifests(*, slug: str, manifests: list[dict[str, Any]], inclu
         publication = publication_from_manifest(manifest)
         if not publication["id"] or not publication["title"] or not publication["url"]:
             continue
-        if not include_nonpublic and publication["audience"] != "public":
+        if publication["audience"] not in ALLOWED_AUDIENCES:
+            continue
+        if publication["audience"] == "public" and publication["sensitivity"] != "PUBLIC":
+            continue
+        if not include_nonpublic and not _publication_is_publicly_releasable(publication):
             continue
         publications.append(publication)
         section_title = str(manifest.get("archive_section_title") or publication["audience"] or "Archiv").strip()
@@ -214,9 +234,7 @@ def public_registry_payload(registry: dict[str, Any]) -> dict[str, Any]:
     for item in list(registry.get("fliplink_publications") or []):
         if not isinstance(item, dict):
             continue
-        audience = str(item.get("audience") or "public").strip().lower()
-        review_status = str(item.get("review_status") or "").strip().lower()
-        if audience != "public" or review_status not in {"approved", "published"}:
+        if not _publication_is_publicly_releasable(item):
             continue
         sanitized = {key: item.get(key) for key in SAFE_PUBLICATION_KEYS if key in item}
         publications.append(sanitized)

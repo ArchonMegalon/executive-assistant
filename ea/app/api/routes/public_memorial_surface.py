@@ -20,7 +20,6 @@ from app.api.routes.public_memorial_surface_support import (
     _memorial_https_redirect,
     _memorial_transport_rejection,
     _memorial_archive_publication_html_path,
-    _memorial_archive_publication_redirect_url,
     _memorial_html,
     _memorial_pwa_icon_file,
     _memorial_pwa_icon_svg,
@@ -161,6 +160,35 @@ def public_memorial_archive_index(slug: str, request: Request) -> Response:
         return _apply_memorial_transport_security(response, request)
 
 
+def _authorized_public_memorial_archive_publication(
+    slug: str,
+    publication_slug: str,
+) -> dict[str, object] | None:
+    registry = _public_memorial_archive_registry(slug)
+    for raw_item in list(registry.get("fliplink_publications") or []):
+        if not isinstance(raw_item, dict):
+            continue
+        try:
+            registered_slug = _safe_slug(
+                str(raw_item.get("slug") or raw_item.get("id") or "")
+            )
+        except HTTPException:
+            continue
+        if registered_slug != publication_slug:
+            continue
+        if (
+            raw_item.get("approved") is not True
+            or str(raw_item.get("audience") or "").strip().lower() != "public"
+            or str(raw_item.get("sensitivity") or "").strip().upper() != "PUBLIC"
+            or str(raw_item.get("review_status") or "").strip().lower()
+            != "published"
+            or not str(raw_item.get("url") or "").strip()
+        ):
+            continue
+        return dict(raw_item)
+    return None
+
+
 @router.get("/memorials/{slug}/archive/{publication_slug}")
 def public_memorial_archive_publication(slug: str, publication_slug: str, request: Request) -> Response:
     rejection = _memorial_transport_rejection(request)
@@ -171,15 +199,33 @@ def public_memorial_archive_publication(slug: str, publication_slug: str, reques
         return redirect
     try:
         _load_memorial(slug)
-    except HTTPException as exc:
-        response = _public_surface_html_error_response(exc.status_code, str(exc.detail))
-        return _apply_memorial_transport_security(response, request)
-    html_path = _memorial_archive_publication_html_path(slug, publication_slug)
-    if not html_path.is_file():
-        redirect_url = _memorial_archive_publication_redirect_url(
-            slug, publication_slug
+        safe_slug = _safe_slug(slug)
+        safe_publication_slug = _safe_slug(publication_slug)
+        publication = _authorized_public_memorial_archive_publication(
+            safe_slug,
+            safe_publication_slug,
         )
-        if redirect_url:
+    except HTTPException as exc:
+        response = _public_surface_html_error_response(
+            exc.status_code,
+            str(exc.detail),
+        )
+        return _apply_memorial_transport_security(response, request)
+
+    if publication is None:
+        response = _public_surface_html_error_response(
+            404,
+            "memorial_archive_publication_not_found",
+        )
+        return _apply_memorial_transport_security(response, request)
+
+    html_path = _memorial_archive_publication_html_path(
+        safe_slug,
+        safe_publication_slug,
+    )
+    if not html_path.is_file():
+        redirect_url = str(publication.get("url") or "").strip()
+        if redirect_url.startswith("https://"):
             response = RedirectResponse(
                 url=redirect_url,
                 status_code=307,
@@ -191,8 +237,12 @@ def public_memorial_archive_publication(slug: str, publication_slug: str, reques
                 },
             )
             return _apply_memorial_transport_security(response, request)
-        response = _public_surface_html_error_response(404, "memorial_archive_publication_not_found")
+        response = _public_surface_html_error_response(
+            404,
+            "memorial_archive_publication_not_found",
+        )
         return _apply_memorial_transport_security(response, request)
+
     response = HTMLResponse(
         html_path.read_text(encoding="utf-8"),
         headers=dict(_PUBLIC_MEMORIAL_HTML_HEADERS),

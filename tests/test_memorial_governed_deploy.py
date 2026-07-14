@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -29,6 +30,48 @@ SAFE_TOUR = json.dumps(
     {"slug": "control-tour", "title": "Control tour"},
     separators=(",", ":"),
 ).encode("utf-8")
+
+
+def _sentinel_timestamp(milliseconds: int) -> str:
+    return deploy._utc_timestamp_from_ms(milliseconds)
+
+
+def _write_passing_vexp_sentinel(path: Path) -> None:
+    now_ms = int(time.time() * 1000)
+    epoch_ms = now_ms - 8 * 24 * 60 * 60 * 1000
+    required_end_ms = epoch_ms + deploy.VEXP_CERTIFICATION_SOAK_SECONDS * 1000
+    initial_expiration_ms = epoch_ms + 2 * 24 * 60 * 60 * 1000
+    observed_expiration_ms = now_ms + 30 * 24 * 60 * 60 * 1000
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
+    path.write_text(
+        json.dumps(
+            {
+                "version": deploy.VEXP_SENTINEL_STATE_VERSION,
+                "updated_at": _sentinel_timestamp(now_ms),
+                "epoch_started_at": _sentinel_timestamp(epoch_ms),
+                "epoch_started_ms": epoch_ms,
+                "epoch_initial_fresh_exp_ms": initial_expiration_ms,
+                "last_observed_fresh_exp_ms": observed_expiration_ms,
+                "fresh_token_renewals": 1,
+                "fresh_token_renewed_in_epoch": True,
+                "last_license": {
+                    "renewed": True,
+                    "fresh_expiration_ms": observed_expiration_ms,
+                    "fresh_expiration_at": _sentinel_timestamp(
+                        observed_expiration_ms
+                    ),
+                },
+                "qualification_phase": "qualified",
+                "qualified_at": _sentinel_timestamp(required_end_ms),
+                "certification_blockers": [],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o600)
 
 
 def _completed(
@@ -619,6 +662,7 @@ def _lane(
     receipt_dir: Path | None = None,
     global_lock_path: Path | None = None,
     control_tour_slug: str = deploy.REQUIRED_CONTROL_TOUR_SLUG,
+    vexp_sentinel_state_path: Path | None = None,
 ) -> deploy.MemorialDeployLane:
     def safe_http(url: str, timeout: float) -> deploy.HttpResponse:
         if url.endswith("/openapi.json"):
@@ -730,6 +774,13 @@ def _lane(
 
     candidate_receipt = root / ".runtime" / "candidate-runtime-receipt.json"
     candidate_receipt.parent.mkdir(parents=True, exist_ok=True)
+    sentinel_path = (
+        vexp_sentinel_state_path
+        if vexp_sentinel_state_path is not None
+        else root / ".runtime" / "vexp-sentinel-state.json"
+    )
+    if vexp_sentinel_state_path is None:
+        _write_passing_vexp_sentinel(sentinel_path)
     projection_root = root / "memorial_data"
     projection_root.mkdir(exist_ok=True)
     projection_root.chmod(0o550)
@@ -983,6 +1034,7 @@ def _lane(
         wait_seconds=0,
         receipt_dir=receipt_dir or root / ".runtime" / "test-receipts",
         global_lock_path=global_lock_path or root / ".runtime" / "test-global.lock",
+        vexp_sentinel_state_path=sentinel_path,
         durable_root_check=lambda _root: None,
     )
 
@@ -1489,6 +1541,14 @@ def test_private_release_evidence_preserves_tracked_defaults_and_binds_phase(
     assert phase_manifest["source_revision"] == "b" * 40
     assert phase_manifest["candidate_image"]["image_id"] == runner.candidate_image
     assert len(phase_manifest["projection_sha256"]) == 64
+    token_coverage = phase_manifest["vexp_token_coverage"]
+    assert token_coverage["contract_name"] == deploy.VEXP_TOKEN_COVERAGE_SCHEMA
+    assert token_coverage["status"] == "pass"
+    assert token_coverage["token_coverage_safe"] is True
+    assert token_coverage["promotion_authorized"] is False
+    assert token_coverage["credential_material_included"] is False
+    assert token_coverage["secrets_included"] is False
+    assert evidence["vexp_token_coverage"] == token_coverage
     assert {
         item["path"] for item in phase_manifest["deployment_input_seal"]["forward"]
     } == {
@@ -1992,6 +2052,20 @@ def test_happy_path_mutates_only_redis_and_api(
     assert postdeploy_openapi["missing_or_changed_security_scheme_count"] == 0
     assert "_contract" not in predeploy_openapi
     assert "_contract" not in postdeploy_openapi
+    coverage_history = receipt["vexp_certification_token_coverage_history"]
+    assert [item["boundary"] for item in coverage_history] == [
+        "preflight_entry",
+        "before_redis_mutation",
+        "before_rollback_protection",
+        "immediately_before_api_mutation",
+        "before_postdeploy_evidence",
+        "before_promotion_success",
+    ]
+    assert all(item["status"] == "pass" for item in coverage_history)
+    assert all(item["promotion_authorized"] is False for item in coverage_history)
+    assert all(
+        item["credential_material_included"] is False for item in coverage_history
+    )
 
 
 def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(

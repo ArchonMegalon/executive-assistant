@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from app.services import fliplink_client
+from app.services import memorial_archive_registry
 from app.services.fliplink_client import FlipLinkClient, FlipLinkSettings
 
 
@@ -236,6 +237,7 @@ def test_public_registry_projection_excludes_private_and_placeholder_entries() -
     common = {
         "approved": True,
         "review_status": "published",
+        "sensitivity": "PUBLIC",
         "viewer_type": "smart_document",
     }
     registry = publisher._registry_from_publishable_public_manifests(
@@ -273,6 +275,115 @@ def test_public_registry_projection_excludes_private_and_placeholder_entries() -
     assert "private_notes" not in json.dumps(registry)
 
 
+@pytest.mark.parametrize("audience", [None, "", "privtae", "unknown"])
+def test_archive_registry_unknown_audience_fails_closed(
+    audience: str | None,
+) -> None:
+    manifest = {
+        "document_id": "private-letter",
+        "title": "Private letter",
+        "audience": audience,
+        "sensitivity": "PUBLIC",
+        "approved": True,
+        "review_status": "published",
+        "fliplink_url": "/memorials/manfred/archive/private-letter",
+    }
+
+    normalized = memorial_archive_registry.normalize_manifest(
+        manifest,
+        manifest_path=Path("/archive/private-letter/manifest.json"),
+    )
+    assert normalized["audience"] == ""
+    assert normalized["public"] is False
+    assert normalized["share_with_memorial_app"] is False
+    for include_nonpublic in (False, True):
+        registry = memorial_archive_registry.registry_from_manifests(
+            slug="manfred",
+            manifests=[manifest],
+            include_nonpublic=include_nonpublic,
+        )
+        assert registry["archive_sections"] == []
+        assert registry["fliplink_publications"] == []
+
+
+def test_archive_registry_public_projection_requires_complete_release_boundary() -> None:
+    valid = {
+        "approved": True,
+        "id": "public-valid",
+        "title": "Public valid",
+        "audience": "public",
+        "sensitivity": "PUBLIC",
+        "review_status": "published",
+        "url": "/memorials/manfred/archive/public-valid",
+    }
+    invalid = [
+        {**valid, "id": "missing-approval", "approved": None},
+        {**valid, "id": "false-approval", "approved": False},
+        {**valid, "id": "string-approval", "approved": "true"},
+        {**valid, "id": "private-sensitivity", "sensitivity": "PRIVATE"},
+        {**valid, "id": "not-published", "review_status": "approved"},
+        {**valid, "id": "family-audience", "audience": "family"},
+    ]
+    item_ids = [valid["id"], *(item["id"] for item in invalid)]
+
+    payload = memorial_archive_registry.public_registry_payload(
+        {
+            "slug": "manfred",
+            "archive_sections": [
+                {"title": "Public", "audience": "public", "items": item_ids}
+            ],
+            "fliplink_publications": [valid, *invalid],
+        }
+    )
+
+    assert payload["archive_sections"] == [
+        {"title": "Public", "audience": "public", "items": ["public-valid"]}
+    ]
+    assert payload["fliplink_publications"] == [valid]
+
+
+def test_archive_registry_manifest_projection_preserves_explicit_approval_only() -> None:
+    common = {
+        "title": "Public archive item",
+        "audience": "public",
+        "review_status": "published",
+        "fliplink_url": "/memorials/manfred/archive/item",
+    }
+    registry = memorial_archive_registry.registry_from_manifests(
+        slug="manfred",
+        manifests=[
+            {
+                **common,
+                "document_id": "public-valid",
+                "approved": True,
+                "sensitivity": "PUBLIC",
+            },
+            {
+                **common,
+                "document_id": "private-sensitivity",
+                "approved": True,
+                "sensitivity": "PRIVATE",
+            },
+            {
+                **common,
+                "document_id": "implicit-approval",
+                "sensitivity": "PUBLIC",
+            },
+            {
+                **common,
+                "document_id": "implicit-sensitivity",
+                "approved": True,
+            },
+        ],
+        include_nonpublic=False,
+    )
+
+    assert [item["id"] for item in registry["fliplink_publications"]] == [
+        "public-valid"
+    ]
+    assert registry["fliplink_publications"][0]["approved"] is True
+
+
 @pytest.mark.parametrize(
     ("module_name", "factory_name"),
     [
@@ -308,6 +419,7 @@ def test_public_registry_uses_contained_internal_html_without_fliplink(
     common = {
         "approved": True,
         "review_status": "approved",
+        "sensitivity": "PUBLIC",
         "viewer_type": "smart_document",
         "fliplink_url": "https://archive.example.test/not-published",
     }
