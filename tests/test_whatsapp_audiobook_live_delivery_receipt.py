@@ -963,6 +963,7 @@ def test_live_whatsapp_audiobook_delivery_receipt_resolves_runtime_readiness_whe
 ) -> None:
     module = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
     module.audiobook_runtime_preflight = lambda: _runtime_preflight_ready()
+    module._runtime_container_preflight = lambda: {}
     readiness_path = tmp_path / "missing-readiness.generated.json"
     monkeypatch.setattr(module, "DEFAULT_READINESS_RECEIPT", readiness_path)
 

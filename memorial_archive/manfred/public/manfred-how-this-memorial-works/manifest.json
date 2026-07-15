@@ -18,15 +18,15 @@
     "html_path": "build/index.html",
     "pdf_path": "build/output.pdf"
   },
-  "sha256": "67e6f91e363cfd97617c733eb8abfbdd25fd9e162be770d6850862ddf86e4663",
+  "sha256": "35923b4742db6e81730876eb196d12dc8d8897ddefd9361b3fb398387b82ec7b",
   "description": "Erkl\u00e4rt Quellen, Grenzen, KI-Nutzung und den Unterschied zwischen Archiv und Gespr\u00e4ch.",
-  "correction_contact": "memorial@myexternalbrain.com",
+  "correction_contact": "/memorials/manfred#memorial-contribution",
   "ai_disclosure": "KI-unterst\u00fctzte Formatierung; keine direkte Rede von Manfred, sofern sie nicht ausdr\u00fccklich als w\u00f6rtliche Quelle gekennzeichnet ist.",
-  "contact_or_correction_path": "memorial@myexternalbrain.com",
+  "contact_or_correction_path": "/memorials/manfred#memorial-contribution",
   "noindex": false,
   "share_with_memorial_app": true,
   "public": true,
   "published_date": "2026-06-05",
   "source_sha256": "1aca176b275ed8315cc2ac3b688116aaeb63c3cfbf15d82d3be5b3f498573a62",
-  "built_at": "2026-07-11T07:07:13Z"
+  "built_at": "2026-07-15T00:23:23Z"
 }

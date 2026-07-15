@@ -66,7 +66,7 @@ git -C "$release_root" branch --set-upstream-to=origin/main "$release_branch"
 git -C "$release_root" status --short
 ```
 
-`make deploy-ea-memorial` requires a unique explicit `EA_DEPLOYMENT_ID`, an immutable revision-bound `EA_MEMORIAL_IMAGE`, and the private runtime-v3 receipt from a passing isolated candidate; it never invents deployment identity or accepts unproved image bytes. The scoped lane binds that receipt to the exact image, source revision, memorial projection root/digest, isolated project and port lock, unchanged live EA snapshot, OpenAPI proof, and provider-free rendered browser audit. The memorial override is rendered with the exact candidate reference and `pull_policy: never`, then the running container must match the preflight image ID. It preserves the API's captured ordered Compose topology by rebasing those layer paths into the clean release root, appends exactly one memorial override, leaves healthy Redis untouched, and force-recreates only `ea-api`. It proves local and public Manfred routes plus the runtime source-revision header, rejects browser subresource 4xx/5xx responses, and automatically restores the protected prior API image through the exact Compose working directory and config-file list recorded on the prior container if a post-change check fails. Set `EA_MEMORIAL_CONTROL_TOUR_SLUG` for the priority 3D tour so promotion also requires its HTML/JSON to stay `200` and its JSON digest to remain unchanged. It refuses to mutate when any baseline cannot be restored or mapped safely. See `docs/MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md` for the exact preparation, receipt, and rollback contract.
+`make deploy-ea-memorial` requires a unique explicit `EA_DEPLOYMENT_ID`, an immutable revision-bound `EA_MEMORIAL_IMAGE`, and the private runtime-v4 receipt from a passing isolated candidate; it never invents deployment identity or accepts unproved image bytes. The scoped lane binds that receipt to the exact image, source revision, memorial projection root/digest, isolated project and port lock, unchanged live EA snapshot, OpenAPI proof, and provider-free rendered browser audit. The memorial override is rendered with the exact candidate reference and `pull_policy: never`, then the running container must match the preflight image ID. It preserves the API's captured ordered Compose topology by rebasing those layer paths into the clean release root, appends exactly one memorial override, leaves healthy Redis untouched, and force-recreates only `ea-api`. It proves local and public Manfred routes plus the runtime source-revision header, rejects browser subresource 4xx/5xx responses, and automatically restores the protected prior API image through the exact Compose working directory and config-file list recorded on the prior container if a post-change check fails. Set `EA_MEMORIAL_CONTROL_TOUR_SLUG` for the priority 3D tour so promotion also requires its HTML/JSON to stay `200` and its JSON digest to remain unchanged. It refuses to mutate when any baseline cannot be restored or mapped safely. See `docs/MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md` for the exact preparation, receipt, and rollback contract.
 
 The release worktree is a live bind-mount source after promotion. Keep it on durable storage and do not remove it while the deployed API uses it.
 
@@ -181,30 +181,58 @@ Never restart the warmed `ea-api` to test a new memorial release and never build
 
 ```bash
 cd "$EA_REPO_ROOT"
+umask 077
+
 commit="$(git rev-parse HEAD)"
-tag="ea-runtime:manfred-${commit:0:12}"
-deployment_id="$(date -u +%Y%m%d%H%M%S)-${commit:0:8}"
-project_name="ea-manfred-candidate-${deployment_id}"
-deploy_root="${EA_MANFRED_DEPLOY_ROOT:-$HOME/.local/share/ea-deploy/manfred-memorial/$deployment_id}"
+image="ea-runtime:manfred-$commit"
+project_name="ea-manfred-candidate-${commit:0:12}"
+candidate_root="$HOME/.local/share/ea-deploy/manfred-memorial/candidate-${commit}-18092"
+public_origin="${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}"
 
-python3 scripts/build_manfred_memorial_image.py \
-  --source-root "$EA_REPO_ROOT" --ref "$commit" --tag "$tag" \
-  --receipt "$deploy_root/image-build.json"
+spatial_bundle="${EA_MEMORIAL_SPATIAL_TOUR_BUNDLE_DIR:?set the pinned six-file tour bundle}"
+spatial_authority="${EA_MEMORIAL_SPATIAL_AUTHORITY_RECEIPT:?set the publication-authority receipt}"
+spatial_final_review="${EA_MEMORIAL_SPATIAL_FINAL_REVIEW_RECEIPT:?set the final-review receipt}"
+spatial_browser_review="${EA_MEMORIAL_SPATIAL_BROWSER_REVIEW_RECEIPT:?set the exact-viewer browser receipt}"
 
-python3 scripts/prepare_manfred_memorial_candidate.py \
-  --source-root "$EA_REPO_ROOT" --ref "$commit" --image "$tag" \
-  --deploy-root "$deploy_root" \
-  --public-base-url "${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}" \
-  --host-port 18091 \
+mkdir -p "$candidate_root"
+chmod 700 "$candidate_root"
+
+.venv/bin/python scripts/build_manfred_memorial_image.py \
+  --source-root "$EA_REPO_ROOT" \
+  --ref "$commit" \
+  --tag "$image" \
+  --receipt "$candidate_root/image-build.v2.json"
+
+.venv/bin/python scripts/prepare_manfred_memorial_candidate.py \
+  --source-root "$EA_REPO_ROOT" \
+  --ref "$commit" \
+  --image "$image" \
+  --deploy-root "$candidate_root" \
+  --public-base-url "$public_origin" \
+  --host-port 18092 \
   --project-name "$project_name" \
-  --rotate-secrets
+  --rotate-secrets \
+  --spatial-tour-bundle-dir "$spatial_bundle" \
+  --spatial-authority-receipt "$spatial_authority" \
+  --spatial-final-review-receipt "$spatial_final_review" \
+  --spatial-browser-review-receipt "$spatial_browser_review" \
+  >"$candidate_root/prepare-output.v3.json"
 
-candidate_env="$deploy_root/candidate.env"
-candidate_compose="deploy/manfred-memorial/docker-compose.candidate.yml"
-python3 scripts/run_manfred_memorial_candidate.py \
+candidate_env="$(jq -er '.env_file' "$candidate_root/prepare-output.v3.json")"
+export EA_MEMORIAL_DATA_HOST_PATH
+EA_MEMORIAL_DATA_HOST_PATH="$(jq -er '.release_root' "$candidate_root/prepare-output.v3.json")"
+export EA_MEMORIAL_CANDIDATE_RECEIPT="$candidate_root/candidate-runtime.v4.json"
+
+.venv/bin/python scripts/run_manfred_memorial_candidate.py \
   --env-file "$candidate_env" \
-  --compose-file "$candidate_compose" \
-  --receipt "$deploy_root/receipts/candidate-runtime.json"
+  --compose-file "$EA_REPO_ROOT/deploy/manfred-memorial/docker-compose.candidate.yml" \
+  --receipt "$EA_MEMORIAL_CANDIDATE_RECEIPT" \
+  --wait-seconds 240
+
+test "$(stat -c %a "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = 600
+test "$(jq -er '.schema' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = \
+  "ea.manfred_memorial_candidate_runtime.v4"
+test "$(jq -er '.status' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = "pass"
 ```
 
 Do not replace the governed runner with raw `docker compose` commands. It pins the explicit deployment project, removes hostile ambient Compose interpolation, and holds host-stable nonblocking locks for both the project name and loopback port across absence checks, startup, proof, receipt writing, and cleanup. It fails before mutation if the project, its exact resource names, or the loopback port already exist. Before startup it rehashes the locked projection tree, including file modes, and confirms that the tag still resolves to the projection's prepared image ID and revision. Projection directories are mode `0550`, private files are `0440`, public files are `0444`, and the preparing operator's group retains read/traverse access for this verification while the runtime UID owns the tree. At the end it inspects the actual API and gateway containers and requires both `.Image` IDs to equal the prepared image ID. A tag is never accepted as immutability evidence.
@@ -219,7 +247,7 @@ For a non-mutating diagnostic repeat against the candidate left running by the g
 
 ```bash
 python3 scripts/verify_manfred_memorial_candidate.py \
-  --base-url http://127.0.0.1:18091 \
+  --base-url http://127.0.0.1:18092 \
   --public-origin "${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}"
 ```
 
@@ -235,7 +263,15 @@ Promotion must reuse the exact accepted image ID; do not rebuild it. The build e
 
 The memorial candidate enables the existing legacy and public-tour route bundles so its OpenAPI proof cannot hide an unrelated EA regression. The warmed runtime also exposes two authenticated governed-spatial operations that are not authorized by the proposed design petition and can only return HTTP 503 because `create_app()` installs no `governed_spatial_runtime_factory`. The candidate therefore retires exactly `POST /v1/internal/governed-spatial-render/compose` and `POST /v1/internal/governed-spatial-render/build`; its receipt records that fixed policy, and every other live operation, schema, and security contract must remain equivalent. No wildcard or changed-operation waiver is allowed. The provider-neutral scaffold is not registered or shipped as a live application surface in this memorial release, and the candidate API has no provider egress.
 
-Do not describe the design scaffold, safe viewer lane, or route retirement as working 3D generation, provider readiness, design-authority acceptance, or a PropertyQuarry release. The [3D-tour gate](../PROPERTYQUARRY_3D_TOUR_FLAGSHIP_RELEASE_GATE.md) remains `blocked_upstream_not_launch_ready`, and the [governed spatial contract](../EA_GOVERNED_SPATIAL_RENDER_DESIGN_PETITION.md) remains a proposed, unsubmitted petition: canonical ownership is unresolved, the PropertyQuarry execution bridge is absent, and capability/provider evidence is degraded, unverified, or blocked. A later spatial release must resolve those authorities, supply governed quota and execution adapters, generate a new provenance-bound bundle, and pass the dedicated structural, security, accessibility, browser, visual, and publication-authority gates. None of those blockers may be waived to publish the memorial.
+The memorial candidate must bind the pinned six-file Property bundle, its
+publication-authority receipt, the final structural/security/accessibility
+review receipt, and the exact-viewer browser receipt shown above. Preparation
+and runtime proof fail closed when any path, digest, authority, browser check,
+or release binding drifts. This is a polished synthetic layout reconstruction,
+not a captured or provider-verified 3D scan, and the public disclosure must keep
+that distinction explicit. The two unauthorised governed-spatial POST operations
+remain retired; no provider capability or proposed design petition is presented
+as production authority for this release.
 
 ## Narration cast handoff
 

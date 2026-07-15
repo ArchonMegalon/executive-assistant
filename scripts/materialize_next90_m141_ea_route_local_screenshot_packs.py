@@ -24,9 +24,19 @@ def _env_path(name: str, default: Path) -> Path:
     return Path(os.environ.get(name) or default)
 
 
+def _source_provenance(path: Path) -> str:
+    """Return stable repo-relative provenance without leaking operator host paths."""
+    resolved = path.expanduser().resolve(strict=False)
+    try:
+        return resolved.relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return f"external:{path.name}"
+
+
 DESIGN_PRODUCT_ROOT = _env_path("CHUMMER6_DESIGN_PRODUCT_ROOT", ROOT / ".codex-design" / "product")
-CHUMMER_COMPLETION_ROOT = _env_path("EA_CHUMMER_CROSS_REPO_COMPLETION_ROOT", ROOT / "ea" / "_completion" / "chummer_cross_repo")
-FLEET_COMPLETION_ROOT = _env_path("EA_FLEET_COMPLETION_ROOT", ROOT / "ea" / "_completion" / "fleet")
+SOURCE_PROJECTION_ROOT = ROOT / "docs" / "chummer5a_parity_lab" / "source_projections"
+CHUMMER_COMPLETION_ROOT = _env_path("EA_CHUMMER_CROSS_REPO_COMPLETION_ROOT", SOURCE_PROJECTION_ROOT / "chummer_cross_repo")
+FLEET_COMPLETION_ROOT = _env_path("EA_FLEET_COMPLETION_ROOT", SOURCE_PROJECTION_ROOT / "fleet")
 
 OUTPUT_PATH = DOCS_ROOT / "NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.yaml"
 MARKDOWN_PATH = DOCS_ROOT / "NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.md"
@@ -469,12 +479,12 @@ def _source_inputs(*, compare_packs: dict[str, Any], workflow_pack: dict[str, An
         desktop_reasons=desktop_reasons,
     )
     return {
-        "ea_compare_packs": {"path": str(COMPARE_PACKS_PATH), "generated_at": _generated_at(COMPARE_PACKS_PATH, compare_packs)},
-        "fleet_capture_pack": {"path": str(CAPTURE_PACK_PATH), "generated_at": _generated_at(CAPTURE_PACK_PATH)},
-        "fleet_veteran_workflow_pack": {"path": str(VETERAN_WORKFLOW_PACK_PATH), "generated_at": _generated_at(VETERAN_WORKFLOW_PACK_PATH, workflow_pack)},
-        "next90_guide": {"path": str(NEXT90_GUIDE_PATH), "generated_at": _generated_at(NEXT90_GUIDE_PATH)},
+        "ea_compare_packs": {"path": _source_provenance(COMPARE_PACKS_PATH), "generated_at": _generated_at(COMPARE_PACKS_PATH, compare_packs)},
+        "fleet_capture_pack": {"path": _source_provenance(CAPTURE_PACK_PATH), "generated_at": _generated_at(CAPTURE_PACK_PATH)},
+        "fleet_veteran_workflow_pack": {"path": _source_provenance(VETERAN_WORKFLOW_PACK_PATH), "generated_at": _generated_at(VETERAN_WORKFLOW_PACK_PATH, workflow_pack)},
+        "next90_guide": {"path": _source_provenance(NEXT90_GUIDE_PATH), "generated_at": _generated_at(NEXT90_GUIDE_PATH)},
         "design_queue": {
-            "path": str(DESIGN_QUEUE_PATH),
+            "path": _source_provenance(DESIGN_QUEUE_PATH),
             "match_count": len(design_queue_rows),
             "unique_match": len(design_queue_rows) == 1,
             "status": str(design_queue_row.get("status") or ""),
@@ -486,7 +496,7 @@ def _source_inputs(*, compare_packs: dict[str, Any], workflow_pack: dict[str, An
             "row_fingerprint": _stable_fingerprint(design_queue_row),
         },
         "fleet_queue": {
-            "path": str(FLEET_QUEUE_PATH),
+            "path": _source_provenance(FLEET_QUEUE_PATH),
             "match_count": len(fleet_queue_rows),
             "unique_match": len(fleet_queue_rows) == 1,
             "status": str(fleet_queue_row.get("status") or ""),
@@ -498,7 +508,7 @@ def _source_inputs(*, compare_packs: dict[str, Any], workflow_pack: dict[str, An
             "row_fingerprint": _stable_fingerprint(fleet_queue_row),
         },
         "local_mirror_queue": {
-            "path": str(LOCAL_MIRROR_QUEUE_PATH),
+            "path": _source_provenance(LOCAL_MIRROR_QUEUE_PATH),
             "match_count": len(local_mirror_queue_rows),
             "unique_match": len(local_mirror_queue_rows) == 1,
             "status": str(local_mirror_queue_row.get("status") or ""),
@@ -510,7 +520,7 @@ def _source_inputs(*, compare_packs: dict[str, Any], workflow_pack: dict[str, An
             "row_fingerprint": _stable_fingerprint(local_mirror_queue_row),
         },
         "registry": {
-            "path": str(SUCCESSOR_REGISTRY_PATH),
+            "path": _source_provenance(SUCCESSOR_REGISTRY_PATH),
             "match_count": len(registry_tasks),
             "unique_match": len(registry_tasks) == 1,
             "work_task_id": str(registry_task.get("id") or ""),
@@ -521,7 +531,7 @@ def _source_inputs(*, compare_packs: dict[str, Any], workflow_pack: dict[str, An
             "row_fingerprint": _stable_fingerprint(registry_task),
         },
         "local_mirror_registry": {
-            "path": str(LOCAL_MIRROR_REGISTRY_PATH),
+            "path": _source_provenance(LOCAL_MIRROR_REGISTRY_PATH),
             "match_count": len(local_mirror_registry_tasks),
             "unique_match": len(local_mirror_registry_tasks) == 1,
             "work_task_id": str(local_mirror_registry_task.get("id") or ""),
@@ -531,18 +541,18 @@ def _source_inputs(*, compare_packs: dict[str, Any], workflow_pack: dict[str, An
             "title": str(local_mirror_registry_task.get("title") or ""),
             "row_fingerprint": _stable_fingerprint(local_mirror_registry_task),
         },
-        "parity_audit": {"path": str(PARITY_AUDIT_PATH), "generated_at": _generated_at(PARITY_AUDIT_PATH, parity_audit)},
-        "ui_flagship_gate": {"path": str(UI_FLAGSHIP_GATE_PATH), "generated_at": _generated_at(UI_FLAGSHIP_GATE_PATH, ui_flagship_gate)},
-        "desktop_visual_familiarity_gate": {"path": str(VISUAL_GATE_PATH), "generated_at": _generated_at(VISUAL_GATE_PATH, visual_gate)},
-        "desktop_workflow_execution_gate": {"path": str(WORKFLOW_GATE_PATH), "generated_at": _generated_at(WORKFLOW_GATE_PATH, workflow_gate)},
-        "veteran_task_time_gate": {"path": str(VETERAN_TASK_GATE_PATH), "generated_at": _generated_at(VETERAN_TASK_GATE_PATH, veteran_task_gate)},
-        "ui_direct_import_route_proof": {"path": str(UI_DIRECT_PROOF_PATH), "generated_at": _generated_at(UI_DIRECT_PROOF_PATH, ui_direct_proof)},
-        "import_parity_certification": {"path": str(IMPORT_CERT_PATH), "generated_at": _generated_at(IMPORT_CERT_PATH)},
-        "import_receipts_doc": {"path": str(IMPORT_RECEIPTS_DOC_PATH), "generated_at": _generated_at(IMPORT_RECEIPTS_DOC_PATH)},
-        "import_receipts_json": {"path": str(IMPORT_RECEIPTS_JSON_PATH), "generated_at": _generated_at(IMPORT_RECEIPTS_JSON_PATH, import_receipts_json)},
-        "fleet_m141_gate": {"path": str(FLEET_GATE_PATH), "generated_at": _generated_at(FLEET_GATE_PATH, fleet_gate)},
+        "parity_audit": {"path": _source_provenance(PARITY_AUDIT_PATH), "generated_at": _generated_at(PARITY_AUDIT_PATH, parity_audit)},
+        "ui_flagship_gate": {"path": _source_provenance(UI_FLAGSHIP_GATE_PATH), "generated_at": _generated_at(UI_FLAGSHIP_GATE_PATH, ui_flagship_gate)},
+        "desktop_visual_familiarity_gate": {"path": _source_provenance(VISUAL_GATE_PATH), "generated_at": _generated_at(VISUAL_GATE_PATH, visual_gate)},
+        "desktop_workflow_execution_gate": {"path": _source_provenance(WORKFLOW_GATE_PATH), "generated_at": _generated_at(WORKFLOW_GATE_PATH, workflow_gate)},
+        "veteran_task_time_gate": {"path": _source_provenance(VETERAN_TASK_GATE_PATH), "generated_at": _generated_at(VETERAN_TASK_GATE_PATH, veteran_task_gate)},
+        "ui_direct_import_route_proof": {"path": _source_provenance(UI_DIRECT_PROOF_PATH), "generated_at": _generated_at(UI_DIRECT_PROOF_PATH, ui_direct_proof)},
+        "import_parity_certification": {"path": _source_provenance(IMPORT_CERT_PATH), "generated_at": _generated_at(IMPORT_CERT_PATH)},
+        "import_receipts_doc": {"path": _source_provenance(IMPORT_RECEIPTS_DOC_PATH), "generated_at": _generated_at(IMPORT_RECEIPTS_DOC_PATH)},
+        "import_receipts_json": {"path": _source_provenance(IMPORT_RECEIPTS_JSON_PATH), "generated_at": _generated_at(IMPORT_RECEIPTS_JSON_PATH, import_receipts_json)},
+        "fleet_m141_gate": {"path": _source_provenance(FLEET_GATE_PATH), "generated_at": _generated_at(FLEET_GATE_PATH, fleet_gate)},
         "flagship_readiness": {
-            "path": str(FLAGSHIP_READINESS_PATH),
+            "path": _source_provenance(FLAGSHIP_READINESS_PATH),
             "coverage_key": "desktop_client",
             "status": desktop_status,
             "summary": desktop_summary,
@@ -802,14 +812,14 @@ def build_payload() -> dict[str, Any]:
                 "parity_row": parity_row,
                 "fleet_gate_row": fleet_row,
                 "evidence_paths": [
-                    str(CAPTURE_PACK_PATH),
-                    str(VETERAN_WORKFLOW_PACK_PATH),
-                    str(UI_DIRECT_PROOF_PATH),
-                    str(UI_FLAGSHIP_GATE_PATH),
-                    str(VISUAL_GATE_PATH),
-                    str(VETERAN_TASK_GATE_PATH),
-                    str(IMPORT_RECEIPTS_DOC_PATH),
-                    str(IMPORT_RECEIPTS_JSON_PATH),
+                    _source_provenance(CAPTURE_PACK_PATH),
+                    _source_provenance(VETERAN_WORKFLOW_PACK_PATH),
+                    _source_provenance(UI_DIRECT_PROOF_PATH),
+                    _source_provenance(UI_FLAGSHIP_GATE_PATH),
+                    _source_provenance(VISUAL_GATE_PATH),
+                    _source_provenance(VETERAN_TASK_GATE_PATH),
+                    _source_provenance(IMPORT_RECEIPTS_DOC_PATH),
+                    _source_provenance(IMPORT_RECEIPTS_JSON_PATH),
                 ],
                 "issues": issues,
             }
@@ -887,14 +897,14 @@ def build_payload() -> dict[str, Any]:
                     if route_spec["compare_family_id"] == family_id
                 ],
                 "evidence_paths": [
-                    str(VETERAN_WORKFLOW_PACK_PATH),
-                    str(UI_DIRECT_PROOF_PATH),
-                    str(WORKFLOW_GATE_PATH),
-                    str(UI_FLAGSHIP_GATE_PATH),
-                    str(VISUAL_GATE_PATH),
-                    str(VETERAN_TASK_GATE_PATH),
-                    str(IMPORT_RECEIPTS_DOC_PATH),
-                    str(IMPORT_RECEIPTS_JSON_PATH),
+                    _source_provenance(VETERAN_WORKFLOW_PACK_PATH),
+                    _source_provenance(UI_DIRECT_PROOF_PATH),
+                    _source_provenance(WORKFLOW_GATE_PATH),
+                    _source_provenance(UI_FLAGSHIP_GATE_PATH),
+                    _source_provenance(VISUAL_GATE_PATH),
+                    _source_provenance(VETERAN_TASK_GATE_PATH),
+                    _source_provenance(IMPORT_RECEIPTS_DOC_PATH),
+                    _source_provenance(IMPORT_RECEIPTS_JSON_PATH),
                 ],
                 "issues": issues,
             }

@@ -18,15 +18,15 @@
     "html_path": "build/index.html",
     "pdf_path": "build/output.pdf"
   },
-  "sha256": "69c3db8a14a45a83abd4407ad59cf08ffc825b515e5fecb2d47acc49d85d50e4",
+  "sha256": "4348868a9088b9775650b2011d49eb0e40c634bbcee8800ada9cbe9551bae321",
   "description": "Offenlegung zu Quellenlagen, Unsicherheiten, \u00dcberarbeitung und KI-Assistenz.",
-  "correction_contact": "memorial@myexternalbrain.com",
+  "correction_contact": "/memorials/manfred#memorial-contribution",
   "ai_disclosure": "KI-unterst\u00fctzte Formatierung; keine direkte Rede von Manfred, sofern sie nicht ausdr\u00fccklich als w\u00f6rtliche Quelle gekennzeichnet ist.",
-  "contact_or_correction_path": "memorial@myexternalbrain.com",
+  "contact_or_correction_path": "/memorials/manfred#memorial-contribution",
   "noindex": false,
   "share_with_memorial_app": true,
   "public": true,
   "published_date": "2026-06-05",
   "source_sha256": "cc95e469902571b06fd21f45ff853ceb3978df51ea258d5c1cd28034a0ab68e2",
-  "built_at": "2026-07-11T07:07:13Z"
+  "built_at": "2026-07-15T00:23:23Z"
 }

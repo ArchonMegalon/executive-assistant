@@ -1,0 +1,7 @@
+{
+  "contract_name": "projection.next90_m121_ui_gm_runboard_route",
+  "generated_at": "2026-07-15T00:00:00Z",
+  "projection_redacted": true,
+  "status": "bounded",
+  "missing_receipt": "workflow:initiative interaction receipt intentionally remains unresolved"
+}

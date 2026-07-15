@@ -1935,14 +1935,26 @@ def test_principal_scoped_compact_status_keeps_safe_pressure_and_fast_lane_route
     assert full["provider_health"] == {}
 
 
+def _configure_ready_gemini_candidate_lane(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H", "0")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_snapshot",
+        lambda **_: {
+            "providers": {"gemini_vortex": {"state": "ready"}},
+        },
+    )
+
+
 def test_review_light_public_model_prefers_onemin_with_chatplayground_before_gemini_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _configure_ready_gemini_candidate_lane(monkeypatch)
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "deepseek-chat,gpt-4.1-nano")
     monkeypatch.setenv("EA_RESPONSES_REVIEW_LIGHT_CHATPLAYGROUND_MODELS", "gpt-4.1,gpt-5")
     monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
-    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
 
     candidates = [
         (config.provider_key, model)
@@ -1983,6 +1995,7 @@ def test_normalize_provider_aliases_for_magicx_candidates(monkeypatch: pytest.Mo
 
 
 def test_audit_model_candidates_route_to_chatplayground(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_ready_gemini_candidate_lane(monkeypatch)
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model,jury-model")
     monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "")
@@ -2011,6 +2024,7 @@ def test_audit_model_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
 
 
 def test_audit_alias_candidates_route_to_chatplayground(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_ready_gemini_candidate_lane(monkeypatch)
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model")
     monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "")
@@ -2040,12 +2054,12 @@ def test_audit_alias_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
 def test_audit_model_candidates_prefer_onemin_with_chatplayground_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _configure_ready_gemini_candidate_lane(monkeypatch)
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "deepseek-chat")
     monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "onemin-fallback")
-    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
 
     candidates = [
         (config.provider_key, model)
@@ -2063,6 +2077,7 @@ def test_audit_model_candidates_prefer_onemin_with_chatplayground_fallback(
 def test_audit_model_candidates_route_to_chatplayground_when_onemin_unconfigured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _configure_ready_gemini_candidate_lane(monkeypatch)
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model")
     monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "")

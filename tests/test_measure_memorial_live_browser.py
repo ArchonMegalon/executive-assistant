@@ -194,6 +194,10 @@ def test_measure_script_avoids_networkidle_as_primary_page_gate() -> None:
     assert '"warmup_preflight"' in source
     assert '"--exit-gate"' in source
     assert '"turn_error": turn_error[:240]' in source
+    assert 'button.getAttribute("aria-pressed") === "true"' in source
+    assert "button.click();" in source
+    assert '"conversation_teardown_ok"' in source
+    assert 'RuntimeError("conversation_teardown_failed")' in source
     assert '--real-stt' in source
     assert '--gold-mode' in source
     assert '--require-public-origin' in source
@@ -393,6 +397,7 @@ def _passing_browser_result(*, mode: str = "live") -> dict[str, object]:
         "slug": "manfred",
         "runtime_source_revision": "a" * 40,
         "speech_transcribe_mode": mode,
+        "conversation_teardown_ok": True,
         "answer_preview": "Ja, ich bin da. Sag mir einfach, was dich beschaeftigt.",
         "audio_payload_ready": True,
         "audio_ready_for_ui": True,
@@ -464,6 +469,34 @@ def test_browser_gold_receipt_accepts_only_https_live_public_proof(
     assert receipt["failed_codes"] == []
     assert receipt["gold_claim_allowed"] is True
     assert receipt["launch_proof_scope"] == "real_public_microphone"
+
+
+def test_browser_exit_gate_fails_when_conversation_teardown_is_unproven(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "_git_dirty", lambda: False)
+    monkeypatch.setattr(module, "_git_head", lambda: "HEAD")
+    monkeypatch.setattr(module, "_source_tree_fingerprint", lambda: "tree")
+    monkeypatch.setattr(
+        module,
+        "resolve_source_worktree_fingerprint",
+        lambda _root: "state",
+    )
+    result = _passing_browser_result()
+    result["conversation_teardown_ok"] = False
+
+    receipt = module._with_exit_gate_status(
+        result,
+        exit_gate=True,
+        gold_mode=True,
+        require_public_origin=True,
+        max_first_answer_ms=4500,
+    )
+
+    assert receipt["status"] == "fail"
+    assert "conversation_teardown_failed" in receipt["failed_codes"]
+    assert receipt["gold_claim_allowed"] is False
 
 
 def test_browser_gold_receipt_requires_runtime_source_revision(

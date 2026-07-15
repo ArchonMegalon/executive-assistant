@@ -256,8 +256,7 @@ class BrowserActUiTemplateDefinition:
         )
         return nodes, edges, "google_password_next"
 
-    def workflow_spec(self, *, output_dir: str = "/docker/fleet/state/browseract_bootstrap") -> dict[str, object]:
-        slug = str(self.template_key or self.workflow_name).strip().lower().replace(" ", "_")
+    def workflow_spec(self, *, output_dir: str = ".codex-studio/published/browseract_bootstrap") -> dict[str, object]:
         nodes: list[dict[str, object]] = []
         edges: list[list[str]] = []
         inputs: list[dict[str, str]] = []
@@ -1134,7 +1133,11 @@ def browseract_ui_template_by_key(template_key: str) -> BrowserActUiTemplateDefi
     return None
 
 
-def browseract_ui_template_spec(template_key: str, *, output_dir: str = "/docker/fleet/state/browseract_bootstrap") -> dict[str, object]:
+def browseract_ui_template_spec(
+    template_key: str,
+    *,
+    output_dir: str = ".codex-studio/published/browseract_bootstrap",
+) -> dict[str, object]:
     normalized = str(template_key or "").strip().lower()
     if normalized == "onemin_billing_usage_reader_live":
         return _onemin_billing_usage_workflow_spec(output_dir=output_dir)

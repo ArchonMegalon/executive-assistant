@@ -56,6 +56,9 @@ def test_next90_m141_to_m143_paths_are_env_driven_and_repo_local_by_default() ->
     assert "EA_NEXT90_QUEUE_STAGING_PATH" in rendered
     assert "EA_NEXT90_SUCCESSOR_REGISTRY_PATH" in rendered
     assert 'ROOT / ".codex-design" / "product"' in rendered
+    assert "SOURCE_PROJECTION_ROOT" in rendered
+    assert 'ROOT / "docs" / "chummer5a_parity_lab" / "source_projections"' in rendered
+    assert 'ROOT / "ea" / "_completion"' not in rendered
     assert external_root not in rendered
     assert fleet_root not in rendered
     assert old_local_literal not in rendered

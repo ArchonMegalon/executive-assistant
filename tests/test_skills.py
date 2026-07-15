@@ -960,6 +960,7 @@ def test_chummer6_bootstrap_drops_retired_public_screenshot_registry_contract() 
 def test_skill_catalog_can_execute_chummer6_auditor_skills(monkeypatch, skill_key: str, task_key: str, memory_fact_key: str) -> None:
     bootstrap = load_chummer_guide_bootstrap_module()
     payloads = {payload["skill_key"]: payload for payload in bootstrap.build_skill_payloads()}
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
 
     def fake_run(*args, **kwargs):
         return subprocess.CompletedProcess(

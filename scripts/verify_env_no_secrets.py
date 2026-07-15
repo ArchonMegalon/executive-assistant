@@ -51,6 +51,7 @@ TEXT_SECRET_EXCLUDED_PARTS = {
     ".codex-design",
     ".codex-studio",
     ".git",
+    ".vexp",
     "data",
     "state",
     "tests",

@@ -70,15 +70,38 @@ def _write_public_archive_registry(
                 ],
                 "fliplink_publications": [
                     {
+                        "approved": True,
                         "id": "doc-public",
                         "audience": publication_audience,
                         "review_status": review_status,
+                        "sensitivity": "PUBLIC",
                         "url": "https://archive.example/public",
                     }
                 ],
             }
         ),
         encoding="utf-8",
+    )
+
+
+def _archive_gate_body(
+    bundle: Path,
+    *,
+    slug: str = "manfred",
+    digest: str | None = None,
+) -> str:
+    registry_path = bundle / "archive_registry.json"
+    return json.dumps(
+        {
+            "detail": "memorial_not_found",
+            "archive_gate": {
+                "schema": "ea.memorial_archive_gate.v1",
+                "state": "intentionally_unpublished",
+                "slug": slug,
+                "registry_sha256": digest
+                or hashlib.sha256(registry_path.read_bytes()).hexdigest(),
+            },
+        }
     )
 
 
@@ -1335,6 +1358,358 @@ def test_preflight_live_accepts_internal_archive_evidence_without_external_sourc
     assert finding.detail["public_archive_source_count"] == 1
 
 
+def test_preflight_live_accepts_exact_unpublished_archive_gate_with_verified_registry(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    bundle.mkdir(parents=True)
+    _write_public_archive_registry(bundle)
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+    responses = {
+        "https://example.test/memorials/files/manfred/memorial.json": (404, ""),
+        "https://example.test/memorials/manfred.json": (
+            200,
+            json.dumps(
+                {
+                    "slug": "manfred",
+                    "memory_cards": [
+                        {
+                            "title": "Schach",
+                            "body": "Familie",
+                            "curation_status": "approved_public_excerpt",
+                        }
+                    ],
+                    "external_sources": [
+                        {
+                            "approved": True,
+                            "label": "Oeffentliches Archiv",
+                            "public": True,
+                            "url": "https://archive.example/public",
+                            "visibility": "public",
+                        }
+                    ],
+                    "suggested_prompts": ["Was ist belegt?"],
+                    "video_call_avatar": {"enabled": False, "kind": "portrait"},
+                }
+            ),
+        ),
+        "https://example.test/memorials/manfred": (
+            200,
+            '<html><main id="memorial-story" tabindex="-1">Erinnerungen und belegte Quellen</main>'
+            '<a href="#memorial-conversation-region">Gespräch</a>'
+            '<aside id="memorial-conversation-region" tabindex="-1">'
+            '<button id="memorial-conversation"></button><button id="memorial-retry-button"></button>'
+            "</aside></html>",
+        ),
+        "https://example.test/memorials/manfred/voice-config": (200, "{}"),
+        "https://example.test/memorials/manfred/archive.json": (
+            404,
+            _archive_gate_body(bundle),
+        ),
+        "https://example.test/memorials/manfred/speech-synthesize": (
+            400,
+            '{"error":{"code":"unsupported_public_tts_fields"}}',
+        ),
+    }
+    monkeypatch.setattr(
+        preflight,
+        "http_request",
+        lambda url, **_kwargs: responses[url],
+    )
+    report = preflight.Report(slug="manfred")
+
+    preflight.check_live("manfred", report, "https://example.test")
+
+    assert report.failed is False
+    finding = next(
+        item
+        for item in report.findings
+        if item.code == "live_archive_json_route_gated"
+    )
+    assert finding.status == "pass"
+    assert finding.detail == {
+        "http_status": 404,
+        "projection_source": "verified_public_registry_not_live_evidence",
+        "live_binding": "deployed_registry_sha256",
+    }
+    source_first = next(
+        item for item in report.findings if item.code == "live_public_page_source_first"
+    )
+    assert source_first.status == "pass"
+    assert source_first.detail["public_source_count"] == 1
+    assert source_first.detail["public_archive_source_count"] == 0
+
+
+def test_preflight_live_rejects_generic_archive_404_with_live_memorial(
+    monkeypatch,
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    def fake_http_request(
+        url: str, *, method: str = "GET", body: bytes | None = None, headers=None
+    ):
+        if "/files/" in url:
+            return 404, ""
+        if url.endswith("/speech-synthesize"):
+            return 400, '{"error":{"code":"unsupported_public_tts_fields"}}'
+        if url.endswith("/archive.json"):
+            return 404, '{"detail":"Not Found"}'
+        if url.endswith("/voice-config") or url.endswith(".json"):
+            return 200, "{}"
+        return 200, "<html></html>"
+
+    monkeypatch.setattr(preflight, "http_request", fake_http_request)
+    report = preflight.Report(slug="manfred")
+
+    preflight.check_live("manfred", report, "https://example.test")
+
+    finding = next(
+        item
+        for item in report.findings
+        if item.code == "live_endpoint_http_status_failed"
+        and item.detail.get("route") == "archive_json"
+    )
+    assert finding.status == "fail"
+    assert finding.detail["http_status"] == 404
+
+
+def test_preflight_unpublished_archive_gate_accepts_exact_registry_digest(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    bundle.mkdir(parents=True)
+    _write_public_archive_registry(bundle)
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+
+    projection = preflight._route_gated_archive_projection(
+        slug="manfred",
+        public_json_status=200,
+        public_page_status=200,
+        public_json_body=json.dumps({"slug": "manfred"}),
+        archive_status=404,
+        archive_body=_archive_gate_body(bundle),
+    )
+
+    assert projection is not None
+    assert projection.live_binding == "deployed_registry_sha256"
+
+
+def test_preflight_unpublished_archive_gate_rejects_nonpublic_local_registry(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    bundle.mkdir(parents=True)
+    _write_public_archive_registry(bundle, publication_audience="family")
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+
+    projection = preflight._route_gated_archive_projection(
+        slug="manfred",
+        public_json_status=200,
+        public_page_status=200,
+        public_json_body=json.dumps(
+            {
+                "slug": "manfred",
+                "external_sources": [
+                    {"url": "https://archive.example/public"}
+                ],
+            }
+        ),
+        archive_status=404,
+        archive_body=_archive_gate_body(bundle),
+    )
+
+    assert projection is None
+
+
+def test_preflight_unpublished_archive_gate_rejects_wrong_local_registry_slug(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    bundle.mkdir(parents=True)
+    _write_public_archive_registry(bundle)
+    registry_path = bundle / "archive_registry.json"
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    registry["slug"] = "another-memorial"
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+
+    projection = preflight._route_gated_archive_projection(
+        slug="manfred",
+        public_json_status=200,
+        public_page_status=200,
+        public_json_body=json.dumps(
+            {
+                "slug": "manfred",
+                "external_sources": [
+                    {"url": "https://archive.example/public"}
+                ],
+            }
+        ),
+        archive_status=404,
+        archive_body=_archive_gate_body(bundle),
+    )
+
+    assert projection is None
+    report = preflight.Report(slug="manfred")
+    preflight._check_archive_registry("manfred", report)
+    assert any(
+        item.code == "archive_registry_slug_mismatch" and item.status == "fail"
+        for item in report.findings
+    )
+
+
+def test_preflight_unpublished_archive_gate_rejects_wrong_live_json_slug(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    bundle.mkdir(parents=True)
+    _write_public_archive_registry(bundle)
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+
+    projection = preflight._route_gated_archive_projection(
+        slug="manfred",
+        public_json_status=200,
+        public_page_status=200,
+        public_json_body=json.dumps(
+            {
+                "slug": "another-memorial",
+                "external_sources": [
+                    {"url": "https://archive.example/public"}
+                ],
+            }
+        ),
+        archive_status=404,
+        archive_body=_archive_gate_body(bundle),
+    )
+
+    assert projection is None
+
+
+def test_preflight_unpublished_archive_gate_rejects_forged_registry_digest(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    bundle.mkdir(parents=True)
+    _write_public_archive_registry(bundle)
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+
+    projection = preflight._route_gated_archive_projection(
+        slug="manfred",
+        public_json_status=200,
+        public_page_status=200,
+        public_json_body=json.dumps(
+            {
+                "slug": "manfred",
+                "external_sources": [
+                    {"url": "https://archive.example/different-revision"}
+                ],
+            }
+        ),
+        archive_status=404,
+        archive_body=_archive_gate_body(bundle, digest="0" * 64),
+    )
+
+    assert projection is None
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {
+            "approved": True,
+            "public": False,
+            "url": "https://archive.example/public",
+            "visibility": "private",
+        },
+        {
+            "approved": False,
+            "public": True,
+            "url": "https://archive.example/public",
+            "visibility": "public",
+        },
+        {
+            "approved": True,
+            "public": True,
+            "url": "https://archive.example/public",
+            "visibility": "private",
+        },
+    ],
+)
+def test_preflight_unpublished_archive_gate_rejects_nonpublic_or_unapproved_intersecting_source(
+    monkeypatch,
+    tmp_path,
+    source,
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    bundle.mkdir(parents=True)
+    _write_public_archive_registry(bundle)
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+
+    projection = preflight._route_gated_archive_projection(
+        slug="manfred",
+        public_json_status=200,
+        public_page_status=200,
+        public_json_body=json.dumps(
+            {"slug": "manfred", "external_sources": [source]}
+        ),
+        archive_status=404,
+        archive_body=_archive_gate_body(bundle),
+    )
+
+    assert projection is None
+
+
+def test_preflight_unpublished_archive_gate_rejects_unmounted_generic_404(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    bundle.mkdir(parents=True)
+    _write_public_archive_registry(bundle)
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+
+    projection = preflight._route_gated_archive_projection(
+        slug="manfred",
+        public_json_status=200,
+        public_page_status=200,
+        public_json_body=json.dumps({"slug": "manfred"}),
+        archive_status=404,
+        archive_body='{"detail":"memorial_not_found"}',
+    )
+
+    assert projection is None
+
+
 def test_preflight_live_checks_current_source_first_surface(monkeypatch) -> None:
     import scripts.memorial_flagship_preflight as preflight
 
@@ -1713,6 +2088,7 @@ def test_preflight_live_rejects_sensitive_fields_in_public_payloads(monkeypatch)
         if url.endswith("/manfred.json"):
             return 200, json.dumps(
                 {
+                    "slug": "manfred",
                     "metadata": {"write_token": "must-not-escape"},
                     "candidate_recordings": [{"asset": "private.wav"}],
                 }
@@ -1770,7 +2146,9 @@ def test_preflight_live_rejects_nested_sensitive_field_in_public_archive(
             return 400, '{"error":{"code":"unsupported_public_tts_fields"}}'
         if "/files/" in url:
             return 404, ""
-        if url.endswith("/manfred.json") or url.endswith("/voice-config"):
+        if url.endswith("/manfred.json"):
+            return 200, '{"slug":"manfred"}'
+        if url.endswith("/voice-config"):
             return 200, "{}"
         if url.endswith("/archive.json"):
             return 200, json.dumps(archive_payload)
@@ -1800,6 +2178,7 @@ def test_preflight_live_rejects_family_items_in_public_archive_projection(monkey
     import scripts.memorial_flagship_preflight as preflight
 
     public_payload = {
+        "slug": "manfred",
         "memory_cards": [
             {"body": "[stark redigiert] Familie", "title": "Schach"}
         ],

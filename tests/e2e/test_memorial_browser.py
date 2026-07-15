@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import socket
 import threading
 import time
@@ -22,6 +21,11 @@ Config = uvicorn.Config
 Server = uvicorn.Server
 
 from app.api.app import create_app  # noqa: E402
+from tests.browser_test_support import (  # noqa: E402
+    BrowserRuntimeRoot,
+    browser_ephemeral_runtime_root,
+    launch_installed_chromium,
+)
 
 
 def _free_port() -> int:
@@ -61,6 +65,8 @@ PRIVATE_MEMORY_SENTINEL = "PRIVATE_MEMORY_MUST_NOT_ESCAPE"
 PRIVATE_SOURCE_SENTINEL = "PRIVATE_SOURCE_MUST_NOT_ESCAPE"
 PRIVATE_FAMILY_SENTINEL = "PRIVATE_FAMILY_NOTE_MUST_NOT_ESCAPE"
 PRIVATE_AUDIO_RELPATH = "audio/private-family-recording.mp3"
+MEMORIAL_NAVIGATION_TIMEOUT_MS = 30_000
+MEMORIAL_CONTRIBUTION_STATUS_TIMEOUT_MS = 7_000
 
 
 def _source_first_memorial_payload(slug: str) -> dict[str, object]:
@@ -143,9 +149,22 @@ def _wav_bytes() -> bytes:
 
 
 @pytest.fixture()
-def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[dict[str, object]]:
+def memorial_browser_runtime_root(
+    tmp_path: Path,
+) -> Iterator[BrowserRuntimeRoot]:
+    with browser_ephemeral_runtime_root(tmp_path) as runtime:
+        yield runtime
+
+
+@pytest.fixture()
+def memorial_browser_server(
+    memorial_browser_runtime_root: BrowserRuntimeRoot,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[dict[str, object]]:
     from app.api.routes import public_memorials
     from app.services import memorial_archive_registry
+
+    runtime_tmp = memorial_browser_runtime_root.path
 
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
     monkeypatch.setenv("EA_API_TOKEN", "")
@@ -157,10 +176,10 @@ def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     monkeypatch.delenv("EA_OPERATOR_PRINCIPAL_IDS", raising=False)
 
     slug = "manfred"
-    public_root = tmp_path / "public"
-    private_root = tmp_path / "private"
-    artifacts_root = tmp_path / "artifacts"
-    registry_root = tmp_path / "public_registry"
+    public_root = runtime_tmp / "public"
+    private_root = runtime_tmp / "private"
+    artifacts_root = runtime_tmp / "artifacts"
+    registry_root = runtime_tmp / "public_registry"
 
     _write_public_memorial(
         public_root,
@@ -203,11 +222,23 @@ def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
         "EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR",
         str(artifacts_root / "family_contributions" / "private"),
     )
-    public_memorials._PERSONAL_MEMORY_ROOT = artifacts_root / "memorial_user_memory"
-    public_memorials._VOICE_AB_ROOT = artifacts_root / "memorial_voice_ab"
-    public_memorials._PUBLIC_MEMORIAL_RATE_DB = artifacts_root / "memorial_rate_limits.sqlite3"
-    memorial_archive_registry.PUBLIC_MEMORIAL_ROOT = registry_root
-    memorial_archive_registry.ARCHIVE_ROOT = tmp_path / "archive"
+    monkeypatch.setattr(
+        public_memorials,
+        "_PERSONAL_MEMORY_ROOT",
+        artifacts_root / "memorial_user_memory",
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_VOICE_AB_ROOT",
+        artifacts_root / "memorial_voice_ab",
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_PUBLIC_MEMORIAL_RATE_DB",
+        artifacts_root / "memorial_rate_limits.sqlite3",
+    )
+    monkeypatch.setattr(memorial_archive_registry, "PUBLIC_MEMORIAL_ROOT", registry_root)
+    monkeypatch.setattr(memorial_archive_registry, "ARCHIVE_ROOT", runtime_tmp / "archive")
 
     monkeypatch.setattr(
         public_memorials,
@@ -309,34 +340,58 @@ def memorial_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 
     app = create_app()
     port = _free_port()
-    config = Config(app=app, host="127.0.0.1", port=port, log_level="warning")
+    config = Config(
+        app=app,
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+        timeout_graceful_shutdown=2,
+    )
     server = Server(config)
     server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
+    thread = threading.Thread(
+        target=server.run,
+        name=f"memorial-browser-uvicorn-{port}",
+        daemon=True,
+    )
     base_url = f"http://127.0.0.1:{port}"
-    _wait_for_http(base_url)
+    thread_started = False
     try:
+        thread.start()
+        thread_started = True
+        _wait_for_http(base_url)
         yield {"base_url": base_url, "slug": slug}
     finally:
-        server.should_exit = True
-        thread.join(timeout=10.0)
+        try:
+            server.should_exit = True
+            if thread_started:
+                thread.join(timeout=10.0)
+                if thread.is_alive():
+                    server.force_exit = True
+                    thread.join(timeout=5.0)
+                if thread.is_alive():
+                    memorial_browser_runtime_root.retain = True
+                    pytest.fail(
+                        "memorial browser Uvicorn thread did not stop; "
+                        "runtime root retained for diagnostics "
+                        f"at {memorial_browser_runtime_root.path}: {thread.name}",
+                        pytrace=False,
+                    )
+        finally:
+            public_memorials._memorial_runtime_readiness_cache_invalidate(slug)
 
 
 @pytest.fixture(scope="module")
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=True,
-            executable_path=os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or None,
-            args=[
+        browser = launch_installed_chromium(
+            playwright,
+            args=(
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-software-rasterizer",
                 "--no-proxy-server",
-            ],
+            ),
         )
         try:
             yield browser
@@ -501,14 +556,21 @@ def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
     context = browser.new_context(viewport={"width": 1440, "height": 1100})
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         conversation_button = page.locator("#memorial-conversation")
         assert conversation_button.count() == 1
-        initial_label = (conversation_button.text_content() or "").strip()
+        button_labels = conversation_button.evaluate(
+            """button => ({
+              text: String(button.textContent || "").trim(),
+              aria: String(button.getAttribute("aria-label") || "").trim(),
+              title: String(button.getAttribute("title") || "").trim(),
+            })"""
+        )
+        initial_label = str(button_labels["text"])
         assert initial_label in {"Gespräch wird vorbereitet …", "Gespräch beginnen"}
-        assert conversation_button.get_attribute("aria-label") == initial_label
-        assert conversation_button.get_attribute("title") == initial_label
+        assert button_labels["aria"] == initial_label
+        assert button_labels["title"] == initial_label
 
         assert page.locator("header + main#memorial-story").count() == 1
         assert page.locator("main#memorial-story + aside#memorial-conversation-region").count() == 1
@@ -574,7 +636,7 @@ def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
         assert page.get_by_role("heading", name="Erinnerungen und belegte Quellen", exact=True).count() == 1
         assert page.get_by_role("heading", name="Behutsam bewahrte Spuren", exact=True).count() == 1
         assert page.get_by_role("heading", name="Öffentliche Quellen", exact=True).count() == 1
-        assert page.get_by_role("heading", name="Fragen an den Gedenkbegleiter", exact=True).count() == 1
+        assert page.get_by_role("heading", name="Fragen als ruhiger Einstieg", exact=True).count() == 1
         assert page.locator("article.memory-card").count() == 6
         assert page.locator(".source-list a").count() == 8
         assert page.locator(".prompt-list li").count() == 4
@@ -641,7 +703,7 @@ def test_memorial_no_javascript_forms_fail_closed_without_leaking_private_text(
     )
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         assert page.url == f"{base_url}/memorials/{slug}"
 
@@ -699,7 +761,7 @@ def test_memorial_page_exposes_single_active_voice_config_without_service_worker
     context = browser.new_context(viewport={"width": 1280, "height": 960})
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         _await_conversation_ready(page)
 
@@ -757,7 +819,7 @@ def test_memorial_public_page_finishes_one_browser_turn_without_followup_overlap
     _install_fake_audio_runtime(context)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         _await_conversation_ready(page)
         _await_realtime_turn_complete(
@@ -827,7 +889,7 @@ def test_memorial_browser_persists_turn_only_after_personal_memory_opt_in(
     _install_fake_audio_runtime(context)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         _await_conversation_ready(page)
         page.locator("details.conversation-settings > summary").click()
@@ -874,7 +936,7 @@ def test_memorial_browser_keyboard_text_turn_does_not_request_microphone(
     _install_fake_audio_runtime(context)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         _await_conversation_ready(page)
         text_input = page.locator("#memorial-text-turn-input")
@@ -916,7 +978,7 @@ def test_memorial_browser_explains_microphone_permission_denial_and_keeps_text_f
     )
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         _await_conversation_ready(page)
         page.locator("#memorial-conversation").click()
@@ -971,7 +1033,7 @@ def test_memorial_browser_voice_warmup_failure_reaches_retry_and_text_fallback(
     _install_fake_audio_runtime(context)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         page.wait_for_function(
             """() => {
@@ -1001,7 +1063,7 @@ def test_memorial_browser_family_contributions_have_portable_exact_review_contro
     page: Page = context.new_page()
     private_sentinel = "BROWSER_PRIVATE_FAMILY_MEMORY_MUST_NOT_ESCAPE"
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
 
         def submit(title: str, body: str) -> None:
@@ -1016,7 +1078,7 @@ def test_memorial_browser_family_contributions_have_portable_exact_review_contro
                   const status = document.getElementById("memorial-contribution-status");
                   return Boolean(status && status.textContent.includes("Der Beitrag bleibt privat"));
                 }""",
-                timeout=7000,
+                timeout=MEMORIAL_CONTRIBUTION_STATUS_TIMEOUT_MS,
             )
 
         submit("Ein ruhiger Familienmoment", private_sentinel)
@@ -1174,7 +1236,7 @@ def test_memorial_browser_recovery_import_and_storage_failure_keep_token_portabl
     third = submit_direct("Importierte JSON-Datei")
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         page.locator("#memorial-contribution-recovery-import > summary").click()
         code_input = page.locator("#memorial-contribution-recovery-code")
@@ -1285,7 +1347,9 @@ def test_memorial_browser_recovery_import_and_storage_failure_keep_token_portabl
     volatile_page.on("response", capture_submission)
     try:
         response = volatile_page.goto(
-            f"{base_url}/memorials/{slug}", wait_until="domcontentloaded"
+            f"{base_url}/memorials/{slug}",
+            wait_until="domcontentloaded",
+            timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS,
         )
         assert response is not None and response.ok
         volatile_page.locator("#memorial-contribution-title-input").fill(
@@ -1356,7 +1420,7 @@ def test_memorial_browser_reduced_motion_avoids_smooth_answer_scroll(
     )
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
         page.evaluate(
             """() => {
@@ -1394,6 +1458,7 @@ def test_memorial_browser_can_defer_all_provider_warmup_until_user_action(
         response = page.goto(
             f"{memorial_browser_server['base_url']}/memorials/{memorial_browser_server['slug']}",
             wait_until="domcontentloaded",
+            timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS,
         )
         assert response is not None and response.status == 200
         page.wait_for_timeout(700)

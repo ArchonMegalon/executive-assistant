@@ -18,15 +18,15 @@
     "html_path": "build/index.html",
     "pdf_path": "build/output.pdf"
   },
-  "sha256": "c5ab2c8caaf3f9fe88cd4bee2c1cb6c924554106b98d147fdbf4d49cae1d091b",
+  "sha256": "58137ceafaa1600a476528c7018050536c5b52b551b1f96f2259d2e8e669c989",
   "description": "Kuratiertes familiennahes Material in gesch\u00fctzter Form, nicht als Rohquelle.",
-  "correction_contact": "memorial@myexternalbrain.com",
+  "correction_contact": "/memorials/manfred#memorial-contribution",
   "ai_disclosure": "KI-unterst\u00fctzte Formatierung; keine direkte Rede von Manfred, sofern sie nicht ausdr\u00fccklich als w\u00f6rtliche Quelle gekennzeichnet ist.",
-  "contact_or_correction_path": "memorial@myexternalbrain.com",
+  "contact_or_correction_path": "/memorials/manfred#memorial-contribution",
   "noindex": true,
   "share_with_memorial_app": false,
   "public": false,
   "published_date": "2026-06-05",
   "source_sha256": "747c84af5a8631f71a24df7f69889fa8ed407e3e60080d6456d9112a80d4d5e9",
-  "built_at": "2026-07-11T07:07:13Z"
+  "built_at": "2026-07-15T00:23:23Z"
 }

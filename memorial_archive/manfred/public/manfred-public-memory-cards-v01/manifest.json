@@ -18,15 +18,15 @@
     "html_path": "build/index.html",
     "pdf_path": "build/output.pdf"
   },
-  "sha256": "a63681ec21612b32e3edbf8ad7e71dce51b250790d31309b4aeb79dca0c06888",
+  "sha256": "25f2caef375588c62f302c3333387d8be3a232eaaed8122a6468188d8966a879",
   "description": "Kleine kuratierte Erinnerungs- und Quellenkarten f\u00fcr den \u00f6ffentlichen Einstieg.",
-  "correction_contact": "memorial@myexternalbrain.com",
+  "correction_contact": "/memorials/manfred#memorial-contribution",
   "ai_disclosure": "KI-unterst\u00fctzte Formatierung; keine direkte Rede von Manfred, sofern sie nicht ausdr\u00fccklich als w\u00f6rtliche Quelle gekennzeichnet ist.",
-  "contact_or_correction_path": "memorial@myexternalbrain.com",
+  "contact_or_correction_path": "/memorials/manfred#memorial-contribution",
   "noindex": false,
   "share_with_memorial_app": true,
   "public": true,
   "published_date": "2026-06-05",
   "source_sha256": "cbe284ff259dd41f0dc878d0dfd5f235832c35de235f6450f890f6085597dd28",
-  "built_at": "2026-07-11T07:07:13Z"
+  "built_at": "2026-07-15T00:23:23Z"
 }

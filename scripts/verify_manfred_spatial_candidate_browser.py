@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -29,13 +30,19 @@ from scripts.prepare_manfred_memorial_candidate import (  # noqa: E402
     _spatial_release_contract,
     _spatial_tree_snapshot,
     _strict_json_object,
+    _validate_project_name,
+)
+from scripts.measure_memorial_live_browser import (  # noqa: E402
+    _resolve_chromium_executable,
 )
 
 
-RECEIPT_SCHEMA = "ea.manfred_spatial_candidate_browser.v3"
+RECEIPT_SCHEMA = "ea.manfred_spatial_candidate_browser.v4"
 _SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_IMAGE_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_CONTAINER_ID_RE = re.compile(r"^[0-9a-f]{64}$")
 _SOURCE_REVISION_HEADER = "x-ea-source-revision"
 _SINGLETON_EVIDENCE_HEADERS = frozenset(
     {
@@ -55,9 +62,7 @@ _REQUEST_MEDIA_TYPES = {
     "orbit_controls": "text/javascript",
     "three_module": "text/javascript",
 }
-_RECONSTRUCTION_MANIFEST_RELPATH = (
-    "generated-reconstruction/reconstruction.json"
-)
+_RECONSTRUCTION_MANIFEST_RELPATH = "generated-reconstruction/reconstruction.json"
 _SURFACES = (
     ("desktop", 1440, 1000, False, False, False),
     ("mobile", 390, 844, True, False, False),
@@ -77,6 +82,29 @@ _WEBGL_FALLBACK_INIT = """
   };
 })();
 """
+
+
+def _launch_chromium(playwright):  # type: ignore[no-untyped-def]
+    """Launch installed Chromium without relying on Playwright's optional shell."""
+
+    executable_path, _executable_source = _resolve_chromium_executable(playwright)
+    if not executable_path:
+        raise RuntimeError("manfred_candidate_spatial_browser_runtime_unavailable")
+    try:
+        return playwright.chromium.launch(
+            headless=True,
+            executable_path=executable_path,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--no-proxy-server",
+            ],
+        )
+    except Exception:
+        raise RuntimeError("manfred_candidate_spatial_browser_launch_failed") from None
+
+
 _ROUTE_CAMERA_READY_SCRIPT = """
 ({index}) => {
   const debug = window.__pqReconstructionDebug;
@@ -183,6 +211,8 @@ _VIEWER_STATE_SCRIPT = """
   };
 }
 """
+
+
 def _safe_slug(value: object) -> str:
     slug = str(value or "").strip()
     if not _SLUG_RE.fullmatch(slug) or slug in {".", ".."}:
@@ -218,9 +248,7 @@ def _loopback_base_url(value: object) -> str:
     try:
         port = parsed.port
     except ValueError as exc:
-        raise ValueError(
-            "manfred_candidate_spatial_browser_base_url_invalid"
-        ) from exc
+        raise ValueError("manfred_candidate_spatial_browser_base_url_invalid") from exc
     if port is None or not 1024 <= port <= 65535:
         raise ValueError("manfred_candidate_spatial_browser_base_url_invalid")
     return normalized
@@ -255,9 +283,7 @@ def _commit(value: object) -> str:
 
 def _package_sha256(value: object) -> str:
     if type(value) is not str:
-        raise ValueError(
-            "manfred_candidate_spatial_browser_package_digest_invalid"
-        )
+        raise ValueError("manfred_candidate_spatial_browser_package_digest_invalid")
     normalized = value.strip().lower()
     if not _SHA256_RE.fullmatch(normalized):
         raise ValueError("manfred_candidate_spatial_browser_package_digest_invalid")
@@ -331,8 +357,7 @@ def _http_get(
     if (
         status != expected_status
         or len(body) > maximum
-        or str(headers.get("content-encoding") or "").lower()
-        not in {"", "identity"}
+        or str(headers.get("content-encoding") or "").lower() not in {"", "identity"}
     ):
         raise RuntimeError("manfred_candidate_spatial_browser_http_invalid")
     return body, headers
@@ -342,6 +367,7 @@ def _candidate_version(
     base_url: str,
     *,
     expected_commit: str,
+    oci_image_revision: str,
 ) -> dict[str, object]:
     body, headers = _http_get(
         base_url,
@@ -356,32 +382,223 @@ def _candidate_version(
     raw_authority_commit = payload.get("commit_sha")
     raw_runtime_commit = headers.get(_SOURCE_REVISION_HEADER)
     if type(raw_authority_commit) is not str or type(raw_runtime_commit) is not str:
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_version_mismatch"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_version_mismatch")
     try:
-        _commit(raw_authority_commit)
-        observed_commit = _commit(raw_runtime_commit)
+        body_commit = _commit(raw_authority_commit)
+        header_commit = _commit(raw_runtime_commit)
+        normalized_expected_commit = _commit(expected_commit)
+        image_commit = _commit(oci_image_revision)
     except ValueError as exc:
         raise RuntimeError(
             "manfred_candidate_spatial_browser_version_mismatch"
         ) from exc
     if (
-        observed_commit != expected_commit
+        len(
+            {
+                body_commit,
+                header_commit,
+                normalized_expected_commit,
+                image_commit,
+            }
+        )
+        != 1
         or payload.get("repository") != "EA"
         or payload.get("role") != "api"
+        or payload.get("release_authority_state") != "clear"
+        or payload.get("release_authority_posture") != "authoritative_runtime"
+        or payload.get("release_authority_source") != "published_status_artifact"
         or _media_type(headers.get("content-type")) != "application/json"
     ):
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_version_mismatch"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_version_mismatch")
     return {
         "path": "/version",
         "status": 200,
-        "commit_sha": observed_commit,
+        "commit_sha": normalized_expected_commit,
+        "body_commit_sha": body_commit,
+        "source_revision_header": header_commit,
+        "expected_commit_sha": normalized_expected_commit,
+        "oci_image_revision": image_commit,
         "repository": "EA",
         "role": "api",
+        "release_authority_state": "clear",
+        "release_authority_posture": "authoritative_runtime",
+        "release_authority_source": "published_status_artifact",
         "commit_observed_over_http": True,
+        "revision_agreement_verified": True,
+    }
+
+
+def _image_id(value: object) -> str:
+    if type(value) is not str or not _IMAGE_ID_RE.fullmatch(value):
+        raise ValueError("manfred_candidate_spatial_browser_image_id_invalid")
+    return value
+
+
+def _container_id(value: object) -> str:
+    if type(value) is not str or not _CONTAINER_ID_RE.fullmatch(value):
+        raise ValueError("manfred_candidate_spatial_browser_container_id_invalid")
+    return value
+
+
+def _candidate_project(
+    value: object,
+    *,
+    error: str = "manfred_candidate_spatial_browser_container_inspection_invalid",
+) -> str:
+    try:
+        return _validate_project_name(value)
+    except ValueError as exc:
+        raise RuntimeError(error) from exc
+
+
+def _inspected_oci_image_identity(image_id: str) -> dict[str, object]:
+    normalized_image_id = _image_id(image_id)
+    try:
+        completed = subprocess.run(
+            ["docker", "image", "inspect", normalized_image_id],
+            check=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        payload = json.loads(completed.stdout)
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        json.JSONDecodeError,
+        UnicodeError,
+    ) as exc:
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_image_inspection_invalid"
+        ) from exc
+    if not isinstance(payload, list) or len(payload) != 1:
+        raise RuntimeError("manfred_candidate_spatial_browser_image_inspection_invalid")
+    row = payload[0]
+    if not isinstance(row, dict) or row.get("Id") != normalized_image_id:
+        raise RuntimeError("manfred_candidate_spatial_browser_image_inspection_invalid")
+    config = row.get("Config")
+    labels = config.get("Labels") if isinstance(config, dict) else None
+    if not isinstance(labels, dict):
+        raise RuntimeError("manfred_candidate_spatial_browser_image_inspection_invalid")
+    try:
+        revision = _commit(labels.get("org.opencontainers.image.revision"))
+    except ValueError as exc:
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_image_inspection_invalid"
+        ) from exc
+    return {
+        "image_id": normalized_image_id,
+        "oci_image_revision": revision,
+        "revision_source": "docker_image_inspect_by_immutable_id",
+        "immutable_image_id_verified": True,
+    }
+
+
+def _inspected_serving_container_identity(
+    container_id: str,
+    *,
+    image_id: str,
+    base_url: str,
+) -> dict[str, object]:
+    normalized_container_id = _container_id(container_id)
+    normalized_image_id = _image_id(image_id)
+    normalized_base_url = _loopback_base_url(base_url)
+    expected_host_port = urllib.parse.urlsplit(normalized_base_url).port
+    if expected_host_port is None:  # pragma: no cover - normalized above
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_container_inspection_invalid"
+        )
+    try:
+        completed = subprocess.run(
+            ["docker", "container", "inspect", normalized_container_id],
+            check=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        payload = json.loads(completed.stdout)
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        json.JSONDecodeError,
+        UnicodeError,
+    ) as exc:
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_container_inspection_invalid"
+        ) from exc
+    if not isinstance(payload, list) or len(payload) != 1:
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_container_inspection_invalid"
+        )
+    row = payload[0]
+    if (
+        not isinstance(row, dict)
+        or row.get("Id") != normalized_container_id
+        or row.get("Image") != normalized_image_id
+    ):
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_container_inspection_invalid"
+        )
+    config = row.get("Config")
+    state = row.get("State")
+    network = row.get("NetworkSettings")
+    if not all(isinstance(value, dict) for value in (config, state, network)):
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_container_inspection_invalid"
+        )
+    labels = dict(config).get("Labels")
+    project = _candidate_project(dict(labels or {}).get("com.docker.compose.project"))
+    service = str(dict(labels or {}).get("com.docker.compose.service") or "")
+    ports = dict(network).get("Ports")
+    if (
+        not isinstance(labels, dict)
+        or service != "gateway"
+        or dict(state).get("Running") is not True
+        or not isinstance(ports, dict)
+    ):
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_container_inspection_invalid"
+        )
+    published: list[tuple[str, str, str]] = []
+    for container_port, bindings in ports.items():
+        if bindings is None:
+            continue
+        if not isinstance(container_port, str) or not isinstance(bindings, list):
+            raise RuntimeError(
+                "manfred_candidate_spatial_browser_container_inspection_invalid"
+            )
+        for binding in bindings:
+            if not isinstance(binding, dict):
+                raise RuntimeError(
+                    "manfred_candidate_spatial_browser_container_inspection_invalid"
+                )
+            published.append(
+                (
+                    container_port,
+                    str(binding.get("HostIp") or ""),
+                    str(binding.get("HostPort") or ""),
+                )
+            )
+    expected_publication = ("18090/tcp", "127.0.0.1", str(expected_host_port))
+    if published != [expected_publication]:
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_container_inspection_invalid"
+        )
+    return {
+        "container_id": normalized_container_id,
+        "image_id": normalized_image_id,
+        "compose_project": project,
+        "compose_service": service,
+        "running": True,
+        "container_port": 18090,
+        "host_ip": "127.0.0.1",
+        "host_port": expected_host_port,
+        "exact_loopback_publication_verified": True,
+        "inspection_source": "docker_container_inspect_by_immutable_id",
     }
 
 
@@ -397,9 +614,7 @@ def _verified_local_package(
     dict[str, object],
     tuple[int, int],
 ]:
-    normalized = Path(
-        os.path.abspath(os.fspath(package_dir.expanduser()))
-    )
+    normalized = Path(os.path.abspath(os.fspath(package_dir.expanduser())))
     root_descriptor = _open_directory_path_nofollow(normalized)
     try:
         root_metadata = os.fstat(root_descriptor)
@@ -414,9 +629,7 @@ def _verified_local_package(
     try:
         tour_bytes = snapshot["tour.json"]
     except KeyError as exc:
-        raise ValueError(
-            "manfred_candidate_spatial_browser_package_invalid"
-        ) from exc
+        raise ValueError("manfred_candidate_spatial_browser_package_invalid") from exc
     tour = _strict_json_object(
         tour_bytes,
         error="manfred_candidate_spatial_browser_package_invalid",
@@ -434,9 +647,7 @@ def _verified_local_package(
         or set(snapshot) != {"tour.json", *asset_paths}
         or len(snapshot) != 6
     ):
-        raise ValueError(
-            "manfred_candidate_spatial_browser_package_invalid"
-        )
+        raise ValueError("manfred_candidate_spatial_browser_package_invalid")
     release = dict(tour.get("generated_viewer_release") or {})
     raw_release_revision = release.get("release_revision")
     if (
@@ -446,16 +657,12 @@ def _verified_local_package(
         or len(raw_release_revision) > 200
         or not raw_release_revision.isprintable()
     ):
-        raise ValueError(
-            "manfred_candidate_spatial_browser_package_invalid"
-        )
+        raise ValueError("manfred_candidate_spatial_browser_package_invalid")
     release_revision = raw_release_revision
     bindings: dict[str, dict[str, object]] = {}
     for raw_binding in list(release.get("asset_bindings") or []):
         if not isinstance(raw_binding, dict):
-            raise ValueError(
-                "manfred_candidate_spatial_browser_package_invalid"
-            )
+            raise ValueError("manfred_candidate_spatial_browser_package_invalid")
         binding = dict(raw_binding)
         relpath = str(binding.get("path") or "")
         content = snapshot.get(relpath)
@@ -465,15 +672,11 @@ def _verified_local_package(
             or binding.get("size_bytes") != len(content)
             or relpath in bindings
         ):
-            raise ValueError(
-                "manfred_candidate_spatial_browser_package_invalid"
-            )
+            raise ValueError("manfred_candidate_spatial_browser_package_invalid")
         bindings[relpath] = binding
     package_digest = _spatial_package_sha256(snapshot)
     if package_digest != expected_package_sha256:
-        raise ValueError(
-            "manfred_candidate_spatial_browser_package_digest_mismatch"
-        )
+        raise ValueError("manfred_candidate_spatial_browser_package_digest_mismatch")
     local_files = [
         {
             "path": relpath,
@@ -489,20 +692,23 @@ def _verified_local_package(
             final_root_metadata.st_dev,
             final_root_metadata.st_ino,
         ) != root_identity:
-            raise ValueError(
-                "manfred_candidate_spatial_browser_package_identity_drift"
-            )
+            raise ValueError("manfred_candidate_spatial_browser_package_identity_drift")
     finally:
         os.close(final_root_descriptor)
-    return snapshot, bindings, {
-        "package_sha256": package_digest,
-        "local_file_count": len(local_files),
-        "local_files": local_files,
-        "local_package_verified": True,
-        "local_root_identity_bound": True,
-        "tour_manifest_sha256": _sha256(tour_bytes),
-        "release_revision": release_revision,
-    }, root_identity
+    return (
+        snapshot,
+        bindings,
+        {
+            "package_sha256": package_digest,
+            "local_file_count": len(local_files),
+            "local_files": local_files,
+            "local_package_verified": True,
+            "local_root_identity_bound": True,
+            "tour_manifest_sha256": _sha256(tour_bytes),
+            "release_revision": release_revision,
+        },
+        root_identity,
+    )
 
 
 def _http_package_binding(
@@ -518,10 +724,7 @@ def _http_package_binding(
     proof_manifest: dict[str, object] | None = None
     for relpath, binding in sorted(bindings.items()):
         role = str(binding.get("role") or "")
-        path = (
-            f"/tours/viewer/{quoted_slug}/"
-            f"{urllib.parse.quote(relpath, safe='/')}"
-        )
+        path = f"/tours/viewer/{quoted_slug}/{urllib.parse.quote(relpath, safe='/')}"
         if role == "reconstruction_manifest":
             body, _headers = _http_get(
                 base_url,
@@ -552,10 +755,8 @@ def _http_package_binding(
         if (
             body != snapshot[relpath]
             or digest != expected_digest
-            or headers.get("x-propertyquarry-asset-sha256")
-            != expected_digest
-            or headers.get("x-propertyquarry-viewer-revision")
-            != release_revision
+            or headers.get("x-propertyquarry-asset-sha256") != expected_digest
+            or headers.get("x-propertyquarry-viewer-revision") != release_revision
             or _media_type(content_type) != expected_mime
         ):
             raise RuntimeError(
@@ -575,9 +776,7 @@ def _http_package_binding(
             }
         )
     if len(http_assets) != 4 or proof_manifest is None:
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_http_package_mismatch"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_http_package_mismatch")
     return {
         "http_asset_count": len(http_assets),
         "http_assets": http_assets,
@@ -605,9 +804,7 @@ def _required_request_paths(slug: str) -> dict[str, str]:
     prefix = f"/tours/viewer/{quoted_slug}/generated-reconstruction"
     return {
         "floorplan": f"{prefix}/source-floorplan.png",
-        "orbit_controls": (
-            f"{prefix}/vendor/examples/jsm/controls/OrbitControls.js"
-        ),
+        "orbit_controls": (f"{prefix}/vendor/examples/jsm/controls/OrbitControls.js"),
         "three_module": f"{prefix}/vendor/three.module.js",
     }
 
@@ -622,8 +819,7 @@ def _browser_resource_expectations(
     normalized_base_url = _loopback_base_url(base_url)
     quoted_slug = urllib.parse.quote(slug, safe="")
     viewer_path = (
-        f"/tours/viewer/{quoted_slug}/"
-        f"{urllib.parse.quote(viewer_relpath, safe='/')}"
+        f"/tours/viewer/{quoted_slug}/{urllib.parse.quote(viewer_relpath, safe='/')}"
     )
     required_paths = _required_request_paths(slug)
     specs = {
@@ -635,10 +831,7 @@ def _browser_resource_expectations(
         ),
         "orbit_controls": (
             required_paths["orbit_controls"],
-            (
-                "generated-reconstruction/vendor/examples/jsm/controls/"
-                "OrbitControls.js"
-            ),
+            ("generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js"),
             "text/javascript",
         ),
         "three_module": (
@@ -651,9 +844,7 @@ def _browser_resource_expectations(
     for role, (path, relpath, content_type) in specs.items():
         content = snapshot.get(relpath)
         if not isinstance(content, bytes) or not content:
-            raise ValueError(
-                "manfred_candidate_spatial_browser_package_invalid"
-            )
+            raise ValueError("manfred_candidate_spatial_browser_package_invalid")
         expectations[role] = {
             "url": f"{normalized_base_url}{path}",
             "path": path,
@@ -697,16 +888,11 @@ def _browser_response_evidence(
     invalid_urls: list[str] | None = None,
 ) -> dict[str, dict[str, object]]:
     if invalid_urls:
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_response_url_invalid"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_response_url_invalid")
     expected_by_url = {
-        str(row["url"]): (role, row)
-        for role, row in expectations.items()
+        str(row["url"]): (role, row) for role, row in expectations.items()
     }
-    observed: dict[str, list[dict[str, object]]] = {
-        role: [] for role in expectations
-    }
+    observed: dict[str, list[dict[str, object]]] = {role: [] for role in expectations}
     for response in responses:
         url = str(getattr(response, "url", "") or "")
         expected = expected_by_url.get(url)
@@ -775,8 +961,7 @@ def _request_evidence(
             row.get("path") != path
             or type(row.get("status")) is not int
             or row.get("status") != 200
-            or _media_type(row.get("content_type"))
-            != _REQUEST_MEDIA_TYPES.get(role)
+            or _media_type(row.get("content_type")) != _REQUEST_MEDIA_TYPES.get(role)
             or not _SHA256_RE.fullmatch(str(row.get("sha256") or ""))
             or type(row.get("size_bytes")) is not int
             or int(row.get("size_bytes") or 0) <= 0
@@ -785,9 +970,7 @@ def _request_evidence(
             or row.get("body_matches_local_package") is not True
             or row.get("exact_candidate_url_verified") is not True
         ):
-            raise RuntimeError(
-                "manfred_candidate_spatial_browser_asset_request_failed"
-            )
+            raise RuntimeError("manfred_candidate_spatial_browser_asset_request_failed")
         evidence[role] = row
     return evidence
 
@@ -810,7 +993,9 @@ def _candidate_required_request_path(
     return parsed.path
 
 
-def _route_interactions(page: object, expected_labels: list[str]) -> list[dict[str, object]]:
+def _route_interactions(
+    page: object, expected_labels: list[str]
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     observed_digests: set[str] = set()
     interaction_order = [*range(1, len(expected_labels)), 0]
@@ -828,9 +1013,7 @@ def _route_interactions(page: object, expected_labels: list[str]) -> list[dict[s
         for _attempt in range(50):
             active = page.locator(  # type: ignore[attr-defined]
                 f".route-button[data-route-index='{index}']"
-            ).get_attribute(
-                "data-active"
-            )
+            ).get_attribute("data-active")
             live = page.locator("#viewer-live-status").inner_text()  # type: ignore[attr-defined]
             if active == "true" and label in live:
                 state_ready = True
@@ -842,10 +1025,13 @@ def _route_interactions(page: object, expected_labels: list[str]) -> list[dict[s
             )
         camera_ready = False
         for _attempt in range(50):
-            if page.evaluate(  # type: ignore[attr-defined]
-                _ROUTE_CAMERA_READY_SCRIPT,
-                {"index": index},
-            ) is True:
+            if (
+                page.evaluate(  # type: ignore[attr-defined]
+                    _ROUTE_CAMERA_READY_SCRIPT,
+                    {"index": index},
+                )
+                is True
+            ):
                 camera_ready = True
                 break
             page.wait_for_timeout(100)  # type: ignore[attr-defined]
@@ -1003,8 +1189,7 @@ def _audit_surface(
         expected_origin = expected_base.netloc
         expected_viewer_url = f"{base_url}{viewer_path}"
         expected_urls_by_path = {
-            str(row["path"]): str(row["url"])
-            for row in browser_expectations.values()
+            str(row["path"]): str(row["url"]) for row in browser_expectations.values()
         }
         viewer_prefix = viewer_path.rsplit("/", 1)[0] + "/"
         page.on("pageerror", lambda _error: page_errors.append(True))
@@ -1107,8 +1292,7 @@ def _audit_surface(
             requests = _request_evidence(browser_responses, required_paths)
             viewer_response = dict(browser_responses["viewer_document"])
             browser_response_count = sum(
-                int(row["response_count"])
-                for row in browser_responses.values()
+                int(row["response_count"]) for row in browser_responses.values()
             )
             return (
                 requests,
@@ -1116,12 +1300,7 @@ def _audit_surface(
                 browser_response_count,
             )
 
-        if (
-            page_errors
-            or console_errors
-            or request_failures
-            or viewer_subtree_non_2xx
-        ):
+        if page_errors or console_errors or request_failures or viewer_subtree_non_2xx:
             raise RuntimeError("manfred_candidate_spatial_browser_surface_failed")
         if int(state.get("horizontal_overflow_px") or 0) != 0:
             raise RuntimeError("manfred_candidate_spatial_browser_overflow")
@@ -1134,11 +1313,9 @@ def _audit_surface(
                 or state.get("fallback_role") != "alert"
                 or "3d preview is unavailable"
                 not in str(state.get("fallback_text") or "").lower()
-                or "floorplan"
-                not in str(state.get("fallback_text") or "").lower()
+                or "floorplan" not in str(state.get("fallback_text") or "").lower()
                 or state.get("live_status_role") != "status"
-                or "unavailable"
-                not in str(state.get("live_status_text") or "").lower()
+                or "unavailable" not in str(state.get("live_status_text") or "").lower()
                 or state.get("enabled_route_button_count") != 0
                 or state.get("enabled_button_count") != 0
                 or int(state.get("button_count") or 0) < 18
@@ -1160,9 +1337,7 @@ def _audit_surface(
                 or request_failures
                 or viewer_subtree_non_2xx
             ):
-                raise RuntimeError(
-                    "manfred_candidate_spatial_browser_surface_failed"
-                )
+                raise RuntimeError("manfred_candidate_spatial_browser_surface_failed")
             return {
                 "status": 200,
                 "viewport": {"width": width, "height": height},
@@ -1195,7 +1370,9 @@ def _audit_surface(
         if state.get("undersized_target_count") != 0:
             raise RuntimeError("manfred_candidate_spatial_browser_target_size_invalid")
         if state.get("fallback_visible") is not False:
-            raise RuntimeError("manfred_candidate_spatial_browser_fallback_state_invalid")
+            raise RuntimeError(
+                "manfred_candidate_spatial_browser_fallback_state_invalid"
+            )
         route_rows = (
             _route_interactions(page, expected_labels) if collect_routes else []
         )
@@ -1210,15 +1387,8 @@ def _audit_surface(
             response,
             expected_url=expected_viewer_url,
         )
-        if (
-            page_errors
-            or console_errors
-            or request_failures
-            or viewer_subtree_non_2xx
-        ):
-            raise RuntimeError(
-                "manfred_candidate_spatial_browser_surface_failed"
-            )
+        if page_errors or console_errors or request_failures or viewer_subtree_non_2xx:
+            raise RuntimeError("manfred_candidate_spatial_browser_surface_failed")
         return {
             "status": 200,
             "viewport": {"width": width, "height": height},
@@ -1253,6 +1423,8 @@ def audit_spatial_candidate_browser(
     viewer_relpath: str,
     route_labels: list[str],
     candidate_commit: str,
+    oci_image_id: str,
+    serving_container_id: str,
     package_sha256: str,
     package_dir: Path,
 ) -> dict[str, object]:
@@ -1261,21 +1433,25 @@ def audit_spatial_candidate_browser(
     normalized_viewer = _safe_viewer_relpath(viewer_relpath)
     expected_labels = _route_labels(route_labels)
     expected_commit = _commit(candidate_commit)
+    oci_image = _inspected_oci_image_identity(oci_image_id)
+    serving_container = _inspected_serving_container_identity(
+        serving_container_id,
+        image_id=str(oci_image["image_id"]),
+        base_url=normalized_base_url,
+    )
+    expected_image_revision = _commit(oci_image["oci_image_revision"])
     expected_package_sha256 = _package_sha256(package_sha256)
     quoted_slug = urllib.parse.quote(normalized_slug, safe="")
     viewer_path = (
-        f"/tours/viewer/{quoted_slug}/"
-        f"{urllib.parse.quote(normalized_viewer, safe='/')}"
+        f"/tours/viewer/{quoted_slug}/{urllib.parse.quote(normalized_viewer, safe='/')}"
     )
     landing_path = f"/tours/{quoted_slug}"
     required_paths = _required_request_paths(normalized_slug)
-    snapshot, bindings, local_package, package_root_identity = (
-        _verified_local_package(
-            package_dir,
-            slug=normalized_slug,
-            viewer_relpath=normalized_viewer,
-            expected_package_sha256=expected_package_sha256,
-        )
+    snapshot, bindings, local_package, package_root_identity = _verified_local_package(
+        package_dir,
+        slug=normalized_slug,
+        viewer_relpath=normalized_viewer,
+        expected_package_sha256=expected_package_sha256,
     )
     browser_expectations = _browser_resource_expectations(
         normalized_base_url,
@@ -1286,6 +1462,7 @@ def audit_spatial_candidate_browser(
     candidate_version = _candidate_version(
         normalized_base_url,
         expected_commit=expected_commit,
+        oci_image_revision=expected_image_revision,
     )
     http_package = _http_package_binding(
         normalized_base_url,
@@ -1302,15 +1479,7 @@ def audit_spatial_candidate_browser(
         ) from exc
 
     with sync_playwright() as playwright:
-        try:
-            browser = playwright.chromium.launch(
-                headless=True,
-                args=["--disable-dev-shm-usage"],
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                "manfred_candidate_spatial_browser_launch_failed"
-            ) from exc
+        browser = _launch_chromium(playwright)
         try:
             landing = _audit_landing(
                 browser,
@@ -1353,8 +1522,7 @@ def audit_spatial_candidate_browser(
     reduced = dict(surfaces["reduced_motion"])
     fallback = dict(surfaces["webgl_fallback"])
     if (
-        int(reduced.get("route_interaction_count") or 0)
-        != _EXPECTED_ROUTE_STOP_COUNT
+        int(reduced.get("route_interaction_count") or 0) != _EXPECTED_ROUTE_STOP_COUNT
         or reduced.get("camera_state_changes_verified") is not True
         or fallback.get("fallback_visible") is not True
         or any(
@@ -1366,6 +1534,13 @@ def audit_spatial_candidate_browser(
     final_candidate_version = _candidate_version(
         normalized_base_url,
         expected_commit=expected_commit,
+        oci_image_revision=expected_image_revision,
+    )
+    final_oci_image = _inspected_oci_image_identity(oci_image_id)
+    final_serving_container = _inspected_serving_container_identity(
+        serving_container_id,
+        image_id=str(oci_image["image_id"]),
+        base_url=normalized_base_url,
     )
     final_http_package = _http_package_binding(
         normalized_base_url,
@@ -1387,15 +1562,15 @@ def audit_spatial_candidate_browser(
     )
     if (
         final_candidate_version != candidate_version
+        or final_oci_image != oci_image
+        or final_serving_container != serving_container
         or final_http_package != http_package
         or final_snapshot != snapshot
         or final_bindings != bindings
         or final_local_package != local_package
         or final_package_root_identity != package_root_identity
     ):
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_runtime_identity_drift"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_runtime_identity_drift")
     package_binding = {
         **local_package,
         **http_package,
@@ -1407,8 +1582,13 @@ def audit_spatial_candidate_browser(
         "slug": normalized_slug,
         "candidate_origin": normalized_base_url,
         "candidate_commit": str(candidate_version["commit_sha"]),
-        "candidate_commit_source": "GET /version",
+        "candidate_commit_source": (
+            "GET /version body + X-EA-Source-Revision + expected commit + "
+            "OCI image revision"
+        ),
         "candidate_version": candidate_version,
+        "candidate_oci_image": oci_image,
+        "serving_container": serving_container,
         "package_sha256": str(local_package["package_sha256"]),
         "package_binding": package_binding,
         "landing": landing,
@@ -1438,12 +1618,12 @@ def validate_spatial_candidate_browser_receipt(
     viewer_relpath: str,
     route_labels: list[str],
     candidate_commit: str,
+    oci_image_id: str,
+    serving_container_id: str,
     package_sha256: str,
 ) -> dict[str, object]:
     if not isinstance(receipt, dict):
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_schema_invalid"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_schema_invalid")
 
     def exact_int(value: object, expected: int) -> bool:
         return type(value) is int and value == expected
@@ -1453,6 +1633,9 @@ def validate_spatial_candidate_browser_receipt(
     expected_viewer_relpath = _safe_viewer_relpath(viewer_relpath)
     expected_labels = _route_labels(route_labels)
     expected_commit = _commit(candidate_commit)
+    expected_image_id = _image_id(oci_image_id)
+    expected_container_id = _container_id(serving_container_id)
+    expected_image_revision = expected_commit
     expected_package = _package_sha256(package_sha256)
     quoted_slug = urllib.parse.quote(expected_slug, safe="")
     expected_viewer_path = (
@@ -1471,6 +1654,7 @@ def validate_spatial_candidate_browser_receipt(
         "candidate_commit",
         "candidate_commit_source",
         "candidate_origin",
+        "candidate_oci_image",
         "candidate_version",
         "console_error_count",
         "landing",
@@ -1484,6 +1668,7 @@ def validate_spatial_candidate_browser_receipt(
         "route_stop_count",
         "schema",
         "secret_material_recorded",
+        "serving_container",
         "slug",
         "status",
         "surface_count",
@@ -1492,26 +1677,38 @@ def validate_spatial_candidate_browser_receipt(
         "viewer_subtree_non_2xx_count",
     }
     if set(receipt) != top_level_keys:
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_schema_invalid"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_schema_invalid")
     version = receipt.get("candidate_version")
+    oci_image = receipt.get("candidate_oci_image")
     package = receipt.get("package_binding")
     landing = receipt.get("landing")
     proof = receipt.get("proof_manifest")
     surfaces = receipt.get("surfaces")
+    serving_container = receipt.get("serving_container")
     if not all(
         isinstance(value, dict)
-        for value in (version, package, landing, proof, surfaces)
-    ):
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_schema_invalid"
+        for value in (
+            version,
+            oci_image,
+            package,
+            landing,
+            proof,
+            surfaces,
+            serving_container,
         )
+    ):
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_schema_invalid")
     version = dict(version or {})
+    oci_image = dict(oci_image or {})
     package = dict(package or {})
     landing = dict(landing or {})
     proof = dict(proof or {})
     surfaces = dict(surfaces or {})
+    serving_container = dict(serving_container or {})
+    serving_project = _candidate_project(
+        serving_container.get("compose_project"),
+        error="manfred_candidate_spatial_browser_receipt_container_invalid",
+    )
     if (
         receipt.get("schema") != RECEIPT_SCHEMA
         or receipt.get("status") != "pass"
@@ -1519,12 +1716,14 @@ def validate_spatial_candidate_browser_receipt(
         or receipt.get("candidate_origin") != expected_origin
         or receipt.get("viewer_path") != expected_viewer_path
         or receipt.get("candidate_commit") != expected_commit
-        or receipt.get("candidate_commit_source") != "GET /version"
+        or receipt.get("candidate_commit_source")
+        != (
+            "GET /version body + X-EA-Source-Revision + expected commit + "
+            "OCI image revision"
+        )
         or receipt.get("package_sha256") != expected_package
         or not exact_int(receipt.get("surface_count"), 4)
-        or not exact_int(
-            receipt.get("route_stop_count"), _EXPECTED_ROUTE_STOP_COUNT
-        )
+        or not exact_int(receipt.get("route_stop_count"), _EXPECTED_ROUTE_STOP_COUNT)
         or receipt.get("all_route_stops_interacted") is not True
         or receipt.get("camera_state_changes_verified") is not True
         or receipt.get("required_asset_requests_verified") is not True
@@ -1541,31 +1740,97 @@ def validate_spatial_candidate_browser_receipt(
         )
         or receipt.get("secret_material_recorded") is not False
     ):
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_contract_invalid"
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_contract_invalid")
+    if (
+        set(oci_image)
+        != {
+            "image_id",
+            "oci_image_revision",
+            "revision_source",
+            "immutable_image_id_verified",
+        }
+        or oci_image.get("image_id") != expected_image_id
+        or oci_image.get("oci_image_revision") != expected_commit
+        or oci_image.get("revision_source") != "docker_image_inspect_by_immutable_id"
+        or oci_image.get("immutable_image_id_verified") is not True
+    ):
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_image_invalid")
+    if (
+        set(serving_container)
+        != {
+            "container_id",
+            "image_id",
+            "compose_project",
+            "compose_service",
+            "running",
+            "container_port",
+            "host_ip",
+            "host_port",
+            "exact_loopback_publication_verified",
+            "inspection_source",
+        }
+        or serving_container.get("container_id") != expected_container_id
+        or serving_container.get("image_id") != expected_image_id
+        or serving_container.get("compose_project") != serving_project
+        or serving_container.get("compose_service") != "gateway"
+        or serving_container.get("running") is not True
+        or not exact_int(serving_container.get("container_port"), 18090)
+        or serving_container.get("host_ip") != "127.0.0.1"
+        or not exact_int(
+            serving_container.get("host_port"),
+            int(urllib.parse.urlsplit(expected_origin).port or 0),
         )
-    if set(version) != {
-        "path",
-        "status",
-        "commit_sha",
-        "repository",
-        "role",
-        "commit_observed_over_http",
-    } or version != {
-        "path": "/version",
-        "status": 200,
-        "commit_sha": expected_commit,
-        "repository": "EA",
-        "role": "api",
-        "commit_observed_over_http": True,
-    } or not exact_int(version.get("status"), 200):
+        or serving_container.get("exact_loopback_publication_verified") is not True
+        or serving_container.get("inspection_source")
+        != "docker_container_inspect_by_immutable_id"
+    ):
         raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_version_invalid"
+            "manfred_candidate_spatial_browser_receipt_container_invalid"
         )
-    if version.get("commit_observed_over_http") is not True:
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_version_invalid"
-        )
+    if (
+        set(version)
+        != {
+            "path",
+            "status",
+            "commit_sha",
+            "body_commit_sha",
+            "source_revision_header",
+            "expected_commit_sha",
+            "oci_image_revision",
+            "repository",
+            "role",
+            "release_authority_state",
+            "release_authority_posture",
+            "release_authority_source",
+            "commit_observed_over_http",
+            "revision_agreement_verified",
+        }
+        or version
+        != {
+            "path": "/version",
+            "status": 200,
+            "commit_sha": expected_commit,
+            "body_commit_sha": expected_commit,
+            "source_revision_header": expected_commit,
+            "expected_commit_sha": expected_commit,
+            "oci_image_revision": expected_image_revision,
+            "repository": "EA",
+            "role": "api",
+            "release_authority_state": "clear",
+            "release_authority_posture": "authoritative_runtime",
+            "release_authority_source": "published_status_artifact",
+            "commit_observed_over_http": True,
+            "revision_agreement_verified": True,
+        }
+        or not exact_int(version.get("status"), 200)
+    ):
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_version_invalid")
+    if (
+        version.get("commit_observed_over_http") is not True
+        or version.get("revision_agreement_verified") is not True
+        or expected_image_revision != expected_commit
+    ):
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_version_invalid")
     package_keys = {
         "http_asset_count",
         "http_assets",
@@ -1594,8 +1859,7 @@ def validate_spatial_candidate_browser_receipt(
         or package.get("runtime_identity_revalidated_after_browser") is not True
         or type(package.get("release_revision")) is not str
         or not package.get("release_revision")
-        or package.get("release_revision")
-        != package.get("release_revision").strip()
+        or package.get("release_revision") != package.get("release_revision").strip()
         or len(package.get("release_revision")) > 200
         or not package.get("release_revision").isprintable()
         or type(package.get("tour_manifest_sha256")) is not str
@@ -1606,9 +1870,7 @@ def validate_spatial_candidate_browser_receipt(
         or len(http_assets) != 4
         or not isinstance(package_proof, dict)
     ):
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_package_invalid"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_package_invalid")
     local_paths: set[str] = set()
     local_rows_by_path: dict[str, dict[str, object]] = {}
     for raw_row in local_files:
@@ -1629,8 +1891,7 @@ def validate_spatial_candidate_browser_receipt(
             or any(part in {"", ".", ".."} for part in parsed_path.parts)
             or path != parsed_path.as_posix()
             or (
-                path != "tour.json"
-                and not path.startswith("generated-reconstruction/")
+                path != "tour.json" and not path.startswith("generated-reconstruction/")
             )
             or type(row.get("sha256")) is not str
             or not _SHA256_RE.fullmatch(row.get("sha256"))
@@ -1648,15 +1909,10 @@ def validate_spatial_candidate_browser_receipt(
         _RECONSTRUCTION_MANIFEST_RELPATH,
         "generated-reconstruction/source-floorplan.png",
         "generated-reconstruction/vendor/three.module.js",
-        (
-            "generated-reconstruction/vendor/examples/jsm/controls/"
-            "OrbitControls.js"
-        ),
+        ("generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js"),
     }
     if local_paths != expected_local_paths:
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_package_invalid"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_package_invalid")
     canonical_local_rows = [
         {
             "path": path,
@@ -1671,9 +1927,7 @@ def validate_spatial_candidate_browser_receipt(
         or package.get("tour_manifest_sha256")
         != local_rows_by_path["tour.json"]["sha256"]
     ):
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_package_invalid"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_package_invalid")
     http_paths: set[str] = set()
     http_roles: list[str] = []
     expected_http_roles = {
@@ -1682,8 +1936,7 @@ def validate_spatial_candidate_browser_receipt(
             f"{urllib.parse.quote(expected_viewer_relpath, safe='/')}"
         ): "viewer_document",
         (
-            f"/tours/viewer/{quoted_slug}/generated-reconstruction/"
-            "source-floorplan.png"
+            f"/tours/viewer/{quoted_slug}/generated-reconstruction/source-floorplan.png"
         ): "floorplan_texture",
         (
             f"/tours/viewer/{quoted_slug}/generated-reconstruction/"
@@ -1729,15 +1982,11 @@ def validate_spatial_candidate_browser_receipt(
         if (
             path in http_paths
             or path
-            != (
-                f"/tours/viewer/{quoted_slug}/"
-                f"{urllib.parse.quote(relpath, safe='/')}"
-            )
+            != (f"/tours/viewer/{quoted_slug}/{urllib.parse.quote(relpath, safe='/')}")
             or not path.startswith(
                 f"/tours/viewer/{quoted_slug}/generated-reconstruction/"
             )
-            or role
-            not in {"viewer_document", "floorplan_texture", "viewer_module"}
+            or role not in {"viewer_document", "floorplan_texture", "viewer_module"}
             or expected_http_roles.get(path) != role
             or not exact_int(row.get("status"), 200)
             or not _SHA256_RE.fullmatch(str(row.get("sha256") or ""))
@@ -1757,79 +2006,87 @@ def validate_spatial_candidate_browser_receipt(
             )
         http_paths.add(path)
         http_roles.append(role)
-    if set(http_paths) != set(expected_http_roles) or sorted(http_roles) != [
-        "floorplan_texture",
-        "viewer_document",
-        "viewer_module",
-        "viewer_module",
-    ] or dict(package_proof) != {
-        "path": expected_proof_path,
-        "status": 404,
-        "serveable": False,
-        "local_sha256": next(
-            str(row["sha256"])
-            for row in local_files
-            if row["path"] == _RECONSTRUCTION_MANIFEST_RELPATH
-        ),
-    } or not exact_int(
-        dict(package_proof).get("status"), 404
-    ) or dict(package_proof).get("serveable") is not False:
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_package_invalid"
+    if (
+        set(http_paths) != set(expected_http_roles)
+        or sorted(http_roles)
+        != [
+            "floorplan_texture",
+            "viewer_document",
+            "viewer_module",
+            "viewer_module",
+        ]
+        or dict(package_proof)
+        != {
+            "path": expected_proof_path,
+            "status": 404,
+            "serveable": False,
+            "local_sha256": next(
+                str(row["sha256"])
+                for row in local_files
+                if row["path"] == _RECONSTRUCTION_MANIFEST_RELPATH
+            ),
+        }
+        or not exact_int(dict(package_proof).get("status"), 404)
+        or dict(package_proof).get("serveable") is not False
+    ):
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_package_invalid")
+    if (
+        set(landing)
+        != {
+            "path",
+            "status",
+            "horizontal_overflow_px",
+            "viewer_route_referenced",
+            "page_error_count",
+            "console_error_count",
+            "page_url",
+            "response_url",
+            "exact_candidate_url_verified",
+        }
+        or landing
+        != {
+            "path": f"/tours/{quoted_slug}",
+            "status": 200,
+            "horizontal_overflow_px": 0,
+            "viewer_route_referenced": True,
+            "page_error_count": 0,
+            "console_error_count": 0,
+            "page_url": expected_landing_url,
+            "response_url": expected_landing_url,
+            "exact_candidate_url_verified": True,
+        }
+        or any(
+            not exact_int(landing.get(name), expected)
+            for name, expected in (
+                ("status", 200),
+                ("horizontal_overflow_px", 0),
+                ("page_error_count", 0),
+                ("console_error_count", 0),
+            )
         )
-    if set(landing) != {
-        "path",
-        "status",
-        "horizontal_overflow_px",
-        "viewer_route_referenced",
-        "page_error_count",
-        "console_error_count",
-        "page_url",
-        "response_url",
-        "exact_candidate_url_verified",
-    } or landing != {
-        "path": f"/tours/{quoted_slug}",
-        "status": 200,
-        "horizontal_overflow_px": 0,
-        "viewer_route_referenced": True,
-        "page_error_count": 0,
-        "console_error_count": 0,
-        "page_url": expected_landing_url,
-        "response_url": expected_landing_url,
-        "exact_candidate_url_verified": True,
-    } or any(
-        not exact_int(landing.get(name), expected)
-        for name, expected in (
-            ("status", 200),
-            ("horizontal_overflow_px", 0),
-            ("page_error_count", 0),
-            ("console_error_count", 0),
-        )
-    ) or landing.get("viewer_route_referenced") is not True or landing.get(
-        "exact_candidate_url_verified"
-    ) is not True:
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_landing_invalid"
-        )
-    if set(proof) != {"path", "status", "serveable"} or proof != {
-        "path": expected_proof_path,
-        "status": 404,
-        "serveable": False,
-    } or not exact_int(
-        proof.get("status"), 404
-    ) or proof.get("serveable") is not False:
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_proof_invalid"
-        )
+        or landing.get("viewer_route_referenced") is not True
+        or landing.get("exact_candidate_url_verified") is not True
+    ):
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_landing_invalid")
+    if (
+        set(proof) != {"path", "status", "serveable"}
+        or proof
+        != {
+            "path": expected_proof_path,
+            "status": 404,
+            "serveable": False,
+        }
+        or not exact_int(proof.get("status"), 404)
+        or proof.get("serveable") is not False
+    ):
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_proof_invalid")
     if set(surfaces) != {
         "desktop",
         "mobile",
         "reduced_motion",
         "webgl_fallback",
     }:
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_surfaces_invalid"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_surfaces_invalid")
     required_paths = _required_request_paths(expected_slug)
     browser_specs = {
         "viewer_document": (
@@ -1844,10 +2101,7 @@ def validate_spatial_candidate_browser_receipt(
         ),
         "orbit_controls": (
             required_paths["orbit_controls"],
-            (
-                "generated-reconstruction/vendor/examples/jsm/controls/"
-                "OrbitControls.js"
-            ),
+            ("generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js"),
             "text/javascript",
         ),
         "three_module": (
@@ -1919,7 +2173,9 @@ def validate_spatial_candidate_browser_receipt(
         "viewer_subtree_non_2xx_count",
         "viewport",
     }
-    for name, width, height, is_mobile, reduced_motion, collect_routes in _SURFACES[:-1]:
+    for name, width, height, is_mobile, reduced_motion, collect_routes in _SURFACES[
+        :-1
+    ]:
         raw_surface = surfaces.get(name)
         if not isinstance(raw_surface, dict) or set(raw_surface) != normal_keys:
             raise RuntimeError(
@@ -1964,9 +2220,7 @@ def validate_spatial_candidate_browser_receipt(
             or not isinstance(interactions, list)
             or len(interactions)
             != (_EXPECTED_ROUTE_STOP_COUNT if collect_routes else 0)
-            or not exact_int(
-                surface.get("route_interaction_count"), len(interactions)
-            )
+            or not exact_int(surface.get("route_interaction_count"), len(interactions))
             or surface.get("camera_state_changes_verified") is not collect_routes
         ):
             raise RuntimeError(
@@ -2050,9 +2304,7 @@ def validate_spatial_candidate_browser_receipt(
         "viewport",
     }
     if not isinstance(fallback, dict) or set(fallback) != fallback_keys:
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_surfaces_invalid"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_surfaces_invalid")
     fallback = dict(fallback)
     fallback_requests = fallback.get("required_requests")
     if (
@@ -2082,9 +2334,7 @@ def validate_spatial_candidate_browser_receipt(
         or not isinstance(fallback_requests, dict)
         or set(fallback_requests) != set(required_paths)
     ):
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_surfaces_invalid"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_surfaces_invalid")
     fallback_response_count = validate_browser_row(
         fallback.get("viewer_response"),
         "viewer_document",
@@ -2098,9 +2348,7 @@ def validate_spatial_candidate_browser_receipt(
         fallback.get("browser_response_count"),
         fallback_response_count,
     ):
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_receipt_surfaces_invalid"
-        )
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_surfaces_invalid")
     return receipt
 
 
@@ -2112,6 +2360,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--slug", required=True)
     parser.add_argument("--viewer-relpath", required=True)
     parser.add_argument("--candidate-commit", required=True)
+    parser.add_argument("--oci-image-id", required=True)
+    parser.add_argument("--serving-container-id", required=True)
     parser.add_argument("--package-sha256", required=True)
     parser.add_argument("--package-dir", required=True)
     parser.add_argument(
@@ -2132,6 +2382,8 @@ def main(argv: list[str] | None = None) -> int:
             viewer_relpath=args.viewer_relpath,
             route_labels=list(args.route_labels or []),
             candidate_commit=args.candidate_commit,
+            oci_image_id=args.oci_image_id,
+            serving_container_id=args.serving_container_id,
             package_sha256=args.package_sha256,
             package_dir=Path(args.package_dir),
         )
@@ -2142,6 +2394,8 @@ def main(argv: list[str] | None = None) -> int:
             viewer_relpath=args.viewer_relpath,
             route_labels=list(args.route_labels or []),
             candidate_commit=args.candidate_commit,
+            oci_image_id=args.oci_image_id,
+            serving_container_id=args.serving_container_id,
             package_sha256=args.package_sha256,
         )
     except (OSError, RuntimeError, ValueError) as exc:

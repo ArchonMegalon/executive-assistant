@@ -356,8 +356,13 @@ def test_memorial_deploy_target_uses_memorial_project_mode_and_overlay() -> None
 
     deploy_target = _make_target_body(makefile, "deploy-ea-memorial")
 
-    assert '$(MAKE) verify-memorial-deploy-readiness; \\' in deploy_target
+    assert "$(MAKE) verify-memorial-deploy-readiness" in deploy_target
     assert 'COMPOSE_PROJECT_NAME=ea \\' in deploy_target
-    assert 'PROPERTYQUARRY_USE_LEGACY_STACK=1 \\' in deploy_target
     assert 'EA_DEPLOY_PRIMARY_MODE=MEMORIAL \\' in deploy_target
-    assert 'bash scripts/deploy.sh --compose-override docker-compose.memorial.yml' in deploy_target
+    assert 'EA_DEPLOY_ENABLED_MODES=MEMORIAL \\' in deploy_target
+    assert 'EA_DEPLOY_COMPOSE_OVERRIDES=docker-compose.memorial.yml \\' in deploy_target
+    assert "$(MAKE) deploy-ea-memorial-scoped" in deploy_target
+    assert deploy_target.index("verify-memorial-deploy-readiness") < deploy_target.index(
+        "deploy-ea-memorial-scoped"
+    )
+    assert "scripts/deploy.sh" not in deploy_target

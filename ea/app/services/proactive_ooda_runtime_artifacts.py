@@ -866,10 +866,14 @@ def display_path(root: Path, path: Path | None) -> str:
 
 
 def latest_payloads(path: Path, *, schema: str) -> list[tuple[Path, dict[str, Any], float]]:
-    if not path.is_dir():
+    try:
+        if not path.is_dir():
+            return []
+        candidates = list(path.glob("*.json"))
+    except OSError:
         return []
     rows: list[tuple[Path, dict[str, Any], float]] = []
-    for candidate in path.glob("*.json"):
+    for candidate in candidates:
         payload = _load_json(candidate)
         if not payload or str(payload.get("schema") or "").strip() != schema:
             continue
@@ -883,10 +887,14 @@ def latest_payloads(path: Path, *, schema: str) -> list[tuple[Path, dict[str, An
 
 
 def latest_run_receipts(path: Path) -> list[tuple[Path, dict[str, Any], float]]:
-    if not path.is_dir():
+    try:
+        if not path.is_dir():
+            return []
+        candidates = list(path.glob("*.json"))
+    except OSError:
         return []
     rows: list[tuple[Path, dict[str, Any], float]] = []
-    for candidate in path.glob("*.json"):
+    for candidate in candidates:
         payload = _load_json(candidate)
         if not payload:
             continue
@@ -959,7 +967,11 @@ def _run_receipt_candidates(
     state_dir = run_receipt_dir.parent
     for filename in LEGACY_RUN_RECEIPT_FILENAMES:
         candidate_path = state_dir / filename
-        if not candidate_path.exists():
+        try:
+            exists = candidate_path.exists()
+        except OSError:
+            exists = False
+        if not exists:
             continue
         _add(candidate_path, _load_json(candidate_path), mtime=_safe_mtime(candidate_path))
 

@@ -13,7 +13,12 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from app.settings import is_prod_mode
 
 
-_AUTHORITY_PROXY_HEADER_NAMES = {b"forwarded", b"x-forwarded-host", b"x-forwarded-proto"}
+_AUTHORITY_PROXY_HEADER_NAMES = {
+    b"cf-visitor",
+    b"forwarded",
+    b"x-forwarded-host",
+    b"x-forwarded-proto",
+}
 _CLIENT_PROXY_HEADER_NAMES = {b"cf-connecting-ip", b"cf-ray", b"x-forwarded-for"}
 _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient", "testserver"}
 _DEFAULT_TRUSTED_PROXY_CIDRS = "127.0.0.0/8,::1/128"
@@ -109,7 +114,11 @@ def _public_origin() -> _PublicOrigin | None:
     except ValueError:
         return None
     scheme = str(parsed.scheme or "").lower()
-    if scheme not in {"http", "https"} or authority is None or parsed.path not in {"", "/"}:
+    if (
+        scheme not in {"http", "https"}
+        or authority is None
+        or parsed.path not in {"", "/"}
+    ):
         return None
     return _PublicOrigin(scheme=scheme, authority=authority)
 
@@ -146,7 +155,9 @@ def _proxy_headers_enabled() -> bool:
     )
 
 
-def _trusted_proxy_networks() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+def _trusted_proxy_networks() -> tuple[
+    ipaddress.IPv4Network | ipaddress.IPv6Network, ...
+]:
     raw = str(
         os.getenv("EA_TRUSTED_PROXY_CIDRS")
         or os.getenv("PROPERTYQUARRY_TRUSTED_PROXY_CIDRS")
@@ -224,7 +235,9 @@ def _proxy_metadata(scope: dict[str, Any]) -> _ProxyMetadata:
         raise _ProxyMetadataError("forwarded_host_mismatch")
     if forwarded_proto and x_proto and forwarded_proto != x_proto:
         raise _ProxyMetadataError("forwarded_proto_mismatch")
-    return _ProxyMetadata(host=forwarded_host or x_host, proto=forwarded_proto or x_proto)
+    return _ProxyMetadata(
+        host=forwarded_host or x_host, proto=forwarded_proto or x_proto
+    )
 
 
 def _replace_scope_headers(
@@ -238,7 +251,10 @@ def _replace_scope_headers(
     headers: list[tuple[bytes, bytes]] = []
     for raw_name, raw_value in scope.get("headers") or []:
         normalized_name = bytes(raw_name).lower()
-        if normalized_name == b"host" or normalized_name in _AUTHORITY_PROXY_HEADER_NAMES:
+        if (
+            normalized_name == b"host"
+            or normalized_name in _AUTHORITY_PROXY_HEADER_NAMES
+        ):
             continue
         if strip_client_proxy_headers and normalized_name in _CLIENT_PROXY_HEADER_NAMES:
             continue
@@ -252,15 +268,24 @@ def _replace_scope_headers(
     scope["headers"] = headers
 
 
-def _rewrite_request_authority(request: Request, *, host: _Authority, proto: str) -> None:
-    _replace_scope_headers(request.scope, host=host, proto=proto, keep_proxy_headers=True)
+def _rewrite_request_authority(
+    request: Request, *, host: _Authority, proto: str
+) -> None:
+    _replace_scope_headers(
+        request.scope, host=host, proto=proto, keep_proxy_headers=True
+    )
     request.scope["scheme"] = proto
-    request.scope["server"] = (host.host, host.port or (443 if proto == "https" else 80))
+    request.scope["server"] = (
+        host.host,
+        host.port or (443 if proto == "https" else 80),
+    )
     request.__dict__.pop("_headers", None)
     request.__dict__.pop("_url", None)
 
 
-def _strip_untrusted_proxy_headers(request: Request, *, raw_host: _Authority | None) -> None:
+def _strip_untrusted_proxy_headers(
+    request: Request, *, raw_host: _Authority | None
+) -> None:
     _replace_scope_headers(
         request.scope,
         host=raw_host,
@@ -291,7 +316,9 @@ def _error_response(*, status_code: int, code: str, scheme: str) -> Response:
 
 def _canonical_https_url(request: Request, *, host: _Authority) -> str:
     query = str(request.scope.get("query_string") or b"", "latin-1")
-    path = str(request.scope.get("raw_path") or b"", "latin-1") or str(request.url.path or "/")
+    path = str(request.scope.get("raw_path") or b"", "latin-1") or str(
+        request.url.path or "/"
+    )
     target = f"https://{host.netloc}{path}"
     return f"{target}?{query}" if query else target
 
@@ -311,9 +338,7 @@ def _relativize_slash_redirect(request: Request, response: Response) -> None:
         return
     slash_variant = (
         request_path.endswith("/") and target_path == request_path.rstrip("/")
-    ) or (
-        not request_path.endswith("/") and target_path == f"{request_path}/"
-    )
+    ) or (not request_path.endswith("/") and target_path == f"{request_path}/")
     if not slash_variant:
         return
     relative = target_path
@@ -341,7 +366,9 @@ def install_public_http_hardening(app: FastAPI, *, settings: Any) -> None:
         raw_host = _host_header(request.scope)
         initial_scheme = str(request.scope.get("scheme") or "http").lower()
         if len(raw_host_values) != 1 or raw_host is None:
-            return _error_response(status_code=400, code="host_header_invalid", scheme=initial_scheme)
+            return _error_response(
+                status_code=400, code="host_header_invalid", scheme=initial_scheme
+            )
 
         trusted_proxy = _request_from_trusted_proxy(request)
         metadata = _ProxyMetadata(host=None, proto="")
@@ -349,7 +376,9 @@ def install_public_http_hardening(app: FastAPI, *, settings: Any) -> None:
             try:
                 metadata = _proxy_metadata(request.scope)
             except _ProxyMetadataError:
-                return _error_response(status_code=400, code="proxy_header_invalid", scheme=initial_scheme)
+                return _error_response(
+                    status_code=400, code="proxy_header_invalid", scheme=initial_scheme
+                )
         else:
             _strip_untrusted_proxy_headers(request, raw_host=raw_host)
 
@@ -364,21 +393,51 @@ def install_public_http_hardening(app: FastAPI, *, settings: Any) -> None:
         ):
             effective_host = origin.authority
             effective_proto = metadata.proto or origin.scheme
-            _rewrite_request_authority(request, host=effective_host, proto=effective_proto)
+            _rewrite_request_authority(
+                request, host=effective_host, proto=effective_proto
+            )
         if trusted_proxy and metadata.host is not None:
             if production and metadata.host.host not in _configured_hosts():
-                return _error_response(status_code=421, code="forwarded_host_not_allowed", scheme=effective_proto)
-            if not effective_proto and origin is not None and metadata.host.host == origin.authority.host:
+                return _error_response(
+                    status_code=421,
+                    code="forwarded_host_not_allowed",
+                    scheme=effective_proto,
+                )
+            if (
+                not effective_proto
+                and origin is not None
+                and metadata.host.host == origin.authority.host
+            ):
                 effective_proto = origin.scheme
-            _rewrite_request_authority(request, host=metadata.host, proto=effective_proto or "https")
+            _rewrite_request_authority(
+                request, host=metadata.host, proto=effective_proto or "https"
+            )
 
         local_request = effective_host.host in _LOCAL_HOSTS
-        if production and not local_request and effective_host.host not in _configured_hosts():
-            return _error_response(status_code=421, code="host_not_allowed", scheme=effective_proto)
+        if (
+            production
+            and not local_request
+            and effective_host.host not in _configured_hosts()
+        ):
+            return _error_response(
+                status_code=421, code="host_not_allowed", scheme=effective_proto
+            )
 
-        if production and not local_request and origin is not None and origin.scheme == "https" and effective_proto != "https":
-            redirect_host = origin.authority if effective_host.host == origin.authority.host else effective_host
-            response = RedirectResponse(_canonical_https_url(request, host=redirect_host), status_code=308)
+        if (
+            production
+            and not local_request
+            and origin is not None
+            and origin.scheme == "https"
+            and effective_proto != "https"
+        ):
+            redirect_host = (
+                origin.authority
+                if effective_host.host == origin.authority.host
+                else effective_host
+            )
+            response = RedirectResponse(
+                _canonical_https_url(request, host=redirect_host), status_code=308
+            )
             return _security_headers(response, scheme="https")
 
         response = await call_next(request)

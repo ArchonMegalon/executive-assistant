@@ -8,8 +8,13 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_RELEASE_MANIFEST = ROOT / ".codex-studio/published/release_manifest.generated.json"
+DEFAULT_RELEASE_MANIFEST = (
+    ROOT / ".codex-studio/published/release_manifest.generated.json"
+)
 DEFAULT_PROJECT_MODES = ROOT / ".codex-design/product/PROJECT_MODES.generated.json"
+MANFRED_COMPOSITE_CANDIDATE_COMPOSE = (
+    "deploy/manfred-memorial/docker-compose.candidate.yml"
+)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -34,6 +39,7 @@ def validate_release_contract(
     requested_mode: str,
     enabled_modes: list[str],
     compose_overrides: list[str],
+    manfred_composite_candidate_observed: bool = False,
 ) -> list[str]:
     issues: list[str] = []
     requested = _normalize_mode(requested_mode)
@@ -50,7 +56,9 @@ def validate_release_contract(
         issues.append(f"unknown_requested_mode:{requested}")
     manifest_mode = _normalize_mode(str(release_manifest.get("project_mode") or ""))
     if manifest_mode != requested:
-        issues.append(f"manifest_mode_mismatch:{manifest_mode or 'missing'}!={requested}")
+        issues.append(
+            f"manifest_mode_mismatch:{manifest_mode or 'missing'}!={requested}"
+        )
     manifest_enabled = [
         _normalize_mode(str(item))
         for item in list(release_manifest.get("enabled_project_modes") or [])
@@ -61,16 +69,44 @@ def validate_release_contract(
     if requested not in enabled_set:
         issues.append("requested_mode_not_enabled")
 
-    override_basenames = {_basename(item) for item in compose_overrides if str(item).strip()}
+    override_basenames = {
+        _basename(item) for item in compose_overrides if str(item).strip()
+    }
+    manifest_compose_files = {
+        str(item).strip().replace("\\", "/")
+        for item in list(release_manifest.get("compose_files") or [])
+        if str(item).strip()
+    }
+    manifest_compose_overrides = {
+        str(item).strip().replace("\\", "/")
+        for item in list(release_manifest.get("compose_overrides") or [])
+        if str(item).strip()
+    }
+    manfred_composite_candidate = (
+        manfred_composite_candidate_observed is True
+        and requested == "MEMORIAL"
+        and enabled_set == {"MEMORIAL", "PROPERTY"}
+        and manifest_compose_files == {MANFRED_COMPOSITE_CANDIDATE_COMPOSE}
+        and not manifest_compose_overrides
+        and not override_basenames
+    )
     has_memorial = "docker-compose.memorial.yml" in override_basenames
     has_provider_lab = "docker-compose.provider-lab.yml" in override_basenames
     has_property = "docker-compose.property.yml" in override_basenames
 
-    if "MEMORIAL" in enabled_set and not has_memorial:
+    if (
+        "MEMORIAL" in enabled_set
+        and not has_memorial
+        and not manfred_composite_candidate
+    ):
         issues.append("memorial_mode_missing_override")
     if "PROVIDER_LAB" in enabled_set and not has_provider_lab:
         issues.append("provider_lab_mode_missing_override")
-    if "PROPERTY" in enabled_set and not has_property:
+    if (
+        "PROPERTY" in enabled_set
+        and not has_property
+        and not manfred_composite_candidate
+    ):
         issues.append("property_mode_missing_override")
 
     if requested == "EA_CORE":
@@ -78,7 +114,7 @@ def validate_release_contract(
             issues.append("ea_core_must_not_mix_planes")
         if has_memorial or has_provider_lab or has_property:
             issues.append("ea_core_override_leak")
-    if requested == "MEMORIAL" and not has_memorial:
+    if requested == "MEMORIAL" and not has_memorial and not manfred_composite_candidate:
         issues.append("memorial_primary_requires_memorial_override")
     if requested == "PROVIDER_LAB" and not has_provider_lab:
         issues.append("provider_lab_primary_requires_provider_override")
@@ -90,7 +126,9 @@ def validate_release_contract(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--release-manifest", type=Path, default=DEFAULT_RELEASE_MANIFEST)
+    parser.add_argument(
+        "--release-manifest", type=Path, default=DEFAULT_RELEASE_MANIFEST
+    )
     parser.add_argument("--project-modes", type=Path, default=DEFAULT_PROJECT_MODES)
     parser.add_argument("--mode", required=True)
     parser.add_argument("--enabled-mode", action="append", default=[])
@@ -111,7 +149,15 @@ def main() -> int:
     )
     if issues:
         raise SystemExit("release_manifest_runtime_mode_invalid:" + ",".join(issues))
-    print(json.dumps({"status": "pass", "mode": _normalize_mode(args.mode), "enabled_modes": [_normalize_mode(item) for item in enabled_modes]}))
+    print(
+        json.dumps(
+            {
+                "status": "pass",
+                "mode": _normalize_mode(args.mode),
+                "enabled_modes": [_normalize_mode(item) for item in enabled_modes],
+            }
+        )
+    )
     return 0
 
 

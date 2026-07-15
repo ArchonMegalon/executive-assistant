@@ -16,6 +16,7 @@ except ModuleNotFoundError:
 
 
 ROOT = Path(__file__).resolve().parents[1]
+LEGACY_EA_ROOT = Path("/docker/EA")
 PACK_PATH = ROOT / "docs" / "chummer_governor_packets" / "CHUMMER_GOVERNOR_PACKET_PACK.yaml"
 SPECIMENS_PATH = ROOT / "docs" / "chummer_governor_packets" / "OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml"
 CANONICAL_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
@@ -83,12 +84,21 @@ def _json(path: Path) -> dict:
 
 def _repo_relative_proof(value: object) -> str:
     text = str(value)
-    prefix = str(ROOT) + "/"
-    return text.removeprefix(prefix)
+    for root in (ROOT, LEGACY_EA_ROOT):
+        prefix = str(root) + "/"
+        if text.startswith(prefix):
+            return text.removeprefix(prefix)
+    return text
 
 
 def _repo_relative_proof_set(values: object) -> set[str]:
     return {_repo_relative_proof(item) for item in values or []}
+
+
+def _ea_local_proof_path(value: object) -> Path:
+    proof_token = str(value).split(" ", 1)[0]
+    normalized = Path(_repo_relative_proof(proof_token))
+    return normalized if normalized.is_absolute() else ROOT / normalized
 
 
 def _source_path(row: dict) -> Path:
@@ -347,7 +357,7 @@ def test_successor_queue_ea_proof_paths_are_not_stale() -> None:
         str(item) for item in queue_item.get("proof") or []
     }
     proof_items = [str(item) for item in queue_item.get("proof") or []]
-    ea_file_proofs = [Path(item) for item in proof_items if item.startswith("/docker/EA/")]
+    ea_file_proofs = [_ea_local_proof_path(item) for item in proof_items if item.startswith("/docker/EA/")]
 
     assert ea_file_proofs, "queue row should cite EA-local proof artifacts"
     assert all(path.exists() for path in ea_file_proofs)
@@ -407,7 +417,7 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
         for item in registry_evidence_items
     )
     registry_ea_file_proofs = [
-        Path(item.split(" ", 1)[0])
+        _ea_local_proof_path(item)
         for item in registry_evidence_items
         if item.startswith("/docker/EA/")
     ]
@@ -1149,7 +1159,6 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
         "active_run_handoff_generated_at": "2026-04-15T19:44:20Z",
         "active_run_handoff_prompt_path": CURRENT_RETRY_PROMPT_PATH_TEMPLATE,
     }
-    ignored_prompt_paths = {synthetic_ignored_assignment["active_run_handoff_prompt_path"]}
     ignored_times = {synthetic_ignored_assignment["active_run_handoff_generated_at"]}
     history_prompt_paths = {
         str(item.get("active_run_handoff_prompt_path") or "")

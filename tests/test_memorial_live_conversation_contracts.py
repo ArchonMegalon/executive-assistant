@@ -10,6 +10,7 @@ import os
 import re
 import struct
 import subprocess
+import threading
 import time
 import wave
 import contextlib
@@ -1943,6 +1944,105 @@ def test_memorial_chat_live_openings_route_to_model_without_memory_fallback(
     assert "Antwortmodus: gegenwaertige Live-Interaktion." in evidence_block
     assert "Erinnerungsgedaechtnis:" not in evidence_block
     assert "Eigene archivierte Erinnerungen" not in evidence_block
+
+
+def test_memorial_chat_falls_back_without_waiting_for_stalled_redis_rate_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    entered = threading.Event()
+    release = threading.Event()
+    worker_completed = threading.Event()
+    eval_calls = {"value": 0}
+
+    class _BlockingRedisClient:
+        def eval(self, *args, **kwargs):
+            eval_calls["value"] += 1
+            entered.set()
+            release.wait(timeout=5.0)
+            worker_completed.set()
+            return 1
+
+    monkeypatch.setattr(public_memorials, "_public_memorial_rate_backend", lambda: "redis")
+    monkeypatch.setattr(public_memorials, "_public_memorial_redis_client", lambda: _BlockingRedisClient())
+    monkeypatch.setattr(public_memorials, "_public_memorial_redis_operation_timeout_seconds", lambda: 0.02)
+    monkeypatch.setattr(
+        public_memorials,
+        "generate_text",
+        lambda **kwargs: SimpleNamespace(
+            text="Meine Stimme klingt ruhig und sachlich.",
+            provider_key="unit-test-model",
+            model="unit-test-model",
+        ),
+    )
+    client = _client(principal_id="exec-memorial-stalled-redis")
+
+    try:
+        started = time.perf_counter()
+        response = client.post(
+            f"/memorials/{slug}/chat",
+            json={"question": "Wie klingt deine Stimme jetzt?"},
+        )
+        elapsed = time.perf_counter() - started
+        assert entered.wait(timeout=0.5)
+        second_started = time.perf_counter()
+        second_response = client.post(
+            f"/memorials/{slug}/chat",
+            json={"question": "Wie klingt deine Stimme jetzt?"},
+        )
+        second_elapsed = time.perf_counter() - second_started
+    finally:
+        release.set()
+        assert worker_completed.wait(timeout=1.0)
+
+    assert response.status_code == 200
+    assert second_response.status_code == 200
+    assert elapsed < 1.5
+    assert second_elapsed < 1.5
+    assert eval_calls["value"] == 1
+    body = response.json()
+    assert body["llm_fallback_used"] is False
+    assert body["llm_provider"] == "unit-test-model"
+    assert "synthetisch" in body["answer"].lower()
+    assert "gedenkbegleiter" in body["answer"].lower()
+
+
+def test_memorial_chat_memory_storage_does_not_touch_disk_rate_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_enforce_public_memorial_rate_limit_sqlite",
+        lambda **kwargs: pytest.fail("memory-backed chat attempted SQLite rate I/O"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "generate_text",
+        lambda **kwargs: SimpleNamespace(
+            text="Ich antworte direkt und ohne Umweg.",
+            provider_key="unit-test-model",
+            model="unit-test-model",
+        ),
+    )
+    client = _client(principal_id="exec-memorial-memory-rate")
+
+    started = time.perf_counter()
+    response = client.post(
+        f"/memorials/{slug}/chat",
+        json={"question": "Sag jetzt direkt etwas zu mir."},
+    )
+    elapsed = time.perf_counter() - started
+
+    assert response.status_code == 200
+    assert elapsed < 1.5
+    assert response.json()["llm_provider"] == "unit-test-model"
 
 
 def test_memorial_chat_contact_opening_short_circuits_to_direct_answer(
@@ -6165,8 +6265,8 @@ def test_memorial_warmup_never_uses_piper_or_openvoice_tts() -> None:
     assert 'selected_plugin = PIPER_FAST_TTS_PLUGIN_ID' not in source
     assert 'piper_fast_synthesize_request(' not in source
     assert 'openvoice_synthesize_request_with_variant(' not in source
-    assert "_schedule_memorial_voicewave_contact_prewarm(slug, voice_label)" in source
-    assert "_schedule_memorial_server_voice_contact_prewarm(slug)" in source
+    assert "_schedule_memorial_voicewave_contact_prewarm(" in source
+    assert "_schedule_memorial_server_voice_contact_prewarm(" in source
 
 
 def test_memorial_landing_does_not_enable_conversation_on_warmup_timeout() -> None:
@@ -7898,3 +7998,655 @@ def test_memorial_live_page_stays_voice_only_without_legacy_video_call_ui(
     assert "write_token" not in source
     assert "memorial_write_token" not in source
     assert "x-memorial-write-token" not in source
+
+
+def _reset_memorial_live_warmup_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> object:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_LIVE_WARMUP_STATE", {})
+    monkeypatch.setattr(
+        public_memorials,
+        "_MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS",
+        set(),
+    )
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_LIVE_WARMUP_RESERVATION_SEQUENCE", 0)
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_VOICE_PREWARM_RESERVATION_SEQUENCE", 0)
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_RUNTIME_READINESS_CACHE_STATE", {})
+    monkeypatch.setattr(public_memorials, "_memorial_voice_release_enforced", lambda: False)
+    return public_memorials
+
+
+def test_memorial_live_warmup_reserves_slug_before_starting_one_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+
+    class DeferredThread:
+        created: list[DeferredThread] = []
+
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+            self.created.append(self)
+
+        def start(self) -> None:
+            return None
+
+    caller_count = 8
+    barrier = threading.Barrier(caller_count + 1)
+    result_lock = threading.Lock()
+    results: list[dict[str, object]] = []
+    failures: list[BaseException] = []
+
+    def schedule() -> None:
+        try:
+            barrier.wait(timeout=5.0)
+            result = public_memorials._schedule_memorial_live_warmup("manfred")
+            with result_lock:
+                results.append(result)
+        except BaseException as exc:  # pragma: no cover - asserted below
+            with result_lock:
+                failures.append(exc)
+
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=DeferredThread),
+    )
+    callers = [threading.Thread(target=schedule) for _ in range(caller_count)]
+    for caller in callers:
+        caller.start()
+    barrier.wait(timeout=5.0)
+    for caller in callers:
+        caller.join(timeout=5.0)
+
+    assert not failures
+    assert all(not caller.is_alive() for caller in callers)
+    assert len(DeferredThread.created) == 1
+    assert sum(result["status"] == "queued" for result in results) == 1
+    assert sum(result["status"] == "warming" for result in results) == caller_count - 1
+    assert sum(bool(result["scheduled"]) for result in results) == 1
+
+
+def test_memorial_live_warmup_backs_off_after_worker_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+
+    class InlineThread:
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+
+        def start(self) -> None:
+            self.target(*self.args)
+
+    monkeypatch.setenv("EA_MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS", "45")
+    monkeypatch.setattr(
+        public_memorials,
+        "_run_memorial_live_warmup",
+        lambda _slug, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=InlineThread),
+    )
+
+    queued = public_memorials._schedule_memorial_live_warmup("manfred")
+    backed_off = public_memorials._schedule_memorial_live_warmup("manfred")
+
+    assert queued["status"] == "queued"
+    assert queued["scheduled"] is True
+    assert backed_off["status"] == "failure_backoff"
+    assert backed_off["scheduled"] is False
+    assert 1 <= backed_off["retry_after_seconds"] <= 45
+    with public_memorials._MEMORIAL_LIVE_WARMUP_LOCK:
+        current = dict(public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"])
+        active = set(public_memorials._MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS)
+    assert current["inflight"] is False
+    assert current["errors"] == ["warmup_worker:RuntimeError"]
+    assert not active
+
+
+def test_memorial_live_warmup_refuses_capacity_without_spawning_waiter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+
+    class DeferredThread:
+        created: list[DeferredThread] = []
+
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+            self.created.append(self)
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setenv("EA_MEMORIAL_LIVE_WARMUP_MAX_CONCURRENCY", "1")
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=DeferredThread),
+    )
+
+    first = public_memorials._schedule_memorial_live_warmup("manfred")
+    refused = public_memorials._schedule_memorial_live_warmup("erika")
+
+    assert first["status"] == "queued"
+    assert refused["status"] == "capacity_limited"
+    assert refused["scheduled"] is False
+    assert refused["retry_after_seconds"] == 1
+    assert len(DeferredThread.created) == 1
+    with public_memorials._MEMORIAL_LIVE_WARMUP_LOCK:
+        assert "erika" not in public_memorials._MEMORIAL_LIVE_WARMUP_STATE
+        assert len(public_memorials._MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS) == 1
+
+
+def test_memorial_live_warmup_cleans_reservation_when_thread_start_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+
+    class FailingThread:
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+
+        def start(self) -> None:
+            raise RuntimeError("thread unavailable")
+
+    monkeypatch.setenv("EA_MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS", "17")
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=FailingThread),
+    )
+
+    failed = public_memorials._schedule_memorial_live_warmup("manfred")
+    backed_off = public_memorials._schedule_memorial_live_warmup("manfred")
+
+    assert failed["status"] == "schedule_failed"
+    assert failed["scheduled"] is False
+    assert failed["retry_after_seconds"] == 17
+    assert backed_off["status"] == "failure_backoff"
+    with public_memorials._MEMORIAL_LIVE_WARMUP_LOCK:
+        current = dict(public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"])
+        active = set(public_memorials._MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS)
+    assert current["inflight"] is False
+    assert "warmup_reservation_id" not in current
+    assert current["errors"] == ["warmup_schedule:RuntimeError"]
+    assert not active
+
+
+def test_memorial_live_warmup_records_unexpected_inner_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    reservation_id = "manfred:1"
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+        "inflight": True,
+        "warmup_reservation_id": reservation_id,
+    }
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_memorial",
+        lambda _slug: (_ for _ in ()).throw(RuntimeError("unexpected")),
+    )
+
+    public_memorials._run_memorial_live_warmup(
+        "manfred",
+        reservation_id=reservation_id,
+    )
+
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["inflight"] is False
+    assert current["errors"] == ["warmup:RuntimeError"]
+    assert current["completed_at"] > 0.0
+
+
+def test_memorial_live_warmup_recovers_orphaned_stale_reservation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+
+    class DeferredThread:
+        created: list[DeferredThread] = []
+
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+            self.created.append(self)
+
+        def start(self) -> None:
+            return None
+
+    stale_reservation_id = "manfred:stale"
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+        "inflight": True,
+        "started_at": time.time() - 10.0,
+        "completed_at": time.time() - 4.0,
+        "warmup_reservation_id": stale_reservation_id,
+    }
+    monkeypatch.setenv("EA_MEMORIAL_LIVE_WARMUP_STALE_SECONDS", "5")
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=DeferredThread),
+    )
+
+    result = public_memorials._schedule_memorial_live_warmup("manfred")
+
+    assert result["status"] == "queued"
+    assert result["scheduled"] is True
+    assert len(DeferredThread.created) == 1
+    current = dict(public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"])
+    replacement_id = str(current["warmup_reservation_id"])
+    assert replacement_id != stale_reservation_id
+    assert current["inflight"] is True
+    assert current["completed_at"] == 0.0
+    assert current["warmup_stale_recovery_error"] == (
+        "warmup_worker:stale_superseded"
+    )
+    assert public_memorials._MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS == {
+        replacement_id
+    }
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_run_memorial_live_warmup",
+        lambda *_args, **_kwargs: None,
+    )
+    public_memorials._run_reserved_memorial_live_warmup(
+        "manfred",
+        stale_reservation_id,
+    )
+    assert public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"][
+        "warmup_reservation_id"
+    ] == replacement_id
+    assert public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"][
+        "inflight"
+    ] is True
+
+
+def test_memorial_live_warmup_does_not_oversubscribe_stale_active_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    stale_reservation_id = "manfred:stale-active"
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+        "inflight": True,
+        "started_at": time.time() - 10.0,
+        "completed_at": time.time() - 4.0,
+        "warmup_reservation_id": stale_reservation_id,
+    }
+    public_memorials._MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS.add(
+        stale_reservation_id
+    )
+    monkeypatch.setenv("EA_MEMORIAL_LIVE_WARMUP_STALE_SECONDS", "5")
+
+    result = public_memorials._schedule_memorial_live_warmup("manfred")
+
+    assert result == {
+        "status": "warmup_stale",
+        "scheduled": False,
+        "ttl_seconds": public_memorials._MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+        "retry_after_seconds": 1,
+    }
+    assert public_memorials._MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS == {
+        stale_reservation_id
+    }
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["warmup_reservation_id"] == stale_reservation_id
+    assert current["inflight"] is True
+    assert current["completed_at"] > 0.0
+
+
+def _configure_enabled_unmixr_voice_prewarm(
+    monkeypatch: pytest.MonkeyPatch,
+    public_memorials: object,
+) -> None:
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_config",
+        lambda _slug: {"tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID},
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_tts_plugin_options",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_resolve_server_tts_plugin",
+        lambda **_kwargs: (
+            public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            {"tts_plugin_enabled": True},
+        ),
+    )
+
+
+def test_memorial_voice_prewarm_reservation_deduplicates_fresh_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    _configure_enabled_unmixr_voice_prewarm(monkeypatch, public_memorials)
+
+    class DeferredThread:
+        created: list[DeferredThread] = []
+
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+            self.created.append(self)
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=DeferredThread),
+    )
+
+    first = public_memorials._schedule_missing_memorial_voice_prewarm("manfred")
+    duplicate = public_memorials._schedule_missing_memorial_voice_prewarm(
+        "manfred"
+    )
+
+    assert first is True
+    assert duplicate is False
+    assert len(DeferredThread.created) == 1
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["voice_contact_inflight"] is True
+    assert str(current["voice_prewarm_reservation_id"]).startswith(
+        "manfred:voice:"
+    )
+
+
+def test_memorial_voice_prewarm_does_not_oversubscribe_stale_active_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    _configure_enabled_unmixr_voice_prewarm(monkeypatch, public_memorials)
+    stale_reservation_id = "manfred:voice:stale-active"
+    original = {
+        "voice_prewarm_reservation_id": stale_reservation_id,
+        "voice_prewarm_provider": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        "voice_contact_required": True,
+        "voice_contact_inflight": True,
+        "voice_contact_started_at": time.time() - 10.0,
+        "voice_contact_completed_at": 0.0,
+        "voice_contact_errors": [],
+    }
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = dict(original)
+    monkeypatch.setenv("EA_MEMORIAL_VOICE_PREWARM_STALE_SECONDS", "5")
+    monkeypatch.setattr(
+        public_memorials,
+        "_schedule_memorial_server_voice_contact_prewarm",
+        lambda *_args, **_kwargs: pytest.fail(
+            "stale active provider worker was physically oversubscribed"
+        ),
+    )
+
+    scheduled = public_memorials._schedule_missing_memorial_voice_prewarm(
+        "manfred"
+    )
+
+    assert scheduled is False
+    assert public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] == original
+
+
+def test_memorial_voice_prewarm_recovers_orphaned_stale_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    _configure_enabled_unmixr_voice_prewarm(monkeypatch, public_memorials)
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+        "voice_prewarm_provider": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        "voice_contact_required": True,
+        "voice_contact_inflight": True,
+        "voice_contact_started_at": time.time() - 10.0,
+        "voice_contact_completed_at": 0.0,
+        "voice_contact_errors": [],
+    }
+    monkeypatch.setenv("EA_MEMORIAL_VOICE_PREWARM_STALE_SECONDS", "5")
+    scheduled_workers: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        public_memorials,
+        "_schedule_memorial_server_voice_contact_prewarm",
+        lambda slug, *, reservation_id: scheduled_workers.append(
+            (slug, reservation_id)
+        ),
+    )
+
+    scheduled = public_memorials._schedule_missing_memorial_voice_prewarm(
+        "manfred"
+    )
+
+    assert scheduled is True
+    assert len(scheduled_workers) == 1
+    replacement_id = scheduled_workers[0][1]
+    assert scheduled_workers[0][0] == "manfred"
+    assert replacement_id.startswith("manfred:voice:")
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["voice_prewarm_reservation_id"] == replacement_id
+    assert current["voice_contact_inflight"] is True
+    assert current["voice_contact_started_at"] > time.time() - 5.0
+
+
+def test_memorial_voice_prewarm_reservation_rolls_back_thread_start_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    _configure_enabled_unmixr_voice_prewarm(monkeypatch, public_memorials)
+
+    class FailingThread:
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+
+        def start(self) -> None:
+            raise RuntimeError("thread unavailable")
+
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=FailingThread),
+    )
+
+    scheduled = public_memorials._schedule_missing_memorial_voice_prewarm(
+        "manfred"
+    )
+
+    assert scheduled is False
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["voice_contact_inflight"] is False
+    assert current["voice_contact_errors"] == [
+        "voice_prewarm_schedule:RuntimeError"
+    ]
+    assert "voice_prewarm_reservation_id" not in current
+
+
+def test_memorial_voice_prewarm_provider_switch_clears_stale_voicewave_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    _configure_enabled_unmixr_voice_prewarm(monkeypatch, public_memorials)
+
+    class DeferredThread:
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+
+        def start(self) -> None:
+            return None
+
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+        "voice_prewarm_provider": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
+        "voice_contact_required": True,
+        "voice_contact_inflight": False,
+        "voice_contact_completed_at": time.time() - 700.0,
+        "voice_contact_errors": ["old-general-error"],
+        "voicewave_contact_required": True,
+        "voicewave_contact_inflight": False,
+        "voicewave_contact_started_at": time.time() - 710.0,
+        "voicewave_contact_completed_at": time.time() - 700.0,
+        "voicewave_contact_errors": ["old-voicewave-error"],
+    }
+    monkeypatch.setattr(
+        public_memorials,
+        "threading",
+        SimpleNamespace(Thread=DeferredThread),
+    )
+
+    scheduled = public_memorials._schedule_missing_memorial_voice_prewarm(
+        "manfred"
+    )
+
+    assert scheduled is True
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["voice_prewarm_provider"] == (
+        public_memorials.UNMIXR_TTS_PLUGIN_ID
+    )
+    assert current["voicewave_contact_required"] is False
+    assert current["voicewave_contact_inflight"] is False
+    assert current["voicewave_contact_started_at"] == 0.0
+    assert current["voicewave_contact_completed_at"] == 0.0
+    assert current["voicewave_contact_errors"] == []
+
+
+def test_memorial_voice_prewarm_completion_race_preserves_ready_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    _configure_enabled_unmixr_voice_prewarm(monkeypatch, public_memorials)
+    completed_at = time.time()
+
+    def complete_then_resolve(**_kwargs):
+        public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+            "voice_prewarm_provider": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "voice_contact_required": True,
+            "voice_contact_inflight": False,
+            "voice_contact_started_at": completed_at - 1.0,
+            "voice_contact_completed_at": completed_at,
+            "voice_contact_errors": [],
+        }
+        return (
+            public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            {"tts_plugin_enabled": True},
+        )
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_resolve_server_tts_plugin",
+        complete_then_resolve,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_schedule_memorial_server_voice_contact_prewarm",
+        lambda *_args, **_kwargs: pytest.fail(
+            "completed voice prewarm was redundantly replaced"
+        ),
+    )
+
+    scheduled = public_memorials._schedule_missing_memorial_voice_prewarm(
+        "manfred"
+    )
+    response = public_memorials._memorial_live_warmup_existing_response(
+        "manfred",
+        {
+            "inflight": False,
+            "warm": True,
+            "voice_required": True,
+            "voice_prewarm_stale": False,
+            "voice_ready": False,
+            "voice_inflight": False,
+        },
+    )
+
+    assert scheduled is False
+    assert response == {
+        "status": "warm_recent",
+        "scheduled": False,
+        "ttl_seconds": public_memorials._MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+    }
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["voice_contact_completed_at"] == completed_at
+    assert current["voice_contact_errors"] == []
+
+
+def test_memorial_voice_prewarm_old_generation_cannot_overwrite_newer_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    current = {
+        "voice_prewarm_reservation_id": "manfred:voice:new",
+        "voice_contact_inflight": True,
+        "voice_contact_started_at": time.time(),
+        "voice_contact_errors": [],
+    }
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = dict(current)
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_config",
+        lambda _slug: pytest.fail("stale worker reached provider configuration"),
+    )
+
+    public_memorials._run_memorial_server_voice_contact_prewarm(
+        "manfred",
+        "manfred:voice:old",
+    )
+
+    assert public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] == current
+
+
+def test_memorial_voicewave_prewarm_unexpected_failure_is_not_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_memorials = _reset_memorial_live_warmup_state(monkeypatch)
+    reservation_id = "manfred:voice:1"
+    public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"] = {
+        "voice_prewarm_reservation_id": reservation_id,
+        "voice_contact_inflight": True,
+        "voicewave_contact_inflight": True,
+    }
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_config",
+        lambda _slug: (_ for _ in ()).throw(RuntimeError("unexpected")),
+    )
+
+    public_memorials._run_memorial_voicewave_contact_prewarm(
+        "manfred",
+        "Manfred",
+        reservation_id,
+    )
+
+    current = public_memorials._MEMORIAL_LIVE_WARMUP_STATE["manfred"]
+    assert current["voice_contact_inflight"] is False
+    assert current["voicewave_contact_inflight"] is False
+    assert current["voice_contact_errors"] == [
+        "voicewave_prewarm:unexpected"
+    ]
+    assert "voice_prewarm_reservation_id" not in current

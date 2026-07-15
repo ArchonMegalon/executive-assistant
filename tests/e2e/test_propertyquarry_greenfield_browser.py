@@ -12,14 +12,15 @@ from fastapi.testclient import TestClient
 
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright  # noqa: E402
 
 Config = uvicorn.Config
 Server = uvicorn.Server
 
-from app.api.app import create_app
-from app.product.models import HandoffNote
-from app.product.service import ProductService
+from app.api.app import create_app  # noqa: E402
+from app.product.models import HandoffNote  # noqa: E402
+from app.product.service import ProductService  # noqa: E402
+from tests.browser_test_support import launch_installed_chromium  # noqa: E402
 
 
 def _free_port() -> int:
@@ -44,9 +45,9 @@ def _wait_for_http(base_url: str, *, timeout_seconds: float = 15.0) -> None:
 
 @pytest.fixture()
 def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, object]]:
-    from tests.product_test_helpers import build_product_client, start_workspace
+    from tests.product_test_helpers import build_property_client, start_workspace
 
-    client = build_product_client(principal_id="pq-greenfield-browser")
+    client = build_property_client(principal_id="pq-greenfield-browser", monkeypatch=monkeypatch)
     start_workspace(client, mode="personal", workspace_name="Property Office")
     monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "0")
     monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
@@ -232,17 +233,15 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[d
 @pytest.fixture()
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=True,
-            args=[
+        browser = launch_installed_chromium(
+            playwright,
+            args=(
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-software-rasterizer",
                 "--host-resolver-rules=MAP propertyquarry.com 127.0.0.1",
                 "--no-proxy-server",
-            ],
+            ),
         )
         try:
             yield browser

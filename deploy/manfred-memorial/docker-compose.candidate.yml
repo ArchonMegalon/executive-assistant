@@ -37,7 +37,7 @@ services:
       - backend
 
   api:
-    image: ${EA_MANFRED_IMAGE:?immutable Manfred candidate image is required}
+    image: ${EA_MANFRED_IMAGE:?immutable Manfred candidate image ID is required}
     pull_policy: never
     user: "10001:10001"
     env_file:
@@ -47,6 +47,22 @@ services:
       EA_HOST: 0.0.0.0
       EA_PORT: "8090"
       EA_RUNTIME_MODE: prod
+      EA_SOURCE_REVISION: ${EA_MANFRED_COMMIT:?candidate source revision is required}
+      EA_RELEASE_AUTHORITY_STATUS_PATH: /data/release-authority/release_authority_status.generated.json
+      EA_RELEASE_MANIFEST_PATH: /data/release-authority/release_manifest.generated.json
+      EA_DEPLOY_CONTEXT_PATH: /data/release-authority/deploy_context.generated.json
+      EA_PROJECT_MODES_MANIFEST_PATH: /data/release-authority/PROJECT_MODES.generated.json
+      EA_DEPLOYMENT_ID: ${EA_MANFRED_DEPLOYMENT_ID:?candidate deployment id is required}
+      EA_DEPLOYMENT_ID_SOURCE: explicit
+      EA_DEPLOY_REPOSITORY: EA
+      EA_DEPLOY_BRANCH: main
+      EA_DEPLOY_TRACKING_BRANCH: origin/main
+      EA_DEPLOY_COMMIT_SHA: ${EA_MANFRED_COMMIT:?candidate commit is required}
+      EA_DEPLOY_PRIMARY_MODE: MEMORIAL
+      EA_DEPLOY_ENABLED_MODES: MEMORIAL,PROPERTY
+      EA_DEPLOY_COMPOSE_FILES: deploy/manfred-memorial/docker-compose.candidate.yml
+      EA_DEPLOY_PUBLIC_ORIGIN: ${EA_PUBLIC_APP_BASE_URL:?candidate public origin is required}
+      EA_RELEASE_LABEL: ${EA_MANFRED_DEPLOYMENT_ID:?candidate release label is required}
       EA_STORAGE_BACKEND: postgres
       EA_STORAGE_FALLBACK_ALLOWED: "0"
       EA_ALLOW_LOOPBACK_NO_AUTH: "0"
@@ -92,6 +108,7 @@ services:
       - ${EA_MANFRED_RUNTIME_ROOT:?prepared runtime root is required}/private-contributions:/data/memorial/private-contributions
       - ${EA_MANFRED_RUNTIME_ROOT:?prepared runtime root is required}/state:/data/memorial/state
       - ${EA_MANFRED_SPATIAL_RELEASE_ROOT:?prepared spatial release root is required}:/data/public_property_tours:ro
+      - ${EA_MANFRED_RELEASE_AUTHORITY_ROOT:?prepared release authority root is required}:/data/release-authority:ro
       - artifacts:/data/artifacts
     read_only: true
     cap_drop:
@@ -120,7 +137,7 @@ services:
       - backend
 
   gateway:
-    image: ${EA_MANFRED_IMAGE:?immutable Manfred candidate image is required}
+    image: ${EA_MANFRED_IMAGE:?immutable Manfred candidate image ID is required}
     pull_policy: never
     user: "10001:10001"
     command:

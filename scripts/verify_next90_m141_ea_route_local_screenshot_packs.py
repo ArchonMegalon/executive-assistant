@@ -82,8 +82,12 @@ def main() -> int:
     if list(payload.get("owned_surfaces") or []) != ["compile_route_local_screenshot_packs_and_compare_packets:ea"]:
         issues.append("owned_surfaces drifted")
     source_inputs = dict(payload.get("source_inputs") or {})
+    for source_name, source in source_inputs.items():
+        source_path = str(dict(source or {}).get("path") or "")
+        if source_path.startswith("/"):
+            issues.append(f"{source_name}: source path must be repo-relative or logical")
     design_queue = dict(source_inputs.get("design_queue") or {})
-    if design_queue.get("path") != str(module.DESIGN_QUEUE_PATH):
+    if design_queue.get("path") != module._source_provenance(module.DESIGN_QUEUE_PATH):
         issues.append("design_queue source path drifted")
     if int(design_queue.get("match_count") or 0) != 1:
         issues.append("design_queue match_count drifted")
@@ -104,7 +108,7 @@ def main() -> int:
     if not str(design_queue.get("row_fingerprint") or "").strip():
         issues.append("design_queue row_fingerprint missing")
     fleet_queue = dict(source_inputs.get("fleet_queue") or {})
-    if fleet_queue.get("path") != str(module.FLEET_QUEUE_PATH):
+    if fleet_queue.get("path") != module._source_provenance(module.FLEET_QUEUE_PATH):
         issues.append("fleet_queue source path drifted")
     if int(fleet_queue.get("match_count") or 0) != 1:
         issues.append("fleet_queue match_count drifted")
@@ -125,7 +129,7 @@ def main() -> int:
     if not str(fleet_queue.get("row_fingerprint") or "").strip():
         issues.append("fleet_queue row_fingerprint missing")
     local_mirror_queue = dict(source_inputs.get("local_mirror_queue") or {})
-    if local_mirror_queue.get("path") != str(module.LOCAL_MIRROR_QUEUE_PATH):
+    if local_mirror_queue.get("path") != module._source_provenance(module.LOCAL_MIRROR_QUEUE_PATH):
         issues.append("local_mirror_queue source path drifted")
     if int(local_mirror_queue.get("match_count") or 0) != 1:
         issues.append("local_mirror_queue match_count drifted")
@@ -146,7 +150,7 @@ def main() -> int:
     if not str(local_mirror_queue.get("row_fingerprint") or "").strip():
         issues.append("local_mirror_queue row_fingerprint missing")
     registry_input = dict(source_inputs.get("registry") or {})
-    if registry_input.get("path") != str(module.SUCCESSOR_REGISTRY_PATH):
+    if registry_input.get("path") != module._source_provenance(module.SUCCESSOR_REGISTRY_PATH):
         issues.append("registry source path drifted")
     if int(registry_input.get("match_count") or 0) != 1:
         issues.append("registry match_count drifted")
@@ -163,7 +167,7 @@ def main() -> int:
     if not str(registry_input.get("row_fingerprint") or "").strip():
         issues.append("registry row_fingerprint missing")
     local_mirror_registry = dict(source_inputs.get("local_mirror_registry") or {})
-    if local_mirror_registry.get("path") != str(module.LOCAL_MIRROR_REGISTRY_PATH):
+    if local_mirror_registry.get("path") != module._source_provenance(module.LOCAL_MIRROR_REGISTRY_PATH):
         issues.append("local_mirror_registry source path drifted")
     if int(local_mirror_registry.get("match_count") or 0) != 1:
         issues.append("local_mirror_registry match_count drifted")
@@ -182,7 +186,7 @@ def main() -> int:
     if not str(local_mirror_registry.get("row_fingerprint") or "").strip():
         issues.append("local_mirror_registry row_fingerprint missing")
     readiness_input = dict(source_inputs.get("flagship_readiness") or {})
-    if readiness_input.get("path") != str(module.FLAGSHIP_READINESS_PATH):
+    if readiness_input.get("path") != module._source_provenance(module.FLAGSHIP_READINESS_PATH):
         issues.append("flagship_readiness source path drifted")
     if readiness_input.get("coverage_key") != "desktop_client":
         issues.append("flagship_readiness coverage key drifted")
@@ -283,6 +287,8 @@ def main() -> int:
             issues.append(f"{route_id}: screenshots missing")
         if not row.get("route_receipts"):
             issues.append(f"{route_id}: route_receipts missing")
+        if any(str(path).startswith("/") for path in (row.get("evidence_paths") or [])):
+            issues.append(f"{route_id}: evidence_paths must be repo-relative or logical")
         if row.get("status") != "pass":
             issues.append(f"{route_id}: status is not pass")
         if list(row.get("required_compare_artifacts") or []) != list(spec["required_compare_artifacts"]):
@@ -319,6 +325,8 @@ def main() -> int:
             continue
         if not row.get("screenshots"):
             issues.append(f"{family_id}: screenshots missing")
+        if any(str(path).startswith("/") for path in (row.get("evidence_paths") or [])):
+            issues.append(f"{family_id}: evidence_paths must be repo-relative or logical")
         if row.get("status") != "pass":
             issues.append(f"{family_id}: status is not pass")
         if list(row.get("required_compare_artifacts") or []) != list(spec["required_compare_artifacts"]):

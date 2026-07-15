@@ -96,6 +96,7 @@ from app.api.routes.proactive_ooda_approval_support import (
 from app.api.routes.admin_view_models import build_admin_section_payload as _build_admin_section_payload
 from app.api.routes.workspace_view_models import workspace_section_payload as _workspace_section_payload
 from app.container import AppContainer
+from app.product.projections.common import compact_text
 from app.product.service import build_product_service
 from app.product.service import (
     _property_enrich_missing_fact_research,
@@ -1524,14 +1525,14 @@ def admin_operator_bootstrap(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ):
+    if not context.authenticated:
+        raise HTTPException(status_code=403, detail="auth_required")
     return_to = _normalize_browser_return_to(
         str(request.query_params.get("return_to") or "/admin/policies").strip(),
         default="/admin/policies",
     )
     if is_operator_context(context):
         return RedirectResponse(return_to, status_code=303)
-    if not context.authenticated:
-        raise HTTPException(status_code=403, detail="auth_required")
     if not operator_bootstrap_needed(container, principal_id=context.principal_id):
         raise HTTPException(status_code=409, detail="operator_profile_bootstrap_not_allowed")
     defaults = operator_bootstrap_defaults(
@@ -1742,6 +1743,30 @@ def commitment_candidate_review(
         surface=f"candidate:{candidate_id}",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
+    return _render_public_template(
+        request,
+        "app/commitment_candidate_review.html",
+        **{
+            **_console_shell_context(
+                request=request,
+                page_title=f"{brand['name']} Review {candidate.title}",
+                current_nav="queue",
+                context=context,
+                console_title="Review extracted commitment",
+                console_summary="Edit the wording, due date, or ownership before this enters the commitment ledger.",
+                nav_groups=nav_groups,
+                workspace_label=str(workspace.get("name") or brand["workspace_label"]),
+                cards=[],
+                stats=[
+                    {"label": "Confidence", "value": f"{int(candidate.confidence * 100)}%"},
+                    {"label": "Counterparty", "value": candidate.counterparty or "None"},
+                    {"label": "Suggested due", "value": candidate.suggested_due_at[:10] if candidate.suggested_due_at else "Open"},
+                    {"label": "Status", "value": candidate.status.title()},
+                ],
+            ),
+            "candidate": candidate,
+        },
+    )
 
 
 def _admin_operator_bootstrap_redirect(
@@ -1817,27 +1842,3 @@ def _admin_proactive_evidence_rows(safe_work_result: dict[str, Any]) -> list[dic
             )
         )
     return rows
-    return _render_public_template(
-        request,
-        "app/commitment_candidate_review.html",
-        **{
-            **_console_shell_context(
-                request=request,
-                page_title=f"{brand['name']} Review {candidate.title}",
-                current_nav="queue",
-                context=context,
-                console_title="Review extracted commitment",
-                console_summary="Edit the wording, due date, or ownership before this enters the commitment ledger.",
-                nav_groups=nav_groups,
-                workspace_label=str(workspace.get("name") or brand["workspace_label"]),
-                cards=[],
-                stats=[
-                    {"label": "Confidence", "value": f"{int(candidate.confidence * 100)}%"},
-                    {"label": "Counterparty", "value": candidate.counterparty or "None"},
-                    {"label": "Suggested due", "value": candidate.suggested_due_at[:10] if candidate.suggested_due_at else "Open"},
-                    {"label": "Status", "value": candidate.status.title()},
-                ],
-            ),
-            "candidate": candidate,
-        },
-    )

@@ -19,6 +19,9 @@ from scripts import verify_manfred_spatial_candidate_browser as browser_gate
 
 LABELS = [f"Stop {index}" for index in range(1, 10)]
 COMMIT = "a" * 40
+IMAGE_ID = "sha256:" + "b" * 64
+CONTAINER_ID = "c" * 64
+PROJECT = "ea-manfred-candidate-spatial-a1b2c3d4"
 BASE_URL = "http://127.0.0.1:18090"
 SLUG = "tour-slug"
 VIEWER_RELPATH = "generated-reconstruction/viewer.html"
@@ -28,10 +31,7 @@ RECEIPT_LOCAL_PATHS = [
     "generated-reconstruction/reconstruction.json",
     "generated-reconstruction/source-floorplan.png",
     "generated-reconstruction/vendor/three.module.js",
-    (
-        "generated-reconstruction/vendor/examples/jsm/controls/"
-        "OrbitControls.js"
-    ),
+    ("generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js"),
 ]
 RECEIPT_LOCAL_FILES = [
     {"path": path, "sha256": f"{index + 20:064x}", "size_bytes": 100}
@@ -42,6 +42,69 @@ PACKAGE_SHA256 = prepare._sha256(
         sorted(RECEIPT_LOCAL_FILES, key=lambda row: str(row["path"]))
     )
 )
+
+
+def test_browser_gate_launches_the_resolved_installed_chromium(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launched = object()
+
+    class Chromium:
+        def launch(self, **kwargs):  # type: ignore[no-untyped-def]
+            assert kwargs == {
+                "headless": True,
+                "executable_path": "/usr/bin/chromium",
+                "args": [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--no-proxy-server",
+                ],
+            }
+            return launched
+
+    class Playwright:
+        chromium = Chromium()
+
+    monkeypatch.setattr(
+        browser_gate,
+        "_resolve_chromium_executable",
+        lambda _playwright: ("/usr/bin/chromium", "system:chromium"),
+    )
+    assert browser_gate._launch_chromium(Playwright()) is launched
+
+
+def test_browser_gate_fails_closed_without_a_chromium_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        browser_gate,
+        "_resolve_chromium_executable",
+        lambda _playwright: (None, "unavailable"),
+    )
+    with pytest.raises(RuntimeError, match="browser_runtime_unavailable"):
+        browser_gate._launch_chromium(object())
+
+
+def test_browser_gate_redacts_chromium_launch_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Chromium:
+        def launch(self, **_kwargs):  # type: ignore[no-untyped-def]
+            raise OSError("private host detail")
+
+    class Playwright:
+        chromium = Chromium()
+
+    monkeypatch.setattr(
+        browser_gate,
+        "_resolve_chromium_executable",
+        lambda _playwright: ("/usr/bin/chromium", "system:chromium"),
+    )
+    with pytest.raises(RuntimeError, match="browser_launch_failed") as captured:
+        browser_gate._launch_chromium(Playwright())
+    assert "private host detail" not in str(captured.value)
+    assert captured.value.__cause__ is None
 
 
 class _FakeButton:
@@ -120,6 +183,7 @@ class _FakePage:
             return self.active == arg["index"]
         return None
 
+
 class _FakeResponse:
     def __init__(
         self,
@@ -161,9 +225,7 @@ def test_browser_gate_requires_an_exact_loopback_candidate_origin(
 
 def test_browser_gate_requires_exact_viewer_path_and_nine_unique_labels() -> None:
     assert (
-        browser_gate._safe_viewer_relpath(
-            "generated-reconstruction/viewer.html"
-        )
+        browser_gate._safe_viewer_relpath("generated-reconstruction/viewer.html")
         == "generated-reconstruction/viewer.html"
     )
     assert browser_gate._route_labels(LABELS) == LABELS
@@ -214,21 +276,27 @@ def test_browser_gate_requires_all_three_browser_asset_requests() -> None:
 def test_browser_gate_binds_asset_requests_to_the_exact_candidate_origin() -> None:
     expected = browser_gate._required_request_paths("tour-slug")
     path = expected["floorplan"]
-    assert browser_gate._candidate_required_request_path(
-        f"http://127.0.0.1:18090{path}",
-        expected_origin="127.0.0.1:18090",
-        required_paths=expected,
-    ) == path
+    assert (
+        browser_gate._candidate_required_request_path(
+            f"http://127.0.0.1:18090{path}",
+            expected_origin="127.0.0.1:18090",
+            required_paths=expected,
+        )
+        == path
+    )
     for url in (
         f"http://external.test{path}",
         f"https://127.0.0.1:18090{path}",
         f"http://127.0.0.1:18090{path}?cache=other",
     ):
-        assert browser_gate._candidate_required_request_path(
-            url,
-            expected_origin="127.0.0.1:18090",
-            required_paths=expected,
-        ) is None
+        assert (
+            browser_gate._candidate_required_request_path(
+                url,
+                expected_origin="127.0.0.1:18090",
+                required_paths=expected,
+            )
+            is None
+        )
 
 
 def test_route_gate_interacts_all_stops_and_binds_unique_camera_pixels() -> None:
@@ -281,9 +349,7 @@ def test_route_contract_binds_exact_labels_indices_and_enabled_count() -> None:
 
 def test_route_gate_rejects_static_camera_pixels() -> None:
     with pytest.raises(RuntimeError, match="camera_state_static"):
-        browser_gate._route_interactions(
-            _FakePage(LABELS, static_pixels=True), LABELS
-        )
+        browser_gate._route_interactions(_FakePage(LABELS, static_pixels=True), LABELS)
 
 
 def test_viewer_status_poll_is_bounded_and_csp_safe() -> None:
@@ -337,8 +403,7 @@ def _build_local_package(
         "generated-reconstruction/source-floorplan.png": b"png-bytes",
         "generated-reconstruction/vendor/three.module.js": b"export const T=1;",
         (
-            "generated-reconstruction/vendor/examples/jsm/controls/"
-            "OrbitControls.js"
+            "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js"
         ): b"export const O=1;",
     }
     specs = (
@@ -359,8 +424,7 @@ def _build_local_package(
             "viewer_module",
         ),
         (
-            "generated-reconstruction/vendor/examples/jsm/controls/"
-            "OrbitControls.js",
+            "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
             "text/javascript",
             "viewer_module",
         ),
@@ -378,12 +442,8 @@ def _build_local_package(
     tour = {
         "slug": SLUG,
         "generated_reconstruction": {
-            "manifest_relpath": (
-                "generated-reconstruction/reconstruction.json"
-            ),
-            "floorplan_relpath": (
-                "generated-reconstruction/source-floorplan.png"
-            ),
+            "manifest_relpath": ("generated-reconstruction/reconstruction.json"),
+            "floorplan_relpath": ("generated-reconstruction/source-floorplan.png"),
         },
         "generated_viewer_release": {
             "viewer_relpath": VIEWER_RELPATH,
@@ -408,7 +468,7 @@ def _build_local_package(
     return bundle, snapshot, prepare._spatial_package_sha256(snapshot), bindings
 
 
-def test_browser_gate_derives_commit_from_version_response(
+def test_browser_gate_binds_version_body_header_expected_and_oci_revision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def version_response(  # type: ignore[no-untyped-def]
@@ -419,7 +479,14 @@ def test_browser_gate_derives_commit_from_version_response(
         assert maximum == 64 * 1024
         return (
             json.dumps(
-                {"commit_sha": "b" * 40, "repository": "EA", "role": "api"}
+                {
+                    "commit_sha": COMMIT,
+                    "repository": "EA",
+                    "role": "api",
+                    "release_authority_state": "clear",
+                    "release_authority_posture": "authoritative_runtime",
+                    "release_authority_source": "published_status_artifact",
+                }
             ).encode("utf-8"),
             {
                 "content-type": "application/json",
@@ -428,24 +495,264 @@ def test_browser_gate_derives_commit_from_version_response(
         )
 
     monkeypatch.setattr(browser_gate, "_http_get", version_response)
-    assert browser_gate._candidate_version(
+    evidence = browser_gate._candidate_version(
         "http://127.0.0.1:18090",
         expected_commit=COMMIT,
-    )["commit_sha"] == COMMIT
-    with pytest.raises(RuntimeError, match="version_mismatch"):
-        browser_gate._candidate_version(
-            "http://127.0.0.1:18090",
-            expected_commit="c" * 40,
+        oci_image_revision=COMMIT,
+    )
+    assert evidence == {
+        "path": "/version",
+        "status": 200,
+        "commit_sha": COMMIT,
+        "body_commit_sha": COMMIT,
+        "source_revision_header": COMMIT,
+        "expected_commit_sha": COMMIT,
+        "oci_image_revision": COMMIT,
+        "repository": "EA",
+        "role": "api",
+        "release_authority_state": "clear",
+        "release_authority_posture": "authoritative_runtime",
+        "release_authority_source": "published_status_artifact",
+        "commit_observed_over_http": True,
+        "revision_agreement_verified": True,
+    }
+
+
+def test_browser_gate_derives_oci_revision_from_immutable_image_inspection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Completed:
+        stdout = json.dumps(
+            [
+                {
+                    "Id": IMAGE_ID,
+                    "Config": {
+                        "Labels": {
+                            "org.opencontainers.image.revision": COMMIT,
+                        }
+                    },
+                }
+            ]
+        ).encode("utf-8")
+
+    def fake_run(argv, **kwargs):  # type: ignore[no-untyped-def]
+        assert argv == ["docker", "image", "inspect", IMAGE_ID]
+        assert kwargs["check"] is True
+        assert kwargs["timeout"] == 30
+        return Completed()
+
+    monkeypatch.setattr(browser_gate.subprocess, "run", fake_run)
+    assert browser_gate._inspected_oci_image_identity(IMAGE_ID) == {
+        "image_id": IMAGE_ID,
+        "oci_image_revision": COMMIT,
+        "revision_source": "docker_image_inspect_by_immutable_id",
+        "immutable_image_id_verified": True,
+    }
+
+
+def test_browser_gate_binds_exact_gateway_container_and_loopback_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Completed:
+        stdout = json.dumps(
+            [
+                {
+                    "Id": CONTAINER_ID,
+                    "Image": IMAGE_ID,
+                    "Config": {
+                        "Labels": {
+                            "com.docker.compose.project": PROJECT,
+                            "com.docker.compose.service": "gateway",
+                        }
+                    },
+                    "State": {"Running": True},
+                    "NetworkSettings": {
+                        "Ports": {
+                            "18090/tcp": [{"HostIp": "127.0.0.1", "HostPort": "18090"}]
+                        }
+                    },
+                }
+            ]
+        ).encode("utf-8")
+
+    def fake_run(argv, **kwargs):  # type: ignore[no-untyped-def]
+        assert argv == ["docker", "container", "inspect", CONTAINER_ID]
+        assert kwargs["check"] is True
+        assert kwargs["timeout"] == 30
+        return Completed()
+
+    monkeypatch.setattr(browser_gate.subprocess, "run", fake_run)
+    assert browser_gate._inspected_serving_container_identity(
+        CONTAINER_ID,
+        image_id=IMAGE_ID,
+        base_url=BASE_URL,
+    ) == {
+        "container_id": CONTAINER_ID,
+        "image_id": IMAGE_ID,
+        "compose_project": PROJECT,
+        "compose_service": "gateway",
+        "running": True,
+        "container_port": 18090,
+        "host_ip": "127.0.0.1",
+        "host_port": 18090,
+        "exact_loopback_publication_verified": True,
+        "inspection_source": "docker_container_inspect_by_immutable_id",
+    }
+
+
+@pytest.mark.parametrize(
+    ("host_ip", "host_port", "image_id", "running"),
+    [
+        ("0.0.0.0", "18090", IMAGE_ID, True),
+        ("127.0.0.1", "18091", IMAGE_ID, True),
+        ("127.0.0.1", "18090", "sha256:" + "d" * 64, True),
+        ("127.0.0.1", "18090", IMAGE_ID, False),
+    ],
+)
+def test_browser_gate_rejects_unbound_serving_container(
+    monkeypatch: pytest.MonkeyPatch,
+    host_ip: str,
+    host_port: str,
+    image_id: str,
+    running: bool,
+) -> None:
+    class Completed:
+        stdout = json.dumps(
+            [
+                {
+                    "Id": CONTAINER_ID,
+                    "Image": image_id,
+                    "Config": {
+                        "Labels": {
+                            "com.docker.compose.project": PROJECT,
+                            "com.docker.compose.service": "gateway",
+                        }
+                    },
+                    "State": {"Running": running},
+                    "NetworkSettings": {
+                        "Ports": {
+                            "18090/tcp": [{"HostIp": host_ip, "HostPort": host_port}]
+                        }
+                    },
+                }
+            ]
+        ).encode("utf-8")
+
+    monkeypatch.setattr(
+        browser_gate.subprocess,
+        "run",
+        lambda *_args, **_kwargs: Completed(),
+    )
+    with pytest.raises(RuntimeError, match="container_inspection_invalid"):
+        browser_gate._inspected_serving_container_identity(
+            CONTAINER_ID,
+            image_id=IMAGE_ID,
+            base_url=BASE_URL,
         )
 
 
 @pytest.mark.parametrize(
-    ("commit_sha", "content_type", "source_revision"),
+    "image_id",
+    [COMMIT, "sha256:" + "g" * 64, 123],
+)
+def test_browser_gate_rejects_invalid_immutable_image_id(
+    image_id: object,
+) -> None:
+    with pytest.raises(ValueError, match="image_id_invalid"):
+        browser_gate._inspected_oci_image_identity(image_id)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    ["body", "header", "expected", "oci"],
+)
+def test_browser_gate_rejects_each_version_identity_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    mismatch: str,
+) -> None:
+    body_commit = "b" * 40 if mismatch == "body" else COMMIT
+    header_commit = "b" * 40 if mismatch == "header" else COMMIT
+    expected_commit = "b" * 40 if mismatch == "expected" else COMMIT
+    image_commit = "b" * 40 if mismatch == "oci" else COMMIT
+
+    monkeypatch.setattr(
+        browser_gate,
+        "_http_get",
+        lambda *_args, **_kwargs: (
+            json.dumps(
+                {
+                    "commit_sha": body_commit,
+                    "repository": "EA",
+                    "role": "api",
+                    "release_authority_state": "clear",
+                    "release_authority_posture": "authoritative_runtime",
+                    "release_authority_source": "published_status_artifact",
+                }
+            ).encode("utf-8"),
+            {
+                "content-type": "application/json",
+                "x-ea-source-revision": header_commit,
+            },
+        ),
+    )
+    with pytest.raises(RuntimeError, match="version_mismatch"):
+        browser_gate._candidate_version(
+            "http://127.0.0.1:18090",
+            expected_commit=expected_commit,
+            oci_image_revision=image_commit,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
     [
-        (123, "application/json", COMMIT),
-        (COMMIT, "text/plain; note=application/json", COMMIT),
-        (COMMIT, "application/json", "not-a-commit"),
-        (COMMIT, "application/json", "c" * 40),
+        ("release_authority_state", "watch"),
+        ("release_authority_posture", "local_only_deploy_id"),
+        ("release_authority_source", "manifest_fallback"),
+    ],
+)
+def test_browser_gate_rejects_non_authoritative_runtime_status(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: str,
+) -> None:
+    payload = {
+        "commit_sha": COMMIT,
+        "repository": "EA",
+        "role": "api",
+        "release_authority_state": "clear",
+        "release_authority_posture": "authoritative_runtime",
+        "release_authority_source": "published_status_artifact",
+    }
+    payload[field] = value
+    monkeypatch.setattr(
+        browser_gate,
+        "_http_get",
+        lambda *_args, **_kwargs: (
+            json.dumps(payload).encode("utf-8"),
+            {
+                "content-type": "application/json",
+                "x-ea-source-revision": COMMIT,
+            },
+        ),
+    )
+    with pytest.raises(RuntimeError, match="version_mismatch"):
+        browser_gate._candidate_version(
+            BASE_URL,
+            expected_commit=COMMIT,
+            oci_image_revision=COMMIT,
+        )
+
+
+@pytest.mark.parametrize(
+    ("commit_sha", "content_type", "source_revision", "image_revision"),
+    [
+        (123, "application/json", COMMIT, COMMIT),
+        (COMMIT, "text/plain; note=application/json", COMMIT, COMMIT),
+        (COMMIT, "application/json", "not-a-commit", COMMIT),
+        (COMMIT, "application/json", "c" * 40, COMMIT),
+        (COMMIT, "application/json", COMMIT, "not-a-commit"),
+        (COMMIT, "application/json", COMMIT, 123),
     ],
 )
 def test_browser_gate_rejects_untyped_or_mislabeled_version_evidence(
@@ -453,6 +760,7 @@ def test_browser_gate_rejects_untyped_or_mislabeled_version_evidence(
     commit_sha: object,
     content_type: str,
     source_revision: str,
+    image_revision: object,
 ) -> None:
     def version_response(  # type: ignore[no-untyped-def]
         _base_url, _path, *, expected_status, maximum
@@ -461,7 +769,14 @@ def test_browser_gate_rejects_untyped_or_mislabeled_version_evidence(
         assert maximum == 64 * 1024
         return (
             json.dumps(
-                {"commit_sha": commit_sha, "repository": "EA", "role": "api"}
+                {
+                    "commit_sha": commit_sha,
+                    "repository": "EA",
+                    "role": "api",
+                    "release_authority_state": "clear",
+                    "release_authority_posture": "authoritative_runtime",
+                    "release_authority_source": "published_status_artifact",
+                }
             ).encode("utf-8"),
             {
                 "content-type": content_type,
@@ -474,6 +789,7 @@ def test_browser_gate_rejects_untyped_or_mislabeled_version_evidence(
         browser_gate._candidate_version(
             "http://127.0.0.1:18090",
             expected_commit=COMMIT,
+            oci_image_revision=image_revision,
         )
 
 
@@ -496,7 +812,14 @@ def test_browser_gate_rejects_duplicate_runtime_revision_headers(
     class DuplicateRevisionHandler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             body = json.dumps(
-                {"commit_sha": "c" * 40, "repository": "EA", "role": "api"}
+                {
+                    "commit_sha": "c" * 40,
+                    "repository": "EA",
+                    "role": "api",
+                    "release_authority_state": "clear",
+                    "release_authority_posture": "authoritative_runtime",
+                    "release_authority_source": "published_status_artifact",
+                }
             ).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -509,9 +832,7 @@ def test_browser_gate_rejects_duplicate_runtime_revision_headers(
         def log_message(self, _format: str, *_args: object) -> None:
             return
 
-    server = http.server.ThreadingHTTPServer(
-        ("127.0.0.1", 0), DuplicateRevisionHandler
-    )
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), DuplicateRevisionHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -519,6 +840,7 @@ def test_browser_gate_rejects_duplicate_runtime_revision_headers(
             browser_gate._candidate_version(
                 f"http://127.0.0.1:{server.server_port}",
                 expected_commit=COMMIT,
+                oci_image_revision=COMMIT,
             )
     finally:
         server.shutdown()
@@ -723,10 +1045,7 @@ def test_browser_gate_rejects_any_variant_playwright_response_occurrence(
             responses,
             expectations=expectations,
             invalid_urls=[
-                (
-                    "http://attacker.test"
-                    f"{expectations['viewer_document']['path']}"
-                )
+                (f"http://attacker.test{expectations['viewer_document']['path']}")
             ],
         )
 
@@ -817,9 +1136,7 @@ def test_user_agent_varying_server_cannot_split_urllib_and_browser_evidence(
                     _FakeResponse(
                         url=str(response.url),
                         body=response.read(),
-                        content_type=str(
-                            response.headers.get("Content-Type") or ""
-                        ),
+                        content_type=str(response.headers.get("Content-Type") or ""),
                         status=int(response.status),
                     )
                 )
@@ -843,8 +1160,7 @@ def _valid_receipt() -> dict[str, object]:
     required_relpaths = {
         "floorplan": "generated-reconstruction/source-floorplan.png",
         "orbit_controls": (
-            "generated-reconstruction/vendor/examples/jsm/controls/"
-            "OrbitControls.js"
+            "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js"
         ),
         "three_module": "generated-reconstruction/vendor/three.module.js",
     }
@@ -875,18 +1191,22 @@ def _valid_receipt() -> dict[str, object]:
         reduced_motion: bool,
         collect_routes: bool,
     ) -> dict[str, object]:
-        interactions = [
-            {
-                "index": index,
-                "label": label,
-                "active_state_verified": True,
-                "live_region_verified": True,
-                "playwright_actionability_verified": True,
-                "click_handler_state_change_verified": True,
-                "camera_canvas_screenshot_sha256": f"{index + 1:064x}",
-            }
-            for index, label in enumerate(LABELS)
-        ] if collect_routes else []
+        interactions = (
+            [
+                {
+                    "index": index,
+                    "label": label,
+                    "active_state_verified": True,
+                    "live_region_verified": True,
+                    "playwright_actionability_verified": True,
+                    "click_handler_state_change_verified": True,
+                    "camera_canvas_screenshot_sha256": f"{index + 1:064x}",
+                }
+                for index, label in enumerate(LABELS)
+            ]
+            if collect_routes
+            else []
+        )
         return {
             "status": 200,
             "viewport": {"width": width, "height": height},
@@ -944,8 +1264,7 @@ def _valid_receipt() -> dict[str, object]:
             "text/javascript",
         ),
         (
-            "generated-reconstruction/vendor/examples/jsm/controls/"
-            "OrbitControls.js",
+            "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
             "viewer_module",
             "text/javascript",
         ),
@@ -956,14 +1275,43 @@ def _valid_receipt() -> dict[str, object]:
         "slug": SLUG,
         "candidate_origin": BASE_URL,
         "candidate_commit": COMMIT,
-        "candidate_commit_source": "GET /version",
+        "candidate_commit_source": (
+            "GET /version body + X-EA-Source-Revision + expected commit + "
+            "OCI image revision"
+        ),
         "candidate_version": {
             "path": "/version",
             "status": 200,
             "commit_sha": COMMIT,
+            "body_commit_sha": COMMIT,
+            "source_revision_header": COMMIT,
+            "expected_commit_sha": COMMIT,
+            "oci_image_revision": COMMIT,
             "repository": "EA",
             "role": "api",
+            "release_authority_state": "clear",
+            "release_authority_posture": "authoritative_runtime",
+            "release_authority_source": "published_status_artifact",
             "commit_observed_over_http": True,
+            "revision_agreement_verified": True,
+        },
+        "candidate_oci_image": {
+            "image_id": IMAGE_ID,
+            "oci_image_revision": COMMIT,
+            "revision_source": "docker_image_inspect_by_immutable_id",
+            "immutable_image_id_verified": True,
+        },
+        "serving_container": {
+            "container_id": CONTAINER_ID,
+            "image_id": IMAGE_ID,
+            "compose_project": PROJECT,
+            "compose_service": "gateway",
+            "running": True,
+            "container_port": 18090,
+            "host_ip": "127.0.0.1",
+            "host_port": 18090,
+            "exact_loopback_publication_verified": True,
+            "inspection_source": "docker_container_inspect_by_immutable_id",
         },
         "package_sha256": PACKAGE_SHA256,
         "package_binding": {
@@ -972,9 +1320,7 @@ def _valid_receipt() -> dict[str, object]:
             "local_files": local_files,
             "local_package_verified": True,
             "local_root_identity_bound": True,
-            "tour_manifest_sha256": str(
-                local_by_path["tour.json"]["sha256"]
-            ),
+            "tour_manifest_sha256": str(local_by_path["tour.json"]["sha256"]),
             "release_revision": "test-release-v1",
             "http_asset_count": 4,
             "http_assets": [
@@ -1095,6 +1441,8 @@ def _validate_receipt(receipt: dict[str, object]) -> dict[str, object]:
         viewer_relpath=VIEWER_RELPATH,
         route_labels=LABELS,
         candidate_commit=COMMIT,
+        oci_image_id=IMAGE_ID,
+        serving_container_id=CONTAINER_ID,
         package_sha256=PACKAGE_SHA256,
     )
 
@@ -1129,6 +1477,16 @@ def test_strict_receipt_validator_accepts_the_complete_bound_receipt() -> None:
         ("proof_bool", "proof_invalid"),
         ("fallback_bool", "surfaces_invalid"),
         ("version_bool", "version_invalid"),
+        ("version_body", "version_invalid"),
+        ("version_header", "version_invalid"),
+        ("version_expected", "version_invalid"),
+        ("version_image", "version_invalid"),
+        ("version_agreement", "version_invalid"),
+        ("oci_image_id", "image_invalid"),
+        ("oci_image_revision", "image_invalid"),
+        ("oci_image_source", "image_invalid"),
+        ("oci_image_bool", "image_invalid"),
+        ("serving_container", "container_invalid"),
         ("origin", "contract_invalid"),
         ("landing_url", "landing_invalid"),
         ("surface_url", "surfaces_invalid"),
@@ -1167,8 +1525,7 @@ def test_strict_receipt_validator_rejects_unbound_or_partial_evidence(
             if row["path"] == "generated-reconstruction/reconstruction.json"
         )
         assets[0]["path"] = (
-            f"/tours/viewer/{SLUG}/"
-            "generated-reconstruction/reconstruction.json"
+            f"/tours/viewer/{SLUG}/generated-reconstruction/reconstruction.json"
         )
         assets[0]["sha256"] = proof_row["sha256"]
         assets[0]["size_bytes"] = proof_row["size_bytes"]
@@ -1241,6 +1598,41 @@ def test_strict_receipt_validator_rejects_unbound_or_partial_evidence(
             version = receipt["candidate_version"]
             assert isinstance(version, dict)
             version["commit_observed_over_http"] = 1
+        elif mutation == "version_body":
+            version = receipt["candidate_version"]
+            assert isinstance(version, dict)
+            version["body_commit_sha"] = "b" * 40
+        elif mutation == "version_header":
+            version = receipt["candidate_version"]
+            assert isinstance(version, dict)
+            version["source_revision_header"] = "b" * 40
+        elif mutation == "version_expected":
+            version = receipt["candidate_version"]
+            assert isinstance(version, dict)
+            version["expected_commit_sha"] = "b" * 40
+        elif mutation == "version_image":
+            version = receipt["candidate_version"]
+            assert isinstance(version, dict)
+            version["oci_image_revision"] = "b" * 40
+        elif mutation == "version_agreement":
+            version = receipt["candidate_version"]
+            assert isinstance(version, dict)
+            version["revision_agreement_verified"] = 1
+        elif mutation.startswith("oci_image_"):
+            oci_image = receipt["candidate_oci_image"]
+            assert isinstance(oci_image, dict)
+            if mutation == "oci_image_id":
+                oci_image["image_id"] = "sha256:" + "c" * 64
+            elif mutation == "oci_image_revision":
+                oci_image["oci_image_revision"] = "c" * 40
+            elif mutation == "oci_image_source":
+                oci_image["revision_source"] = "caller_supplied"
+            else:
+                oci_image["immutable_image_id_verified"] = 1
+        elif mutation == "serving_container":
+            serving = receipt["serving_container"]
+            assert isinstance(serving, dict)
+            serving["container_id"] = "d" * 64
         elif mutation == "landing_url":
             landing = receipt["landing"]
             assert isinstance(landing, dict)

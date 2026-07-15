@@ -27,6 +27,7 @@ Server = uvicorn.Server
 from app.api.app import create_app  # noqa: E402
 from app.domain.models import ToolInvocationResult  # noqa: E402
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService  # noqa: E402
+from tests.browser_test_support import launch_installed_chromium  # noqa: E402
 from tests.product_test_helpers import seed_founder_fixture, seed_product_state, seed_team_fixture  # noqa: E402
 
 
@@ -106,6 +107,17 @@ def _truthy_env(name: str) -> bool:
     return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _visual_baseline_update_requested(snapshot_name: str) -> bool:
+    if not _truthy_env("EA_UPDATE_VISUAL_BASELINES"):
+        return False
+    configured_names = {
+        value.strip()
+        for value in str(os.environ.get("EA_UPDATE_VISUAL_BASELINE_NAMES") or "").split(",")
+        if value.strip()
+    }
+    return not configured_names or snapshot_name in configured_names
+
+
 def _png_visual_bytes(value: bytes) -> bytes:
     signature = b"\x89PNG\r\n\x1a\n"
     if not value.startswith(signature):
@@ -142,7 +154,7 @@ def _assert_visual_baseline(page: Page, snapshot_name: str, *, full_page: bool =
         assert actual.startswith(b"\x89PNG\r\n\x1a\n")
         assert len(actual) > 4096
         return
-    if _truthy_env("EA_UPDATE_VISUAL_BASELINES"):
+    if _visual_baseline_update_requested(snapshot_name):
         baseline_dir.mkdir(parents=True, exist_ok=True)
         baseline_path.write_bytes(actual)
     assert baseline_path.is_file(), (
@@ -426,13 +438,14 @@ def team_browser_server() -> Iterator[dict[str, object]]:
 @pytest.fixture()
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=True,
-            args=[
+        browser = launch_installed_chromium(
+            playwright,
+            args=(
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-            ],
+                "--no-proxy-server",
+            ),
         )
         try:
             yield browser

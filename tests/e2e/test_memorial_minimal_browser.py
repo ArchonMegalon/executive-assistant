@@ -5,7 +5,6 @@ import base64
 import asyncio
 import difflib
 import importlib.util
-import os
 import socket
 import struct
 import threading
@@ -27,6 +26,7 @@ Config = uvicorn.Config
 Server = uvicorn.Server
 
 from app.api.app import create_app  # noqa: E402
+from tests.browser_test_support import launch_installed_chromium  # noqa: E402
 
 
 def _free_port() -> int:
@@ -332,17 +332,14 @@ def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 @pytest.fixture(scope="module")
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=True,
-            executable_path=os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or None,
-            args=[
+        browser = launch_installed_chromium(
+            playwright,
+            args=(
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-software-rasterizer",
                 "--no-proxy-server",
-            ],
+            ),
         )
         try:
             yield browser

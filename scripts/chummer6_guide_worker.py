@@ -15,6 +15,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Sequence
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
@@ -2003,7 +2004,8 @@ def help_page_source() -> str:
     tail = f" Current public actions: {'; '.join(joined_bits)}." if joined_bits else ""
     return (
         "Explain how a normal human can help right now without sounding like operator onboarding. "
-        "Give the reader one clear next step first, then keep the rest on public feedback, current visible actions, "
+        "Start here for downloads and ordinary use, then give the reader one clear next step. "
+        "Keep the rest on public feedback, current visible actions, "
         "and honest expectations." + tail
     )
 

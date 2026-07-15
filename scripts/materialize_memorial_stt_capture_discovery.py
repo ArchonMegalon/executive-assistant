@@ -53,7 +53,7 @@ def _fixture_targets(samples: set[str] | None = None) -> list[dict[str, Any]]:
                 "sample": sample,
                 "expected_text": expected_text,
                 "required_tokens": required_tokens,
-                "fixture_file": f"{sample}_real_captured.wav",
+                "fixture_file": f"{sample}_captured.wav",
             }
         )
     return targets
@@ -99,6 +99,10 @@ def discover_bundle(
     speaker_consent: str,
     bundle_root: Path | None = None,
 ) -> list[dict[str, Any]]:
+    # Consent and ground truth are accepted only from the bound private operator
+    # review. Keep the argument for CLI/caller compatibility, but never use it as
+    # an alternate authority.
+    del speaker_consent
     metadata = _load_json(bundle_dir / "error.json")
     fields = _metadata_text_fields(metadata)
     rows: list[dict[str, Any]] = []
@@ -107,16 +111,14 @@ def discover_bundle(
         matched_fields = _matching_fields(fields, expected_text)
         if not matched_fields:
             continue
+        sample = str(target["sample"])
         candidate = build_fixture_candidate(
             bundle_dir=bundle_dir,
-            sample=str(target["sample"]),
-            expected_text=expected_text,
-            required_tokens=[str(token) for token in list(target["required_tokens"])],
-            speaker_consent=speaker_consent,
-            origin="Captured Manfred memorial STT bundle matched by logged transcript hash.",
-            allowed_purpose="memorial_stt_regression_and_provider_bakeoff",
-            retention="private_captured_regression_candidate",
-            accent="Austrian German",
+            ground_truth_review_path=(
+                bundle_dir.parent
+                / f"{bundle_dir.name}.{sample}.ground-truth-review.json"
+            ),
+            origin="captured_operator_manfred_memorial_stt_error_bundle",
             fixture_file=str(target["fixture_file"]),
             text_mode="redacted",
             allow_external_root=False,

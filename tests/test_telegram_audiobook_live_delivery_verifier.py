@@ -4,9 +4,21 @@ import json
 from pathlib import Path
 
 from ea.scripts.verify_telegram_audiobook_live_delivery_receipt import verify
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _write(path: Path, **payload: object) -> None:
+    payload.setdefault("source_git_head", resolve_source_state_head(ROOT))
+    payload.setdefault("head_semantics", "source_state")
+    payload.setdefault("source_state_fingerprint", resolve_source_worktree_fingerprint(ROOT))
+    payload.setdefault(
+        "source_state_fingerprint_semantics",
+        "worktree_source_files_sha256_excluding_generated_only_paths",
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
@@ -25,6 +37,21 @@ def _pass_receipt(**overrides: object) -> dict[str, object]:
         "next_action_href": "/integrations/telegram",
         "next_action_label": "Open Telegram",
         "next_action_method": "get",
+        "operator_action_packet": {
+            "user_action_required": False,
+            "reason": "no_user_voice_choice_required",
+            "raw_voice_ids_exposed": False,
+            "callback_tokens_exposed": False,
+        },
+        "pending_user_selected_voice_job_count": 0,
+        "duplicate_suppression": {
+            "action_required_only": True,
+            "only_current_jobs_can_require_user_action": True,
+            "active_pending_voice_job_count": 0,
+            "duplicate_active_pending_source_key_count": 0,
+            "raw_voice_ids_exposed": False,
+            "callback_tokens_exposed": False,
+        },
         "privacy": {
             "provider_secret_exposed": False,
             "audiobookshelf_token_exposed": False,

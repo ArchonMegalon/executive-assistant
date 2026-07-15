@@ -14,19 +14,31 @@ TESTS_ROOT = Path(__file__).resolve().parents[1]
 if str(TESTS_ROOT) not in sys.path:
     sys.path.insert(0, str(TESTS_ROOT))
 
-from product_test_helpers import build_product_client, seed_product_state, start_workspace
+from product_test_helpers import (  # noqa: E402
+    build_product_client,
+    build_property_client,
+    seed_product_state,
+    start_workspace,
+)
 
 pytest.importorskip("fastapi")
 
-import app.product.service as product_service
-from app.product.service import ProductService
+import app.product.service as product_service  # noqa: E402
+from app.product.service import ProductService  # noqa: E402
+
+
+PROPERTY_FIXTURE_ORIGIN = "https://property.example.test"
 
 
 def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     principal_id = "cf-email:principal.user@example.test"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(
+        principal_id=principal_id,
+        monkeypatch=monkeypatch,
+        public_origin=PROPERTY_FIXTURE_ORIGIN,
+    )
     start_workspace(client, mode="personal", workspace_name="Telegram Outbound Tour Office")
 
     packet = {
@@ -94,8 +106,8 @@ def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.Monke
             execution_session_id="session-property-tour-1",
             principal_id=principal_id,
             structured_output_json={
-                "hosted_url": "https://assistant.example.test/tours/brigittenau-apartment-a",
-                "public_url": "https://assistant.example.test/tours/brigittenau-apartment-a",
+                "hosted_url": f"{PROPERTY_FIXTURE_ORIGIN}/tours/brigittenau-apartment-a",
+                "public_url": f"{PROPERTY_FIXTURE_ORIGIN}/tours/brigittenau-apartment-a",
                 "crezlo_public_url": "https://vendor.example.com/tours/brigittenau-apartment-a",
                 "editor_url": "https://vendor.example.com/editor/brigittenau-apartment-a",
                 "tour_id": "tour-123",
@@ -118,17 +130,22 @@ def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.Monke
     )
     assert created.status_code == 200
     body = created.json()
-    assert body["status"] == "sent"
+    assert body["status"] == "sent", body
     assert body["telegram_delivery_status"] == "sent"
     assert body["telegram_chat_ref"] == "1354554303"
     assert body["telegram_message_ids"] == ["tg-1"]
     assert body["telegram_video_delivery_status"] == "sent"
     assert body["telegram_video_message_ids"] == ["tg-video-1"]
-    assert body["telegram_video_url"] == "https://assistant.example.test/tours/files/brigittenau-apartment-a/tour.mp4"
+    assert body["telegram_video_url"] == (
+        f"{PROPERTY_FIXTURE_ORIGIN}/tours/files/brigittenau-apartment-a/tour.mp4"
+    )
 
     tg_events = client.get("/app/api/events", params={"channel": "product", "event_type": "willhaben_property_tour_telegram_sent"})
     assert tg_events.status_code == 200
-    assert any(item["payload"]["telegram_chat_ref"] == "1354554303" for item in tg_events.json()["items"])
+    assert any(
+        item["payload"]["telegram_chat_ref"] == "1354554303"
+        for item in tg_events.json()["items"]
+    )
     video_events = client.get("/app/api/events", params={"channel": "product", "event_type": "willhaben_property_tour_telegram_video_sent"})
     assert video_events.status_code == 200
     assert any(item["payload"]["telegram_video_url"].endswith("/tour.mp4") for item in video_events.json()["items"])
@@ -138,7 +155,11 @@ def test_telegram_outbound_workflow_blocked_property_tour_sends_scout_update(mon
     monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     principal_id = "exec-telegram-outbound-followup"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(
+        principal_id=principal_id,
+        monkeypatch=monkeypatch,
+        public_origin=PROPERTY_FIXTURE_ORIGIN,
+    )
     start_workspace(client, mode="personal", workspace_name="Telegram Outbound Followup Office")
 
     packet = {
@@ -177,12 +198,19 @@ def test_telegram_outbound_workflow_blocked_property_tour_sends_scout_update(mon
 
     events = client.get("/app/api/events", params={"channel": "product", "event_type": "property_tour_followup_telegram_sent"})
     assert events.status_code == 200
-    assert any(item["payload"]["telegram_chat_ref"] == "1354554303" for item in events.json()["items"])
+    assert any(
+        item["payload"]["telegram_chat_ref"] == "1354554303"
+        for item in events.json()["items"]
+    )
 
 
 def test_telegram_outbound_workflow_suppresses_weak_property_digest(monkeypatch: pytest.MonkeyPatch) -> None:
     principal_id = "exec-telegram-outbound-suppressed"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(
+        principal_id=principal_id,
+        monkeypatch=monkeypatch,
+        public_origin=PROPERTY_FIXTURE_ORIGIN,
+    )
     start_workspace(client, mode="personal", workspace_name="Telegram Outbound Quiet Office")
 
     monkeypatch.setattr(

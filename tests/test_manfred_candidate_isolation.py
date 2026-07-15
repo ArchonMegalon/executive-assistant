@@ -8,11 +8,13 @@ import json
 import os
 import signal
 import socket
+import stat
 from email.message import Message
 from pathlib import Path
 
 import pytest
 
+from scripts import build_manfred_memorial_image as image_builder
 from scripts import prepare_manfred_memorial_candidate as prepare
 from scripts import run_manfred_memorial_candidate as runner
 
@@ -33,12 +35,17 @@ def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     release_root.mkdir(parents=True)
     spatial_root = release_root / "public_property_tours"
     spatial_root.mkdir()
+    authority_root = release_root / prepare.CANDIDATE_RELEASE_AUTHORITY_DIRNAME
+    authority_root.mkdir()
     runtime_root.mkdir(parents=True)
     values = {
         "EA_MANFRED_COMPOSE_PROJECT": PROJECT,
-        "EA_MANFRED_IMAGE": "ea-runtime:manfred-a1b2c3d4",
+        "EA_MANFRED_COMMIT": COMMIT,
+        "EA_MANFRED_DEPLOYMENT_ID": f"{PROJECT}-{COMMIT[:12]}",
+        "EA_MANFRED_IMAGE": f"ea-runtime:manfred-{COMMIT}",
         "EA_MANFRED_ENV_FILE": str(env_file),
         "EA_MANFRED_RELEASE_ROOT": str(release_root),
+        "EA_MANFRED_RELEASE_AUTHORITY_ROOT": str(authority_root),
         "EA_MANFRED_RUNTIME_ROOT": str(runtime_root),
         "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED": "0",
         "EA_MANFRED_SPATIAL_RELEASE_ROOT": str(spatial_root),
@@ -102,13 +109,15 @@ def _compose_payloads(env_file: Path, env: dict[str, str]) -> tuple[dict, dict]:
             "target": "/data/public_property_tours",
             "read_only": True,
         },
+        {
+            "type": "bind",
+            "source": env["EA_MANFRED_RELEASE_AUTHORITY_ROOT"],
+            "target": "/data/release-authority",
+            "read_only": True,
+        },
         {"type": "volume", "source": "artifacts", "target": "/data/artifacts"},
     ]
-    declared = {
-        "EA_ROLE": "api",
-        "EA_PUBLIC_TOUR_DIR": "/data/public_property_tours",
-        "EA_TRUST_PROXY_HEADERS": "1",
-    }
+    declared = runner._expected_candidate_api_environment(env)
     services = {
         "api": {
             "image": env["EA_MANFRED_IMAGE"],
@@ -198,7 +207,40 @@ def _openapi_snapshot() -> tuple[dict[str, object], dict[str, object]]:
 
 
 def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> None:
-    monkeypatch.setattr(runner, "_assert_env_allowlist", lambda _path: dict(env))
+    monkeypatch.setattr(
+        runner,
+        "_assert_env_allowlist",
+        lambda _path, *, environment_bytes=None: dict(env),
+    )
+
+    compose_bytes = b"name: governed-candidate\nservices: {}\n"
+
+    def compose_attestation(
+        compose_file: Path, *, expected_commit: str
+    ) -> dict[str, object]:
+        canonical_path = str(compose_file.expanduser().resolve())
+        return {
+            "canonical_relative_path": (
+                runner.CANDIDATE_COMPOSE_RELATIVE_PATH.as_posix()
+            ),
+            "canonical_source_path": canonical_path,
+            "candidate_commit": expected_commit,
+            "git_blob_oid": "c" * 40,
+            "sha256": prepare._sha256(compose_bytes),
+            "size_bytes": len(compose_bytes),
+            "canonical_path_enforced": True,
+            "tracked_blob_bytes_enforced": True,
+        }
+
+    monkeypatch.setattr(runner, "_candidate_compose_attestation", compose_attestation)
+    monkeypatch.setattr(
+        runner,
+        "_candidate_compose_source_snapshot",
+        lambda compose_file, *, expected_commit: (
+            compose_attestation(compose_file, expected_commit=expected_commit),
+            compose_bytes,
+        ),
+    )
     monkeypatch.setattr(
         runner,
         "_projection_evidence",
@@ -206,10 +248,31 @@ def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> Non
             "release_id": "release-a",
             "release_root": env["EA_MANFRED_RELEASE_ROOT"],
             "projection_sha256": "d" * 64,
+            "projection_files": [],
+            "projection_file_count": 0,
+            "projection_bytes": 0,
             "projection_commit": COMMIT,
             "prepared_image_locator": env["EA_MANFRED_IMAGE"],
             "prepared_image_id": IMAGE_ID,
             "projection_tree_revalidated": True,
+        },
+    )
+    monkeypatch.setattr(
+        runner,
+        "_candidate_runtime_projection_evidence",
+        lambda **_kwargs: {
+            "schema": runner.RUNTIME_PROJECTION_SCHEMA,
+            "projection_sha256": "d" * 64,
+            "file_count": 0,
+            "projection_bytes": 0,
+            "mount_roots": [
+                "/data/memorial/public",
+                "/data/memorial/private",
+                "/data/memorial/archive",
+                "/data/public_property_tours",
+                "/data/release-authority",
+            ],
+            "runtime_bytes_match_prepared_projection": True,
         },
     )
     monkeypatch.setattr(runner, "_rendered_compose", lambda *_args, **_kwargs: {})
@@ -219,12 +282,38 @@ def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> Non
     monkeypatch.setattr(runner, "_hold_candidate_locks", _fake_candidate_locks)
     monkeypatch.setattr(
         runner,
+        "candidate_registry_recovery_state",
+        lambda **_kwargs: {"state": "absent"},
+    )
+    monkeypatch.setattr(
+        runner,
+        "clear_candidate_pending_exact",
+        lambda **_kwargs: {"pending_cleared": True},
+    )
+    monkeypatch.setattr(
+        runner,
+        "register_candidate_pending",
+        lambda **_kwargs: {"pending_registered": True},
+    )
+    monkeypatch.setattr(
+        runner,
+        "clear_candidate_pending",
+        lambda _project: {"pending_cleared": True},
+    )
+    monkeypatch.setattr(
+        runner,
+        "register_candidate_receipt",
+        lambda _path, **_kwargs: {"registered": True},
+    )
+    monkeypatch.setattr(
+        runner,
         "_assert_prepared_image_locator",
         lambda _projection: {
             "locator": env["EA_MANFRED_IMAGE"],
             "resolved_image_id": IMAGE_ID,
             "revision_label": COMMIT,
-            "locator_only": True,
+            "used_for_attestation_only": True,
+            "consumed_by_compose": False,
         },
     )
     monkeypatch.setattr(runner, "_live_snapshot", _baseline_snapshot)
@@ -245,6 +334,16 @@ def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> Non
         "_assert_candidate_openapi_retired",
         lambda _base: {"status": 404, "public_endpoint_retired": True},
     )
+    monkeypatch.setattr(
+        runner,
+        "_spatial_handoff_runtime_proof",
+        lambda *_args, **_kwargs: {
+            "included": True,
+            "routes_required": True,
+            "ea_public_activation_authority": False,
+            "upstream_public_activation_authority": True,
+        },
+    )
 
 
 def test_project_name_requires_deployment_specific_candidate_prefix() -> None:
@@ -257,6 +356,391 @@ def test_project_name_requires_deployment_specific_candidate_prefix() -> None:
     ):
         with pytest.raises(ValueError, match="manfred_candidate_project_name_invalid"):
             prepare._validate_project_name(value)
+
+
+def test_property_candidate_requires_approved_spatial_handoff_before_source_access(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        prepare,
+        "_commit",
+        lambda *_args, **_kwargs: pytest.fail(
+            "source resolution must not run without the required spatial handoff"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="manfred_candidate_spatial_handoff_required"):
+        prepare.prepare_candidate(
+            source_root=tmp_path,
+            ref="HEAD",
+            image=f"ea-runtime:manfred-{COMMIT}",
+            deploy_root=tmp_path / "deploy",
+            public_base_url="https://myexternalbrain.com",
+            host_port=18091,
+            project_name=PROJECT,
+        )
+
+
+def test_image_build_receipt_is_no_replace_with_exact_byte_reuse(
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / "receipts" / "image-build.json"
+    payload = {
+        "schema": image_builder.RECEIPT_SCHEMA,
+        "status": "pass",
+        "commit": COMMIT,
+        "image_id": IMAGE_ID,
+    }
+
+    image_builder._atomic_json(receipt, payload)
+    original = receipt.read_bytes()
+    original_inode = receipt.stat().st_ino
+    image_builder._atomic_json(receipt, dict(payload))
+
+    assert receipt.read_bytes() == original
+    assert receipt.stat().st_ino == original_inode
+    with pytest.raises(RuntimeError, match=image_builder.RECEIPT_CONFLICT_ERROR):
+        image_builder._atomic_json(receipt, {**payload, "status": "fail"})
+    assert receipt.read_bytes() == original
+    assert receipt.stat().st_ino == original_inode
+
+
+@pytest.mark.parametrize(
+    "temporary_name",
+    [
+        (
+            f".{image_builder.RECEIPT_TEMP_BASENAME}.1234."
+            "abcdef012345abcdef012345.tmp"
+        ),
+        ".image-build.json.abc123__",
+    ],
+)
+def test_image_build_receipt_completes_exact_interrupted_link_window(
+    tmp_path: Path,
+    temporary_name: str,
+) -> None:
+    receipt = tmp_path / "image-build.json"
+    temporary = tmp_path / temporary_name
+    payload = {
+        "schema": image_builder.RECEIPT_SCHEMA,
+        "status": "pass",
+        "commit": COMMIT,
+        "image_id": IMAGE_ID,
+    }
+    expected = image_builder._build_receipt_bytes(payload)
+    temporary.write_bytes(expected)
+    temporary.chmod(0o600)
+    original_inode = temporary.stat().st_ino
+    os.link(temporary, receipt)
+    assert receipt.stat().st_nlink == 2
+
+    image_builder._atomic_json(receipt, payload)
+
+    assert not temporary.exists()
+    assert receipt.read_bytes() == expected
+    assert receipt.stat().st_ino == original_inode
+    assert receipt.stat().st_nlink == 1
+
+
+@pytest.mark.parametrize("fault_stage", ["directory_fsync", "single_link_read"])
+@pytest.mark.parametrize("receipt_state", ["exact", "conflict"])
+def test_image_build_receipt_recovery_fault_preserves_no_replace_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fault_stage: str,
+    receipt_state: str,
+) -> None:
+    receipt = tmp_path / "image-build.json"
+    temporary = tmp_path / (
+        f".{image_builder.RECEIPT_TEMP_BASENAME}.1234."
+        "abcdef012345abcdef012345.tmp"
+    )
+    payload = {
+        "schema": image_builder.RECEIPT_SCHEMA,
+        "status": "pass",
+        "commit": COMMIT,
+        "image_id": IMAGE_ID,
+    }
+    expected = image_builder._build_receipt_bytes(payload)
+    staged = (
+        expected
+        if receipt_state == "exact"
+        else image_builder._build_receipt_bytes(
+            {**payload, "image_id": "sha256:" + "c" * 64}
+        )
+    )
+    temporary.write_bytes(staged)
+    temporary.chmod(0o600)
+    os.link(temporary, receipt)
+    fault_injected = False
+    fault_message = f"simulated recovery {fault_stage} fault"
+
+    if fault_stage == "directory_fsync":
+        real_fsync = image_builder.os.fsync
+
+        def fail_recovery_fsync(descriptor: int) -> None:
+            nonlocal fault_injected
+            if stat.S_ISDIR(os.fstat(descriptor).st_mode) and not fault_injected:
+                fault_injected = True
+                raise OSError(fault_message)
+            real_fsync(descriptor)
+
+        monkeypatch.setattr(image_builder.os, "fsync", fail_recovery_fsync)
+    else:
+        real_read = image_builder._read_build_receipt_entry
+
+        def fail_recovery_read(
+            directory_descriptor: int,
+            name: str,
+            *,
+            required_nlink: int,
+        ) -> tuple[bytes, os.stat_result]:
+            nonlocal fault_injected
+            if required_nlink == 1 and not fault_injected:
+                fault_injected = True
+                raise OSError(fault_message)
+            return real_read(
+                directory_descriptor,
+                name,
+                required_nlink=required_nlink,
+            )
+
+        monkeypatch.setattr(
+            image_builder,
+            "_read_build_receipt_entry",
+            fail_recovery_read,
+        )
+
+    with pytest.raises(OSError, match=fault_message):
+        image_builder._atomic_json(receipt, payload)
+
+    assert fault_injected is True
+    assert not temporary.exists()
+    if receipt_state == "conflict":
+        assert receipt.read_bytes() == staged
+        assert receipt.stat().st_nlink == 1
+        with pytest.raises(RuntimeError, match=image_builder.RECEIPT_CONFLICT_ERROR):
+            image_builder._atomic_json(receipt, payload)
+        assert receipt.read_bytes() == staged
+        assert receipt.stat().st_nlink == 1
+        assert list(tmp_path.iterdir()) == [receipt]
+    else:
+        assert not receipt.exists()
+        assert list(tmp_path.iterdir()) == []
+        image_builder._atomic_json(receipt, payload)
+        assert receipt.read_bytes() == expected
+        assert receipt.stat().st_nlink == 1
+        assert list(tmp_path.iterdir()) == [receipt]
+
+
+def test_image_build_receipt_conflicting_interrupted_link_fails_closed(
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / "image-build.json"
+    temporary = tmp_path / (
+        f".{image_builder.RECEIPT_TEMP_BASENAME}.1234."
+        "abcdef012345abcdef012345.tmp"
+    )
+    desired = {
+        "schema": image_builder.RECEIPT_SCHEMA,
+        "status": "pass",
+        "commit": COMMIT,
+        "image_id": IMAGE_ID,
+    }
+    conflicting = image_builder._build_receipt_bytes(
+        {**desired, "image_id": "sha256:" + "c" * 64}
+    )
+    temporary.write_bytes(conflicting)
+    temporary.chmod(0o600)
+    os.link(temporary, receipt)
+    assert receipt.stat().st_nlink == 2
+
+    with pytest.raises(RuntimeError, match=image_builder.RECEIPT_CONFLICT_ERROR):
+        image_builder._atomic_json(receipt, desired)
+
+    assert not temporary.exists()
+    assert receipt.read_bytes() == conflicting
+    assert receipt.stat().st_nlink == 1
+
+
+def test_image_build_receipt_durable_conflict_is_not_masked_by_cleanup_fsync(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / "image-build.json"
+    temporary = tmp_path / (
+        f".{image_builder.RECEIPT_TEMP_BASENAME}.1234."
+        "abcdef012345abcdef012345.tmp"
+    )
+    desired = {
+        "schema": image_builder.RECEIPT_SCHEMA,
+        "status": "pass",
+        "commit": COMMIT,
+        "image_id": IMAGE_ID,
+    }
+    conflicting = image_builder._build_receipt_bytes(
+        {**desired, "image_id": "sha256:" + "c" * 64}
+    )
+    temporary.write_bytes(conflicting)
+    temporary.chmod(0o600)
+    os.link(temporary, receipt)
+    real_fsync = image_builder.os.fsync
+    directory_fsync_count = 0
+
+    def fail_redundant_directory_fsync(descriptor: int) -> None:
+        nonlocal directory_fsync_count
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            directory_fsync_count += 1
+            if directory_fsync_count > 1:
+                raise OSError("redundant conflict cleanup fsync")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(
+        image_builder.os,
+        "fsync",
+        fail_redundant_directory_fsync,
+    )
+
+    with pytest.raises(RuntimeError, match=image_builder.RECEIPT_CONFLICT_ERROR):
+        image_builder._atomic_json(receipt, desired)
+
+    assert directory_fsync_count == 1
+    assert not temporary.exists()
+    assert receipt.read_bytes() == conflicting
+    assert receipt.stat().st_nlink == 1
+
+
+def test_image_build_receipt_destination_is_never_its_own_recovery_stage(
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / (
+        f".{image_builder.RECEIPT_TEMP_BASENAME}.1234."
+        "abcdef012345abcdef012345.tmp"
+    )
+    unrelated = tmp_path / "operator-backup.json"
+    payload = {
+        "schema": image_builder.RECEIPT_SCHEMA,
+        "status": "pass",
+        "commit": COMMIT,
+        "image_id": IMAGE_ID,
+    }
+    expected = image_builder._build_receipt_bytes(payload)
+    receipt.write_bytes(expected)
+    receipt.chmod(0o600)
+    os.link(receipt, unrelated)
+
+    with pytest.raises(RuntimeError, match=image_builder.RECEIPT_PATH_ERROR):
+        image_builder._atomic_json(receipt, payload)
+
+    assert receipt.read_bytes() == expected
+    assert unrelated.read_bytes() == expected
+    assert receipt.stat().st_nlink == 2
+
+
+def test_image_build_receipt_post_link_failure_rolls_back_published_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / "image-build.json"
+    payload = {
+        "schema": image_builder.RECEIPT_SCHEMA,
+        "status": "pass",
+        "commit": COMMIT,
+        "image_id": IMAGE_ID,
+    }
+    real_fsync = image_builder.os.fsync
+    directory_failure_injected = False
+
+    def fail_first_directory_fsync(descriptor: int) -> None:
+        nonlocal directory_failure_injected
+        if (
+            stat.S_ISDIR(os.fstat(descriptor).st_mode)
+            and not directory_failure_injected
+        ):
+            directory_failure_injected = True
+            raise OSError("simulated post-link directory fsync failure")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(image_builder.os, "fsync", fail_first_directory_fsync)
+
+    with pytest.raises(OSError, match="simulated post-link directory fsync failure"):
+        image_builder._atomic_json(receipt, payload)
+
+    assert directory_failure_injected is True
+    assert not receipt.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_image_build_receipt_link_commit_then_exception_rolls_back_published_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / "image-build.json"
+    payload = {
+        "schema": image_builder.RECEIPT_SCHEMA,
+        "status": "pass",
+        "commit": COMMIT,
+        "image_id": IMAGE_ID,
+    }
+    real_link = image_builder.os.link
+
+    def commit_link_then_fail(*args: object, **kwargs: object) -> None:
+        real_link(*args, **kwargs)  # type: ignore[arg-type]
+        raise OSError("simulated exception after hard-link commit")
+
+    monkeypatch.setattr(image_builder.os, "link", commit_link_then_fail)
+
+    with pytest.raises(OSError, match="simulated exception after hard-link commit"):
+        image_builder._atomic_json(receipt, payload)
+
+    assert not receipt.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_runtime_version_identity_delegates_all_four_revision_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = {
+        "commit_sha": COMMIT,
+        "body_commit_sha": COMMIT,
+        "source_revision_header": COMMIT,
+        "oci_image_revision": COMMIT,
+        "revision_agreement_verified": True,
+    }
+    observed: list[tuple[str, str, str]] = []
+
+    def verify(base_url: str, *, expected_commit: str, oci_image_revision: str):
+        observed.append((base_url, expected_commit, oci_image_revision))
+        return expected
+
+    monkeypatch.setattr(runner, "_verified_candidate_version", verify)
+    assert (
+        runner._candidate_runtime_version_identity(
+            "http://127.0.0.1:18091",
+            expected_commit=COMMIT,
+            oci_image_revision=COMMIT,
+        )
+        is expected
+    )
+    assert observed == [("http://127.0.0.1:18091", COMMIT, COMMIT)]
+
+    monkeypatch.setattr(
+        runner,
+        "_verified_candidate_version",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("body_header_split")
+        ),
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="manfred_candidate_runtime_version_identity_invalid",
+    ):
+        runner._candidate_runtime_version_identity(
+            "http://127.0.0.1:18091",
+            expected_commit=COMMIT,
+            oci_image_revision=COMMIT,
+        )
 
 
 def test_hostile_ambient_compose_values_are_replaced(
@@ -294,6 +778,114 @@ def test_compose_contract_binds_project_env_file_and_mount_roots(
     with pytest.raises(RuntimeError, match="compose_project_mismatch"):
         runner._assert_compose_isolation(
             hostile_project, source, env=env, env_file=env_file
+        )
+
+
+def test_candidate_compose_attestation_binds_canonical_tracked_blob(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    compose_path = tmp_path / runner.CANDIDATE_COMPOSE_RELATIVE_PATH
+    compose_path.parent.mkdir(parents=True)
+    compose_bytes = b"name: governed-candidate\nservices: {}\n"
+    compose_path.write_bytes(compose_bytes)
+    blob_oid = "c" * 40
+    commands: list[list[str]] = []
+
+    def run(argv: list[str], **_kwargs) -> bytes:
+        commands.append(list(argv))
+        return f"{blob_oid}\n".encode("ascii")
+
+    def run_bounded(argv: list[str], **_kwargs) -> bytes:
+        commands.append(list(argv))
+        return compose_bytes
+
+    monkeypatch.setattr(runner, "_run", run)
+    monkeypatch.setattr(runner, "_run_bounded_output", run_bounded)
+
+    evidence = runner._candidate_compose_attestation(
+        compose_path,
+        expected_commit=COMMIT,
+    )
+
+    assert evidence == {
+        "canonical_relative_path": (runner.CANDIDATE_COMPOSE_RELATIVE_PATH.as_posix()),
+        "canonical_source_path": str(compose_path),
+        "candidate_commit": COMMIT,
+        "git_blob_oid": blob_oid,
+        "sha256": prepare._sha256(compose_bytes),
+        "size_bytes": len(compose_bytes),
+        "canonical_path_enforced": True,
+        "tracked_blob_bytes_enforced": True,
+    }
+    assert commands == [
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "rev-parse",
+            "--verify",
+            f"{COMMIT}:{runner.CANDIDATE_COMPOSE_RELATIVE_PATH.as_posix()}",
+        ],
+        ["git", "-C", str(tmp_path), "cat-file", "blob", blob_oid],
+    ]
+
+
+def test_candidate_compose_attestation_rejects_alternate_or_stale_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    canonical = tmp_path / runner.CANDIDATE_COMPOSE_RELATIVE_PATH
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text("services: {}\n", encoding="utf-8")
+    alternate = tmp_path / "alternate-compose.yml"
+    alternate.write_bytes(canonical.read_bytes())
+
+    with pytest.raises(RuntimeError, match="compose_source_not_canonical"):
+        runner._candidate_compose_attestation(
+            alternate,
+            expected_commit=COMMIT,
+        )
+
+    monkeypatch.setattr(runner, "_run", lambda *_args, **_kwargs: b"c" * 40 + b"\n")
+    monkeypatch.setattr(
+        runner,
+        "_run_bounded_output",
+        lambda *_args, **_kwargs: b"services:\n  api: {}\n",
+    )
+    with pytest.raises(RuntimeError, match="compose_source_not_tracked"):
+        runner._candidate_compose_attestation(
+            canonical,
+            expected_commit=COMMIT,
+        )
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("OPENAI_API_KEY", "must-never-reach-candidate"),
+        ("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES", "1"),
+        ("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", "manfred"),
+    ],
+)
+def test_candidate_compose_api_environment_is_exactly_allowlisted(
+    tmp_path: Path,
+    name: str,
+    value: str,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    payload, source = _compose_payloads(env_file, env)
+    source["services"]["api"]["environment"][name] = value
+    payload["services"]["api"]["environment"][name] = value
+
+    with pytest.raises(RuntimeError, match="compose_api_environment_not_allowlisted"):
+        runner._assert_compose_isolation(
+            payload,
+            source,
+            env=env,
+            env_file=env_file,
         )
 
 
@@ -497,7 +1089,9 @@ def test_internal_transport_probe_rejects_case_insensitive_outgoing_duplicates(
     monkeypatch.setattr(
         runner,
         "_run",
-        lambda *_args, **_kwargs: pytest.fail("duplicate headers must fail before curl"),
+        lambda *_args, **_kwargs: pytest.fail(
+            "duplicate headers must fail before curl"
+        ),
     )
     with pytest.raises(
         RuntimeError,
@@ -566,6 +1160,7 @@ def test_spatial_bind_environment_and_api_only_scope_fail_closed(
 
 def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _env_file, env = _candidate_env(tmp_path)
     release_root = Path(env["EA_MANFRED_RELEASE_ROOT"])
@@ -609,10 +1204,10 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
     }
     spatial_receipt_path.write_bytes(prepare._receipt_bytes(spatial_receipt))
     spatial_receipt_path.chmod(0o600)
-    receipt_path.write_text(
-        json.dumps(
+    receipt_path.write_bytes(
+        prepare._receipt_bytes(
             {
-                "schema": "ea.manfred_memorial_candidate_projection.v2",
+                "schema": prepare.RECEIPT_SCHEMA,
                 "status": "pass",
                 "commit": COMMIT,
                 "release_id": release_root.name,
@@ -639,33 +1234,61 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
                 "spatial_upstream_public_activation_authority": False,
                 "spatial_ea_public_activation_authority": False,
             }
-        )
-        + "\n",
-        encoding="utf-8",
+        ),
     )
     receipt_path.chmod(0o600)
 
+    release_authority_evidence = {
+        "schema": prepare.CANDIDATE_RELEASE_AUTHORITY_SCHEMA,
+        "status": "pass",
+        "commit_sha": COMMIT,
+        "image_id": IMAGE_ID,
+        "runtime_authority_state": "clear",
+        "runtime_authority_posture": "authoritative_runtime",
+        "promotion_authority": False,
+    }
+    monkeypatch.setattr(
+        runner,
+        "_validate_candidate_release_authority_bundle",
+        lambda *_args, **_kwargs: release_authority_evidence,
+    )
+
+    with pytest.raises(RuntimeError, match="manfred_candidate_spatial_handoff_required"):
+        runner._projection_evidence(env)
+
+    empty_spatial_evidence = {
+        "included": False,
+        "slug": "",
+        "release_root": str(spatial_root),
+        "projection_sha256": spatial_sha256,
+        "file_count": 0,
+        "projection_bytes": 0,
+        "receipt_path": str(spatial_receipt_path),
+        "receipt_sha256": prepare._sha256(prepare._receipt_bytes(spatial_receipt)),
+        "projection_tree_revalidated": True,
+        "ea_public_activation_authority": False,
+    }
+    monkeypatch.setattr(
+        runner,
+        "_spatial_projection_evidence",
+        lambda *_args, **_kwargs: empty_spatial_evidence,
+    )
     evidence = runner._projection_evidence(env)
     assert evidence == {
         "release_id": release_root.name,
         "release_root": str(release_root),
         "projection_sha256": projection_sha256,
+        "projection_files": projected_files,
+        "projection_file_count": len(projected_files),
+        "projection_bytes": sum(
+            int(row["size_bytes"]) for row in projected_files
+        ),
         "projection_commit": COMMIT,
         "prepared_image_locator": env["EA_MANFRED_IMAGE"],
         "prepared_image_id": IMAGE_ID,
         "projection_tree_revalidated": True,
-        "spatial_handoff": {
-            "included": False,
-            "slug": "",
-            "release_root": str(spatial_root),
-            "projection_sha256": spatial_sha256,
-            "file_count": 0,
-            "projection_bytes": 0,
-            "receipt_path": str(spatial_receipt_path),
-            "receipt_sha256": prepare._sha256(prepare._receipt_bytes(spatial_receipt)),
-            "projection_tree_revalidated": True,
-            "ea_public_activation_authority": False,
-        },
+        "spatial_handoff": empty_spatial_evidence,
+        "release_authority": release_authority_evidence,
     }
 
     prepare._make_tree_removable(release_root)
@@ -738,9 +1361,7 @@ def test_cleanup_port_wait_retries_transient_release_race(
         if len(attempts) < 3:
             raise RuntimeError("manfred_candidate_loopback_port_unavailable")
 
-    monkeypatch.setattr(
-        runner, "_assert_loopback_port_not_listening", assert_port_free
-    )
+    monkeypatch.setattr(runner, "_assert_loopback_port_not_listening", assert_port_free)
     monkeypatch.setattr(runner.time, "sleep", sleeps.append)
 
     runner._wait_for_loopback_port_not_listening(
@@ -768,9 +1389,7 @@ def test_cleanup_port_wait_fails_closed_after_bounded_deadline(
         sleeps.append(seconds)
         now[0] += seconds
 
-    monkeypatch.setattr(
-        runner, "_assert_loopback_port_not_listening", assert_port_free
-    )
+    monkeypatch.setattr(runner, "_assert_loopback_port_not_listening", assert_port_free)
     monkeypatch.setattr(runner.time, "monotonic", lambda: now[0])
     monkeypatch.setattr(runner.time, "sleep", sleep)
 
@@ -799,9 +1418,7 @@ def test_cleanup_distinguishes_a_listener_from_a_nonlistening_bound_socket() -> 
         listener.bind(("127.0.0.1", 0))
         listener.listen(1)
         with pytest.raises(RuntimeError, match="loopback_port_still_listening"):
-            runner._assert_loopback_port_not_listening(
-                int(listener.getsockname()[1])
-            )
+            runner._assert_loopback_port_not_listening(int(listener.getsockname()[1]))
     finally:
         bound.close()
         listener.close()
@@ -853,10 +1470,10 @@ def test_preflight_port_check_remains_immediate_and_does_not_retry(
     assert attempts == [18091]
 
 
-def test_same_project_different_ports_conflict_on_project_lock() -> None:
+def test_nested_candidate_lifecycle_conflicts_on_fleet_lock() -> None:
     project = "ea-manfred-candidate-project-lock-a1b2c3d4"
     with runner._hold_candidate_locks(project, 18991):
-        with pytest.raises(RuntimeError, match="project_lock_held"):
+        with pytest.raises(RuntimeError, match="fleet_lock_held"):
             with runner._hold_candidate_locks(project, 18992):
                 pytest.fail("same candidate project acquired twice")
 
@@ -1083,9 +1700,7 @@ def test_candidate_openapi_public_endpoint_must_be_structured_secure_404(
         "build_opener",
         lambda *_handlers: Opener(),
     )
-    evidence = runner._assert_candidate_openapi_retired(
-        "http://127.0.0.1:18091"
-    )
+    evidence = runner._assert_candidate_openapi_retired("http://127.0.0.1:18091")
     assert evidence["status"] == 404
     assert evidence["public_endpoint_retired"] is True
     assert evidence["correlation_header_matches_body"] is True
@@ -1108,12 +1723,8 @@ def test_candidate_openapi_public_endpoint_must_be_structured_secure_404(
     ):
         expected_value = headers[name]
         headers[name] = hostile_value
-        with pytest.raises(
-            RuntimeError, match="openapi_retirement_contract_invalid"
-        ):
-            runner._assert_candidate_openapi_retired(
-                "http://127.0.0.1:18091"
-            )
+        with pytest.raises(RuntimeError, match="openapi_retirement_contract_invalid"):
+            runner._assert_candidate_openapi_retired("http://127.0.0.1:18091")
         headers[name] = expected_value
 
 
@@ -1292,9 +1903,9 @@ def test_openapi_contract_allows_only_precise_version_boolean_evolution() -> Non
     )
     candidate_document = copy.deepcopy(live_document)
     _retire_governed_spatial_operations(candidate_document)
-    candidate_document["paths"]["/version"]["get"]["responses"]["200"][
-        "content"
-    ]["application/json"]["schema"]["additionalProperties"] = {
+    candidate_document["paths"]["/version"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]["additionalProperties"] = {
         "anyOf": [{"type": "string"}, {"type": "boolean"}]
     }
 
@@ -1330,9 +1941,9 @@ def test_openapi_version_evolution_policy_rejects_broader_drift(case: str) -> No
     )
     candidate_document = copy.deepcopy(live_document)
     _retire_governed_spatial_operations(candidate_document)
-    candidate_schema = candidate_document["paths"]["/version"]["get"][
-        "responses"
-    ]["200"]["content"]["application/json"]["schema"]
+    candidate_schema = candidate_document["paths"]["/version"]["get"]["responses"][
+        "200"
+    ]["content"]["application/json"]["schema"]
     candidate_schema["additionalProperties"] = {
         "anyOf": [{"type": "string"}, {"type": "boolean"}]
     }
@@ -1343,9 +1954,7 @@ def test_openapi_version_evolution_policy_rejects_broader_drift(case: str) -> No
             "anyOf": [{"type": "string"}, {"type": "integer"}]
         }
     elif case == "extra_variant":
-        candidate_schema["additionalProperties"]["anyOf"].append(
-            {"type": "null"}
-        )
+        candidate_schema["additionalProperties"]["anyOf"].append({"type": "null"})
     elif case == "extra_schema_keyword":
         candidate_schema["additionalProperties"]["not"] = {"type": "null"}
     else:
@@ -1463,7 +2072,6 @@ def test_post_start_failure_cleans_only_explicit_candidate_project(
         runner, "_assert_loopback_port_not_listening", lambda _port: None
     )
     runtime_receipt = tmp_path / "runtime.json"
-    runtime_receipt.write_text('{"status":"stale-pass"}\n', encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="candidate-smoke-failed"):
         runner.prove_candidate(
@@ -1477,6 +2085,35 @@ def test_post_start_failure_cleans_only_explicit_candidate_project(
     assert "--volumes" in down
     assert not any(value == "ea" for value in down)
     assert not runtime_receipt.exists()
+
+
+def test_existing_runtime_receipt_is_preserved_and_blocks_start(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda argv, **_kwargs: commands.append(list(argv)) or b"",
+    )
+    runtime_receipt = tmp_path / "runtime.json"
+    original = b'{"status":"operator-owned"}\n'
+    runtime_receipt.write_bytes(original)
+    runtime_receipt.chmod(0o600)
+
+    with pytest.raises(RuntimeError, match="receipt_output_exists"):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=runtime_receipt,
+            wait_seconds=60,
+        )
+
+    assert runtime_receipt.read_bytes() == original
+    assert commands == []
 
 
 def test_cleanup_detects_any_main_project_snapshot_change(
@@ -1644,9 +2281,7 @@ def test_persistent_compose_timeout_uses_exact_candidate_label_fallback(
 
     monkeypatch.setattr(runner, "_run", run)
     monkeypatch.setattr(runner, "_project_snapshot", lambda project: snapshot)
-    monkeypatch.setattr(
-        runner, "_assert_candidate_project_absent", lambda _project: {}
-    )
+    monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _project: {})
 
     runner._cleanup_candidate_project(
         compose=["docker", "compose", "--project-name", PROJECT],
@@ -1927,3 +2562,986 @@ def test_existing_release_is_rehashed_and_mode_bound_before_reuse(
             projection_sha256=digest,
             projected_files=files,
         )
+
+
+def test_runtime_receipt_is_no_replace_private_and_inode_bound(
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / "runtime-v4.json"
+    payload = {"schema": runner.RECEIPT_SCHEMA, "status": "pass"}
+
+    artifact = runner._atomic_receipt(receipt, payload)
+    assert artifact.path == receipt
+    assert stat.S_IMODE(receipt.stat().st_mode) == 0o600
+    assert json.loads(receipt.read_text(encoding="utf-8")) == payload
+    with pytest.raises(RuntimeError, match="receipt_output_exists"):
+        runner._atomic_receipt(receipt, payload)
+
+    receipt.unlink()
+    replacement = b'{"status":"operator-replacement"}\n'
+    receipt.write_bytes(replacement)
+    receipt.chmod(0o600)
+    assert runner._unlink_created_receipt_artifact(artifact) is False
+    assert receipt.read_bytes() == replacement
+
+
+def test_contribution_withdrawal_helper_preserves_token_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / "candidate-contribution.private.json"
+    content = b'{"manage_token":"private"}\n'
+    receipt.write_bytes(content)
+    receipt.chmod(0o600)
+    monkeypatch.setattr(
+        runner,
+        "_withdraw_contribution",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("withdraw-unavailable")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="withdraw-unavailable"):
+        runner._withdraw_candidate_contribution_if_present(
+            "http://127.0.0.1:18091",
+            receipt,
+        )
+    assert receipt.read_bytes() == content
+
+    monkeypatch.setattr(
+        runner,
+        "_withdraw_contribution",
+        lambda _base_url, path: path.unlink(),
+    )
+    assert (
+        runner._withdraw_candidate_contribution_if_present(
+            "http://127.0.0.1:18091",
+            receipt,
+        )
+        is True
+    )
+    assert not receipt.exists()
+
+
+def test_interrupted_no_replace_link_window_is_completed_exactly(
+    tmp_path: Path,
+) -> None:
+    temporary = tmp_path / ".ea-manfred-receipt.1234.abcdef012345abcdef012345.tmp"
+    receipt = tmp_path / "runtime-v4.json"
+    payload = b'{"schema":"ea.manfred_memorial_candidate_runtime.v4"}\n'
+    temporary.write_bytes(payload)
+    temporary.chmod(0o600)
+    os.link(temporary, receipt)
+    assert receipt.stat().st_nlink == 2
+
+    assert runner._complete_interrupted_receipt_publication(receipt) is True
+    assert not temporary.exists()
+    assert receipt.read_bytes() == payload
+    assert receipt.stat().st_nlink == 1
+    assert runner._complete_interrupted_receipt_publication(receipt) is False
+
+
+def test_unrelated_hardlink_is_not_treated_as_interrupted_publication(
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / "runtime-v4.json"
+    unrelated = tmp_path / "operator-backup.json"
+    receipt.write_text("{}\n", encoding="utf-8")
+    receipt.chmod(0o600)
+    os.link(receipt, unrelated)
+
+    assert runner._complete_interrupted_receipt_publication(receipt) is False
+    assert receipt.exists()
+    assert unrelated.exists()
+    assert receipt.stat().st_nlink == 2
+
+
+def test_runtime_receipt_is_fsynced_before_registry_registration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / "runtime-v4.json"
+    payload = {"schema": runner.RECEIPT_SCHEMA, "status": "pass"}
+    observed: list[Path] = []
+
+    def register(path: Path, *, require_pending: bool = False) -> dict[str, object]:
+        observed.append(path)
+        assert require_pending is True
+        assert path == receipt
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert json.loads(path.read_text(encoding="utf-8")) == payload
+        return {"registered": True}
+
+    monkeypatch.setattr(runner, "register_candidate_receipt", register)
+    artifacts: dict[Path, runner._CreatedReceiptArtifact] = {}
+    result = runner._persist_runtime_receipt(
+        receipt,
+        payload,
+        created_artifacts=artifacts,
+    )
+
+    assert result == {"registered": True}
+    assert observed == [receipt]
+    assert artifacts[receipt].inode == receipt.stat().st_ino
+
+
+def test_pending_registration_precedes_compose_up_and_clears_after_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    events: list[str] = []
+    monkeypatch.setattr(
+        runner,
+        "_candidate_preflight",
+        lambda project, port: {"project": project, "loopback_port": port},
+    )
+
+    monkeypatch.setattr(
+        runner,
+        "register_candidate_pending",
+        lambda **_kwargs: events.append("pending") or {"pending_registered": True},
+    )
+    monkeypatch.setattr(
+        runner,
+        "clear_candidate_pending",
+        lambda _project: events.append("cleared") or {"pending_cleared": True},
+    )
+
+    def run(argv: list[str], **_kwargs: object) -> bytes:
+        if "up" in argv:
+            events.append("compose-up")
+        if "down" in argv:
+            events.append("compose-down")
+        return b""
+
+    monkeypatch.setattr(runner, "_run", run)
+    monkeypatch.setattr(
+        runner,
+        "_assert_redis",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("smoke-failed")),
+    )
+    monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _p: {})
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_loopback_port_not_listening",
+        lambda _port: None,
+    )
+
+    with pytest.raises(RuntimeError, match="smoke-failed"):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=tmp_path / "runtime-v4.json",
+            wait_seconds=60,
+        )
+
+    assert events[0:2] == ["pending", "compose-up"]
+    assert events[-2:] == ["compose-down", "cleared"]
+
+
+def test_first_smoke_restart_failure_withdraws_before_candidate_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    runtime_receipt = tmp_path / "runtime-v4.json"
+    contribution_receipt = tmp_path / "candidate-contribution.private.json"
+    events: list[str] = []
+    monkeypatch.setattr(
+        runner,
+        "_candidate_preflight",
+        lambda project, port: {"project": project, "loopback_port": port},
+    )
+    monkeypatch.setattr(runner, "_assert_redis", lambda *_args: None)
+
+    def verify_candidate(**kwargs: object) -> dict[str, object]:
+        submitted = kwargs.get("submit_receipt")
+        assert submitted == contribution_receipt
+        contribution_receipt.write_text('{"manage_token":"private"}\n', encoding="utf-8")
+        contribution_receipt.chmod(0o600)
+        events.append("first-smoke")
+        return {
+            "checks": ["private_contribution_submitted"],
+            "contribution": {"submitted": True, "withdrawn": False},
+        }
+
+    monkeypatch.setattr(runner, "verify_candidate", verify_candidate)
+
+    def run(argv: list[str], **_kwargs: object) -> bytes:
+        if "up" in argv:
+            events.append("compose-up")
+            return b""
+        if "ps" in argv and "api" in argv:
+            return ("1" * 64).encode("ascii")
+        if "restart" in argv:
+            events.append("restart-failed")
+            raise RuntimeError("restart-failed")
+        return b""
+
+    monkeypatch.setattr(runner, "_run", run)
+
+    def withdraw(_base_url: str, path: Path) -> bool:
+        assert path == contribution_receipt
+        assert path.is_file()
+        events.append("contribution-withdrawn")
+        path.unlink()
+        return True
+
+    monkeypatch.setattr(
+        runner,
+        "_withdraw_candidate_contribution_if_present",
+        withdraw,
+    )
+    monkeypatch.setattr(
+        runner,
+        "_cleanup_candidate_project",
+        lambda **_kwargs: events.append("candidate-cleaned"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_assert_candidate_project_absent",
+        lambda _project: events.append("candidate-absent") or {},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_loopback_port_not_listening",
+        lambda _port: events.append("port-closed"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "clear_candidate_pending",
+        lambda _project: events.append("pending-cleared")
+        or {"pending_cleared": True},
+    )
+
+    with pytest.raises(RuntimeError, match="restart-failed"):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=runtime_receipt,
+            wait_seconds=60,
+        )
+
+    assert events == [
+        "compose-up",
+        "first-smoke",
+        "restart-failed",
+        "contribution-withdrawn",
+        "candidate-cleaned",
+        "candidate-absent",
+        "port-closed",
+        "pending-cleared",
+    ]
+    assert not contribution_receipt.exists()
+
+
+def test_failed_recovery_preserves_pending_registry_intent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    cleared: list[str] = []
+    monkeypatch.setattr(
+        runner,
+        "_candidate_preflight",
+        lambda project, port: {"project": project, "loopback_port": port},
+    )
+    monkeypatch.setattr(
+        runner,
+        "register_candidate_pending",
+        lambda **_kwargs: {"pending_registered": True},
+    )
+    monkeypatch.setattr(
+        runner,
+        "clear_candidate_pending",
+        lambda project: cleared.append(project) or {"pending_cleared": True},
+    )
+    monkeypatch.setattr(runner, "_run", lambda _argv, **_kwargs: b"")
+    monkeypatch.setattr(
+        runner,
+        "_assert_redis",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("smoke-failed")),
+    )
+    monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _p: {})
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_loopback_port_not_listening",
+        lambda _port: (_ for _ in ()).throw(RuntimeError("port-still-bound")),
+    )
+
+    with pytest.raises(RuntimeError, match="candidate_port_remains_bound"):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=tmp_path / "runtime-v4.json",
+            wait_seconds=60,
+        )
+
+    assert cleared == []
+
+
+def test_pending_only_crash_withdraws_contribution_before_cleanup_and_clear(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    events: list[str] = []
+    monkeypatch.setattr(
+        runner,
+        "candidate_registry_recovery_state",
+        lambda **_kwargs: {"state": "pending_only"},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_withdraw_candidate_contribution_if_present",
+        lambda _base_url, _receipt_path: events.append("contribution-withdrawn")
+        or True,
+    )
+    monkeypatch.setattr(
+        runner,
+        "_cleanup_candidate_project",
+        lambda **_kwargs: events.append("cleanup"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_assert_candidate_project_absent",
+        lambda _project: events.append("absent") or {},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_loopback_port_not_listening",
+        lambda _port: events.append("port-closed"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_assert_live_recovery_unchanged",
+        lambda **_kwargs: events.append("live-unchanged"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "clear_candidate_pending_exact",
+        lambda **kwargs: (
+            events.append(
+                "pending-cleared" if kwargs.get("resources_absent") is True else "bad"
+            )
+            or {"pending_cleared": True}
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_candidate_preflight",
+        lambda _project, _port: (_ for _ in ()).throw(
+            RuntimeError("stop-after-recovery")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="stop-after-recovery"):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=tmp_path / "runtime-v4.json",
+            wait_seconds=60,
+        )
+
+    assert events == [
+        "contribution-withdrawn",
+        "cleanup",
+        "absent",
+        "port-closed",
+        "live-unchanged",
+        "pending-cleared",
+    ]
+
+
+def test_pending_contribution_withdrawal_failure_preserves_runtime_and_token(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    contribution_receipt = tmp_path / "candidate-contribution.private.json"
+    contribution_receipt.write_text(
+        '{"manage_token":"private"}\n',
+        encoding="utf-8",
+    )
+    contribution_receipt.chmod(0o600)
+    cleanup_events: list[str] = []
+    monkeypatch.setattr(
+        runner,
+        "candidate_registry_recovery_state",
+        lambda **_kwargs: {"state": "pending_only"},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_withdraw_candidate_contribution_if_present",
+        lambda _base_url, path: (
+            pytest.fail("unexpected contribution receipt path")
+            if path != contribution_receipt
+            else (_ for _ in ()).throw(RuntimeError("withdraw-unavailable"))
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_cleanup_candidate_project",
+        lambda **_kwargs: cleanup_events.append("cleanup"),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="manfred_candidate_pending_contribution_recovery_failed",
+    ):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=tmp_path / "runtime-v4.json",
+            wait_seconds=60,
+        )
+
+    assert cleanup_events == []
+    assert contribution_receipt.is_file()
+
+
+def test_pending_receipt_crash_resumes_exact_running_candidate_without_up(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    receipt_payload = {"schema": runner.RECEIPT_SCHEMA, "status": "pass"}
+    events: list[str] = []
+    monkeypatch.setattr(
+        runner,
+        "candidate_registry_recovery_state",
+        lambda **_kwargs: {
+            "state": "pending_receipt",
+            "receipt_sha256": "f" * 64,
+            "runtime_receipt": receipt_payload,
+        },
+    )
+    monkeypatch.setattr(
+        runner,
+        "_assert_recovered_candidate_runtime",
+        lambda **_kwargs: events.append("runtime-verified"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_assert_live_recovery_unchanged",
+        lambda **_kwargs: events.append("live-unchanged"),
+    )
+
+    def register(path: Path, *, require_pending: bool = False):  # type: ignore[no-untyped-def]
+        assert path == tmp_path / "runtime-v4.json"
+        assert require_pending is True
+        events.append("registered")
+        return {"registered": True}
+
+    monkeypatch.setattr(runner, "register_candidate_receipt", register)
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda argv, **_kwargs: pytest.fail(f"unexpected mutation: {argv}"),
+    )
+
+    recovered = runner.prove_candidate(
+        env_file=env_file,
+        compose_file=tmp_path / "compose.yml",
+        receipt_path=tmp_path / "runtime-v4.json",
+        wait_seconds=60,
+    )
+
+    assert recovered == receipt_payload
+    assert events == ["runtime-verified", "live-unchanged", "registered"]
+
+
+def test_invalid_pending_receipt_is_preserved_after_exact_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    receipt = tmp_path / "runtime-v4.json"
+    original = b'{"operator":"preserve"}\n'
+    receipt.write_bytes(original)
+    receipt.chmod(0o600)
+    cleared: list[str] = []
+    monkeypatch.setattr(
+        runner,
+        "candidate_registry_recovery_state",
+        lambda **_kwargs: {
+            "state": "pending_receipt",
+            "receipt_sha256": "e" * 64,
+            "runtime_receipt": {"schema": runner.RECEIPT_SCHEMA},
+        },
+    )
+    monkeypatch.setattr(
+        runner,
+        "_assert_recovered_candidate_runtime",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("identity-drift")),
+    )
+    monkeypatch.setattr(runner, "_cleanup_candidate_project", lambda **_kwargs: None)
+    monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _p: {})
+    monkeypatch.setattr(
+        runner, "_wait_for_loopback_port_not_listening", lambda _p: None
+    )
+    monkeypatch.setattr(
+        runner, "_assert_live_recovery_unchanged", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(
+        runner,
+        "clear_candidate_pending_exact",
+        lambda **kwargs: (
+            cleared.append(str(kwargs["expected_receipt_sha256"]))
+            or {"pending_cleared": True}
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="recovered_receipt_runtime_invalid"):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=receipt,
+            wait_seconds=60,
+        )
+
+    assert cleared == ["e" * 64]
+    assert receipt.read_bytes() == original
+
+
+def test_sealed_execution_inputs_are_immutable_and_detached_from_sources(
+    tmp_path: Path,
+) -> None:
+    compose_source = tmp_path / "compose.yml"
+    environment_source = tmp_path / "candidate.env"
+    compose_bytes = b"name: governed-candidate\nservices: {}\n"
+    environment_bytes = b"EA_MANFRED_COMPOSE_PROJECT=sealed-candidate\n"
+    environment = {"EA_MANFRED_COMPOSE_PROJECT": "sealed-candidate"}
+    compose_source.write_bytes(compose_bytes)
+    environment_source.write_bytes(environment_bytes)
+    attestation = {
+        "git_blob_oid": "c" * 40,
+        "sha256": prepare._sha256(compose_bytes),
+        "size_bytes": len(compose_bytes),
+    }
+
+    with runner._sealed_candidate_execution_inputs(
+        compose_bytes=compose_bytes,
+        environment_bytes=environment_bytes,
+        environment=environment,
+        compose_attestation=attestation,
+        compose_image_id=IMAGE_ID,
+    ) as inputs:
+        assert inputs.compose_path != compose_source
+        assert inputs.environment_path != environment_source
+        assert inputs.compose_path.read_bytes() == compose_bytes
+        assert inputs.environment_path.read_bytes() == environment_bytes
+
+        compose_source.write_bytes(b"services:\n  hostile: {}\n")
+        environment_source.write_bytes(b"OPENAI_API_KEY=hostile\n")
+
+        runner._assert_sealed_execution_inputs_current(inputs)
+        assert inputs.compose_path.read_bytes() == compose_bytes
+        assert inputs.environment_path.read_bytes() == environment_bytes
+        assert inputs.evidence["transport"] == "sealed_memfd"
+        assert inputs.evidence["all_compose_commands_use_sealed_inputs"] is True
+        assert inputs.evidence["mutable_source_paths_consumed_by_compose"] is False
+        assert inputs.evidence["compose_image_id"] == IMAGE_ID
+        assert inputs.evidence["mutable_image_locator_consumed_by_compose"] is False
+
+
+def test_source_replacement_after_validation_cannot_reach_compose_render(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    compose_file = tmp_path / "compose.yml"
+    compose_bytes = b"name: governed-candidate\nservices: {}\n"
+    compose_file.write_bytes(compose_bytes)
+    original_environment_bytes = env_file.read_bytes()
+    _patch_prestart(monkeypatch, env)
+
+    def replace_sources(
+        _compose_file: Path,
+        *,
+        expected_commit: str,
+    ) -> tuple[dict[str, object], bytes]:
+        env_file.write_bytes(b"OPENAI_API_KEY=hostile\n")
+        compose_file.write_bytes(b"services:\n  hostile: {}\n")
+        return (
+            {
+                "canonical_relative_path": (
+                    runner.CANDIDATE_COMPOSE_RELATIVE_PATH.as_posix()
+                ),
+                "canonical_source_path": str(compose_file.resolve()),
+                "candidate_commit": expected_commit,
+                "git_blob_oid": "c" * 40,
+                "sha256": prepare._sha256(compose_bytes),
+                "size_bytes": len(compose_bytes),
+                "canonical_path_enforced": True,
+                "tracked_blob_bytes_enforced": True,
+            },
+            compose_bytes,
+        )
+
+    observed: list[tuple[bytes, bytes, Path, Path]] = []
+
+    def render(
+        sealed_env_file: Path,
+        sealed_compose_file: Path,
+        **_kwargs: object,
+    ) -> dict[str, object]:
+        observed.append(
+            (
+                sealed_env_file.read_bytes(),
+                sealed_compose_file.read_bytes(),
+                sealed_env_file,
+                sealed_compose_file,
+            )
+        )
+        raise RuntimeError("stop-after-sealed-render")
+
+    monkeypatch.setattr(runner, "_candidate_compose_source_snapshot", replace_sources)
+    monkeypatch.setattr(runner, "_rendered_compose", render)
+
+    with pytest.raises(RuntimeError, match="stop-after-sealed-render"):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=compose_file,
+            receipt_path=tmp_path / "runtime-v4.json",
+            wait_seconds=60,
+        )
+
+    assert len(observed) == 1
+    sealed_environment, sealed_compose, sealed_env_path, sealed_compose_path = (
+        observed[0]
+    )
+    assert sealed_environment == original_environment_bytes
+    assert sealed_compose == compose_bytes
+    assert sealed_env_path != env_file
+    assert sealed_compose_path != compose_file
+    assert env_file.read_bytes() == b"OPENAI_API_KEY=hostile\n"
+    assert compose_file.read_bytes() == b"services:\n  hostile: {}\n"
+
+
+def test_recovered_runtime_rebinds_projection_compose_and_execution_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projection = {
+        "release_id": "release-a",
+        "projection_sha256": "d" * 64,
+        "projection_files": [],
+        "projection_file_count": 0,
+        "projection_bytes": 0,
+        "projection_commit": COMMIT,
+    }
+    compose_attestation = {"sha256": "c" * 64}
+    execution_inputs = {"environment_sha256": "e" * 64}
+    images = {
+        "api": {"container_id": "1" * 64, "image_id": IMAGE_ID},
+        "gateway": {"container_id": "2" * 64, "image_id": IMAGE_ID},
+        "prepared_image_id": IMAGE_ID,
+        "revision_label": COMMIT,
+        "all_match_prepared_image": True,
+    }
+    runtime_identity = {"revision_agreement_verified": True}
+    runtime_projection = {"runtime_bytes_match_prepared_projection": True}
+    runtime_posture = {"running_and_healthy": True}
+    observed_hashes: list[str] = []
+
+    monkeypatch.setattr(
+        runner,
+        "_candidate_container_image_evidence",
+        lambda **_kwargs: images,
+    )
+    monkeypatch.setattr(
+        runner,
+        "_candidate_runtime_version_identity",
+        lambda *_args, **_kwargs: runtime_identity,
+    )
+    monkeypatch.setattr(
+        runner,
+        "_candidate_runtime_projection_evidence",
+        lambda **_kwargs: runtime_projection,
+    )
+
+    def posture(**kwargs: object) -> dict[str, object]:
+        observed_hashes.append(str(kwargs["execution_environment_sha256"]))
+        return runtime_posture
+
+    monkeypatch.setattr(runner, "_candidate_api_runtime_posture", posture)
+    monkeypatch.setattr(runner, "_assert_redis", lambda *_args: None)
+    monkeypatch.setattr(runner, "_assert_logs_clean", lambda *_args: None)
+    receipt = {
+        **projection,
+        "compose_attestation": compose_attestation,
+        "execution_inputs": execution_inputs,
+        "candidate_container_images": images,
+        "candidate_container_images_initial": images,
+        "candidate_container_images_final": images,
+        "candidate_container_image_identity_stable": True,
+        "runtime_version_identity": runtime_identity,
+        "runtime_projection_initial": runtime_projection,
+        "runtime_projection_final": runtime_projection,
+        "runtime_projection_identity_stable": True,
+        "runtime_api_posture": runtime_posture,
+    }
+
+    runner._assert_recovered_candidate_runtime(
+        receipt=receipt,
+        compose=["docker", "compose"],
+        environment={},
+        project=PROJECT,
+        base_url="http://127.0.0.1:18091",
+        projection=projection,
+        candidate_env={},
+        compose_attestation=compose_attestation,
+        execution_inputs_evidence=execution_inputs,
+        execution_environment_sha256="e" * 64,
+    )
+    assert observed_hashes == ["e" * 64]
+
+    receipt["projection_sha256"] = "f" * 64
+    with pytest.raises(RuntimeError, match="recovered_projection_identity_invalid"):
+        runner._assert_recovered_candidate_runtime(
+            receipt=receipt,
+            compose=["docker", "compose"],
+            environment={},
+            project=PROJECT,
+            base_url="http://127.0.0.1:18091",
+            projection=projection,
+            candidate_env={},
+            compose_attestation=compose_attestation,
+            execution_inputs_evidence=execution_inputs,
+            execution_environment_sha256="e" * 64,
+        )
+
+
+def test_runtime_projection_snapshot_must_equal_prepared_file_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows = [
+        {
+            "path": "public_memorials/manfred/memorial.json",
+            "sha256": "a" * 64,
+            "size_bytes": 3,
+            "mode": "444",
+        }
+    ]
+    digest = prepare._sha256(
+        json.dumps(rows, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    )
+    projection = {
+        "projection_sha256": digest,
+        "projection_files": rows,
+        "projection_file_count": 1,
+        "projection_bytes": 3,
+    }
+    payload = {
+        "schema": runner.RUNTIME_PROJECTION_SCHEMA,
+        "projection_sha256": digest,
+        "rows": rows,
+    }
+    monkeypatch.setattr(
+        runner,
+        "_run_bounded_output",
+        lambda *_args, **_kwargs: json.dumps(payload).encode("utf-8"),
+    )
+
+    evidence = runner._candidate_runtime_projection_evidence(
+        compose=["docker", "compose"],
+        environment={},
+        projection=projection,
+    )
+    assert evidence["projection_sha256"] == digest
+    assert evidence["runtime_bytes_match_prepared_projection"] is True
+
+    payload["rows"] = [{**rows[0], "sha256": "b" * 64}]
+    with pytest.raises(RuntimeError, match="runtime_projection_mismatch"):
+        runner._candidate_runtime_projection_evidence(
+            compose=["docker", "compose"],
+            environment={},
+            projection=projection,
+        )
+
+
+@pytest.mark.parametrize("receipt_case", ["hardlink", "noncanonical"])
+def test_projection_receipt_rejects_replaceable_or_noncanonical_evidence(
+    tmp_path: Path,
+    receipt_case: str,
+) -> None:
+    release_root = tmp_path / "releases" / "release-a"
+    release_root.mkdir(parents=True)
+    receipt_path = tmp_path / "receipts" / "release-a.json"
+    receipt_path.parent.mkdir()
+    if receipt_case == "hardlink":
+        receipt_path.write_bytes(prepare._receipt_bytes({"status": "pass"}))
+        os.link(receipt_path, receipt_path.with_name("operator-backup.json"))
+    else:
+        receipt_path.write_bytes(b'{"status":"pass"}\n')
+    receipt_path.chmod(0o600)
+
+    with pytest.raises(RuntimeError, match="projection_receipt_(invalid|mismatch)"):
+        runner._projection_evidence({"EA_MANFRED_RELEASE_ROOT": str(release_root)})
+
+
+def test_spatial_projection_revalidation_threads_retained_review_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    release_root = tmp_path / "releases" / "release-a"
+    spatial_root = release_root / "public_property_tours"
+    spatial_root.mkdir(parents=True)
+    slug = prepare.PROPERTY_AUTHORIZED_SLUG
+    asset_paths = [
+        "generated-reconstruction/reconstruction.json",
+        "generated-reconstruction/source-floorplan.png",
+        "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
+        "generated-reconstruction/vendor/three.module.js",
+        "generated-reconstruction/viewer.html",
+    ]
+    observed_files = [
+        {
+            "path": f"{slug}/tour.json",
+            "sha256": "1" * 64,
+            "size_bytes": 1,
+            "mode": "444",
+        },
+        *[
+            {
+                "path": f"{slug}/{path}",
+                "sha256": format(index, "064x"),
+                "size_bytes": 1,
+                "mode": "444",
+            }
+            for index, path in enumerate(asset_paths, start=2)
+        ],
+    ]
+    spatial_digest = "a" * 64
+    final_path = (tmp_path / "review" / "final.json").resolve()
+    browser_path = (tmp_path / "review" / "browser.json").resolve()
+    review_evidence = {
+        "flagship_final": {
+            "schema": "propertyquarry.flagship_3d_review_receipt.v1",
+            "status": "polished_review_candidate_pass_guarded_not_published",
+            "sha256": "b" * 64,
+            "source_path": str(final_path),
+        },
+        "exact_viewer_browser": {
+            "schema": "propertyquarry.exact_viewer_browser_audit.v3",
+            "status": "pass",
+            "sha256": "c" * 64,
+            "source_path": str(browser_path),
+        },
+    }
+    authority = {
+        "schema": prepare.PROPERTY_PUBLICATION_AUTHORITY_SCHEMA,
+        "status": "authorized",
+        "public_activation_authority": True,
+    }
+    authority_sha256 = prepare._sha256(prepare._canonical_json_bytes(authority))
+    monkeypatch.setattr(runner, "PROPERTY_AUTHORITY_SHA256", authority_sha256)
+    receipt = {
+        "schema": prepare.SPATIAL_PROJECTION_SCHEMA,
+        "status": "pass",
+        "release_id": "release-a",
+        "public_activation_authority": False,
+        "spatial_release_root": str(spatial_root),
+        "spatial_handoff_included": True,
+        "candidate_handoff_authorized": True,
+        "slug": slug,
+        "spatial_projection_sha256": spatial_digest,
+        "files": observed_files,
+        "file_count": 6,
+        "projection_bytes": 6,
+        "asset_paths": asset_paths,
+        "viewer_relpath": "generated-reconstruction/viewer.html",
+        "proof_relpath": "generated-reconstruction/reconstruction.json",
+        "route_labels": ["entry", "living"],
+        "upstream_publication_authority": authority,
+        "upstream_publication_authority_sha256": authority_sha256,
+        "upstream_public_activation_authority": True,
+        "upstream_package_sha256": "d" * 64,
+        "upstream_tour_manifest_sha256": "e" * 64,
+        "pre_authority_manifest_canonical_sha256": "f" * 64,
+        "review_evidence": review_evidence,
+    }
+    receipt_path = tmp_path / "receipts" / "release-a.spatial.json"
+    receipt_path.parent.mkdir()
+    receipt_bytes = prepare._receipt_bytes(receipt)
+    receipt_path.write_bytes(receipt_bytes)
+    receipt_path.chmod(0o600)
+    projection_receipt = {
+        "spatial_receipt_path": str(receipt_path),
+        "spatial_receipt_sha256": prepare._sha256(receipt_bytes),
+        "spatial_release_root": str(spatial_root),
+        "spatial_handoff_included": True,
+        "spatial_slug": slug,
+        "spatial_projection_sha256": spatial_digest,
+        "spatial_file_count": 6,
+        "spatial_projection_bytes": 6,
+        "spatial_upstream_public_activation_authority": True,
+        "spatial_ea_public_activation_authority": False,
+    }
+    snapshot = {"tour.json": b"{}\n", **{path: b"x" for path in asset_paths}}
+    validated = {
+        "slug": slug,
+        "asset_paths": asset_paths,
+        "viewer_relpath": "generated-reconstruction/viewer.html",
+        "proof_relpath": "generated-reconstruction/reconstruction.json",
+        "route_labels": ["entry", "living"],
+        "upstream_publication_authority": authority,
+        "upstream_publication_authority_sha256": authority_sha256,
+        "upstream_public_activation_authority": True,
+        "upstream_package_sha256": "d" * 64,
+        "upstream_tour_manifest_sha256": "e" * 64,
+        "pre_authority_manifest_canonical_sha256": "f" * 64,
+        "review_evidence": review_evidence,
+    }
+    captured: list[tuple[Path, Path]] = []
+
+    def validate(**kwargs: object) -> dict[str, object]:
+        captured.append(
+            (
+                Path(str(kwargs["final_review_receipt_path"])),
+                Path(str(kwargs["browser_review_receipt_path"])),
+            )
+        )
+        return validated
+
+    monkeypatch.setattr(
+        runner,
+        "_tree_digest",
+        lambda _root: (spatial_digest, observed_files),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_spatial_tree_snapshot",
+        lambda *_args, **_kwargs: snapshot,
+    )
+    monkeypatch.setattr(runner, "_validated_property_publication", validate)
+    monkeypatch.setattr(
+        runner,
+        "verify_spatial_bundle",
+        lambda *_args, **_kwargs: {"pass": True, "checks": {"binding_count": 5}},
+    )
+
+    evidence = runner._spatial_projection_evidence(
+        {
+            "EA_MANFRED_SPATIAL_RELEASE_ROOT": str(spatial_root),
+            "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED": "1",
+            "EA_MANFRED_SPATIAL_SLUG": slug,
+            "EA_MANFRED_SPATIAL_SHA256": spatial_digest,
+            "EA_PUBLIC_APP_BASE_URL": "https://myexternalbrain.com",
+        },
+        projection_receipt=projection_receipt,
+        release_root=release_root,
+        release_id="release-a",
+    )
+
+    assert captured == [(final_path, browser_path)]
+    assert evidence["included"] is True
+    assert evidence["upstream_public_activation_authority"] is True

@@ -1,0 +1,15 @@
+{
+  "contract_name": "projection.desktop_visual_familiarity_exit_gate",
+  "generated_at": "2026-07-15T00:00:00Z",
+  "projection_redacted": true,
+  "proof_tokens": [
+    "07-loaded-runner-tabs-light.png",
+    "Loaded_runner_preserves_visible_character_tab_posture",
+    "02-menu-open-light.png",
+    "Runtime_backed_menu_bar_preserves_classic_labels_and_clickable_primary_menus",
+    "10-contacts-section-light.png",
+    "legacyContactsWorkflowRhythm",
+    "11-diary-dialog-light.png",
+    "legacyDiaryWorkflowRhythm"
+  ]
+}

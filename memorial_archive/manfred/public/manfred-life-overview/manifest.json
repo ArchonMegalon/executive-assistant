@@ -18,15 +18,15 @@
     "html_path": "build/index.html",
     "pdf_path": "build/output.pdf"
   },
-  "sha256": "554be399353adb9e5befd41463a472a99b31b59361872c05b14056505d3d0f98",
+  "sha256": "eb411ea5fd1458c7b85f9dbd03281da449786f433a519b25c791e85eba7f574c",
   "description": "Ein gepr\u00fcfter \u00dcberblick \u00fcber Leben, Quellen und zentrale Erinnerungsmuster.",
-  "correction_contact": "memorial@myexternalbrain.com",
+  "correction_contact": "/memorials/manfred#memorial-contribution",
   "ai_disclosure": "KI-unterst\u00fctzte Formatierung; keine direkte Rede von Manfred, sofern sie nicht ausdr\u00fccklich als w\u00f6rtliche Quelle gekennzeichnet ist.",
-  "contact_or_correction_path": "memorial@myexternalbrain.com",
+  "contact_or_correction_path": "/memorials/manfred#memorial-contribution",
   "noindex": false,
   "share_with_memorial_app": true,
   "public": true,
   "published_date": "2026-06-05",
   "source_sha256": "3d08a52ae88ffe3d17b2eb01c524055f19be02593a6de25b05fd1425cbb10eaf",
-  "built_at": "2026-07-11T07:07:13Z"
+  "built_at": "2026-07-15T00:23:23Z"
 }

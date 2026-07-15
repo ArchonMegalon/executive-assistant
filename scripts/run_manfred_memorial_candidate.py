@@ -8,6 +8,7 @@ import fcntl
 import hashlib
 import json
 import os
+import secrets
 import signal
 import socket
 import stat
@@ -18,6 +19,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -26,42 +28,62 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.prepare_manfred_memorial_candidate import (  # noqa: E402
+    CANDIDATE_RELEASE_AUTHORITY_DIRNAME,
     PROPERTY_AUTHORITY_SHA256,
     PROPERTY_PUBLICATION_AUTHORITY_SCHEMA,
+    RECEIPT_SCHEMA as PROJECTION_RECEIPT_SCHEMA,
     SPATIAL_PROJECTION_SCHEMA,
     SPATIAL_SLUG_RE,
     _canonical_json_bytes,
     _parse_env,
+    _parse_env_bytes,
+    _read_private_output,
     _receipt_bytes,
     _sha256,
     _spatial_tree_snapshot,
     _tree_digest,
+    _validate_candidate_release_authority_bundle,
     _validated_property_publication,
     _validate_project_name,
+)
+from scripts.manfred_candidate_fleet_lock import (  # noqa: E402
+    hold_candidate_fleet_lock,
+)
+from scripts.manfred_candidate_registry import (  # noqa: E402
+    candidate_registry_recovery_state,
+    clear_candidate_pending,
+    clear_candidate_pending_exact,
+    register_candidate_pending,
+    register_candidate_receipt,
 )
 from scripts.verify_public_tour_generated_viewer_release import (  # noqa: E402
     verify_bundle as verify_spatial_bundle,
 )
 from scripts.verify_manfred_memorial_candidate import (  # noqa: E402
+    _withdraw_contribution,
     audit_browser_surface,
     verify_candidate,
 )
 from scripts.verify_manfred_spatial_candidate_browser import (  # noqa: E402
+    _candidate_version as _verified_candidate_version,
     audit_spatial_candidate_browser,
     validate_spatial_candidate_browser_receipt,
 )
 
 
-RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_runtime.v3"
+RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_runtime.v4"
 ALLOWED_ENV_KEYS = {
     "DATABASE_URL",
     "EA_API_TOKEN",
     "EA_MANFRED_COMPOSE_PROJECT",
+    "EA_MANFRED_COMMIT",
+    "EA_MANFRED_DEPLOYMENT_ID",
     "EA_MANFRED_ENV_FILE",
     "EA_MANFRED_HOST_PORT",
     "EA_MANFRED_IMAGE",
     "EA_MANFRED_POSTGRES_PASSWORD",
     "EA_MANFRED_RELEASE_ROOT",
+    "EA_MANFRED_RELEASE_AUTHORITY_ROOT",
     "EA_MANFRED_RUNTIME_ROOT",
     "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED",
     "EA_MANFRED_SPATIAL_RELEASE_ROOT",
@@ -90,6 +112,13 @@ DOCKER_ENV_PASSTHROUGH = (
 EXPECTED_CANDIDATE_NETWORKS = ("backend", "ingress")
 EXPECTED_CANDIDATE_VOLUMES = ("artifacts", "postgres_data", "redis_data")
 EXPECTED_CANDIDATE_SERVICES = ("api", "gateway", "postgres", "redis")
+CANDIDATE_COMPOSE_RELATIVE_PATH = Path(
+    "deploy/manfred-memorial/docker-compose.candidate.yml"
+)
+CANDIDATE_COMPOSE_MAX_BYTES = 1024 * 1024
+CANDIDATE_ENV_MAX_BYTES = 1024 * 1024
+PROJECTION_RECEIPT_MAX_BYTES = 1024 * 1024
+EXECUTION_INPUT_SCHEMA = "ea.manfred_candidate_execution_inputs.v1"
 CANDIDATE_COMPOSE_DOWN_TIMEOUTS = (120, 180)
 PORT_RELEASE_WAIT_SECONDS = 10.0
 PORT_RELEASE_POLL_SECONDS = 0.1
@@ -104,12 +133,35 @@ INTERNAL_TRANSPORT_PATHS = frozenset(
         "/memorials/manfred?from=ea-transport-verifier",
     }
 )
+RECEIPT_PATH_INVALID = "manfred_candidate_receipt_path_invalid"
+RECEIPT_PARENT_INVALID = "manfred_candidate_receipt_parent_invalid"
+RECEIPT_OUTPUT_EXISTS = "manfred_candidate_receipt_output_exists"
+RECEIPT_ARTIFACT_INVALID = "manfred_candidate_receipt_artifact_invalid"
+RECEIPT_WRITE_FAILED = "manfred_candidate_receipt_write_failed"
 
 
 class GovernedSignalInterrupt(BaseException):
     def __init__(self, signum: int) -> None:
         self.signum = int(signum)
         super().__init__(f"manfred_candidate_governed_signal:{self.signum}")
+
+
+@dataclass(frozen=True)
+class _CreatedReceiptArtifact:
+    path: Path
+    device: int
+    inode: int
+    ctime_ns: int
+    size: int
+
+
+@dataclass(frozen=True)
+class _SealedExecutionInputs:
+    compose_descriptor: int
+    environment_descriptor: int
+    compose_path: Path
+    environment_path: Path
+    evidence: dict[str, object]
 
 
 @contextlib.contextmanager
@@ -156,9 +208,15 @@ def _safe_subprocess_environment() -> dict[str, str]:
     return environment
 
 
-def _compose_environment(candidate_env: dict[str, str]) -> dict[str, str]:
+def _compose_environment(
+    candidate_env: dict[str, str],
+    *,
+    execution_env_file: Path | None = None,
+) -> dict[str, str]:
     environment = _safe_subprocess_environment()
     environment.update(candidate_env)
+    if execution_env_file is not None:
+        environment["EA_MANFRED_ENV_FILE"] = str(execution_env_file)
     environment.pop("COMPOSE_PROJECT_NAME", None)
     environment.pop("COMPOSE_FILE", None)
     return environment
@@ -191,7 +249,10 @@ def _run_bounded_output(
     stderr_limit: int,
     output_limit_error: str,
 ) -> bytes:
-    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+    with (
+        tempfile.TemporaryFile() as stdout_file,
+        tempfile.TemporaryFile() as stderr_file,
+    ):
         completed = subprocess.run(
             argv,
             check=False,
@@ -478,6 +539,122 @@ if len(raw) > {MAX_OPENAPI_DOCUMENT_BYTES}:
 sys.stdout.buffer.write(raw)
 """.strip()
 
+RUNTIME_PROJECTION_SCHEMA = "ea.manfred_candidate_runtime_projection.v1"
+MAX_RUNTIME_PROJECTION_SNAPSHOT_BYTES = 4 * 1024 * 1024
+RUNTIME_PROJECTION_SNAPSHOT_SCRIPT = r"""
+import hashlib
+import json
+import os
+import stat
+import sys
+
+ROOTS = (
+    ("/data/memorial/public", "public_memorials"),
+    ("/data/memorial/private", "private_memorial_profiles"),
+    ("/data/memorial/archive", "memorial_archive"),
+    ("/data/public_property_tours", "public_property_tours"),
+    ("/data/release-authority", "release-authority"),
+)
+
+def identity(metadata):
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+directory_flags = os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW
+file_flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+rows = []
+
+def walk(directory_descriptor, projected):
+    before = os.fstat(directory_descriptor)
+    if not stat.S_ISDIR(before.st_mode) or stat.S_IMODE(before.st_mode) != 0o550:
+        raise RuntimeError("runtime_projection_directory_invalid")
+    for name in sorted(os.listdir(directory_descriptor)):
+        if name in {"", ".", ".."} or "/" in name:
+            raise RuntimeError("runtime_projection_path_invalid")
+        initial = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        child_path = (*projected, name)
+        if stat.S_ISDIR(initial.st_mode) and not stat.S_ISLNK(initial.st_mode):
+            child = os.open(name, directory_flags, dir_fd=directory_descriptor)
+            try:
+                opened = os.fstat(child)
+                if identity(initial) != identity(opened):
+                    raise RuntimeError("runtime_projection_changed")
+                walk(child, child_path)
+                if identity(opened) != identity(os.fstat(child)):
+                    raise RuntimeError("runtime_projection_changed")
+            finally:
+                os.close(child)
+            final_path = os.stat(
+                name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if identity(initial) != identity(final_path):
+                raise RuntimeError("runtime_projection_changed")
+            continue
+        if (
+            not stat.S_ISREG(initial.st_mode)
+            or stat.S_ISLNK(initial.st_mode)
+            or initial.st_nlink != 1
+            or stat.S_IMODE(initial.st_mode) not in {0o440, 0o444}
+        ):
+            raise RuntimeError("runtime_projection_file_invalid")
+        descriptor = os.open(name, file_flags, dir_fd=directory_descriptor)
+        try:
+            opened = os.fstat(descriptor)
+            if identity(initial) != identity(opened):
+                raise RuntimeError("runtime_projection_changed")
+            digest = hashlib.sha256()
+            size = 0
+            while True:
+                chunk = os.read(descriptor, 1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+                size += len(chunk)
+            if identity(opened) != identity(os.fstat(descriptor)) or size != opened.st_size:
+                raise RuntimeError("runtime_projection_changed")
+        finally:
+            os.close(descriptor)
+        final_path = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        if identity(initial) != identity(final_path):
+            raise RuntimeError("runtime_projection_changed")
+        rows.append(
+            {
+                "path": "/".join(child_path),
+                "sha256": digest.hexdigest(),
+                "size_bytes": size,
+                "mode": format(stat.S_IMODE(initial.st_mode), "03o"),
+            }
+        )
+    if identity(before) != identity(os.fstat(directory_descriptor)):
+        raise RuntimeError("runtime_projection_changed")
+
+for source, prefix in ROOTS:
+    root = os.open(source, directory_flags)
+    try:
+        walk(root, (prefix,))
+    finally:
+        os.close(root)
+rows.sort(key=lambda row: row["path"])
+encoded = json.dumps(rows, separators=(",", ":"), sort_keys=True).encode("utf-8")
+payload = {
+    "projection_sha256": hashlib.sha256(encoded).hexdigest(),
+    "rows": rows,
+    "schema": "ea.manfred_candidate_runtime_projection.v1",
+}
+sys.stdout.buffer.write(
+    json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+)
+""".strip()
+
 
 def _resolve_openapi_ref(document: dict[str, object], ref: str) -> object:
     if not ref.startswith("#/"):
@@ -685,12 +862,10 @@ def _version_openapi_evolution_preserved(
     live = json.loads(json.dumps(live_operation))
     candidate = json.loads(json.dumps(candidate_operation))
     try:
-        live_schema = live["responses"]["200"]["content"]["application/json"][
+        live_schema = live["responses"]["200"]["content"]["application/json"]["schema"]
+        candidate_schema = candidate["responses"]["200"]["content"]["application/json"][
             "schema"
         ]
-        candidate_schema = candidate["responses"]["200"]["content"][
-            "application/json"
-        ]["schema"]
     except (KeyError, TypeError):
         return False
     if (
@@ -708,8 +883,7 @@ def _version_openapi_evolution_preserved(
     if not isinstance(variants, list) or len(variants) != 2:
         return False
     canonical_variants = {
-        json.dumps(value, separators=(",", ":"), sort_keys=True)
-        for value in variants
+        json.dumps(value, separators=(",", ":"), sort_keys=True) for value in variants
     }
     if canonical_variants != {'{"type":"boolean"}', '{"type":"string"}'}:
         return False
@@ -893,16 +1067,17 @@ def _spatial_projection_evidence(
         != str(expected_root)
         or not receipt_path.is_absolute()
         or receipt_path != expected_receipt_path
-        or not receipt_path.is_file()
-        or receipt_path.is_symlink()
-        or stat.S_IMODE(receipt_path.stat().st_mode) != 0o600
-        or receipt_path.stat().st_nlink != 1
     ):
         raise RuntimeError("manfred_candidate_spatial_projection_receipt_invalid")
     try:
-        receipt_bytes = receipt_path.read_bytes()
+        receipt_bytes = _read_private_output(
+            receipt_path,
+            maximum=PROJECTION_RECEIPT_MAX_BYTES,
+        )
+        if receipt_bytes is None:  # pragma: no cover - missing_ok is false
+            raise ValueError("manfred_candidate_spatial_projection_receipt_invalid")
         receipt = json.loads(receipt_bytes)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RuntimeError(
             "manfred_candidate_spatial_projection_receipt_invalid"
         ) from exc
@@ -928,8 +1103,7 @@ def _spatial_projection_evidence(
         or projection_receipt.get("spatial_slug") != slug
         or receipt.get("spatial_projection_sha256") != digest
         or projection_receipt.get("spatial_projection_sha256") != digest
-        or projection_receipt.get("spatial_ea_public_activation_authority")
-        is not False
+        or projection_receipt.get("spatial_ea_public_activation_authority") is not False
     ):
         raise RuntimeError("manfred_candidate_spatial_projection_receipt_mismatch")
     try:
@@ -961,33 +1135,17 @@ def _spatial_projection_evidence(
         "ea_public_activation_authority": False,
     }
     if not included:
-        if (
-            slug
-            or observed_files
-            or receipt.get("asset_paths")
-            or receipt.get("upstream_publication_authority")
-            or receipt.get("upstream_public_activation_authority") is not False
-            or projection_receipt.get(
-                "spatial_upstream_public_activation_authority"
-            )
-            is not False
-        ):
-            raise RuntimeError("manfred_candidate_spatial_empty_projection_invalid")
-        return evidence
+        raise RuntimeError("manfred_candidate_spatial_handoff_required")
 
     asset_paths = list(receipt.get("asset_paths") or [])
     viewer_relpath = str(receipt.get("viewer_relpath") or "")
     proof_relpath = str(receipt.get("proof_relpath") or "")
-    upstream_authority = dict(
-        receipt.get("upstream_publication_authority") or {}
-    )
+    upstream_authority = dict(receipt.get("upstream_publication_authority") or {})
     authority_bytes = _canonical_json_bytes(upstream_authority)
     authority_sha256 = receipt.get("upstream_publication_authority_sha256")
     upstream_package_sha256 = receipt.get("upstream_package_sha256")
     upstream_tour_sha256 = receipt.get("upstream_tour_manifest_sha256")
-    pre_authority_sha256 = receipt.get(
-        "pre_authority_manifest_canonical_sha256"
-    )
+    pre_authority_sha256 = receipt.get("pre_authority_manifest_canonical_sha256")
     expected_paths = {f"{slug}/tour.json", *(f"{slug}/{path}" for path in asset_paths)}
     if (
         len(asset_paths) != 5
@@ -1002,39 +1160,55 @@ def _spatial_projection_evidence(
             )
         )
         or {str(row.get("path") or "") for row in observed_files} != expected_paths
-        or upstream_authority.get("schema")
-        != PROPERTY_PUBLICATION_AUTHORITY_SCHEMA
+        or upstream_authority.get("schema") != PROPERTY_PUBLICATION_AUTHORITY_SCHEMA
         or upstream_authority.get("status") != "authorized"
         or upstream_authority.get("public_activation_authority") is not True
         or receipt.get("upstream_public_activation_authority") is not True
-        or projection_receipt.get(
-            "spatial_upstream_public_activation_authority"
-        )
+        or projection_receipt.get("spatial_upstream_public_activation_authority")
         is not True
         or _sha256(authority_bytes) != authority_sha256
         or authority_sha256 != PROPERTY_AUTHORITY_SHA256
     ):
         raise RuntimeError("manfred_candidate_spatial_projection_contract_invalid")
     bundle = spatial_root / slug
-    try:
-        snapshot = _spatial_tree_snapshot(
-            bundle, require_sanitized_modes=False
+    review_evidence = receipt.get("review_evidence")
+    if not isinstance(review_evidence, dict) or set(review_evidence) != {
+        "exact_viewer_browser",
+        "flagship_final",
+    }:
+        raise RuntimeError("manfred_candidate_spatial_review_evidence_invalid")
+    review_paths: dict[str, Path] = {}
+    for name in ("flagship_final", "exact_viewer_browser"):
+        row = review_evidence.get(name)
+        if not isinstance(row, dict) or type(row.get("source_path")) is not str:
+            raise RuntimeError("manfred_candidate_spatial_review_evidence_invalid")
+        raw_path = str(row["source_path"])
+        normalized_path = Path(
+            os.path.abspath(os.fspath(Path(raw_path).expanduser()))
         )
+        if not Path(raw_path).is_absolute() or str(normalized_path) != raw_path:
+            raise RuntimeError("manfred_candidate_spatial_review_evidence_invalid")
+        review_paths[name] = normalized_path
+    try:
+        snapshot = _spatial_tree_snapshot(bundle, require_sanitized_modes=False)
         validated = _validated_property_publication(
             snapshot=snapshot,
             authority_bytes=authority_bytes,
             target_origin=env["EA_PUBLIC_APP_BASE_URL"],
+            final_review_receipt_path=review_paths["flagship_final"],
+            browser_review_receipt_path=review_paths["exact_viewer_browser"],
         )
     except (OSError, ValueError) as exc:
-        raise RuntimeError("manfred_candidate_spatial_authority_binding_invalid") from exc
+        raise RuntimeError(
+            "manfred_candidate_spatial_authority_binding_invalid"
+        ) from exc
     if (
         validated.get("slug") != slug
         or validated.get("asset_paths") != asset_paths
         or validated.get("viewer_relpath") != viewer_relpath
         or validated.get("proof_relpath") != proof_relpath
         or validated.get("route_labels") != list(receipt.get("route_labels") or [])
-        or validated.get("upstream_publication_authority_sha256")
-        != authority_sha256
+        or validated.get("upstream_publication_authority_sha256") != authority_sha256
         or validated.get("upstream_package_sha256") != upstream_package_sha256
         or validated.get("upstream_tour_manifest_sha256") != upstream_tour_sha256
         or validated.get("pre_authority_manifest_canonical_sha256")
@@ -1071,17 +1245,17 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         raise RuntimeError("manfred_candidate_release_root_invalid")
     release_id = release_root.name
     receipt_path = release_root.parent.parent / "receipts" / f"{release_id}.json"
-    if (
-        not receipt_path.is_file()
-        or receipt_path.is_symlink()
-        or stat.S_IMODE(receipt_path.stat().st_mode) != 0o600
-    ):
-        raise RuntimeError("manfred_candidate_projection_receipt_invalid")
     try:
-        payload = json.loads(receipt_path.read_bytes())
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        receipt_bytes = _read_private_output(
+            receipt_path,
+            maximum=PROJECTION_RECEIPT_MAX_BYTES,
+        )
+        if receipt_bytes is None:  # pragma: no cover - missing_ok is false
+            raise ValueError("manfred_candidate_projection_receipt_invalid")
+        payload = json.loads(receipt_bytes)
+    except (OSError, ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise RuntimeError("manfred_candidate_projection_receipt_invalid") from exc
-    if not isinstance(payload, dict):
+    if not isinstance(payload, dict) or _receipt_bytes(payload) != receipt_bytes:
         raise RuntimeError("manfred_candidate_projection_receipt_mismatch")
     raw_digest = payload.get("projection_sha256")
     raw_commit = payload.get("commit")
@@ -1101,7 +1275,7 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
     except (TypeError, ValueError):
         operator_gid = -1
     if (
-        payload.get("schema") != "ea.manfred_memorial_candidate_projection.v2"
+        payload.get("schema") != PROJECTION_RECEIPT_SCHEMA
         or payload.get("status") != "pass"
         or str(payload.get("release_id") or "") != release_id
         or str(payload.get("release_root") or "") != str(release_root)
@@ -1119,6 +1293,9 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         or operator_gid not in {os.getgid(), *os.getgroups()}
         or len(digest) != 64
         or any(character not in "0123456789abcdef" for character in digest)
+        or env["EA_MANFRED_COMMIT"] != commit
+        or env["EA_MANFRED_DEPLOYMENT_ID"]
+        != f"{env['EA_MANFRED_COMPOSE_PROJECT']}-{commit[:12]}"
     ):
         raise RuntimeError("manfred_candidate_projection_receipt_mismatch")
     try:
@@ -1138,15 +1315,32 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         release_root=release_root,
         release_id=release_id,
     )
+    authority_root = (release_root / CANDIDATE_RELEASE_AUTHORITY_DIRNAME).resolve()
+    if Path(env["EA_MANFRED_RELEASE_AUTHORITY_ROOT"]).resolve() != authority_root:
+        raise RuntimeError("manfred_candidate_release_authority_root_mismatch")
+    try:
+        release_authority = _validate_candidate_release_authority_bundle(
+            authority_root,
+            expected_commit=commit,
+            expected_image_id=image_id,
+            expected_project_name=env["EA_MANFRED_COMPOSE_PROJECT"],
+            expected_public_origin=env["EA_PUBLIC_APP_BASE_URL"],
+        )
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("manfred_candidate_release_authority_invalid") from exc
     return {
         "release_id": release_id,
         "release_root": str(release_root),
         "projection_sha256": digest,
+        "projection_files": observed_files,
+        "projection_file_count": len(observed_files),
+        "projection_bytes": sum(int(row["size_bytes"]) for row in observed_files),
         "projection_commit": commit,
         "prepared_image_locator": image,
         "prepared_image_id": image_id,
         "projection_tree_revalidated": True,
         "spatial_handoff": spatial,
+        "release_authority": release_authority,
     }
 
 
@@ -1179,7 +1373,8 @@ def _assert_prepared_image_locator(projection: dict[str, object]) -> dict[str, o
         "locator": locator,
         "resolved_image_id": expected_id,
         "revision_label": expected_commit,
-        "locator_only": True,
+        "used_for_attestation_only": True,
+        "consumed_by_compose": False,
     }
 
 
@@ -1252,6 +1447,299 @@ def _candidate_container_image_evidence(
         "prepared_image_id": expected_id,
         "revision_label": image_inspection["revision_label"],
         "all_match_prepared_image": True,
+    }
+
+
+def _docker_environment_map(value: object, *, error: str) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, list):
+        raise RuntimeError(error)
+    environment: dict[str, str] = {}
+    for raw in value:
+        if not isinstance(raw, str):
+            raise RuntimeError(error)
+        name, separator, content = raw.partition("=")
+        if not separator or not name or name in environment:
+            raise RuntimeError(error)
+        environment[name] = content
+    return environment
+
+
+def _candidate_api_runtime_posture(
+    *,
+    compose: list[str],
+    environment: dict[str, str],
+    candidate_env: dict[str, str],
+    project: str,
+    projection: dict[str, object],
+    execution_environment_sha256: str,
+) -> dict[str, object]:
+    """Prove the exact post-launch API environment, mounts, and network."""
+
+    container_id = _compose_service_container_id(compose, environment, "api")
+    container_rows = _json_rows(
+        _run(
+            ["docker", "container", "inspect", container_id],
+            timeout=30,
+        ),
+        error="manfred_candidate_runtime_posture_inspection_invalid",
+    )
+    image_id = str(projection.get("prepared_image_id") or "")
+    image_rows = _json_rows(
+        _run(["docker", "image", "inspect", image_id], timeout=30),
+        error="manfred_candidate_runtime_posture_image_invalid",
+    )
+    if len(container_rows) != 1 or len(image_rows) != 1:
+        raise RuntimeError("manfred_candidate_runtime_posture_inspection_invalid")
+    row = container_rows[0]
+    image_row = image_rows[0]
+    config = dict(row.get("Config") or {})
+    host_config = dict(row.get("HostConfig") or {})
+    state = dict(row.get("State") or {})
+    labels = dict(config.get("Labels") or {})
+    health = dict(state.get("Health") or {})
+    if (
+        str(row.get("Id") or "") != container_id
+        or str(row.get("Image") or "") != image_id
+        or str(image_row.get("Id") or "") != image_id
+        or labels.get("com.docker.compose.project") != project
+        or labels.get("com.docker.compose.service") != "api"
+        or config.get("User") != "10001:10001"
+        or state.get("Running") is not True
+        or health.get("Status") != "healthy"
+        or host_config.get("ReadonlyRootfs") is not True
+        or {str(value).upper() for value in list(host_config.get("CapDrop") or [])}
+        != {"ALL"}
+        or set(str(value) for value in list(host_config.get("SecurityOpt") or []))
+        != {"no-new-privileges:true"}
+    ):
+        raise RuntimeError("manfred_candidate_runtime_posture_identity_invalid")
+
+    image_environment = _docker_environment_map(
+        dict(image_row.get("Config") or {}).get("Env"),
+        error="manfred_candidate_runtime_posture_image_environment_invalid",
+    )
+    expected_environment = {
+        **image_environment,
+        **candidate_env,
+        **_expected_candidate_api_environment(candidate_env),
+    }
+    actual_environment = _docker_environment_map(
+        config.get("Env"),
+        error="manfred_candidate_runtime_posture_environment_invalid",
+    )
+    provider_names = {
+        name
+        for name in actual_environment
+        if name.endswith(
+            (
+                "_API_KEY",
+                "_ACCESS_KEY_ID",
+                "_SECRET_ACCESS_KEY",
+                "_SERVICE_ACCOUNT_JSON",
+            )
+        )
+        or name
+        in {
+            "AWS_SESSION_TOKEN",
+            "AZURE_CLIENT_SECRET",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+        }
+    }
+    if actual_environment != expected_environment or provider_names:
+        raise RuntimeError("manfred_candidate_runtime_posture_environment_mismatch")
+
+    release_root = Path(candidate_env["EA_MANFRED_RELEASE_ROOT"])
+    runtime_root = Path(candidate_env["EA_MANFRED_RUNTIME_ROOT"])
+    expected_mounts: dict[str, tuple[str, str, bool]] = {
+        "/data/memorial/public": (
+            "bind",
+            str((release_root / "public_memorials").resolve()),
+            False,
+        ),
+        "/data/memorial/private": (
+            "bind",
+            str((release_root / "private_memorial_profiles").resolve()),
+            False,
+        ),
+        "/data/memorial/archive": (
+            "bind",
+            str((release_root / "memorial_archive").resolve()),
+            False,
+        ),
+        "/data/memorial/public-contributions": (
+            "bind",
+            str((runtime_root / "public-contributions").resolve()),
+            True,
+        ),
+        "/data/memorial/private-contributions": (
+            "bind",
+            str((runtime_root / "private-contributions").resolve()),
+            True,
+        ),
+        "/data/memorial/state": (
+            "bind",
+            str((runtime_root / "state").resolve()),
+            True,
+        ),
+        "/data/public_property_tours": (
+            "bind",
+            str(Path(candidate_env["EA_MANFRED_SPATIAL_RELEASE_ROOT"]).resolve()),
+            False,
+        ),
+        "/data/release-authority": (
+            "bind",
+            str(Path(candidate_env["EA_MANFRED_RELEASE_AUTHORITY_ROOT"]).resolve()),
+            False,
+        ),
+        "/data/artifacts": ("volume", f"{project}_artifacts", True),
+    }
+    actual_mounts: dict[str, tuple[str, str, bool]] = {}
+    mount_evidence: list[dict[str, object]] = []
+    for raw_mount in list(row.get("Mounts") or []):
+        if not isinstance(raw_mount, dict):
+            raise RuntimeError("manfred_candidate_runtime_posture_mount_invalid")
+        mount_type = str(raw_mount.get("Type") or "")
+        destination = str(raw_mount.get("Destination") or "")
+        if not destination or destination in actual_mounts:
+            raise RuntimeError("manfred_candidate_runtime_posture_mount_invalid")
+        identity = (
+            str(raw_mount.get("Source") or "")
+            if mount_type == "bind"
+            else str(raw_mount.get("Name") or "")
+        )
+        writable = raw_mount.get("RW") is True
+        actual_mounts[destination] = (mount_type, identity, writable)
+        mount_evidence.append(
+            {
+                "destination": destination,
+                "identity": identity,
+                "read_only": not writable,
+                "type": mount_type,
+            }
+        )
+    if actual_mounts != expected_mounts:
+        raise RuntimeError("manfred_candidate_runtime_posture_mount_mismatch")
+
+    expected_tmpfs = {
+        "/run": "rw,noexec,nosuid,nodev,mode=0755",
+        "/tmp": "rw,noexec,nosuid,nodev,mode=1777",
+    }
+    if dict(host_config.get("Tmpfs") or {}) != expected_tmpfs:
+        raise RuntimeError("manfred_candidate_runtime_posture_tmpfs_mismatch")
+
+    networks = dict(dict(row.get("NetworkSettings") or {}).get("Networks") or {})
+    expected_network = f"{project}_backend"
+    if set(networks) != {expected_network}:
+        raise RuntimeError("manfred_candidate_runtime_posture_network_mismatch")
+    environment_bytes = json.dumps(
+        actual_environment,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return {
+        "schema": "ea.manfred_candidate_api_runtime_posture.v1",
+        "api_container_id": container_id,
+        "image_id": image_id,
+        "environment_sha256": hashlib.sha256(environment_bytes).hexdigest(),
+        "execution_environment_sha256": execution_environment_sha256,
+        "environment_keys": sorted(actual_environment),
+        "environment_exact": True,
+        "provider_credentials_present": False,
+        "mounts": sorted(mount_evidence, key=lambda item: str(item["destination"])),
+        "mounts_exact": True,
+        "tmpfs_exact": True,
+        "networks": [expected_network],
+        "network_exact": True,
+        "ingress_attached": False,
+        "read_only_rootfs": True,
+        "all_capabilities_dropped": True,
+        "no_new_privileges": True,
+        "runtime_user": "10001:10001",
+        "running_and_healthy": True,
+    }
+
+
+def _candidate_runtime_projection_evidence(
+    *,
+    compose: list[str],
+    environment: dict[str, str],
+    projection: dict[str, object],
+) -> dict[str, object]:
+    expected_files = projection.get("projection_files")
+    if not isinstance(expected_files, list) or any(
+        not isinstance(row, dict) for row in expected_files
+    ):
+        raise RuntimeError("manfred_candidate_runtime_projection_expected_invalid")
+    try:
+        raw = _run_bounded_output(
+            [
+                *compose,
+                "exec",
+                "-T",
+                "api",
+                "python",
+                "-c",
+                RUNTIME_PROJECTION_SNAPSHOT_SCRIPT,
+            ],
+            timeout=120,
+            environment=environment,
+            stdout_limit=MAX_RUNTIME_PROJECTION_SNAPSHOT_BYTES,
+            stderr_limit=1024 * 1024,
+            output_limit_error="manfred_candidate_runtime_projection_output_too_large",
+        )
+        payload = json.loads(raw)
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        subprocess.SubprocessError,
+    ) as exc:
+        raise RuntimeError(
+            "manfred_candidate_runtime_projection_unavailable"
+        ) from exc
+    if not isinstance(payload, dict) or set(payload) != {
+        "projection_sha256",
+        "rows",
+        "schema",
+    }:
+        raise RuntimeError("manfred_candidate_runtime_projection_invalid")
+    rows = payload.get("rows")
+    encoded = json.dumps(
+        rows,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()
+    projection_bytes = sum(
+        int(dict(row).get("size_bytes") or 0)
+        for row in rows
+        if isinstance(row, dict)
+    ) if isinstance(rows, list) else -1
+    if (
+        payload.get("schema") != RUNTIME_PROJECTION_SCHEMA
+        or rows != expected_files
+        or payload.get("projection_sha256") != digest
+        or digest != projection.get("projection_sha256")
+        or len(expected_files) != projection.get("projection_file_count")
+        or projection_bytes != projection.get("projection_bytes")
+    ):
+        raise RuntimeError("manfred_candidate_runtime_projection_mismatch")
+    return {
+        "schema": RUNTIME_PROJECTION_SCHEMA,
+        "projection_sha256": digest,
+        "file_count": len(expected_files),
+        "projection_bytes": projection_bytes,
+        "mount_roots": [
+            "/data/memorial/public",
+            "/data/memorial/private",
+            "/data/memorial/archive",
+            "/data/public_property_tours",
+            "/data/release-authority",
+        ],
+        "runtime_bytes_match_prepared_projection": True,
     }
 
 
@@ -1419,9 +1907,19 @@ def _hold_project_lock(project: str):
 
 @contextlib.contextmanager
 def _hold_candidate_locks(project: str, port: int):
-    with _hold_project_lock(project) as project_evidence:
-        with _hold_port_lock(port) as port_evidence:
-            yield {"project": project_evidence, "port": port_evidence}
+    with hold_candidate_fleet_lock() as fleet_evidence:
+        if fleet_evidence is None:  # pragma: no cover - raising mode
+            raise RuntimeError("manfred_candidate_fleet_lock_held")
+        with _hold_project_lock(project) as project_evidence:
+            with _hold_port_lock(port) as port_evidence:
+                yield {
+                    "project": project_evidence,
+                    "port": port_evidence,
+                    "fleet": {
+                        **fleet_evidence,
+                        "held_through_candidate_proof": True,
+                    },
+                }
 
 
 def _assert_candidate_project_absent(project: str) -> dict[str, object]:
@@ -1471,22 +1969,24 @@ def _force_remove_candidate_project(project: str) -> None:
     expected_container_names = set(named["containers"])
     expected_network_names = set(named["networks"])
     expected_volume_names = set(named["volumes"])
-    if any(
-        not str(row.get("container_id") or "")
-        or str(row.get("name") or "") not in expected_container_names
-        or str(row.get("service") or "") not in EXPECTED_CANDIDATE_SERVICES
-        for row in containers
-    ) or any(
-        not str(row.get("network_id") or "")
-        or str(row.get("name") or "") not in expected_network_names
-        or str(row.get("compose_network") or "")
-        not in EXPECTED_CANDIDATE_NETWORKS
-        for row in networks
-    ) or any(
-        str(row.get("name") or "") not in expected_volume_names
-        or str(row.get("compose_volume") or "")
-        not in EXPECTED_CANDIDATE_VOLUMES
-        for row in volumes
+    if (
+        any(
+            not str(row.get("container_id") or "")
+            or str(row.get("name") or "") not in expected_container_names
+            or str(row.get("service") or "") not in EXPECTED_CANDIDATE_SERVICES
+            for row in containers
+        )
+        or any(
+            not str(row.get("network_id") or "")
+            or str(row.get("name") or "") not in expected_network_names
+            or str(row.get("compose_network") or "") not in EXPECTED_CANDIDATE_NETWORKS
+            for row in networks
+        )
+        or any(
+            str(row.get("name") or "") not in expected_volume_names
+            or str(row.get("compose_volume") or "") not in EXPECTED_CANDIDATE_VOLUMES
+            for row in volumes
+        )
     ):
         raise RuntimeError("manfred_candidate_forced_cleanup_scope_invalid")
     if containers:
@@ -1541,10 +2041,7 @@ def _cleanup_candidate_project(
     ):
         raise RuntimeError("manfred_candidate_cleanup_scope_invalid")
     project_index = compose.index("--project-name")
-    if (
-        project_index + 1 >= len(compose)
-        or compose[project_index + 1] != safe_project
-    ):
+    if project_index + 1 >= len(compose) or compose[project_index + 1] != safe_project:
         raise RuntimeError("manfred_candidate_cleanup_scope_invalid")
     down = [
         *compose,
@@ -1576,7 +2073,26 @@ def _candidate_preflight(project: str, port: int) -> dict[str, object]:
     }
 
 
+def _candidate_runtime_version_identity(
+    base_url: str,
+    *,
+    expected_commit: str,
+    oci_image_revision: str,
+) -> dict[str, object]:
+    try:
+        return _verified_candidate_version(
+            base_url,
+            expected_commit=expected_commit,
+            oci_image_revision=oci_image_revision,
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise RuntimeError(
+            "manfred_candidate_runtime_version_identity_invalid"
+        ) from exc
+
+
 def _candidate_runtime_source_revision(base_url: str) -> str:
+    """Compatibility probe for callers that only need the immutable revision."""
     request = urllib.request.Request(
         f"{str(base_url or '').rstrip('/')}/memorials/manfred.json",
         method="GET",
@@ -1584,7 +2100,7 @@ def _candidate_runtime_source_revision(base_url: str) -> str:
     )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
-            if int(response.status or 0) != 200:
+            if int(getattr(response, "status", 0) or 0) != 200:
                 raise RuntimeError("manfred_candidate_runtime_revision_probe_status")
             revision = str(response.headers.get("X-EA-Source-Revision") or "").strip()
     except (OSError, urllib.error.URLError) as exc:
@@ -1596,6 +2112,387 @@ def _candidate_runtime_source_revision(base_url: str) -> str:
     ):
         raise RuntimeError("manfred_candidate_runtime_revision_invalid")
     return revision
+
+
+def _candidate_compose_source_snapshot(
+    compose_file: Path,
+    *,
+    expected_commit: str,
+) -> tuple[dict[str, object], bytes]:
+    canonical_path = (ROOT / CANDIDATE_COMPOSE_RELATIVE_PATH).resolve()
+    supplied_path = compose_file.expanduser()
+    if supplied_path.is_symlink():
+        raise RuntimeError("manfred_candidate_compose_source_invalid")
+    try:
+        resolved_path = supplied_path.resolve(strict=True)
+    except OSError as exc:
+        raise RuntimeError("manfred_candidate_compose_source_invalid") from exc
+    if resolved_path != canonical_path or canonical_path.is_symlink():
+        raise RuntimeError("manfred_candidate_compose_source_not_canonical")
+
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(canonical_path, flags)
+    except OSError as exc:
+        raise RuntimeError("manfred_candidate_compose_source_invalid") from exc
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_size <= 0
+            or before.st_size > CANDIDATE_COMPOSE_MAX_BYTES
+        ):
+            raise RuntimeError("manfred_candidate_compose_source_invalid")
+        chunks: list[bytes] = []
+        remaining = CANDIDATE_COMPOSE_MAX_BYTES + 1
+        while remaining:
+            chunk = os.read(descriptor, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        source_bytes = b"".join(chunks)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        path_stat = canonical_path.stat()
+    except OSError as exc:
+        raise RuntimeError("manfred_candidate_compose_source_invalid") from exc
+    stable_identity = (
+        before.st_dev,
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+        before.st_ctime_ns,
+    )
+    if (
+        len(source_bytes) != before.st_size
+        or stable_identity
+        != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        )
+        or (path_stat.st_dev, path_stat.st_ino) != (before.st_dev, before.st_ino)
+    ):
+        raise RuntimeError("manfred_candidate_compose_source_changed_during_read")
+
+    commit = str(expected_commit or "")
+    if (
+        len(commit) != 40
+        or commit != commit.lower()
+        or any(character not in "0123456789abcdef" for character in commit)
+    ):
+        raise RuntimeError("manfred_candidate_compose_commit_invalid")
+    object_spec = f"{commit}:{CANDIDATE_COMPOSE_RELATIVE_PATH.as_posix()}"
+    try:
+        blob_oid = (
+            _run(
+                [
+                    "git",
+                    "-C",
+                    str(ROOT),
+                    "rev-parse",
+                    "--verify",
+                    object_spec,
+                ],
+                timeout=30,
+            )
+            .decode("ascii", errors="strict")
+            .strip()
+        )
+        if (
+            len(blob_oid) not in {40, 64}
+            or blob_oid != blob_oid.lower()
+            or any(character not in "0123456789abcdef" for character in blob_oid)
+        ):
+            raise RuntimeError("manfred_candidate_compose_blob_invalid")
+        tracked_bytes = _run_bounded_output(
+            ["git", "-C", str(ROOT), "cat-file", "blob", blob_oid],
+            timeout=30,
+            environment=_safe_subprocess_environment(),
+            stdout_limit=CANDIDATE_COMPOSE_MAX_BYTES,
+            stderr_limit=65536,
+            output_limit_error="manfred_candidate_compose_blob_too_large",
+        )
+    except (
+        OSError,
+        UnicodeError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        raise RuntimeError("manfred_candidate_compose_blob_unverifiable") from exc
+    if tracked_bytes != source_bytes:
+        raise RuntimeError("manfred_candidate_compose_source_not_tracked")
+    digest = hashlib.sha256(source_bytes).hexdigest()
+    return {
+        "canonical_relative_path": CANDIDATE_COMPOSE_RELATIVE_PATH.as_posix(),
+        "canonical_source_path": str(canonical_path),
+        "candidate_commit": commit,
+        "git_blob_oid": blob_oid,
+        "sha256": digest,
+        "size_bytes": len(source_bytes),
+        "canonical_path_enforced": True,
+        "tracked_blob_bytes_enforced": True,
+    }, source_bytes
+
+
+def _candidate_compose_attestation(
+    compose_file: Path,
+    *,
+    expected_commit: str,
+) -> dict[str, object]:
+    attestation, _source_bytes = _candidate_compose_source_snapshot(
+        compose_file,
+        expected_commit=expected_commit,
+    )
+    return attestation
+
+
+def _assert_candidate_compose_attestation_current(
+    compose_file: Path,
+    attestation: dict[str, object],
+) -> None:
+    observed = _candidate_compose_attestation(
+        compose_file,
+        expected_commit=str(attestation.get("candidate_commit") or ""),
+    )
+    if observed != attestation:
+        raise RuntimeError("manfred_candidate_compose_attestation_changed")
+
+
+def _sealed_memfd(name: str, content: bytes) -> tuple[int, int]:
+    required_names = (
+        "F_ADD_SEALS",
+        "F_GET_SEALS",
+        "F_SEAL_GROW",
+        "F_SEAL_SEAL",
+        "F_SEAL_SHRINK",
+        "F_SEAL_WRITE",
+    )
+    if not hasattr(os, "memfd_create") or any(
+        not hasattr(fcntl, constant) for constant in required_names
+    ):
+        raise RuntimeError("manfred_candidate_execution_input_sealing_unavailable")
+    flags = getattr(os, "MFD_CLOEXEC", 0) | getattr(os, "MFD_ALLOW_SEALING", 0)
+    descriptor = os.memfd_create(name, flags)
+    seals = (
+        fcntl.F_SEAL_GROW
+        | fcntl.F_SEAL_SEAL
+        | fcntl.F_SEAL_SHRINK
+        | fcntl.F_SEAL_WRITE
+    )
+    try:
+        view = memoryview(content)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise RuntimeError("manfred_candidate_execution_input_write_failed")
+            view = view[written:]
+        os.fchmod(descriptor, 0o400)
+        os.fsync(descriptor)
+        fcntl.fcntl(descriptor, fcntl.F_ADD_SEALS, seals)
+        if fcntl.fcntl(descriptor, fcntl.F_GET_SEALS) != seals:
+            raise RuntimeError("manfred_candidate_execution_input_sealing_failed")
+        return descriptor, seals
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _descriptor_bytes(descriptor: int, *, expected_size: int) -> bytes:
+    chunks: list[bytes] = []
+    offset = 0
+    while offset < expected_size:
+        chunk = os.pread(descriptor, min(65536, expected_size - offset), offset)
+        if not chunk:
+            raise RuntimeError("manfred_candidate_execution_input_changed")
+        chunks.append(chunk)
+        offset += len(chunk)
+    if os.pread(descriptor, 1, expected_size):
+        raise RuntimeError("manfred_candidate_execution_input_changed")
+    return b"".join(chunks)
+
+
+def _assert_sealed_execution_inputs_current(
+    inputs: _SealedExecutionInputs,
+) -> None:
+    evidence = inputs.evidence
+    expected_seals = (
+        fcntl.F_SEAL_GROW
+        | fcntl.F_SEAL_SEAL
+        | fcntl.F_SEAL_SHRINK
+        | fcntl.F_SEAL_WRITE
+    )
+    for descriptor, path, prefix in (
+        (inputs.compose_descriptor, inputs.compose_path, "compose"),
+        (inputs.environment_descriptor, inputs.environment_path, "environment"),
+    ):
+        metadata = os.fstat(descriptor)
+        try:
+            path_metadata = path.stat()
+        except OSError as exc:
+            raise RuntimeError("manfred_candidate_execution_input_path_invalid") from exc
+        expected_size = evidence.get(f"{prefix}_size_bytes")
+        expected_digest = evidence.get(f"{prefix}_sha256")
+        if (
+            type(expected_size) is not int
+            or not stat.S_ISREG(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode) != 0o400
+            or metadata.st_size != expected_size
+            or (path_metadata.st_dev, path_metadata.st_ino)
+            != (metadata.st_dev, metadata.st_ino)
+            or fcntl.fcntl(descriptor, fcntl.F_GET_SEALS) != expected_seals
+            or hashlib.sha256(
+                _descriptor_bytes(descriptor, expected_size=expected_size)
+            ).hexdigest()
+            != expected_digest
+        ):
+            raise RuntimeError("manfred_candidate_execution_input_changed")
+
+
+@contextlib.contextmanager
+def _sealed_candidate_execution_inputs(
+    *,
+    compose_bytes: bytes,
+    environment_bytes: bytes,
+    environment: dict[str, str],
+    compose_attestation: dict[str, object],
+    compose_image_id: str,
+):
+    if (
+        hashlib.sha256(compose_bytes).hexdigest()
+        != compose_attestation.get("sha256")
+        or len(compose_bytes) != compose_attestation.get("size_bytes")
+        or _parse_env_bytes(environment_bytes) != environment
+        or not compose_image_id.startswith("sha256:")
+        or len(compose_image_id) != 71
+        or any(
+            character not in "0123456789abcdef"
+            for character in compose_image_id.removeprefix("sha256:")
+        )
+    ):
+        raise RuntimeError("manfred_candidate_execution_input_attestation_invalid")
+    compose_descriptor = -1
+    environment_descriptor = -1
+    try:
+        compose_descriptor, _compose_seals = _sealed_memfd(
+            "ea-manfred-candidate-compose",
+            compose_bytes,
+        )
+        environment_descriptor, _environment_seals = _sealed_memfd(
+            "ea-manfred-candidate-environment",
+            environment_bytes,
+        )
+        process = os.getpid()
+        evidence: dict[str, object] = {
+            "schema": EXECUTION_INPUT_SCHEMA,
+            "compose_sha256": hashlib.sha256(compose_bytes).hexdigest(),
+            "compose_size_bytes": len(compose_bytes),
+            "compose_git_blob_oid": str(compose_attestation["git_blob_oid"]),
+            "environment_sha256": hashlib.sha256(environment_bytes).hexdigest(),
+            "environment_size_bytes": len(environment_bytes),
+            "environment_keys": sorted(environment),
+            "compose_image_id": compose_image_id,
+            "compose_image_reference_source": "prepared_image_id",
+            "transport": "sealed_memfd",
+            "required_seals": ["grow", "seal", "shrink", "write"],
+            "all_compose_commands_use_sealed_inputs": True,
+            "mutable_source_paths_consumed_by_compose": False,
+            "mutable_image_locator_consumed_by_compose": False,
+        }
+        inputs = _SealedExecutionInputs(
+            compose_descriptor=compose_descriptor,
+            environment_descriptor=environment_descriptor,
+            compose_path=Path(f"/proc/{process}/fd/{compose_descriptor}"),
+            environment_path=Path(f"/proc/{process}/fd/{environment_descriptor}"),
+            evidence=evidence,
+        )
+        _assert_sealed_execution_inputs_current(inputs)
+        yield inputs
+    finally:
+        if environment_descriptor >= 0:
+            os.close(environment_descriptor)
+        if compose_descriptor >= 0:
+            os.close(compose_descriptor)
+
+
+def _expected_candidate_api_environment(env: dict[str, str]) -> dict[str, str]:
+    # Keep EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS absent. Archive publication
+    # remains fail-closed in candidates unless this exact attested contract is
+    # deliberately revised alongside its release review.
+    return {
+        "EA_ROLE": "api",
+        "EA_HOST": "0.0.0.0",
+        "EA_PORT": "8090",
+        "EA_RUNTIME_MODE": "prod",
+        "EA_SOURCE_REVISION": env["EA_MANFRED_COMMIT"],
+        "EA_RELEASE_AUTHORITY_STATUS_PATH": (
+            "/data/release-authority/release_authority_status.generated.json"
+        ),
+        "EA_RELEASE_MANIFEST_PATH": (
+            "/data/release-authority/release_manifest.generated.json"
+        ),
+        "EA_DEPLOY_CONTEXT_PATH": (
+            "/data/release-authority/deploy_context.generated.json"
+        ),
+        "EA_PROJECT_MODES_MANIFEST_PATH": (
+            "/data/release-authority/PROJECT_MODES.generated.json"
+        ),
+        "EA_DEPLOYMENT_ID": env["EA_MANFRED_DEPLOYMENT_ID"],
+        "EA_DEPLOYMENT_ID_SOURCE": "explicit",
+        "EA_DEPLOY_REPOSITORY": "EA",
+        "EA_DEPLOY_BRANCH": "main",
+        "EA_DEPLOY_TRACKING_BRANCH": "origin/main",
+        "EA_DEPLOY_COMMIT_SHA": env["EA_MANFRED_COMMIT"],
+        "EA_DEPLOY_PRIMARY_MODE": "MEMORIAL",
+        "EA_DEPLOY_ENABLED_MODES": "MEMORIAL,PROPERTY",
+        "EA_DEPLOY_COMPOSE_FILES": CANDIDATE_COMPOSE_RELATIVE_PATH.as_posix(),
+        "EA_DEPLOY_PUBLIC_ORIGIN": env["EA_PUBLIC_APP_BASE_URL"],
+        "EA_RELEASE_LABEL": env["EA_MANFRED_DEPLOYMENT_ID"],
+        "EA_STORAGE_BACKEND": "postgres",
+        "EA_STORAGE_FALLBACK_ALLOWED": "0",
+        "EA_ALLOW_LOOPBACK_NO_AUTH": "0",
+        "EA_TRUST_PROXY_HEADERS": "1",
+        "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER": "0",
+        "EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER": "0",
+        "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER": "0",
+        "EA_ENABLE_LEGACY_RUNTIME_SURFACES": "1",
+        "PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES": "1",
+        "EA_ENABLE_PUBLIC_SIDE_SURFACES": "0",
+        "EA_ENABLE_PUBLIC_RESULTS": "0",
+        "EA_ENABLE_PUBLIC_TOURS": "1",
+        "PROPERTYQUARRY_ENABLE_PUBLIC_TOURS": "1",
+        "EA_ENABLE_PUBLIC_MEMORIALS": "1",
+        "PROPERTYQUARRY_ENABLE_PUBLIC_MEMORIALS": "1",
+        "EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES": "0",
+        "EA_HEALTHCHECK_MEMORIAL_SLUG": "manfred",
+        "EA_PUBLIC_MEMORIAL_RATE_BACKEND": "redis",
+        "EA_PUBLIC_MEMORIAL_REDIS_URL": "redis://redis:6379/0",
+        "EA_PUBLIC_MEMORIAL_DIR": "/data/memorial/public",
+        "EA_PRIVATE_MEMORIAL_PROFILE_DIR": "/data/memorial/private",
+        "EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR": ("/data/memorial/public-contributions"),
+        "EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR": (
+            "/data/memorial/private-contributions"
+        ),
+        "EA_MEMORIAL_DATA_ROOT": "/data/memorial",
+        "EA_MEMORIAL_ARCHIVE_DIR": "/data/memorial/archive",
+        "EA_MEMORIAL_STATE_DIR": "/data/memorial/state",
+        "EA_PUBLIC_MEMORIAL_ARTIFACT_DIR": "/data/artifacts",
+        "EA_ARTIFACTS_DIR": "/data/artifacts",
+        "EA_PUBLIC_TOUR_DIR": "/data/public_property_tours",
+        "EA_MEMORIAL_PAGE_PREWARM_ENABLED": "0",
+        "EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED": "0",
+        "EA_AUDIOBOOK_UNMIXR_AUTO_RENDER": "0",
+        "EA_AUDIOBOOKSHELF_AUTO_IMPORT": "0",
+        "HOME": "/home/ea",
+        "PYTHONPATH": "/app",
+        "TZ": "Europe/Vienna",
+    }
 
 
 def _rendered_compose(
@@ -1627,6 +2524,7 @@ def _assert_compose_isolation(
     *,
     env: dict[str, str],
     env_file: Path,
+    prepared_image_id: str | None = None,
 ) -> None:
     project = _validate_project_name(env.get("EA_MANFRED_COMPOSE_PROJECT"))
     if payload.get("name") != project or source_payload.get("name") != project:
@@ -1642,7 +2540,8 @@ def _assert_compose_isolation(
     gateway = dict(services.get("gateway") or {})
     if api.get("build") or api.get("container_name"):
         raise RuntimeError("manfred_candidate_compose_not_image_pure")
-    if str(api.get("image") or "") != env["EA_MANFRED_IMAGE"]:
+    expected_candidate_image = prepared_image_id or env["EA_MANFRED_IMAGE"]
+    if str(api.get("image") or "") != expected_candidate_image:
         raise RuntimeError("manfred_candidate_compose_image_mismatch")
     if str(api.get("pull_policy") or "") != "never":
         raise RuntimeError("manfred_candidate_compose_pull_policy_invalid")
@@ -1679,7 +2578,7 @@ def _assert_compose_isolation(
         raise RuntimeError("manfred_candidate_redis_network_invalid")
     if network_names(gateway) != {"backend", "ingress"}:
         raise RuntimeError("manfred_candidate_gateway_network_invalid")
-    if str(gateway.get("image") or "") != env["EA_MANFRED_IMAGE"]:
+    if str(gateway.get("image") or "") != expected_candidate_image:
         raise RuntimeError("manfred_candidate_gateway_image_mismatch")
     if gateway.get("env_file") or gateway.get("environment"):
         raise RuntimeError("manfred_candidate_gateway_secret_scope_invalid")
@@ -1687,7 +2586,7 @@ def _assert_compose_isolation(
     source_env_files = list(source_api.get("env_file") or [])
     if len(source_env_files) != 1 or not isinstance(source_env_files[0], dict):
         raise RuntimeError("manfred_candidate_compose_env_file_invalid")
-    if str(source_env_files[0].get("path") or "") != str(env_file.resolve()):
+    if str(source_env_files[0].get("path") or "") != str(env_file):
         raise RuntimeError("manfred_candidate_compose_env_file_mismatch")
     resolved_environment = dict(api.get("environment") or {})
     declared_environment = dict(source_api.get("environment") or {})
@@ -1697,25 +2596,18 @@ def _assert_compose_isolation(
         raise RuntimeError("manfred_candidate_spatial_compose_environment_invalid")
     if str(declared_environment.get("EA_TRUST_PROXY_HEADERS") or "") != "1":
         raise RuntimeError("manfred_candidate_transport_probe_trust_invalid")
-    if any(
-        name in declared_environment or name in resolved_environment
-        for name in (
-            "EA_TRUSTED_PROXY_CIDRS",
-            "PROPERTYQUARRY_TRUSTED_PROXY_CIDRS",
-        )
-    ):
-        raise RuntimeError("manfred_candidate_transport_probe_trust_invalid")
-    expected_environment_keys = set(env).union(declared_environment)
-    if set(resolved_environment) != expected_environment_keys:
+    expected_declared_environment = _expected_candidate_api_environment(env)
+    normalized_declared_environment = {
+        str(name): str(value or "") for name, value in declared_environment.items()
+    }
+    if normalized_declared_environment != expected_declared_environment:
+        raise RuntimeError("manfred_candidate_compose_api_environment_not_allowlisted")
+    expected_resolved_environment = {**env, **expected_declared_environment}
+    normalized_resolved_environment = {
+        str(name): str(value or "") for name, value in resolved_environment.items()
+    }
+    if normalized_resolved_environment != expected_resolved_environment:
         raise RuntimeError("manfred_candidate_compose_environment_scope_invalid")
-    for name, value in env.items():
-        if str(resolved_environment.get(name) or "") != value:
-            raise RuntimeError("manfred_candidate_compose_environment_mismatch")
-    for name, value in declared_environment.items():
-        if str(resolved_environment.get(name) or "") != str(value or ""):
-            raise RuntimeError(
-                "manfred_candidate_compose_declared_environment_mismatch"
-            )
 
     gateway_ports = list(gateway.get("ports") or [])
     if len(gateway_ports) != 1 or not isinstance(gateway_ports[0], dict):
@@ -1768,6 +2660,10 @@ def _assert_compose_isolation(
             str(Path(env["EA_MANFRED_SPATIAL_RELEASE_ROOT"]).resolve()),
             True,
         ),
+        "/data/release-authority": (
+            str(Path(env["EA_MANFRED_RELEASE_AUTHORITY_ROOT"]).resolve()),
+            True,
+        ),
     }
     actual_binds: dict[str, tuple[str, bool]] = {}
     volume_mounts: list[dict[str, object]] = []
@@ -1818,10 +2714,23 @@ def _assert_compose_isolation(
                 or source == env["EA_MANFRED_SPATIAL_RELEASE_ROOT"]
             ):
                 raise RuntimeError("manfred_candidate_spatial_compose_scope_invalid")
+            if service_name != "api" and (
+                target == "/data/release-authority"
+                or source == env["EA_MANFRED_RELEASE_AUTHORITY_ROOT"]
+            ):
+                raise RuntimeError("manfred_candidate_release_compose_scope_invalid")
 
 
-def _assert_env_allowlist(env_file: Path) -> dict[str, str]:
-    env = _parse_env(env_file)
+def _assert_env_allowlist(
+    env_file: Path,
+    *,
+    environment_bytes: bytes | None = None,
+) -> dict[str, str]:
+    env = (
+        _parse_env(env_file)
+        if environment_bytes is None
+        else _parse_env_bytes(environment_bytes)
+    )
     if set(env) != ALLOWED_ENV_KEYS:
         raise RuntimeError("manfred_candidate_env_allowlist_invalid")
     for name in ("EA_API_TOKEN", "EA_SIGNING_SECRET", "EA_MANFRED_POSTGRES_PASSWORD"):
@@ -1835,6 +2744,7 @@ def _assert_env_allowlist(env_file: Path) -> dict[str, str]:
         raise RuntimeError("manfred_candidate_env_file_binding_invalid")
     for name in (
         "EA_MANFRED_RELEASE_ROOT",
+        "EA_MANFRED_RELEASE_AUTHORITY_ROOT",
         "EA_MANFRED_RUNTIME_ROOT",
         "EA_MANFRED_SPATIAL_RELEASE_ROOT",
     ):
@@ -1850,6 +2760,18 @@ def _assert_env_allowlist(env_file: Path) -> dict[str, str]:
     spatial_root = Path(env["EA_MANFRED_SPATIAL_RELEASE_ROOT"]).resolve()
     if spatial_root != (release_root / "public_property_tours").resolve():
         raise RuntimeError("manfred_candidate_spatial_env_root_mismatch")
+    authority_root = Path(env["EA_MANFRED_RELEASE_AUTHORITY_ROOT"]).resolve()
+    if authority_root != (release_root / CANDIDATE_RELEASE_AUTHORITY_DIRNAME).resolve():
+        raise RuntimeError("manfred_candidate_release_authority_env_root_mismatch")
+    commit = env["EA_MANFRED_COMMIT"]
+    if (
+        len(commit) != 40
+        or commit != commit.lower()
+        or any(character not in "0123456789abcdef" for character in commit)
+        or env["EA_MANFRED_DEPLOYMENT_ID"]
+        != f"{env['EA_MANFRED_COMPOSE_PROJECT']}-{commit[:12]}"
+    ):
+        raise RuntimeError("manfred_candidate_release_identity_invalid")
     included = env["EA_MANFRED_SPATIAL_HANDOFF_INCLUDED"]
     slug = env["EA_MANFRED_SPATIAL_SLUG"]
     digest = env["EA_MANFRED_SPATIAL_SHA256"]
@@ -1904,7 +2826,9 @@ def _parse_internal_transport_headers(raw: bytes) -> tuple[int, dict[str, str]]:
     try:
         text = raw.decode("latin-1")
     except UnicodeDecodeError as exc:  # pragma: no cover - latin-1 is total
-        raise RuntimeError("manfred_candidate_internal_transport_probe_invalid") from exc
+        raise RuntimeError(
+            "manfred_candidate_internal_transport_probe_invalid"
+        ) from exc
     marker = f"\n{INTERNAL_TRANSPORT_STATUS_MARKER}"
     header_text, separator, status_text = text.rpartition(marker)
     if not separator:
@@ -1984,7 +2908,9 @@ def _candidate_api_loopback_request(
         parsed = urllib.parse.urlsplit(raw_path)
         raw_path.encode("ascii")
     except (UnicodeEncodeError, ValueError) as exc:
-        raise RuntimeError("manfred_candidate_internal_transport_request_invalid") from exc
+        raise RuntimeError(
+            "manfred_candidate_internal_transport_request_invalid"
+        ) from exc
     normalized_method = str(method or "").strip().upper()
     if (
         payload is not None
@@ -2094,9 +3020,7 @@ def _candidate_openapi_retirement_headers(
             or any(character not in HTTP_HEADER_NAME_CHARACTERS for character in name)
             or any(ord(character) < 32 or ord(character) == 127 for character in value)
         ):
-            raise RuntimeError(
-                "manfred_candidate_openapi_retirement_headers_invalid"
-            )
+            raise RuntimeError("manfred_candidate_openapi_retirement_headers_invalid")
         if name in CANDIDATE_OPENAPI_RETIREMENT_SINGLETON_HEADERS:
             if name in singleton_seen or "," in value:
                 raise RuntimeError(
@@ -2146,9 +3070,7 @@ def _assert_candidate_openapi_retired(base_url: str) -> dict[str, object]:
         body = exc.read(MAX_OPENAPI_DOCUMENT_BYTES + 1)
         headers = _candidate_openapi_retirement_headers(exc.headers)
     except (OSError, urllib.error.URLError) as exc:
-        raise RuntimeError(
-            "manfred_candidate_openapi_retirement_unreachable"
-        ) from exc
+        raise RuntimeError("manfred_candidate_openapi_retirement_unreachable") from exc
     if status != 404:
         raise RuntimeError(
             f"manfred_candidate_openapi_retirement_status_invalid:{status}"
@@ -2165,12 +3087,8 @@ def _assert_candidate_openapi_retired(base_url: str) -> dict[str, object]:
     content_type = str(headers.get("content-type") or "")
     content_media_type = content_type.partition(";")[0].strip().lower()
     security_headers = {
-        "content_security_policy": str(
-            headers.get("content-security-policy") or ""
-        ),
-        "x_content_type_options": str(
-            headers.get("x-content-type-options") or ""
-        ),
+        "content_security_policy": str(headers.get("content-security-policy") or ""),
+        "x_content_type_options": str(headers.get("x-content-type-options") or ""),
         "x_frame_options": str(headers.get("x-frame-options") or ""),
     }
     if (
@@ -2241,16 +3159,15 @@ def _spatial_http_probe(
 
 
 def _spatial_handoff_runtime_proof(
-    base_url: str, projection: dict[str, object]
+    base_url: str,
+    projection: dict[str, object],
+    *,
+    oci_image_id: str,
+    serving_container_id: str,
 ) -> dict[str, object]:
     spatial = dict(projection.get("spatial_handoff") or {})
     if spatial.get("included") is not True:
-        return {
-            "included": False,
-            "routes_required": False,
-            "ea_public_activation_authority": False,
-            "upstream_public_activation_authority": False,
-        }
+        raise RuntimeError("manfred_candidate_spatial_handoff_required")
     slug = str(spatial.get("slug") or "")
     viewer_relpath = str(spatial.get("viewer_relpath") or "")
     proof_relpath = str(spatial.get("proof_relpath") or "")
@@ -2317,6 +3234,8 @@ def _spatial_handoff_runtime_proof(
         viewer_relpath=viewer_relpath,
         route_labels=list(spatial.get("route_labels") or []),
         candidate_commit=projection_commit,
+        oci_image_id=oci_image_id,
+        serving_container_id=serving_container_id,
         package_sha256=package_digest,
         package_dir=bundle,
     )
@@ -2328,12 +3247,12 @@ def _spatial_handoff_runtime_proof(
             viewer_relpath=viewer_relpath,
             route_labels=list(spatial.get("route_labels") or []),
             candidate_commit=projection_commit,
+            oci_image_id=oci_image_id,
+            serving_container_id=serving_container_id,
             package_sha256=package_digest,
         )
     except (RuntimeError, ValueError) as exc:
-        raise RuntimeError(
-            "manfred_candidate_spatial_browser_gate_blocked"
-        ) from exc
+        raise RuntimeError("manfred_candidate_spatial_browser_gate_blocked") from exc
     if browser_receipt.get("secret_material_recorded") is not False:
         raise RuntimeError("manfred_candidate_spatial_browser_gate_blocked")
     return {
@@ -2361,42 +3280,478 @@ def _assert_logs_clean(compose: list[str], environment: dict[str, str]) -> None:
         raise RuntimeError("manfred_candidate_import_failure_in_logs")
 
 
-def _atomic_receipt(path: Path, payload: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(
-        prefix=f".{path.name}.", dir=str(path.parent)
-    )
+def _normalized_receipt_path(path: Path) -> Path:
     try:
-        os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            descriptor = -1
-            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        path.chmod(0o600)
-    finally:
+        normalized = Path(os.path.abspath(os.fspath(path.expanduser())))
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise RuntimeError(RECEIPT_PATH_INVALID) from exc
+    if not normalized.is_absolute() or normalized.name in {"", ".", ".."}:
+        raise RuntimeError(RECEIPT_PATH_INVALID)
+    return normalized
+
+
+def _open_trusted_receipt_parent(path: Path) -> tuple[Path, int]:
+    normalized = _normalized_receipt_path(path)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = -1
+    try:
+        descriptor = os.open(os.sep, flags)
+        for component in normalized.parent.parts[1:]:
+            next_descriptor = os.open(component, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = next_descriptor
+        metadata = os.fstat(descriptor)
+    except (OSError, ValueError) as exc:
         if descriptor >= 0:
             os.close(descriptor)
-        Path(temporary).unlink(missing_ok=True)
+        raise RuntimeError(RECEIPT_PARENT_INVALID) from exc
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.getuid()
+        or stat.S_IMODE(metadata.st_mode) & 0o022
+    ):
+        os.close(descriptor)
+        raise RuntimeError(RECEIPT_PARENT_INVALID)
+    return normalized, descriptor
 
 
-def prove_candidate(
+def _assert_new_receipt_path(path: Path) -> Path:
+    normalized, directory_descriptor = _open_trusted_receipt_parent(path)
+    try:
+        try:
+            metadata = os.stat(
+                normalized.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return normalized
+        if stat.S_ISLNK(metadata.st_mode):
+            raise RuntimeError(RECEIPT_PATH_INVALID)
+        raise RuntimeError(RECEIPT_OUTPUT_EXISTS)
+    finally:
+        os.close(directory_descriptor)
+
+
+def _complete_interrupted_receipt_publication(path: Path) -> bool:
+    """Finish the sole hard-link window used by ``_atomic_receipt``.
+
+    A SIGKILL can land after the final no-replace link is created but before
+    the private temporary name is unlinked.  Only that exact same-inode,
+    same-directory publication shape is recoverable; every other hard link
+    remains fail-closed.
+    """
+
+    normalized, directory_descriptor = _open_trusted_receipt_parent(path)
+    try:
+        try:
+            final = os.stat(
+                normalized.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return False
+        if (
+            not stat.S_ISREG(final.st_mode)
+            or final.st_uid != os.getuid()
+            or stat.S_IMODE(final.st_mode) != 0o600
+            or final.st_nlink != 2
+        ):
+            return False
+        matches: list[str] = []
+        for name in os.listdir(directory_descriptor):
+            parts = name.split(".")
+            if (
+                len(parts) != 5
+                or parts[0] != ""
+                or parts[1] != "ea-manfred-receipt"
+                or not parts[2].isdigit()
+                or len(parts[3]) != 24
+                or any(character not in "0123456789abcdef" for character in parts[3])
+                or parts[4] != "tmp"
+            ):
+                continue
+            try:
+                candidate = os.stat(
+                    name,
+                    dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                continue
+            if (
+                stat.S_ISREG(candidate.st_mode)
+                and candidate.st_uid == final.st_uid
+                and candidate.st_dev == final.st_dev
+                and candidate.st_ino == final.st_ino
+                and candidate.st_nlink == 2
+                and stat.S_IMODE(candidate.st_mode) == 0o600
+            ):
+                matches.append(name)
+        if len(matches) != 1:
+            return False
+        os.unlink(matches[0], dir_fd=directory_descriptor)
+        os.fsync(directory_descriptor)
+        remaining = os.stat(
+            normalized.name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            remaining.st_dev != final.st_dev
+            or remaining.st_ino != final.st_ino
+            or remaining.st_nlink != 1
+            or stat.S_IMODE(remaining.st_mode) != 0o600
+        ):
+            raise RuntimeError(RECEIPT_ARTIFACT_INVALID)
+        return True
+    finally:
+        os.close(directory_descriptor)
+
+
+def _receipt_artifact_if_present(path: Path) -> _CreatedReceiptArtifact | None:
+    normalized, directory_descriptor = _open_trusted_receipt_parent(path)
+    try:
+        try:
+            metadata = os.stat(
+                normalized.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return None
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or metadata.st_nlink != 1
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+        ):
+            raise RuntimeError(RECEIPT_ARTIFACT_INVALID)
+        return _CreatedReceiptArtifact(
+            path=normalized,
+            device=metadata.st_dev,
+            inode=metadata.st_ino,
+            ctime_ns=metadata.st_ctime_ns,
+            size=metadata.st_size,
+        )
+    finally:
+        os.close(directory_descriptor)
+
+
+def _withdraw_candidate_contribution_if_present(
+    base_url: str,
+    receipt_path: Path,
+) -> bool:
+    """Withdraw a receipt-bound synthetic contribution without losing its token."""
+
+    artifact = _receipt_artifact_if_present(receipt_path)
+    if artifact is None:
+        return False
+    _withdraw_contribution(base_url, artifact.path)
+    if _receipt_artifact_if_present(artifact.path) is not None:
+        raise RuntimeError("manfred_candidate_contribution_withdrawal_incomplete")
+    return True
+
+
+def _unlink_created_receipt_artifact(artifact: _CreatedReceiptArtifact) -> bool:
+    normalized, directory_descriptor = _open_trusted_receipt_parent(artifact.path)
+    try:
+        if normalized != artifact.path:
+            return False
+        try:
+            metadata = os.stat(
+                normalized.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return True
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or metadata.st_nlink != 1
+            or metadata.st_dev != artifact.device
+            or metadata.st_ino != artifact.inode
+            or metadata.st_ctime_ns != artifact.ctime_ns
+            or metadata.st_size != artifact.size
+        ):
+            return False
+        os.unlink(normalized.name, dir_fd=directory_descriptor)
+        os.fsync(directory_descriptor)
+        try:
+            os.stat(
+                normalized.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return True
+        return False
+    finally:
+        os.close(directory_descriptor)
+
+
+def _atomic_receipt(
+    path: Path,
+    payload: dict[str, object],
+) -> _CreatedReceiptArtifact:
+    normalized, directory_descriptor = _open_trusted_receipt_parent(path)
+    descriptor = -1
+    temporary_name = ""
+    final_linked = False
+    artifact: _CreatedReceiptArtifact | None = None
+    try:
+        try:
+            existing = os.stat(
+                normalized.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            existing = None
+        if existing is not None:
+            if stat.S_ISLNK(existing.st_mode):
+                raise RuntimeError(RECEIPT_PATH_INVALID)
+            raise RuntimeError(RECEIPT_OUTPUT_EXISTS)
+
+        temporary_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            temporary_flags |= os.O_NOFOLLOW
+        for _attempt in range(32):
+            temporary_name = (
+                f".ea-manfred-receipt.{os.getpid()}.{secrets.token_hex(12)}.tmp"
+            )
+            try:
+                descriptor = os.open(
+                    temporary_name,
+                    temporary_flags,
+                    0o600,
+                    dir_fd=directory_descriptor,
+                )
+                break
+            except FileExistsError:
+                continue
+        if descriptor < 0:
+            raise RuntimeError(RECEIPT_WRITE_FAILED)
+
+        os.fchmod(descriptor, 0o600)
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or metadata.st_nlink != 1
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+        ):
+            raise RuntimeError(RECEIPT_WRITE_FAILED)
+        encoded = (
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode(
+                "utf-8"
+            )
+            + b"\n"
+        )
+        view = memoryview(encoded)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise RuntimeError(RECEIPT_WRITE_FAILED)
+            view = view[written:]
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+
+        artifact = _CreatedReceiptArtifact(
+            path=normalized,
+            device=metadata.st_dev,
+            inode=metadata.st_ino,
+            ctime_ns=metadata.st_ctime_ns,
+            size=metadata.st_size,
+        )
+        try:
+            os.link(
+                temporary_name,
+                normalized.name,
+                src_dir_fd=directory_descriptor,
+                dst_dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except FileExistsError as exc:
+            raise RuntimeError(RECEIPT_OUTPUT_EXISTS) from exc
+        final_linked = True
+        final_metadata = os.stat(
+            normalized.name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(final_metadata.st_mode)
+            or final_metadata.st_uid != os.getuid()
+            or final_metadata.st_dev != metadata.st_dev
+            or final_metadata.st_ino != metadata.st_ino
+        ):
+            raise RuntimeError(RECEIPT_WRITE_FAILED)
+        os.unlink(temporary_name, dir_fd=directory_descriptor)
+        temporary_name = ""
+        remaining = os.stat(
+            normalized.name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if remaining.st_nlink != 1 or stat.S_IMODE(remaining.st_mode) != 0o600:
+            raise RuntimeError(RECEIPT_WRITE_FAILED)
+        artifact = _CreatedReceiptArtifact(
+            path=normalized,
+            device=remaining.st_dev,
+            inode=remaining.st_ino,
+            ctime_ns=remaining.st_ctime_ns,
+            size=remaining.st_size,
+        )
+        os.fsync(directory_descriptor)
+        return artifact
+    except BaseException:
+        if descriptor >= 0:
+            with contextlib.suppress(OSError):
+                os.close(descriptor)
+        if final_linked and artifact is not None:
+            with contextlib.suppress(OSError):
+                current = os.stat(
+                    normalized.name,
+                    dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+                if (
+                    current.st_dev == artifact.device
+                    and current.st_ino == artifact.inode
+                ):
+                    os.unlink(normalized.name, dir_fd=directory_descriptor)
+        if temporary_name:
+            with contextlib.suppress(OSError):
+                os.unlink(temporary_name, dir_fd=directory_descriptor)
+        with contextlib.suppress(OSError):
+            os.fsync(directory_descriptor)
+        raise
+    finally:
+        os.close(directory_descriptor)
+
+
+def _persist_runtime_receipt(
+    path: Path,
+    payload: dict[str, object],
     *,
-    env_file: Path,
-    compose_file: Path,
+    created_artifacts: dict[Path, _CreatedReceiptArtifact] | None = None,
+) -> dict[str, object]:
+    artifact = _atomic_receipt(path, payload)
+    if created_artifacts is not None:
+        created_artifacts[artifact.path] = artifact
+    return register_candidate_receipt(artifact.path, require_pending=True)
+
+
+def _assert_recovered_candidate_runtime(
+    *,
+    receipt: dict[str, object],
+    compose: list[str],
+    environment: dict[str, str],
+    project: str,
+    base_url: str,
+    projection: dict[str, object],
+    candidate_env: dict[str, str],
+    compose_attestation: dict[str, object],
+    execution_inputs_evidence: dict[str, object],
+    execution_environment_sha256: str,
+) -> None:
+    if any(receipt.get(name) != value for name, value in projection.items()):
+        raise RuntimeError("manfred_candidate_recovered_projection_identity_invalid")
+    if (
+        receipt.get("compose_attestation") != compose_attestation
+        or receipt.get("execution_inputs") != execution_inputs_evidence
+    ):
+        raise RuntimeError("manfred_candidate_recovered_execution_identity_invalid")
+    runtime_projection = _candidate_runtime_projection_evidence(
+        compose=compose,
+        environment=environment,
+        projection=projection,
+    )
+    if (
+        receipt.get("runtime_projection_initial") != runtime_projection
+        or receipt.get("runtime_projection_final") != runtime_projection
+        or receipt.get("runtime_projection_identity_stable") is not True
+    ):
+        raise RuntimeError("manfred_candidate_recovered_projection_runtime_invalid")
+    current_images = _candidate_container_image_evidence(
+        compose=compose,
+        environment=environment,
+        project=project,
+        projection=projection,
+    )
+    if (
+        receipt.get("candidate_container_images") != current_images
+        or receipt.get("candidate_container_images_initial") != current_images
+        or receipt.get("candidate_container_images_final") != current_images
+        or receipt.get("candidate_container_image_identity_stable") is not True
+    ):
+        raise RuntimeError("manfred_candidate_recovered_image_identity_invalid")
+    runtime_identity = _candidate_runtime_version_identity(
+        base_url,
+        expected_commit=str(projection["projection_commit"]),
+        oci_image_revision=str(current_images["revision_label"]),
+    )
+    if receipt.get("runtime_version_identity") != runtime_identity:
+        raise RuntimeError("manfred_candidate_recovered_runtime_identity_invalid")
+    runtime_posture = _candidate_api_runtime_posture(
+        compose=compose,
+        environment=environment,
+        candidate_env=candidate_env,
+        project=project,
+        projection=projection,
+        execution_environment_sha256=execution_environment_sha256,
+    )
+    if receipt.get("runtime_api_posture") != runtime_posture:
+        raise RuntimeError("manfred_candidate_recovered_runtime_posture_invalid")
+    _assert_redis(compose, environment)
+    _assert_logs_clean(compose, environment)
+
+
+def _assert_live_recovery_unchanged(
+    *,
+    before: dict[str, object],
+    openapi_contract: dict[str, object],
+) -> None:
+    after = _live_snapshot()
+    _assert_live_unchanged(before, after)
+    _assert_live_http()
+    after_contract, _after_evidence = _openapi_contract_snapshot(
+        "http://127.0.0.1:8090"
+    )
+    if after_contract != openapi_contract:
+        raise RuntimeError("manfred_candidate_live_openapi_changed")
+
+
+def _prove_candidate_with_execution_inputs(
+    *,
     receipt_path: Path,
     wait_seconds: int,
+    env: dict[str, str],
+    projection: dict[str, object],
+    compose_attestation: dict[str, object],
+    execution_inputs: _SealedExecutionInputs,
 ) -> dict[str, object]:
-    env_file = env_file.expanduser().resolve()
-    compose_file = compose_file.expanduser().resolve()
-    receipt_path = receipt_path.expanduser().resolve()
-    env = _assert_env_allowlist(env_file)
-    projection = _projection_evidence(env)
+    env_file = execution_inputs.environment_path
+    compose_file = execution_inputs.compose_path
+    receipt_path = _normalized_receipt_path(receipt_path)
+    contribution_receipt = receipt_path.parent / "candidate-contribution.private.json"
+    if contribution_receipt == receipt_path:
+        raise RuntimeError(RECEIPT_PATH_INVALID)
+    contribution_receipt = _normalized_receipt_path(contribution_receipt)
     project = _validate_project_name(env["EA_MANFRED_COMPOSE_PROJECT"])
     port = int(env["EA_MANFRED_HOST_PORT"])
-    compose_environment = _compose_environment(env)
+    compose_environment = _compose_environment(
+        env,
+        execution_env_file=env_file,
+    )
+    compose_environment["EA_MANFRED_IMAGE"] = str(projection["prepared_image_id"])
+    _assert_sealed_execution_inputs_current(execution_inputs)
     rendered = _rendered_compose(
         env_file,
         compose_file,
@@ -2416,10 +3771,19 @@ def prove_candidate(
         source_rendered,
         env=env,
         env_file=env_file,
+        prepared_image_id=str(projection["prepared_image_id"]),
     )
+    _assert_sealed_execution_inputs_current(execution_inputs)
     compose = _compose_argv(project, env_file, compose_file)
     base_url = f"http://127.0.0.1:{port}"
-    contribution_receipt = receipt_path.parent / "candidate-contribution.private.json"
+
+    def cleanup_candidate_project() -> None:
+        _assert_sealed_execution_inputs_current(execution_inputs)
+        _cleanup_candidate_project(
+            compose=compose,
+            environment=compose_environment,
+            project=project,
+        )
 
     def transport_request(
         request_base_url: str,
@@ -2453,10 +3817,202 @@ def prove_candidate(
         live_openapi_contract, live_openapi_before = _openapi_contract_snapshot(
             "http://127.0.0.1:8090"
         )
+        recovery = candidate_registry_recovery_state(
+            project=project,
+            port=port,
+            receipt_path=receipt_path,
+            image=str(projection["prepared_image_locator"]),
+            image_id=str(projection["prepared_image_id"]),
+            revision=str(projection["projection_commit"]),
+        )
+        recovery_state = str(recovery.get("state") or "")
+        interrupted_publication_completed = False
+        if recovery_state == "pending_receipt_unreadable":
+            interrupted_publication_completed = (
+                _complete_interrupted_receipt_publication(receipt_path)
+            )
+            if not interrupted_publication_completed:
+                raise RuntimeError("manfred_candidate_pending_receipt_unrecoverable")
+            recovery = candidate_registry_recovery_state(
+                project=project,
+                port=port,
+                receipt_path=receipt_path,
+                image=str(projection["prepared_image_locator"]),
+                image_id=str(projection["prepared_image_id"]),
+                revision=str(projection["projection_commit"]),
+            )
+            recovery_state = str(recovery.get("state") or "")
+        launch_recovery_evidence: dict[str, object] = {
+            "state_before_launch": recovery_state,
+            "crash_intent_reconciled": False,
+            "pending_contribution_reconciled": False,
+            "existing_receipt_resumed": False,
+            "interrupted_receipt_publication_completed": (
+                interrupted_publication_completed
+            ),
+        }
+        if recovery_state in {"pending_receipt", "registered_receipt"}:
+            recovered_receipt = recovery.get("runtime_receipt")
+            if not isinstance(recovered_receipt, dict):
+                raise RuntimeError("manfred_candidate_registry_recovery_invalid")
+            try:
+                _assert_recovered_candidate_runtime(
+                    receipt=dict(recovered_receipt),
+                    compose=compose,
+                    environment=compose_environment,
+                    project=project,
+                    base_url=base_url,
+                    projection=projection,
+                    candidate_env=env,
+                    compose_attestation=compose_attestation,
+                    execution_inputs_evidence=execution_inputs.evidence,
+                    execution_environment_sha256=str(
+                        execution_inputs.evidence["environment_sha256"]
+                    ),
+                )
+                _assert_live_recovery_unchanged(
+                    before=live_before,
+                    openapi_contract=live_openapi_contract,
+                )
+                if recovery_state == "pending_receipt":
+                    registration = register_candidate_receipt(
+                        receipt_path,
+                        require_pending=True,
+                    )
+                    if registration.get("registered") is not True:
+                        raise RuntimeError(
+                            "manfred_candidate_registry_registration_failed"
+                        )
+                return dict(recovered_receipt)
+            except BaseException as recovery_exc:
+                if recovery_state == "registered_receipt":
+                    raise RuntimeError(
+                        "manfred_candidate_registered_runtime_unavailable"
+                    ) from recovery_exc
+                recovery_errors: list[str] = []
+                with _shield_cleanup_interrupts():
+                    try:
+                        cleanup_candidate_project()
+                        _assert_candidate_project_absent(project)
+                    except BaseException:
+                        recovery_errors.append("candidate_resources_remain")
+                    try:
+                        _wait_for_loopback_port_not_listening(port)
+                    except BaseException:
+                        recovery_errors.append("candidate_port_remains_bound")
+                    try:
+                        _assert_live_recovery_unchanged(
+                            before=live_before,
+                            openapi_contract=live_openapi_contract,
+                        )
+                    except BaseException:
+                        recovery_errors.append("live_ea_changed_or_unhealthy")
+                    if not recovery_errors:
+                        try:
+                            cleared = clear_candidate_pending_exact(
+                                project=project,
+                                port=port,
+                                receipt_path=receipt_path,
+                                image=str(projection["prepared_image_locator"]),
+                                image_id=str(projection["prepared_image_id"]),
+                                revision=str(projection["projection_commit"]),
+                                resources_absent=True,
+                                expected_receipt_sha256=str(
+                                    recovery.get("receipt_sha256") or ""
+                                ),
+                            )
+                            if cleared.get("pending_cleared") is not True:
+                                raise RuntimeError(
+                                    "manfred_candidate_pending_registry_cleanup_failed"
+                                )
+                        except BaseException:
+                            recovery_errors.append(
+                                "candidate_pending_registry_cleanup_failed"
+                            )
+                if recovery_errors:
+                    raise RuntimeError(
+                        "manfred_candidate_crash_recovery_failed:"
+                        + ",".join(recovery_errors)
+                    ) from recovery_exc
+                raise RuntimeError(
+                    "manfred_candidate_recovered_receipt_runtime_invalid:"
+                    "fresh_receipt_path_required"
+                ) from recovery_exc
+        if recovery_state == "pending_only":
+            recovery_errors = []
+            with _shield_cleanup_interrupts():
+                try:
+                    launch_recovery_evidence["pending_contribution_reconciled"] = (
+                        _withdraw_candidate_contribution_if_present(
+                            base_url,
+                            contribution_receipt,
+                        )
+                    )
+                except BaseException as recovery_exc:
+                    raise RuntimeError(
+                        "manfred_candidate_pending_contribution_recovery_failed"
+                    ) from recovery_exc
+                try:
+                    cleanup_candidate_project()
+                    _assert_candidate_project_absent(project)
+                except BaseException:
+                    recovery_errors.append("candidate_resources_remain")
+                try:
+                    _wait_for_loopback_port_not_listening(port)
+                except BaseException:
+                    recovery_errors.append("candidate_port_remains_bound")
+                try:
+                    _assert_live_recovery_unchanged(
+                        before=live_before,
+                        openapi_contract=live_openapi_contract,
+                    )
+                except BaseException:
+                    recovery_errors.append("live_ea_changed_or_unhealthy")
+                if not recovery_errors:
+                    try:
+                        cleared = clear_candidate_pending_exact(
+                            project=project,
+                            port=port,
+                            receipt_path=receipt_path,
+                            image=str(projection["prepared_image_locator"]),
+                            image_id=str(projection["prepared_image_id"]),
+                            revision=str(projection["projection_commit"]),
+                            resources_absent=True,
+                        )
+                        if cleared.get("pending_cleared") is not True:
+                            raise RuntimeError(
+                                "manfred_candidate_pending_registry_cleanup_failed"
+                            )
+                    except BaseException:
+                        recovery_errors.append(
+                            "candidate_pending_registry_cleanup_failed"
+                        )
+            if recovery_errors:
+                raise RuntimeError(
+                    "manfred_candidate_crash_recovery_failed:"
+                    + ",".join(recovery_errors)
+                )
+            launch_recovery_evidence["crash_intent_reconciled"] = True
+        elif recovery_state != "absent":
+            raise RuntimeError("manfred_candidate_registry_recovery_invalid")
+
+        receipt_path = _assert_new_receipt_path(receipt_path)
+        contribution_receipt = _assert_new_receipt_path(contribution_receipt)
         preflight = _candidate_preflight(project, port)
         up_started = False
+        pending_registered = False
+        created_artifacts: dict[Path, _CreatedReceiptArtifact] = {}
         try:
-            receipt_path.unlink(missing_ok=True)
+            register_candidate_pending(
+                project=project,
+                port=port,
+                receipt_path=receipt_path,
+                image=str(projection["prepared_image_locator"]),
+                image_id=str(projection["prepared_image_id"]),
+                revision=str(projection["projection_commit"]),
+            )
+            pending_registered = True
+            _assert_sealed_execution_inputs_current(execution_inputs)
             up_started = True
             _run(
                 [*compose, "up", "-d", "--wait", "--wait-timeout", str(wait_seconds)],
@@ -2464,15 +4020,30 @@ def prove_candidate(
                 environment=compose_environment,
             )
             _assert_redis(compose, compose_environment)
-
-            first_smoke = verify_candidate(
-                base_url=base_url,
-                public_origin=env["EA_PUBLIC_APP_BASE_URL"],
-                wait_seconds=wait_seconds,
-                submit_receipt=contribution_receipt,
-                withdraw_receipt=None,
-                transport_request=transport_request,
+            runtime_projection_initial = _candidate_runtime_projection_evidence(
+                compose=compose,
+                environment=compose_environment,
+                projection=projection,
             )
+
+            _assert_new_receipt_path(contribution_receipt)
+            try:
+                first_smoke = verify_candidate(
+                    base_url=base_url,
+                    public_origin=env["EA_PUBLIC_APP_BASE_URL"],
+                    wait_seconds=wait_seconds,
+                    submit_receipt=contribution_receipt,
+                    withdraw_receipt=None,
+                    transport_request=transport_request,
+                )
+            finally:
+                contribution_artifact = _receipt_artifact_if_present(
+                    contribution_receipt
+                )
+                if contribution_artifact is not None:
+                    created_artifacts[contribution_artifact.path] = (
+                        contribution_artifact
+                    )
             api_before_restart = (
                 _run(
                     [*compose, "ps", "-q", "api"],
@@ -2484,6 +4055,7 @@ def prove_candidate(
             )
             if not api_before_restart:
                 raise RuntimeError("manfred_candidate_api_missing")
+            _assert_sealed_execution_inputs_current(execution_inputs)
             _run(
                 [*compose, "restart", "api"],
                 timeout=90,
@@ -2512,18 +4084,46 @@ def prove_candidate(
             contribution_modes = _assert_contribution_modes(
                 compose, compose_environment
             )
-            spatial_handoff = _spatial_handoff_runtime_proof(base_url, projection)
-            browser_surface = audit_browser_surface(base_url)
-            _assert_logs_clean(compose, compose_environment)
-            container_images = _candidate_container_image_evidence(
+            runtime_api_posture = _candidate_api_runtime_posture(
+                compose=compose,
+                environment=compose_environment,
+                candidate_env=env,
+                project=project,
+                projection=projection,
+                execution_environment_sha256=str(
+                    execution_inputs.evidence["environment_sha256"]
+                ),
+            )
+            if runtime_api_posture["api_container_id"] != api_after_restart:
+                raise RuntimeError("manfred_candidate_runtime_posture_identity_invalid")
+            initial_container_images = _candidate_container_image_evidence(
                 compose=compose,
                 environment=compose_environment,
                 project=project,
                 projection=projection,
             )
-            candidate_openapi_retirement = _assert_candidate_openapi_retired(
-                base_url
+            image_id = str(projection["prepared_image_id"])
+            image_source_revision = str(projection["projection_commit"])
+            runtime_version_identity = _candidate_runtime_version_identity(
+                base_url,
+                expected_commit=image_source_revision,
+                oci_image_revision=str(initial_container_images["revision_label"]),
             )
+            runtime_source_revision = str(
+                runtime_version_identity["source_revision_header"]
+            )
+            runtime_authority_commit = str(runtime_version_identity["body_commit_sha"])
+            spatial_handoff = _spatial_handoff_runtime_proof(
+                base_url,
+                projection,
+                oci_image_id=image_id,
+                serving_container_id=str(
+                    dict(initial_container_images["gateway"])["container_id"]
+                ),
+            )
+            browser_surface = audit_browser_surface(base_url)
+            _assert_logs_clean(compose, compose_environment)
+            candidate_openapi_retirement = _assert_candidate_openapi_retired(base_url)
             candidate_openapi_contract, candidate_openapi = (
                 _candidate_openapi_contract_snapshot(
                     compose,
@@ -2533,11 +4133,21 @@ def prove_candidate(
             openapi_preservation = _assert_openapi_contract_preserved(
                 live_openapi_contract, candidate_openapi_contract
             )
-            image_id = str(projection["prepared_image_id"])
-            image_source_revision = str(projection["projection_commit"])
-            runtime_source_revision = _candidate_runtime_source_revision(base_url)
-            if runtime_source_revision != str(projection["projection_commit"]):
-                raise RuntimeError("manfred_candidate_runtime_revision_image_mismatch")
+            final_container_images = _candidate_container_image_evidence(
+                compose=compose,
+                environment=compose_environment,
+                project=project,
+                projection=projection,
+            )
+            if final_container_images != initial_container_images:
+                raise RuntimeError("manfred_candidate_runtime_image_identity_changed")
+            runtime_projection_final = _candidate_runtime_projection_evidence(
+                compose=compose,
+                environment=compose_environment,
+                projection=projection,
+            )
+            if runtime_projection_final != runtime_projection_initial:
+                raise RuntimeError("manfred_candidate_runtime_projection_changed")
             live_after = _live_snapshot()
             _assert_live_unchanged(live_before, live_after)
             _assert_live_http()
@@ -2557,20 +4167,32 @@ def prove_candidate(
                 "image_id": image_id,
                 "image_source_revision": image_source_revision,
                 "image_locator_evidence": image_locator_evidence,
-                "image_locator_only": True,
-                "candidate_container_images": container_images,
+                "compose_uses_immutable_image_id": True,
+                "candidate_container_images": final_container_images,
+                "candidate_container_images_initial": initial_container_images,
+                "candidate_container_images_final": final_container_images,
+                "candidate_container_image_identity_stable": True,
+                "runtime_projection_initial": runtime_projection_initial,
+                "runtime_projection_final": runtime_projection_final,
+                "runtime_projection_identity_stable": True,
+                "runtime_version_identity": runtime_version_identity,
                 "runtime_source_revision": runtime_source_revision,
+                "runtime_authority_commit": runtime_authority_commit,
                 "runtime_revision_matches_image": True,
                 **projection,
                 "compose_project": project,
                 "compose_project_isolated": True,
+                "compose_attestation": compose_attestation,
+                "execution_inputs": execution_inputs.evidence,
                 "compose_environment_bound_to_candidate_env": True,
                 "candidate_named_resources": _candidate_named_resources(project),
                 "candidate_preflight": preflight,
+                "registry_recovery": launch_recovery_evidence,
                 "locks": lock_evidence,
                 "project_lock": lock_evidence["project"],
                 "port_lock": lock_evidence["port"],
                 "candidate_api_container_id": api_after_restart,
+                "runtime_api_posture": runtime_api_posture,
                 "candidate_port": port,
                 "api_network_internal": True,
                 "gateway_has_runtime_secrets": False,
@@ -2602,35 +4224,72 @@ def prove_candidate(
                 "candidate_left_running_for_soak": True,
                 "promotion_authority": False,
             }
-            _atomic_receipt(receipt_path, receipt)
+            with _shield_cleanup_interrupts():
+                registration = _persist_runtime_receipt(
+                    receipt_path,
+                    receipt,
+                    created_artifacts=created_artifacts,
+                )
+                if registration.get("registered") is not True:
+                    raise RuntimeError("manfred_candidate_registry_registration_failed")
+                pending_registered = False
             return receipt
         except BaseException as exc:
             if not up_started:
+                if pending_registered:
+                    cleared = clear_candidate_pending(project)
+                    if cleared.get("pending_cleared") is not True:
+                        raise RuntimeError(
+                            "manfred_candidate_pending_registry_cleanup_failed"
+                        ) from exc
                 raise
             recovery_errors: list[str] = []
             with _shield_cleanup_interrupts():
+                contribution_withdrawal_blocked = False
                 try:
-                    _cleanup_candidate_project(
-                        compose=compose,
-                        environment=compose_environment,
-                        project=project,
+                    _withdraw_candidate_contribution_if_present(
+                        base_url,
+                        contribution_receipt,
                     )
                 except BaseException:
+                    contribution_withdrawal_blocked = True
+                    recovery_errors.append("candidate_contribution_withdrawal_failed")
+                try:
+                    if not contribution_withdrawal_blocked:
+                        cleanup_candidate_project()
+                except BaseException:
                     recovery_errors.append("candidate_compose_down_failed")
+                if not contribution_withdrawal_blocked:
+                    try:
+                        _assert_candidate_project_absent(project)
+                    except BaseException:
+                        recovery_errors.append("candidate_resources_remain")
+                    try:
+                        _wait_for_loopback_port_not_listening(port)
+                    except BaseException:
+                        recovery_errors.append("candidate_port_remains_bound")
+                    try:
+                        contribution_artifact = created_artifacts.get(
+                            contribution_receipt
+                        )
+                        if (
+                            contribution_artifact is not None
+                            and not _unlink_created_receipt_artifact(
+                                contribution_artifact
+                            )
+                        ):
+                            raise RuntimeError(RECEIPT_ARTIFACT_INVALID)
+                    except BaseException:
+                        recovery_errors.append(
+                            "candidate_private_receipt_cleanup_failed"
+                        )
                 try:
-                    _assert_candidate_project_absent(project)
-                except BaseException:
-                    recovery_errors.append("candidate_resources_remain")
-                try:
-                    _wait_for_loopback_port_not_listening(port)
-                except BaseException:
-                    recovery_errors.append("candidate_port_remains_bound")
-                try:
-                    contribution_receipt.unlink(missing_ok=True)
-                except BaseException:
-                    recovery_errors.append("candidate_private_receipt_cleanup_failed")
-                try:
-                    receipt_path.unlink(missing_ok=True)
+                    runtime_artifact = created_artifacts.get(receipt_path)
+                    if (
+                        runtime_artifact is not None
+                        and not _unlink_created_receipt_artifact(runtime_artifact)
+                    ):
+                        raise RuntimeError(RECEIPT_ARTIFACT_INVALID)
                 except BaseException:
                     recovery_errors.append("candidate_runtime_receipt_cleanup_failed")
                 try:
@@ -2644,6 +4303,18 @@ def prove_candidate(
                         raise RuntimeError("manfred_candidate_live_openapi_changed")
                 except BaseException:
                     recovery_errors.append("live_ea_changed_or_unhealthy")
+                if pending_registered and not recovery_errors:
+                    try:
+                        cleared = clear_candidate_pending(project)
+                        if cleared.get("pending_cleared") is not True:
+                            raise RuntimeError(
+                                "manfred_candidate_pending_registry_cleanup_failed"
+                            )
+                        pending_registered = False
+                    except BaseException:
+                        recovery_errors.append(
+                            "candidate_pending_registry_cleanup_failed"
+                        )
             if recovery_errors:
                 if not isinstance(exc, Exception):
                     exc.add_note(
@@ -2655,6 +4326,48 @@ def prove_candidate(
                     f"{original};manfred_candidate_recovery_failed:{','.join(recovery_errors)}"
                 ) from exc
             raise
+
+
+def prove_candidate(
+    *,
+    env_file: Path,
+    compose_file: Path,
+    receipt_path: Path,
+    wait_seconds: int,
+) -> dict[str, object]:
+    canonical_env_file = Path(
+        os.path.abspath(os.fspath(env_file.expanduser()))
+    )
+    environment_bytes = _read_private_output(
+        canonical_env_file,
+        maximum=CANDIDATE_ENV_MAX_BYTES,
+    )
+    if environment_bytes is None:  # pragma: no cover - missing_ok is false
+        raise RuntimeError("manfred_candidate_env_missing")
+    env = _assert_env_allowlist(
+        canonical_env_file,
+        environment_bytes=environment_bytes,
+    )
+    compose_attestation, compose_bytes = _candidate_compose_source_snapshot(
+        compose_file,
+        expected_commit=env["EA_MANFRED_COMMIT"],
+    )
+    projection = _projection_evidence(env)
+    with _sealed_candidate_execution_inputs(
+        compose_bytes=compose_bytes,
+        environment_bytes=environment_bytes,
+        environment=env,
+        compose_attestation=compose_attestation,
+        compose_image_id=str(projection["prepared_image_id"]),
+    ) as execution_inputs:
+        return _prove_candidate_with_execution_inputs(
+            receipt_path=receipt_path,
+            wait_seconds=wait_seconds,
+            env=env,
+            projection=projection,
+            compose_attestation=compose_attestation,
+            execution_inputs=execution_inputs,
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:

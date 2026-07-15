@@ -52,6 +52,18 @@ def _state(
         "qualified_at": (
             _timestamp(required_end_ms) if phase == "qualified" else None
         ),
+        "qualification_deferred_ms": 0,
+        "qualification_deferred_total_ms": 0,
+        "qualification_effective_elapsed_ms": checked_at_ms - epoch_ms,
+        "qualification_earliest_completion_at": _timestamp(required_end_ms),
+        "qualification_deferred_reasons": [],
+        "qualification_deferred_since_at": None,
+        "qualification_deferred_since_monotonic_ms": None,
+        "apparmor_qualification_ready": True,
+        "epoch_apparmor_enforced": True,
+        "current_resources_healthy": True,
+        "resource_samples_attempted": 1,
+        "resource_samples_passed": 1,
         "certification_blockers": (
             []
             if renewed_in_epoch
@@ -81,7 +93,9 @@ def _live_insufficient_state() -> dict[str, object]:
 
 def _current_live_insufficient_state() -> dict[str, object]:
     state = _live_insufficient_state()
-    state["updated_at"] = _timestamp(int(time.time() * 1000))
+    updated_at_ms = int(time.time() * 1000)
+    state["updated_at"] = _timestamp(updated_at_ms)
+    state["qualification_effective_elapsed_ms"] = updated_at_ms - LIVE_EPOCH_MS
     return state
 
 

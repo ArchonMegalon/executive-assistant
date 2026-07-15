@@ -34,13 +34,37 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
 
 try:
     from scripts.prepare_manfred_memorial_candidate import (
+        PROPERTY_AUTHORITY_SHA256,
+        PROPERTY_PRE_AUTHORITY_SHA256,
+        PROPERTY_TOUR_SHA256,
+        _spatial_package_sha256,
+        _spatial_tree_snapshot,
         _tree_digest as _candidate_projection_tree_digest,
     )
 except ModuleNotFoundError as exc:  # pragma: no cover - direct script execution
     if exc.name not in {"scripts", "scripts.prepare_manfred_memorial_candidate"}:
         raise
     from prepare_manfred_memorial_candidate import (  # type: ignore[no-redef]
+        PROPERTY_AUTHORITY_SHA256,
+        PROPERTY_PRE_AUTHORITY_SHA256,
+        PROPERTY_TOUR_SHA256,
+        _spatial_package_sha256,
+        _spatial_tree_snapshot,
         _tree_digest as _candidate_projection_tree_digest,
+    )
+
+try:
+    from scripts.verify_manfred_spatial_candidate_browser import (
+        validate_spatial_candidate_browser_receipt,
+    )
+except ModuleNotFoundError as exc:  # pragma: no cover - direct script execution
+    if exc.name not in {
+        "scripts",
+        "scripts.verify_manfred_spatial_candidate_browser",
+    }:
+        raise
+    from verify_manfred_spatial_candidate_browser import (  # type: ignore[no-redef]
+        validate_spatial_candidate_browser_receipt,
     )
 
 
@@ -89,6 +113,10 @@ OPENAPI_RETIREMENT_ALLOWED_OPERATIONS = (
     "POST /v1/internal/governed-spatial-render/build",
     "POST /v1/internal/governed-spatial-render/compose",
 )
+OPENAPI_COMPATIBLE_EVOLUTION_POLICY_ID = (
+    "ea.openapi.compatible-evolution.version-remote-reachability.v1"
+)
+OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS = ("GET /version",)
 FORWARD_ONLY_ENV_KEYS = {
     "EA_MEMORIAL_IMAGE",
     "EA_SOURCE_REVISION",
@@ -120,11 +148,13 @@ MAX_DEPLOYMENT_INPUT_BYTES = 8 * 1024 * 1024
 MAX_GIT_INDEX_LIST_BYTES = 16 * 1024 * 1024
 MAX_RECEIPT_CONTENT_TYPE_CHARS = 160
 MAX_VEXP_SENTINEL_STATE_BYTES = 1024 * 1024
-VEXP_SENTINEL_STATE_VERSION = 5
+VEXP_SENTINEL_STATE_VERSION = 6
+VEXP_SUPPORTED_SENTINEL_STATE_VERSIONS = frozenset({5, 6})
 VEXP_CERTIFICATION_SOAK_SECONDS = 7 * 24 * 60 * 60
 VEXP_SENTINEL_FILE_MAX_AGE_SECONDS = 5 * 60
 VEXP_SENTINEL_STATE_MAX_AGE_SECONDS = 75 * 60
 VEXP_SENTINEL_CLOCK_SKEW_SECONDS = 60
+VEXP_EFFECTIVE_ELAPSED_TOLERANCE_MS = 1
 VEXP_TOKEN_COVERAGE_SCHEMA = "ea.vexp_certification_token_coverage.v1"
 SAFE_VEXP_CERTIFICATION_BLOCKER_CODES = frozenset(
     {
@@ -503,14 +533,16 @@ def _vexp_token_coverage_base(*, state_sha256: str) -> dict[str, object]:
         "issues": [],
         "state_sha256": state_sha256,
         "expected_state_version": VEXP_SENTINEL_STATE_VERSION,
+        "current_state_version": VEXP_SENTINEL_STATE_VERSION,
+        "supported_state_versions": sorted(VEXP_SUPPORTED_SENTINEL_STATE_VERSIONS),
         "required_window_seconds": VEXP_CERTIFICATION_SOAK_SECONDS,
         "token_coverage_safe": False,
         "promotion_authorized": False,
         "operator_action_required": True,
         "operator_guidance": [
             (
-                "Restore a current owner-only v5 sentinel state, then rerun the "
-                "governed readiness check."
+                "Restore a current owner-only supported v5 or v6 sentinel state, "
+                "then rerun the governed readiness check."
             ),
             (
                 "If renewal or coverage remains blocked, renew through the governed "
@@ -574,7 +606,10 @@ def _vexp_certification_token_coverage(
     version = state.get("version")
     if type(version) is int:
         evidence["state_version"] = version
-    if type(version) is not int or version != VEXP_SENTINEL_STATE_VERSION:
+    if (
+        type(version) is not int
+        or version not in VEXP_SUPPORTED_SENTINEL_STATE_VERSIONS
+    ):
         issues.append("state_version_invalid")
 
     epoch_started_ms = state.get("epoch_started_ms")
@@ -599,6 +634,190 @@ def _vexp_certification_token_coverage(
             issues.append("sentinel_state_from_future")
         if updated_at_ms < minimum_state_fresh_ms:
             issues.append("sentinel_state_stale")
+
+    qualification_deferred_ms: int | None = 0
+    qualification_deferred_total_ms: int | None = 0
+    qualification_effective_elapsed_ms: int | None = None
+    qualification_earliest_completion_ms: int | None = None
+    qualification_deferred_reasons: list[str] = []
+    apparmor_qualification_ready: bool | None = None
+    epoch_apparmor_enforced: bool | None = None
+    current_resources_healthy: bool | None = None
+    resource_samples_attempted: int | None = None
+    resource_samples_passed: int | None = None
+    if version == 6:
+        qualification_deferred_ms = state.get("qualification_deferred_ms")
+        if (
+            type(qualification_deferred_ms) is not int
+            or qualification_deferred_ms < 0
+        ):
+            issues.append("qualification_deferred_ms_invalid")
+            qualification_deferred_ms = None
+
+        qualification_deferred_total_ms = state.get(
+            "qualification_deferred_total_ms"
+        )
+        if (
+            type(qualification_deferred_total_ms) is not int
+            or qualification_deferred_total_ms < 0
+        ):
+            issues.append("qualification_deferred_total_ms_invalid")
+            qualification_deferred_total_ms = None
+        if (
+            qualification_deferred_ms is not None
+            and qualification_deferred_total_ms is not None
+            and qualification_deferred_ms > qualification_deferred_total_ms
+        ):
+            issues.append("qualification_deferred_totals_inconsistent")
+
+        qualification_effective_elapsed_ms = state.get(
+            "qualification_effective_elapsed_ms"
+        )
+        if (
+            type(qualification_effective_elapsed_ms) is not int
+            or qualification_effective_elapsed_ms < 0
+        ):
+            issues.append("qualification_effective_elapsed_ms_invalid")
+            qualification_effective_elapsed_ms = None
+        if (
+            qualification_effective_elapsed_ms is not None
+            and qualification_deferred_total_ms is not None
+            and epoch_started_ms is not None
+            and updated_at_ms is not None
+        ):
+            expected_effective_elapsed_ms = (
+                updated_at_ms
+                - epoch_started_ms
+                - qualification_deferred_total_ms
+            )
+            if expected_effective_elapsed_ms < 0:
+                issues.append("qualification_effective_elapsed_negative")
+            elif (
+                abs(
+                    qualification_effective_elapsed_ms
+                    - expected_effective_elapsed_ms
+                )
+                > VEXP_EFFECTIVE_ELAPSED_TOLERANCE_MS
+            ):
+                issues.append("qualification_effective_elapsed_inconsistent")
+
+        qualification_earliest_completion_ms = _utc_timestamp_ms(
+            state.get("qualification_earliest_completion_at")
+        )
+        if qualification_earliest_completion_ms is None:
+            issues.append("qualification_earliest_completion_at_invalid")
+        elif (
+            epoch_started_ms is not None
+            and qualification_deferred_total_ms is not None
+            and abs(
+                qualification_earliest_completion_ms
+                - (
+                    epoch_started_ms
+                    + qualification_deferred_total_ms
+                    + required_window_seconds * 1000
+                )
+            )
+            > VEXP_EFFECTIVE_ELAPSED_TOLERANCE_MS
+        ):
+            issues.append("qualification_earliest_completion_inconsistent")
+
+        deferred_reasons_value = state.get("qualification_deferred_reasons")
+        if (
+            not isinstance(deferred_reasons_value, list)
+            or len(deferred_reasons_value) > 64
+        ):
+            issues.append("qualification_deferred_reasons_invalid")
+        else:
+            for deferred_reason in deferred_reasons_value:
+                if (
+                    not isinstance(deferred_reason, str)
+                    or len(deferred_reason) > 128
+                    or re.fullmatch(
+                        r"[a-z][a-z0-9_-]{0,31}:[a-z][a-z0-9_.-]{0,95}",
+                        deferred_reason,
+                    )
+                    is None
+                ):
+                    issues.append("qualification_deferred_reason_code_invalid")
+                    qualification_deferred_reasons = []
+                    break
+                qualification_deferred_reasons.append(deferred_reason)
+            if len(qualification_deferred_reasons) != len(
+                set(qualification_deferred_reasons)
+            ):
+                issues.append("qualification_deferred_reason_code_duplicate")
+
+        deferred_since_at_value = state.get("qualification_deferred_since_at")
+        deferred_since_monotonic_ms = state.get(
+            "qualification_deferred_since_monotonic_ms"
+        )
+        if qualification_deferred_reasons:
+            deferred_since_at_ms = _utc_timestamp_ms(deferred_since_at_value)
+            if deferred_since_at_ms is None:
+                issues.append("qualification_deferred_since_at_invalid")
+            else:
+                if (
+                    epoch_started_ms is not None
+                    and deferred_since_at_ms < epoch_started_ms
+                ):
+                    issues.append("qualification_deferred_since_before_epoch")
+                if updated_at_ms is not None and deferred_since_at_ms > updated_at_ms:
+                    issues.append("qualification_deferred_since_after_update")
+            if (
+                type(deferred_since_monotonic_ms) is not int
+                or deferred_since_monotonic_ms < 0
+            ):
+                issues.append("qualification_deferred_since_monotonic_ms_invalid")
+        elif (
+            deferred_since_at_value is not None
+            or deferred_since_monotonic_ms is not None
+        ):
+            issues.append("qualification_deferred_since_without_reasons")
+
+        apparmor_qualification_ready = state.get("apparmor_qualification_ready")
+        if type(apparmor_qualification_ready) is not bool:
+            issues.append("apparmor_qualification_ready_invalid")
+            apparmor_qualification_ready = None
+        epoch_apparmor_enforced = state.get("epoch_apparmor_enforced")
+        if type(epoch_apparmor_enforced) is not bool:
+            issues.append("epoch_apparmor_enforced_invalid")
+            epoch_apparmor_enforced = None
+        current_resources_healthy = state.get("current_resources_healthy")
+        if type(current_resources_healthy) is not bool:
+            issues.append("current_resources_healthy_invalid")
+            current_resources_healthy = None
+        if (
+            apparmor_qualification_ready is True
+            and epoch_apparmor_enforced is False
+        ):
+            issues.append("apparmor_qualification_state_inconsistent")
+
+        sample_attempted_present = "resource_samples_attempted" in state
+        sample_passed_present = "resource_samples_passed" in state
+        if not (sample_attempted_present and sample_passed_present):
+            issues.append("resource_sample_counts_incomplete")
+        if sample_attempted_present:
+            resource_samples_attempted = state.get("resource_samples_attempted")
+            if (
+                type(resource_samples_attempted) is not int
+                or resource_samples_attempted <= 0
+            ):
+                issues.append("resource_samples_attempted_invalid")
+                resource_samples_attempted = None
+        if sample_passed_present:
+            resource_samples_passed = state.get("resource_samples_passed")
+            if (
+                type(resource_samples_passed) is not int
+                or resource_samples_passed <= 0
+            ):
+                issues.append("resource_samples_passed_invalid")
+                resource_samples_passed = None
+        if (
+            resource_samples_attempted is not None
+            and resource_samples_passed is not None
+            and resource_samples_passed > resource_samples_attempted
+        ):
+            issues.append("resource_sample_counts_inconsistent")
 
     initial_expiration_ms = state.get("epoch_initial_fresh_exp_ms")
     if type(initial_expiration_ms) is not int or initial_expiration_ms <= 0:
@@ -700,7 +919,13 @@ def _vexp_certification_token_coverage(
             issues.append("qualified_state_has_certification_blockers")
 
     if epoch_started_ms is not None:
-        required_end_ms = epoch_started_ms + required_window_seconds * 1000
+        required_end_ms = (
+            epoch_started_ms
+            + qualification_deferred_total_ms
+            + required_window_seconds * 1000
+            if qualification_deferred_total_ms is not None
+            else None
+        )
         if checked_at_ms + VEXP_SENTINEL_CLOCK_SKEW_SECONDS * 1000 < epoch_started_ms:
             issues.append("epoch_started_in_future")
         if updated_at_ms is not None and updated_at_ms < epoch_started_ms:
@@ -715,7 +940,11 @@ def _vexp_certification_token_coverage(
             and observed_expiration_ms <= epoch_started_ms
         ):
             issues.append("observed_fresh_expiration_before_epoch")
-        if qualified_at_ms is not None and qualified_at_ms < required_end_ms:
+        if (
+            qualified_at_ms is not None
+            and required_end_ms is not None
+            and qualified_at_ms < required_end_ms
+        ):
             issues.append("qualification_completed_before_required_window")
         if (
             qualified_at_ms is not None
@@ -742,6 +971,7 @@ def _vexp_certification_token_coverage(
     assert renewal_count is not None
     assert renewed_in_epoch is not None
     assert state_file_mtime_ms is not None
+    assert qualification_deferred_total_ms is not None
     margin_ms = observed_expiration_ms - required_end_ms
     coverage_sufficient = margin_ms >= 0
     token_current = observed_expiration_ms > checked_at_ms
@@ -754,6 +984,11 @@ def _vexp_certification_token_coverage(
         for blocker in blockers
         if blocker in SAFE_VEXP_CERTIFICATION_BLOCKER_CODES
     ]
+    projected_deferred_reasons = [
+        reason
+        for reason in qualification_deferred_reasons
+        if reason in SAFE_VEXP_CERTIFICATION_BLOCKER_CODES
+    ]
     gate_issues: list[str] = []
     if not coverage_sufficient:
         gate_issues.append("fresh_token_coverage_ends_before_certification_window")
@@ -763,6 +998,15 @@ def _vexp_certification_token_coverage(
         gate_issues.append("fresh_token_renewal_not_observed_in_epoch")
     if license_blockers:
         gate_issues.append("license_certification_blocker_present")
+    if version == 6:
+        if qualification_deferred_reasons:
+            gate_issues.append("qualification_currently_deferred")
+        if epoch_apparmor_enforced is not True:
+            gate_issues.append("apparmor_not_enforced_in_epoch")
+        if apparmor_qualification_ready is not True:
+            gate_issues.append("apparmor_qualification_not_ready")
+        if current_resources_healthy is not True:
+            gate_issues.append("current_resources_unhealthy")
 
     evidence.update(
         {
@@ -776,6 +1020,32 @@ def _vexp_certification_token_coverage(
             "epoch_started_ms": epoch_started_ms,
             "certification_required_end_at": _utc_timestamp_from_ms(required_end_ms),
             "certification_required_end_ms": required_end_ms,
+            "qualification_deferred_ms": qualification_deferred_ms,
+            "qualification_deferred_total_ms": qualification_deferred_total_ms,
+            "qualification_effective_elapsed_ms": (
+                qualification_effective_elapsed_ms if version == 6 else None
+            ),
+            "qualification_earliest_completion_at": (
+                _utc_timestamp_from_ms(qualification_earliest_completion_ms)
+                if qualification_earliest_completion_ms is not None
+                else None
+            ),
+            "qualification_deferred_reasons": projected_deferred_reasons,
+            "qualification_deferred_reason_count": len(
+                qualification_deferred_reasons
+            ),
+            "qualification_deferred_reasons_sha256": _canonical_json_sha256(
+                sorted(qualification_deferred_reasons)
+            ),
+            "unprojected_qualification_deferred_reason_count": (
+                len(qualification_deferred_reasons)
+                - len(projected_deferred_reasons)
+            ),
+            "apparmor_qualification_ready": apparmor_qualification_ready,
+            "epoch_apparmor_enforced": epoch_apparmor_enforced,
+            "current_resources_healthy": current_resources_healthy,
+            "resource_samples_attempted": resource_samples_attempted,
+            "resource_samples_passed": resource_samples_passed,
             "fresh_token_expiration_at": _utc_timestamp_from_ms(
                 observed_expiration_ms
             ),
@@ -817,20 +1087,50 @@ def _vexp_certification_token_coverage(
         evidence["reason"] = "fresh_token_expired"
     elif not renewal_observed:
         evidence["reason"] = "fresh_token_renewal_required"
-    else:
+    elif license_blockers:
         evidence["reason"] = "license_certification_blocked"
+    else:
+        evidence["reason"] = "sentinel_qualification_preconditions_not_ready"
     if gate_issues:
-        evidence["operator_guidance"] = [
-            (
-                "Renew the vexp license token through the governed provider "
-                "workflow; do not copy or expose credential material."
-            ),
-            (
-                "Wait for the sentinel to record the in-epoch renewal, clear all "
-                "license blockers, and prove coverage through "
-                "certification_required_end_at before retrying promotion."
-            ),
-        ]
+        guidance: list[str] = []
+        if any(
+            issue
+            in {
+                "fresh_token_coverage_ends_before_certification_window",
+                "fresh_token_expired",
+                "fresh_token_renewal_not_observed_in_epoch",
+                "license_certification_blocker_present",
+            }
+            for issue in gate_issues
+        ):
+            guidance.extend(
+                [
+                    (
+                        "Renew the vexp license token through the governed provider "
+                        "workflow; do not copy or expose credential material."
+                    ),
+                    (
+                        "Wait for the sentinel to record the in-epoch renewal, clear "
+                        "all license blockers, and prove coverage through "
+                        "certification_required_end_at before retrying promotion."
+                    ),
+                ]
+            )
+        if any(
+            issue
+            in {
+                "apparmor_not_enforced_in_epoch",
+                "apparmor_qualification_not_ready",
+                "current_resources_unhealthy",
+                "qualification_currently_deferred",
+            }
+            for issue in gate_issues
+        ):
+            guidance.append(
+                "Restore enforced AppArmor and healthy resource qualification, then "
+                "wait for a current v6 sentinel sample before retrying promotion."
+            )
+        evidence["operator_guidance"] = guidance
     return evidence
 
 
@@ -3429,17 +3729,49 @@ class MemorialDeployLane:
             dict(live_after_value) if isinstance(live_after_value, dict) else {}
         )
 
+        def receipt_mapping(name: str) -> dict[str, Any]:
+            value = payload.get(name)
+            return dict(value) if isinstance(value, dict) else {}
+
+        initial_container_images = receipt_mapping(
+            "candidate_container_images_initial"
+        )
+        final_container_images = receipt_mapping("candidate_container_images_final")
+        runtime_projection_initial = receipt_mapping("runtime_projection_initial")
+        runtime_projection_final = receipt_mapping("runtime_projection_final")
+        runtime_version = receipt_mapping("runtime_version_identity")
+        compose_attestation = receipt_mapping("compose_attestation")
+        execution_inputs = receipt_mapping("execution_inputs")
+        runtime_api_posture = receipt_mapping("runtime_api_posture")
+        registry_recovery = receipt_mapping("registry_recovery")
+        spatial_projection = receipt_mapping("spatial_handoff")
+        spatial_runtime = receipt_mapping("spatial_handoff_runtime")
+        fleet_lock_value = locks.get("fleet")
+        fleet_lock = (
+            dict(fleet_lock_value) if isinstance(fleet_lock_value, dict) else {}
+        )
+
         def openapi_snapshot(name: str) -> dict[str, Any]:
             value = openapi.get(name)
             return dict(value) if isinstance(value, dict) else {}
 
         live_openapi_before = openapi_snapshot("live_before")
         candidate_openapi = openapi_snapshot("candidate")
+        candidate_openapi_public_endpoint = openapi_snapshot(
+            "candidate_public_endpoint"
+        )
         live_openapi_after = openapi_snapshot("live_after")
 
-        def valid_openapi_snapshot(value: Mapping[str, Any]) -> bool:
+        def valid_openapi_snapshot(
+            value: Mapping[str, Any], *, candidate_snapshot: bool = False
+        ) -> bool:
+            expected_fields = set(OPENAPI_EVIDENCE_FIELDS)
+            if candidate_snapshot:
+                expected_fields.update(
+                    {"snapshot_source", "public_docs_config_retired"}
+                )
             return (
-                set(value) == OPENAPI_EVIDENCE_FIELDS
+                set(value) == expected_fields
                 and type(value.get("path_count")) is int
                 and int(value["path_count"]) > 0
                 and type(value.get("operation_count")) is int
@@ -3456,6 +3788,66 @@ class MemorialDeployLane:
                     str(value.get("contract_digest_sha256") or "")
                 )
                 is not None
+                and (
+                    not candidate_snapshot
+                    or (
+                        value.get("snapshot_source")
+                        == "candidate_api_container_app.openapi"
+                        and value.get("public_docs_config_retired") is True
+                    )
+                )
+            )
+
+        def valid_candidate_openapi_public_endpoint(
+            value: Mapping[str, Any],
+        ) -> bool:
+            security_headers = value.get("security_headers")
+            if not isinstance(security_headers, dict) or set(security_headers) != {
+                "content_security_policy",
+                "x_content_type_options",
+                "x_frame_options",
+            }:
+                return False
+            directives: dict[str, tuple[str, ...]] = {}
+            for raw_directive in str(
+                security_headers.get("content_security_policy") or ""
+            ).split(";"):
+                parts = raw_directive.strip().split()
+                if not parts:
+                    continue
+                name = parts[0].lower()
+                if name in directives:
+                    return False
+                directives[name] = tuple(parts[1:])
+            content_type = value.get("content_type")
+            return (
+                set(value)
+                == {
+                    "path",
+                    "status",
+                    "error_code",
+                    "content_type",
+                    "media_type",
+                    "correlation_header_matches_body",
+                    "security_headers",
+                    "public_endpoint_retired",
+                }
+                and value.get("path") == "/openapi.json"
+                and type(value.get("status")) is int
+                and value.get("status") == 404
+                and value.get("error_code") == "not_found"
+                and type(content_type) is str
+                and 0 < len(content_type) <= MAX_RECEIPT_CONTENT_TYPE_CHARS
+                and str(content_type).partition(";")[0].strip().lower()
+                == "application/json"
+                and value.get("media_type") == "application/json"
+                and value.get("correlation_header_matches_body") is True
+                and directives.get("frame-ancestors") == ("'none'",)
+                and str(security_headers.get("x_content_type_options") or "").lower()
+                == "nosniff"
+                and str(security_headers.get("x_frame_options") or "").upper()
+                == "DENY"
+                and value.get("public_endpoint_retired") is True
             )
 
         live_containers = live_before.get("containers")
@@ -3510,22 +3902,648 @@ class MemorialDeployLane:
             for item in list(payload.get("second_smoke_checks") or [])
             if str(item).strip()
         }
+
+        image_reference = str(candidate.get("reference") or "")
+        image_id = str(candidate.get("image_id") or "")
+        container_id_pattern = re.compile(r"^[0-9a-f]{64}$")
+        expected_projection_count = payload.get("projection_file_count")
+        expected_projection_bytes = payload.get("projection_bytes")
+        expected_runtime_mount_roots = [
+            "/data/memorial/public",
+            "/data/memorial/private",
+            "/data/memorial/archive",
+            "/data/public_property_tours",
+            "/data/release-authority",
+        ]
+        expected_candidate_env_keys = sorted(
+            {
+                "DATABASE_URL",
+                "EA_API_TOKEN",
+                "EA_MANFRED_COMPOSE_PROJECT",
+                "EA_MANFRED_COMMIT",
+                "EA_MANFRED_DEPLOYMENT_ID",
+                "EA_MANFRED_ENV_FILE",
+                "EA_MANFRED_HOST_PORT",
+                "EA_MANFRED_IMAGE",
+                "EA_MANFRED_POSTGRES_PASSWORD",
+                "EA_MANFRED_RELEASE_AUTHORITY_ROOT",
+                "EA_MANFRED_RELEASE_ROOT",
+                "EA_MANFRED_RUNTIME_ROOT",
+                "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED",
+                "EA_MANFRED_SPATIAL_RELEASE_ROOT",
+                "EA_MANFRED_SPATIAL_SHA256",
+                "EA_MANFRED_SPATIAL_SLUG",
+                "EA_PUBLIC_APP_BASE_URL",
+                "EA_SIGNING_SECRET",
+            }
+        )
+
+        def valid_container_images(value: Mapping[str, Any]) -> bool:
+            if set(value) != {
+                "api",
+                "gateway",
+                "prepared_image_id",
+                "revision_label",
+                "all_match_prepared_image",
+            }:
+                return False
+            api = value.get("api")
+            gateway = value.get("gateway")
+            if not isinstance(api, dict) or not isinstance(gateway, dict):
+                return False
+            if set(api) != {"container_id", "image_id"} or set(gateway) != {
+                "container_id",
+                "image_id",
+            }:
+                return False
+            api_id = str(api.get("container_id") or "")
+            gateway_id = str(gateway.get("container_id") or "")
+            return (
+                container_id_pattern.fullmatch(api_id) is not None
+                and container_id_pattern.fullmatch(gateway_id) is not None
+                and api_id != gateway_id
+                and api.get("image_id") == image_id
+                and gateway.get("image_id") == image_id
+                and value.get("prepared_image_id") == image_id
+                and value.get("revision_label") == source_revision
+                and value.get("all_match_prepared_image") is True
+            )
+
+        def valid_runtime_projection(value: Mapping[str, Any]) -> bool:
+            return (
+                set(value)
+                == {
+                    "schema",
+                    "projection_sha256",
+                    "file_count",
+                    "projection_bytes",
+                    "mount_roots",
+                    "runtime_bytes_match_prepared_projection",
+                }
+                and value.get("schema")
+                == "ea.manfred_candidate_runtime_projection.v1"
+                and value.get("projection_sha256") == payload.get("projection_sha256")
+                and type(value.get("file_count")) is int
+                and value.get("file_count") == expected_projection_count
+                and type(value.get("projection_bytes")) is int
+                and value.get("projection_bytes") == expected_projection_bytes
+                and value.get("mount_roots") == expected_runtime_mount_roots
+                and value.get("runtime_bytes_match_prepared_projection") is True
+            )
+
+        expected_runtime_version = {
+            "path": "/version",
+            "status": 200,
+            "commit_sha": source_revision,
+            "body_commit_sha": source_revision,
+            "source_revision_header": source_revision,
+            "expected_commit_sha": source_revision,
+            "oci_image_revision": source_revision,
+            "repository": "EA",
+            "role": "api",
+            "release_authority_state": "clear",
+            "release_authority_posture": "authoritative_runtime",
+            "release_authority_source": "published_status_artifact",
+            "commit_observed_over_http": True,
+            "revision_agreement_verified": True,
+        }
+        compose_relative_path = "deploy/manfred-memorial/docker-compose.candidate.yml"
+        expected_compose_path = str((self.root / compose_relative_path).resolve())
+        try:
+            expected_compose_bytes = Path(expected_compose_path).read_bytes()
+        except OSError:
+            expected_compose_bytes = None
+
+        def git_blob_oid(content: bytes, *, digest_chars: int) -> str:
+            framed = f"blob {len(content)}\0".encode("ascii") + content
+            if digest_chars == 40:
+                return hashlib.sha1(  # noqa: S324 - Git object identity is SHA-1
+                    framed,
+                    usedforsecurity=False,
+                ).hexdigest()
+            if digest_chars == 64:
+                return hashlib.sha256(framed).hexdigest()
+            return ""
+
+        def valid_compose_attestation(value: Mapping[str, Any]) -> bool:
+            blob_oid = str(value.get("git_blob_oid") or "")
+            producer_source = Path(str(value.get("canonical_source_path") or ""))
+            relative_parts = Path(compose_relative_path).parts
+            return (
+                set(value)
+                == {
+                    "canonical_relative_path",
+                    "canonical_source_path",
+                    "candidate_commit",
+                    "git_blob_oid",
+                    "sha256",
+                    "size_bytes",
+                    "canonical_path_enforced",
+                    "tracked_blob_bytes_enforced",
+                }
+                and value.get("canonical_relative_path") == compose_relative_path
+                and producer_source.is_absolute()
+                and producer_source.parts[-len(relative_parts) :] == relative_parts
+                and value.get("candidate_commit") == source_revision
+                and len(blob_oid) in {40, 64}
+                and blob_oid == blob_oid.lower()
+                and all(character in "0123456789abcdef" for character in blob_oid)
+                and expected_compose_bytes is not None
+                and blob_oid
+                == git_blob_oid(expected_compose_bytes, digest_chars=len(blob_oid))
+                and SHA256_HEX_PATTERN.fullmatch(str(value.get("sha256") or ""))
+                is not None
+                and value.get("sha256")
+                == hashlib.sha256(expected_compose_bytes).hexdigest()
+                and type(value.get("size_bytes")) is int
+                and value.get("size_bytes") == len(expected_compose_bytes)
+                and len(expected_compose_bytes) > 0
+                and value.get("canonical_path_enforced") is True
+                and value.get("tracked_blob_bytes_enforced") is True
+            )
+
+        def valid_execution_inputs(value: Mapping[str, Any]) -> bool:
+            environment_keys = value.get("environment_keys")
+            return (
+                set(value)
+                == {
+                    "schema",
+                    "compose_sha256",
+                    "compose_size_bytes",
+                    "compose_git_blob_oid",
+                    "environment_sha256",
+                    "environment_size_bytes",
+                    "environment_keys",
+                    "compose_image_id",
+                    "compose_image_reference_source",
+                    "transport",
+                    "required_seals",
+                    "all_compose_commands_use_sealed_inputs",
+                    "mutable_source_paths_consumed_by_compose",
+                    "mutable_image_locator_consumed_by_compose",
+                }
+                and value.get("schema")
+                == "ea.manfred_candidate_execution_inputs.v1"
+                and value.get("compose_sha256") == compose_attestation.get("sha256")
+                and value.get("compose_size_bytes")
+                == compose_attestation.get("size_bytes")
+                and value.get("compose_git_blob_oid")
+                == compose_attestation.get("git_blob_oid")
+                and SHA256_HEX_PATTERN.fullmatch(
+                    str(value.get("environment_sha256") or "")
+                )
+                is not None
+                and type(value.get("environment_size_bytes")) is int
+                and int(value.get("environment_size_bytes") or 0) > 0
+                and environment_keys == expected_candidate_env_keys
+                and value.get("compose_image_id") == image_id
+                and value.get("compose_image_reference_source")
+                == "prepared_image_id"
+                and value.get("transport") == "sealed_memfd"
+                and value.get("required_seals")
+                == ["grow", "seal", "shrink", "write"]
+                and value.get("all_compose_commands_use_sealed_inputs") is True
+                and value.get("mutable_source_paths_consumed_by_compose") is False
+                and value.get("mutable_image_locator_consumed_by_compose") is False
+            )
+
+        def valid_runtime_mounts(value: object) -> bool:
+            if not isinstance(value, list) or len(value) != 9:
+                return False
+            rows: dict[str, dict[str, Any]] = {}
+            for raw_row in value:
+                if not isinstance(raw_row, dict) or set(raw_row) != {
+                    "destination",
+                    "identity",
+                    "read_only",
+                    "type",
+                }:
+                    return False
+                destination = str(raw_row.get("destination") or "")
+                if not destination or destination in rows:
+                    return False
+                rows[destination] = dict(raw_row)
+            expected_read_only = {
+                "/data/memorial/public": expected_data_root / "public_memorials",
+                "/data/memorial/private": expected_data_root
+                / "private_memorial_profiles",
+                "/data/memorial/archive": expected_data_root / "memorial_archive",
+                "/data/public_property_tours": expected_data_root
+                / "public_property_tours",
+                "/data/release-authority": expected_data_root / "release-authority",
+            }
+            for destination, source in expected_read_only.items():
+                if rows.get(destination) != {
+                    "destination": destination,
+                    "identity": str(source.resolve()),
+                    "read_only": True,
+                    "type": "bind",
+                }:
+                    return False
+            mutable_names = {
+                "/data/memorial/public-contributions": "public-contributions",
+                "/data/memorial/private-contributions": "private-contributions",
+                "/data/memorial/state": "state",
+            }
+            mutable_parents: set[str] = set()
+            for destination, basename in mutable_names.items():
+                row = rows.get(destination, {})
+                identity = Path(str(row.get("identity") or ""))
+                if (
+                    row.get("destination") != destination
+                    or row.get("type") != "bind"
+                    or row.get("read_only") is not False
+                    or not identity.is_absolute()
+                    or identity.name != basename
+                ):
+                    return False
+                mutable_parents.add(str(identity.parent))
+            return (
+                len(mutable_parents) == 1
+                and rows.get("/data/artifacts")
+                == {
+                    "destination": "/data/artifacts",
+                    "identity": f"{candidate_project}_artifacts",
+                    "read_only": False,
+                    "type": "volume",
+                }
+            )
+
+        def valid_runtime_posture(value: Mapping[str, Any]) -> bool:
+            environment_keys = value.get("environment_keys")
+            required_keys = {
+                *expected_candidate_env_keys,
+                "EA_ALLOW_LOOPBACK_NO_AUTH",
+                "EA_DEPLOY_COMMIT_SHA",
+                "EA_DEPLOY_PUBLIC_ORIGIN",
+                "EA_ENABLE_PUBLIC_MEMORIALS",
+                "EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES",
+                "EA_ENABLE_PUBLIC_TOURS",
+                "EA_PUBLIC_MEMORIAL_RATE_BACKEND",
+                "EA_PUBLIC_MEMORIAL_REDIS_URL",
+                "EA_RELEASE_AUTHORITY_STATUS_PATH",
+                "EA_SOURCE_REVISION",
+                "EA_STORAGE_BACKEND",
+                "EA_STORAGE_FALLBACK_ALLOWED",
+                "EA_TRUST_PROXY_HEADERS",
+            }
+            return (
+                set(value)
+                == {
+                    "schema",
+                    "api_container_id",
+                    "image_id",
+                    "environment_sha256",
+                    "execution_environment_sha256",
+                    "environment_keys",
+                    "environment_exact",
+                    "provider_credentials_present",
+                    "mounts",
+                    "mounts_exact",
+                    "tmpfs_exact",
+                    "networks",
+                    "network_exact",
+                    "ingress_attached",
+                    "read_only_rootfs",
+                    "all_capabilities_dropped",
+                    "no_new_privileges",
+                    "runtime_user",
+                    "running_and_healthy",
+                }
+                and value.get("schema")
+                == "ea.manfred_candidate_api_runtime_posture.v1"
+                and value.get("api_container_id")
+                == dict(container_images.get("api") or {}).get("container_id")
+                and value.get("image_id") == image_id
+                and SHA256_HEX_PATTERN.fullmatch(
+                    str(value.get("environment_sha256") or "")
+                )
+                is not None
+                and value.get("execution_environment_sha256")
+                == execution_inputs.get("environment_sha256")
+                and isinstance(environment_keys, list)
+                and environment_keys == sorted(set(environment_keys))
+                and required_keys <= set(environment_keys)
+                and value.get("environment_exact") is True
+                and value.get("provider_credentials_present") is False
+                and valid_runtime_mounts(value.get("mounts"))
+                and value.get("mounts_exact") is True
+                and value.get("tmpfs_exact") is True
+                and value.get("networks") == [f"{candidate_project}_backend"]
+                and value.get("network_exact") is True
+                and value.get("ingress_attached") is False
+                and value.get("read_only_rootfs") is True
+                and value.get("all_capabilities_dropped") is True
+                and value.get("no_new_privileges") is True
+                and value.get("runtime_user") == "10001:10001"
+                and value.get("running_and_healthy") is True
+            )
+
+        def valid_registry_recovery(value: Mapping[str, Any]) -> bool:
+            if set(value) != {
+                "state_before_launch",
+                "crash_intent_reconciled",
+                "pending_contribution_reconciled",
+                "existing_receipt_resumed",
+                "interrupted_receipt_publication_completed",
+            }:
+                return False
+            state = value.get("state_before_launch")
+            return (
+                state in {"absent", "pending_only"}
+                and value.get("crash_intent_reconciled")
+                is (state == "pending_only")
+                and type(value.get("pending_contribution_reconciled")) is bool
+                and (
+                    state == "pending_only"
+                    or value.get("pending_contribution_reconciled") is False
+                )
+                and value.get("existing_receipt_resumed") is False
+                and value.get("interrupted_receipt_publication_completed") is False
+            )
+
+        spatial_slug = str(spatial_projection.get("slug") or "")
+        spatial_viewer_relpath = str(spatial_projection.get("viewer_relpath") or "")
+        spatial_proof_relpath = str(spatial_projection.get("proof_relpath") or "")
+        spatial_package_sha256 = str(
+            spatial_projection.get("upstream_package_sha256") or ""
+        )
+        spatial_route_labels = spatial_projection.get("route_labels")
+        spatial_root = expected_data_root / "public_property_tours"
+        spatial_bundle_root = spatial_root / REQUIRED_CONTROL_TOUR_SLUG
+        try:
+            (
+                observed_spatial_projection_sha256,
+                observed_spatial_projection_files,
+            ) = _candidate_projection_tree_digest(spatial_root)
+            observed_spatial_snapshot = _spatial_tree_snapshot(
+                spatial_bundle_root,
+                require_sanitized_modes=False,
+            )
+        except (OSError, ValueError):
+            observed_spatial_projection_sha256 = ""
+            observed_spatial_projection_files = []
+            observed_spatial_snapshot = {}
+        observed_spatial_projection_bytes = sum(
+            int(row.get("size_bytes") or 0)
+            for row in observed_spatial_projection_files
+            if isinstance(row, dict)
+        )
+        observed_spatial_local_files = [
+            {
+                "path": relpath,
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "size_bytes": len(content),
+            }
+            for relpath, content in sorted(observed_spatial_snapshot.items())
+        ]
+        observed_spatial_package_sha256 = (
+            _spatial_package_sha256(observed_spatial_snapshot)
+            if observed_spatial_snapshot
+            else ""
+        )
+        observed_spatial_tour_sha256 = (
+            hashlib.sha256(observed_spatial_snapshot["tour.json"]).hexdigest()
+            if "tour.json" in observed_spatial_snapshot
+            else ""
+        )
+
+        def passing_spatial_verifier(value: object) -> bool:
+            return (
+                isinstance(value, dict)
+                and value.get("pass") is True
+                and isinstance(value.get("checks"), dict)
+                and dict(value["checks"]).get("binding_count") == 5
+            )
+
+        def valid_spatial_projection(value: Mapping[str, Any]) -> bool:
+            asset_paths = value.get("asset_paths")
+            expected_spatial_files = {
+                f"{spatial_slug}/tour.json",
+                *(
+                    f"{spatial_slug}/{asset_path}"
+                    for asset_path in asset_paths
+                    if isinstance(asset_path, str)
+                ),
+            } if isinstance(asset_paths, list) else set()
+            return (
+                set(value)
+                == {
+                    "included",
+                    "slug",
+                    "release_root",
+                    "projection_sha256",
+                    "file_count",
+                    "projection_bytes",
+                    "receipt_path",
+                    "receipt_sha256",
+                    "projection_tree_revalidated",
+                    "ea_public_activation_authority",
+                    "asset_paths",
+                    "viewer_relpath",
+                    "proof_relpath",
+                    "route_labels",
+                    "upstream_publication_authority_sha256",
+                    "upstream_package_sha256",
+                    "upstream_tour_manifest_sha256",
+                    "pre_authority_manifest_canonical_sha256",
+                    "upstream_public_activation_authority",
+                    "local_release_verifier",
+                }
+                and value.get("included") is True
+                and spatial_slug == REQUIRED_CONTROL_TOUR_SLUG
+                and value.get("release_root")
+                == str((expected_data_root / "public_property_tours").resolve())
+                and value.get("projection_sha256")
+                == observed_spatial_projection_sha256
+                and value.get("file_count")
+                == len(observed_spatial_projection_files)
+                == 6
+                and value.get("projection_bytes")
+                == observed_spatial_projection_bytes
+                and observed_spatial_projection_bytes > 0
+                and type(value.get("receipt_path")) is str
+                and Path(str(value["receipt_path"])).is_absolute()
+                and value.get("projection_tree_revalidated") is True
+                and value.get("ea_public_activation_authority") is False
+                and isinstance(asset_paths, list)
+                and len(asset_paths) == 5
+                and all(isinstance(asset_path, str) for asset_path in asset_paths)
+                and len(set(asset_paths)) == 5
+                and set(observed_spatial_snapshot) == {"tour.json", *asset_paths}
+                and {
+                    str(row.get("path") or "")
+                    for row in observed_spatial_projection_files
+                    if isinstance(row, dict)
+                }
+                == expected_spatial_files
+                and spatial_viewer_relpath
+                == "generated-reconstruction/viewer.html"
+                and spatial_proof_relpath
+                == "generated-reconstruction/reconstruction.json"
+                and isinstance(spatial_route_labels, list)
+                and len(spatial_route_labels) == 9
+                and all(
+                    isinstance(route_label, str)
+                    and route_label
+                    and route_label == route_label.strip()
+                    for route_label in spatial_route_labels
+                )
+                and len(set(spatial_route_labels)) == 9
+                and all(
+                    SHA256_HEX_PATTERN.fullmatch(str(value.get(name) or ""))
+                    is not None
+                    for name in (
+                        "receipt_sha256",
+                        "upstream_publication_authority_sha256",
+                        "upstream_package_sha256",
+                        "upstream_tour_manifest_sha256",
+                        "pre_authority_manifest_canonical_sha256",
+                    )
+                )
+                and value.get("upstream_publication_authority_sha256")
+                == PROPERTY_AUTHORITY_SHA256
+                and value.get("upstream_package_sha256")
+                == observed_spatial_package_sha256
+                and value.get("upstream_tour_manifest_sha256")
+                == observed_spatial_tour_sha256
+                == PROPERTY_TOUR_SHA256
+                and value.get("pre_authority_manifest_canonical_sha256")
+                == PROPERTY_PRE_AUTHORITY_SHA256
+                and value.get("upstream_public_activation_authority") is True
+                and passing_spatial_verifier(value.get("local_release_verifier"))
+            )
+
+        def valid_spatial_browser(value: object) -> bool:
+            if not isinstance(value, dict):
+                return False
+            gateway_id = dict(container_images.get("gateway") or {}).get("container_id")
+            try:
+                validate_spatial_candidate_browser_receipt(
+                    value,
+                    base_url=f"http://127.0.0.1:{candidate_port}",
+                    slug=spatial_slug,
+                    viewer_relpath=spatial_viewer_relpath,
+                    route_labels=list(spatial_route_labels or []),
+                    candidate_commit=source_revision,
+                    oci_image_id=image_id,
+                    serving_container_id=str(gateway_id or ""),
+                    package_sha256=spatial_package_sha256,
+                )
+            except (RuntimeError, TypeError, ValueError):
+                return False
+            version = value.get("candidate_version")
+            oci_image = value.get("candidate_oci_image")
+            serving = value.get("serving_container")
+            package = value.get("package_binding")
+            return (
+                version == expected_runtime_version
+                and isinstance(oci_image, dict)
+                and oci_image
+                == {
+                    "image_id": image_id,
+                    "oci_image_revision": source_revision,
+                    "revision_source": "docker_image_inspect_by_immutable_id",
+                    "immutable_image_id_verified": True,
+                }
+                and isinstance(serving, dict)
+                and serving.get("container_id") == gateway_id
+                and serving.get("image_id") == image_id
+                and serving.get("compose_project") == candidate_project
+                and serving.get("compose_service") == "gateway"
+                and serving.get("running") is True
+                and serving.get("container_port") == 18090
+                and serving.get("host_ip") == "127.0.0.1"
+                and serving.get("host_port") == candidate_port
+                and serving.get("exact_loopback_publication_verified") is True
+                and serving.get("inspection_source")
+                == "docker_container_inspect_by_immutable_id"
+                and value.get("package_sha256") == spatial_package_sha256
+                and isinstance(package, dict)
+                and package.get("package_sha256") == spatial_package_sha256
+                and package.get("local_files") == observed_spatial_local_files
+                and package.get("tour_manifest_sha256")
+                == observed_spatial_tour_sha256
+            )
+
+        def valid_spatial_runtime(value: Mapping[str, Any]) -> bool:
+            routes = value.get("routes")
+            if not isinstance(routes, dict):
+                return False
+            quoted_slug = urllib.parse.quote(spatial_slug, safe="")
+            expected_paths = {
+                "html": f"/tours/{quoted_slug}",
+                "json": f"/tours/{quoted_slug}.json",
+                "viewer": (
+                    f"/tours/viewer/{quoted_slug}/"
+                    f"{urllib.parse.quote(spatial_viewer_relpath, safe='/')}"
+                ),
+                "proof_only": (
+                    f"/tours/viewer/{quoted_slug}/"
+                    f"{urllib.parse.quote(spatial_proof_relpath, safe='/')}"
+                ),
+            }
+            if set(routes) != {
+                f"{label}_{method}"
+                for label in expected_paths
+                for method in ("get", "head")
+            }:
+                return False
+            for label, path in expected_paths.items():
+                expected_status = 404 if label == "proof_only" else 200
+                for method in ("get", "head"):
+                    row = routes.get(f"{label}_{method}")
+                    if (
+                        not isinstance(row, dict)
+                        or set(row) != {"path", "status", "content_type"}
+                        or row.get("path") != path
+                        or row.get("status") != expected_status
+                        or not str(row.get("content_type") or "")
+                    ):
+                        return False
+            return (
+                set(value)
+                == {
+                    "included",
+                    "routes_required",
+                    "slug",
+                    "routes",
+                    "generated_viewer_release_verifier",
+                    "candidate_browser_gate",
+                    "html_json_viewer_200",
+                    "proof_only_404",
+                    "ea_public_activation_authority",
+                    "upstream_public_activation_authority",
+                }
+                and value.get("included") is True
+                and value.get("routes_required") is True
+                and value.get("slug") == spatial_slug
+                and passing_spatial_verifier(
+                    value.get("generated_viewer_release_verifier")
+                )
+                and valid_spatial_browser(value.get("candidate_browser_gate"))
+                and value.get("html_json_viewer_200") is True
+                and value.get("proof_only_404") is True
+                and value.get("ea_public_activation_authority") is False
+                and value.get("upstream_public_activation_authority") is True
+            )
         if (
             str(payload.get("schema") or "")
-            != "ea.manfred_memorial_candidate_runtime.v3"
+            != "ea.manfred_memorial_candidate_runtime.v4"
             or str(payload.get("status") or "").lower() != "pass"
             or str(payload.get("image") or "") != str(candidate.get("reference") or "")
             or str(payload.get("image_id") or "")
             != str(candidate.get("image_id") or "")
             or str(payload.get("image_source_revision") or "") != source_revision
-            or payload.get("image_locator_only") is not True
             or locator
             != {
-                "locator": str(candidate.get("reference") or ""),
-                "resolved_image_id": str(candidate.get("image_id") or ""),
+                "locator": image_reference,
+                "resolved_image_id": image_id,
                 "revision_label": source_revision,
-                "locator_only": True,
+                "used_for_attestation_only": True,
+                "consumed_by_compose": False,
             }
+            or payload.get("compose_uses_immutable_image_id") is not True
             or str(payload.get("runtime_source_revision") or "") != source_revision
             or payload.get("runtime_revision_matches_image") is not True
             or str(payload.get("projection_commit") or "") != source_revision
@@ -3534,6 +4552,11 @@ class MemorialDeployLane:
             or str(payload.get("prepared_image_id") or "")
             != str(candidate.get("image_id") or "")
             or payload.get("projection_tree_revalidated") is not True
+            or type(expected_projection_count) is not int
+            or int(expected_projection_count) < 0
+            or type(expected_projection_bytes) is not int
+            or int(expected_projection_bytes) < 0
+            or not isinstance(payload.get("projection_files"), list)
             or payload.get("live_ea_api_unchanged") is not True
             or payload.get("live_ea_project_unchanged") is not True
             or payload.get("provider_calls_performed") is not False
@@ -3570,6 +4593,20 @@ class MemorialDeployLane:
             or port_lock.get("held_through_candidate_proof") is not True
             or top_project_lock != project_lock
             or top_port_lock != port_lock
+            or fleet_lock
+            != {
+                "scope": "manfred_candidate_fleet",
+                "lock_file": "ea-manfred-candidate-fleet.lock",
+                "exclusive": True,
+                "nonblocking": True,
+                "held_through_candidate_proof": True,
+            }
+            or not valid_container_images(initial_container_images)
+            or not valid_container_images(final_container_images)
+            or not valid_container_images(container_images)
+            or initial_container_images != final_container_images
+            or container_images != final_container_images
+            or payload.get("candidate_container_image_identity_stable") is not True
             or str(container_images.get("prepared_image_id") or "")
             != str(candidate.get("image_id") or "")
             or str(container_images.get("revision_label") or "") != source_revision
@@ -3582,6 +4619,19 @@ class MemorialDeployLane:
             != str(candidate.get("image_id") or "")
             or candidate_api_image.get("container_id")
             == candidate_gateway_image.get("container_id")
+            or not valid_runtime_projection(runtime_projection_initial)
+            or not valid_runtime_projection(runtime_projection_final)
+            or runtime_projection_initial != runtime_projection_final
+            or payload.get("runtime_projection_identity_stable") is not True
+            or runtime_version != expected_runtime_version
+            or str(payload.get("runtime_authority_commit") or "")
+            != source_revision
+            or not valid_compose_attestation(compose_attestation)
+            or not valid_execution_inputs(execution_inputs)
+            or not valid_runtime_posture(runtime_api_posture)
+            or not valid_registry_recovery(registry_recovery)
+            or not valid_spatial_projection(spatial_projection)
+            or not valid_spatial_runtime(spatial_runtime)
             or named_resources != expected_named_resources
             or payload.get("api_network_internal") is not True
             or payload.get("gateway_has_runtime_secrets") is not False
@@ -3604,6 +4654,25 @@ class MemorialDeployLane:
             or openapi["retired_operation_count"]
             != len(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS)
             or openapi.get("retirement_policy_exact_match") is not True
+            or openapi.get("compatible_evolution_policy_id")
+            != OPENAPI_COMPATIBLE_EVOLUTION_POLICY_ID
+            or openapi.get("compatible_evolution_allowed_operations")
+            != list(OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS)
+            or not isinstance(openapi.get("compatible_evolved_operations"), list)
+            or any(
+                type(operation) is not str
+                for operation in openapi["compatible_evolved_operations"]
+            )
+            or openapi.get("compatible_evolved_operations")
+            != sorted(set(openapi["compatible_evolved_operations"]))
+            or any(
+                operation not in OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS
+                for operation in openapi["compatible_evolved_operations"]
+            )
+            or type(openapi.get("compatible_evolved_operation_count")) is not int
+            or openapi.get("compatible_evolved_operation_count")
+            != len(openapi["compatible_evolved_operations"])
+            or openapi.get("compatible_evolution_policy_exact_match") is not True
             or openapi.get("candidate_preserves_live_contract") is not True
             or type(openapi.get("missing_or_changed_operation_count")) is not int
             or openapi["missing_or_changed_operation_count"] != 0
@@ -3612,13 +4681,26 @@ class MemorialDeployLane:
             or type(openapi.get("missing_or_changed_security_scheme_count")) is not int
             or openapi["missing_or_changed_security_scheme_count"] != 0
             or not valid_openapi_snapshot(live_openapi_before)
-            or not valid_openapi_snapshot(candidate_openapi)
+            or not valid_openapi_snapshot(
+                candidate_openapi, candidate_snapshot=True
+            )
+            or not valid_candidate_openapi_public_endpoint(
+                candidate_openapi_public_endpoint
+            )
             or not valid_openapi_snapshot(live_openapi_after)
             or live_openapi_before != live_openapi_after
             or int(candidate_openapi.get("path_count") or 0)
-            < int(live_openapi_before.get("path_count") or 0)
+            < max(
+                0,
+                int(live_openapi_before.get("path_count") or 0)
+                - len(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS),
+            )
             or int(candidate_openapi.get("operation_count") or 0)
-            < int(live_openapi_before.get("operation_count") or 0)
+            < max(
+                0,
+                int(live_openapi_before.get("operation_count") or 0)
+                - len(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS),
+            )
             or int(candidate_openapi.get("schema_count") or 0)
             < int(live_openapi_before.get("schema_count") or 0)
             or int(candidate_openapi.get("security_scheme_count") or 0)
@@ -3645,12 +4727,18 @@ class MemorialDeployLane:
             )
         except (OSError, ValueError) as exc:
             raise DeployError("memorial_candidate_projection_unverifiable") from exc
-        if projection_sha256 != str(payload.get("projection_sha256") or ""):
+        projection_bytes = sum(int(item["size_bytes"]) for item in projection_files)
+        if (
+            projection_sha256 != str(payload.get("projection_sha256") or "")
+            or payload.get("projection_files") != projection_files
+            or expected_projection_count != len(projection_files)
+            or expected_projection_bytes != projection_bytes
+        ):
             raise DeployError("memorial_candidate_projection_digest_mismatch")
         evidence = {
             "path": str(path),
             "sha256": hashlib.sha256(raw).hexdigest(),
-            "schema": "ea.manfred_memorial_candidate_runtime.v3",
+            "schema": "ea.manfred_memorial_candidate_runtime.v4",
             "status": "pass",
             "image": str(candidate.get("reference") or ""),
             "image_id": str(candidate.get("image_id") or ""),
@@ -3667,9 +4755,7 @@ class MemorialDeployLane:
                 "prepared_image_id": str(candidate.get("image_id") or ""),
                 "projection_sha256": projection_sha256,
                 "file_count": len(projection_files),
-                "projection_bytes": sum(
-                    int(item["size_bytes"]) for item in projection_files
-                ),
+                "projection_bytes": projection_bytes,
                 "tree_revalidated": True,
             },
             "compose_project": candidate_project,
@@ -3680,6 +4766,50 @@ class MemorialDeployLane:
                 "api_image_id": str(candidate.get("image_id") or ""),
                 "gateway_image_id": str(candidate.get("image_id") or ""),
                 "all_match_prepared_image": True,
+                "identity_stable": True,
+            },
+            "runtime_identity": {
+                "source_revision": source_revision,
+                "authority_commit": source_revision,
+                "oci_image_revision": source_revision,
+                "revision_agreement_verified": True,
+            },
+            "execution_inputs": {
+                "schema": "ea.manfred_candidate_execution_inputs.v1",
+                "compose_sha256": str(execution_inputs["compose_sha256"]),
+                "compose_size_bytes": int(execution_inputs["compose_size_bytes"]),
+                "environment_sha256": str(execution_inputs["environment_sha256"]),
+                "environment_size_bytes": int(
+                    execution_inputs["environment_size_bytes"]
+                ),
+                "compose_image_id": image_id,
+                "sealed": True,
+            },
+            "runtime_posture": {
+                "schema": "ea.manfred_candidate_api_runtime_posture.v1",
+                "environment_sha256": str(
+                    runtime_api_posture["environment_sha256"]
+                ),
+                "mount_count": len(list(runtime_api_posture["mounts"])),
+                "network": f"{candidate_project}_backend",
+                "hardened": True,
+            },
+            "registry_recovery": {
+                "state_before_launch": str(
+                    registry_recovery["state_before_launch"]
+                ),
+                "safe": True,
+            },
+            "spatial_handoff": {
+                "slug": spatial_slug,
+                "route_count": 8,
+                "html_json_viewer_200": True,
+                "proof_only_404": True,
+                "release_verifier_pass": True,
+                "browser_schema": "ea.manfred_spatial_candidate_browser.v4",
+                "browser_pass": True,
+                "identity_bound": True,
+                "package_sha256": spatial_package_sha256,
             },
             "live_ea": {
                 "snapshot_sha256": _canonical_json_sha256(live_before),
@@ -3699,6 +4829,20 @@ class MemorialDeployLane:
                 "retired_operations": list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS),
                 "retired_operation_count": len(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS),
                 "retirement_policy_exact_match": True,
+                "compatible_evolution_policy_id": (
+                    OPENAPI_COMPATIBLE_EVOLUTION_POLICY_ID
+                ),
+                "compatible_evolution_allowed_operations": list(
+                    OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS
+                ),
+                "compatible_evolved_operations": list(
+                    openapi["compatible_evolved_operations"]
+                ),
+                "compatible_evolved_operation_count": int(
+                    openapi["compatible_evolved_operation_count"]
+                ),
+                "compatible_evolution_policy_exact_match": True,
+                "candidate_public_openapi_retired": True,
                 "candidate_preserves_live_contract": True,
                 "missing_or_changed_operation_count": 0,
                 "missing_or_changed_schema_count": 0,

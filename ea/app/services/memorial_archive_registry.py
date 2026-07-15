@@ -42,7 +42,11 @@ PUBLIC_MEMORIAL_ROOT = _configured_or_existing_path(
         "/data/memorial_data/public_memorials",
     ),
 )
-DEFAULT_CORRECTION_CONTACT = str(os.getenv("EA_MEMORIAL_ARCHIVE_CORRECTION_CONTACT") or "memorial@myexternalbrain.com").strip()
+DEFAULT_CORRECTION_CONTACT = str(
+    os.getenv("EA_MEMORIAL_ARCHIVE_CORRECTION_PATH")
+    or os.getenv("EA_MEMORIAL_ARCHIVE_CORRECTION_CONTACT")
+    or "/memorials/manfred#memorial-contribution"
+).strip()
 DEFAULT_PUBLIC_REGISTRY_FILENAME = "archive_registry.json"
 DEFAULT_GENERATED_REGISTRY_FILENAME = "archive_registry.generated.json"
 ALLOWED_AUDIENCES = {"public", "family", "reviewer", "private"}
@@ -86,10 +90,18 @@ def public_registry_path(slug: str, *, generated: bool = False) -> Path:
     return (PUBLIC_MEMORIAL_ROOT / safe_slug(slug) / filename).resolve()
 
 
-def load_json(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+def load_json_with_sha256(path: Path) -> tuple[dict[str, Any], str]:
+    """Load one registry snapshot and return the digest of those exact bytes."""
+
+    raw = path.read_bytes()
+    payload = json.loads(raw.decode("utf-8"))
     if not isinstance(payload, dict):
         raise ValueError(f"invalid_json_object:{path}")
+    return payload, sha256_bytes(raw)
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    payload, _digest = load_json_with_sha256(path)
     return payload
 
 

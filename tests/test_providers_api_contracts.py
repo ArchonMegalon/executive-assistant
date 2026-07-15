@@ -17,8 +17,21 @@ from zoneinfo import ZoneInfo
 import pytest
 
 pytest.importorskip("fastapi")
+from app.domain.models import ToolInvocationResult
 from fastapi.testclient import TestClient
 from tests.product_test_helpers import build_operator_product_client
+
+
+@pytest.fixture(autouse=True)
+def _isolate_provider_ltd_markdown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> Path:
+    source = Path(__file__).resolve().parents[1] / "LTDs.md"
+    isolated = tmp_path / "LTDs.md"
+    isolated.write_bytes(source.read_bytes())
+    monkeypatch.setenv("EA_LTD_MARKDOWN_PATH", str(isolated))
+    return isolated
 
 
 def _client(*, principal_id: str, operator: bool = False) -> TestClient:
@@ -1587,7 +1600,6 @@ def test_telegram_ingest_answers_focus_on_tomorrow_from_calendar_signal(monkeypa
 def test_telegram_local_assistant_focus_ignores_sync_noise(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.api.routes import channels as channels_route
     from types import SimpleNamespace
-    from app.product.models import EvidenceRef
 
     class _FakeProductService:
         def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
@@ -1640,7 +1652,7 @@ def test_telegram_local_assistant_focus_ignores_sync_noise(monkeypatch: pytest.M
     assert "Top priority looks like Approve reply to Arc'teryx." in reply
     assert "Reply to Arc'teryx |" not in reply
     assert "Arc'teryx Rücksendung gestartet | email thread" in reply
-    assert "Apartment alert: Mietwohnungen 2,20, 09 (2 new listings)" in reply
+    assert "Mietwohnungen 2,20, 09" not in reply
     assert "Profile-based focus:" in reply
     assert "Insurance admin is a real theme" in reply
 
@@ -3374,14 +3386,14 @@ def test_telegram_real_ea_reply_text_calls_upstream_with_required_kwargs(monkeyp
     assert "Likely active subjects for short follow-ups:" in grounding_text
     assert "- the Waehring property review" in grounding_text
     assert "Last active object map:" in grounding_text
-    assert "active_property_candidate: Strong Waehring listing | willhaben:1411708198" in grounding_text
+    assert "active_property_candidate:" not in grounding_text
     assert "active_queue_item: Review apartment alert: Strong Waehring listing | queue-property-1411708198" in grounding_text
-    assert "active_property_profile_refs: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
+    assert "active_property_profile_refs:" not in grounding_text
     assert "active_queue_profile_refs: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
     assert "active_email_thread: gmail-thread:arc-1" in grounding_text
-    assert "Active housing preferences:" in grounding_text
-    assert "preferred_districts: Waehring, Doebling" in grounding_text
-    assert "avoid_heating_types: gasheizung" in grounding_text
+    assert "Active housing preferences:" not in grounding_text
+    assert "preferred_districts: Waehring, Doebling" not in grounding_text
+    assert "avoid_heating_types: gasheizung" not in grounding_text
     assert "Active admin focus:" in grounding_text
     assert "Insurance admin is a real theme" in grounding_text
     assert "Top brief items:" in grounding_text
@@ -3389,9 +3401,7 @@ def test_telegram_real_ea_reply_text_calls_upstream_with_required_kwargs(monkeyp
     assert "next: review property alert" in grounding_text
     assert "refs: brief-strong-waehring, willhaben:1411708198, listing:1411708198" in grounding_text
     assert "profile refs: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
-    assert "Top property comparisons:" in grounding_text
-    assert "option 1: Strong Waehring listing (score 97)" in grounding_text
-    assert "option 2: Strong Doebling listing (score 91)" in grounding_text
+    assert "Top property comparisons:" not in grounding_text
     assert "Top queue items:" in grounding_text
     assert "Review apartment alert: Strong Waehring listing" in grounding_text
     assert "rank 96" in grounding_text
@@ -3476,27 +3486,17 @@ def test_telegram_office_grounding_uses_persisted_active_object_map(monkeypatch:
         principal_id="exec-telegram-persisted-map",
     )
     assert "Last active object map:" in grounding_text
-    assert "active_property_candidate: Strong Waehring listing | willhaben:1411708198" in grounding_text
-    assert "active_property_refs: brief-strong-waehring, willhaben:1411708198, listing:1411708198" in grounding_text
-    assert "active_property_profile_refs: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
+    assert "active_property_candidate:" not in grounding_text
+    assert "active_property_refs:" not in grounding_text
+    assert "active_property_profile_refs:" not in grounding_text
     assert "active_queue_item: Review apartment alert: Strong Waehring listing | queue-property-1411708198" in grounding_text
     assert "active_queue_profile_refs: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
     assert "active_email_thread: gmail-thread:arc-1" in grounding_text
-    assert "Last active intent:" in grounding_text
-    assert "active_intent: property_compare" in grounding_text
-    assert "active_profile_themes: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
+    assert "Last active intent:" not in grounding_text
+    assert "active_intent: property_compare" not in grounding_text
     assert "Active admin focus:" in grounding_text
     assert "Utility admin is active" in grounding_text
-    assert "Last comparison pair:" in grounding_text
-    assert "comparison_primary: Strong Waehring listing | willhaben:1411708198" in grounding_text
-    assert "comparison_primary_reason: High-fit property alert with 360 media and preferred district match." in grounding_text
-    assert "comparison_primary_action: review property alert" in grounding_text
-    assert "comparison_primary_score: 97" in grounding_text
-    assert "comparison_secondary: Strong Doebling listing | willhaben:1071155412" in grounding_text
-    assert "comparison_secondary_reason: Another high-fit property alert with lift and bike access." in grounding_text
-    assert "comparison_secondary_action: compare against shortlist" in grounding_text
-    assert "comparison_secondary_score: 91" in grounding_text
-    assert "comparison_pair: Strong Waehring listing | willhaben:1411708198 || Strong Doebling listing | willhaben:1071155412" in grounding_text
+    assert "Last comparison pair:" not in grounding_text
 
 
 def test_telegram_reinforces_active_object_map_from_reply_text() -> None:
@@ -3547,8 +3547,12 @@ def test_telegram_reinforces_active_object_map_from_reply_text() -> None:
         queue_items=queue_items,
         reply_text="The Strong Doebling listing looks like the better alternative right now.",
     )
-    assert reinforced["active_property_candidate"] == "Strong Doebling listing | willhaben:1071155412"
-    assert "listing:1071155412" in reinforced["active_property_refs"]
+    assert "active_property_candidate" not in reinforced
+    assert "active_property_refs" not in reinforced
+    assert (
+        reinforced["active_queue_item"]
+        == "Review apartment alert: Strong Waehring listing | queue-property-1411708198"
+    )
 
 
 def test_telegram_reinforces_comparison_state_from_reply_text() -> None:
@@ -3586,18 +3590,7 @@ def test_telegram_reinforces_comparison_state_from_reply_text() -> None:
         brief_items=brief_items,
         reply_text="The Strong Doebling listing is the better comparison target now.",
     )
-    assert reinforced["comparison_primary"] == "Strong Doebling listing | willhaben:1071155412"
-    assert reinforced["comparison_primary_reason"] == "Another strong alternative"
-    assert reinforced["comparison_primary_action"] == "compare against shortlist"
-    assert reinforced["comparison_primary_score"] == "91"
-    assert reinforced["comparison_secondary"] == "Strong Waehring listing | willhaben:1411708198"
-    assert reinforced["comparison_secondary_reason"] == "High-fit property alert"
-    assert reinforced["comparison_secondary_action"] == "review property alert"
-    assert reinforced["comparison_secondary_score"] == "97"
-    assert reinforced["comparison_pair"].startswith(
-        "Strong Doebling listing | willhaben:1071155412 || Strong Waehring listing | willhaben:1411708198"
-    )
-    assert "listing:1071155412" in reinforced["comparison_pair_refs"]
+    assert reinforced == {}
 
 
 def test_telegram_reinforces_active_profile_themes_from_reply_text() -> None:
@@ -6021,8 +6014,8 @@ def test_telegram_ingest_updates_property_alert_policy_from_plain_message(monkey
     assert response.status_code == 200
     body = response.json()
     assert body["reply_sent"] is True
-    assert "score and compare property alerts automatically" in body["reply_text"]
-    assert sent and "only notify you here when the fit looks genuinely good" in str(sent[0]["payload"]["text"])
+    assert "Property-Alerts laufen nicht über EA" in body["reply_text"]
+    assert sent and "Property-Alerts laufen nicht über EA" in str(sent[0]["payload"]["text"])
 
 
 def test_telegram_local_assistant_can_answer_capability_question() -> None:
@@ -6034,7 +6027,8 @@ def test_telegram_local_assistant_can_answer_capability_question() -> None:
         text="What can you do?",
     )
     assert "schedule" in reply.lower()
-    assert "property" in reply.lower()
+    assert "inbox" in reply.lower()
+    assert "property" not in reply.lower()
 
 
 def test_telegram_ingest_falls_back_when_real_ea_reply_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -6052,9 +6046,13 @@ def test_telegram_ingest_falls_back_when_real_ea_reply_times_out(monkeypatch: py
         raise RuntimeError("should_have_timed_out_first")
 
     monkeypatch.setattr(channels_route.responses_route, "_generate_upstream_text", _slow_run_response)
+    container = _client(
+        principal_id="exec-telegram-timeout",
+        operator=False,
+    ).app.state.container
     started = time.monotonic()
     reply = channels_route._telegram_real_ea_reply_text(
-        container=_client(principal_id="exec-telegram-timeout", operator=False).app.state.container,
+        container=container,
         principal_id="exec-telegram-timeout",
         text="Tell me something slow",
         current_message_id="22",
@@ -6405,7 +6403,7 @@ def test_browser_google_callback_names_test_user_blocker_for_expected_workspace_
         redirect_uri_override="https://ea.example/google/callback",
         return_to="/app/settings/google",
         browser_source="settings_google",
-        expected_google_email="work.tibor.girschele@gmail.com",
+        expected_google_email="work.user@example.test",
     )
 
     callback = owner.get(
@@ -6421,7 +6419,7 @@ def test_browser_google_callback_names_test_user_blocker_for_expected_workspace_
     )
 
     assert callback.status_code == 400
-    assert "work.tibor.girschele@gmail.com" in callback.text
+    assert "work.user@example.test" in callback.text
     assert "developer-approved testers" in callback.text
     assert "Google Auth Platform &gt; Audience &gt; Test users" in callback.text
     assert "retry the Full Workspace link" in callback.text
@@ -6564,7 +6562,10 @@ def test_onemin_probe_all_endpoint_returns_slot_results(monkeypatch: pytest.Monk
 
 def test_onemin_billing_refresh_executes_browseract_tools_and_maps_owner_email(
     monkeypatch: pytest.MonkeyPatch,
+    _isolate_provider_ltd_markdown: Path,
 ) -> None:
+    repo_ltd_path = Path(__file__).resolve().parents[1] / "LTDs.md"
+    repo_ltd_before = repo_ltd_path.read_bytes()
     owner = _client(principal_id="exec-1", operator=True)
     monkeypatch.setenv(
         "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
@@ -6630,6 +6631,10 @@ def test_onemin_billing_refresh_executes_browseract_tools_and_maps_owner_email(
     assert body["billing_results"][0]["next_topup_at"] == "2026-03-31T00:00:00Z"
     assert body["member_results"][0]["account_label"] == "ONEMIN_AI_API_KEY"
     assert body["member_results"][0]["matched_owner_slots"] == 1
+    assert repo_ltd_path.read_bytes() == repo_ltd_before
+    isolated_ltd = _isolate_provider_ltd_markdown.read_text(encoding="utf-8")
+    assert "12345" in isolated_ltd
+    assert "2026-03-31T00:00:00Z" in isolated_ltd
 
 
 def test_onemin_billing_refresh_forwards_default_browser_proxy_settings_to_browseract_jobs(
@@ -9386,6 +9391,7 @@ def test_public_tour_routes_embed_live_360_source_when_present(
 ) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
     slug = "pioche-lecombe-live-360"
+    source_url = "https://360.kalandra.at/view/portal/id/VZ8P1"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "scene-01.jpg").write_bytes(b"fake-jpeg-data")
@@ -9397,8 +9403,20 @@ def test_public_tour_routes_embed_live_360_source_when_present(
                 "display_title": "Pioche Lecombe Live 360",
                 "listing_url": "https://www.willhaben.at/listing/live-360",
                 "hosted_url": f"https://ea.example/tours/{slug}",
-                "source_virtual_tour_url": "https://360.example.test/view/portal/id/live-360",
+                "scene_strategy": "live_360_embed",
+                "source_virtual_tour_url": source_url,
                 "panorama_source": "feelestate_kalandra",
+                "external_embed_release": {
+                    "contract": "ea.public-tour-embed-release.v1",
+                    "status": "ready",
+                    "provider": "feelestate",
+                    "final_origin": "https://360.kalandra.at",
+                    "source_url_sha256": hashlib.sha256(source_url.encode("utf-8")).hexdigest(),
+                    "review_receipt_sha256": "b" * 64,
+                    "final_origin_verified": True,
+                    "revoked": False,
+                    "disqualified": False,
+                },
                 "brand_name": "Pioche Lecombe",
                 "scene_count": 1,
                 "facts": {
@@ -9437,11 +9455,11 @@ def test_public_tour_routes_embed_live_360_source_when_present(
 
     assert page.status_code == 200
     assert "Pioche Lecombe" in page.text
-    assert 'src="https://360.example.test/view/portal/id/live-360"' in page.text
+    assert f'src="{source_url}"' in page.text
     assert 'href="#live-360"' in page.text
     assert "Open Live 360" in page.text
     assert "Live Panorama Viewer" in page.text
-    assert "Hosted on myexternalbrain.com" in page.text
+    assert "Verified external feelestate panorama from https://360.kalandra.at" in page.text
     assert "Open Source 360" not in page.text
     assert ">Source<" not in page.text
 
@@ -9638,34 +9656,31 @@ def test_public_tour_routes_embed_provider_ui_for_pure_360_when_origin_present(
     page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
 
     assert page.status_code == 200
-    assert 'src="https://360.kalandra.at/view/portal/id/VZ8P1"' in page.text
-    assert "Property Decision Workstation" in page.text
+    assert 'src="https://360.kalandra.at/view/portal/id/VZ8P1"' not in page.text
+    assert "Pure 360 hosted on My External Brain" in page.text
     assert "Decision Summary" in page.text
-    assert "Preference-to-Property Matrix" in page.text
+    assert "Hosted panorama assembled from the published six-face scene assets" in page.text
     assert "Tune what future properties should pass" not in page.text
     assert "Hard blocks and must-haves" not in page.text
     assert "Soft ranking signals" not in page.text
-    assert "Research Log" in page.text
-    assert "How this property compares to the current brief" in page.text
+    assert "Live Panorama Viewer" not in page.text
     assert "The district matches your preferred areas" not in page.text
     assert "Fernwaerme avoids your excluded heating types." not in page.text
     assert "Playground" in page.text
     assert "about 140 m" in page.text
     assert "Request deeper research" not in page.text
-    assert "Open the authenticated PropertyQuarry review packet to request deeper research." in page.text
     assert "tour-action-tokens" not in page.text
     assert '"feedback":' not in page.text
     assert '"filters":' not in page.text
     assert "Search Filters" not in page.text
     assert "What the system has learned from you" not in page.text
-    assert 'data-label="Requirement"' in page.text
-    assert ".section-nav .ghost" in page.text
     assert "Supermarket" in page.text
     assert "Source Links" not in page.text
     assert "Nothing provided" not in page.text
     assert "Tour Summary" not in page.text
     assert "Hosted tour page with the original 360 viewer embedded." not in page.text
-    assert 'id="prev-link"' not in page.text
+    assert 'id="prev-link"' in page.text
+    assert 'id="next-link"' in page.text
 
 
 def test_public_tour_request_details_requires_authenticated_workspace(
@@ -9728,6 +9743,8 @@ def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
     slug = "pioche-lecombe-feedback-loop"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
+    for face in ("f", "b", "r", "l", "u", "d"):
+        (bundle_dir / f"scene-01-{face}.jpg").write_bytes(b"fake-jpeg-data")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -10207,6 +10224,8 @@ def test_public_tour_renders_shortlist_compare_cards(
     slug = "pioche-lecombe-shortlist-compare"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
+    for face in ("f", "b", "r", "l", "u", "d"):
+        (bundle_dir / f"scene-01-{face}.jpg").write_bytes(b"fake-jpeg-data")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -10411,6 +10430,8 @@ def test_public_tour_routes_use_listing_research_to_fill_decision_brief(
     slug = "listing-research-tour"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
+    for face in ("f", "b", "r", "l", "u", "d"):
+        (bundle_dir / f"scene-01-{face}.jpg").write_bytes(b"fake-jpeg-data")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -10759,7 +10780,7 @@ def test_public_memorial_chat_excludes_private_context_and_public_diagnosis_leak
     assert "voice_profile_id" not in voice_body
     assert all("tts_plugin_voice_id" not in option for option in voice_body["tts_plugin_options"])
     assert "provider_secret" not in voice_body
-    assert "synthetic_voice_clone_of_memorial_person" not in voice_body
+    assert voice_body["synthetic_voice_clone_of_memorial_person"] is True
 
     response = client.post(f"/memorials/{slug}/chat", json={"question": "Wie ging er mit Kritik um?"})
     assert response.status_code == 200

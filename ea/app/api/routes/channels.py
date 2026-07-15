@@ -5439,7 +5439,6 @@ def _telegram_strip_property_intent_state(intent_state: dict[str, str] | None) -
     }
     if str(sanitized.get("active_intent") or "").strip().lower() in _TELEGRAM_PROPERTY_INTENTS:
         sanitized.pop("active_intent", None)
-        sanitized.pop("active_profile_themes", None)
     return sanitized
 
 

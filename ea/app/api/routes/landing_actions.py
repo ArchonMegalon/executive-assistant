@@ -833,7 +833,6 @@ def _signal_evidence_operator_action_packet(
             "raw_object_reference_exposed": False,
             "raw_private_context_exposed": False,
             "next_action_evidence_part": "",
-            "required_next_receipt": "",
         }
 
     requirement = _SIGNAL_EVIDENCE_PARTS[next_action_evidence_part]
@@ -1675,16 +1674,16 @@ async def admin_record_acceptance_evidence(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
-    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
-    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
     redirect = _admin_operator_access_redirect(
         request=request,
         container=container,
         context=context,
-        return_to=return_to,
+        return_to="/admin/goals",
     )
     if redirect is not None:
         return redirect
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
     proof_key = _form_value(body, "proof_key", "")
     source_kind = _form_value(body, "source_kind", "unknown")
     evidence = _form_value(body, "evidence", "")
@@ -1739,16 +1738,16 @@ async def admin_record_signal_to_decision_evidence(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
-    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
-    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
     redirect = _admin_operator_access_redirect(
         request=request,
         container=container,
         context=context,
-        return_to=return_to,
+        return_to="/admin/goals",
     )
     if redirect is not None:
         return redirect
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
     evidence_part = _form_value(body, "evidence_part", "")
     source_kind = _form_value(body, "source_kind", "unknown")
     evidence = _form_value(body, "evidence", "")
@@ -1817,16 +1816,16 @@ async def admin_record_proactive_ooda_evidence(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
-    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
-    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
     redirect = _admin_operator_access_redirect(
         request=request,
         container=container,
         context=context,
-        return_to=return_to,
+        return_to="/admin/goals",
     )
     if redirect is not None:
         return redirect
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
     outcome = _form_value(body, "outcome", "approved")
     source_kind = _form_value(body, "source_kind", "unknown")
     evidence = _form_value(body, "evidence", "")
@@ -1859,16 +1858,16 @@ async def admin_reissue_proactive_ooda_approval(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
-    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
-    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
     redirect = _admin_operator_access_redirect(
         request=request,
         container=container,
         context=context,
-        return_to=return_to,
+        return_to="/admin/proactive-ooda/approval",
     )
     if redirect is not None:
         return redirect
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
     dry_run = _form_value(body, "dry_run", "").strip().lower() in {"1", "true", "yes", "on"}
     force = _form_value(body, "force", "").strip().lower() in {"1", "true", "yes", "on"}
     raw_threshold = _form_value(body, "reissue_after_seconds", "")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -43,19 +44,57 @@ def build_product_client(*, principal_id: str = "exec-product-api") -> TestClien
     return _build_client(principal_id=principal_id)
 
 
-def build_property_client(*, principal_id: str = "exec-product-api") -> TestClient:
-    os.environ["EA_STORAGE_BACKEND"] = "memory"
-    os.environ.pop("EA_LEDGER_BACKEND", None)
-    os.environ["EA_API_TOKEN"] = ""
-    os.environ["PROPERTYQUARRY_DEFAULT_BRAND"] = "1"
-    os.environ.pop("EA_ENABLE_PUBLIC_SIDE_SURFACES", None)
-    os.environ.pop("EA_ENABLE_PUBLIC_RESULTS", None)
-    os.environ.pop("EA_ENABLE_PUBLIC_TOURS", None)
-    os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
+def build_property_client(
+    *,
+    principal_id: str = "exec-product-api",
+    monkeypatch: pytest.MonkeyPatch | None = None,
+    public_origin: str | None = None,
+) -> TestClient:
+    def _setenv(name: str, value: str) -> None:
+        if monkeypatch is None:
+            os.environ[name] = value
+        else:
+            monkeypatch.setenv(name, value)
+
+    def _delenv(name: str) -> None:
+        if monkeypatch is None:
+            os.environ.pop(name, None)
+        else:
+            monkeypatch.delenv(name, raising=False)
+
+    _setenv("EA_STORAGE_BACKEND", "memory")
+    _delenv("EA_LEDGER_BACKEND")
+    _setenv("EA_API_TOKEN", "")
+    _setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
+    _delenv("EA_ENABLE_PUBLIC_SIDE_SURFACES")
+    _delenv("EA_ENABLE_PUBLIC_RESULTS")
+    _delenv("EA_ENABLE_PUBLIC_TOURS")
+    _delenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER")
+    base_url = "https://propertyquarry.com"
+    host = "propertyquarry.com"
+    if public_origin is not None:
+        base_url = str(public_origin).strip().rstrip("/")
+        parsed = urlsplit(base_url)
+        host = str(parsed.hostname or "").strip().lower().rstrip(".")
+        if (
+            parsed.scheme != "https"
+            or not host
+            or parsed.netloc != host
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ValueError("property test public_origin must be an HTTPS origin")
+        _setenv("PROPERTY_PUBLIC_BASE_URL", base_url)
+        _setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", base_url)
+        _setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", f"{base_url}/tours")
+        _setenv("PROPERTYQUARRY_PUBLIC_HOSTS", host)
     return _build_client(
         principal_id=principal_id,
-        base_url="https://propertyquarry.com",
-        host="propertyquarry.com",
+        base_url=base_url,
+        host=host,
     )
 
 
@@ -83,15 +122,32 @@ def build_operator_product_client(*, principal_id: str = "exec-product-api", ope
     return client
 
 
-def build_property_operator_client(*, principal_id: str = "exec-product-api", operator_id: str = "operator-office") -> TestClient:
-    os.environ["EA_STORAGE_BACKEND"] = "memory"
-    os.environ.pop("EA_LEDGER_BACKEND", None)
-    os.environ["EA_API_TOKEN"] = "test-token"
-    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = principal_id
-    os.environ["PROPERTYQUARRY_DEFAULT_BRAND"] = "1"
-    os.environ.pop("EA_ENABLE_PUBLIC_SIDE_SURFACES", None)
-    os.environ.pop("EA_ENABLE_PUBLIC_RESULTS", None)
-    os.environ.pop("EA_ENABLE_PUBLIC_TOURS", None)
+def build_property_operator_client(
+    *,
+    principal_id: str = "exec-product-api",
+    operator_id: str = "operator-office",
+    monkeypatch: pytest.MonkeyPatch | None = None,
+) -> TestClient:
+    def _setenv(name: str, value: str) -> None:
+        if monkeypatch is None:
+            os.environ[name] = value
+        else:
+            monkeypatch.setenv(name, value)
+
+    def _delenv(name: str) -> None:
+        if monkeypatch is None:
+            os.environ.pop(name, None)
+        else:
+            monkeypatch.delenv(name, raising=False)
+
+    _setenv("EA_STORAGE_BACKEND", "memory")
+    _delenv("EA_LEDGER_BACKEND")
+    _setenv("EA_API_TOKEN", "test-token")
+    _setenv("EA_DEFAULT_PRINCIPAL_ID", principal_id)
+    _setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
+    _delenv("EA_ENABLE_PUBLIC_SIDE_SURFACES")
+    _delenv("EA_ENABLE_PUBLIC_RESULTS")
+    _delenv("EA_ENABLE_PUBLIC_TOURS")
     client = _build_client(
         principal_id=principal_id,
         api_token="test-token",

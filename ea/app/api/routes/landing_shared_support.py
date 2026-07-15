@@ -8,7 +8,6 @@ from app.container import AppContainer
 from app.product.commercial import workspace_plan_for_mode
 from app.services.operator_access import (
     first_operator_access_profile,
-    operator_access_profile_count,
 )
 
 _OPERATOR_BOOTSTRAP_SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -85,8 +84,6 @@ def bootstrap_initial_operator_profile(
     normalized_principal = str(principal_id or "").strip()
     if not normalized_principal:
         raise ValueError("principal_id_required")
-    if not operator_bootstrap_needed(container, principal_id=normalized_principal):
-        raise ValueError("operator_profile_bootstrap_not_allowed")
     defaults = operator_bootstrap_defaults(principal_id=normalized_principal, access_email=access_email)
     resolved_operator_id = str(operator_id or defaults["operator_id"]).strip()
     resolved_display_name = str(display_name or defaults["display_name"]).strip()
@@ -97,14 +94,13 @@ def bootstrap_initial_operator_profile(
     status = container.onboarding.status(principal_id=normalized_principal)
     workspace = dict(status.get("workspace") or {})
     plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
-    active = container.orchestrator.list_operator_profiles(principal_id=normalized_principal, status="active", limit=500)
-    if operator_access_profile_count(active) >= plan.entitlements.operator_seats:
+    if plan.entitlements.operator_seats < 1:
         raise ValueError("operator_seat_limit_reached")
     email_hint = str(defaults.get("email_hint") or "").strip()
     default_notes = "Bootstrapped the first operator profile for this workspace."
     if email_hint:
         default_notes = f"{default_notes} Email hint: {email_hint}."
-    return container.orchestrator.upsert_operator_profile(
+    profile = container.orchestrator.bootstrap_operator_profile(
         principal_id=normalized_principal,
         operator_id=resolved_operator_id,
         display_name=resolved_display_name,
@@ -113,6 +109,9 @@ def bootstrap_initial_operator_profile(
         status="active",
         notes=str(notes or default_notes).strip() or default_notes,
     )
+    if profile is None:
+        raise ValueError("operator_profile_bootstrap_not_allowed")
+    return profile
 
 
 def _principal_email_hint(principal_id: str) -> str:

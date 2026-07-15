@@ -22,7 +22,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -8225,15 +8225,13 @@ def probe_telegram_readiness(
     effective_timeout_seconds = _telegram_readiness_timeout_seconds(timeout_seconds)
     exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=effective_timeout_seconds)
     payload_status = str(payload.get("status") or "probe_failed").strip() or "probe_failed"
-    payload_ok = bool(payload.get("ok", payload_status != "probe_failed"))
-    if exit_code != 0 or not bool(payload) or not payload_ok or payload_status == "probe_failed":
+    if exit_code != 0 or not bool(payload):
         host_payload = _telegram_readiness_payload_from_host(principal_id=str(principal_id or "").strip())
         host_status = str(host_payload.get("status") or "probe_failed").strip() or "probe_failed"
         host_ok = bool(host_payload.get("ok", host_status != "probe_failed"))
         if bool(host_payload) and host_ok and host_status != "probe_failed":
             payload = host_payload
             payload_status = host_status
-            payload_ok = host_ok
             exit_code = 0
             source = "host_process:telegram_delivery.local_binding_scan"
     payload_status = str(payload.get("status") or "probe_failed").strip() or "probe_failed"

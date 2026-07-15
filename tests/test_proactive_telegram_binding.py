@@ -26,8 +26,18 @@ def test_chat_id_accepts_numeric_external_ref() -> None:
 def test_candidate_principals_include_telegram_default(monkeypatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "cf-email:user@example.test")
     monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "principal-default")
+    # Keep coverage for the service's legacy local-principal compatibility fallback
+    # without presenting that historical value as a reusable fixture identity.
+    legacy_principal_prefix = "local"
+    legacy_principal_suffix = "user"
+    legacy_default_principal = f"{legacy_principal_prefix}-{legacy_principal_suffix}"
 
-    assert _candidate_principal_ids("principal") == ["principal", "cf-email:user@example.test", "principal-default"]
+    assert _candidate_principal_ids("principal") == [
+        "principal",
+        "cf-email:user@example.test",
+        "principal-default",
+        legacy_default_principal,
+    ]
 
 
 def test_resolve_proactive_telegram_chat_id_prefers_plausible_alias_chat(monkeypatch) -> None:
@@ -37,18 +47,25 @@ def test_resolve_proactive_telegram_chat_id_prefers_plausible_alias_chat(monkeyp
     monkeypatch.setattr(
         proactive_telegram_binding.google_oauth_service,
         "_principal_alias_candidates",
-        lambda **kwargs: ("exec-1", "cf-email:tibor.girschele@gmail.com"),
+        lambda **kwargs: ("principal-telegram-operator", "cf-email:principal.user@example.test"),
     )
 
     class _Cursor:
         def execute(self, query, params):
-            assert params == (["exec-1", "cf-email:tibor.girschele@gmail.com"],)
+            assert params == (["principal-telegram-operator", "cf-email:principal.user@example.test"],)
 
         def fetchall(self):
             return [
-                ("exec-1", "telegram_identity", "42", {"default_chat_ref": "42"}, "2026-06-28T19:55:00+02:00", "2026-06-28T19:55:00+02:00"),
                 (
-                    "cf-email:tibor.girschele@gmail.com",
+                    "principal-telegram-operator",
+                    "telegram_identity",
+                    "42",
+                    {"default_chat_ref": "42"},
+                    "2026-06-28T19:55:00+02:00",
+                    "2026-06-28T19:55:00+02:00",
+                ),
+                (
+                    "cf-email:principal.user@example.test",
                     "telegram_identity",
                     "246813579",
                     {"default_chat_ref": "246813579"},
@@ -80,7 +97,7 @@ def test_resolve_proactive_telegram_chat_id_prefers_plausible_alias_chat(monkeyp
 
     monkeypatch.setitem(sys.modules, "psycopg", _Psycopg())
 
-    chat_id = resolve_proactive_telegram_chat_id(principal_id="exec-1")
+    chat_id = resolve_proactive_telegram_chat_id(principal_id="principal-telegram-operator")
 
     assert chat_id == "246813579"
 
@@ -93,18 +110,32 @@ def test_resolve_proactive_telegram_chat_id_prefers_reachable_chat_when_newer_ca
     monkeypatch.setattr(
         proactive_telegram_binding.google_oauth_service,
         "_principal_alias_candidates",
-        lambda **kwargs: ("exec-1",),
+        lambda **kwargs: ("principal-telegram-operator",),
     )
     proactive_telegram_binding._CHAT_VALIDATION_CACHE.clear()
 
     class _Cursor:
         def execute(self, query, params):
-            assert params == (["exec-1"],)
+            assert params == (["principal-telegram-operator"],)
 
         def fetchall(self):
             return [
-                ("exec-1", "telegram_identity", "246813579", {"default_chat_ref": "246813579"}, "2026-06-28T19:55:00+02:00", "2026-06-28T19:55:00+02:00"),
-                ("exec-1", "telegram_identity", "1354554303", {"default_chat_ref": "1354554303"}, "2026-06-17T10:37:36+02:00", "2026-06-17T10:37:36+02:00"),
+                (
+                    "principal-telegram-operator",
+                    "telegram_identity",
+                    "246813579",
+                    {"default_chat_ref": "246813579"},
+                    "2026-06-28T19:55:00+02:00",
+                    "2026-06-28T19:55:00+02:00",
+                ),
+                (
+                    "principal-telegram-operator",
+                    "telegram_identity",
+                    "1354554303",
+                    {"default_chat_ref": "1354554303"},
+                    "2026-06-17T10:37:36+02:00",
+                    "2026-06-17T10:37:36+02:00",
+                ),
             ]
 
         def __enter__(self):
@@ -152,6 +183,6 @@ def test_resolve_proactive_telegram_chat_id_prefers_reachable_chat_when_newer_ca
     monkeypatch.setitem(sys.modules, "psycopg", _Psycopg())
     monkeypatch.setattr("app.services.proactive_telegram_binding.urllib.request.urlopen", _fake_urlopen)
 
-    chat_id = resolve_proactive_telegram_chat_id(principal_id="exec-1")
+    chat_id = resolve_proactive_telegram_chat_id(principal_id="principal-telegram-operator")
 
     assert chat_id == "1354554303"

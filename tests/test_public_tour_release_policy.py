@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 
@@ -209,6 +211,55 @@ def _write_generated_viewer_bundle(
     monkeypatch.setattr(public_tours, "_tour_dir", lambda: root)
     public_tours._public_tour_cached_file_sha256.cache_clear()
     return bundle, payload
+
+
+def _invoke_file_response(
+    response: object,
+    *,
+    method: str = "GET",
+    range_header: str = "",
+) -> tuple[int, dict[str, str], bytes]:
+    async def run_response() -> list[dict[str, object]]:
+        messages: list[dict[str, object]] = []
+
+        async def receive() -> dict[str, object]:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: dict[str, object]) -> None:
+            messages.append(message)
+
+        headers = [(b"range", range_header.encode("ascii"))] if range_header else []
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "http_version": "1.1",
+            "method": method,
+            "scheme": "http",
+            "path": "/test-file",
+            "raw_path": b"/test-file",
+            "query_string": b"",
+            "root_path": "",
+            "headers": headers,
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+            "extensions": {"http.response.pathsend": {}},
+            "state": {},
+        }
+        await response(scope, receive, send)
+        return messages
+
+    messages = asyncio.run(run_response())
+    start = next(message for message in messages if message["type"] == "http.response.start")
+    response_headers = {
+        bytes(key).decode("latin-1"): bytes(value).decode("latin-1")
+        for key, value in start["headers"]
+    }
+    body = b"".join(
+        bytes(message.get("body") or b"")
+        for message in messages
+        if message["type"] == "http.response.body"
+    )
+    return int(start["status"]), response_headers, body
 
 
 def test_generated_viewer_release_requires_every_bound_asset_and_review_receipt() -> (
@@ -484,6 +535,31 @@ def test_generated_viewer_route_serves_only_bound_assets_with_isolated_headers(
     }
 
 
+def test_generated_viewer_route_serves_the_verified_inode_after_atomic_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, _ = _write_generated_viewer_bundle(tmp_path, monkeypatch)
+    viewer_relpath = "generated-reconstruction/viewer.html"
+    viewer_path = bundle / viewer_relpath
+    expected = viewer_path.read_bytes()
+
+    response = public_tours.public_tour_generated_viewer_file(
+        "generated-viewer-tour",
+        viewer_relpath,
+    )
+    replacement = bundle / "replacement-viewer.html"
+    replacement.write_bytes(b"<!doctype html><p>unverified replacement</p>")
+    os.replace(replacement, viewer_path)
+
+    status, headers, body = _invoke_file_response(response)
+
+    assert status == 200
+    assert body == expected
+    assert body != viewer_path.read_bytes()
+    assert headers["accept-ranges"] == "bytes"
+
+
 def test_generated_viewer_file_fails_closed_for_unbound_proof_asset_and_digest_drift(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -553,6 +629,54 @@ def test_generated_viewer_route_rejects_tmp_or_test_source_provenance(
         )
     assert provenance_error.value.status_code == 410
     assert provenance_error.value.detail == "tour_viewer_integrity_failed"
+
+
+def test_generated_viewer_provenance_parses_the_digest_bound_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, payload = _write_generated_viewer_bundle(tmp_path, monkeypatch)
+    manifest_relpath = "generated-reconstruction/reconstruction.json"
+    manifest_path = bundle / manifest_relpath
+    unsafe_manifest = (
+        b'{"viewer_version":"propertyquarry_3d_tour_viewer_v3",'
+        b'"floorplan":{"source_path":"/tmp/private-debug-floorplan.jpg"}}'
+    )
+    safe_manifest = _generated_viewer_assets()[manifest_relpath]
+    manifest_path.write_bytes(unsafe_manifest)
+    manifest_binding = next(
+        row
+        for row in payload["generated_viewer_release"]["asset_bindings"]
+        if row["path"] == manifest_relpath
+    )
+    manifest_binding["sha256"] = hashlib.sha256(unsafe_manifest).hexdigest()
+    manifest_binding["size_bytes"] = len(unsafe_manifest)
+    (bundle / "tour.json").write_text(json.dumps(payload), encoding="utf-8")
+    original_open = public_tours._public_tour_open_hashed_file
+
+    def replace_manifest_after_hash(path: str, **kwargs: object) -> tuple[int, str, bytes | None]:
+        opened = original_open(path, **kwargs)
+        if path == str(manifest_path) and kwargs.get("capture_bytes") is True:
+            replacement = bundle / "replacement-reconstruction.json"
+            replacement.write_bytes(safe_manifest)
+            os.replace(replacement, manifest_path)
+        return opened
+
+    monkeypatch.setattr(
+        public_tours,
+        "_public_tour_open_hashed_file",
+        replace_manifest_after_hash,
+    )
+
+    with pytest.raises(HTTPException) as provenance_error:
+        public_tours._generated_viewer_file(
+            "generated-viewer-tour",
+            "generated-reconstruction/viewer.html",
+        )
+
+    assert provenance_error.value.status_code == 410
+    assert provenance_error.value.detail == "tour_viewer_integrity_failed"
+    assert manifest_path.read_bytes() == safe_manifest
 
 
 def test_generated_viewer_revocation_is_terminal_at_the_file_route(
@@ -916,6 +1040,128 @@ def test_released_provider_video_is_hash_verified_and_revocation_returns_410(
     with pytest.raises(HTTPException) as revoked_error:
         public_tours._asset_file("magicfit-tour", "tour.mp4")
     assert revoked_error.value.status_code == 410
+
+
+def test_released_video_response_holds_the_verified_inode_for_get_range_and_head(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    video = b"reviewed-video"
+    replacement_video = b"tampered-video"
+    assert len(replacement_video) == len(video)
+    root = tmp_path / "public-tours"
+    bundle = root / "magicfit-tour"
+    bundle.mkdir(parents=True)
+    video_path = bundle / "tour.mp4"
+    video_path.write_bytes(video)
+    payload = _released_magicfit_payload(video)
+    payload["scenes"] = [
+        {
+            "name": "Photo",
+            "role": "photo",
+            "asset_relpath": "photo.jpg",
+            "mime_type": "image/jpeg",
+        }
+    ]
+    (bundle / "photo.jpg").write_bytes(b"photo")
+    (bundle / "tour.json").write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(public_tours, "_tour_dir", lambda: root)
+
+    def stale_hash_cache_must_not_be_used(*args: object, **kwargs: object) -> str:
+        raise AssertionError("public response path used the stale hash cache")
+
+    monkeypatch.setattr(
+        public_tours,
+        "_public_tour_cached_file_sha256",
+        stale_hash_cache_must_not_be_used,
+    )
+
+    def replace_video(content: bytes) -> None:
+        replacement = bundle / "replacement-tour.mp4"
+        replacement.write_bytes(content)
+        os.replace(replacement, video_path)
+
+    get_response = public_tours.public_tour_file("magicfit-tour", "tour.mp4")
+    replace_video(replacement_video)
+    get_status, get_headers, get_body = _invoke_file_response(get_response)
+    assert get_status == 200
+    assert get_body == video
+    assert get_headers["content-length"] == str(len(video))
+
+    replace_video(video)
+    range_response = public_tours.public_tour_file("magicfit-tour", "tour.mp4")
+    replace_video(replacement_video)
+    range_status, range_headers, range_body = _invoke_file_response(
+        range_response,
+        range_header="bytes=2-7",
+    )
+    assert range_status == 206
+    assert range_body == video[2:8]
+    assert range_headers["content-range"] == f"bytes 2-7/{len(video)}"
+
+    replace_video(video)
+    head_response = public_tours.public_tour_file("magicfit-tour", "tour.mp4")
+    replace_video(replacement_video)
+    head_status, head_headers, head_body = _invoke_file_response(
+        head_response,
+        method="HEAD",
+    )
+    assert head_status == 200
+    assert head_body == b""
+    assert head_headers["content-length"] == str(len(video))
+
+
+def test_released_video_headers_and_body_share_one_manifest_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_video = b"reviewed-video"
+    next_video = b"tampered-video"
+    root = tmp_path / "public-tours"
+    bundle = root / "magicfit-tour"
+    bundle.mkdir(parents=True)
+    video_path = bundle / "tour.mp4"
+    video_path.write_bytes(first_video)
+    first_payload = _released_magicfit_payload(first_video)
+    next_payload = _released_magicfit_payload(next_video)
+    for payload in (first_payload, next_payload):
+        payload["scenes"] = [
+            {
+                "name": "Photo",
+                "role": "photo",
+                "asset_relpath": "photo.jpg",
+                "mime_type": "image/jpeg",
+            }
+        ]
+    (bundle / "photo.jpg").write_bytes(b"photo")
+    (bundle / "tour.json").write_text(json.dumps(first_payload), encoding="utf-8")
+    monkeypatch.setattr(public_tours, "_tour_dir", lambda: root)
+    load_count = 0
+
+    def swapping_load(_: str) -> dict[str, object]:
+        nonlocal load_count
+        load_count += 1
+        if load_count == 1:
+            return first_payload
+        replacement = bundle / "next-tour.mp4"
+        replacement.write_bytes(next_video)
+        os.replace(replacement, video_path)
+        (bundle / "tour.json").write_text(json.dumps(next_payload), encoding="utf-8")
+        return next_payload
+
+    monkeypatch.setattr(public_tours, "_load_tour", swapping_load)
+
+    response = public_tours.public_tour_file("magicfit-tour", "tour.mp4")
+    replacement = bundle / "post-response-tour.mp4"
+    replacement.write_bytes(next_video)
+    os.replace(replacement, video_path)
+    status, headers, body = _invoke_file_response(response)
+
+    assert load_count == 1
+    assert status == 200
+    assert body == first_video
+    assert headers["x-propertyquarry-asset-sha256"] == hashlib.sha256(body).hexdigest()
+    assert headers["x-propertyquarry-media-revision"] == "video-release-2026-07-13.1"
 
 
 def test_released_generated_video_is_hash_verified_and_terminal_states_return_410(

@@ -67,6 +67,7 @@ def test_room_audio_receipt_fails_closed_until_every_manual_check_is_present(mon
 
 def test_room_audio_receipt_passes_for_complete_public_origin_check(monkeypatch) -> None:
     module = _load_module()
+    runtime_revision = "a" * 40
     monkeypatch.setattr(module, "_git_dirty", lambda: False)
     monkeypatch.setattr(module, "_git_head", lambda: "HEAD")
     monkeypatch.setattr(module, "_source_tree_fingerprint", lambda: "fingerprint")
@@ -74,6 +75,11 @@ def test_room_audio_receipt_passes_for_complete_public_origin_check(monkeypatch)
         module,
         "resolve_source_worktree_fingerprint",
         lambda _root: "worktree-fingerprint",
+    )
+    monkeypatch.setattr(
+        module,
+        "_probe_runtime_source_revision",
+        lambda **_kwargs: (runtime_revision, None),
     )
 
     args = module.argparse.Namespace(
@@ -107,6 +113,7 @@ def test_room_audio_receipt_passes_for_complete_public_origin_check(monkeypatch)
     assert receipt["source_git_head"] == "HEAD"
     assert receipt["source_tree_fingerprint"] == "fingerprint"
     assert receipt["source_state_fingerprint"] == "worktree-fingerprint"
+    assert receipt["runtime_source_revision"] == runtime_revision
     assert (
         receipt["source_state_fingerprint_semantics"]
         == "worktree_source_files_sha256_excluding_generated_only_paths"

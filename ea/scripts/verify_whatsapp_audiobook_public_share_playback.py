@@ -22,6 +22,9 @@ if str(ROOT) not in sys.path:
 
 from scripts.source_state_head import resolve_source_state_head  # noqa: E402
 from scripts.source_state_head import resolve_source_worktree_fingerprint  # noqa: E402
+from scripts.measure_memorial_live_browser import (  # noqa: E402
+    _resolve_chromium_executable,
+)
 
 
 def _now_iso() -> str:
@@ -145,20 +148,34 @@ def _select_track_response(
     return media_responses[-1] if media_responses else {}
 
 
+def _launch_chromium(playwright):  # type: ignore[no-untyped-def]
+    executable_path, _executable_source = _resolve_chromium_executable(playwright)
+    if not executable_path:
+        raise RuntimeError("whatsapp_audiobook_playback_chromium_unavailable")
+    try:
+        return playwright.chromium.launch(
+            headless=True,
+            executable_path=executable_path,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--no-proxy-server",
+                "--autoplay-policy=no-user-gesture-required",
+                "--mute-audio",
+            ],
+        )
+    except Exception:
+        raise RuntimeError("whatsapp_audiobook_playback_chromium_launch_failed") from None
+
+
 def probe_share_with_playwright(*, url: str, wait_seconds: float = 3.0, timeout_seconds: float = 60.0) -> dict[str, object]:
     from playwright.sync_api import sync_playwright
 
     responses: list[dict[str, object]] = []
     page_response_status = 0
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--autoplay-policy=no-user-gesture-required",
-                "--mute-audio",
-            ],
-        )
+        browser = _launch_chromium(playwright)
         page = browser.new_page()
         page.on(
             "response",

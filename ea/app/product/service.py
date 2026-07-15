@@ -34,7 +34,7 @@ from html import escape as html_escape
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Sequence
 from uuid import uuid4
 
 import requests
@@ -72,6 +72,7 @@ from app.services.assistant_property_lane import (
     assistant_property_lane_enabled,
     assistant_property_signal_present,
     assistant_property_task_hidden_from_ea,
+    propertyquarry_request_active,
 )
 from app.services.operator_access import (
     OPERATOR_ACCESS_ROLES,
@@ -1408,7 +1409,7 @@ def _property_candidate_unknowns_penalty(*, assessment: dict[str, object] | None
     assessment_payload = dict(assessment or {})
     facts = dict(property_facts or {})
     unknowns = [item for item in list(assessment_payload.get("unknowns_json") or []) if str(item or "").strip()]
-    missing_items = _property_missing_fact_items(facts)
+    missing_items = _property_missing_fact_research_items(facts)
     future_research = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
     unresolved_future = sum(
         1
@@ -6561,8 +6562,8 @@ def _proactive_ooda_flat_search_enabled() -> bool:
     return _env_flag("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", default=False)
 
 
-def _willhaben_search_agent_auto_create_enabled() -> bool:
-    if not assistant_property_lane_enabled():
+def _willhaben_search_agent_auto_create_enabled(*, property_surface: bool = False) -> bool:
+    if not (property_surface or assistant_property_lane_enabled()):
         return False
     return _env_flag("EA_WILLHABEN_SEARCH_AGENT_AUTO_CREATE_PROPERTY_TOUR", default=False)
 
@@ -6712,8 +6713,9 @@ def _willhaben_search_agent_auto_create_spec(
     external_id: str,
     counterparty: str,
     payload: dict[str, object],
+    property_surface: bool = False,
 ) -> dict[str, str] | None:
-    if not _willhaben_search_agent_auto_create_enabled():
+    if not _willhaben_search_agent_auto_create_enabled(property_surface=property_surface):
         return None
     if not _is_willhaben_search_agent_email(
         title=title,
@@ -6768,8 +6770,9 @@ def _property_alert_auto_create_spec(
     external_id: str,
     counterparty: str,
     payload: dict[str, object],
+    property_surface: bool = False,
 ) -> dict[str, str] | None:
-    if not _willhaben_search_agent_auto_create_enabled():
+    if not _willhaben_search_agent_auto_create_enabled(property_surface=property_surface):
         return None
     if not _is_property_alert_email(
         title=title,
@@ -8327,7 +8330,10 @@ def _property_feedback_inferred_hints(
                 }
             )
 
-    if reaction_key == "like" and district and not any(_normalize_key(row.get("key")) == "preferred_districts" for row in hints):
+    if reaction_key == "like" and district and not any(
+        str(row.get("key") or "").strip().lower() == "preferred_districts"
+        for row in hints
+    ):
         _append_unique(
             {
                 "domain": "willhaben",
@@ -13585,9 +13591,17 @@ def _property_profile_detect_features(value: str) -> list[str]:
 
 
 class ProductService:
-    def __init__(self, container: AppContainer) -> None:
+    def __init__(self, container: AppContainer, *, property_surface: bool | None = None) -> None:
         self._container = container
         self._preference_profiles = container.preference_profiles
+        self._property_surface = (
+            propertyquarry_request_active()
+            if property_surface is None
+            else bool(property_surface)
+        )
+
+    def _property_work_enabled(self) -> bool:
+        return self._property_surface or assistant_property_lane_enabled()
 
     def get_preference_profile(
         self,
@@ -19031,7 +19045,7 @@ class ProductService:
         ]
         dedupe_key = "|".join(part for part in dedupe_parts if part)
         resolved_signal_source_id = str(source_ref or external_id or dedupe_key).strip()
-        if is_willhaben_search_agent and not assistant_property_lane_enabled():
+        if is_willhaben_search_agent and not self._property_work_enabled():
             existing_event = self._existing_office_signal_event(
                 principal_id=principal_id,
                 dedupe_key=dedupe_key,
@@ -19677,7 +19691,7 @@ class ProductService:
         payload: dict[str, object],
         actor: str,
     ) -> dict[str, object] | None:
-        if not assistant_property_lane_enabled():
+        if not self._property_work_enabled():
             return None
         if str(signal_type or "").strip().lower() != "email_thread":
             return None
@@ -19700,6 +19714,7 @@ class ProductService:
             external_id=external_id,
             counterparty=counterparty,
             payload=payload,
+            property_surface=self._property_surface,
         )
         if auto_create_spec is not None:
             return None
@@ -20593,6 +20608,7 @@ class ProductService:
             external_id=external_id,
             counterparty=counterparty,
             payload=payload,
+            property_surface=self._property_surface,
         )
         if not wants_tour and auto_create_spec is not None:
             wants_tour = True
@@ -22889,7 +22905,7 @@ class ProductService:
         account_email: str = "",
         email_limit: int = 10,
     ) -> dict[str, object]:
-        if not assistant_property_lane_enabled():
+        if not self._property_work_enabled():
             normalized_account_email = str(account_email or "").strip().lower()
             return {
                 "generated_at": _now_iso(),
@@ -25689,7 +25705,7 @@ class ProductService:
         principal_id: str,
         actor: str,
     ) -> dict[str, object]:
-        if assistant_property_lane_enabled():
+        if self._property_work_enabled():
             return {
                 "generated_at": _now_iso(),
                 "closed_total": 0,
@@ -35293,7 +35309,7 @@ class ProductService:
         )
 
     def _assistant_visible_human_task(self, task: object) -> bool:
-        if assistant_property_lane_enabled():
+        if self._property_work_enabled():
             return True
         return not assistant_property_task_hidden_from_ea(str(getattr(task, "task_type", "") or "").strip())
 
@@ -35305,7 +35321,7 @@ class ProductService:
         source_id: str,
         external_id: str,
     ) -> bool:
-        if assistant_property_lane_enabled():
+        if self._property_work_enabled():
             return True
         normalized_event_type = str(event_type or "").strip().lower()
         if normalized_event_type.startswith("property_"):
@@ -38094,5 +38110,9 @@ class ProductService:
         )
 
 
-def build_product_service(container: AppContainer) -> ProductService:
-    return ProductService(container)
+def build_product_service(
+    container: AppContainer,
+    *,
+    property_surface: bool | None = None,
+) -> ProductService:
+    return ProductService(container, property_surface=property_surface)

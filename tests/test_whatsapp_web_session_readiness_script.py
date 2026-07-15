@@ -422,17 +422,17 @@ def test_build_report_falls_back_to_latest_enabled_binding_for_default_placehold
             if self.calls == 1:
                 return None
             return (
-                "tibor-whatsapp-web-session",
+                "fixture-whatsapp-web-session",
                 "exec-1",
                 "whatsapp_web_session",
-                "+4368120864006",
+                "+15550101000",
                 {
                     "scopes": ["whatsapp.send"],
                     "service_routes": {"applies_to": ["connector.dispatch"]},
                 },
                 {
-                    "session_ref": "tibor-wa-web",
-                    "session_store_ref": "vault://ea/whatsapp-web/tibor-wa-web",
+                    "session_ref": "fixture-wa-web",
+                    "session_store_ref": "vault://ea/whatsapp-web/fixture-wa-web",
                     "session_send_url_template": "https://wa-web.test/sessions/{session_ref}/messages",
                     "session_api_token": "session-token",
                 },
@@ -464,5 +464,5 @@ def test_build_report_falls_back_to_latest_enabled_binding_for_default_placehold
     )
 
     assert report["ready"] is True
-    assert report["binding_id"] == "tibor-whatsapp-web-session"
+    assert report["binding_id"] == "fixture-whatsapp-web-session"
     assert report["principal_id"] == "exec-1"

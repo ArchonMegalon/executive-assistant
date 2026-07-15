@@ -24,6 +24,11 @@ from urllib.parse import quote, urlparse, urlunparse
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Iterable
 
+try:
+    import fcntl as _fcntl
+except ImportError:  # pragma: no cover - Windows compatibility
+    _fcntl = None  # type: ignore[assignment]
+
 from app.domain.models import (
     ProviderBillingSnapshot,
     ProviderMemberReconciliationSnapshot,
@@ -727,8 +732,24 @@ def _append_provider_ledger_record(name: str, payload: dict[str, object]) -> Non
         return
     try:
         with target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
-            handle.write("\n")
+            locked = False
+            if _fcntl is not None:
+                try:
+                    _fcntl.flock(handle.fileno(), _fcntl.LOCK_EX)
+                    locked = True
+                except Exception:
+                    locked = False
+            try:
+                handle.write(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            finally:
+                if locked and _fcntl is not None:
+                    try:
+                        _fcntl.flock(handle.fileno(), _fcntl.LOCK_UN)
+                    except Exception:
+                        pass
     except Exception:
         return
 
@@ -4935,46 +4956,56 @@ def _provider_configs() -> dict[str, ProviderConfig]:
     }
 
 
+def _gemini_vortex_command_readiness() -> tuple[bool, str]:
+    command = _env("EA_GEMINI_VORTEX_COMMAND") or "gemini"
+    adapter = GeminiVortexToolAdapter()
+    try:
+        command_base = adapter._command_base()
+    except (OSError, TypeError, ValueError):
+        return (False, "gemini_vortex_command_invalid")
+    binary = command_base[0] if command_base else ""
+    if not binary:
+        return (False, "gemini_vortex_command_missing")
+    if os.path.sep in binary:
+        ready = os.path.exists(binary) and os.access(binary, os.X_OK)
+    else:
+        ready = shutil.which(binary) is not None
+    if not ready:
+        return (False, f"command_not_found:{command}")
+    return (True, command)
+
+
 def _gemini_vortex_health_state() -> tuple[str, str]:
     spawn_pressure_active, spawn_pressure_detail = _gemini_spawn_pressure_active()
     if spawn_pressure_active:
         return ("degraded", f"spawn_pressure_cooldown:{spawn_pressure_detail}")
 
-    command = _env("EA_GEMINI_VORTEX_COMMAND") or "gemini"
-    adapter = GeminiVortexToolAdapter()
-    command_base = adapter._command_base()
-    binary = command_base[0] if command_base else ""
-    if not binary:
-        return ("missing", "gemini_vortex_command_missing")
-    if os.path.sep in binary:
-        ready = os.path.exists(binary) and os.access(binary, os.X_OK)
-    else:
-        ready = shutil.which(binary) is not None
-    if ready:
-        slots = gemini_vortex_slot_status()
-        if slots:
-            failed_slots = [
-                dict(slot)
-                for slot in slots
-                if str(slot.get("last_result") or "").strip().lower() == "failed"
+    command_ready, command_detail = _gemini_vortex_command_readiness()
+    if not command_ready:
+        return ("missing", command_detail)
+    slots = gemini_vortex_slot_status()
+    if slots:
+        failed_slots = [
+            dict(slot)
+            for slot in slots
+            if str(slot.get("last_result") or "").strip().lower() == "failed"
+        ]
+        if failed_slots and len(failed_slots) >= len(slots):
+            failure_details = [
+                " ".join(str(slot.get("last_result_detail") or "").split()).strip()
+                for slot in failed_slots
+                if str(slot.get("last_result_detail") or "").strip()
             ]
-            if failed_slots and len(failed_slots) >= len(slots):
-                failure_details = [
-                    " ".join(str(slot.get("last_result_detail") or "").split()).strip()
-                    for slot in failed_slots
-                    if str(slot.get("last_result_detail") or "").strip()
-                ]
-                quota_failed = any(
-                    any(marker in detail.lower() for marker in ("terminalquotaerror", "quota", "resource_exhausted"))
-                    for detail in failure_details
-                )
-                if quota_failed:
-                    return ("degraded", "quota_exhausted")
-                if failure_details:
-                    return ("degraded", failure_details[0][:160])
-                return ("degraded", "all_slots_failed")
-        return ("ready", command)
-    return ("missing", f"command_not_found:{command}")
+            quota_failed = any(
+                any(marker in detail.lower() for marker in ("terminalquotaerror", "quota", "resource_exhausted"))
+                for detail in failure_details
+            )
+            if quota_failed:
+                return ("degraded", "quota_exhausted")
+            if failure_details:
+                return ("degraded", failure_details[0][:160])
+            return ("degraded", "all_slots_failed")
+    return ("ready", command_detail)
 
 
 def _acquire_hard_slot() -> bool:
@@ -5945,7 +5976,7 @@ def _provider_candidates(
         if chatplayground_config is not None and chatplayground_config.api_keys:
             ordered.append("chatplayground")
         gemini_config = configs.get("gemini_vortex")
-        if gemini_config is not None and gemini_config.api_keys:
+        if gemini_config is not None and _gemini_vortex_command_readiness()[0]:
             ordered.append("gemini_vortex")
         return tuple(dict.fromkeys(ordered))
 

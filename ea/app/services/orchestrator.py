@@ -310,6 +310,7 @@ class RewriteOrchestrator:
         )
         self._operator_profile_service = ExecutionOperatorProfileService(
             upsert_profile=self._operator_profiles.upsert_profile,
+            bootstrap_profile_if_none=self._operator_profiles.bootstrap_profile_if_none,
             get_profile=self._operator_profiles.get,
             list_profiles_for_principal=self._operator_profiles.list_for_principal,
         )
@@ -561,6 +562,11 @@ class RewriteOrchestrator:
         self._require_session_principal_alignment(found.session, principal_id=principal_id)
         return found
 
+    def start_session(self, intent: IntentSpecV3) -> ExecutionSession:
+        """Start a governed session for external intake and review workflows."""
+
+        return self._ledger.start_session(intent)
+
     def fetch_artifact(self, artifact_id: str) -> Artifact | None:
         return self._artifacts.get(artifact_id)
 
@@ -776,6 +782,29 @@ class RewriteOrchestrator:
         notes: str = "",
     ) -> OperatorProfile:
         return self._operator_profile_service.upsert_operator_profile(
+            principal_id=principal_id,
+            operator_id=operator_id,
+            display_name=display_name,
+            roles=roles,
+            skill_tags=skill_tags,
+            trust_tier=trust_tier,
+            status=status,
+            notes=notes,
+        )
+
+    def bootstrap_operator_profile(
+        self,
+        *,
+        principal_id: str,
+        operator_id: str | None = None,
+        display_name: str,
+        roles: tuple[str, ...] = (),
+        skill_tags: tuple[str, ...] = (),
+        trust_tier: str = "standard",
+        status: str = "active",
+        notes: str = "",
+    ) -> OperatorProfile | None:
+        return self._operator_profile_service.bootstrap_operator_profile(
             principal_id=principal_id,
             operator_id=operator_id,
             display_name=display_name,

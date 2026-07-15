@@ -454,10 +454,13 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_initial_voice_choice(
     assert receipt["pending_user_selected_voice_jobs"][0]["replacement_choice_pending"] is False
     assert "audiobook_voice_choice_pending" in receipt["failed_codes"]
     assert "explicit_replacement_voice_choice_pending" not in receipt["failed_codes"]
-    assert receipt["next_action"] == "choose_one_telegram_audiobook_voice_sample"
-    assert receipt["next_action_href"] == "/integrations/telegram"
-    assert receipt["next_action_label"] == "Open Telegram"
+    assert "voice_sample_delivery_underfilled" in receipt["failed_codes"]
+    assert receipt["next_action"] == "send_missing_telegram_audiobook_voice_samples_before_user_choice"
+    assert receipt["next_action_href"] == "/app/channel-loop"
+    assert receipt["next_action_label"] == "Open channel loop"
     assert receipt["next_action_method"] == "get"
+    assert receipt["operator_action_packet"]["user_action_required"] is False
+    assert receipt["operator_action_packet"]["voice_sample_delivery_missing_count"] == 1
 
 
 def test_live_telegram_audiobook_delivery_receipt_surfaces_explicit_replacement_choice_pending(
@@ -486,7 +489,10 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_explicit_replacement_
     assert receipt["live_delivery_claim_allowed"] is False
     assert "user_selected_voice_delivery_not_ready" in receipt["failed_codes"]
     assert "explicit_replacement_voice_choice_pending" in receipt["failed_codes"]
-    assert receipt["next_action"] == "choose_explicit_replacement_voice_or_restore_selected_provider"
+    assert "voice_sample_delivery_underfilled" in receipt["failed_codes"]
+    assert receipt["next_action"] == "send_missing_telegram_audiobook_voice_samples_before_user_choice"
+    assert receipt["operator_action_packet"]["user_action_required"] is False
+    assert receipt["operator_action_packet"]["voice_sample_delivery_missing_count"] == 1
     pending = receipt["pending_user_selected_voice_jobs"][0]
     assert pending["voice_selection_status"] == "waiting_user_choice"
     assert pending["voice_selection_reason"] == "selected_voice_provider_balance_blocked"
@@ -522,10 +528,13 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_replacement_choice_wi
     assert receipt["live_delivery_claim_allowed"] is False
     assert "valid_live_audiobook_delivery_missing" in receipt["failed_codes"]
     assert "explicit_replacement_voice_choice_pending" in receipt["failed_codes"]
-    assert receipt["next_action"] == "choose_explicit_replacement_voice_or_restore_selected_provider"
-    assert receipt["next_action_href"] == "/integrations/telegram"
-    assert receipt["next_action_label"] == "Open Telegram"
+    assert "voice_sample_delivery_underfilled" in receipt["failed_codes"]
+    assert receipt["next_action"] == "send_missing_telegram_audiobook_voice_samples_before_user_choice"
+    assert receipt["next_action_href"] == "/app/channel-loop"
+    assert receipt["next_action_label"] == "Open channel loop"
     assert receipt["next_action_method"] == "get"
+    assert receipt["operator_action_packet"]["user_action_required"] is False
+    assert receipt["operator_action_packet"]["voice_sample_delivery_missing_count"] == 1
     assert receipt["pending_user_selected_voice_job_count"] == 1
     assert receipt["pending_user_selected_voice_jobs"][0]["replacement_choice_pending"] is True
 

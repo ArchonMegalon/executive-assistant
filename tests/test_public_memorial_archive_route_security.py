@@ -45,11 +45,16 @@ def _https_request(*, host: str = "myexternalbrain.com") -> Request:
     )
 
 
+def _publish_manfred_archive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", "manfred")
+
+
 def test_archive_publication_serves_explicitly_authorized_internal_html(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    _publish_manfred_archive(monkeypatch)
     html_path = tmp_path / "index.html"
     html_path.write_text("<!doctype html><title>Approved memorial</title>", encoding="utf-8")
     observed_path_args: list[tuple[str, str]] = []
@@ -113,6 +118,7 @@ def test_archive_publication_rejects_unapproved_registry_before_path_probe(
     publications: tuple[dict[str, object], ...],
 ) -> None:
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    _publish_manfred_archive(monkeypatch)
     private_html = tmp_path / "private-exists.html"
     private_html.write_text("private path content", encoding="utf-8")
     path_probe_calls: list[tuple[str, str]] = []
@@ -149,6 +155,7 @@ def test_archive_publication_preserves_authorized_external_fallback(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    _publish_manfred_archive(monkeypatch)
     missing_html = tmp_path / "missing.html"
     monkeypatch.setattr(public_memorial_surface, "_load_memorial", lambda slug: {})
     monkeypatch.setattr(

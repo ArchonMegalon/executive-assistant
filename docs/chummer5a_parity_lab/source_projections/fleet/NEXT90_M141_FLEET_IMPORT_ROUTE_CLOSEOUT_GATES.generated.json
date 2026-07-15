@@ -1,0 +1,18 @@
+{
+  "contract_name": "projection.next90_m141_fleet_import_route_closeout_gates",
+  "generated_at": "2026-07-15T00:00:00Z",
+  "projection_redacted": true,
+  "package_closeout": {"status": "pass", "ready": true},
+  "monitor_summary": {"runtime_blocker_count": 0},
+  "runtime_monitors": {
+    "target_rows": {
+      "rows": [
+        {"id": "source:translator_route"},
+        {"id": "source:xml_amendment_editor_route"},
+        {"id": "source:hero_lab_importer_route"},
+        {"id": "family:custom_data_xml_and_translator_bridge"},
+        {"id": "family:legacy_and_adjacent_import_oracles"}
+      ]
+    }
+  }
+}

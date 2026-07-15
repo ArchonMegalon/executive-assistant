@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import errno
 import hashlib
 import hmac
@@ -41,6 +42,7 @@ _MAX_COLLECTION_ITEMS = 512
 _MAX_NOTE_CHARS = 12_000
 _MAX_IDENTIFIER_CHARS = 240
 _ALLOWED_PRIVATE_FILE_MODES = {0o400, 0o600}
+_PUBLIC_PROJECTION_SNAPSHOT_FIELD = "__ea_public_memorial_projection__"
 
 
 class MemorialPrivateContextError(ValueError):
@@ -317,10 +319,27 @@ def private_context_declared(payload: object) -> bool:
     return isinstance(declaration, dict) and declaration == PRIVATE_CONTEXT_DECLARATION
 
 
+def public_memorial_projection_source(
+    payload: dict[str, object],
+) -> dict[str, object]:
+    """Return the pre-overlay public source when private context was merged."""
+    snapshot = payload.get(_PUBLIC_PROJECTION_SNAPSHOT_FIELD)
+    if isinstance(snapshot, dict):
+        return dict(snapshot)
+    return payload
+
+
 def merge_private_memorial_context(
     *, public_payload: dict[str, object], private_root: Path, slug: str
 ) -> dict[str, object]:
-    public_only = dict(public_payload) if isinstance(public_payload, dict) else {}
+    supplied = dict(public_payload) if isinstance(public_payload, dict) else {}
+    existing_snapshot = supplied.get(_PUBLIC_PROJECTION_SNAPSHOT_FIELD)
+    public_only = (
+        copy.deepcopy(existing_snapshot)
+        if isinstance(existing_snapshot, dict)
+        else supplied
+    )
+    public_only.pop(_PUBLIC_PROJECTION_SNAPSHOT_FIELD, None)
     if not private_context_declared(public_only):
         return public_only
     try:
@@ -328,6 +347,7 @@ def merge_private_memorial_context(
     except (FileNotFoundError, OSError, MemorialPrivateContextError):
         return public_only
     merged = dict(public_only)
+    merged[_PUBLIC_PROJECTION_SNAPSHOT_FIELD] = copy.deepcopy(public_only)
     for field in PRIVATE_OVERRIDE_FIELDS:
         merged[field] = overrides[field]
     return merged

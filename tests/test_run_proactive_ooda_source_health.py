@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 import sys
 
@@ -30,6 +31,13 @@ def _args(**overrides):
 
 
 def test_load_signals_surfaces_active_google_workspace_runtime_cooldown(monkeypatch) -> None:
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 7, 8, 15, 30, 0, tzinfo=timezone.utc)
+            return value if tz is not None else value.replace(tzinfo=None)
+
+    monkeypatch.setattr(script, "datetime", _FrozenDatetime)
     rows = [
         SimpleNamespace(
             channel="product",

@@ -1317,6 +1317,8 @@ def test_spatial_runtime_smoke_requires_html_json_viewer_and_proof_only_404(
     proof = runner._spatial_handoff_runtime_proof(
         "http://127.0.0.1:18090",
         projection,
+        oci_image_id=f"sha256:{'1' * 64}",
+        serving_container_id="2" * 64,
     )
     assert proof["html_json_viewer_200"] is True
     assert proof["proof_only_404"] is True
@@ -1330,6 +1332,8 @@ def test_spatial_runtime_smoke_requires_html_json_viewer_and_proof_only_404(
             "viewer_relpath": "generated-reconstruction/viewer.html",
             "route_labels": ROUTE_LABELS,
             "candidate_commit": "e" * 40,
+            "oci_image_id": f"sha256:{'1' * 64}",
+            "serving_container_id": "2" * 64,
             "package_sha256": "f" * 64,
         }
     ]
@@ -1354,6 +1358,8 @@ def test_spatial_runtime_smoke_requires_html_json_viewer_and_proof_only_404(
             runner._spatial_handoff_runtime_proof(
                 "http://127.0.0.1:18090",
                 invalid_projection,
+                oci_image_id=f"sha256:{'1' * 64}",
+                serving_container_id="2" * 64,
             )
 
 
@@ -1404,9 +1410,9 @@ def test_spatial_runtime_rejects_boolean_only_browser_receipt(
     )
 
     with pytest.raises(RuntimeError, match="browser_gate_blocked"):
-        runner._spatial_handoff_runtime_proof(
-            "http://127.0.0.1:18090",
-            {
+            runner._spatial_handoff_runtime_proof(
+                "http://127.0.0.1:18090",
+                {
                 "projection_commit": "e" * 40,
                 "spatial_handoff": {
                     "included": True,
@@ -1419,7 +1425,9 @@ def test_spatial_runtime_rejects_boolean_only_browser_receipt(
                         "generated-reconstruction/reconstruction.json"
                     ),
                     "route_labels": ROUTE_LABELS,
-                    "upstream_package_sha256": "f" * 64,
+                        "upstream_package_sha256": "f" * 64,
+                    },
                 },
-            },
-        )
+                oci_image_id=f"sha256:{'1' * 64}",
+                serving_container_id="2" * 64,
+            )

@@ -167,6 +167,7 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
     monkeypatch.setenv("EA_API_TOKEN", "")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", "manfred")
     monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
     monkeypatch.delenv("EA_DEFAULT_PRINCIPAL_ID", raising=False)
     monkeypatch.delenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", raising=False)
@@ -224,11 +225,13 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
                 "archive_sections": [{"title": "Oeffentliches Archiv", "audience": "public", "items": ["doc-public"]}],
                 "fliplink_publications": [
                     {
+                        "approved": True,
                         "id": "doc-public",
                         "title": "Public Doc",
                         "audience": "public",
                         "viewer_type": "smart_document",
                         "url": "https://archive.example/public",
+                        "sensitivity": "PUBLIC",
                         "review_status": "published",
                     },
                 ],

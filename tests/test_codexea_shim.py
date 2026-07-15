@@ -15,7 +15,10 @@ SHIM = ROOT / "scripts" / "codexea"
 
 def _runtime_env_file(tmp_path: Path) -> Path:
     path = tmp_path / "codexea-harness-runtime.ea.env"
-    path.write_text("CODEXEA_ALLOW_ENV_MODEL_OVERRIDE=1\n", encoding="utf-8")
+    path.write_text(
+        "CODEXEA_ALLOW_ENV_MODEL_OVERRIDE=1\nCODEXEA_NICE=3\n",
+        encoding="utf-8",
+    )
     return path
 
 
@@ -382,16 +385,83 @@ def test_responses_lane_launches_with_ea_provider_config_and_runtime_env(tmp_pat
 
 
 def test_worker_launch_inherits_default_codexea_niceness(tmp_path: Path) -> None:
-    parent_nice = os.getpriority(os.PRIO_PROCESS, 0)
+    ps_marker = tmp_path / "ps-invoked"
+    renice_marker = tmp_path / "renice-args"
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_ps = fake_bin / "ps"
+    fake_ps.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        ': > "${CODEXEA_PS_MARKER:?}"\n'
+        "printf '0\\n'\n",
+        encoding="utf-8",
+    )
+    fake_ps.chmod(fake_ps.stat().st_mode | stat.S_IXUSR)
+    fake_renice = fake_bin / "renice"
+    fake_renice.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'printf \'%s\\n\' "$@" > "${CODEXEA_RENICE_MARKER:?}"\n',
+        encoding="utf-8",
+    )
+    fake_renice.chmod(fake_renice.stat().st_mode | stat.S_IXUSR)
 
-    result = _run_shim(
+    _run_shim(
         tmp_path,
         "worker",
         "nice check",
+        extra_env={
+            "CODEXEA_PS_MARKER": str(ps_marker),
+            "CODEXEA_RENICE_MARKER": str(renice_marker),
+            "PATH": f"{fake_bin}:{os.environ.get('PATH', '')}",
+        },
     )
 
-    expected_nice = 3 if parent_nice <= 3 else parent_nice
-    assert result["nice"] == expected_nice
+    assert ps_marker.exists()
+    renice_args = renice_marker.read_text(encoding="utf-8").splitlines()
+    assert renice_args[:3] == ["--priority", "3", "--pid"]
+    assert len(renice_args) == 4
+    assert renice_args[3].isdigit()
+
+
+def test_worker_launch_never_attempts_to_raise_inherited_priority(tmp_path: Path) -> None:
+    ps_marker = tmp_path / "ps-invoked"
+    renice_marker = tmp_path / "renice-invoked"
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_ps = fake_bin / "ps"
+    fake_ps.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        ': > "${CODEXEA_PS_MARKER:?}"\n'
+        "printf '10\\n'\n",
+        encoding="utf-8",
+    )
+    fake_ps.chmod(fake_ps.stat().st_mode | stat.S_IXUSR)
+    fake_renice = fake_bin / "renice"
+    fake_renice.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        ': > "${CODEXEA_RENICE_MARKER:?}"\n',
+        encoding="utf-8",
+    )
+    fake_renice.chmod(fake_renice.stat().st_mode | stat.S_IXUSR)
+
+    _run_shim(
+        tmp_path,
+        "worker",
+        "monotonic nice check",
+        extra_env={
+            "CODEXEA_NICE": "3",
+            "CODEXEA_PS_MARKER": str(ps_marker),
+            "CODEXEA_RENICE_MARKER": str(renice_marker),
+            "PATH": f"{fake_bin}:{os.environ.get('PATH', '')}",
+        },
+    )
+
+    assert ps_marker.exists()
+    assert not renice_marker.exists()
 
 
 def test_explicit_auth_env_is_not_overwritten_by_runtime_file(tmp_path: Path) -> None:

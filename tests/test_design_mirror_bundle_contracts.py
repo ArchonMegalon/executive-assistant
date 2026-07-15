@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -13,7 +14,15 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "verify_design_mirror_bundle.py"
 REPAIR_SCRIPT = ROOT / "scripts" / "repair_design_mirror_bundle.sh"
 CANONICAL_PRODUCT_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
+CANONICAL_EA_ROOT = Path("/docker/EA")
 FULL_MIRROR_MANIFEST = ROOT / ".codex-design" / "repo" / "DESIGN_MIRROR_MANIFEST.yaml"
+
+
+def _canonical_design_env() -> dict[str, str]:
+    env = dict(os.environ)
+    env["CHUMMER6_DESIGN_PRODUCT_ROOT"] = str(CANONICAL_PRODUCT_ROOT)
+    env["EA_CANONICAL_ROOT"] = str(CANONICAL_EA_ROOT)
+    return env
 
 
 def _snapshot_full_mirror(tmp_path: Path) -> list[tuple[Path, Path | None]]:
@@ -46,6 +55,7 @@ def test_design_mirror_bundle_bindings_cover_the_audited_queue_slice() -> None:
         check=False,
         capture_output=True,
         text=True,
+        env=_canonical_design_env(),
     )
     payload = json.loads(completed.stdout)
     assert {row["status"] for row in payload} == {"ok"}
@@ -66,12 +76,16 @@ def test_design_mirror_bundle_bindings_cover_the_audited_queue_slice() -> None:
     ]
 
 
-def test_design_mirror_bundle_default_never_self_compares_local_product_root() -> None:
+def test_design_mirror_bundle_default_is_portable_and_never_self_compares() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 
-    assert 'CANONICAL_PRODUCT_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")' in source
+    assert "CHUMMER6_DESIGN_PRODUCT_ROOT" in source
+    assert 'os.environ.get("EA_WORKSPACE_ROOT") or ROOT.parent' in source
     assert "or CANONICAL_PRODUCT_ROOT" in source
     assert "or LOCAL_PRODUCT_ROOT\n)" not in source
+    assert "source_not_external" in source
+    assert "/docker/" + "chummercomplete" not in source
+    assert "/docker/" + "EA" not in source
 
 
 def test_repair_design_mirror_bundle_help_mentions_bounded_bundle() -> None:
@@ -134,6 +148,7 @@ def test_repair_design_mirror_bundle_restores_drifted_queue_staging(tmp_path) ->
             capture_output=True,
             text=True,
             check=False,
+            env=_canonical_design_env(),
         )
         assert failed.returncode == 1
         assert "invalid_local_payload: next_90_day_queue_staging" in failed.stdout
@@ -144,6 +159,7 @@ def test_repair_design_mirror_bundle_restores_drifted_queue_staging(tmp_path) ->
             capture_output=True,
             text=True,
             check=True,
+            env=_canonical_design_env(),
         )
         assert "ok: next_90_day_queue_staging" in repaired.stdout
         assert local_queue.read_text(encoding="utf-8") == source_queue.read_text(encoding="utf-8")
@@ -172,6 +188,7 @@ def test_repair_design_mirror_bundle_restores_drifted_queue_overlay_source_items
             capture_output=True,
             text=True,
             check=False,
+            env=_canonical_design_env(),
         )
         assert failed.returncode == 1
         assert "queue_drift: published_queue_overlay" in failed.stdout
@@ -182,6 +199,7 @@ def test_repair_design_mirror_bundle_restores_drifted_queue_overlay_source_items
             capture_output=True,
             text=True,
             check=True,
+            env=_canonical_design_env(),
         )
         assert "ok: published_queue_overlay" in repaired.stdout
         repaired_payload = yaml.safe_load(queue_overlay.read_text(encoding="utf-8"))

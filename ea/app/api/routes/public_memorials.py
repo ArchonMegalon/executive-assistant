@@ -74,8 +74,14 @@ from app.services.memorial_memory import (
     retrieve_memorial_memory_items,
     seed_memorial_source_memories,
 )
-from app.services.memorial_private_context import merge_private_memorial_context
-from app.services.memorial_archive_registry import archive_slug_root, load_json as load_archive_json
+from app.services.memorial_private_context import (
+    merge_private_memorial_context,
+    public_memorial_projection_source,
+)
+from app.services.memorial_archive_registry import archive_slug_root
+from app.services.memorial_archive_registry import (
+    load_json_with_sha256 as load_archive_json_with_sha256,
+)
 from app.services.memorial_archive_registry import public_registry_path, public_registry_payload
 from app.services.memorial_video_meeting import (
     create_video_meeting_session,
@@ -150,6 +156,15 @@ _TTS_PLUGIN_DEFAULT_ID = UNMIXR_TTS_PLUGIN_ID
 _LEGACY_ELEVENLABS_TTS_PLUGIN_ID = "elevenlabs_memorial_voice_clone"
 _TTS_MAX_CLONE_FILES = 3
 _TTS_MAX_TEXT_LEN = 3000
+_TRUSTED_VOICE_ENV_PLACEHOLDERS = frozenset(
+    {
+        "EA_MEMORIAL_MANFRED_VOICE_A_ID",
+        "EA_MEMORIAL_MANFRED_VOICE_B_ID",
+        "OPENVOICE_MEMORIAL_VOICE_ID",
+        "UNMIXR_VOICE_ID",
+        "VOICEWAVE_MEMORIAL_VOICE_LABEL",
+    }
+)
 _PERSONAL_MEMORY_MAX_ITEMS = 24
 _VOICE_AB_AUTO_SWAP_MARGIN = 3
 _VOICE_AB_AUTO_SWAP_MIN_TOTAL = 4
@@ -203,6 +218,9 @@ _MEMORIAL_GEMINI_LIVE_VOICE = "Kore"
 _GEMINI_CLI_OAUTH_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
 _MEMORIAL_GEMINI_OAUTH_FAILURE_COOLDOWN_SECONDS = 600
 _MEMORIAL_LIVE_WARMUP_TTL_SECONDS = 600
+_MEMORIAL_LIVE_WARMUP_MAX_CONCURRENCY_DEFAULT = 2
+_MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS_DEFAULT = 30.0
+_MEMORIAL_LIVE_WARMUP_STALE_SECONDS_DEFAULT = 120.0
 _MEMORIAL_VOICE_PREWARM_STALE_SECONDS = 150.0
 _MEMORIAL_REALTIME_LLM_TIMEOUT_SECONDS = 8.0
 _MEMORIAL_CONVERSATION_TURN_LLM_TIMEOUT_SECONDS = 10.0
@@ -246,9 +264,16 @@ _VOICE_AB_DIMENSION_DEFS: tuple[dict[str, str], ...] = (
 )
 _VOICE_AB_DIMENSION_KEYS = tuple(item["id"] for item in _VOICE_AB_DIMENSION_DEFS)
 _PUBLIC_MEMORIAL_RATE_DB_LOCK = threading.Lock()
+_PUBLIC_MEMORIAL_RATE_MEMORY_LOCK = threading.Lock()
+_PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS: dict[str, list[float]] = {}
+_PUBLIC_MEMORIAL_RATE_MEMORY_MAX_KEYS = 4096
+_PUBLIC_MEMORIAL_REDIS_RATE_EXECUTION_LOCK = threading.Lock()
 _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE: str | None = None
 _MEMORIAL_LIVE_WARMUP_STATE: dict[str, dict[str, object]] = {}
 _MEMORIAL_LIVE_WARMUP_LOCK = threading.Lock()
+_MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS: set[str] = set()
+_MEMORIAL_LIVE_WARMUP_RESERVATION_SEQUENCE = 0
+_MEMORIAL_VOICE_PREWARM_RESERVATION_SEQUENCE = 0
 _MEMORIAL_RUNTIME_READINESS_CACHE_TTL_SECONDS_DEFAULT = 2.0
 _MEMORIAL_RUNTIME_READINESS_CACHE_STATE: dict[str, dict[str, object]] = {}
 _MEMORIAL_RUNTIME_READINESS_CACHE_LOCK = threading.Lock()
@@ -769,9 +794,77 @@ def _enforce_public_memorial_rate_limit(
     now = datetime.now(timezone.utc).timestamp()
     cutoff = now - float(window_seconds)
     backend = _public_memorial_rate_backend()
+    if backend == "memory":
+        _enforce_public_memorial_rate_limit_memory(
+            bucket_key=bucket_key,
+            now=now,
+            cutoff=cutoff,
+            limit=limit,
+        )
+        return
     if backend == "redis":
-        if _enforce_public_memorial_rate_limit_redis(bucket_key=bucket_key, now=now, cutoff=cutoff, limit=limit, window_seconds=window_seconds):
-            return
+        # Keep a process-local reservation even when the distributed backend is
+        # unavailable. This makes the bounded Redis fallback conservative rather
+        # than admitting an uncounted request.
+        _enforce_public_memorial_rate_limit_memory(
+            bucket_key=bucket_key,
+            now=now,
+            cutoff=cutoff,
+            limit=limit,
+        )
+        _enforce_public_memorial_rate_limit_redis(
+            bucket_key=bucket_key,
+            now=now,
+            cutoff=cutoff,
+            limit=limit,
+            window_seconds=window_seconds,
+        )
+        return
+    _enforce_public_memorial_rate_limit_sqlite(
+        bucket_key=bucket_key,
+        now=now,
+        cutoff=cutoff,
+        limit=limit,
+    )
+
+
+def _enforce_public_memorial_rate_limit_memory(
+    *,
+    bucket_key: str,
+    now: float,
+    cutoff: float,
+    limit: int,
+) -> None:
+    with _PUBLIC_MEMORIAL_RATE_MEMORY_LOCK:
+        events = [
+            created_at
+            for created_at in _PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS.get(bucket_key, [])
+            if created_at >= cutoff
+        ]
+        if len(events) >= limit:
+            raise HTTPException(status_code=429, detail="memorial_rate_limited")
+        if bucket_key not in _PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS:
+            stale_cutoff = now - 120.0
+            stale_keys = [
+                key
+                for key, timestamps in _PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS.items()
+                if not timestamps or timestamps[-1] < stale_cutoff
+            ]
+            for key in stale_keys:
+                _PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS.pop(key, None)
+            if len(_PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS) >= _PUBLIC_MEMORIAL_RATE_MEMORY_MAX_KEYS:
+                raise HTTPException(status_code=429, detail="memorial_rate_limited")
+        events.append(now)
+        _PUBLIC_MEMORIAL_RATE_MEMORY_EVENTS[bucket_key] = events
+
+
+def _enforce_public_memorial_rate_limit_sqlite(
+    *,
+    bucket_key: str,
+    now: float,
+    cutoff: float,
+    limit: int,
+) -> None:
     _PUBLIC_MEMORIAL_RATE_DB.parent.mkdir(parents=True, exist_ok=True)
     with _PUBLIC_MEMORIAL_RATE_DB_LOCK:
         connection = sqlite3.connect(str(_PUBLIC_MEMORIAL_RATE_DB), timeout=5)
@@ -801,11 +894,17 @@ def _public_memorial_rate_backend() -> str:
     global _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE
     if _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE:
         return _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE
-    if is_prod_mode(get_settings().runtime.mode):
-        configured = _text(os.getenv("EA_PUBLIC_MEMORIAL_RATE_BACKEND"), "").lower()
+    production_mode = is_prod_mode(get_settings().runtime.mode)
+    configured = _text(os.getenv("EA_PUBLIC_MEMORIAL_RATE_BACKEND"), "").lower()
+    if production_mode:
         if configured != "redis" or not _text(os.getenv("EA_PUBLIC_MEMORIAL_REDIS_URL"), ""):
             raise RuntimeError("public memorial production requires Redis rate limiting")
-    configured = _text(os.getenv("EA_PUBLIC_MEMORIAL_RATE_BACKEND"), "").lower()
+    if not production_mode and (
+        configured == "memory"
+        or _text(os.getenv("EA_STORAGE_BACKEND"), "").lower() == "memory"
+    ):
+        _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE = "memory"
+        return _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE
     if configured == "redis":
         try:
             import importlib.util
@@ -827,9 +926,63 @@ def _public_memorial_redis_client():
     try:
         import redis
 
-        return redis.Redis.from_url(redis_url, decode_responses=True)
+        timeout_seconds = _public_memorial_redis_operation_timeout_seconds()
+        return redis.Redis.from_url(
+            redis_url,
+            decode_responses=True,
+            retry_on_timeout=False,
+            socket_connect_timeout=timeout_seconds,
+            socket_timeout=timeout_seconds,
+        )
     except Exception:
         return None
+
+
+def _public_memorial_redis_operation_timeout_seconds() -> float:
+    raw = _text(os.getenv("EA_PUBLIC_MEMORIAL_REDIS_OPERATION_TIMEOUT_SECONDS"), "")
+    try:
+        configured = float(raw) if raw else 0.25
+    except (TypeError, ValueError):
+        configured = 0.25
+    return max(0.05, min(configured, 1.0))
+
+
+def _execute_public_memorial_rate_limit_redis(
+    *,
+    client: object,
+    bucket_key: str,
+    now: float,
+    cutoff: float,
+    limit: int,
+    window_seconds: int,
+) -> bool:
+    redis_key = f"memorial-rate:{bucket_key}"
+    member = f"{now}:{uuid.uuid4().hex}"
+    reservation_script = """
+local key = KEYS[1]
+redis.call('ZREMRANGEBYSCORE', key, '-inf', ARGV[1])
+local count = redis.call('ZCARD', key)
+if count >= tonumber(ARGV[4]) then
+    redis.call('EXPIRE', key, tonumber(ARGV[5]))
+    return 0
+end
+redis.call('ZADD', key, ARGV[2], ARGV[3])
+redis.call('EXPIRE', key, tonumber(ARGV[5]))
+return 1
+""".strip()
+    allowed = client.eval(
+        reservation_script,
+        1,
+        redis_key,
+        cutoff,
+        now,
+        member,
+        limit,
+        max(window_seconds * 2, 120),
+    )
+    if int(allowed or 0) != 1:
+        raise HTTPException(status_code=429, detail="memorial_rate_limited")
+    return True
 
 
 def _enforce_public_memorial_rate_limit_redis(
@@ -843,25 +996,45 @@ def _enforce_public_memorial_rate_limit_redis(
     client = _public_memorial_redis_client()
     if client is None:
         return False
-    redis_key = f"memorial-rate:{bucket_key}"
-    member = f"{now}:{uuid.uuid4().hex}"
-    try:
-        pipeline = client.pipeline()
-        pipeline.zremrangebyscore(redis_key, 0, cutoff)
-        pipeline.zcard(redis_key)
-        pipeline.expire(redis_key, max(window_seconds * 2, 120))
-        _, count, _ = pipeline.execute()
-        if int(count or 0) >= limit:
-            raise HTTPException(status_code=429, detail="memorial_rate_limited")
-        pipeline = client.pipeline()
-        pipeline.zadd(redis_key, {member: now})
-        pipeline.expire(redis_key, max(window_seconds * 2, 120))
-        pipeline.execute()
-        return True
-    except HTTPException:
-        raise
-    except Exception:
+    if not _PUBLIC_MEMORIAL_REDIS_RATE_EXECUTION_LOCK.acquire(blocking=False):
         return False
+
+    completed = threading.Event()
+    result: dict[str, object] = {"allowed": False}
+
+    def _run() -> None:
+        try:
+            result["allowed"] = _execute_public_memorial_rate_limit_redis(
+                client=client,
+                bucket_key=bucket_key,
+                now=now,
+                cutoff=cutoff,
+                limit=limit,
+                window_seconds=window_seconds,
+            )
+        except Exception as exc:
+            result["error"] = exc
+        finally:
+            _PUBLIC_MEMORIAL_REDIS_RATE_EXECUTION_LOCK.release()
+            completed.set()
+
+    try:
+        worker = threading.Thread(
+            target=_run,
+            name="ea-public-memorial-rate-redis",
+            daemon=True,
+        )
+        worker.start()
+    except Exception:
+        _PUBLIC_MEMORIAL_REDIS_RATE_EXECUTION_LOCK.release()
+        return False
+
+    if not completed.wait(timeout=_public_memorial_redis_operation_timeout_seconds()):
+        return False
+    error = result.get("error")
+    if isinstance(error, HTTPException):
+        raise error
+    return bool(result.get("allowed"))
 
 
 def _memorial_personal_memory_path(*, slug: str, scope: str) -> Path:
@@ -1040,8 +1213,9 @@ def _public_list(items: object, *, allowed_keys: set[str]) -> list[dict[str, obj
 
 
 def _public_memorial_payload(payload: dict[str, object]) -> dict[str, object]:
+    public_source = public_memorial_projection_source(payload)
     return _support_public_memorial_payload(
-        payload,
+        public_source,
         safe_json_keys=_PUBLIC_MEMORIAL_SAFE_JSON_KEYS,
         text=_text,
         story_text=_public_memorial_story_text,
@@ -2958,7 +3132,7 @@ def _require_public_memorial_write_access(*, slug: str, request: Request, memori
 
 def _asset_file(slug: str, asset_path: str) -> Path:
     bundle_dir = _memorial_bundle(slug)
-    payload = _load_memorial(slug)
+    payload = public_memorial_projection_source(_load_memorial(slug))
     candidate = (bundle_dir / str(asset_path or "")).resolve()
     if candidate != bundle_dir.resolve() and bundle_dir.resolve() not in candidate.parents:
         raise HTTPException(status_code=404, detail="memorial_file_not_found")
@@ -3081,6 +3255,19 @@ def _content_length_or_zero(request: Request) -> int:
 def _text(value: object, fallback: str = "") -> str:
     normalized = str(value or "").strip()
     return normalized or fallback
+
+
+def _json_for_html_script(value: object) -> str:
+    """Serialize JSON without permitting an inline-script breakout."""
+
+    return (
+        json.dumps(value, ensure_ascii=False)
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
 
 
 def _list_of_dicts(value: object) -> list[dict[str, object]]:
@@ -3495,12 +3682,28 @@ def _safe_tts_plugin_id(value: object) -> str:
     return normalized
 
 
+def _voice_config_identifier_has_runtime_reference(value: object) -> bool:
+    raw = str(value or "").strip()
+    if not raw:
+        return False
+    lowered = raw.lower()
+    return "$" in raw or bool(
+        re.search(
+            r"(?:^|[^a-z0-9_])(?:env|environment|os\.environ)\s*(?::|//|\.|\[|\()",
+            lowered,
+        )
+    )
+
+
 def _runtime_secret_placeholder(value: object) -> str:
     raw = str(value or "").strip()
     match = re.fullmatch(r"\$\{([A-Z0-9_]+)\}", raw)
     if not match:
-        return raw
-    return str(os.environ.get(match.group(1)) or "").strip()
+        return "" if _voice_config_identifier_has_runtime_reference(raw) else raw
+    env_name = match.group(1)
+    if env_name not in _TRUSTED_VOICE_ENV_PLACEHOLDERS:
+        return ""
+    return str(os.environ.get(env_name) or "").strip()
 
 
 def _tts_plugin_options(*, payload: dict[str, object], voice_profile_ready: bool) -> list[dict[str, object]]:
@@ -3908,7 +4111,12 @@ def _compact_public_facts(payload: dict[str, object]) -> list[str]:
     return facts[:8]
 
 
-def _save_voice_config_payload(slug: str, payload: dict[str, object]) -> None:
+def _save_voice_config_payload(
+    slug: str,
+    payload: dict[str, object],
+    *,
+    trusted_clone_activation: bool = False,
+) -> None:
     _support_save_voice_config_payload(
         slug,
         payload,
@@ -3922,6 +4130,7 @@ def _save_voice_config_payload(slug: str, payload: dict[str, object]) -> None:
         tts_plugin_default_id=_TTS_PLUGIN_DEFAULT_ID,
         voice_config_path=_voice_config_path,
         write_json_atomic=_write_json_atomic,
+        trusted_clone_activation=trusted_clone_activation,
     )
 
 
@@ -3944,21 +4153,40 @@ def _collect_memorial_public_audio_paths(payload: dict[str, object], slug: str) 
     return paths
 
 
-def _load_memorial_archive_registry(slug: str) -> dict[str, object]:
+def _empty_memorial_archive_registry(slug: str) -> dict[str, object]:
+    return {
+        "slug": _safe_slug(slug),
+        "generated_at": "",
+        "archive_sections": [],
+        "fliplink_publications": [],
+    }
+
+
+def _load_memorial_archive_registry_with_digest(
+    slug: str,
+) -> tuple[dict[str, object], str]:
     path = public_registry_path(slug, generated=False)
     if not path.is_file():
-        return {"slug": _safe_slug(slug), "generated_at": "", "archive_sections": [], "fliplink_publications": []}
+        return _empty_memorial_archive_registry(slug), ""
     try:
-        payload = load_archive_json(path)
+        payload, digest = load_archive_json_with_sha256(path)
     except Exception:
-        return {"slug": _safe_slug(slug), "generated_at": "", "archive_sections": [], "fliplink_publications": []}
+        return _empty_memorial_archive_registry(slug), ""
     if not isinstance(payload, dict):
-        return {"slug": _safe_slug(slug), "generated_at": "", "archive_sections": [], "fliplink_publications": []}
-    return payload
+        return _empty_memorial_archive_registry(slug), ""
+    return payload, digest
 
 
-def _public_memorial_archive_registry(slug: str) -> dict[str, object]:
-    registry = public_registry_payload(_load_memorial_archive_registry(slug))
+def _load_memorial_archive_registry(slug: str) -> dict[str, object]:
+    registry, _digest = _load_memorial_archive_registry_with_digest(slug)
+    return registry
+
+
+def _public_memorial_archive_registry_with_digest(
+    slug: str,
+) -> tuple[dict[str, object], str]:
+    loaded_registry, digest = _load_memorial_archive_registry_with_digest(slug)
+    registry = public_registry_payload(loaded_registry)
     if not _text(registry.get("slug"), ""):
         registry["slug"] = _safe_slug(slug)
     publications: list[dict[str, object]] = []
@@ -3971,6 +4199,11 @@ def _public_memorial_archive_registry(slug: str) -> dict[str, object]:
             normalized["url"] = f"/memorials/{_safe_slug(slug)}/archive/{publication_slug}"
         publications.append(normalized)
     registry["fliplink_publications"] = publications
+    return registry, digest
+
+
+def _public_memorial_archive_registry(slug: str) -> dict[str, object]:
+    registry, _digest = _public_memorial_archive_registry_with_digest(slug)
     return registry
 
 
@@ -7748,6 +7981,64 @@ def _memorial_voice_prewarm_stale_seconds() -> float:
     return max(5.0, min(600.0, value))
 
 
+def _memorial_live_warmup_max_concurrency() -> int:
+    raw = str(os.getenv("EA_MEMORIAL_LIVE_WARMUP_MAX_CONCURRENCY") or "").strip()
+    try:
+        value = int(raw or str(_MEMORIAL_LIVE_WARMUP_MAX_CONCURRENCY_DEFAULT))
+    except ValueError:
+        value = _MEMORIAL_LIVE_WARMUP_MAX_CONCURRENCY_DEFAULT
+    return max(1, min(8, value))
+
+
+def _memorial_live_warmup_failure_backoff_seconds() -> float:
+    raw = str(os.getenv("EA_MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS") or "").strip()
+    try:
+        value = float(raw or str(_MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS_DEFAULT))
+    except ValueError:
+        value = _MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS_DEFAULT
+    if not math.isfinite(value):
+        value = _MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS_DEFAULT
+    return max(1.0, min(300.0, value))
+
+
+def _memorial_live_warmup_stale_seconds() -> float:
+    raw = str(os.getenv("EA_MEMORIAL_LIVE_WARMUP_STALE_SECONDS") or "").strip()
+    try:
+        value = float(raw or str(_MEMORIAL_LIVE_WARMUP_STALE_SECONDS_DEFAULT))
+    except ValueError:
+        value = _MEMORIAL_LIVE_WARMUP_STALE_SECONDS_DEFAULT
+    if not math.isfinite(value):
+        value = _MEMORIAL_LIVE_WARMUP_STALE_SECONDS_DEFAULT
+    return max(5.0, min(600.0, value))
+
+
+def _memorial_live_warmup_failure_retry_after(
+    current: dict[str, object],
+    *,
+    now: float,
+) -> int:
+    if not list(current.get("errors") or []):
+        return 0
+    try:
+        completed_at = float(current.get("completed_at") or 0.0)
+    except (TypeError, ValueError):
+        completed_at = 0.0
+    if completed_at <= 0.0:
+        return 0
+    backoff_seconds = _memorial_live_warmup_failure_backoff_seconds()
+    remaining = min(backoff_seconds, (completed_at + backoff_seconds) - now)
+    return max(0, int(math.ceil(remaining)))
+
+
+def _prune_orphaned_memorial_live_warmup_reservations_locked() -> None:
+    live_reservations = {
+        str(current.get("warmup_reservation_id") or "")
+        for current in _MEMORIAL_LIVE_WARMUP_STATE.values()
+        if bool(current.get("inflight")) and current.get("warmup_reservation_id")
+    }
+    _MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS.intersection_update(live_reservations)
+
+
 def _memorial_warmup_ttl_remaining(completed_at: float, *, now: float) -> float:
     if not completed_at:
         return 0.0
@@ -7874,7 +8165,12 @@ def _memorial_live_warmup_snapshot(slug: str) -> dict[str, object]:
         voice_prewarm_stale=voice_prewarm_stale,
         voice_errors=voice_errors,
     )
-    warm = bool(completed_at and not errors and (now - completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS)
+    warm = bool(
+        not inflight
+        and completed_at
+        and not errors
+        and (now - completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS
+    )
     ttl_remaining_seconds = _memorial_warmup_ttl_remaining(completed_at, now=now) if warm else 0.0
     voice_ttl_remaining_seconds = (
         _memorial_warmup_ttl_remaining(voice_completed_at, now=now)
@@ -7923,7 +8219,19 @@ def _memorial_live_warmup_snapshot(slug: str) -> dict[str, object]:
     }
 
 
+def _memorial_voice_prewarm_generation_matches(
+    current: dict[str, object],
+    reservation_id: str | None,
+) -> bool:
+    return (
+        reservation_id is None
+        or current.get("voice_prewarm_reservation_id") == reservation_id
+    )
+
+
 def _schedule_missing_memorial_voice_prewarm(slug: str) -> bool:
+    global _MEMORIAL_VOICE_PREWARM_RESERVATION_SEQUENCE
+
     safe_slug = _safe_slug(slug)
     if _memorial_voice_release_enforced() and not bool(
         _memorial_voice_release_decision(safe_slug).get("allowed")
@@ -7938,34 +8246,130 @@ def _schedule_missing_memorial_voice_prewarm(slug: str) -> bool:
     selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
     if not bool(selected_option.get("tts_plugin_enabled")):
         return False
+    voice_label = ""
     if selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
         voice_label = _text(base_config.get("tts_plugin_voice_id"), voicewave_memorial_voice_label())
         if not voice_label:
             return False
-        with _MEMORIAL_LIVE_WARMUP_LOCK:
-            current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(safe_slug, {}))
-            current["voice_contact_required"] = True
-            current["voice_contact_inflight"] = True
-            current["voice_contact_started_at"] = time.time()
-            current["voice_contact_errors"] = []
+    elif selected_plugin != UNMIXR_TTS_PLUGIN_ID:
+        return False
+
+    now = time.time()
+    with _MEMORIAL_LIVE_WARMUP_LOCK:
+        current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(safe_slug, {}))
+        voice_inflight = bool(
+            current.get("voice_contact_inflight")
+            or current.get("voicewave_contact_inflight")
+        )
+        try:
+            voice_started_at = float(
+                current.get("voice_contact_started_at")
+                or current.get("voicewave_contact_started_at")
+                or 0.0
+            )
+        except (TypeError, ValueError):
+            voice_started_at = 0.0
+        if voice_inflight and _text(
+            current.get("voice_prewarm_reservation_id"),
+            "",
+        ):
+            # A reservation identifies a physical provider worker. Keep its
+            # slot fail-closed even after the freshness window so repeated
+            # status probes cannot accumulate superseded daemon threads.
+            return False
+        if (
+            voice_inflight
+            and voice_started_at > 0.0
+            and (now - voice_started_at) < _memorial_voice_prewarm_stale_seconds()
+        ):
+            return False
+        try:
+            voice_completed_at = float(
+                current.get("voice_contact_completed_at")
+                or current.get("voicewave_contact_completed_at")
+                or 0.0
+            )
+        except (TypeError, ValueError):
+            voice_completed_at = 0.0
+        voice_errors = list(
+            current.get("voice_contact_errors")
+            or current.get("voicewave_contact_errors")
+            or []
+        )
+        current_provider = _text(current.get("voice_prewarm_provider"), "")
+        if (
+            not voice_inflight
+            and voice_completed_at > 0.0
+            and not voice_errors
+            and (not current_provider or current_provider == selected_plugin)
+            and (now - voice_completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS
+        ):
+            return False
+        _MEMORIAL_VOICE_PREWARM_RESERVATION_SEQUENCE += 1
+        reservation_id = (
+            f"{safe_slug}:voice:{_MEMORIAL_VOICE_PREWARM_RESERVATION_SEQUENCE}"
+        )
+        current["voice_prewarm_reservation_id"] = reservation_id
+        current["voice_prewarm_provider"] = selected_plugin
+        current["voice_contact_required"] = True
+        current["voice_contact_inflight"] = True
+        current["voice_contact_started_at"] = now
+        current["voice_contact_completed_at"] = 0.0
+        current["voice_contact_errors"] = []
+        if selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
             current["voicewave_contact_required"] = True
             current["voicewave_contact_inflight"] = True
-            current["voicewave_contact_started_at"] = current["voice_contact_started_at"]
+            current["voicewave_contact_started_at"] = now
+            current["voicewave_contact_completed_at"] = 0.0
             current["voicewave_contact_errors"] = []
-            _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
-        _schedule_memorial_voicewave_contact_prewarm(safe_slug, voice_label)
-        return True
-    if selected_plugin == UNMIXR_TTS_PLUGIN_ID:
+        else:
+            current["voicewave_contact_required"] = False
+            current["voicewave_contact_inflight"] = False
+            current["voicewave_contact_started_at"] = 0.0
+            current["voicewave_contact_completed_at"] = 0.0
+            current["voicewave_contact_errors"] = []
+        _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
+
+    _memorial_runtime_readiness_cache_invalidate(safe_slug)
+    try:
+        if selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
+            _schedule_memorial_voicewave_contact_prewarm(
+                safe_slug,
+                voice_label,
+                reservation_id=reservation_id,
+            )
+        else:
+            _schedule_memorial_server_voice_contact_prewarm(
+                safe_slug,
+                reservation_id=reservation_id,
+            )
+    except Exception as exc:
+        failed_at = time.time()
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(safe_slug, {}))
-            current["voice_contact_required"] = True
-            current["voice_contact_inflight"] = True
-            current["voice_contact_started_at"] = time.time()
-            current["voice_contact_errors"] = []
-            _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
-        _schedule_memorial_server_voice_contact_prewarm(safe_slug)
-        return True
-    return False
+            if _memorial_voice_prewarm_generation_matches(current, reservation_id):
+                current.pop("voice_prewarm_reservation_id", None)
+                current["voice_contact_inflight"] = False
+                current["voice_contact_completed_at"] = failed_at
+                current["voice_contact_errors"] = [
+                    f"voice_prewarm_schedule:{type(exc).__name__}"
+                ]
+                if selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
+                    current["voicewave_contact_inflight"] = False
+                    current["voicewave_contact_completed_at"] = failed_at
+                    current["voicewave_contact_errors"] = list(
+                        current["voice_contact_errors"]
+                    )
+                _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
+        _memorial_runtime_readiness_cache_invalidate(safe_slug)
+        logger.warning(
+            "memorial_voice_prewarm_schedule_failed slug=%s provider=%s detail=%s",
+            safe_slug,
+            selected_plugin,
+            str(exc)[:160],
+        )
+        return False
+    return True
 
 
 def _memorial_readiness_next_actions(degraded_reasons: list[str], *, ready: bool, realtime_ready: bool) -> list[str]:
@@ -8213,7 +8617,14 @@ def _log_memorial_timing(event: str, *, slug: str, **fields: object) -> None:
     logger.info("memorial_timing %s", " ".join(parts))
 
 
-def _run_memorial_live_warmup(slug: str) -> None:
+def _memorial_live_warmup_generation_matches(
+    current: dict[str, object],
+    reservation_id: str | None,
+) -> bool:
+    return reservation_id is None or current.get("warmup_reservation_id") == reservation_id
+
+
+def _run_memorial_live_warmup(slug: str, reservation_id: str | None = None) -> None:
     if _memorial_voice_release_enforced() and not bool(
         _memorial_voice_release_decision(slug).get("allowed")
     ):
@@ -8228,6 +8639,8 @@ def _run_memorial_live_warmup(slug: str) -> None:
     selected_plugin = ""
     with _MEMORIAL_LIVE_WARMUP_LOCK:
         current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+        if not _memorial_live_warmup_generation_matches(current, reservation_id):
+            return
         current["inflight"] = True
         current["started_at"] = started_at
         current["errors"] = []
@@ -8276,33 +8689,15 @@ def _run_memorial_live_warmup(slug: str) -> None:
                 raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
         except Exception as exc:
             errors.append(f"tts:{str(exc)[:120]}")
-        if _safe_tts_plugin_id(base_config.get("tts_plugin")) == VOICEWAVE_TTS_PLUGIN_ID:
-            voice_label = _text(base_config.get("tts_plugin_voice_id"), voicewave_memorial_voice_label())
-            if voice_label:
-                with _MEMORIAL_LIVE_WARMUP_LOCK:
-                    current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
-                    current["voice_contact_required"] = True
-                    current["voice_contact_inflight"] = True
-                    current["voice_contact_started_at"] = time.time()
-                    current["voice_contact_completed_at"] = 0.0
-                    current["voice_contact_errors"] = []
-                    current["voicewave_contact_required"] = True
-                    current["voicewave_contact_inflight"] = True
-                    current["voicewave_contact_started_at"] = current["voice_contact_started_at"]
-                    current["voicewave_contact_completed_at"] = 0.0
-                    current["voicewave_contact_errors"] = []
-                    _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
-                _schedule_memorial_voicewave_contact_prewarm(slug, voice_label)
-        elif _safe_tts_plugin_id(base_config.get("tts_plugin")) == UNMIXR_TTS_PLUGIN_ID:
-            with _MEMORIAL_LIVE_WARMUP_LOCK:
-                current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
-                current["voice_contact_required"] = True
-                current["voice_contact_inflight"] = True
-                current["voice_contact_started_at"] = time.time()
-                current["voice_contact_completed_at"] = 0.0
-                current["voice_contact_errors"] = []
-                _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
-            _schedule_memorial_server_voice_contact_prewarm(slug)
+        if selected_plugin in {VOICEWAVE_TTS_PLUGIN_ID, UNMIXR_TTS_PLUGIN_ID}:
+            _schedule_missing_memorial_voice_prewarm(slug)
+    except Exception as exc:
+        errors.append(f"warmup:{type(exc).__name__}")
+        logger.warning(
+            "memorial_warmup_unexpected_failure slug=%s detail=%s",
+            _safe_slug(slug),
+            str(exc)[:160],
+        )
     finally:
         total_ms = (time.perf_counter() - started_clock) * 1000.0
         _log_memorial_timing(
@@ -8316,21 +8711,64 @@ def _run_memorial_live_warmup(slug: str) -> None:
             tts_plugin=locals().get("selected_plugin", ""),
             errors="|".join(errors[:6]) if errors else "-",
         )
+        state_changed = False
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
-            current["inflight"] = False
-            current["completed_at"] = time.time()
-            current["errors"] = errors[:6]
-            _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
-        _memorial_runtime_readiness_cache_invalidate(slug)
+            if _memorial_live_warmup_generation_matches(current, reservation_id):
+                current["inflight"] = False
+                current["completed_at"] = time.time()
+                current["errors"] = errors[:6]
+                _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+                state_changed = True
+        if state_changed:
+            _memorial_runtime_readiness_cache_invalidate(slug)
 
 
-def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None:
+def _run_reserved_memorial_live_warmup(slug: str, reservation_id: str) -> None:
+    worker_error = ""
+    try:
+        _run_memorial_live_warmup(slug, reservation_id=reservation_id)
+    except Exception as exc:
+        worker_error = f"warmup_worker:{type(exc).__name__}"
+        logger.warning(
+            "memorial_warmup_worker_failed slug=%s detail=%s",
+            _safe_slug(slug),
+            str(exc)[:160],
+        )
+    finally:
+        state_changed = False
+        with _MEMORIAL_LIVE_WARMUP_LOCK:
+            _MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS.discard(reservation_id)
+            current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+            if current.get("warmup_reservation_id") == reservation_id:
+                current.pop("warmup_reservation_id", None)
+                if bool(current.get("inflight")):
+                    errors = list(current.get("errors") or [])
+                    errors.append(worker_error or "warmup_worker:incomplete")
+                    current["inflight"] = False
+                    current["completed_at"] = time.time()
+                    current["errors"] = errors[:6]
+                _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+                state_changed = True
+        if state_changed:
+            _memorial_runtime_readiness_cache_invalidate(slug)
+
+
+def _run_memorial_voicewave_contact_prewarm(
+    slug: str,
+    voice_label: str,
+    reservation_id: str | None = None,
+) -> None:
     errors: list[str] = []
     started_clock = time.perf_counter()
     try:
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+            if not _memorial_voice_prewarm_generation_matches(
+                current,
+                reservation_id,
+            ):
+                return
             current["voicewave_contact_required"] = True
             current["voicewave_contact_inflight"] = True
             current["voicewave_contact_started_at"] = time.time()
@@ -8344,7 +8782,7 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
         )
         selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
         if selected_plugin != VOICEWAVE_TTS_PLUGIN_ID or not bool(selected_option.get("tts_plugin_enabled")):
-            return
+            raise RuntimeError("voicewave_prewarm_provider_unavailable")
         seed_texts = tuple(
             dict.fromkeys(
                 _memorial_contact_answer_body(seed_question)
@@ -8371,16 +8809,22 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
                 if not first_ready_marked:
                     with _MEMORIAL_LIVE_WARMUP_LOCK:
                         current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
-                        current["voice_contact_completed_at"] = time.time()
-                        current["voice_contact_errors"] = []
-                        current["voice_contact_inflight"] = False
-                        current["voicewave_contact_completed_at"] = time.time()
-                        current["voicewave_contact_errors"] = []
-                        _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
-                    first_ready_marked = True
+                        if _memorial_voice_prewarm_generation_matches(
+                            current,
+                            reservation_id,
+                        ):
+                            current["voice_contact_completed_at"] = time.time()
+                            current["voice_contact_errors"] = []
+                            current["voice_contact_inflight"] = False
+                            current["voicewave_contact_completed_at"] = time.time()
+                            current["voicewave_contact_errors"] = []
+                            _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+                            first_ready_marked = True
             except Exception as exc:
                 errors.append(f"voicewave_prewarm:{str(exc)[:120]}")
                 break
+    except Exception as exc:
+        errors.append(f"voicewave_prewarm:{str(exc)[:120]}")
     finally:
         _log_memorial_timing(
             "voicewave_contact_prewarm",
@@ -8389,27 +8833,40 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
             tts_plugin=VOICEWAVE_TTS_PLUGIN_ID,
             errors="|".join(errors[:6]) if errors else "-",
         )
+        state_changed = False
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
-            current["voice_contact_inflight"] = False
-            if not errors and not float(current.get("voice_contact_completed_at") or 0.0):
-                current["voice_contact_completed_at"] = time.time()
-            current["voice_contact_errors"] = errors[:6]
-            current["voicewave_contact_inflight"] = False
-            if not errors and not float(current.get("voicewave_contact_completed_at") or 0.0):
-                current["voicewave_contact_completed_at"] = time.time()
-            current["voicewave_contact_errors"] = errors[:6]
-            _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
-        _memorial_runtime_readiness_cache_invalidate(slug)
+            if _memorial_voice_prewarm_generation_matches(current, reservation_id):
+                current.pop("voice_prewarm_reservation_id", None)
+                current["voice_contact_inflight"] = False
+                if not errors and not float(current.get("voice_contact_completed_at") or 0.0):
+                    current["voice_contact_completed_at"] = time.time()
+                current["voice_contact_errors"] = errors[:6]
+                current["voicewave_contact_inflight"] = False
+                if not errors and not float(current.get("voicewave_contact_completed_at") or 0.0):
+                    current["voicewave_contact_completed_at"] = time.time()
+                current["voicewave_contact_errors"] = errors[:6]
+                _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+                state_changed = True
+        if state_changed:
+            _memorial_runtime_readiness_cache_invalidate(slug)
 
 
-def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
+def _run_memorial_server_voice_contact_prewarm(
+    slug: str,
+    reservation_id: str | None = None,
+) -> None:
     errors: list[str] = []
     started_clock = time.perf_counter()
     selected_plugin = ""
     try:
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+            if not _memorial_voice_prewarm_generation_matches(
+                current,
+                reservation_id,
+            ):
+                return
             current["voice_contact_required"] = True
             current["voice_contact_inflight"] = True
             current["voice_contact_started_at"] = time.time()
@@ -8423,9 +8880,9 @@ def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
         )
         selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
         if selected_plugin != UNMIXR_TTS_PLUGIN_ID:
-            return
+            raise RuntimeError("server_voice_prewarm_provider_unavailable")
         if not bool(selected_option.get("tts_plugin_enabled")):
-            return
+            raise RuntimeError("server_voice_prewarm_provider_disabled")
         seed_texts = tuple(
             dict.fromkeys(
                 _memorial_contact_answer_body(seed_question)
@@ -8457,43 +8914,96 @@ def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
             tts_plugin=selected_plugin,
             errors="|".join(errors[:6]) if errors else "-",
         )
+        state_changed = False
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
-            current["voice_contact_inflight"] = False
-            if not errors:
-                current["voice_contact_completed_at"] = time.time()
-                current["voice_contact_errors"] = []
-            else:
-                current["voice_contact_errors"] = errors[:6]
-            _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
-        _memorial_runtime_readiness_cache_invalidate(slug)
+            if _memorial_voice_prewarm_generation_matches(current, reservation_id):
+                current.pop("voice_prewarm_reservation_id", None)
+                current["voice_contact_inflight"] = False
+                if not errors:
+                    current["voice_contact_completed_at"] = time.time()
+                    current["voice_contact_errors"] = []
+                else:
+                    current["voice_contact_errors"] = errors[:6]
+                _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+                state_changed = True
+        if state_changed:
+            _memorial_runtime_readiness_cache_invalidate(slug)
 
 
-def _schedule_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None:
+def _schedule_memorial_voicewave_contact_prewarm(
+    slug: str,
+    voice_label: str,
+    *,
+    reservation_id: str | None = None,
+) -> None:
     if not str(voice_label or "").strip():
         return
     _memorial_runtime_readiness_cache_invalidate(slug)
     worker = threading.Thread(
         target=_run_memorial_voicewave_contact_prewarm,
-        args=(slug, voice_label),
+        args=(slug, voice_label, reservation_id),
         daemon=True,
         name=f"memorial-voicewave-prewarm-{slug}",
     )
     worker.start()
 
 
-def _schedule_memorial_server_voice_contact_prewarm(slug: str) -> None:
+def _schedule_memorial_server_voice_contact_prewarm(
+    slug: str,
+    *,
+    reservation_id: str | None = None,
+) -> None:
     _memorial_runtime_readiness_cache_invalidate(slug)
     worker = threading.Thread(
         target=_run_memorial_server_voice_contact_prewarm,
-        args=(slug,),
+        args=(slug, reservation_id),
         daemon=True,
         name=f"memorial-server-voice-prewarm-{slug}",
     )
     worker.start()
 
 
+def _memorial_live_warmup_existing_response(
+    slug: str,
+    snapshot: dict[str, object],
+) -> dict[str, object] | None:
+    if snapshot["inflight"]:
+        try:
+            warmup_age_seconds = float(snapshot.get("warmup_age_seconds") or 0.0)
+        except (TypeError, ValueError):
+            warmup_age_seconds = 0.0
+        if warmup_age_seconds >= _memorial_live_warmup_stale_seconds():
+            return None
+        return {"status": "warming", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+    if snapshot["warm"] and snapshot["voice_required"] and snapshot.get("voice_prewarm_stale"):
+        if _schedule_missing_memorial_voice_prewarm(slug):
+            return {"status": "requeued_stale_voice", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+        refreshed = _memorial_live_warmup_snapshot(slug)
+        if refreshed["voice_ready"] or (
+            refreshed["voice_inflight"]
+            and not refreshed["voice_prewarm_stale"]
+        ):
+            return {"status": "warm_recent", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+        return {"status": "voice_stale", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+    if snapshot["warm"] and (not snapshot["voice_required"] or snapshot["voice_ready"] or snapshot["voice_inflight"]):
+        return {"status": "warm_recent", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+    if snapshot["warm"] and snapshot["voice_required"] and not snapshot["voice_ready"]:
+        if _schedule_missing_memorial_voice_prewarm(slug):
+            return {"status": "queued_voice", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+        refreshed = _memorial_live_warmup_snapshot(slug)
+        if refreshed["voice_ready"] or (
+            refreshed["voice_inflight"]
+            and not refreshed["voice_prewarm_stale"]
+        ):
+            return {"status": "warm_recent", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+        return {"status": "voice_cold", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+    return None
+
+
 def _schedule_memorial_live_warmup(slug: str) -> dict[str, object]:
+    global _MEMORIAL_LIVE_WARMUP_RESERVATION_SEQUENCE
+
     safe_slug = _safe_slug(slug)
     if _memorial_voice_release_enforced() and not bool(
         _memorial_voice_release_decision(safe_slug).get("allowed")
@@ -8504,20 +9014,134 @@ def _schedule_memorial_live_warmup(slug: str) -> dict[str, object]:
             "ttl_seconds": 0,
         }
     snapshot = _memorial_live_warmup_snapshot(safe_slug)
-    if snapshot["inflight"]:
-        return {"status": "warming", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
-    if snapshot["warm"] and snapshot["voice_required"] and snapshot.get("voice_prewarm_stale"):
-        if _schedule_missing_memorial_voice_prewarm(safe_slug):
-            return {"status": "requeued_stale_voice", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
-        return {"status": "voice_stale", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
-    if snapshot["warm"] and (not snapshot["voice_required"] or snapshot["voice_ready"] or snapshot["voice_inflight"]):
-        return {"status": "warm_recent", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
-    if snapshot["warm"] and snapshot["voice_required"] and not snapshot["voice_ready"]:
-        if _schedule_missing_memorial_voice_prewarm(safe_slug):
-            return {"status": "queued_voice", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
-        return {"status": "voice_cold", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
-    worker = threading.Thread(target=_run_memorial_live_warmup, args=(safe_slug,), daemon=True, name=f"memorial-warmup-{safe_slug}")
-    worker.start()
+    existing_response = _memorial_live_warmup_existing_response(safe_slug, snapshot)
+    if existing_response is not None:
+        return existing_response
+
+    now = time.time()
+    refresh_snapshot = False
+    previous_state: dict[str, object] = {}
+    reservation_id = ""
+    with _MEMORIAL_LIVE_WARMUP_LOCK:
+        _prune_orphaned_memorial_live_warmup_reservations_locked()
+        current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(safe_slug, {}))
+        if bool(current.get("inflight")):
+            try:
+                current_started_at = float(current.get("started_at") or 0.0)
+            except (TypeError, ValueError):
+                current_started_at = 0.0
+            if (
+                current_started_at > 0.0
+                and (now - current_started_at) < _memorial_live_warmup_stale_seconds()
+            ):
+                return {
+                    "status": "warming",
+                    "scheduled": False,
+                    "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+                }
+            stale_reservation_id = str(
+                current.get("warmup_reservation_id", "") or ""
+            )
+            if (
+                stale_reservation_id
+                and stale_reservation_id
+                in _MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS
+            ):
+                return {
+                    "status": "warmup_stale",
+                    "scheduled": False,
+                    "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+                    "retry_after_seconds": 1,
+                }
+            current.pop("warmup_reservation_id", None)
+            current["inflight"] = False
+            current["completed_at"] = 0.0
+            current["warmup_stale_recovered_at"] = now
+            current["warmup_stale_recovery_error"] = (
+                "warmup_worker:stale_superseded"
+            )
+            current["errors"] = []
+            _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
+        retry_after_seconds = _memorial_live_warmup_failure_retry_after(current, now=now)
+        if retry_after_seconds > 0:
+            return {
+                "status": "failure_backoff",
+                "scheduled": False,
+                "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+                "retry_after_seconds": retry_after_seconds,
+            }
+        try:
+            completed_at = float(current.get("completed_at") or 0.0)
+        except (TypeError, ValueError):
+            completed_at = 0.0
+        refresh_snapshot = bool(
+            completed_at
+            and not list(current.get("errors") or [])
+            and (now - completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS
+        )
+        if not refresh_snapshot:
+            if len(_MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS) >= _memorial_live_warmup_max_concurrency():
+                return {
+                    "status": "capacity_limited",
+                    "scheduled": False,
+                    "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+                    "retry_after_seconds": 1,
+                }
+            previous_state = dict(current)
+            _MEMORIAL_LIVE_WARMUP_RESERVATION_SEQUENCE += 1
+            reservation_id = f"{safe_slug}:{_MEMORIAL_LIVE_WARMUP_RESERVATION_SEQUENCE}"
+            current["inflight"] = True
+            current["started_at"] = now
+            current["completed_at"] = 0.0
+            current["errors"] = []
+            current["warmup_reservation_id"] = reservation_id
+            _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
+            _MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS.add(reservation_id)
+
+    if refresh_snapshot:
+        refreshed_response = _memorial_live_warmup_existing_response(
+            safe_slug,
+            _memorial_live_warmup_snapshot(safe_slug),
+        )
+        if refreshed_response is not None:
+            return refreshed_response
+        return {
+            "status": "warm_recent",
+            "scheduled": False,
+            "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+        }
+
+    try:
+        worker = threading.Thread(
+            target=_run_reserved_memorial_live_warmup,
+            args=(safe_slug, reservation_id),
+            daemon=True,
+            name=f"memorial-warmup-{safe_slug}",
+        )
+        worker.start()
+    except Exception as exc:
+        failed_at = time.time()
+        with _MEMORIAL_LIVE_WARMUP_LOCK:
+            _MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS.discard(reservation_id)
+            current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(safe_slug, {}))
+            if current.get("warmup_reservation_id") == reservation_id:
+                restored = dict(previous_state)
+                restored["inflight"] = False
+                restored["completed_at"] = failed_at
+                restored["errors"] = [f"warmup_schedule:{type(exc).__name__}"]
+                _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = restored
+        _memorial_runtime_readiness_cache_invalidate(safe_slug)
+        logger.warning(
+            "memorial_warmup_schedule_failed slug=%s detail=%s",
+            safe_slug,
+            str(exc)[:160],
+        )
+        return {
+            "status": "schedule_failed",
+            "scheduled": False,
+            "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+            "retry_after_seconds": int(math.ceil(_memorial_live_warmup_failure_backoff_seconds())),
+        }
     _memorial_runtime_readiness_cache_invalidate(safe_slug)
     return {"status": "queued", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
 
@@ -10104,7 +10728,7 @@ def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str
       <section class="story-section" aria-labelledby="memorial-prompts-title">
         <div class="story-heading">
           <p class="story-kicker">Gedenkbegleiter</p>
-          <h2 id="memorial-prompts-title">Fragen an den Gedenkbegleiter</h2>
+          <h2 id="memorial-prompts-title">Fragen als ruhiger Einstieg</h2>
           <p>Der synthetische Begleiter ordnet nur freigegebene Quellen ein, ist nicht Manfred und spricht nicht für ihn. Diese Beispiele senden noch nichts.</p>
         </div>
         <ul class="prompt-list">{}</ul>
@@ -10152,6 +10776,13 @@ def _minimal_public_memorial_html(
         "Du sprichst mit einem KI-gestützten, quellengebundenen Gedenkbegleiter. "
         "Er ist nicht Manfred und spricht nicht für ihn. Das Mikrofon wird erst nach deinem Start verwendet; "
         "eingesetzte Sprachdienste verarbeiten das Audio. Antworten bleiben als Text sichtbar."
+    )
+    conversation_processing_guidance = (
+        "Im schriftlichen Modus wird kein Mikrofon verwendet. Die Sprachfunktion bleibt bis zu ihrer getrennten Freigabe ausgeschaltet."
+        if voice_release_blocked
+        else
+        f"Bei Gesprächen mit der KI-gestützten, synthetischen {safe_person_first_name}-Stimme gilt: "
+        "eingesetzte Sprachdienste verarbeiten das Audio erst nach deinem ausdrücklichen Start."
     )
     voice_autostart_attributes = (
         ' hidden aria-hidden="true"' if voice_release_blocked else ""
@@ -11158,7 +11789,7 @@ def _minimal_public_memorial_html(
           <summary>Gesprächseinstellungen</summary>
           <div class="conversation-settings-copy">
             <p>Mit deiner Zustimmung werden kurze Dialogerinnerungen pseudonym auf unserem Server gespeichert und mit diesem Browser verknüpft. Du kannst sie jederzeit wieder löschen.</p>
-            <p>Bei Gesprächen mit der KI-gestützten, synthetischen {safe_person_first_name}-Stimme gilt: eingesetzte Sprachdienste verarbeiten das Audio erst nach deinem ausdrücklichen Start.</p>
+            <p>{conversation_processing_guidance}</p>
           </div>
           <div class="conversation-settings-grid">
             <div class="conversation-toggle"{voice_autostart_attributes}>
@@ -11210,8 +11841,8 @@ def _minimal_public_memorial_html(
       </div>
     </aside>
     <script>
-      const memorialVoiceReleaseAllowed = {json.dumps(voice_release_allowed)};
-      const memorialPagePrewarmEnabled = {json.dumps(_memorial_page_prewarm_enabled() and voice_release_allowed)};
+      const memorialVoiceReleaseAllowed = {_json_for_html_script(voice_release_allowed)};
+      const memorialPagePrewarmEnabled = {_json_for_html_script(_memorial_page_prewarm_enabled() and voice_release_allowed)};
       const installHint = document.getElementById("memorial-install-hint");
       const installButton = document.getElementById("memorial-install-button");
       const contributionForm = document.getElementById("memorial-contribution-form");
@@ -11278,7 +11909,7 @@ def _minimal_public_memorial_html(
       const memorialAutostartStorageKey = "memorial_autostart_enabled_v1";
       const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
       const memorialContributionStorageKey = "memorial_contribution_receipt_{html.escape(slug)}_v1";
-      const memorialContributionSlug = {json.dumps(slug)};
+      const memorialContributionSlug = {_json_for_html_script(slug)};
       const memorialContributionRecoverySchema = "ea.memorial_family_contribution.recovery_receipt.v1";
       const memorialContributionReceiptLimit = 10;
       const memorialContributionReceiptMaxChars = 32768;
@@ -14517,7 +15148,7 @@ def _minimal_public_memorial_html(
         }});
       }}
 
-      const memorialPwaInstallEnabled = {json.dumps(_memorial_pwa_install_enabled())};
+      const memorialPwaInstallEnabled = {_json_for_html_script(_memorial_pwa_install_enabled())};
       window.addEventListener("beforeinstallprompt", (event) => {{
         event.preventDefault();
         if (!memorialPwaInstallEnabled) {{
@@ -14662,8 +15293,8 @@ def _memorial_html(
     person_name_html = html.escape(person_name)
     person_label_html = html.escape(person_label)
     person_initials_html = html.escape(person_initials)
-    person_name_js = json.dumps(person_name)
-    person_label_js = json.dumps(person_label)
+    person_name_js = _json_for_html_script(person_name)
+    person_label_js = _json_for_html_script(person_label)
     memorial_avatar_url = html.escape(_memorial_pwa_icon_url(slug, payload, 180))
     video_call_avatar = _memorial_video_call_avatar(payload, slug)
     video_call_avatar_enabled = bool(video_call_avatar.get("enabled"))
@@ -14845,7 +15476,7 @@ def _memorial_html(
       <section id="memorial-prompts">
         <div class="section-intro">
           <p class="section-kicker">Fragen</p>
-          <h2>Was du fragen kannst</h2>
+          <h2>Fragen als ruhiger Einstieg</h2>
         </div>
         <div class="prompt-row">{prompts_html}</div>
       </section>"""
@@ -16672,7 +17303,7 @@ def _memorial_html(
       </div>
     </main>
     <script>
-      const memorialPagePrewarmEnabled = {json.dumps(_memorial_page_prewarm_enabled())};
+      const memorialPagePrewarmEnabled = {_json_for_html_script(_memorial_page_prewarm_enabled())};
       const form = document.getElementById("memorial-chat-form");
       const memorialPersonName = {person_name_js};
       const memorialPersonLabel = {person_label_js};
@@ -16721,13 +17352,13 @@ def _memorial_html(
       const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
       const memorialVoiceAbRoundStorageKey = "memorial_voice_ab_round_v1";
       const browserPreferredLanguage = "de-AT";
-      const memorialVoiceConfigPath = {json.dumps(voice_config_path)};
-      const memorialVoiceAbPath = {json.dumps(voice_ab_path)};
-      const memorialVoiceAbRatePath = {json.dumps(voice_ab_rate_path)};
-      const memorialVoiceAbFinalizePath = {json.dumps(voice_ab_finalize_path)};
-      const memorialVoiceProfilePath = {json.dumps(voice_profile_path)};
-      const memorialVoiceProfileBuildPath = {json.dumps(voice_profile_build_path)};
-      const memorialVoiceClonePath = {json.dumps(voice_clone_path)};
+      const memorialVoiceConfigPath = {_json_for_html_script(voice_config_path)};
+      const memorialVoiceAbPath = {_json_for_html_script(voice_ab_path)};
+      const memorialVoiceAbRatePath = {_json_for_html_script(voice_ab_rate_path)};
+      const memorialVoiceAbFinalizePath = {_json_for_html_script(voice_ab_finalize_path)};
+      const memorialVoiceProfilePath = {_json_for_html_script(voice_profile_path)};
+      const memorialVoiceProfileBuildPath = {_json_for_html_script(voice_profile_build_path)};
+      const memorialVoiceClonePath = {_json_for_html_script(voice_clone_path)};
       try {{ document.documentElement.setAttribute("lang", browserPreferredLanguage); }} catch (error) {{}}
       const voiceYoutubeQueryInput = document.getElementById("memorial-voice-youtube-query");
       const voiceYoutubeLimitInput = document.getElementById("memorial-voice-youtube-limit");
@@ -16812,7 +17443,7 @@ def _memorial_html(
       let memorialReadyRefreshTimer = null;
       let memorialLandingReady = false;
       const settledRealtimeTurnIds = new Set();
-      let memorialVoiceConfig = {json.dumps(public_voice_config, ensure_ascii=False)};
+      let memorialVoiceConfig = {_json_for_html_script(public_voice_config)};
       let personalMemoryStatusPayload = {{ available: false, enabled: false, guest_mode: true, item_count: 0, frozen: false, approved_voice_choice: "" }};
       let voiceAbState = {{
         variants: [],
@@ -19485,7 +20116,7 @@ def _memorial_html(
         const message = String((reason && reason.message) || reason || "Unbehandelte Promise-Ablehnung");
         setSpeechStatus("Seitenfehler: " + message, "error", "Bitte Seite neu laden");
       }});
-      const memorialPwaInstallEnabled = {json.dumps(_memorial_pwa_install_enabled())};
+      const memorialPwaInstallEnabled = {_json_for_html_script(_memorial_pwa_install_enabled())};
       window.addEventListener("beforeinstallprompt", (event) => {{
         event.preventDefault();
         if (!memorialPwaInstallEnabled) {{

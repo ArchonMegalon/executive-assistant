@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import time
@@ -30,6 +31,37 @@ SAFE_TOUR = json.dumps(
     {"slug": "control-tour", "title": "Control tour"},
     separators=(",", ":"),
 ).encode("utf-8")
+SPATIAL_VIEWER_RELPATH = "generated-reconstruction/viewer.html"
+SPATIAL_PROOF_RELPATH = "generated-reconstruction/reconstruction.json"
+SPATIAL_ASSET_PATHS = [
+    SPATIAL_VIEWER_RELPATH,
+    SPATIAL_PROOF_RELPATH,
+    "generated-reconstruction/source-floorplan.png",
+    "generated-reconstruction/vendor/three.module.js",
+    (
+        "generated-reconstruction/vendor/examples/jsm/controls/"
+        "OrbitControls.js"
+    ),
+]
+SPATIAL_ROUTE_LABELS = [f"Room {index}" for index in range(1, 10)]
+SPATIAL_TEST_FILES = {
+    "tour.json": json.dumps(
+        {
+            "slug": deploy.REQUIRED_CONTROL_TOUR_SLUG,
+            "route_labels": SPATIAL_ROUTE_LABELS,
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8"),
+    SPATIAL_VIEWER_RELPATH: b"<!doctype html><title>Spatial test viewer</title>",
+    SPATIAL_PROOF_RELPATH: b'{"schema":"test-reconstruction"}\n',
+    "generated-reconstruction/source-floorplan.png": b"\x89PNG\r\n\x1a\nspatial-test",
+    "generated-reconstruction/vendor/three.module.js": b"export const THREE = true;\n",
+    (
+        "generated-reconstruction/vendor/examples/jsm/controls/"
+        "OrbitControls.js"
+    ): b"export const OrbitControls = true;\n",
+}
 
 
 def _sentinel_timestamp(milliseconds: int) -> str:
@@ -64,6 +96,20 @@ def _write_passing_vexp_sentinel(path: Path) -> None:
                 },
                 "qualification_phase": "qualified",
                 "qualified_at": _sentinel_timestamp(required_end_ms),
+                "qualification_deferred_ms": 0,
+                "qualification_deferred_total_ms": 0,
+                "qualification_effective_elapsed_ms": now_ms - epoch_ms,
+                "qualification_earliest_completion_at": _sentinel_timestamp(
+                    required_end_ms
+                ),
+                "qualification_deferred_reasons": [],
+                "qualification_deferred_since_at": None,
+                "qualification_deferred_since_monotonic_ms": None,
+                "apparmor_qualification_ready": True,
+                "epoch_apparmor_enforced": True,
+                "current_resources_healthy": True,
+                "resource_samples_attempted": 1,
+                "resource_samples_passed": 1,
                 "certification_blockers": [],
             },
             sort_keys=True,
@@ -638,8 +684,314 @@ class FakeRunner:
         return result
 
 
+def _exact_spatial_browser_receipt(
+    *,
+    slug: str,
+    source_revision: str,
+    image_id: str,
+    container_id: str,
+    project: str,
+    route_labels: list[str],
+    local_files: list[dict[str, object]],
+    package_sha256: str,
+) -> dict[str, object]:
+    candidate_origin = "http://127.0.0.1:18090"
+    viewer_path = f"/tours/viewer/{slug}/{SPATIAL_VIEWER_RELPATH}"
+    viewer_url = f"{candidate_origin}{viewer_path}"
+    landing_url = f"{candidate_origin}/tours/{slug}"
+    proof_path = f"/tours/viewer/{slug}/{SPATIAL_PROOF_RELPATH}"
+    required_paths = {
+        "floorplan": (
+            f"/tours/viewer/{slug}/"
+            "generated-reconstruction/source-floorplan.png"
+        ),
+        "orbit_controls": (
+            f"/tours/viewer/{slug}/generated-reconstruction/vendor/"
+            "examples/jsm/controls/OrbitControls.js"
+        ),
+        "three_module": (
+            f"/tours/viewer/{slug}/"
+            "generated-reconstruction/vendor/three.module.js"
+        ),
+    }
+    required_relpaths = {
+        "floorplan": "generated-reconstruction/source-floorplan.png",
+        "orbit_controls": (
+            "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js"
+        ),
+        "three_module": "generated-reconstruction/vendor/three.module.js",
+    }
+    required_media_types = {
+        "floorplan": "image/png",
+        "orbit_controls": "text/javascript",
+        "three_module": "text/javascript",
+    }
+    local_by_path = {str(row["path"]): row for row in local_files}
+
+    def consumed_row(
+        path: str,
+        relpath: str,
+        content_type: str,
+    ) -> dict[str, object]:
+        local = local_by_path[relpath]
+        return {
+            "url": f"{candidate_origin}{path}",
+            "path": path,
+            "status": 200,
+            "content_type": content_type,
+            "sha256": local["sha256"],
+            "size_bytes": local["size_bytes"],
+            "response_count": 1,
+            "body_matches_local_package": True,
+            "exact_candidate_url_verified": True,
+        }
+
+    def normal_surface(
+        width: int,
+        height: int,
+        *,
+        mobile: bool,
+        reduced_motion: bool,
+        collect_routes: bool,
+    ) -> dict[str, object]:
+        interactions = (
+            [
+                {
+                    "index": index,
+                    "label": label,
+                    "active_state_verified": True,
+                    "live_region_verified": True,
+                    "playwright_actionability_verified": True,
+                    "click_handler_state_change_verified": True,
+                    "camera_canvas_screenshot_sha256": f"{index + 1:064x}",
+                }
+                for index, label in enumerate(route_labels)
+            ]
+            if collect_routes
+            else []
+        )
+        return {
+            "status": 200,
+            "viewport": {"width": width, "height": height},
+            "mobile": mobile,
+            "prefers_reduced_motion": reduced_motion,
+            "viewer_status": "ready",
+            "canvas_ready": True,
+            "route_stop_count": 9,
+            "undersized_target_count": 0,
+            "required_requests": {
+                role: consumed_row(
+                    path,
+                    required_relpaths[role],
+                    required_media_types[role],
+                )
+                for role, path in required_paths.items()
+            },
+            "viewer_response": consumed_row(
+                viewer_path,
+                SPATIAL_VIEWER_RELPATH,
+                "text/html",
+            ),
+            "browser_response_count": 4,
+            "browser_consumed_package_verified": True,
+            "page_url": viewer_url,
+            "response_url": viewer_url,
+            "exact_candidate_url_verified": True,
+            "route_interactions": interactions,
+            "route_interaction_count": len(interactions),
+            "camera_state_changes_verified": collect_routes,
+            "horizontal_overflow_px": 0,
+            "page_error_count": 0,
+            "console_error_count": 0,
+            "request_failure_count": 0,
+            "viewer_subtree_non_2xx_count": 0,
+        }
+
+    http_specs = (
+        (SPATIAL_VIEWER_RELPATH, "viewer_document", "text/html"),
+        (
+            "generated-reconstruction/source-floorplan.png",
+            "floorplan_texture",
+            "image/png",
+        ),
+        (
+            "generated-reconstruction/vendor/three.module.js",
+            "viewer_module",
+            "text/javascript",
+        ),
+        (
+            "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
+            "viewer_module",
+            "text/javascript",
+        ),
+    )
+    runtime_version = {
+        "path": "/version",
+        "status": 200,
+        "commit_sha": source_revision,
+        "body_commit_sha": source_revision,
+        "source_revision_header": source_revision,
+        "expected_commit_sha": source_revision,
+        "oci_image_revision": source_revision,
+        "repository": "EA",
+        "role": "api",
+        "release_authority_state": "clear",
+        "release_authority_posture": "authoritative_runtime",
+        "release_authority_source": "published_status_artifact",
+        "commit_observed_over_http": True,
+        "revision_agreement_verified": True,
+    }
+    return {
+        "schema": "ea.manfred_spatial_candidate_browser.v4",
+        "status": "pass",
+        "slug": slug,
+        "candidate_origin": candidate_origin,
+        "candidate_commit": source_revision,
+        "candidate_commit_source": (
+            "GET /version body + X-EA-Source-Revision + expected commit + "
+            "OCI image revision"
+        ),
+        "candidate_version": runtime_version,
+        "candidate_oci_image": {
+            "image_id": image_id,
+            "oci_image_revision": source_revision,
+            "revision_source": "docker_image_inspect_by_immutable_id",
+            "immutable_image_id_verified": True,
+        },
+        "serving_container": {
+            "container_id": container_id,
+            "image_id": image_id,
+            "compose_project": project,
+            "compose_service": "gateway",
+            "running": True,
+            "container_port": 18090,
+            "host_ip": "127.0.0.1",
+            "host_port": 18090,
+            "exact_loopback_publication_verified": True,
+            "inspection_source": "docker_container_inspect_by_immutable_id",
+        },
+        "package_sha256": package_sha256,
+        "package_binding": {
+            "package_sha256": package_sha256,
+            "local_file_count": 6,
+            "local_files": local_files,
+            "local_package_verified": True,
+            "local_root_identity_bound": True,
+            "tour_manifest_sha256": local_by_path["tour.json"]["sha256"],
+            "release_revision": "test-release-v1",
+            "http_asset_count": 4,
+            "http_assets": [
+                {
+                    "path": f"/tours/viewer/{slug}/{relpath}",
+                    "role": role,
+                    "status": 200,
+                    "sha256": local_by_path[relpath]["sha256"],
+                    "size_bytes": local_by_path[relpath]["size_bytes"],
+                    "content_type": content_type,
+                    "asset_sha256_header_verified": True,
+                    "viewer_revision_header_verified": True,
+                    "body_matches_local_package": True,
+                }
+                for relpath, role, content_type in http_specs
+            ],
+            "http_assets_match_local_package": True,
+            "proof_manifest": {
+                "path": proof_path,
+                "status": 404,
+                "serveable": False,
+                "local_sha256": local_by_path[SPATIAL_PROOF_RELPATH]["sha256"],
+            },
+            "runtime_identity_revalidated_after_browser": True,
+        },
+        "landing": {
+            "path": f"/tours/{slug}",
+            "status": 200,
+            "horizontal_overflow_px": 0,
+            "viewer_route_referenced": True,
+            "page_error_count": 0,
+            "console_error_count": 0,
+            "page_url": landing_url,
+            "response_url": landing_url,
+            "exact_candidate_url_verified": True,
+        },
+        "proof_manifest": {
+            "path": proof_path,
+            "status": 404,
+            "serveable": False,
+        },
+        "viewer_path": viewer_path,
+        "surfaces": {
+            "desktop": normal_surface(
+                1440,
+                1000,
+                mobile=False,
+                reduced_motion=False,
+                collect_routes=False,
+            ),
+            "mobile": normal_surface(
+                390,
+                844,
+                mobile=True,
+                reduced_motion=False,
+                collect_routes=False,
+            ),
+            "reduced_motion": normal_surface(
+                1200,
+                900,
+                mobile=False,
+                reduced_motion=True,
+                collect_routes=True,
+            ),
+            "webgl_fallback": {
+                "status": 200,
+                "viewport": {"width": 1200, "height": 900},
+                "viewer_status": "unavailable",
+                "fallback_visible": True,
+                "enabled_route_button_count": 0,
+                "enabled_button_count": 0,
+                "alert_role": "alert",
+                "live_status_role": "status",
+                "accessible_fallback_verified": True,
+                "horizontal_overflow_px": 0,
+                "page_error_count": 0,
+                "console_error_count": 0,
+                "required_requests": {
+                    role: consumed_row(
+                        path,
+                        required_relpaths[role],
+                        required_media_types[role],
+                    )
+                    for role, path in required_paths.items()
+                },
+                "viewer_response": consumed_row(
+                    viewer_path,
+                    SPATIAL_VIEWER_RELPATH,
+                    "text/html",
+                ),
+                "browser_response_count": 4,
+                "browser_consumed_package_verified": True,
+                "page_url": viewer_url,
+                "response_url": viewer_url,
+                "exact_candidate_url_verified": True,
+            },
+        },
+        "surface_count": 4,
+        "route_stop_count": 9,
+        "all_route_stops_interacted": True,
+        "camera_state_changes_verified": True,
+        "required_asset_requests_verified": True,
+        "browser_consumed_package_verified": True,
+        "responsive_overflow_verified": True,
+        "page_error_count": 0,
+        "console_error_count": 0,
+        "request_failure_count": 0,
+        "viewer_subtree_non_2xx_count": 0,
+        "secret_material_recorded": False,
+    }
+
+
 @pytest.fixture()
-def release_root(tmp_path: Path) -> Path:
+def release_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "release"
     root.mkdir()
     (root / ".env").write_text("EA_HOST_PORT=8090\n", encoding="utf-8")
@@ -649,6 +1001,14 @@ def release_root(tmp_path: Path) -> Path:
         deploy.MEMORIAL_COMPOSE_FILE,
     ):
         (root / filename).write_text("services: {}\n", encoding="utf-8")
+    candidate_compose = root / "deploy/manfred-memorial/docker-compose.candidate.yml"
+    candidate_compose.parent.mkdir(parents=True)
+    candidate_compose.write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        deploy,
+        "PROPERTY_TOUR_SHA256",
+        hashlib.sha256(SPATIAL_TEST_FILES["tour.json"]).hexdigest(),
+    )
     return root
 
 
@@ -783,34 +1143,373 @@ def _lane(
         _write_passing_vexp_sentinel(sentinel_path)
     projection_root = root / "memorial_data"
     projection_root.mkdir(exist_ok=True)
+    projection_root.chmod(0o750)
+    spatial_slug = deploy.REQUIRED_CONTROL_TOUR_SLUG
+    spatial_root = projection_root / "public_property_tours"
+    spatial_bundle_root = spatial_root / spatial_slug
+    spatial_root.mkdir(exist_ok=True)
+    spatial_root.chmod(0o750)
+    spatial_bundle_root.mkdir(exist_ok=True)
+    spatial_bundle_root.chmod(0o750)
+    spatial_directories = {spatial_root, spatial_bundle_root}
+    for relpath, content in SPATIAL_TEST_FILES.items():
+        target = spatial_bundle_root / relpath
+        parents_to_prepare: list[Path] = []
+        parent = target.parent
+        while True:
+            parents_to_prepare.append(parent)
+            if parent == spatial_bundle_root:
+                break
+            parent = parent.parent
+        for directory in reversed(parents_to_prepare):
+            directory.mkdir(exist_ok=True)
+            directory.chmod(0o750)
+        if target.exists():
+            target.chmod(0o640)
+        target.write_bytes(content)
+        target.chmod(0o440)
+        spatial_directories.update(
+            parent
+            for parent in target.parents
+            if parent == spatial_bundle_root or spatial_bundle_root in parent.parents
+        )
+    for directory in spatial_directories:
+        directory.chmod(0o550)
     projection_root.chmod(0o550)
-    projection_sha256, _ = deploy._candidate_projection_tree_digest(projection_root)
+    spatial_projection_sha256, spatial_projection_files = (
+        deploy._candidate_projection_tree_digest(spatial_root)
+    )
+    spatial_projection_bytes = sum(
+        int(row["size_bytes"]) for row in spatial_projection_files
+    )
+    spatial_snapshot = deploy._spatial_tree_snapshot(
+        spatial_bundle_root,
+        require_sanitized_modes=False,
+    )
+    spatial_local_files = [
+        {
+            "path": relpath,
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "size_bytes": len(content),
+        }
+        for relpath, content in sorted(spatial_snapshot.items())
+    ]
+    spatial_package_sha256 = deploy._spatial_package_sha256(spatial_snapshot)
+    projection_sha256, projection_files = deploy._candidate_projection_tree_digest(
+        projection_root
+    )
+    projection_bytes = sum(int(row["size_bytes"]) for row in projection_files)
+    source_revision = "b" * 40
+    api_container_id = "1" * 64
+    gateway_container_id = "2" * 64
+    candidate_images = {
+        "api": {
+            "container_id": api_container_id,
+            "image_id": runner.candidate_image,
+        },
+        "gateway": {
+            "container_id": gateway_container_id,
+            "image_id": runner.candidate_image,
+        },
+        "prepared_image_id": runner.candidate_image,
+        "revision_label": source_revision,
+        "all_match_prepared_image": True,
+    }
+    runtime_projection = {
+        "schema": "ea.manfred_candidate_runtime_projection.v1",
+        "projection_sha256": projection_sha256,
+        "file_count": len(projection_files),
+        "projection_bytes": projection_bytes,
+        "mount_roots": [
+            "/data/memorial/public",
+            "/data/memorial/private",
+            "/data/memorial/archive",
+            "/data/public_property_tours",
+            "/data/release-authority",
+        ],
+        "runtime_bytes_match_prepared_projection": True,
+    }
+    runtime_version = {
+        "path": "/version",
+        "status": 200,
+        "commit_sha": source_revision,
+        "body_commit_sha": source_revision,
+        "source_revision_header": source_revision,
+        "expected_commit_sha": source_revision,
+        "oci_image_revision": source_revision,
+        "repository": "EA",
+        "role": "api",
+        "release_authority_state": "clear",
+        "release_authority_posture": "authoritative_runtime",
+        "release_authority_source": "published_status_artifact",
+        "commit_observed_over_http": True,
+        "revision_agreement_verified": True,
+    }
+    compose_relative_path = "deploy/manfred-memorial/docker-compose.candidate.yml"
+    compose_bytes = (root / compose_relative_path).read_bytes()
+    git_blob_bytes = f"blob {len(compose_bytes)}\0".encode("ascii") + compose_bytes
+    compose_attestation = {
+        "canonical_relative_path": compose_relative_path,
+        "canonical_source_path": str(
+            (root.parent / "producer-checkout" / compose_relative_path).resolve()
+        ),
+        "candidate_commit": source_revision,
+        "git_blob_oid": hashlib.sha1(  # noqa: S324 - Git object fixture
+            git_blob_bytes,
+            usedforsecurity=False,
+        ).hexdigest(),
+        "sha256": hashlib.sha256(compose_bytes).hexdigest(),
+        "size_bytes": len(compose_bytes),
+        "canonical_path_enforced": True,
+        "tracked_blob_bytes_enforced": True,
+    }
+    candidate_env_keys = sorted(
+        {
+            "DATABASE_URL",
+            "EA_API_TOKEN",
+            "EA_MANFRED_COMPOSE_PROJECT",
+            "EA_MANFRED_COMMIT",
+            "EA_MANFRED_DEPLOYMENT_ID",
+            "EA_MANFRED_ENV_FILE",
+            "EA_MANFRED_HOST_PORT",
+            "EA_MANFRED_IMAGE",
+            "EA_MANFRED_POSTGRES_PASSWORD",
+            "EA_MANFRED_RELEASE_AUTHORITY_ROOT",
+            "EA_MANFRED_RELEASE_ROOT",
+            "EA_MANFRED_RUNTIME_ROOT",
+            "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED",
+            "EA_MANFRED_SPATIAL_RELEASE_ROOT",
+            "EA_MANFRED_SPATIAL_SHA256",
+            "EA_MANFRED_SPATIAL_SLUG",
+            "EA_PUBLIC_APP_BASE_URL",
+            "EA_SIGNING_SECRET",
+        }
+    )
+    execution_inputs = {
+        "schema": "ea.manfred_candidate_execution_inputs.v1",
+        "compose_sha256": compose_attestation["sha256"],
+        "compose_size_bytes": compose_attestation["size_bytes"],
+        "compose_git_blob_oid": compose_attestation["git_blob_oid"],
+        "environment_sha256": "6" * 64,
+        "environment_size_bytes": 8192,
+        "environment_keys": candidate_env_keys,
+        "compose_image_id": runner.candidate_image,
+        "compose_image_reference_source": "prepared_image_id",
+        "transport": "sealed_memfd",
+        "required_seals": ["grow", "seal", "shrink", "write"],
+        "all_compose_commands_use_sealed_inputs": True,
+        "mutable_source_paths_consumed_by_compose": False,
+        "mutable_image_locator_consumed_by_compose": False,
+    }
+    runtime_root = (root / ".runtime/candidate-data").resolve()
+    runtime_mounts = [
+        {
+            "destination": destination,
+            "identity": str(source.resolve()),
+            "read_only": True,
+            "type": "bind",
+        }
+        for destination, source in (
+            (
+                "/data/memorial/public",
+                projection_root / "public_memorials",
+            ),
+            (
+                "/data/memorial/private",
+                projection_root / "private_memorial_profiles",
+            ),
+            (
+                "/data/memorial/archive",
+                projection_root / "memorial_archive",
+            ),
+            (
+                "/data/public_property_tours",
+                projection_root / "public_property_tours",
+            ),
+            (
+                "/data/release-authority",
+                projection_root / "release-authority",
+            ),
+        )
+    ]
+    runtime_mounts.extend(
+        {
+            "destination": destination,
+            "identity": str((runtime_root / basename).resolve()),
+            "read_only": False,
+            "type": "bind",
+        }
+        for destination, basename in (
+            (
+                "/data/memorial/public-contributions",
+                "public-contributions",
+            ),
+            (
+                "/data/memorial/private-contributions",
+                "private-contributions",
+            ),
+            ("/data/memorial/state", "state"),
+        )
+    )
+    runtime_mounts.append(
+        {
+            "destination": "/data/artifacts",
+            "identity": "ea-manfred-candidate-test0001_artifacts",
+            "read_only": False,
+            "type": "volume",
+        }
+    )
+    runtime_environment_keys = sorted(
+        {
+            *candidate_env_keys,
+            "EA_ALLOW_LOOPBACK_NO_AUTH",
+            "EA_DEPLOY_COMMIT_SHA",
+            "EA_DEPLOY_PUBLIC_ORIGIN",
+            "EA_ENABLE_PUBLIC_MEMORIALS",
+            "EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES",
+            "EA_ENABLE_PUBLIC_TOURS",
+            "EA_PUBLIC_MEMORIAL_RATE_BACKEND",
+            "EA_PUBLIC_MEMORIAL_REDIS_URL",
+            "EA_RELEASE_AUTHORITY_STATUS_PATH",
+            "EA_SOURCE_REVISION",
+            "EA_STORAGE_BACKEND",
+            "EA_STORAGE_FALLBACK_ALLOWED",
+            "EA_TRUST_PROXY_HEADERS",
+        }
+    )
+    runtime_api_posture = {
+        "schema": "ea.manfred_candidate_api_runtime_posture.v1",
+        "api_container_id": api_container_id,
+        "image_id": runner.candidate_image,
+        "environment_sha256": "7" * 64,
+        "execution_environment_sha256": execution_inputs["environment_sha256"],
+        "environment_keys": runtime_environment_keys,
+        "environment_exact": True,
+        "provider_credentials_present": False,
+        "mounts": runtime_mounts,
+        "mounts_exact": True,
+        "tmpfs_exact": True,
+        "networks": ["ea-manfred-candidate-test0001_backend"],
+        "network_exact": True,
+        "ingress_attached": False,
+        "read_only_rootfs": True,
+        "all_capabilities_dropped": True,
+        "no_new_privileges": True,
+        "runtime_user": "10001:10001",
+        "running_and_healthy": True,
+    }
+    spatial_viewer = SPATIAL_VIEWER_RELPATH
+    spatial_proof = SPATIAL_PROOF_RELPATH
+    route_labels = list(SPATIAL_ROUTE_LABELS)
+    spatial_verifier = {"pass": True, "checks": {"binding_count": 5}}
+    spatial_projection = {
+        "included": True,
+        "slug": spatial_slug,
+        "release_root": str(
+            (projection_root / "public_property_tours").resolve()
+        ),
+        "projection_sha256": spatial_projection_sha256,
+        "file_count": len(spatial_projection_files),
+        "projection_bytes": spatial_projection_bytes,
+        "receipt_path": str((root / ".runtime/spatial.json").resolve()),
+        "receipt_sha256": "a" * 64,
+        "projection_tree_revalidated": True,
+        "ea_public_activation_authority": False,
+        "asset_paths": list(SPATIAL_ASSET_PATHS),
+        "viewer_relpath": spatial_viewer,
+        "proof_relpath": spatial_proof,
+        "route_labels": route_labels,
+        "upstream_publication_authority_sha256": deploy.PROPERTY_AUTHORITY_SHA256,
+        "upstream_package_sha256": spatial_package_sha256,
+        "upstream_tour_manifest_sha256": hashlib.sha256(
+            spatial_snapshot["tour.json"]
+        ).hexdigest(),
+        "pre_authority_manifest_canonical_sha256": (
+            deploy.PROPERTY_PRE_AUTHORITY_SHA256
+        ),
+        "upstream_public_activation_authority": True,
+        "local_release_verifier": spatial_verifier,
+    }
+    quoted_slug = spatial_slug
+    viewer_path = f"/tours/viewer/{quoted_slug}/{spatial_viewer}"
+    proof_path = f"/tours/viewer/{quoted_slug}/{spatial_proof}"
+    spatial_browser = _exact_spatial_browser_receipt(
+        slug=spatial_slug,
+        source_revision=source_revision,
+        image_id=runner.candidate_image,
+        container_id=gateway_container_id,
+        project="ea-manfred-candidate-test0001",
+        route_labels=route_labels,
+        local_files=spatial_local_files,
+        package_sha256=spatial_package_sha256,
+    )
+    spatial_routes = {}
+    for label, path, status, content_type in (
+        ("html", f"/tours/{quoted_slug}", 200, "text/html"),
+        ("json", f"/tours/{quoted_slug}.json", 200, "application/json"),
+        ("viewer", viewer_path, 200, "text/html"),
+        ("proof_only", proof_path, 404, "application/json"),
+    ):
+        for method in ("get", "head"):
+            spatial_routes[f"{label}_{method}"] = {
+                "path": path,
+                "status": status,
+                "content_type": content_type,
+            }
+    spatial_runtime = {
+        "included": True,
+        "routes_required": True,
+        "slug": spatial_slug,
+        "routes": spatial_routes,
+        "generated_viewer_release_verifier": spatial_verifier,
+        "candidate_browser_gate": spatial_browser,
+        "html_json_viewer_200": True,
+        "proof_only_404": True,
+        "ea_public_activation_authority": False,
+        "upstream_public_activation_authority": True,
+    }
     candidate_receipt.write_text(
         json.dumps(
             {
-                "schema": "ea.manfred_memorial_candidate_runtime.v3",
+                "schema": "ea.manfred_memorial_candidate_runtime.v4",
                 "status": "pass",
                 "image": runner.candidate_reference,
                 "image_id": runner.candidate_image,
-                "image_source_revision": "b" * 40,
+                "image_source_revision": source_revision,
                 "image_locator_evidence": {
                     "locator": runner.candidate_reference,
                     "resolved_image_id": runner.candidate_image,
-                    "revision_label": "b" * 40,
-                    "locator_only": True,
+                    "revision_label": source_revision,
+                    "used_for_attestation_only": True,
+                    "consumed_by_compose": False,
                 },
-                "image_locator_only": True,
-                "runtime_source_revision": "b" * 40,
+                "compose_uses_immutable_image_id": True,
+                "candidate_container_images": candidate_images,
+                "candidate_container_images_initial": candidate_images,
+                "candidate_container_images_final": candidate_images,
+                "candidate_container_image_identity_stable": True,
+                "runtime_projection_initial": runtime_projection,
+                "runtime_projection_final": runtime_projection,
+                "runtime_projection_identity_stable": True,
+                "runtime_version_identity": runtime_version,
+                "runtime_source_revision": source_revision,
+                "runtime_authority_commit": source_revision,
                 "runtime_revision_matches_image": True,
-                "projection_commit": "b" * 40,
+                "projection_commit": source_revision,
                 "prepared_image_locator": runner.candidate_reference,
                 "prepared_image_id": runner.candidate_image,
                 "projection_tree_revalidated": True,
                 "release_id": (root / "memorial_data").name,
                 "release_root": str((root / "memorial_data").resolve()),
                 "projection_sha256": projection_sha256,
+                "projection_files": projection_files,
+                "projection_file_count": len(projection_files),
+                "projection_bytes": projection_bytes,
+                "spatial_handoff": spatial_projection,
                 "compose_project": "ea-manfred-candidate-test0001",
                 "compose_project_isolated": True,
+                "compose_attestation": compose_attestation,
+                "execution_inputs": execution_inputs,
                 "compose_environment_bound_to_candidate_env": True,
                 "candidate_named_resources": {
                     "containers": sorted(
@@ -856,6 +1555,13 @@ def _lane(
                         "port": 18090,
                         "held_through_candidate_proof": True,
                     },
+                    "fleet": {
+                        "scope": "manfred_candidate_fleet",
+                        "lock_file": "ea-manfred-candidate-fleet.lock",
+                        "exclusive": True,
+                        "nonblocking": True,
+                        "held_through_candidate_proof": True,
+                    },
                 },
                 "project_lock": {
                     "scope": "compose_project",
@@ -867,25 +1573,21 @@ def _lane(
                     "port": 18090,
                     "held_through_candidate_proof": True,
                 },
-                "candidate_container_images": {
-                    "api": {
-                        "container_id": "candidate-api-container",
-                        "image_id": runner.candidate_image,
-                    },
-                    "gateway": {
-                        "container_id": "candidate-gateway-container",
-                        "image_id": runner.candidate_image,
-                    },
-                    "prepared_image_id": runner.candidate_image,
-                    "revision_label": "b" * 40,
-                    "all_match_prepared_image": True,
+                "candidate_api_container_id": api_container_id,
+                "runtime_api_posture": runtime_api_posture,
+                "registry_recovery": {
+                    "state_before_launch": "absent",
+                    "crash_intent_reconciled": False,
+                    "pending_contribution_reconciled": False,
+                    "existing_receipt_resumed": False,
+                    "interrupted_receipt_publication_completed": False,
                 },
-                "candidate_api_container_id": "candidate-api-container",
                 "candidate_port": 18090,
                 "api_network_internal": True,
                 "gateway_has_runtime_secrets": False,
                 "provider_credentials_present": False,
                 "provider_calls_performed": False,
+                "spatial_handoff_runtime": spatial_runtime,
                 "openapi_contract": {
                     "live_before": {
                         "path_count": 3,
@@ -896,12 +1598,28 @@ def _lane(
                         "contract_digest_sha256": "3" * 64,
                     },
                     "candidate": {
-                        "path_count": 4,
-                        "operation_count": 6,
+                        "path_count": 1,
+                        "operation_count": 3,
                         "schema_count": 3,
                         "security_scheme_count": 1,
                         "path_digest_sha256": "2" * 64,
                         "contract_digest_sha256": "4" * 64,
+                        "snapshot_source": "candidate_api_container_app.openapi",
+                        "public_docs_config_retired": True,
+                    },
+                    "candidate_public_endpoint": {
+                        "path": "/openapi.json",
+                        "status": 404,
+                        "error_code": "not_found",
+                        "content_type": "application/json",
+                        "media_type": "application/json",
+                        "correlation_header_matches_body": True,
+                        "security_headers": {
+                            "content_security_policy": "frame-ancestors 'none'",
+                            "x_content_type_options": "nosniff",
+                            "x_frame_options": "DENY",
+                        },
+                        "public_endpoint_retired": True,
                     },
                     "live_after": {
                         "path_count": 3,
@@ -922,6 +1640,14 @@ def _lane(
                         deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
                     ),
                     "retirement_policy_exact_match": True,
+                    "compatible_evolution_policy_id": (
+                        "ea.openapi.compatible-evolution."
+                        "version-remote-reachability.v1"
+                    ),
+                    "compatible_evolution_allowed_operations": ["GET /version"],
+                    "compatible_evolved_operations": ["GET /version"],
+                    "compatible_evolved_operation_count": 1,
+                    "compatible_evolution_policy_exact_match": True,
                     "candidate_preserves_live_contract": True,
                     "missing_or_changed_operation_count": 0,
                     "missing_or_changed_schema_count": 0,
@@ -1128,7 +1854,7 @@ def test_candidate_projection_is_rehashed_before_promotion(
         source_revision="b" * 40,
     )
     assert evidence["projection"]["tree_revalidated"] is True
-    assert evidence["projection"]["file_count"] == 0
+    assert evidence["projection"]["file_count"] == len(SPATIAL_TEST_FILES)
 
     projection_root = release_root / "memorial_data"
     projection_root.chmod(0o750)
@@ -2018,7 +2744,7 @@ def test_happy_path_mutates_only_redis_and_api(
     promotion = receipt["candidate_promotion_evidence"]
     assert promotion["path"] == lane.candidate_receipt_value
     assert len(promotion["sha256"]) == 64
-    assert promotion["schema"] == "ea.manfred_memorial_candidate_runtime.v3"
+    assert promotion["schema"] == "ea.manfred_memorial_candidate_runtime.v4"
     assert len(promotion["projection"]["projection_sha256"]) == 64
     assert len(promotion["live_ea"]["snapshot_sha256"]) == 64
     assert promotion["openapi"]["candidate_preserves_live_contract"] is True
@@ -2030,7 +2756,15 @@ def test_happy_path_mutates_only_redis_and_api(
         deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
     )
     assert promotion["openapi"]["retired_operation_count"] == 2
+    assert promotion["openapi"]["candidate_public_openapi_retired"] is True
+    assert promotion["openapi"]["compatible_evolution_policy_exact_match"] is True
+    assert promotion["openapi"]["compatible_evolved_operations"] == ["GET /version"]
     assert promotion["browser"]["http_errors"] == 0
+    assert promotion["runtime_identity"]["revision_agreement_verified"] is True
+    assert promotion["execution_inputs"]["sealed"] is True
+    assert promotion["runtime_posture"]["hardened"] is True
+    assert promotion["registry_recovery"]["safe"] is True
+    assert promotion["spatial_handoff"]["identity_bound"] is True
     assert "first_smoke_checks" not in promotion
     assert "second_smoke_checks" not in promotion
     assert "browser_surface" not in promotion
@@ -2137,27 +2871,147 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
     ("field", "value"),
     [
         ("image_id", "sha256:" + "d" * 64),
-        ("schema", "ea.manfred_memorial_candidate_runtime.v2"),
+        ("schema", "ea.manfred_memorial_candidate_runtime.v3"),
         ("runtime_source_revision", "a" * 40),
-        ("image_locator_only", False),
+        ("compose_uses_immutable_image_id", False),
         ("image_locator_evidence", {}),
+        ("image_locator_evidence.consumed_by_compose", True),
         ("projection_commit", "a" * 40),
         ("prepared_image_id", "sha256:" + "d" * 64),
         ("projection_sha256", "not-a-digest"),
+        ("projection_file_count", 1),
         ("compose_project_isolated", False),
         ("candidate_preflight.containers", 1),
         ("projection_tree_revalidated", False),
         ("locks", {}),
+        ("locks.fleet.exclusive", False),
         ("project_lock", {}),
         ("port_lock", {}),
         ("candidate_container_images", {}),
+        (
+            "candidate_container_images_initial.api.image_id",
+            "sha256:" + "d" * 64,
+        ),
+        (
+            "candidate_container_images_final.gateway.container_id",
+            "3" * 64,
+        ),
+        ("candidate_container_image_identity_stable", False),
+        ("runtime_projection_initial.projection_sha256", "e" * 64),
+        ("runtime_projection_final.file_count", 1),
+        ("runtime_projection_identity_stable", False),
+        ("runtime_version_identity.body_commit_sha", "a" * 40),
+        (
+            "runtime_version_identity.release_authority_posture",
+            "advisory_only",
+        ),
+        ("runtime_authority_commit", "a" * 40),
+        ("compose_attestation.canonical_source_path", "relative/compose.yml"),
+        ("compose_attestation.git_blob_oid", "4" * 40),
+        ("compose_attestation.sha256", "f" * 64),
+        ("compose_attestation.candidate_commit", "a" * 40),
+        (
+            "execution_inputs.schema",
+            "ea.manfred_candidate_execution_inputs.v0",
+        ),
+        ("execution_inputs.environment_sha256", "not-a-digest"),
+        ("execution_inputs.compose_image_id", "sha256:" + "d" * 64),
+        ("execution_inputs.mutable_image_locator_consumed_by_compose", True),
+        ("runtime_api_posture.image_id", "sha256:" + "d" * 64),
+        ("runtime_api_posture.mounts_exact", False),
+        ("runtime_api_posture.read_only_rootfs", False),
+        ("runtime_api_posture.ingress_attached", True),
+        ("registry_recovery.state_before_launch", "registered_receipt"),
+        ("registry_recovery.existing_receipt_resumed", True),
+        ("spatial_handoff.included", False),
+        ("spatial_handoff.projection_sha256", "e" * 64),
+        ("spatial_handoff.upstream_publication_authority_sha256", "e" * 64),
+        ("spatial_handoff.upstream_package_sha256", "e" * 64),
+        ("spatial_handoff.upstream_tour_manifest_sha256", "e" * 64),
+        ("spatial_handoff.pre_authority_manifest_canonical_sha256", "e" * 64),
+        ("spatial_handoff.local_release_verifier.pass", False),
+        ("spatial_handoff_runtime.included", False),
+        ("spatial_handoff_runtime.routes.html_get.status", 404),
+        ("spatial_handoff_runtime.routes.proof_only_head.status", 200),
+        (
+            "spatial_handoff_runtime.generated_viewer_release_verifier.pass",
+            False,
+        ),
+        ("spatial_handoff_runtime.candidate_browser_gate.status", "fail"),
+        (
+            "spatial_handoff_runtime.candidate_browser_gate.landing.status",
+            500,
+        ),
+        (
+            "spatial_handoff_runtime.candidate_browser_gate.viewer_path",
+            "/tours/viewer/wrong/viewer.html",
+        ),
+        (
+            "spatial_handoff_runtime.candidate_browser_gate.proof_manifest.path",
+            "/tours/viewer/wrong/reconstruction.json",
+        ),
+        (
+            "spatial_handoff_runtime.candidate_browser_gate."
+            "package_binding.local_file_count",
+            5,
+        ),
+        (
+            "spatial_handoff_runtime.candidate_browser_gate."
+            "package_binding.http_asset_count",
+            3,
+        ),
+        (
+            "spatial_handoff_runtime.candidate_browser_gate."
+            "surfaces.desktop.status",
+            500,
+        ),
+        (
+            "spatial_handoff_runtime.candidate_browser_gate.candidate_commit",
+            "a" * 40,
+        ),
+        (
+            "spatial_handoff_runtime.candidate_browser_gate."
+            "candidate_oci_image.image_id",
+            "sha256:" + "d" * 64,
+        ),
+        (
+            "spatial_handoff_runtime.candidate_browser_gate."
+            "serving_container.container_id",
+            "3" * 64,
+        ),
+        (
+            "spatial_handoff_runtime.candidate_browser_gate.package_sha256",
+            "e" * 64,
+        ),
+        (
+            "spatial_handoff_runtime.candidate_browser_gate."
+            "secret_material_recorded",
+            True,
+        ),
         ("candidate_api_container_id", "different-container"),
         ("openapi_contract.retirement_policy_id", "mutable-policy"),
         ("openapi_contract.retirement_allowed_operations", []),
         ("openapi_contract.retired_operations", []),
         ("openapi_contract.retired_operation_count", 1),
         ("openapi_contract.retirement_policy_exact_match", False),
+        (
+            "openapi_contract.compatible_evolution_policy_id",
+            "mutable-policy",
+        ),
+        ("openapi_contract.compatible_evolution_allowed_operations", []),
+        ("openapi_contract.compatible_evolved_operation_count", 2),
+        ("openapi_contract.compatible_evolution_policy_exact_match", False),
         ("openapi_contract.candidate_preserves_live_contract", False),
+        (
+            "openapi_contract.candidate.snapshot_source",
+            "public_http_openapi",
+        ),
+        ("openapi_contract.candidate_public_endpoint.status", 200),
+        (
+            "openapi_contract.candidate_public_endpoint."
+            "security_headers.x_frame_options",
+            "SAMEORIGIN",
+        ),
         ("live_ea_project_after", {}),
         ("live_ea_api_unchanged", False),
         ("provider_calls_performed", True),
@@ -2195,14 +3049,14 @@ def test_candidate_promotion_receipt_contract_mismatch_fails_before_mutation(
     lane = _lane(release_root, runner)
     path = Path(lane.candidate_receipt_value)
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if "." in field:
-        parent, child = field.split(".", 1)
-        if value is None:
-            payload[parent].pop(child)
-        else:
-            payload[parent][child] = value
+    path_parts = field.split(".")
+    target = payload
+    for part in path_parts[:-1]:
+        target = target[part]
+    if value is None:
+        target.pop(path_parts[-1])
     else:
-        payload[field] = value
+        target[path_parts[-1]] = value
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
     path.chmod(0o600)
 

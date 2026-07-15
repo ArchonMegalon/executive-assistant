@@ -13,7 +13,10 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 
 ROOT = Path(__file__).resolve().parents[1]
 MEMORIAL_STATUS_PATH = ROOT / ".codex-design" / "product" / "MEMORIAL_OPERATOR_STATUS.generated.json"
-RELEASE_AUTHORITY_PATH = ROOT / ".codex-studio" / "published" / "release_authority_status.generated.json"
+_GENERATED_RELEASE_AUTHORITY_PATH = (
+    ROOT / ".codex-studio" / "published" / "release_authority_status.generated.json"
+)
+RELEASE_AUTHORITY_PATH = _GENERATED_RELEASE_AUTHORITY_PATH
 
 
 def _load_json(path: Path) -> dict[str, object]:
@@ -32,9 +35,12 @@ def _display_path(path: Path) -> str:
 
 
 def _release_authority_payload(
-    *, release_authority_status_path: Path = RELEASE_AUTHORITY_PATH
+    *, release_authority_status_path: Path
 ) -> dict[str, object]:
-    if release_authority_status_path.resolve() == RELEASE_AUTHORITY_PATH.resolve():
+    if (
+        release_authority_status_path.resolve()
+        == _GENERATED_RELEASE_AUTHORITY_PATH.resolve()
+    ):
         payload = build_release_authority_status()
         return payload if isinstance(payload, dict) else {}
     return _load_json(release_authority_status_path)
@@ -42,9 +48,15 @@ def _release_authority_payload(
 
 def build_payload(
     *,
-    memorial_status_path: Path = MEMORIAL_STATUS_PATH,
-    release_authority_status_path: Path = RELEASE_AUTHORITY_PATH,
+    memorial_status_path: Path | None = None,
+    release_authority_status_path: Path | None = None,
 ) -> dict[str, object]:
+    # Resolve defaults at call time so embedded callers can explicitly replace
+    # the generated status sources without being pinned to import-time paths.
+    memorial_status_path = memorial_status_path or MEMORIAL_STATUS_PATH
+    release_authority_status_path = (
+        release_authority_status_path or RELEASE_AUTHORITY_PATH
+    )
     memorial_status = _load_json(memorial_status_path)
     release_authority = _release_authority_payload(
         release_authority_status_path=release_authority_status_path

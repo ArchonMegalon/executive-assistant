@@ -1075,7 +1075,7 @@ def test_cleanup_stale_route_rows_deletes_disabled_and_other_session_rows(monkey
         lambda **_: [
             {"id": "rec-disabled", "fields": {"route_key": "disabled_reachability_abc123"}},
             {"id": "rec-other-session", "fields": {"route_key": "inbound_old", "session_ref": "default-wa-web"}},
-            {"id": "rec-keep", "fields": {"route_key": "default", "session_ref": "tibor-wa-web"}},
+            {"id": "rec-keep", "fields": {"route_key": "default", "session_ref": "fixture-wa-web"}},
         ],
     )
     monkeypatch.setattr(
@@ -1088,7 +1088,7 @@ def test_cleanup_stale_route_rows_deletes_disabled_and_other_session_rows(monkey
         base_url="https://app.teable.ai",
         api_key="token",
         route_table_id="tbl-routes",
-        session_ref="tibor-wa-web",
+        session_ref="fixture-wa-web",
     )
 
     assert result == {"deleted": 2, "failed": 0, "total": 2}

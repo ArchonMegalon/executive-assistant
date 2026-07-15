@@ -57,6 +57,7 @@ def test_worker_and_provider_defaults_are_repo_local_or_env_driven() -> None:
     assert "EA_AVATAR_PRESENTER_PROVIDER_OUT_DIR" in rendered
     assert "EA_VOICEWAVE_PROVIDER_OUT_DIR" in rendered
     assert "EA_FLEET_JOURNEY_GATES_PATH" in rendered
+    assert "CHUMMER_DESIGN_ROOT" in rendered
     assert "CHUMMER_MEDIA_FACTORY_ROOT" in rendered
     assert "BROWSERACT_BOOTSTRAP_STATE_DIR" in rendered
     assert "EA_UNMIXR_PROVIDER_OUT_DIR" in rendered

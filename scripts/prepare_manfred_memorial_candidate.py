@@ -5,6 +5,7 @@ import argparse
 import copy
 import ctypes
 import errno
+import functools
 import hashlib
 import io
 import json
@@ -22,8 +23,25 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
+try:
+    from scripts.manfred_candidate_fleet_lock import hold_candidate_fleet_lock
+    from scripts.materialize_release_authority_status import build_status
+    from scripts.verify_deploy_context import verify as verify_deploy_context
+    from scripts.verify_release_authority import validate_release_authority
+    from scripts.verify_release_manifest_runtime_mode import (
+        validate_release_contract as validate_release_runtime_mode,
+    )
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from manfred_candidate_fleet_lock import hold_candidate_fleet_lock
+    from materialize_release_authority_status import build_status
+    from verify_deploy_context import verify as verify_deploy_context
+    from verify_release_authority import validate_release_authority
+    from verify_release_manifest_runtime_mode import (
+        validate_release_contract as validate_release_runtime_mode,
+    )
 
-RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_projection.v2"
+
+RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_projection.v3"
 PROPERTY_PUBLICATION_AUTHORITY_SCHEMA = (
     "propertyquarry.generated-viewer-publication-authority.v1"
 )
@@ -35,9 +53,7 @@ PROPERTY_RECONSTRUCTION_SCHEMA = (
 )
 PROPERTY_AUTHORITY_OWNER = "PropertyQuarry"
 PROPERTY_REPOSITORY = "ArchonMegalon/property"
-PROPERTY_AUTHORIZED_SLUG = (
-    "360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
-)
+PROPERTY_AUTHORIZED_SLUG = "360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
 PROPERTY_ARTIFACT_COMMIT = "dd81d16421339d1ac4ca9f01d65f5ebcf607258f"
 PROPERTY_PACKAGER_COMMIT = "b5eb627267dadb8dd5115dde7643cd8bdbad3317"
 PROPERTY_USER_INSTRUCTION_SHA256 = (
@@ -65,6 +81,9 @@ PROPERTY_PRE_AUTHORITY_CANONICALIZATION = (
     "utf8_sorted_keys_compact_ensure_ascii_false_no_trailing_lf_"
     "with_publication_authority_receipt_sha256_null"
 )
+# Compatibility defaults for the low-level spatial intake helpers. Candidate
+# preparation still requires both receipt paths explicitly, and the helpers
+# continue to verify the exact pinned bytes, schemas, statuses, and digests.
 PROPERTY_FINAL_REVIEW_RECEIPT = Path(
     "/home/tibor/.local/share/ea-spatial-review/"
     "20260714-neustift-viewer-accessibility-v1/flagship-3d-final-receipt.json"
@@ -151,6 +170,20 @@ SPATIAL_PRIVATE_PATH_TOKENS = {
 SPATIAL_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+CANDIDATE_RELEASE_AUTHORITY_SCHEMA = "ea.manfred_candidate_release_authority.v1"
+CANDIDATE_RELEASE_AUTHORITY_DIRNAME = "release-authority"
+CANDIDATE_RELEASE_AUTHORITY_CONTAINER_ROOT = Path("/data/release-authority")
+CANDIDATE_RELEASE_AUTHORITY_FILENAMES = {
+    "deploy_context": "deploy_context.generated.json",
+    "project_modes": "PROJECT_MODES.generated.json",
+    "release_manifest": "release_manifest.generated.json",
+    "release_status": "release_authority_status.generated.json",
+    "receipt": "candidate_release_authority.json",
+}
+OFFICIAL_EA_REMOTE_ORIGIN = "https://github.com/ArchonMegalon/executive-assistant.git"
+OFFICIAL_EA_REMOTE_ORIGINS = frozenset({OFFICIAL_EA_REMOTE_ORIGIN})
+LIVE_REMOTE_REF_EVIDENCE = "isolated_git_ls_remote_exact_https_ref"
+PRIVATE_OUTPUT_MAX_BYTES = 8 * 1024 * 1024
 
 
 def _validate_project_name(value: object) -> str:
@@ -173,6 +206,8 @@ def _run(
     *,
     cwd: Path | None = None,
     input_bytes: bytes | None = None,
+    timeout: int | None = None,
+    environment: dict[str, str] | None = None,
 ) -> bytes:
     completed = subprocess.run(
         argv,
@@ -181,6 +216,8 @@ def _run(
         input=input_bytes,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        timeout=timeout,
+        env=environment,
     )
     return completed.stdout
 
@@ -205,6 +242,29 @@ def _commit(source_root: Path, ref: str) -> str:
     ):
         raise ValueError("manfred_candidate_commit_invalid")
     return value
+
+
+def _commit_generated_at(source_root: Path, commit: str) -> str:
+    try:
+        raw = (
+            _run(
+                ["git", "show", "-s", "--format=%cI", commit],
+                cwd=source_root,
+            )
+            .decode("ascii", errors="strict")
+            .strip()
+        )
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (OSError, UnicodeError, ValueError, subprocess.CalledProcessError) as exc:
+        raise ValueError("manfred_candidate_commit_time_invalid") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("manfred_candidate_commit_time_invalid")
+    return (
+        parsed.astimezone(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def _git_blob(source_root: Path, commit: str, path: str) -> bytes:
@@ -302,7 +362,9 @@ def _strict_json_object(content: bytes, *, error: str) -> dict[str, object]:
 
 def _spatial_payload_has_private_host_path(value: object) -> bool:
     if isinstance(value, dict):
-        return any(_spatial_payload_has_private_host_path(child) for child in value.values())
+        return any(
+            _spatial_payload_has_private_host_path(child) for child in value.values()
+        )
     if isinstance(value, list):
         return any(_spatial_payload_has_private_host_path(child) for child in value)
     if not isinstance(value, str):
@@ -354,8 +416,7 @@ def _spatial_release_contract(
         mime_type = str(raw_binding.get("mime_type") or "").strip().lower()
         size_bytes = raw_binding.get("size_bytes")
         if (
-            set(raw_binding)
-            != {"path", "sha256", "size_bytes", "mime_type", "role"}
+            set(raw_binding) != {"path", "sha256", "size_bytes", "mime_type", "role"}
             or not path.startswith("generated-reconstruction/")
             or _spatial_path_has_private_raw_pattern(path)
             or role not in SPATIAL_LAYOUT_ROLE_COUNTS
@@ -420,8 +481,9 @@ def _read_spatial_file_snapshot(path: Path, *, require_sanitized_modes: bool) ->
         raise ValueError("manfred_candidate_spatial_source_invalid")
     parent_descriptor = _open_directory_path_nofollow(path.parent)
     try:
-        identity = (
-            lambda metadata: (
+
+        def identity(metadata: os.stat_result) -> tuple[int, ...]:
+            return (
                 metadata.st_dev,
                 metadata.st_ino,
                 metadata.st_mode,
@@ -430,7 +492,7 @@ def _read_spatial_file_snapshot(path: Path, *, require_sanitized_modes: bool) ->
                 metadata.st_mtime_ns,
                 metadata.st_ctime_ns,
             )
-        )
+
         try:
             initial = os.stat(
                 path.name,
@@ -521,9 +583,7 @@ def _open_directory_path_nofollow(
                 child = os.open(part, flags, dir_fd=descriptor)
             except FileNotFoundError as exc:
                 if not create_missing:
-                    raise ValueError(
-                        "manfred_candidate_spatial_root_invalid"
-                    ) from exc
+                    raise ValueError("manfred_candidate_spatial_root_invalid") from exc
                 try:
                     os.mkdir(part, create_mode, dir_fd=descriptor)
                     child = os.open(part, flags, dir_fd=descriptor)
@@ -553,12 +613,7 @@ def _spatial_tree_snapshot(
     if nofollow is None:
         raise ValueError("manfred_candidate_spatial_nofollow_unavailable")
     directory_flags = os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | nofollow
-    file_flags = (
-        os.O_RDONLY
-        | os.O_CLOEXEC
-        | getattr(os, "O_NONBLOCK", 0)
-        | nofollow
-    )
+    file_flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NONBLOCK", 0) | nofollow
 
     def directory_identity(metadata: os.stat_result) -> tuple[int, ...]:
         return (
@@ -592,9 +647,7 @@ def _spatial_tree_snapshot(
         if require_sanitized_modes:
             safe_mode = stat.S_IMODE(metadata.st_mode) == 0o755
         else:
-            safe_mode = _safe_spatial_source_mode(
-                metadata.st_mode, directory=True
-            )
+            safe_mode = _safe_spatial_source_mode(metadata.st_mode, directory=True)
         if not safe_mode:
             raise ValueError(
                 "manfred_candidate_spatial_root_invalid"
@@ -625,9 +678,7 @@ def _spatial_tree_snapshot(
                     follow_symlinks=False,
                 )
             except OSError as exc:
-                raise ValueError(
-                    "manfred_candidate_spatial_source_changed"
-                ) from exc
+                raise ValueError("manfred_candidate_spatial_source_changed") from exc
             projected = (*relative, name)
             relpath = PurePosixPath(*projected).as_posix()
             if stat.S_ISLNK(initial.st_mode):
@@ -647,16 +698,12 @@ def _spatial_tree_snapshot(
                 try:
                     opened = os.fstat(child_descriptor)
                     if directory_identity(initial) != directory_identity(opened):
-                        raise ValueError(
-                            "manfred_candidate_spatial_source_changed"
-                        )
+                        raise ValueError("manfred_candidate_spatial_source_changed")
                     walk(child_descriptor, projected)
                     if directory_identity(opened) != directory_identity(
                         os.fstat(child_descriptor)
                     ):
-                        raise ValueError(
-                            "manfred_candidate_spatial_source_changed"
-                        )
+                        raise ValueError("manfred_candidate_spatial_source_changed")
                 finally:
                     os.close(child_descriptor)
                 try:
@@ -687,9 +734,7 @@ def _spatial_tree_snapshot(
                 )
                 or (
                     not require_sanitized_modes
-                    and not _safe_spatial_source_mode(
-                        initial.st_mode, directory=False
-                    )
+                    and not _safe_spatial_source_mode(initial.st_mode, directory=False)
                 )
             ):
                 raise ValueError("manfred_candidate_spatial_source_invalid")
@@ -752,10 +797,14 @@ def _spatial_tree_snapshot(
 
     try:
         root_metadata = os.fstat(root_descriptor)
-        if expected_root_identity is not None and (
-            root_metadata.st_dev,
-            root_metadata.st_ino,
-        ) != expected_root_identity:
+        if (
+            expected_root_identity is not None
+            and (
+                root_metadata.st_dev,
+                root_metadata.st_ino,
+            )
+            != expected_root_identity
+        ):
             raise ValueError("manfred_candidate_spatial_root_identity_changed")
         validate_directory(root_metadata, root_entry=True)
         try:
@@ -771,8 +820,7 @@ def _spatial_tree_snapshot(
         except OSError as exc:
             raise ValueError("manfred_candidate_spatial_source_changed") from exc
         if (
-            directory_identity(root_metadata)
-            != directory_identity(final_root_metadata)
+            directory_identity(root_metadata) != directory_identity(final_root_metadata)
             or directory_identity(final_root_metadata)
             != directory_identity(final_root_path_metadata)
             or (
@@ -829,12 +877,21 @@ def _verify_spatial_bundle_before_copy(bundle: Path, *, slug: str) -> dict[str, 
     return receipt
 
 
-def _property_review_evidence(snapshot: dict[str, bytes]) -> dict[str, object]:
-    final_path = Path(PROPERTY_FINAL_REVIEW_RECEIPT)
-    browser_path = Path(PROPERTY_BROWSER_REVIEW_RECEIPT)
-    final_bytes = _read_spatial_file_snapshot(
-        final_path, require_sanitized_modes=False
+def _property_review_evidence(
+    snapshot: dict[str, bytes],
+    *,
+    final_review_receipt_path: Path,
+    browser_review_receipt_path: Path,
+) -> dict[str, object]:
+    final_path = Path(
+        os.path.abspath(os.fspath(final_review_receipt_path.expanduser()))
     )
+    browser_path = Path(
+        os.path.abspath(os.fspath(browser_review_receipt_path.expanduser()))
+    )
+    if final_path == browser_path:
+        raise ValueError("manfred_candidate_spatial_review_evidence_invalid")
+    final_bytes = _read_spatial_file_snapshot(final_path, require_sanitized_modes=False)
     browser_bytes = _read_spatial_file_snapshot(
         browser_path, require_sanitized_modes=False
     )
@@ -863,8 +920,7 @@ def _property_review_evidence(snapshot: dict[str, bytes]) -> dict[str, object]:
     live_guard = dict(final.get("live_guard") or {})
     if (
         final.get("schema") != "propertyquarry.flagship_3d_review_receipt.v1"
-        or final.get("status")
-        != "polished_review_candidate_pass_guarded_not_published"
+        or final.get("status") != "polished_review_candidate_pass_guarded_not_published"
         or final.get("slug") != PROPERTY_AUTHORIZED_SLUG
         or final_source.get("commit") != PROPERTY_ARTIFACT_COMMIT
         or final_source.get("worktree_clean") is not True
@@ -893,8 +949,7 @@ def _property_review_evidence(snapshot: dict[str, bytes]) -> dict[str, object]:
         )
         != "pass"
         or dict(
-            verification.get("independent_camera_geometry_accessibility_review")
-            or {}
+            verification.get("independent_camera_geometry_accessibility_review") or {}
         ).get("result")
         != "approved"
         or dict(
@@ -944,11 +999,13 @@ def _property_review_evidence(snapshot: dict[str, bytes]) -> dict[str, object]:
             "schema": str(final["schema"]),
             "status": str(final["status"]),
             "sha256": PROPERTY_FINAL_REVIEW_SHA256,
+            "source_path": str(final_path),
         },
         "exact_viewer_browser": {
             "schema": str(browser["schema"]),
             "status": str(browser["status"]),
             "sha256": PROPERTY_BROWSER_REVIEW_SHA256,
+            "source_path": str(browser_path),
         },
     }
 
@@ -958,15 +1015,15 @@ def _validated_property_publication(
     snapshot: dict[str, bytes],
     authority_bytes: bytes,
     target_origin: str,
+    final_review_receipt_path: Path,
+    browser_review_receipt_path: Path,
 ) -> dict[str, object]:
     target_origin = _validate_public_base_url(target_origin)
     if len(authority_bytes) > MAX_SPATIAL_AUTHORITY_RECEIPT_BYTES:
         raise ValueError("manfred_candidate_spatial_authority_receipt_invalid")
     try:
         tour_bytes = snapshot["tour.json"]
-        proof_bytes = snapshot[
-            "generated-reconstruction/reconstruction.json"
-        ]
+        proof_bytes = snapshot["generated-reconstruction/reconstruction.json"]
     except KeyError as exc:
         raise ValueError("manfred_candidate_spatial_asset_allowlist_invalid") from exc
     tour = _strict_json_object(
@@ -979,10 +1036,9 @@ def _validated_property_publication(
     proof = _strict_json_object(
         proof_bytes, error="manfred_candidate_spatial_proof_manifest_invalid"
     )
-    if (
-        tour_bytes != _canonical_json_bytes(tour)
-        or authority_bytes != _canonical_json_bytes(authority)
-    ):
+    if tour_bytes != _canonical_json_bytes(
+        tour
+    ) or authority_bytes != _canonical_json_bytes(authority):
         raise ValueError("manfred_candidate_spatial_manifest_not_canonical")
     slug, asset_paths, viewer_relpath, proof_relpath = _spatial_release_contract(
         tour, expected_slug=PROPERTY_AUTHORIZED_SLUG
@@ -1017,14 +1073,11 @@ def _validated_property_publication(
         or release.get("status") != "ready"
         or release.get("public_activation_authority") is not True
         or release.get("publication_authority_verified") is not True
-        or release.get("publication_authority_receipt_sha256")
-        != authority_sha256
-        or release.get("browser_receipt_sha256")
-        != PROPERTY_BROWSER_REVIEW_SHA256
+        or release.get("publication_authority_receipt_sha256") != authority_sha256
+        or release.get("browser_receipt_sha256") != PROPERTY_BROWSER_REVIEW_SHA256
         or release.get("source_provenance_receipt_sha256")
         != PROPERTY_FINAL_REVIEW_SHA256
-        or release.get("security_review_receipt_sha256")
-        != PROPERTY_FINAL_REVIEW_SHA256
+        or release.get("security_review_receipt_sha256") != PROPERTY_FINAL_REVIEW_SHA256
         or release.get("accessibility_review_receipt_sha256")
         != PROPERTY_FINAL_REVIEW_SHA256
         or release.get("browser_interaction_verified") is not True
@@ -1038,9 +1091,7 @@ def _validated_property_publication(
         or route_labels != list(tour.get("route_labels") or [])
         or len(set(str(label) for label in route_labels)) != 9
         or any(
-            not isinstance(label, str)
-            or not label.strip()
-            or label != label.strip()
+            not isinstance(label, str) or not label.strip() or label != label.strip()
             for label in route_labels
         )
         or _spatial_payload_has_private_host_path(tour)
@@ -1074,8 +1125,7 @@ def _validated_property_publication(
         or authority.get("slug") != slug
         or authority.get("public_activation_authority") is not True
         or authority.get("publication_authority_verified") is not True
-        or authority.get("user_instruction_sha256")
-        != PROPERTY_USER_INSTRUCTION_SHA256
+        or authority.get("user_instruction_sha256") != PROPERTY_USER_INSTRUCTION_SHA256
         or set(authority.get("allowed_public_origins") or [])
         != PROPERTY_ALLOWED_PUBLIC_ORIGINS
         or target_origin not in PROPERTY_ALLOWED_PUBLIC_ORIGINS
@@ -1119,9 +1169,7 @@ def _validated_property_publication(
     pre_release = dict(pre_authority.get("generated_viewer_release") or {})
     pre_release["publication_authority_receipt_sha256"] = None
     pre_authority["generated_viewer_release"] = pre_release
-    pre_authority_sha256 = _sha256(
-        _canonical_json_bytes_without_lf(pre_authority)
-    )
+    pre_authority_sha256 = _sha256(_canonical_json_bytes_without_lf(pre_authority))
     if (
         pre_authority_sha256 != PROPERTY_PRE_AUTHORITY_SHA256
         or authority_package.get("pre_authority_manifest_canonical_sha256")
@@ -1152,8 +1200,18 @@ def _validated_property_publication(
         or _spatial_payload_has_private_host_path(proof)
     ):
         raise ValueError("manfred_candidate_spatial_proof_manifest_invalid")
-    review_evidence = _property_review_evidence(snapshot)
-    if review_evidence != authority_reviews:
+    review_evidence = _property_review_evidence(
+        snapshot,
+        final_review_receipt_path=final_review_receipt_path,
+        browser_review_receipt_path=browser_review_receipt_path,
+    )
+    review_contract = {
+        name: {
+            key: value for key, value in dict(row or {}).items() if key != "source_path"
+        }
+        for name, row in review_evidence.items()
+    }
+    if review_contract != authority_reviews:
         raise ValueError("manfred_candidate_spatial_review_evidence_mismatch")
     return {
         "slug": slug,
@@ -1226,10 +1284,14 @@ def _exclusive_write_at(
             cleanup_failed = True
         try:
             metadata = os.fstat(descriptor)
-            if identity is not None and (
-                metadata.st_dev,
-                metadata.st_ino,
-            ) != identity:
+            if (
+                identity is not None
+                and (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                )
+                != identity
+            ):
                 cleanup_failed = True
             os.ftruncate(descriptor, 0)
             os.fchmod(descriptor, 0o000)
@@ -1252,10 +1314,7 @@ def _write_spatial_bundle_at(
     retained_files: dict[str, tuple[int, tuple[int, int]]] | None = None,
 ) -> None:
     directory_flags = (
-        os.O_RDONLY
-        | os.O_CLOEXEC
-        | os.O_DIRECTORY
-        | getattr(os, "O_NOFOLLOW", 0)
+        os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
     )
     for relpath, content in sorted(files.items()):
         parts = _safe_relative(relpath).parts
@@ -1326,9 +1385,7 @@ def _entry_identity(
     directory: bool,
 ) -> tuple[int, int] | None:
     try:
-        metadata = os.stat(
-            name, dir_fd=parent_descriptor, follow_symlinks=False
-        )
+        metadata = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
     except OSError:
         return None
     expected_type = stat.S_ISDIR if directory else stat.S_ISREG
@@ -1381,15 +1438,20 @@ def _restore_quarantined_entry(
     quarantine_name: str,
     original_name: str,
 ) -> None:
-    if _entry_identity(
-        parent_descriptor,
-        original_name,
-        directory=False,
-    ) is not None or _entry_identity(
-        parent_descriptor,
-        original_name,
-        directory=True,
-    ) is not None:
+    if (
+        _entry_identity(
+            parent_descriptor,
+            original_name,
+            directory=False,
+        )
+        is not None
+        or _entry_identity(
+            parent_descriptor,
+            original_name,
+            directory=True,
+        )
+        is not None
+    ):
         return
     try:
         _rename_noreplace(
@@ -1405,11 +1467,14 @@ def _restore_quarantined_entry(
 def _remove_bundle_if_identity(
     parent_descriptor: int, name: str, identity: tuple[int, int]
 ) -> bool:
-    if _entry_identity(
-        parent_descriptor,
-        name,
-        directory=True,
-    ) != identity:
+    if (
+        _entry_identity(
+            parent_descriptor,
+            name,
+            directory=True,
+        )
+        != identity
+    ):
         return False
     quarantine_name = f".{name}.{uuid.uuid4().hex}.rollback"
     _rename_noreplace(
@@ -1418,23 +1483,21 @@ def _remove_bundle_if_identity(
         parent_descriptor,
         quarantine_name,
     )
-    if _entry_identity(
-        parent_descriptor,
-        quarantine_name,
-        directory=True,
-    ) != identity:
+    if (
+        _entry_identity(
+            parent_descriptor,
+            quarantine_name,
+            directory=True,
+        )
+        != identity
+    ):
         _restore_quarantined_entry(
             parent_descriptor,
             quarantine_name,
             name,
         )
         return False
-    flags = (
-        os.O_RDONLY
-        | os.O_CLOEXEC
-        | os.O_DIRECTORY
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
+    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(
         quarantine_name,
         flags,
@@ -1474,9 +1537,8 @@ def _scrub_retained_spatial_files(
     for descriptor, identity in retained_files.values():
         try:
             metadata = os.fstat(descriptor)
-            if (
-                (metadata.st_dev, metadata.st_ino) != identity
-                or not stat.S_ISREG(metadata.st_mode)
+            if (metadata.st_dev, metadata.st_ino) != identity or not stat.S_ISREG(
+                metadata.st_mode
             ):
                 scrubbed = False
                 continue
@@ -1498,11 +1560,14 @@ def _scrub_retained_spatial_files(
 def _unlink_file_if_identity(
     parent_descriptor: int, name: str, identity: tuple[int, int]
 ) -> bool:
-    if _entry_identity(
-        parent_descriptor,
-        name,
-        directory=False,
-    ) != identity:
+    if (
+        _entry_identity(
+            parent_descriptor,
+            name,
+            directory=False,
+        )
+        != identity
+    ):
         return False
     quarantine_name = f".{name}.{uuid.uuid4().hex}.rollback"
     _rename_noreplace(
@@ -1511,11 +1576,14 @@ def _unlink_file_if_identity(
         parent_descriptor,
         quarantine_name,
     )
-    if _entry_identity(
-        parent_descriptor,
-        quarantine_name,
-        directory=False,
-    ) != identity:
+    if (
+        _entry_identity(
+            parent_descriptor,
+            quarantine_name,
+            directory=False,
+        )
+        != identity
+    ):
         _restore_quarantined_entry(
             parent_descriptor,
             quarantine_name,
@@ -1547,11 +1615,14 @@ def _unlink_file_if_identity(
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
-    if _entry_identity(
-        parent_descriptor,
-        quarantine_name,
-        directory=False,
-    ) != identity:
+    if (
+        _entry_identity(
+            parent_descriptor,
+            quarantine_name,
+            directory=False,
+        )
+        != identity
+    ):
         return False
     os.fsync(parent_descriptor)
     return True
@@ -1586,9 +1657,7 @@ def _read_file_at_identity(
         while remaining:
             chunk = os.read(descriptor, min(1024 * 1024, remaining))
             if not chunk:
-                raise ValueError(
-                    "manfred_candidate_spatial_output_identity_drift"
-                )
+                raise ValueError("manfred_candidate_spatial_output_identity_drift")
             chunks.append(chunk)
             remaining -= len(chunk)
         final = os.fstat(descriptor)
@@ -1615,15 +1684,37 @@ def materialize_spatial_handoff(
     *,
     source_bundle_dir: Path,
     upstream_authority_receipt_path: Path,
+    final_review_receipt_path: Path | None = None,
+    browser_review_receipt_path: Path | None = None,
     handoff_bundle_dir: Path,
     handoff_receipt_path: Path,
     target_origin: str,
 ) -> dict[str, object]:
-    source_bundle_dir = Path(
-        os.path.abspath(os.fspath(source_bundle_dir.expanduser()))
-    )
+    source_bundle_dir = Path(os.path.abspath(os.fspath(source_bundle_dir.expanduser())))
     upstream_authority_receipt_path = Path(
         os.path.abspath(os.fspath(upstream_authority_receipt_path.expanduser()))
+    )
+    final_review_receipt_path = Path(
+        os.path.abspath(
+            os.fspath(
+                (
+                    final_review_receipt_path
+                    if final_review_receipt_path is not None
+                    else PROPERTY_FINAL_REVIEW_RECEIPT
+                ).expanduser()
+            )
+        )
+    )
+    browser_review_receipt_path = Path(
+        os.path.abspath(
+            os.fspath(
+                (
+                    browser_review_receipt_path
+                    if browser_review_receipt_path is not None
+                    else PROPERTY_BROWSER_REVIEW_RECEIPT
+                ).expanduser()
+            )
+        )
     )
     handoff_bundle_dir = Path(
         os.path.abspath(os.fspath(handoff_bundle_dir.expanduser()))
@@ -1633,19 +1724,22 @@ def materialize_spatial_handoff(
     )
     target_origin = _validate_public_base_url(target_origin)
     output_paths = (handoff_bundle_dir, handoff_receipt_path)
-    property_inputs = (source_bundle_dir, upstream_authority_receipt_path)
-    if (
-        handoff_bundle_dir.name != PROPERTY_AUTHORIZED_SLUG
-        or any(
-            output == property_input or property_input in output.parents
-            for output in output_paths
-            for property_input in property_inputs
-        )
+    property_inputs = (
+        source_bundle_dir,
+        upstream_authority_receipt_path,
+        final_review_receipt_path,
+        browser_review_receipt_path,
+    )
+    if handoff_bundle_dir.name != PROPERTY_AUTHORIZED_SLUG or any(
+        output == property_input or property_input in output.parents
+        for output in output_paths
+        for property_input in property_inputs
     ):
         raise ValueError("manfred_candidate_spatial_materialization_target_invalid")
-    snapshot = _spatial_tree_snapshot(
-        source_bundle_dir, require_sanitized_modes=True
-    )
+    # Intake may be operator-private (0700/0600) or group-readable/writable.
+    # The stable descriptor snapshot rejects unsafe/world-writable inputs and
+    # materialization below emits a detached, sanitized 0755/0644 projection.
+    snapshot = _spatial_tree_snapshot(source_bundle_dir, require_sanitized_modes=False)
     authority_bytes = _read_spatial_file_snapshot(
         upstream_authority_receipt_path,
         require_sanitized_modes=False,
@@ -1656,10 +1750,10 @@ def materialize_spatial_handoff(
         snapshot=snapshot,
         authority_bytes=authority_bytes,
         target_origin=target_origin,
+        final_review_receipt_path=final_review_receipt_path,
+        browser_review_receipt_path=browser_review_receipt_path,
     )
-    _verify_spatial_bundle_before_copy(
-        source_bundle_dir, slug=str(validated["slug"])
-    )
+    _verify_spatial_bundle_before_copy(source_bundle_dir, slug=str(validated["slug"]))
     receipt = {
         "schema": SPATIAL_HANDOFF_SCHEMA,
         "status": "pass",
@@ -1679,9 +1773,7 @@ def materialize_spatial_handoff(
         ],
         "upstream_public_activation_authority": True,
         "upstream_package_sha256": validated["upstream_package_sha256"],
-        "upstream_tour_manifest_sha256": validated[
-            "upstream_tour_manifest_sha256"
-        ],
+        "upstream_tour_manifest_sha256": validated["upstream_tour_manifest_sha256"],
         "source_artifact_commit": PROPERTY_ARTIFACT_COMMIT,
         "source_packager_commit": PROPERTY_PACKAGER_COMMIT,
         "review_evidence": validated["review_evidence"],
@@ -1713,9 +1805,7 @@ def materialize_spatial_handoff(
                 dir_fd=bundle_parent_descriptor,
             )
         except OSError as exc:
-            raise ValueError(
-                "manfred_candidate_spatial_output_staging_failed"
-            ) from exc
+            raise ValueError("manfred_candidate_spatial_output_staging_failed") from exc
         staging_metadata = os.fstat(staging_descriptor)
         staging_identity = (staging_metadata.st_dev, staging_metadata.st_ino)
         _write_spatial_bundle_at(
@@ -1733,9 +1823,7 @@ def materialize_spatial_handoff(
         path_metadata = os.lstat(staging_path)
         if (path_metadata.st_dev, path_metadata.st_ino) != staging_identity:
             raise ValueError("manfred_candidate_spatial_output_parent_changed")
-        _verify_spatial_bundle_before_copy(
-            staging_path, slug=str(validated["slug"])
-        )
+        _verify_spatial_bundle_before_copy(staging_path, slug=str(validated["slug"]))
         staged_snapshot = _spatial_tree_snapshot(
             staging_path,
             require_sanitized_modes=True,
@@ -1766,13 +1854,8 @@ def materialize_spatial_handoff(
                 expected_file_identities=retained_identities,
             )
         except (OSError, ValueError) as exc:
-            raise ValueError(
-                "manfred_candidate_spatial_output_install_drift"
-            ) from exc
-        if (
-            installed_identity != staging_identity
-            or installed_snapshot != snapshot
-        ):
+            raise ValueError("manfred_candidate_spatial_output_install_drift") from exc
+        if installed_identity != staging_identity or installed_snapshot != snapshot:
             raise ValueError("manfred_candidate_spatial_output_install_drift")
         os.fsync(bundle_parent_descriptor)
         receipt_identity = _exclusive_write_at(
@@ -1785,8 +1868,7 @@ def materialize_spatial_handoff(
         )
         if (
             set(retained_receipt) != {handoff_receipt_path.name}
-            or retained_receipt[handoff_receipt_path.name][1]
-            != receipt_identity
+            or retained_receipt[handoff_receipt_path.name][1] != receipt_identity
         ):
             raise ValueError("manfred_candidate_spatial_retention_invalid")
         if (
@@ -1807,9 +1889,7 @@ def materialize_spatial_handoff(
                 expected_file_identities=retained_identities,
             )
         except (OSError, ValueError) as exc:
-            raise ValueError(
-                "manfred_candidate_spatial_output_install_drift"
-            ) from exc
+            raise ValueError("manfred_candidate_spatial_output_install_drift") from exc
         if final_installed_snapshot != snapshot:
             raise ValueError("manfred_candidate_spatial_output_install_drift")
         os.fsync(receipt_parent_descriptor)
@@ -1825,9 +1905,7 @@ def materialize_spatial_handoff(
                     receipt_cleanup_failed = True
             except (OSError, ValueError):
                 receipt_cleanup_failed = True
-            if retained_receipt and not _scrub_retained_spatial_files(
-                retained_receipt
-            ):
+            if retained_receipt and not _scrub_retained_spatial_files(retained_receipt):
                 receipt_cleanup_failed = True
             if receipt_cleanup_failed:
                 rollback_failures.append("receipt")
@@ -1884,11 +1962,21 @@ def _validated_spatial_handoff_input(
     *,
     bundle_dir: Path,
     authority_receipt_path: Path,
+    final_review_receipt_path: Path | None = None,
+    browser_review_receipt_path: Path | None = None,
     target_origin: str,
 ) -> dict[str, object]:
-    snapshot = _spatial_tree_snapshot(
-        bundle_dir, require_sanitized_modes=True
+    final_review_receipt_path = (
+        final_review_receipt_path
+        if final_review_receipt_path is not None
+        else PROPERTY_FINAL_REVIEW_RECEIPT
     )
+    browser_review_receipt_path = (
+        browser_review_receipt_path
+        if browser_review_receipt_path is not None
+        else PROPERTY_BROWSER_REVIEW_RECEIPT
+    )
+    snapshot = _spatial_tree_snapshot(bundle_dir, require_sanitized_modes=True)
     authority_bytes = _read_spatial_file_snapshot(
         authority_receipt_path, require_sanitized_modes=False
     )
@@ -1898,6 +1986,8 @@ def _validated_spatial_handoff_input(
         snapshot=snapshot,
         authority_bytes=authority_bytes,
         target_origin=target_origin,
+        final_review_receipt_path=final_review_receipt_path,
+        browser_review_receipt_path=browser_review_receipt_path,
     )
     if bundle_dir.name != validated["slug"]:
         raise ValueError("manfred_candidate_spatial_slug_invalid")
@@ -1912,23 +2002,96 @@ def _validated_spatial_handoff_input(
     }
 
 
+def _read_regular_source(
+    source: Path,
+    *,
+    maximum: int,
+    missing_ok: bool = False,
+) -> bytes | None:
+    source = Path(os.path.abspath(os.fspath(source.expanduser())))
+    parent_descriptor = _open_directory_path_nofollow(source.parent)
+
+    def identity(metadata: os.stat_result) -> tuple[int, ...]:
+        return (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_nlink,
+            metadata.st_uid,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        )
+
+    try:
+        try:
+            initial = os.stat(
+                source.name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            if missing_ok:
+                return None
+            raise ValueError("manfred_candidate_source_asset_missing") from None
+        if (
+            not stat.S_ISREG(initial.st_mode)
+            or stat.S_ISLNK(initial.st_mode)
+            or initial.st_uid != os.getuid()
+            or initial.st_nlink != 1
+            or stat.S_IMODE(initial.st_mode) & 0o002
+            or initial.st_size <= 0
+            or initial.st_size > maximum
+        ):
+            raise ValueError("manfred_candidate_source_asset_invalid")
+        flags = (
+            os.O_RDONLY
+            | os.O_CLOEXEC
+            | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        try:
+            descriptor = os.open(source.name, flags, dir_fd=parent_descriptor)
+        except OSError as exc:
+            raise ValueError("manfred_candidate_source_asset_invalid") from exc
+        try:
+            opened = os.fstat(descriptor)
+            if identity(initial) != identity(opened):
+                raise ValueError("manfred_candidate_source_asset_changed")
+            chunks: list[bytes] = []
+            remaining = int(opened.st_size)
+            while remaining:
+                chunk = os.read(descriptor, min(1024 * 1024, remaining))
+                if not chunk:
+                    raise ValueError("manfred_candidate_source_asset_changed")
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            if identity(opened) != identity(os.fstat(descriptor)):
+                raise ValueError("manfred_candidate_source_asset_changed")
+        finally:
+            os.close(descriptor)
+        try:
+            final_path = os.stat(
+                source.name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+        except OSError as exc:
+            raise ValueError("manfred_candidate_source_asset_changed") from exc
+        if identity(initial) != identity(final_path):
+            raise ValueError("manfred_candidate_source_asset_changed")
+        return b"".join(chunks)
+    finally:
+        os.close(parent_descriptor)
+
+
 def _copy_regular(
     source: Path, destination: Path, *, maximum: int, mode: int
 ) -> dict[str, object]:
-    try:
-        metadata = source.lstat()
-    except OSError as exc:
-        raise ValueError("manfred_candidate_source_asset_missing") from exc
-    if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
-        raise ValueError("manfred_candidate_source_asset_invalid")
-    if metadata.st_size <= 0 or metadata.st_size > maximum:
-        raise ValueError("manfred_candidate_source_asset_size_invalid")
-    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    content = source.read_bytes()
-    if len(content) != metadata.st_size:
-        raise ValueError("manfred_candidate_source_asset_changed")
-    destination.write_bytes(content)
-    destination.chmod(mode)
+    content = _read_regular_source(source, maximum=maximum)
+    if content is None:  # pragma: no cover - missing_ok is false
+        raise ValueError("manfred_candidate_source_asset_missing")
+    _write_bytes(destination, content, mode=mode)
     return {"sha256": _sha256(content), "size_bytes": len(content)}
 
 
@@ -1937,6 +2100,462 @@ def _write_bytes(destination: Path, content: bytes, *, mode: int) -> dict[str, o
     destination.write_bytes(content)
     destination.chmod(mode)
     return {"sha256": _sha256(content), "size_bytes": len(content)}
+
+
+def _candidate_release_authority_paths(root: Path) -> dict[str, Path]:
+    return {
+        name: root / filename
+        for name, filename in CANDIDATE_RELEASE_AUTHORITY_FILENAMES.items()
+    }
+
+
+def _candidate_release_authority_container_paths() -> dict[str, str]:
+    return {
+        name: str(CANDIDATE_RELEASE_AUTHORITY_CONTAINER_ROOT / filename)
+        for name, filename in CANDIDATE_RELEASE_AUTHORITY_FILENAMES.items()
+    }
+
+
+def _candidate_remote_main_evidence(
+    source_root: Path,
+    *,
+    commit: str,
+) -> dict[str, object]:
+    if _run(["git", "status", "--short"], cwd=source_root).strip():
+        raise ValueError("manfred_candidate_release_source_dirty")
+    head_commit = _commit(source_root, "HEAD")
+    if head_commit != commit:
+        raise ValueError("manfred_candidate_release_head_mismatch")
+    remote_ref = "refs/remotes/origin/main"
+    remote_commit = _commit(source_root, remote_ref)
+    if remote_commit != commit:
+        raise ValueError("manfred_candidate_release_remote_main_mismatch")
+    try:
+        configured_origin = (
+            _run(["git", "remote", "get-url", "origin"], cwd=source_root)
+            .decode("utf-8", errors="strict")
+            .strip()
+        )
+    except (OSError, subprocess.CalledProcessError, UnicodeError) as exc:
+        raise ValueError("manfred_candidate_release_remote_main_unverifiable") from exc
+    if configured_origin not in OFFICIAL_EA_REMOTE_ORIGINS:
+        raise ValueError("manfred_candidate_release_remote_origin_invalid")
+
+    live_git_environment = {
+        "GIT_ALLOW_PROTOCOL": "https",
+        "GIT_ASKPASS": "/bin/false",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_PROTOCOL_FROM_USER": "0",
+        "GIT_TERMINAL_PROMPT": "0",
+        "HOME": os.sep,
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "PATH": os.environ.get("PATH") or os.defpath,
+        "SSH_ASKPASS": "/bin/false",
+    }
+    try:
+        _run(
+            ["git", "merge-base", "--is-ancestor", commit, remote_ref],
+            cwd=source_root,
+        )
+        live_output = (
+            _run(
+                [
+                    "git",
+                    "-c",
+                    "protocol.allow=never",
+                    "-c",
+                    "protocol.https.allow=always",
+                    "-c",
+                    "credential.helper=",
+                    "-c",
+                    "core.askPass=",
+                    "ls-remote",
+                    "--exit-code",
+                    OFFICIAL_EA_REMOTE_ORIGIN,
+                    "refs/heads/main",
+                ],
+                cwd=Path(os.sep),
+                timeout=30,
+                environment=live_git_environment,
+            )
+            .decode("ascii", errors="strict")
+            .strip()
+        )
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        UnicodeError,
+    ) as exc:
+        raise ValueError("manfred_candidate_release_remote_main_unverifiable") from exc
+    live_rows = live_output.splitlines()
+    if len(live_rows) != 1:
+        raise ValueError("manfred_candidate_release_remote_main_unverifiable")
+    live_commit, separator, live_ref = live_rows[0].partition("\t")
+    live_commit = live_commit.strip().lower()
+    if (
+        separator != "\t"
+        or live_ref != "refs/heads/main"
+        or not COMMIT_RE.fullmatch(live_commit)
+        or live_commit != commit
+    ):
+        raise ValueError("manfred_candidate_release_live_main_mismatch")
+    return {
+        "source_head_commit_sha": head_commit,
+        "source_head_matches_candidate_commit": True,
+        "source_remote_ref": remote_ref,
+        "source_remote_ref_commit_sha": remote_commit,
+        "source_remote_ref_evidence": "local_remote_tracking_ref",
+        "source_commit_reachable_from_remote_ref": True,
+        "git_remote_origin": OFFICIAL_EA_REMOTE_ORIGIN,
+        "live_remote_ref": live_ref,
+        "live_remote_ref_commit_sha": live_commit,
+        "live_remote_ref_evidence": LIVE_REMOTE_REF_EVIDENCE,
+    }
+
+
+def _materialize_candidate_release_authority(
+    *,
+    root: Path,
+    source_root: Path,
+    commit: str,
+    image_id: str,
+    image_revision: str,
+    project_name: str,
+    public_origin: str,
+    generated_at: str,
+    public_artifacts: list[str],
+) -> dict[str, object]:
+    if commit != image_revision or not COMMIT_RE.fullmatch(commit):
+        raise ValueError("manfred_candidate_release_identity_mismatch")
+    remote = _candidate_remote_main_evidence(source_root, commit=commit)
+    deployment_id = f"{project_name}-{commit[:12]}"
+    enabled_modes = ["MEMORIAL", "PROPERTY"]
+    compose_files = ["deploy/manfred-memorial/docker-compose.candidate.yml"]
+    paths = _candidate_release_authority_paths(root)
+    container_paths = _candidate_release_authority_container_paths()
+    root.mkdir(parents=True, mode=0o700)
+
+    tracked_modes = _strict_json_object(
+        _git_blob(
+            source_root,
+            commit,
+            ".codex-design/product/PROJECT_MODES.generated.json",
+        ),
+        error="manfred_candidate_release_project_modes_invalid",
+    )
+    declared_modes = {
+        str(row.get("key") or "").strip()
+        for row in list(tracked_modes.get("modes") or [])
+        if isinstance(row, dict)
+    }
+    if tracked_modes.get("contract_name") != "ea.project_modes" or not set(
+        enabled_modes
+    ).issubset(declared_modes):
+        raise ValueError("manfred_candidate_release_project_modes_invalid")
+    project_modes = {
+        **tracked_modes,
+        "generated_at": generated_at,
+        "generated_by": "scripts/prepare_manfred_memorial_candidate.py",
+        "source_git_head": commit,
+        "head_semantics": "candidate_release",
+    }
+    project_modes_bytes = _receipt_bytes(project_modes)
+    _write_bytes(paths["project_modes"], project_modes_bytes, mode=0o444)
+
+    deploy_context = {
+        "contract_name": "ea.deploy_context.v1",
+        "generated_by": "scripts/prepare_manfred_memorial_candidate.py",
+        "generated_at": generated_at,
+        "repository": "EA",
+        "deployment_id": deployment_id,
+        "deployment_id_source": "explicit",
+        "public_origin": public_origin,
+        "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
+        "branch": "main",
+        "tracking_branch": "origin/main",
+        "commit_sha": commit,
+        "release_label": deployment_id,
+        "project_mode": "MEMORIAL",
+        "enabled_project_modes": enabled_modes,
+        "compose_files": compose_files,
+        "compose_overrides": [],
+    }
+    deploy_context_gate = verify_deploy_context(deploy_context=deploy_context)
+    if deploy_context_gate.get("status") != "pass":
+        raise ValueError("manfred_candidate_release_deploy_context_invalid")
+    deploy_context_bytes = _receipt_bytes(deploy_context)
+    _write_bytes(paths["deploy_context"], deploy_context_bytes, mode=0o444)
+
+    artifacts = sorted(
+        {str(value).strip() for value in public_artifacts if str(value).strip()}
+    )
+    if not artifacts:
+        raise ValueError("manfred_candidate_release_artifacts_missing")
+    release_manifest = {
+        "contract_name": "ea.release_manifest.v1",
+        "generated_at": generated_at,
+        "generated_by": "scripts/prepare_manfred_memorial_candidate.py",
+        "repository": "EA",
+        "branch": "main",
+        "tracking_branch": "origin/main",
+        "commit_sha": commit,
+        **remote,
+        "dirty_worktree": False,
+        "source_worktree_dirty": False,
+        "source_dirty_count": 0,
+        "source_dirty_files": [],
+        "source_dirty_omitted_count": 0,
+        "source_dirty_status_sha256": "",
+        "deploy_context_generated_at": generated_at,
+        "deploy_context_branch": "main",
+        "deploy_context_tracking_branch": "origin/main",
+        "deploy_context_commit_sha": commit,
+        "deployment_id": deployment_id,
+        "deployment_id_source": "explicit",
+        "public_origin": public_origin,
+        "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
+        "project_mode": "MEMORIAL",
+        "enabled_project_modes": enabled_modes,
+        "compose_files": compose_files,
+        "compose_overrides": [],
+        "artifact_set": artifacts,
+        "release_label": deployment_id,
+    }
+    if validate_release_authority(
+        release_manifest=release_manifest,
+        project_modes=project_modes,
+    ) or validate_release_runtime_mode(
+        release_manifest=release_manifest,
+        project_modes=project_modes,
+        requested_mode="MEMORIAL",
+        enabled_modes=enabled_modes,
+        compose_overrides=[],
+        manfred_composite_candidate_observed=True,
+    ):
+        raise ValueError("manfred_candidate_release_manifest_invalid")
+    release_manifest_bytes = _receipt_bytes(release_manifest)
+    _write_bytes(
+        paths["release_manifest"],
+        release_manifest_bytes,
+        mode=0o444,
+    )
+
+    release_status = build_status(
+        release_manifest_path=paths["release_manifest"],
+        deploy_context_path=paths["deploy_context"],
+        project_modes_path=paths["project_modes"],
+        generated_at=generated_at,
+    )
+    release_status["manifest_path"] = container_paths["release_manifest"]
+    release_status["deploy_context_path"] = container_paths["deploy_context"]
+    release_status["project_modes_path"] = container_paths["project_modes"]
+    gate = dict(release_status.get("gate") or {})
+    gate["manifest_path"] = container_paths["release_manifest"]
+    gate["deploy_context_path"] = container_paths["deploy_context"]
+    gate["project_modes_path"] = container_paths["project_modes"]
+    release_status["gate"] = gate
+    release_status["candidate_runtime"] = True
+    release_status["promotion_authority"] = False
+    if (
+        release_status.get("state") != "clear"
+        or release_status.get("authority_posture") != "authoritative_runtime"
+        or gate.get("status") != "pass"
+        or release_status.get("commit_sha") != commit
+        or release_status.get("deployment_id") != deployment_id
+    ):
+        raise ValueError("manfred_candidate_release_status_invalid")
+    release_status_bytes = _receipt_bytes(release_status)
+    _write_bytes(paths["release_status"], release_status_bytes, mode=0o444)
+
+    document_bytes = {
+        "deploy_context": deploy_context_bytes,
+        "project_modes": project_modes_bytes,
+        "release_manifest": release_manifest_bytes,
+        "release_status": release_status_bytes,
+    }
+    receipt = {
+        "schema": CANDIDATE_RELEASE_AUTHORITY_SCHEMA,
+        "status": "pass",
+        "generated_at": generated_at,
+        "commit_sha": commit,
+        "image_id": image_id,
+        "image_revision": image_revision,
+        "deployment_id": deployment_id,
+        "project_mode": "MEMORIAL",
+        "enabled_project_modes": enabled_modes,
+        "container_paths": container_paths,
+        "documents": {
+            name: {
+                "sha256": _sha256(content),
+                "size_bytes": len(content),
+            }
+            for name, content in sorted(document_bytes.items())
+        },
+        "source_remote_ref": remote["source_remote_ref"],
+        "source_remote_ref_commit_sha": remote["source_remote_ref_commit_sha"],
+        "source_commit_reachable_from_remote_ref": True,
+        "git_remote_origin": remote["git_remote_origin"],
+        "live_remote_ref": remote["live_remote_ref"],
+        "live_remote_ref_commit_sha": remote["live_remote_ref_commit_sha"],
+        "live_remote_ref_evidence": remote["live_remote_ref_evidence"],
+        "runtime_authority_state": "clear",
+        "runtime_authority_posture": "authoritative_runtime",
+        "promotion_authority": False,
+        "secret_material_recorded": False,
+    }
+    receipt_bytes = _receipt_bytes(receipt)
+    _write_bytes(paths["receipt"], receipt_bytes, mode=0o444)
+    return _validate_candidate_release_authority_bundle(
+        root,
+        expected_commit=commit,
+        expected_image_id=image_id,
+        expected_project_name=project_name,
+        expected_public_origin=public_origin,
+    )
+
+
+def _validate_candidate_release_authority_bundle(
+    root: Path,
+    *,
+    expected_commit: str,
+    expected_image_id: str,
+    expected_project_name: str,
+    expected_public_origin: str,
+) -> dict[str, object]:
+    normalized_root = root.resolve()
+    if root.is_symlink() or not normalized_root.is_dir():
+        raise ValueError("manfred_candidate_release_authority_root_invalid")
+    paths = _candidate_release_authority_paths(normalized_root)
+    if {path.name for path in normalized_root.iterdir()} != {
+        path.name for path in paths.values()
+    }:
+        raise ValueError("manfred_candidate_release_authority_files_invalid")
+    payloads: dict[str, dict[str, object]] = {}
+    contents: dict[str, bytes] = {}
+    for name, path in paths.items():
+        metadata = path.lstat()
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or stat.S_ISLNK(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or metadata.st_size <= 0
+            or metadata.st_size > 8 * 1024 * 1024
+        ):
+            raise ValueError("manfred_candidate_release_authority_files_invalid")
+        contents[name] = path.read_bytes()
+        payloads[name] = _strict_json_object(
+            contents[name],
+            error="manfred_candidate_release_authority_json_invalid",
+        )
+    manifest = payloads["release_manifest"]
+    project_modes = payloads["project_modes"]
+    deploy_context = payloads["deploy_context"]
+    status = payloads["release_status"]
+    receipt = payloads["receipt"]
+    expected_deployment_id = (
+        f"{_validate_project_name(expected_project_name)}-{expected_commit[:12]}"
+    )
+    container_paths = _candidate_release_authority_container_paths()
+    document_evidence = {
+        name: {
+            "sha256": _sha256(contents[name]),
+            "size_bytes": len(contents[name]),
+        }
+        for name in (
+            "deploy_context",
+            "project_modes",
+            "release_manifest",
+            "release_status",
+        )
+    }
+    if (
+        not COMMIT_RE.fullmatch(expected_commit)
+        or validate_release_authority(
+            release_manifest=manifest,
+            project_modes=project_modes,
+        )
+        or validate_release_runtime_mode(
+            release_manifest=manifest,
+            project_modes=project_modes,
+            requested_mode="MEMORIAL",
+            enabled_modes=["MEMORIAL", "PROPERTY"],
+            compose_overrides=[],
+            manfred_composite_candidate_observed=True,
+        )
+        or verify_deploy_context(deploy_context=deploy_context).get("status") != "pass"
+        or manifest.get("commit_sha") != expected_commit
+        or manifest.get("source_remote_ref_commit_sha") != expected_commit
+        or manifest.get("source_commit_reachable_from_remote_ref") is not True
+        or manifest.get("git_remote_origin") != OFFICIAL_EA_REMOTE_ORIGIN
+        or manifest.get("live_remote_ref") != "refs/heads/main"
+        or manifest.get("live_remote_ref_commit_sha") != expected_commit
+        or manifest.get("live_remote_ref_evidence") != LIVE_REMOTE_REF_EVIDENCE
+        or manifest.get("deployment_id") != expected_deployment_id
+        or manifest.get("public_origin") != expected_public_origin
+        or manifest.get("project_mode") != "MEMORIAL"
+        or manifest.get("enabled_project_modes") != ["MEMORIAL", "PROPERTY"]
+        or manifest.get("compose_files")
+        != ["deploy/manfred-memorial/docker-compose.candidate.yml"]
+        or manifest.get("compose_overrides") != []
+        or deploy_context.get("commit_sha") != expected_commit
+        or deploy_context.get("deployment_id") != expected_deployment_id
+        or deploy_context.get("public_origin") != expected_public_origin
+        or deploy_context.get("compose_files")
+        != ["deploy/manfred-memorial/docker-compose.candidate.yml"]
+        or deploy_context.get("compose_overrides") != []
+        or project_modes.get("source_git_head") != expected_commit
+        or status.get("contract_name") != "ea.release_authority_status.v1"
+        or status.get("state") != "clear"
+        or status.get("authority_posture") != "authoritative_runtime"
+        or status.get("commit_sha") != expected_commit
+        or status.get("deployment_id") != expected_deployment_id
+        or status.get("manifest_path") != container_paths["release_manifest"]
+        or status.get("deploy_context_path") != container_paths["deploy_context"]
+        or status.get("project_modes_path") != container_paths["project_modes"]
+        or status.get("candidate_runtime") is not True
+        or status.get("promotion_authority") is not False
+        or dict(status.get("gate") or {}).get("status") != "pass"
+        or receipt.get("schema") != CANDIDATE_RELEASE_AUTHORITY_SCHEMA
+        or receipt.get("status") != "pass"
+        or receipt.get("commit_sha") != expected_commit
+        or receipt.get("image_id") != expected_image_id
+        or receipt.get("image_revision") != expected_commit
+        or receipt.get("deployment_id") != expected_deployment_id
+        or receipt.get("git_remote_origin") != OFFICIAL_EA_REMOTE_ORIGIN
+        or receipt.get("live_remote_ref") != "refs/heads/main"
+        or receipt.get("live_remote_ref_commit_sha") != expected_commit
+        or receipt.get("live_remote_ref_evidence") != LIVE_REMOTE_REF_EVIDENCE
+        or receipt.get("container_paths") != container_paths
+        or receipt.get("documents") != document_evidence
+        or receipt.get("runtime_authority_state") != "clear"
+        or receipt.get("runtime_authority_posture") != "authoritative_runtime"
+        or receipt.get("promotion_authority") is not False
+        or receipt.get("secret_material_recorded") is not False
+    ):
+        raise ValueError("manfred_candidate_release_authority_binding_invalid")
+    return {
+        "schema": CANDIDATE_RELEASE_AUTHORITY_SCHEMA,
+        "status": "pass",
+        "root": str(normalized_root),
+        "commit_sha": expected_commit,
+        "image_id": expected_image_id,
+        "deployment_id": expected_deployment_id,
+        "git_remote_origin": OFFICIAL_EA_REMOTE_ORIGIN,
+        "live_remote_ref": "refs/heads/main",
+        "live_remote_ref_commit_sha": expected_commit,
+        "live_remote_ref_evidence": LIVE_REMOTE_REF_EVIDENCE,
+        "project_mode": "MEMORIAL",
+        "enabled_project_modes": ["MEMORIAL", "PROPERTY"],
+        "container_paths": container_paths,
+        "documents": document_evidence,
+        "runtime_authority_state": "clear",
+        "runtime_authority_posture": "authoritative_runtime",
+        "promotion_authority": False,
+        "secret_material_recorded": False,
+    }
 
 
 def _load_private_context(
@@ -2314,28 +2933,182 @@ def _image_revision(image: str) -> tuple[str, str]:
     )
 
 
-def _parse_env(path: Path) -> dict[str, str]:
-    if not path.exists():
-        return {}
-    if stat.S_IMODE(path.stat().st_mode) != 0o600:
-        raise ValueError("manfred_candidate_env_permissions_invalid")
+def _read_private_output(
+    path: Path,
+    *,
+    maximum: int = PRIVATE_OUTPUT_MAX_BYTES,
+    missing_ok: bool = False,
+) -> bytes | None:
+    absolute = Path(os.path.abspath(os.fspath(path.expanduser())))
+    if missing_ok and not os.path.lexists(absolute):
+        return None
+    flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(absolute, flags)
+    except OSError as exc:
+        raise ValueError("manfred_candidate_private_output_invalid") from exc
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.getuid()
+            or before.st_nlink != 1
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_size <= 0
+            or before.st_size > maximum
+        ):
+            raise ValueError("manfred_candidate_private_output_invalid")
+        chunks: list[bytes] = []
+        remaining = int(before.st_size)
+        while remaining:
+            chunk = os.read(descriptor, min(65536, remaining))
+            if not chunk:
+                raise ValueError("manfred_candidate_private_output_changed")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        path_status = os.stat(absolute, follow_symlinks=False)
+    except OSError as exc:
+        raise ValueError("manfred_candidate_private_output_changed") from exc
+    identity = (
+        before.st_dev,
+        before.st_ino,
+        before.st_mode,
+        before.st_nlink,
+        before.st_size,
+        before.st_mtime_ns,
+        before.st_ctime_ns,
+    )
+    if identity != (
+        after.st_dev,
+        after.st_ino,
+        after.st_mode,
+        after.st_nlink,
+        after.st_size,
+        after.st_mtime_ns,
+        after.st_ctime_ns,
+    ) or (path_status.st_dev, path_status.st_ino) != (before.st_dev, before.st_ino):
+        raise ValueError("manfred_candidate_private_output_changed")
+    return b"".join(chunks)
+
+
+def _install_private_output_noreplace(
+    path: Path,
+    content: bytes,
+    *,
+    conflict_error: str,
+) -> bool:
+    """Install private evidence once; return True only for exact-byte reuse."""
+
+    if not content or len(content) > PRIVATE_OUTPUT_MAX_BYTES:
+        raise ValueError("manfred_candidate_private_output_invalid")
+    path = Path(os.path.abspath(os.fspath(path.expanduser())))
+    path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    try:
+        parent = path.parent.resolve(strict=True)
+        parent_status = parent.stat()
+    except OSError as exc:
+        raise ValueError("manfred_candidate_private_output_parent_invalid") from exc
+    if (
+        parent != path.parent
+        or not stat.S_ISDIR(parent_status.st_mode)
+        or parent_status.st_uid != os.getuid()
+        or stat.S_IMODE(parent_status.st_mode) & 0o022
+    ):
+        raise ValueError("manfred_candidate_private_output_parent_invalid")
+
+    existing = _read_private_output(path, missing_ok=True)
+    if existing is not None:
+        if existing == content:
+            return True
+        raise ValueError(conflict_error)
+
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=parent)
+    temporary_path = Path(temporary)
+    directory_descriptor = -1
+    installed = False
+    try:
+        os.fchmod(descriptor, 0o600)
+        view = memoryview(content)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise ValueError("manfred_candidate_private_output_write_failed")
+            view = view[written:]
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        directory_descriptor = os.open(
+            parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            _rename_noreplace(
+                directory_descriptor,
+                temporary_path.name,
+                directory_descriptor,
+                path.name,
+            )
+            installed = True
+            temporary = ""
+        except ValueError as exc:
+            if str(exc) != "manfred_candidate_spatial_output_exists":
+                raise ValueError(
+                    "manfred_candidate_private_output_install_failed"
+                ) from exc
+            existing = _read_private_output(path)
+            if existing != content:
+                raise ValueError(conflict_error) from exc
+        os.fsync(directory_descriptor)
+        observed = _read_private_output(path)
+        if observed != content:
+            raise ValueError("manfred_candidate_private_output_changed")
+        return not installed
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if directory_descriptor >= 0:
+            os.close(directory_descriptor)
+        if temporary:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _parse_env_bytes(content: bytes) -> dict[str, str]:
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("manfred_candidate_env_invalid") from exc
     values: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
         if "=" not in line:
             raise ValueError("manfred_candidate_env_invalid")
         key, value = line.split("=", 1)
-        if not key or any(
-            character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
-            for character in key
+        if (
+            not key
+            or any(
+                character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+                for character in key
+            )
+            or key in values
         ):
             raise ValueError("manfred_candidate_env_invalid")
         if "\x00" in value or "\n" in value or "\r" in value:
             raise ValueError("manfred_candidate_env_invalid")
         values[key] = value
     return values
+
+
+def _parse_env(path: Path) -> dict[str, str]:
+    content = _read_private_output(path, missing_ok=True)
+    if content is None:
+        return {}
+    return _parse_env_bytes(content)
 
 
 def _write_env(
@@ -2347,12 +3120,17 @@ def _write_env(
     public_base_url: str,
     host_port: int,
     project_name: str,
+    commit: str,
     spatial_release_root: Path | None = None,
     spatial_handoff_included: bool = False,
     spatial_slug: str = "",
     spatial_sha256: str = "",
     rotate_secrets: bool = False,
 ) -> None:
+    if not COMMIT_RE.fullmatch(commit):
+        raise ValueError("manfred_candidate_commit_invalid")
+    normalized_project_name = _validate_project_name(project_name)
+    deployment_id = f"{normalized_project_name}-{commit[:12]}"
     current = _parse_env(path)
     postgres_password = (
         "" if rotate_secrets else current.get("EA_MANFRED_POSTGRES_PASSWORD", "")
@@ -2372,10 +3150,15 @@ def _write_env(
     if spatial_handoff_included != bool(spatial_slug):
         raise ValueError("manfred_candidate_spatial_slug_invalid")
     values = {
-        "EA_MANFRED_COMPOSE_PROJECT": _validate_project_name(project_name),
+        "EA_MANFRED_COMMIT": commit,
+        "EA_MANFRED_COMPOSE_PROJECT": normalized_project_name,
+        "EA_MANFRED_DEPLOYMENT_ID": deployment_id,
         "EA_MANFRED_IMAGE": image,
         "EA_MANFRED_ENV_FILE": str(path.resolve()),
         "EA_MANFRED_RELEASE_ROOT": str(release_root.resolve()),
+        "EA_MANFRED_RELEASE_AUTHORITY_ROOT": str(
+            (release_root / CANDIDATE_RELEASE_AUTHORITY_DIRNAME).resolve()
+        ),
         "EA_MANFRED_RUNTIME_ROOT": str(runtime_root.resolve()),
         "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED": (
             "1" if spatial_handoff_included else "0"
@@ -2390,47 +3173,36 @@ def _write_env(
         "EA_SIGNING_SECRET": signing_secret,
         "EA_PUBLIC_APP_BASE_URL": public_base_url,
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(
-        prefix=f".{path.name}.", dir=str(path.parent)
+    encoded = "".join(f"{key}={values[key]}\n" for key in sorted(values)).encode(
+        "utf-8"
     )
-    try:
-        os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            descriptor = -1
-            for key in sorted(values):
-                handle.write(f"{key}={values[key]}\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        path.chmod(0o600)
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        Path(temporary).unlink(missing_ok=True)
+    _install_private_output_noreplace(
+        path,
+        encoded,
+        conflict_error="manfred_candidate_env_existing_conflict",
+    )
 
 
 def _atomic_receipt(path: Path, payload: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(
-        prefix=f".{path.name}.", dir=str(path.parent)
+    _install_private_output_noreplace(
+        path,
+        _receipt_bytes(payload),
+        conflict_error="manfred_candidate_receipt_existing_conflict",
     )
-    try:
-        os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            descriptor = -1
-            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        path.chmod(0o600)
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        Path(temporary).unlink(missing_ok=True)
 
 
+def _hold_candidate_preparation_fleet_lock(function):  # type: ignore[no-untyped-def]
+    @functools.wraps(function)
+    def locked(*args, **kwargs):  # type: ignore[no-untyped-def]
+        with hold_candidate_fleet_lock() as evidence:
+            if evidence is None:  # pragma: no cover - raising mode
+                raise RuntimeError("manfred_candidate_fleet_lock_held")
+            return function(*args, **kwargs)
+
+    return locked
+
+
+@_hold_candidate_preparation_fleet_lock
 def prepare_candidate(
     *,
     source_root: Path,
@@ -2442,6 +3214,8 @@ def prepare_candidate(
     project_name: str,
     spatial_tour_bundle_dir: Path | None = None,
     spatial_authority_receipt: Path | None = None,
+    spatial_final_review_receipt: Path | None = None,
+    spatial_browser_review_receipt: Path | None = None,
     runtime_uid: int = 10001,
     runtime_gid: int = 10001,
     rotate_secrets: bool = False,
@@ -2452,12 +3226,25 @@ def prepare_candidate(
         raise ValueError("manfred_candidate_host_port_invalid")
     project_name = _validate_project_name(project_name)
     public_base_url = _validate_public_base_url(public_base_url)
+    if bool(spatial_tour_bundle_dir) != bool(spatial_authority_receipt):
+        raise ValueError("manfred_candidate_spatial_input_pair_required")
+    if bool(spatial_final_review_receipt) != bool(spatial_browser_review_receipt):
+        raise ValueError("manfred_candidate_spatial_review_input_pair_required")
+    if bool(spatial_tour_bundle_dir) != bool(spatial_final_review_receipt):
+        raise ValueError("manfred_candidate_spatial_review_evidence_required")
+    if not all(
+        (
+            spatial_tour_bundle_dir,
+            spatial_authority_receipt,
+            spatial_final_review_receipt,
+            spatial_browser_review_receipt,
+        )
+    ):
+        raise ValueError("manfred_candidate_spatial_handoff_required")
     commit = _commit(source_root, ref)
     image_id, image_commit = _image_revision(image)
     if image_commit != commit:
         raise ValueError("manfred_candidate_image_revision_mismatch")
-    if bool(spatial_tour_bundle_dir) != bool(spatial_authority_receipt):
-        raise ValueError("manfred_candidate_spatial_input_pair_required")
     spatial_handoff: dict[str, object] = {
         "included": False,
         "slug": "",
@@ -2475,13 +3262,24 @@ def prepare_candidate(
         "review_evidence": {},
         "verifier_receipt": {},
     }
-    if spatial_tour_bundle_dir and spatial_authority_receipt:
+    if (
+        spatial_tour_bundle_dir
+        and spatial_authority_receipt
+        and spatial_final_review_receipt
+        and spatial_browser_review_receipt
+    ):
         spatial_handoff = _validated_spatial_handoff_input(
             bundle_dir=Path(
                 os.path.abspath(os.fspath(spatial_tour_bundle_dir.expanduser()))
             ),
             authority_receipt_path=Path(
                 os.path.abspath(os.fspath(spatial_authority_receipt.expanduser()))
+            ),
+            final_review_receipt_path=Path(
+                os.path.abspath(os.fspath(spatial_final_review_receipt.expanduser()))
+            ),
+            browser_review_receipt_path=Path(
+                os.path.abspath(os.fspath(spatial_browser_review_receipt.expanduser()))
             ),
             target_origin=public_base_url,
         )
@@ -2552,8 +3350,18 @@ def prepare_candidate(
             )
 
         voice_manifest_path = private_source / "voice_profile_manifest.json"
-        if voice_manifest_path.is_file():
-            voice_manifest = json.loads(voice_manifest_path.read_text(encoding="utf-8"))
+        voice_manifest_bytes = _read_regular_source(
+            voice_manifest_path,
+            maximum=8 * 1024 * 1024,
+            missing_ok=True,
+        )
+        if voice_manifest_bytes is not None:
+            try:
+                voice_manifest = json.loads(voice_manifest_bytes)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ValueError("manfred_candidate_voice_manifest_invalid") from exc
+            if not isinstance(voice_manifest, dict):
+                raise ValueError("manfred_candidate_voice_manifest_invalid")
             for item in list(voice_manifest.get("audio_assets") or []):
                 if not isinstance(item, dict):
                     continue
@@ -2618,7 +3426,37 @@ def prepare_candidate(
                         **info,
                     }
                 )
+        authority_generated_at = _commit_generated_at(source_root, commit)
+        created_at = authority_generated_at
+        public_release_artifacts = [
+            str(row.get("path") or "")
+            for row in file_receipts
+            if str(row.get("path") or "").startswith(
+                ("public_memorials/", "public_property_tours/", "memorial_archive/")
+            )
+        ]
+        authority_root = staging / CANDIDATE_RELEASE_AUTHORITY_DIRNAME
+        _materialize_candidate_release_authority(
+            root=authority_root,
+            source_root=source_root,
+            commit=commit,
+            image_id=image_id,
+            image_revision=image_commit,
+            project_name=project_name,
+            public_origin=public_base_url,
+            generated_at=authority_generated_at,
+            public_artifacts=public_release_artifacts,
+        )
         _set_modes(staging)
+        _authority_digest, authority_files = _tree_digest(authority_root)
+        file_receipts.extend(
+            {
+                "path": (f"{CANDIDATE_RELEASE_AUTHORITY_DIRNAME}/{row['path']}"),
+                "sha256": row["sha256"],
+                "size_bytes": row["size_bytes"],
+            }
+            for row in authority_files
+        )
         spatial_projection_sha256, spatial_projected_files = _tree_digest(spatial_root)
         projection_sha256, projected_files = _tree_digest(staging)
         release_id = f"{commit[:12]}-{projection_sha256[:12]}"
@@ -2658,17 +3496,19 @@ def prepare_candidate(
             public_base_url=public_base_url,
             host_port=host_port,
             project_name=project_name,
+            commit=commit,
             spatial_release_root=release_root / "public_property_tours",
             spatial_handoff_included=bool(spatial_handoff.get("included")),
             spatial_slug=spatial_slug,
             spatial_sha256=spatial_projection_sha256,
             rotate_secrets=rotate_secrets,
         )
-        created_at = (
-            datetime.now(timezone.utc)
-            .replace(microsecond=0)
-            .isoformat()
-            .replace("+00:00", "Z")
+        release_authority = _validate_candidate_release_authority_bundle(
+            release_root / CANDIDATE_RELEASE_AUTHORITY_DIRNAME,
+            expected_commit=commit,
+            expected_image_id=image_id,
+            expected_project_name=project_name,
+            expected_public_origin=public_base_url,
         )
         spatial_receipt_path = receipts_root / f"{release_id}.spatial.json"
         spatial_receipt = {
@@ -2707,12 +3547,9 @@ def prepare_candidate(
                 spatial_handoff.get("upstream_tour_manifest_sha256") or ""
             ),
             "pre_authority_manifest_canonical_sha256": str(
-                spatial_handoff.get("pre_authority_manifest_canonical_sha256")
-                or ""
+                spatial_handoff.get("pre_authority_manifest_canonical_sha256") or ""
             ),
-            "review_evidence": dict(
-                spatial_handoff.get("review_evidence") or {}
-            ),
+            "review_evidence": dict(spatial_handoff.get("review_evidence") or {}),
             "source_verifier": dict(spatial_handoff.get("verifier_receipt") or {}),
             "candidate_handoff_authorized": bool(spatial_handoff.get("included")),
             "public_activation_authority": False,
@@ -2760,6 +3597,9 @@ def prepare_candidate(
                 spatial_handoff.get("upstream_public_activation_authority")
             ),
             "spatial_ea_public_activation_authority": False,
+            "release_authority": release_authority,
+            "release_authority_runtime_clear": True,
+            "release_authority_promotion_authority": False,
         }
         _atomic_receipt(receipts_root / f"{release_id}.json", receipt)
         return receipt
@@ -2792,11 +3632,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rotate-secrets", action="store_true")
     parser.add_argument(
         "--spatial-tour-bundle-dir",
-        help="Optional exact Property-owned six-file generated-viewer bundle.",
+        required=True,
+        help="Required exact Property-owned six-file generated-viewer bundle.",
     )
     parser.add_argument(
         "--spatial-authority-receipt",
+        required=True,
         help="Mode-0600 detached Property publication authority paired with the bundle.",
+    )
+    parser.add_argument(
+        "--spatial-final-review-receipt",
+        required=True,
+        help="Mode-0600 pinned Property flagship final-review receipt paired with the bundle.",
+    )
+    parser.add_argument(
+        "--spatial-browser-review-receipt",
+        required=True,
+        help="Mode-0600 pinned Property exact-viewer browser receipt paired with the bundle.",
     )
     return parser
 
@@ -2820,6 +3672,16 @@ def main(argv: list[str] | None = None) -> int:
             spatial_authority_receipt=(
                 Path(args.spatial_authority_receipt)
                 if args.spatial_authority_receipt
+                else None
+            ),
+            spatial_final_review_receipt=(
+                Path(args.spatial_final_review_receipt)
+                if args.spatial_final_review_receipt
+                else None
+            ),
+            spatial_browser_review_receipt=(
+                Path(args.spatial_browser_review_receipt)
+                if args.spatial_browser_review_receipt
                 else None
             ),
             rotate_secrets=args.rotate_secrets,

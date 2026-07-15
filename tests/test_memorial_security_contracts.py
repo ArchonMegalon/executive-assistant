@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,7 @@ from starlette.requests import Request
 from app.services.hedy_meeting_evidence import hedy_webhook_signature
 
 
-def _client(*, principal_id: str) -> TestClient:
+def _client(*, principal_id: str, client_host: str = "testclient") -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ["EA_API_TOKEN"] = ""
     os.environ.pop("EA_LEDGER_BACKEND", None)
@@ -24,7 +25,7 @@ def _client(*, principal_id: str) -> TestClient:
     os.environ.pop("EA_OPERATOR_PRINCIPAL_IDS", None)
     from app.api.app import create_app
 
-    client = TestClient(create_app())
+    client = TestClient(create_app(), client=(client_host, 50000))
     client.headers.update({"X-EA-Principal-ID": principal_id})
     return client
 
@@ -759,6 +760,161 @@ def test_public_memorial_voice_config_invalid_json_uses_memorial_error_response(
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
     assert response.json()["error"]["code"] == "invalid_json"
+
+
+def test_public_memorial_voice_config_clone_marker_is_trusted_and_sticky(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES", "1")
+    public_root = tmp_path / "public"
+    private_root = tmp_path / "private"
+    slug = "manfred"
+    _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "audio_clips": [],
+            "write_token": "unit-write-token",
+        },
+    )
+    _write_private_voice(
+        private_root,
+        slug,
+        {
+            "tts_plugin": "browser_speech_synthesis",
+            "voice_label": "Generic voice",
+            "synthetic_voice_clone_of_memorial_person": False,
+        },
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-voice-clone-marker")
+    forged = client.post(
+        f"/memorials/{slug}/voice-config",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "voice_label": "Still generic",
+            "synthetic_voice_clone_of_memorial_person": True,
+        },
+    )
+
+    assert forged.status_code == 200
+    assert forged.json()["synthetic_voice_clone_of_memorial_person"] is False
+    stored_path = private_root / slug / "tts_voice.json"
+    stored = json.loads(stored_path.read_text(encoding="utf-8"))
+    assert stored["synthetic_voice_clone_of_memorial_person"] is False
+
+    stored["synthetic_voice_clone_of_memorial_person"] = True
+    stored_path.write_text(json.dumps(stored), encoding="utf-8")
+    ordinary_edit = client.post(
+        f"/memorials/{slug}/voice-config",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "voice_label": "Updated governed clone label",
+            "synthetic_voice_clone_of_memorial_person": False,
+        },
+    )
+
+    assert ordinary_edit.status_code == 200
+    assert ordinary_edit.json()["synthetic_voice_clone_of_memorial_person"] is True
+    stored = json.loads(stored_path.read_text(encoding="utf-8"))
+    assert stored["synthetic_voice_clone_of_memorial_person"] is True
+
+
+@pytest.mark.parametrize(
+    ("field", "reference"),
+    [
+        ("tts_plugin_voice_id", "${EA_MEMORIAL_TEST_SECRET}"),
+        ("voice_profile_id", "env:EA_MEMORIAL_TEST_SECRET"),
+        ("tts_plugin", "$EA_MEMORIAL_TEST_SECRET"),
+        ("tts_postprocess_profile", "{{ env.EA_MEMORIAL_TEST_SECRET }}"),
+    ],
+)
+def test_public_memorial_voice_config_rejects_runtime_identifier_references(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    field: str,
+    reference: str,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES", "1")
+    monkeypatch.setenv("EA_MEMORIAL_TEST_SECRET", "must-not-become-a-voice-id")
+    public_root = tmp_path / "public"
+    private_root = tmp_path / "private"
+    slug = "manfred"
+    _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "audio_clips": [],
+            "write_token": "unit-write-token",
+        },
+    )
+    _write_private_voice(
+        private_root,
+        slug,
+        {
+            "tts_plugin": "browser_speech_synthesis",
+            "voice_label": "Generic voice",
+        },
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id=f"exec-memorial-voice-ref-{field}")
+    response = client.post(
+        f"/memorials/{slug}/voice-config",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={field: reference},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == (
+        "voice_config_identifier_reference_forbidden"
+    )
+    assert "must-not-become-a-voice-id" not in response.text
+    stored = (private_root / slug / "tts_voice.json").read_text(encoding="utf-8")
+    assert reference not in stored
+    assert "must-not-become-a-voice-id" not in stored
+
+
+def test_memorial_voice_runtime_placeholders_are_purpose_allowlisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setenv("UNMIXR_VOICE_ID", "trusted-startup-voice-id")
+    monkeypatch.setenv("EA_MEMORIAL_TEST_SECRET", "must-not-resolve")
+
+    assert (
+        public_memorials._runtime_secret_placeholder("${UNMIXR_VOICE_ID}")
+        == "trusted-startup-voice-id"
+    )
+    assert (
+        public_memorials._runtime_secret_placeholder(
+            "${EA_MEMORIAL_TEST_SECRET}"
+        )
+        == ""
+    )
+    assert (
+        public_memorials._runtime_secret_placeholder("$EA_MEMORIAL_TEST_SECRET")
+        == ""
+    )
+    assert (
+        public_memorials._runtime_secret_placeholder(
+            "env:EA_MEMORIAL_TEST_SECRET"
+        )
+        == ""
+    )
 
 
 def test_public_memorial_voice_profile_requires_write_access(
@@ -1688,6 +1844,7 @@ def test_public_memorial_json_includes_public_archive_registry_only(
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
     public_root = tmp_path / "public"
     slug = "manfred"
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", slug)
     _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
     _patch_memorial_runtime_roots(tmp_path)
@@ -1704,6 +1861,7 @@ def test_public_memorial_json_includes_public_archive_registry_only(
                 ],
                 "fliplink_publications": [
                     {
+                        "approved": True,
                         "id": "doc-public",
                         "title": "Public Doc",
                         "audience": "public",
@@ -1711,10 +1869,11 @@ def test_public_memorial_json_includes_public_archive_registry_only(
                         "url": "https://archive.example/public",
                         "description": "Visible",
                         "sensitivity": "PUBLIC",
-                        "review_status": "approved",
+                        "review_status": "published",
                         "version": "2026-06-06",
                     },
                     {
+                        "approved": True,
                         "id": "doc-family",
                         "title": "Family Doc",
                         "audience": "family",
@@ -1722,7 +1881,7 @@ def test_public_memorial_json_includes_public_archive_registry_only(
                         "url": "https://archive.example/family",
                         "description": "Hidden",
                         "sensitivity": "FAMILY",
-                        "review_status": "approved",
+                        "review_status": "published",
                         "version": "2026-06-06",
                     },
                 ],
@@ -1744,6 +1903,60 @@ def test_public_memorial_json_includes_public_archive_registry_only(
     assert body["archive_sections"] == [{"title": "Oeffentliches Archiv", "audience": "public", "items": ["doc-public"]}]
     assert len(body["fliplink_publications"]) == 1
     assert body["fliplink_publications"][0]["id"] == "doc-public"
+
+
+def test_public_memorial_json_hides_archive_registry_until_archive_is_published(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.delenv("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", raising=False)
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(
+        public_root,
+        slug,
+        {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []},
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+    registry_root = tmp_path / "public_registry" / slug
+    registry_root.mkdir(parents=True, exist_ok=True)
+    (registry_root / "archive_registry.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "archive_sections": [
+                    {
+                        "title": "Oeffentliches Archiv",
+                        "audience": "public",
+                        "items": ["doc-public"],
+                    }
+                ],
+                "fliplink_publications": [
+                    {
+                        "approved": True,
+                        "id": "doc-public",
+                        "title": "LOCKED_ARCHIVE_CANARY",
+                        "audience": "public",
+                        "url": "https://archive.example/public",
+                        "sensitivity": "PUBLIC",
+                        "review_status": "published",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    client = _client(principal_id="exec-memorial-archive-json-locked")
+    response = client.get(f"/memorials/{slug}.json")
+
+    assert response.status_code == 200
+    assert response.json()["archive_sections"] == []
+    assert response.json()["fliplink_publications"] == []
+    assert "LOCKED_ARCHIVE_CANARY" not in response.text
 
 
 def test_memorial_fliplink_webhook_stages_candidate(
@@ -2212,10 +2425,14 @@ def test_public_memorial_page_issues_and_preserves_signed_guest_cookie(
 def _configured_transport_memorial(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    *,
+    trusted_proxy: bool = False,
 ) -> TestClient:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
-    monkeypatch.setenv("PROPERTYQUARRY_TRUST_X_FORWARDED_FOR", "0")
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_TRUST_X_FORWARDED_FOR", "1" if trusted_proxy else "0"
+    )
     public_root = tmp_path / "public"
     _write_public_memorial(
         public_root,
@@ -2229,7 +2446,10 @@ def _configured_transport_memorial(
     )
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
     _patch_memorial_runtime_roots(tmp_path)
-    return _client(principal_id="exec-memorial-transport")
+    return _client(
+        principal_id="exec-memorial-transport",
+        client_host="127.0.0.1" if trusted_proxy else "testclient",
+    )
 
 
 def test_public_memorial_direct_https_sets_secure_cookie_and_hsts(
@@ -2263,7 +2483,7 @@ def test_public_memorial_direct_https_sets_secure_cookie_and_hsts(
         },
     ],
 )
-def test_public_memorial_configured_host_accepts_https_proxy_scheme_without_global_trust(
+def test_public_memorial_untrusted_proxy_scheme_cannot_bypass_https_redirect(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     proxy_headers: dict[str, str],
@@ -2276,24 +2496,28 @@ def test_public_memorial_configured_host_accepts_https_proxy_scheme_without_glob
         follow_redirects=False,
     )
 
-    assert response.status_code == 200
-    assert "Secure" in response.headers.get("set-cookie", "")
-    assert response.headers.get("Strict-Transport-Security") == "max-age=31536000"
-    assert "location" not in response.headers
+    assert response.status_code == 308
+    assert response.headers["location"] == "https://myexternalbrain.com/memorials/manfred"
+    assert "set-cookie" not in response.headers
+    assert "Strict-Transport-Security" not in response.headers
 
 
 @pytest.mark.parametrize(
-    "request_host",
+    ("request_host", "expected_status"),
     [
-        "unrelated.example",
-        "myexternalbrain.com.unrelated.example",
-        "unrelated.example@myexternalbrain.com",
+        ("unrelated.example", 421),
+        ("myexternalbrain.com.unrelated.example", 421),
+        # Userinfo syntax is a malformed Host field, not merely an unrelated
+        # authority. The app-wide parser correctly rejects it one layer
+        # earlier with 400 while preserving the same fail-closed outcome.
+        ("unrelated.example@myexternalbrain.com", 400),
     ],
 )
 def test_public_memorial_unrelated_host_fails_closed_before_render(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     request_host: str,
+    expected_status: int,
 ) -> None:
     client = _configured_transport_memorial(monkeypatch, tmp_path)
 
@@ -2308,7 +2532,7 @@ def test_public_memorial_unrelated_host_fails_closed_before_render(
         follow_redirects=False,
     )
 
-    assert response.status_code == 421
+    assert response.status_code == expected_status
     assert "set-cookie" not in response.headers
     assert "Strict-Transport-Security" not in response.headers
     assert "location" not in response.headers
@@ -2326,7 +2550,9 @@ def test_public_memorial_forwarded_host_disagreement_fails_closed(
     tmp_path: Path,
     proxy_headers: dict[str, str],
 ) -> None:
-    client = _configured_transport_memorial(monkeypatch, tmp_path)
+    client = _configured_transport_memorial(
+        monkeypatch, tmp_path, trusted_proxy=True
+    )
 
     response = client.get(
         "/memorials/manfred",
@@ -2336,7 +2562,7 @@ def test_public_memorial_forwarded_host_disagreement_fails_closed(
 
     assert response.status_code == 421
     assert "set-cookie" not in response.headers
-    assert "Strict-Transport-Security" not in response.headers
+    assert response.headers.get("Strict-Transport-Security") == "max-age=31536000"
     assert "location" not in response.headers
 
 
@@ -2344,7 +2570,9 @@ def test_public_memorial_direct_https_rejects_forwarded_host_disagreement(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    client = _configured_transport_memorial(monkeypatch, tmp_path)
+    client = _configured_transport_memorial(
+        monkeypatch, tmp_path, trusted_proxy=True
+    )
 
     response = client.get(
         "https://myexternalbrain.com/memorials/manfred",
@@ -2354,7 +2582,7 @@ def test_public_memorial_direct_https_rejects_forwarded_host_disagreement(
 
     assert response.status_code == 421
     assert "set-cookie" not in response.headers
-    assert "Strict-Transport-Security" not in response.headers
+    assert response.headers.get("Strict-Transport-Security") == "max-age=31536000"
 
 
 @pytest.mark.parametrize(
@@ -2400,7 +2628,9 @@ def test_public_memorial_malformed_proxy_scheme_is_rejected_without_redirect(
     tmp_path: Path,
     malformed_headers: dict[str, str],
 ) -> None:
-    client = _configured_transport_memorial(monkeypatch, tmp_path)
+    client = _configured_transport_memorial(
+        monkeypatch, tmp_path, trusted_proxy=True
+    )
 
     response = client.get(
         "/memorials/manfred?source=malformed",
@@ -2413,11 +2643,42 @@ def test_public_memorial_malformed_proxy_scheme_is_rejected_without_redirect(
     assert "set-cookie" not in response.headers
 
 
+@pytest.mark.parametrize(
+    "malformed_headers",
+    [
+        {"x-forwarded-proto": "https,http"},
+        {"forwarded": 'for=192.0.2.10;proto="https'},
+        {"cf-visitor": "not-json"},
+        {"x-forwarded-proto": "https", "cf-visitor": '{"scheme":"http"}'},
+    ],
+)
+def test_public_memorial_untrusted_malformed_proxy_metadata_is_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    malformed_headers: dict[str, str],
+) -> None:
+    client = _configured_transport_memorial(monkeypatch, tmp_path)
+
+    response = client.get(
+        "/memorials/manfred?source=malformed",
+        headers={"host": "myexternalbrain.com", **malformed_headers},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 308
+    assert response.headers["location"] == (
+        "https://myexternalbrain.com/memorials/manfred?source=malformed"
+    )
+    assert "set-cookie" not in response.headers
+
+
 def test_public_memorial_isolated_candidate_loopback_is_explicit_and_header_strict(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    client = _configured_transport_memorial(monkeypatch, tmp_path)
+    client = _configured_transport_memorial(
+        monkeypatch, tmp_path, trusted_proxy=True
+    )
     monkeypatch.setenv("EA_MANFRED_COMPOSE_PROJECT", "ea-manfred-candidate-security-proof")
     monkeypatch.setenv("EA_MANFRED_HOST_PORT", "18098")
 
@@ -2554,7 +2815,10 @@ def test_public_memorial_page_marks_guest_cookie_secure_for_trusted_forwarded_ht
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
     _patch_memorial_runtime_roots(tmp_path)
 
-    client = _client(principal_id="exec-memorial-cookie-secure")
+    client = _client(
+        principal_id="exec-memorial-cookie-secure",
+        client_host="127.0.0.1",
+    )
     response = client.get(
         f"/memorials/{slug}",
         headers={
@@ -2635,6 +2899,7 @@ def test_public_memorial_archive_publication_missing_slug_uses_hardened_html_404
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", "not-found")
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
     _patch_memorial_runtime_roots(tmp_path)
 
@@ -2781,6 +3046,7 @@ def test_public_memorial_archive_route_redirects_to_registry_url_when_local_buil
     public_root = tmp_path / "public"
     slug = "manfred"
     publication_slug = "manfred-life-overview"
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", slug)
     _write_public_memorial(
         public_root,
         slug,
@@ -2803,6 +3069,7 @@ def test_public_memorial_archive_route_redirects_to_registry_url_when_local_buil
                 ],
                 "fliplink_publications": [
                     {
+                        "approved": True,
                         "id": publication_slug,
                         "slug": publication_slug,
                         "title": "Manfred: Ueberblick",
@@ -2811,7 +3078,7 @@ def test_public_memorial_archive_route_redirects_to_registry_url_when_local_buil
                         "url": "https://archive.example/manfred-life-overview",
                         "description": "Visible",
                         "sensitivity": "PUBLIC",
-                        "review_status": "approved",
+                        "review_status": "published",
                         "version": "2026-06-06",
                     },
                 ],
@@ -2830,7 +3097,7 @@ def test_public_memorial_archive_route_redirects_to_registry_url_when_local_buil
     assert response.headers.get("Referrer-Policy") == "no-referrer"
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
-    assert response.headers.get("X-Frame-Options") is None
+    assert response.headers.get("X-Frame-Options") == "DENY"
 
 
 def test_public_memorial_archive_index_success_uses_hardened_html_headers(
@@ -2840,6 +3107,7 @@ def test_public_memorial_archive_index_success_uses_hardened_html_headers(
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
     public_root = tmp_path / "public"
     slug = "manfred"
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", slug)
     _write_public_memorial(
         public_root,
         slug,
@@ -2865,6 +3133,204 @@ def test_public_memorial_archive_index_success_uses_hardened_html_headers(
     assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
 
 
+def test_public_memorial_archive_index_and_detail_fail_closed_without_publication_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.delenv("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", raising=False)
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(
+        public_root,
+        slug,
+        {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []},
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    registry_path = (
+        tmp_path / "public_registry" / slug / "archive_registry.json"
+    )
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "archive_sections": [
+                    {
+                        "title": "Oeffentliches Archiv",
+                        "audience": "public",
+                        "items": ["manfred-life-overview"],
+                    }
+                ],
+                "fliplink_publications": [
+                    {
+                        "approved": True,
+                        "id": "manfred-life-overview",
+                        "slug": "manfred-life-overview",
+                        "title": "Manfred: Ueberblick",
+                        "audience": "public",
+                        "sensitivity": "PUBLIC",
+                        "review_status": "published",
+                        "url": "https://archive.example/manfred-life-overview",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    from app.api.routes import public_memorial_surface
+
+    client = _client(principal_id="exec-memorial-archive-locked")
+    manifest = client.get(
+        f"/memorials/{slug}/archive.json",
+        headers={"host": "myexternalbrain.com"},
+        follow_redirects=False,
+    )
+    assert manifest.status_code == 404
+    assert manifest.json() == {
+        "detail": "memorial_not_found",
+        "archive_gate": {
+            "schema": "ea.memorial_archive_gate.v1",
+            "state": "intentionally_unpublished",
+            "slug": slug,
+            "registry_sha256": hashlib.sha256(
+                registry_path.read_bytes()
+            ).hexdigest(),
+        },
+    }
+
+    def _publication_gate_bypassed(*_args, **_kwargs):
+        pytest.fail("archive publication gate was bypassed")
+
+    monkeypatch.setattr(
+        public_memorial_surface,
+        "_load_public_surface_memorial",
+        _publication_gate_bypassed,
+    )
+    monkeypatch.setattr(
+        public_memorial_surface,
+        "_load_memorial",
+        _publication_gate_bypassed,
+    )
+
+    for path in (
+        f"/memorials/{slug}/archive",
+        f"/memorials/{slug}/archive/manfred-life-overview",
+    ):
+        response = client.get(
+            path,
+            headers={"host": "myexternalbrain.com"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 404
+        assert "memorial_archive_not_published" not in response.text
+        assert "Diese Seite ist gerade nicht erreichbar." in response.text
+
+
+def test_public_memorial_archive_manifest_without_loaded_registry_has_no_gate_declaration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.delenv("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", raising=False)
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(
+        public_root,
+        slug,
+        {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []},
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    response = _client(
+        principal_id="exec-memorial-archive-without-registry"
+    ).get(f"/memorials/{slug}/archive.json", follow_redirects=False)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "memorial_not_found"}
+    assert "archive_gate" not in response.text
+
+
+def test_public_memorial_archive_index_omits_private_voice_config_and_script_breakout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    private_root = tmp_path / "private"
+    slug = "manfred"
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", slug)
+    _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "title": "</script><script id=\"public-archive-xss\">alert(1)</script>",
+            "audio_clips": [],
+        },
+    )
+    _write_private_voice(
+        private_root,
+        slug,
+        {
+            "tts_plugin": "voicewave",
+            "tts_plugin_voice_id": "PRIVATE_PROVIDER_VOICE_ID_SENTINEL",
+            "voice_label": (
+                "</script><script id=\"private-archive-xss\">alert(2)</script>"
+            ),
+        },
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    from app.api.routes import public_memorials
+
+    def _private_voice_config_loaded(*_args, **_kwargs):
+        pytest.fail("archive index loaded mutable private voice configuration")
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_config",
+        _private_voice_config_loaded,
+    )
+
+    client = _client(principal_id="exec-memorial-archive-safe-render")
+    response = client.get(
+        f"/memorials/{slug}/archive",
+        headers={"host": "myexternalbrain.com"},
+    )
+
+    assert response.status_code == 200
+    assert "PRIVATE_PROVIDER_VOICE_ID_SENTINEL" not in response.text
+    assert '<script id="private-archive-xss">' not in response.text
+    assert '<script id="public-archive-xss">' not in response.text
+    assert "&lt;/script&gt;&lt;script" in response.text
+
+
+def test_memorial_inline_script_json_escapes_html_breakout_tokens() -> None:
+    from app.api.routes.public_memorials import _json_for_html_script
+
+    value = {
+        "label": "</script><script>alert(1)</script>",
+        "separator": "\u2028\u2029",
+    }
+    encoded = _json_for_html_script(value)
+
+    assert "</script>" not in encoded
+    assert "<script>" not in encoded
+    assert "\u2028" not in encoded
+    assert "\u2029" not in encoded
+    assert "\\u003c/script\\u003e" in encoded
+    assert "\\u2028\\u2029" in encoded
+    assert json.loads(encoded) == value
+
+
 def test_public_memorial_archive_publication_success_uses_hardened_html_headers(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2873,6 +3339,7 @@ def test_public_memorial_archive_publication_success_uses_hardened_html_headers(
     public_root = tmp_path / "public"
     slug = "manfred"
     publication_slug = "manfred-life-overview"
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", slug)
     _write_public_memorial(
         public_root,
         slug,
@@ -2887,6 +3354,39 @@ def test_public_memorial_archive_publication_success_uses_hardened_html_headers(
     html_path = tmp_path / "archive" / slug / "public" / publication_slug / "build" / "index.html"
     html_path.parent.mkdir(parents=True, exist_ok=True)
     html_path.write_text("<!doctype html><title>Archive</title><p>Local publication</p>", encoding="utf-8")
+    registry_root = tmp_path / "public_registry" / slug
+    registry_root.mkdir(parents=True, exist_ok=True)
+    (registry_root / "archive_registry.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "archive_sections": [
+                    {
+                        "title": "Oeffentliches Archiv",
+                        "audience": "public",
+                        "items": [publication_slug],
+                    }
+                ],
+                "fliplink_publications": [
+                    {
+                        "approved": True,
+                        "id": publication_slug,
+                        "slug": publication_slug,
+                        "title": "Manfred: Ueberblick",
+                        "audience": "public",
+                        "viewer_type": "smart_document",
+                        "url": f"/memorials/{slug}/archive/{publication_slug}",
+                        "description": "Visible",
+                        "sensitivity": "PUBLIC",
+                        "review_status": "published",
+                        "version": "2026-06-06",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
     client = _client(principal_id="exec-memorial-archive-publication-html")
     response = client.get(f"/memorials/{slug}/archive/{publication_slug}", headers={"host": "myexternalbrain.com"})
@@ -2909,6 +3409,7 @@ def test_public_memorial_archive_publication_missing_uses_hardened_404_response(
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
     public_root = tmp_path / "public"
     slug = "manfred"
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS", slug)
     _write_public_memorial(
         public_root,
         slug,
@@ -3942,6 +4443,109 @@ def test_public_memorial_voice_profile_build_without_sources_uses_memorial_error
     assert response.headers.get("Referrer-Policy") == "no-referrer"
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.json()["error"]["code"] == "voice_profile_no_source"
+
+
+def test_public_memorial_successful_governed_clone_discloses_truth_without_raw_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorial_operator
+
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES", "1")
+    monkeypatch.setenv("UNMIXR_API_KEY", "unit-unmixr-key")
+    public_root = tmp_path / "public"
+    private_root = tmp_path / "private"
+    slug = "manfred"
+    _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "audio_clips": [],
+            "write_token": "unit-write-token",
+        },
+    )
+    _write_private_voice(
+        private_root,
+        slug,
+        {
+            "tts_plugin": "browser_speech_synthesis",
+            "synthetic_voice_clone_of_memorial_person": False,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["clone", "synthesize"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-05T16:25:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    _patch_memorial_runtime_roots(tmp_path)
+    sample_path = tmp_path / "governed-clone-sample.wav"
+    sample_path.write_bytes(b"RIFF-governed-clone-sample")
+    raw_provider_voice_id = "provider-private-clone-id"
+    monkeypatch.setattr(
+        public_memorial_operator,
+        "_profile_clip_assets_for_memorial",
+        lambda *, slug: [sample_path],
+    )
+    monkeypatch.setattr(
+        public_memorial_operator,
+        "unmixr_clone_request",
+        lambda **_kwargs: raw_provider_voice_id,
+    )
+
+    client = _client(principal_id="exec-memorial-governed-clone")
+    clone_response = client.post(
+        f"/memorials/{slug}/voice-clone",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={"voice_label": "Manfreds freigegebene Stimme"},
+    )
+
+    assert clone_response.status_code == 200
+    assert (
+        clone_response.json()["synthetic_voice_clone_of_memorial_person"] is True
+    )
+    assert raw_provider_voice_id not in clone_response.text
+    assert "tts_plugin_voice_id" not in clone_response.json()
+    stored_path = private_root / slug / "tts_voice.json"
+    stored = json.loads(stored_path.read_text(encoding="utf-8"))
+    assert stored["tts_plugin_voice_id"] == raw_provider_voice_id
+    assert stored["synthetic_voice_clone_of_memorial_person"] is True
+
+    public_disclosure = client.get(
+        f"/memorials/{slug}/voice-config",
+        headers={"x-memorial-write-token": "unit-write-token"},
+    )
+
+    assert public_disclosure.status_code == 200
+    assert (
+        public_disclosure.json()["synthetic_voice_clone_of_memorial_person"]
+        is True
+    )
+    assert raw_provider_voice_id not in public_disclosure.text
+    assert "tts_plugin_voice_id" not in public_disclosure.json()
+
+    ordinary_edit = client.post(
+        f"/memorials/{slug}/voice-config",
+        headers={"x-memorial-write-token": "unit-write-token"},
+        json={
+            "voice_label": "Manfreds aktualisierte Stimme",
+            "synthetic_voice_clone_of_memorial_person": False,
+        },
+    )
+
+    assert ordinary_edit.status_code == 200
+    assert ordinary_edit.json()["synthetic_voice_clone_of_memorial_person"] is True
+    assert raw_provider_voice_id not in ordinary_edit.text
+    stored = json.loads(stored_path.read_text(encoding="utf-8"))
+    assert stored["synthetic_voice_clone_of_memorial_person"] is True
+    assert stored["tts_plugin_voice_id"] == raw_provider_voice_id
 
 
 def test_public_memorial_voice_clone_without_samples_uses_memorial_error_response(

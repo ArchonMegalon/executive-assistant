@@ -10,10 +10,12 @@ class ExecutionOperatorProfileService:
         self,
         *,
         upsert_profile: Callable[..., OperatorProfile],
+        bootstrap_profile_if_none: Callable[..., OperatorProfile | None],
         get_profile: Callable[..., OperatorProfile | None],
         list_profiles_for_principal: Callable[..., list[OperatorProfile]],
     ) -> None:
         self._upsert_profile = upsert_profile
+        self._bootstrap_profile_if_none = bootstrap_profile_if_none
         self._get_profile = get_profile
         self._list_profiles_for_principal = list_profiles_for_principal
 
@@ -30,6 +32,29 @@ class ExecutionOperatorProfileService:
         notes: str = "",
     ) -> OperatorProfile:
         return self._upsert_profile(
+            principal_id=principal_id,
+            operator_id=operator_id,
+            display_name=display_name,
+            roles=roles,
+            skill_tags=skill_tags,
+            trust_tier=trust_tier,
+            status=status,
+            notes=notes,
+        )
+
+    def bootstrap_operator_profile(
+        self,
+        *,
+        principal_id: str,
+        operator_id: str | None = None,
+        display_name: str,
+        roles: tuple[str, ...] = (),
+        skill_tags: tuple[str, ...] = (),
+        trust_tier: str = "standard",
+        status: str = "active",
+        notes: str = "",
+    ) -> OperatorProfile | None:
+        return self._bootstrap_profile_if_none(
             principal_id=principal_id,
             operator_id=operator_id,
             display_name=display_name,

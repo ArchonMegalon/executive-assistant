@@ -86,60 +86,63 @@ def _preserve_real_implementation_scope() -> None:
 def test_flagship_release_readiness_gate_fails_closed_on_blocked_journey(
     tmp_path: Path,
 ) -> None:
-    pulse = tmp_path / "pulse.json"
-    receipt = tmp_path / "receipt.json"
-    browser = tmp_path / "browser.json"
-    journey = tmp_path / "journey.json"
-    scope = tmp_path / "scope.md"
-    manifest = tmp_path / "release_manifest.generated.json"
-    project_modes = tmp_path / "PROJECT_MODES.generated.json"
-    _write_release_authority_inputs(manifest, project_modes)
-    _write_json(
-        pulse,
-        {
-            "contract_name": "ea.weekly_product_pulse",
-            "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
-            "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-            "release_health": {"state": "blocked"},
-            "flagship_readiness": {"state": "clear"},
-            "journey_gate_health": {"state": "blocked", "blocked_count": 1},
-            "supporting_signals": {
-                "launch_readiness": "Hold launch expansion pending cross-host journey coverage."
-            },
-        },
+    pulse = _canonical_pulse(
+        launch_readiness="Hold launch expansion pending cross-host journey coverage."
     )
-    _write_json(receipt, {"status": "pass"})
-    _write_json(browser, {"status": "pass"})
-    _write_json(journey, {"summary": {"overall_state": "blocked", "blocked_count": 1}})
-    scope.write_text(VALID_SCOPE_TEXT, encoding="utf-8")
+    pulse["release_health"] = {"state": "blocked"}
+    pulse["journey_gate_health"] = {
+        "state": "blocked",
+        "blocked_count": 1,
+        "warning_count": 0,
+    }
+
+    def block_external_journey(paths: dict[str, Path]) -> None:
+        _write_json(
+            paths["journey"],
+            {
+                "summary": {
+                    "overall_state": "blocked",
+                    "blocked_count": 1,
+                    "warning_count": 0,
+                }
+            },
+        )
+
+    issues = _verify_canonical_pulse(tmp_path, pulse, mutate=block_external_journey)
+
+    assert "weekly release_health is blocked, expected green_or_explained" in issues
+    assert "fleet journey gates are blocked, expected ready" in issues
+
+
+def test_flagship_release_readiness_standalone_clone_requires_explicit_canonical_source(
+    tmp_path: Path,
+) -> None:
+    env = dict(os.environ)
+    env.pop("CHUMMER_DESIGN_ROOT", None)
 
     result = subprocess.run(
         [
             "python3",
             str(SCRIPT),
             "--pulse",
-            str(pulse),
+            str(tmp_path / "missing-pulse.json"),
             "--flagship-receipt",
-            str(receipt),
+            str(tmp_path / "missing-receipt.json"),
             "--browser-proof",
-            str(browser),
+            str(tmp_path / "missing-browser.json"),
             "--journey-gates",
-            str(journey),
-            "--implementation-scope",
-            str(scope),
-            "--release-manifest",
-            str(manifest),
-            "--project-modes",
-            str(project_modes),
+            str(tmp_path / "missing-journey.json"),
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        env=env,
     )
 
     assert result.returncode == 1
-    assert "weekly release_health is blocked" in result.stdout
-    assert "fleet journey gates are blocked" in result.stdout
+    assert "weekly product pulse canonical source is not configured" in result.stdout
+    assert "set CHUMMER_DESIGN_ROOT or pass --canonical-pulse-source" in result.stdout
+    assert "chummercomplete" not in result.stdout
 
 
 def test_flagship_release_readiness_gate_accepts_canonical_identity_sources_and_ready_vocabulary(

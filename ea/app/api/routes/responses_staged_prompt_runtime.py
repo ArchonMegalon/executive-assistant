@@ -157,8 +157,10 @@ def build_tool_shim_staged_commands(
                 break
             if candidate.startswith("`") and candidate.endswith("`") and len(candidate) >= 2:
                 candidate = candidate[1:-1].strip()
-            bare_absolute_path = candidate.startswith("/") and not re.search(r"\s", candidate)
-            if tool_shim_looks_like_shell_command(candidate) and not bare_absolute_path:
+            bare_path = not re.search(r"\s", candidate) and (
+                candidate.startswith("/") or bool(package_worktree)
+            )
+            if tool_shim_looks_like_shell_command(candidate) and not bare_path:
                 if candidate not in shell_commands:
                     shell_commands.append(candidate)
                 continue

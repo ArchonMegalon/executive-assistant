@@ -1,0 +1,18 @@
+contract_name: projection.chummer5a_veteran_workflow_packs
+generated_at: '2026-07-15T00:00:00Z'
+projection_redacted: true
+families:
+  - id: custom_data_xml_and_translator_bridge
+    compare_artifacts:
+      - menu:translator
+      - menu:xml_editor
+    readiness_target: direct yes/yes route proof
+  - id: legacy_and_adjacent_import_oracles
+    compare_artifacts:
+      - menu:hero_lab_importer
+      - workflow:import_oracle
+    readiness_target: direct yes/yes import-oracle proof
+  - id: sheet_export_print_viewer_and_exchange
+    readiness_target: receipt-backed route-local output proof
+  - id: sr6_supplements_designers_and_house_rules
+    readiness_target: receipt-backed successor workflow proof

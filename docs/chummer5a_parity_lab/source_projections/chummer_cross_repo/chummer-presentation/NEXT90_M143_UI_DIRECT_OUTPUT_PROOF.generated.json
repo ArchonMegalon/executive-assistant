@@ -1,0 +1,14 @@
+{
+  "contract_name": "projection.next90_m143_ui_direct_output_proof",
+  "generated_at": "2026-07-15T00:00:00Z",
+  "projection_redacted": true,
+  "proof_tokens": [
+    "print_export_exchange",
+    "open_for_printing_menu_route",
+    "open_for_export_menu_route",
+    "print_multiple_menu_route",
+    "sr6_supplements_and_house_rules",
+    "sr6_supplements",
+    "house_rules"
+  ]
+}

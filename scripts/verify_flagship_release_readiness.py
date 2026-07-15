@@ -50,8 +50,12 @@ DEFAULT_PROJECT_MODES = (
 DEFAULT_DESIGN_MIRROR_MANIFEST = (
     ROOT / ".codex-design" / "repo" / "DESIGN_MIRROR_MANIFEST.yaml"
 )
-CANONICAL_CHUMMER_PULSE_SOURCE = Path(
-    "/docker/chummercomplete/chummer-design/products/chummer/WEEKLY_PRODUCT_PULSE.generated.json"
+_CHUMMER_DESIGN_ROOT_VALUE = str(os.environ.get("CHUMMER_DESIGN_ROOT") or "").strip()
+CHUMMER_DESIGN_ROOT = Path(_CHUMMER_DESIGN_ROOT_VALUE) if _CHUMMER_DESIGN_ROOT_VALUE else None
+CANONICAL_CHUMMER_PULSE_SOURCE = (
+    CHUMMER_DESIGN_ROOT / "products" / "chummer" / "WEEKLY_PRODUCT_PULSE.generated.json"
+    if CHUMMER_DESIGN_ROOT is not None
+    else ROOT / ".codex-design" / "repo" / "CANONICAL_CHUMMER_PULSE_SOURCE.not-configured"
 )
 
 PULSE_MIRROR_BINDING_KEY = "weekly_product_pulse"
@@ -1197,6 +1201,14 @@ def verify(
     required_contract_paths: tuple[Path, ...] = REQUIRED_RELEASE_CONTRACT_PATHS,
 ) -> list[str]:
     issues: list[str] = []
+    if (
+        canonical_pulse_source_path == CANONICAL_CHUMMER_PULSE_SOURCE
+        and CHUMMER_DESIGN_ROOT is None
+    ):
+        issues.append(
+            "weekly product pulse canonical source is not configured; "
+            "set CHUMMER_DESIGN_ROOT or pass --canonical-pulse-source"
+        )
     pulse, pulse_issues = _load_bound_pulse(
         pulse_path=pulse_path,
         manifest_path=design_mirror_manifest_path,
@@ -1418,6 +1430,12 @@ def main() -> int:
         "--release-manifest", type=Path, default=DEFAULT_RELEASE_MANIFEST
     )
     parser.add_argument("--project-modes", type=Path, default=DEFAULT_PROJECT_MODES)
+    parser.add_argument(
+        "--canonical-pulse-source",
+        type=Path,
+        default=CANONICAL_CHUMMER_PULSE_SOURCE,
+        help="Explicit canonical Chummer weekly-product-pulse source; standalone clones fail closed when absent.",
+    )
     args = parser.parse_args()
 
     issues = verify(
@@ -1428,6 +1446,7 @@ def main() -> int:
         implementation_scope_path=args.implementation_scope,
         release_manifest_path=args.release_manifest,
         project_modes_path=args.project_modes,
+        canonical_pulse_source_path=args.canonical_pulse_source,
     )
     if issues:
         print(json.dumps({"status": "blocked", "issues": issues}, indent=2))

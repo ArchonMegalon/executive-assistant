@@ -1,0 +1,21 @@
+{
+  "contract_name": "projection.flagship_product_readiness",
+  "generated_at": "2026-07-15T00:00:00Z",
+  "projection_redacted": true,
+  "coverage": {"desktop_client": "missing"},
+  "coverage_details": {
+    "desktop_client": {
+      "status": "missing",
+      "summary": "Desktop flagship proof is still incomplete.",
+      "reasons": ["Windows desktop exit gate proof is missing, not passed, or lacks embedded payload/sample integrity proof."],
+      "evidence": {
+        "install_claim_restore_continue": false,
+        "build_explain_publish": false,
+        "ui_executable_exit_gate_status": "missing",
+        "ui_visual_familiarity_exit_gate_status": "pass",
+        "ui_workflow_execution_gate_status": "pass",
+        "ui_element_parity_audit_release_blocking_ready": false
+      }
+    }
+  }
+}

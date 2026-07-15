@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from app.services.proactive_ooda_flat_search_policy import material_mentions_flat_property_search
@@ -25,6 +27,32 @@ _ASSISTANT_PROPERTY_SIGNAL_MARKERS = (
     "willhaben",
     "immobilienscout",
 )
+
+_PROPERTYQUARRY_REQUEST_ACTIVE: ContextVar[bool] = ContextVar(
+    "propertyquarry_request_active",
+    default=False,
+)
+
+
+def propertyquarry_request_active() -> bool:
+    """Return whether the current request belongs to PropertyQuarry.
+
+    This is deliberately separate from ``assistant_property_lane_enabled``:
+    the EA assistant must keep property work disabled while the
+    PropertyQuarry product can execute the same shared service code on its own
+    branded requests.
+    """
+
+    return _PROPERTYQUARRY_REQUEST_ACTIVE.get()
+
+
+@contextmanager
+def propertyquarry_request_scope(*, active: bool) -> Iterator[None]:
+    token = _PROPERTYQUARRY_REQUEST_ACTIVE.set(bool(active))
+    try:
+        yield
+    finally:
+        _PROPERTYQUARRY_REQUEST_ACTIVE.reset(token)
 
 
 def _env_truthy(name: str) -> bool:

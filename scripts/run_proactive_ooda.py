@@ -1952,7 +1952,7 @@ def _load_signals(
         return _filter_hidden_property_rows(
             _apply_recent_topic_suppressions(rows + [_workspace_source_error_signal(exc, cooldown_state=cooldown_state)])
         )
-    for signal in packet.signals:
+    for signal in getattr(packet, "signals", ()) or ():
         if hasattr(signal, "__dict__"):
             rows.append(dict(signal.__dict__))
     return _filter_hidden_property_rows(_apply_recent_topic_suppressions(rows))
@@ -2303,6 +2303,7 @@ def _workspace_source_error_signal(
         cooldown_seconds_remaining=int(cooldown.get("seconds_remaining") or 0),
         last_observed_at=str(cooldown.get("last_observed_at") or "").strip(),
         cooldown_active=cooldown_active if cooldown else None,
+        action_owner="operator",
     )
     return {
         "source_ref": f"proactive_source_error:google_workspace:{_short_hash(error_text or error_name)}",
@@ -2335,6 +2336,7 @@ def _source_health_issue_payload(
     cooldown_seconds_remaining: int | None = None,
     last_observed_at: str = "",
     cooldown_active: bool | None = None,
+    action_owner: str = "",
 ) -> dict[str, Any]:
     issue = {
         "schema": "ea.proactive_ooda.source_health.v1",
@@ -2350,6 +2352,9 @@ def _source_health_issue_payload(
         "raw_payload_exposed": False,
         "raw_credential_exposed": False,
     }
+    normalized_action_owner = str(action_owner or "").strip().lower()
+    if normalized_action_owner:
+        issue["action_owner"] = normalized_action_owner[:40]
     if str(recovery_mode or "").strip():
         issue["recovery_mode"] = str(recovery_mode or "").strip()[:80]
     if str(blocked_until or "").strip():
@@ -2440,6 +2445,9 @@ def _compact_source_health_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
         "raw_payload_exposed": False,
         "raw_credential_exposed": False,
     }
+    action_owner = str(issue.get("action_owner") or "").strip().lower()
+    if action_owner:
+        normalized["action_owner"] = action_owner[:40]
     recovery_mode = str(issue.get("recovery_mode") or "").strip()
     blocked_until = str(issue.get("blocked_until") or issue.get("cooldown_until") or "").strip()
     last_observed_at = str(issue.get("last_observed_at") or "").strip()

@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import threading
 import uuid
 from typing import Dict, List, Protocol
 
 from app.domain.models import OperatorProfile, now_utc_iso
+
+
+_OPERATOR_ACCESS_ROLES = frozenset(
+    {"operator", "admin", "reviewer", "cloudflare_access"}
+)
 
 
 class OperatorProfileRepository(Protocol):
@@ -19,6 +25,22 @@ class OperatorProfileRepository(Protocol):
         status: str = "active",
         notes: str = "",
     ) -> OperatorProfile:
+        ...
+
+    def bootstrap_profile_if_none(
+        self,
+        *,
+        principal_id: str,
+        operator_id: str | None = None,
+        display_name: str,
+        roles: tuple[str, ...] = (),
+        skill_tags: tuple[str, ...] = (),
+        trust_tier: str = "standard",
+        status: str = "active",
+        notes: str = "",
+    ) -> OperatorProfile | None:
+        """Create the first access profile atomically, or return ``None``."""
+
         ...
 
     def get(self, operator_id: str, *, principal_id: str | None = None) -> OperatorProfile | None:
@@ -45,11 +67,36 @@ class InMemoryOperatorProfileRepository:
     def __init__(self) -> None:
         self._rows: Dict[tuple[str, str], OperatorProfile] = {}
         self._order: List[tuple[str, str]] = []
+        self._lock = threading.RLock()
 
     def _key(self, principal_id: str, operator_id: str) -> tuple[str, str]:
         return (str(principal_id or "").strip(), str(operator_id or "").strip())
 
     def upsert_profile(
+        self,
+        *,
+        principal_id: str,
+        operator_id: str | None = None,
+        display_name: str,
+        roles: tuple[str, ...] = (),
+        skill_tags: tuple[str, ...] = (),
+        trust_tier: str = "standard",
+        status: str = "active",
+        notes: str = "",
+    ) -> OperatorProfile:
+        with self._lock:
+            return self._upsert_profile_unlocked(
+                principal_id=principal_id,
+                operator_id=operator_id,
+                display_name=display_name,
+                roles=roles,
+                skill_tags=skill_tags,
+                trust_tier=trust_tier,
+                status=status,
+                notes=notes,
+            )
+
+    def _upsert_profile_unlocked(
         self,
         *,
         principal_id: str,
@@ -83,21 +130,61 @@ class InMemoryOperatorProfileRepository:
             self._order.append(storage_key)
         return row
 
-    def get(self, operator_id: str, *, principal_id: str | None = None) -> OperatorProfile | None:
-        normalized_operator_id = str(operator_id or "").strip()
-        if not normalized_operator_id:
-            return None
+    def bootstrap_profile_if_none(
+        self,
+        *,
+        principal_id: str,
+        operator_id: str | None = None,
+        display_name: str,
+        roles: tuple[str, ...] = (),
+        skill_tags: tuple[str, ...] = (),
+        trust_tier: str = "standard",
+        status: str = "active",
+        notes: str = "",
+    ) -> OperatorProfile | None:
         normalized_principal = str(principal_id or "").strip()
-        if normalized_principal:
-            return self._rows.get(self._key(normalized_principal, normalized_operator_id))
-        matches = [
-            row
-            for (row_principal_id, row_operator_id), row in self._rows.items()
-            if row_operator_id == normalized_operator_id
-        ]
-        if len(matches) == 1:
-            return matches[0]
-        return None
+        with self._lock:
+            for row in self._rows.values():
+                normalized_roles = {
+                    str(role or "").strip().lower()
+                    for role in row.roles
+                    if str(role or "").strip()
+                }
+                if (
+                    row.principal_id == normalized_principal
+                    and row.status == "active"
+                    and normalized_roles.intersection(_OPERATOR_ACCESS_ROLES)
+                ):
+                    return None
+            return self._upsert_profile_unlocked(
+                principal_id=normalized_principal,
+                operator_id=operator_id,
+                display_name=display_name,
+                roles=roles,
+                skill_tags=skill_tags,
+                trust_tier=trust_tier,
+                status=status,
+                notes=notes,
+            )
+
+    def get(self, operator_id: str, *, principal_id: str | None = None) -> OperatorProfile | None:
+        with self._lock:
+            normalized_operator_id = str(operator_id or "").strip()
+            if not normalized_operator_id:
+                return None
+            normalized_principal = str(principal_id or "").strip()
+            if normalized_principal:
+                return self._rows.get(
+                    self._key(normalized_principal, normalized_operator_id)
+                )
+            matches = [
+                row
+                for (_row_principal_id, row_operator_id), row in self._rows.items()
+                if row_operator_id == normalized_operator_id
+            ]
+            if len(matches) == 1:
+                return matches[0]
+            return None
 
     def list_for_principal(
         self,
@@ -106,11 +193,16 @@ class InMemoryOperatorProfileRepository:
         status: str | None = None,
         limit: int = 100,
     ) -> list[OperatorProfile]:
-        principal = str(principal_id or "").strip()
-        status_filter = str(status or "").strip().lower()
-        n = max(1, min(500, int(limit or 100)))
-        rows = [self._rows[row_id] for row_id in reversed(self._order) if row_id in self._rows]
-        rows = [row for row in rows if row.principal_id == principal]
-        if status_filter:
-            rows = [row for row in rows if row.status == status_filter]
-        return rows[:n]
+        with self._lock:
+            principal = str(principal_id or "").strip()
+            status_filter = str(status or "").strip().lower()
+            n = max(1, min(500, int(limit or 100)))
+            rows = [
+                self._rows[row_id]
+                for row_id in reversed(self._order)
+                if row_id in self._rows
+            ]
+            rows = [row for row in rows if row.principal_id == principal]
+            if status_filter:
+                rows = [row for row in rows if row.status == status_filter]
+            return rows[:n]

@@ -23,6 +23,7 @@ from scripts import verify_manfred_memorial_candidate as candidate_verify
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_PATH = ROOT / "deploy/manfred-memorial/docker-compose.candidate.yml"
 PROJECT = "ea-manfred-candidate-deployment-contract-a1b2c3d4"
+COMMIT = "a" * 40
 
 
 def test_projection_digest_matches_the_in_container_verifier(tmp_path: Path) -> None:
@@ -175,6 +176,24 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
 
     environment = api["environment"]
     assert environment["EA_RUNTIME_MODE"] == "prod"
+    assert environment["EA_SOURCE_REVISION"].startswith("${EA_MANFRED_COMMIT")
+    assert environment["EA_RELEASE_AUTHORITY_STATUS_PATH"] == (
+        "/data/release-authority/release_authority_status.generated.json"
+    )
+    assert environment["EA_RELEASE_MANIFEST_PATH"] == (
+        "/data/release-authority/release_manifest.generated.json"
+    )
+    assert environment["EA_DEPLOY_CONTEXT_PATH"] == (
+        "/data/release-authority/deploy_context.generated.json"
+    )
+    assert environment["EA_PROJECT_MODES_MANIFEST_PATH"] == (
+        "/data/release-authority/PROJECT_MODES.generated.json"
+    )
+    assert environment["EA_DEPLOY_PRIMARY_MODE"] == "MEMORIAL"
+    assert environment["EA_DEPLOY_ENABLED_MODES"] == "MEMORIAL,PROPERTY"
+    assert environment["EA_DEPLOY_COMPOSE_FILES"] == (
+        "deploy/manfred-memorial/docker-compose.candidate.yml"
+    )
     assert environment["EA_STORAGE_BACKEND"] == "postgres"
     assert environment["EA_ENABLE_LEGACY_RUNTIME_SURFACES"] == "1"
     assert environment["PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES"] == "1"
@@ -194,6 +213,12 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
     assert environment["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] == "0"
     assert environment["EA_TRUST_API_TOKEN_PRINCIPAL_HEADER"] == "0"
     assert environment["PYTHONPATH"] == "/app"
+    authority_mounts = [
+        mount
+        for mount in api["volumes"]
+        if str(mount).endswith(":/data/release-authority:ro")
+    ]
+    assert len(authority_mounts) == 1
 
     assert (
         environment["EA_PUBLIC_MEMORIAL_DIR"]
@@ -558,6 +583,126 @@ def test_candidate_projection_rejects_unsafe_paths_and_classifies_private_audio(
     assert assets[Path("audio/private.mp3")] == 0o400
 
 
+def test_candidate_spatial_review_inputs_are_explicit_and_threaded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parser_args = candidate_prep.build_parser().parse_args(
+        [
+            "--image",
+            "ea-runtime:manfred-abcdef123456",
+            "--public-base-url",
+            "https://memorial.example.at",
+            "--project-name",
+            PROJECT,
+            "--spatial-tour-bundle-dir",
+            str(tmp_path / "bundle"),
+            "--spatial-authority-receipt",
+            str(tmp_path / "authority.json"),
+            "--spatial-final-review-receipt",
+            str(tmp_path / "final.json"),
+            "--spatial-browser-review-receipt",
+            str(tmp_path / "browser.json"),
+        ]
+    )
+    assert parser_args.spatial_final_review_receipt == str(tmp_path / "final.json")
+    assert parser_args.spatial_browser_review_receipt == str(tmp_path / "browser.json")
+
+    monkeypatch.setattr(candidate_prep, "_commit", lambda *_args: COMMIT)
+    monkeypatch.setattr(
+        candidate_prep,
+        "_image_revision",
+        lambda _image: ("sha256:" + "1" * 64, COMMIT),
+    )
+    captured: dict[str, object] = {}
+
+    def capture_spatial_inputs(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        raise RuntimeError("spatial_inputs_captured")
+
+    monkeypatch.setattr(
+        candidate_prep,
+        "_validated_spatial_handoff_input",
+        capture_spatial_inputs,
+    )
+    unlocked_prepare = candidate_prep.prepare_candidate.__wrapped__
+    with pytest.raises(RuntimeError, match="spatial_inputs_captured"):
+        unlocked_prepare(
+            source_root=tmp_path,
+            ref="HEAD",
+            image="ea-runtime:manfred-abcdef123456",
+            deploy_root=tmp_path / "deploy",
+            public_base_url="https://memorial.example.at",
+            host_port=18090,
+            project_name=PROJECT,
+            spatial_tour_bundle_dir=tmp_path / "bundle",
+            spatial_authority_receipt=tmp_path / "authority.json",
+            spatial_final_review_receipt=tmp_path / "review" / ".." / "final.json",
+            spatial_browser_review_receipt=tmp_path / "browser.json",
+        )
+
+    assert captured == {
+        "bundle_dir": tmp_path / "bundle",
+        "authority_receipt_path": tmp_path / "authority.json",
+        "final_review_receipt_path": tmp_path / "final.json",
+        "browser_review_receipt_path": tmp_path / "browser.json",
+        "target_origin": "https://memorial.example.at",
+    }
+
+
+@pytest.mark.parametrize(
+    ("spatial_inputs", "expected_error"),
+    [
+        (
+            {
+                "spatial_tour_bundle_dir": Path("bundle"),
+                "spatial_authority_receipt": Path("authority.json"),
+            },
+            "manfred_candidate_spatial_review_evidence_required",
+        ),
+        (
+            {
+                "spatial_tour_bundle_dir": Path("bundle"),
+                "spatial_authority_receipt": Path("authority.json"),
+                "spatial_final_review_receipt": Path("final.json"),
+            },
+            "manfred_candidate_spatial_review_input_pair_required",
+        ),
+        (
+            {
+                "spatial_final_review_receipt": Path("final.json"),
+                "spatial_browser_review_receipt": Path("browser.json"),
+            },
+            "manfred_candidate_spatial_review_evidence_required",
+        ),
+    ],
+)
+def test_candidate_spatial_review_inputs_fail_closed_as_one_set(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    spatial_inputs: dict[str, Path],
+    expected_error: str,
+) -> None:
+    monkeypatch.setattr(candidate_prep, "_commit", lambda *_args: COMMIT)
+    monkeypatch.setattr(
+        candidate_prep,
+        "_image_revision",
+        lambda _image: ("sha256:" + "1" * 64, COMMIT),
+    )
+
+    with pytest.raises(ValueError, match=expected_error):
+        candidate_prep.prepare_candidate.__wrapped__(
+            source_root=tmp_path,
+            ref="HEAD",
+            image="ea-runtime:manfred-abcdef123456",
+            deploy_root=tmp_path / "deploy",
+            public_base_url="https://memorial.example.at",
+            host_port=18090,
+            project_name=PROJECT,
+            **spatial_inputs,
+        )
+
+
 def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> None:
     env_path = tmp_path / "candidate.env"
     release_root = tmp_path / "release"
@@ -570,6 +715,7 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
         public_base_url="https://memorial.example.at",
         host_port=18090,
         project_name=PROJECT,
+        commit=COMMIT,
     )
     first = candidate_prep._parse_env(env_path)
     candidate_prep._write_env(
@@ -580,6 +726,7 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
         public_base_url="https://memorial.example.at",
         host_port=18090,
         project_name=PROJECT,
+        commit=COMMIT,
     )
     second = candidate_prep._parse_env(env_path)
 
@@ -602,17 +749,34 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
     )
     assert set(second) == candidate_runner.ALLOWED_ENV_KEYS
 
+    existing_bytes = env_path.read_bytes()
+    with pytest.raises(ValueError, match="manfred_candidate_env_existing_conflict"):
+        candidate_prep._write_env(
+            path=env_path,
+            image="ea-runtime:manfred-abcdef123456",
+            release_root=release_root,
+            runtime_root=runtime_root,
+            public_base_url="https://memorial.example.at",
+            host_port=18090,
+            project_name=PROJECT,
+            commit=COMMIT,
+            rotate_secrets=True,
+        )
+    assert env_path.read_bytes() == existing_bytes
+
+    rotated_path = tmp_path / "rotated-candidate.env"
     candidate_prep._write_env(
-        path=env_path,
+        path=rotated_path,
         image="ea-runtime:manfred-abcdef123456",
         release_root=release_root,
         runtime_root=runtime_root,
         public_base_url="https://memorial.example.at",
         host_port=18090,
         project_name=PROJECT,
+        commit=COMMIT,
         rotate_secrets=True,
     )
-    rotated = candidate_prep._parse_env(env_path)
+    rotated = candidate_prep._parse_env(rotated_path)
     assert rotated["EA_API_TOKEN"] != second["EA_API_TOKEN"]
     assert rotated["EA_SIGNING_SECRET"] != second["EA_SIGNING_SECRET"]
     assert (
@@ -621,21 +785,322 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
     )
 
 
+def test_candidate_release_authority_bundle_is_commit_bound_and_runtime_safe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    image_id = "sha256:" + "b" * 64
+    authority_root = tmp_path / "release-authority"
+    project_modes = {
+        "contract_name": "ea.project_modes",
+        "generated_at": "stale",
+        "generated_by": "fixture",
+        "source_git_head": "b" * 40,
+        "head_semantics": "source_state",
+        "modes": [
+            {"key": "MEMORIAL", "status": "separate_risk_zone"},
+            {"key": "PROPERTY", "status": "separate_product_plane"},
+        ],
+    }
+    monkeypatch.setattr(
+        candidate_prep,
+        "_git_blob",
+        lambda *_args, **_kwargs: candidate_prep._receipt_bytes(project_modes),
+    )
+
+    def fake_run(  # type: ignore[no-untyped-def]
+        argv, *, cwd=None, input_bytes=None, timeout=None, environment=None
+    ):
+        del input_bytes, timeout, environment
+        call = tuple(argv)
+        if call == ("git", "status", "--short"):
+            return b""
+        if call[:3] == ("git", "rev-parse", "--verify"):
+            return f"{COMMIT}\n".encode("ascii")
+        if call[:3] == ("git", "merge-base", "--is-ancestor"):
+            return b""
+        if call == ("git", "remote", "get-url", "origin"):
+            return (candidate_prep.OFFICIAL_EA_REMOTE_ORIGIN + "\n").encode()
+        if "ls-remote" in call:
+            return f"{COMMIT}\trefs/heads/main\n".encode("ascii")
+        raise AssertionError((call, cwd))
+
+    monkeypatch.setattr(candidate_prep, "_run", fake_run)
+
+    evidence = candidate_prep._materialize_candidate_release_authority(
+        root=authority_root,
+        source_root=tmp_path,
+        commit=COMMIT,
+        image_id=image_id,
+        image_revision=COMMIT,
+        project_name=PROJECT,
+        public_origin="https://myexternalbrain.com",
+        generated_at="2026-07-14T00:00:00Z",
+        public_artifacts=["public_memorials/manfred/memorial.json"],
+    )
+
+    assert evidence["runtime_authority_state"] == "clear"
+    assert evidence["runtime_authority_posture"] == "authoritative_runtime"
+    assert evidence["promotion_authority"] is False
+    paths = candidate_prep._candidate_release_authority_paths(authority_root)
+    assert set(path.name for path in authority_root.iterdir()) == {
+        path.name for path in paths.values()
+    }
+    assert all(stat.S_IMODE(path.stat().st_mode) == 0o444 for path in paths.values())
+    status = json.loads(paths["release_status"].read_text(encoding="utf-8"))
+    assert status["commit_sha"] == COMMIT
+    assert status["state"] == "clear"
+    assert status["authority_posture"] == "authoritative_runtime"
+    assert status["manifest_path"] == (
+        "/data/release-authority/release_manifest.generated.json"
+    )
+    assert str(tmp_path) not in json.dumps(status)
+
+    manifest = json.loads(paths["release_manifest"].read_text(encoding="utf-8"))
+    manifest["commit_sha"] = "c" * 40
+    paths["release_manifest"].chmod(0o644)
+    paths["release_manifest"].write_bytes(candidate_prep._receipt_bytes(manifest))
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_release_authority_binding_invalid",
+    ):
+        candidate_prep._validate_candidate_release_authority_bundle(
+            authority_root,
+            expected_commit=COMMIT,
+            expected_image_id=image_id,
+            expected_project_name=PROJECT,
+            expected_public_origin="https://myexternalbrain.com",
+        )
+
+
+def test_candidate_remote_main_evidence_queries_exact_official_live_ref(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(  # type: ignore[no-untyped-def]
+        argv, *, cwd=None, input_bytes=None, timeout=None, environment=None
+    ):
+        del input_bytes
+        call = tuple(argv)
+        calls.append(call)
+        if call == ("git", "status", "--short"):
+            return b""
+        if call[:3] == ("git", "rev-parse", "--verify"):
+            return f"{COMMIT}\n".encode("ascii")
+        if call[:3] == ("git", "merge-base", "--is-ancestor"):
+            return b""
+        if call == ("git", "remote", "get-url", "origin"):
+            return (candidate_prep.OFFICIAL_EA_REMOTE_ORIGIN + "\n").encode()
+        if call == (
+            "git",
+            "-c",
+            "protocol.allow=never",
+            "-c",
+            "protocol.https.allow=always",
+            "-c",
+            "credential.helper=",
+            "-c",
+            "core.askPass=",
+            "ls-remote",
+            "--exit-code",
+            candidate_prep.OFFICIAL_EA_REMOTE_ORIGIN,
+            "refs/heads/main",
+        ):
+            assert timeout == 30
+            assert cwd == Path("/")
+            assert environment == {
+                "GIT_ALLOW_PROTOCOL": "https",
+                "GIT_ASKPASS": "/bin/false",
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_PROTOCOL_FROM_USER": "0",
+                "GIT_TERMINAL_PROMPT": "0",
+                "HOME": "/",
+                "LANG": "C.UTF-8",
+                "LC_ALL": "C.UTF-8",
+                "PATH": os.environ.get("PATH") or os.defpath,
+                "SSH_ASKPASS": "/bin/false",
+            }
+            return f"{COMMIT}\trefs/heads/main\n".encode("ascii")
+        assert environment is None
+        assert timeout is None
+        raise AssertionError(call)
+
+    monkeypatch.setattr(candidate_prep, "_run", fake_run)
+    evidence = candidate_prep._candidate_remote_main_evidence(
+        tmp_path,
+        commit=COMMIT,
+    )
+
+    assert evidence["git_remote_origin"] == candidate_prep.OFFICIAL_EA_REMOTE_ORIGIN
+    assert evidence["source_head_commit_sha"] == COMMIT
+    assert evidence["source_head_matches_candidate_commit"] is True
+    assert evidence["live_remote_ref_commit_sha"] == COMMIT
+    assert evidence["live_remote_ref_evidence"] == (
+        "isolated_git_ls_remote_exact_https_ref"
+    )
+    assert (
+        "git",
+        "-c",
+        "protocol.allow=never",
+        "-c",
+        "protocol.https.allow=always",
+        "-c",
+        "credential.helper=",
+        "-c",
+        "core.askPass=",
+        "ls-remote",
+        "--exit-code",
+        candidate_prep.OFFICIAL_EA_REMOTE_ORIGIN,
+        "refs/heads/main",
+    ) in calls
+
+
+@pytest.mark.parametrize(
+    "configured_origin",
+    [
+        "https://github.com/example/executive-assistant.git",
+        "https://token@github.com/ArchonMegalon/executive-assistant.git",
+        "https://user:token@github.com/ArchonMegalon/executive-assistant.git",
+    ],
+)
+def test_candidate_remote_main_evidence_rejects_wrong_or_credentialed_origin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    configured_origin: str,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(  # type: ignore[no-untyped-def]
+        argv, *, cwd=None, input_bytes=None, timeout=None, environment=None
+    ):
+        del cwd, input_bytes, environment
+        call = tuple(argv)
+        calls.append(call)
+        if call == ("git", "status", "--short"):
+            return b""
+        if call[:3] == ("git", "rev-parse", "--verify"):
+            return f"{COMMIT}\n".encode("ascii")
+        if call[:3] == ("git", "merge-base", "--is-ancestor"):
+            return b""
+        if call == ("git", "remote", "get-url", "origin"):
+            return f"{configured_origin}\n".encode()
+        assert timeout is None
+        raise AssertionError(call)
+
+    monkeypatch.setattr(candidate_prep, "_run", fake_run)
+    with pytest.raises(ValueError, match="remote_origin_invalid"):
+        candidate_prep._candidate_remote_main_evidence(tmp_path, commit=COMMIT)
+    assert not any("ls-remote" in call for call in calls)
+
+
+def test_candidate_remote_main_evidence_rejects_stale_live_main(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(  # type: ignore[no-untyped-def]
+        argv, *, cwd=None, input_bytes=None, timeout=None, environment=None
+    ):
+        del cwd, input_bytes, environment
+        call = tuple(argv)
+        if call == ("git", "status", "--short"):
+            return b""
+        if call[:3] == ("git", "rev-parse", "--verify"):
+            return f"{COMMIT}\n".encode("ascii")
+        if call[:3] == ("git", "merge-base", "--is-ancestor"):
+            return b""
+        if call == ("git", "remote", "get-url", "origin"):
+            return (candidate_prep.OFFICIAL_EA_REMOTE_ORIGIN + "\n").encode()
+        if "ls-remote" in call:
+            assert timeout == 30
+            return f"{'c' * 40}\trefs/heads/main\n".encode("ascii")
+        assert timeout is None
+        raise AssertionError(call)
+
+    monkeypatch.setattr(candidate_prep, "_run", fake_run)
+    with pytest.raises(ValueError, match="live_main_mismatch"):
+        candidate_prep._candidate_remote_main_evidence(tmp_path, commit=COMMIT)
+
+
+def test_candidate_remote_main_evidence_requires_checked_out_head(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(  # type: ignore[no-untyped-def]
+        argv, *, cwd=None, input_bytes=None, timeout=None, environment=None
+    ):
+        del cwd, input_bytes, timeout, environment
+        call = tuple(argv)
+        calls.append(call)
+        if call == ("git", "status", "--short"):
+            return b""
+        if call == (
+            "git",
+            "rev-parse",
+            "--verify",
+            "HEAD^{commit}",
+        ):
+            return f"{'b' * 40}\n".encode("ascii")
+        raise AssertionError(call)
+
+    monkeypatch.setattr(candidate_prep, "_run", fake_run)
+    with pytest.raises(ValueError, match="release_head_mismatch"):
+        candidate_prep._candidate_remote_main_evidence(tmp_path, commit=COMMIT)
+    assert not any("remote" in call or "ls-remote" in call for call in calls)
+
+
+def test_candidate_remote_main_evidence_normalizes_live_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(  # type: ignore[no-untyped-def]
+        argv, *, cwd=None, input_bytes=None, timeout=None, environment=None
+    ):
+        del cwd, input_bytes, environment
+        call = tuple(argv)
+        if call == ("git", "status", "--short"):
+            return b""
+        if call[:3] == ("git", "rev-parse", "--verify"):
+            return f"{COMMIT}\n".encode("ascii")
+        if call == ("git", "remote", "get-url", "origin"):
+            return (candidate_prep.OFFICIAL_EA_REMOTE_ORIGIN + "\n").encode()
+        if call[:3] == ("git", "merge-base", "--is-ancestor"):
+            return b""
+        if "ls-remote" in call:
+            raise subprocess.TimeoutExpired(call, timeout or 30)
+        raise AssertionError(call)
+
+    monkeypatch.setattr(candidate_prep, "_run", fake_run)
+    with pytest.raises(ValueError, match="remote_main_unverifiable"):
+        candidate_prep._candidate_remote_main_evidence(tmp_path, commit=COMMIT)
+
+
 def test_runtime_runner_rejects_live_bind_or_external_network(tmp_path: Path) -> None:
     env_file = (tmp_path / "candidate.env").resolve()
     release_root = (tmp_path / "release").resolve()
     runtime_root = (tmp_path / "runtime").resolve()
     spatial_root = (release_root / "public_property_tours").resolve()
+    authority_root = (
+        release_root / candidate_prep.CANDIDATE_RELEASE_AUTHORITY_DIRNAME
+    ).resolve()
     env = {
         "EA_MANFRED_COMPOSE_PROJECT": PROJECT,
+        "EA_MANFRED_COMMIT": COMMIT,
+        "EA_MANFRED_DEPLOYMENT_ID": f"{PROJECT}-{COMMIT[:12]}",
         "EA_MANFRED_IMAGE": "ea-runtime:manfred-abcdef123456",
         "EA_MANFRED_HOST_PORT": "18090",
         "EA_MANFRED_RELEASE_ROOT": str(release_root),
+        "EA_MANFRED_RELEASE_AUTHORITY_ROOT": str(authority_root),
         "EA_MANFRED_RUNTIME_ROOT": str(runtime_root),
         "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED": "0",
         "EA_MANFRED_SPATIAL_RELEASE_ROOT": str(spatial_root),
         "EA_MANFRED_SPATIAL_SHA256": candidate_prep._sha256(b"[]"),
         "EA_MANFRED_SPATIAL_SLUG": "",
+        "EA_PUBLIC_APP_BASE_URL": "https://myexternalbrain.com",
     }
     mounts = [
         {
@@ -677,13 +1142,15 @@ def test_runtime_runner_rejects_live_bind_or_external_network(tmp_path: Path) ->
             "target": "/data/public_property_tours",
             "read_only": True,
         },
+        {
+            "type": "bind",
+            "source": str(authority_root),
+            "target": "/data/release-authority",
+            "read_only": True,
+        },
         {"type": "volume", "source": "artifacts", "target": "/data/artifacts"},
     ]
-    declared_environment = {
-        "EA_ROLE": "api",
-        "EA_PUBLIC_TOUR_DIR": "/data/public_property_tours",
-        "EA_TRUST_PROXY_HEADERS": "1",
-    }
+    declared_environment = candidate_runner._expected_candidate_api_environment(env)
     base = {
         "name": PROJECT,
         "services": {
@@ -923,3 +1390,104 @@ def test_public_tour_json_route_supports_get_and_head() -> None:
     }
 
     assert methods == {"GET", "HEAD"}
+
+
+def test_projection_source_reader_is_stable_nofollow_and_mode_bounded(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.bin"
+    destination = tmp_path / "projection" / "source.bin"
+    source.write_bytes(b"governed-source")
+    source.chmod(0o664)
+
+    evidence = candidate_prep._copy_regular(
+        source,
+        destination,
+        maximum=1024,
+        mode=0o444,
+    )
+    assert destination.read_bytes() == b"governed-source"
+    assert stat.S_IMODE(destination.stat().st_mode) == 0o444
+    assert evidence["sha256"] == candidate_prep._sha256(b"governed-source")
+
+    linked = tmp_path / "linked.bin"
+    os.link(source, linked)
+    with pytest.raises(ValueError, match="source_asset_invalid"):
+        candidate_prep._read_regular_source(source, maximum=1024)
+    linked.unlink()
+
+    source.unlink()
+    target = tmp_path / "target.bin"
+    target.write_bytes(b"hostile")
+    source.symlink_to(target)
+    with pytest.raises(ValueError, match="source_asset_invalid"):
+        candidate_prep._read_regular_source(source, maximum=1024)
+
+
+def test_spatial_materializer_sanitizes_private_operator_source_modes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = candidate_prep.PROPERTY_AUTHORIZED_SLUG
+    source = tmp_path / "operator-private" / slug
+    source.mkdir(parents=True, mode=0o700)
+    nested = source / "generated-reconstruction"
+    nested.mkdir(mode=0o700)
+    for index, relative in enumerate(
+        (
+            "tour.json",
+            "generated-reconstruction/reconstruction.json",
+            "generated-reconstruction/source-floorplan.png",
+            "generated-reconstruction/viewer.html",
+            "generated-reconstruction/three.module.js",
+            "generated-reconstruction/OrbitControls.js",
+        )
+    ):
+        path = source / relative
+        path.write_bytes(f"source-{index}".encode("ascii"))
+        path.chmod(0o600 if index % 2 == 0 else 0o664)
+
+    authority = tmp_path / "evidence" / "authority.json"
+    final_review = tmp_path / "evidence" / "final.json"
+    browser_review = tmp_path / "evidence" / "browser.json"
+    authority.parent.mkdir()
+    for path in (authority, final_review, browser_review):
+        path.write_bytes(b"{}\n")
+        path.chmod(0o600)
+
+    monkeypatch.setattr(
+        candidate_prep,
+        "_validated_property_publication",
+        lambda **_kwargs: {
+            "slug": slug,
+            "asset_paths": [],
+            "upstream_publication_authority_sha256": "a" * 64,
+            "upstream_public_activation_authority": True,
+            "upstream_package_sha256": "b" * 64,
+            "upstream_tour_manifest_sha256": "c" * 64,
+            "review_evidence": {},
+        },
+    )
+    monkeypatch.setattr(
+        candidate_prep,
+        "_verify_spatial_bundle_before_copy",
+        lambda *_args, **_kwargs: {"pass": True},
+    )
+    handoff_bundle = tmp_path / "handoff" / slug
+    handoff_receipt = tmp_path / "receipts" / "handoff.json"
+
+    receipt = candidate_prep.materialize_spatial_handoff(
+        source_bundle_dir=source,
+        upstream_authority_receipt_path=authority,
+        final_review_receipt_path=final_review,
+        browser_review_receipt_path=browser_review,
+        handoff_bundle_dir=handoff_bundle,
+        handoff_receipt_path=handoff_receipt,
+        target_origin="https://myexternalbrain.com",
+    )
+
+    assert receipt["status"] == "pass"
+    assert stat.S_IMODE(handoff_bundle.stat().st_mode) == 0o755
+    assert stat.S_IMODE(handoff_receipt.stat().st_mode) == 0o600
+    for path in handoff_bundle.rglob("*"):
+        assert stat.S_IMODE(path.stat().st_mode) == (0o755 if path.is_dir() else 0o644)

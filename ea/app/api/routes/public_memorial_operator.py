@@ -51,7 +51,6 @@ from app.api.routes.public_memorial_operator_support import (
     _voice_ab_pool_status,
     _voice_ab_variant_choice,
     _normalize_voice_build_payload,
-    _public_voice_profile_summary,
     build_memorial_voice_profile,
     load_memorial_voice_profile,
     unmixr_clone_request,
@@ -79,6 +78,16 @@ _PRIVATE_HTML_HEADERS = {
 }
 _PUBLIC_MEMORIAL_OPERATOR_MAX_BODY_BYTES = 96_000
 _PUBLIC_MEMORIAL_OPERATOR_RATE_BUCKET = "operator_route_write"
+_VOICE_CONFIG_MUTABLE_IDENTIFIER_FIELDS = frozenset(
+    {
+        "tts_base_voice_variant",
+        "tts_mode",
+        "tts_plugin",
+        "tts_plugin_voice_id",
+        "tts_postprocess_profile",
+        "voice_profile_id",
+    }
+)
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _RELEASE_AUTHORITY_STATUS_PATH = _REPO_ROOT / ".codex-studio" / "published" / "release_authority_status.generated.json"
 _RELEASE_MANIFEST_PATH = _REPO_ROOT / ".codex-studio" / "published" / "release_manifest.generated.json"
@@ -96,6 +105,23 @@ def _enforce_operator_mutation_limits(
         raise HTTPException(status_code=413, detail="request_payload_too_large")
     context = _extract_personal_memory_request_context(request=request, body=body or {})
     shared_memorials._enforce_public_memorial_rate_limit(bucket, request=request, context=context)
+
+
+def _validate_public_voice_config_identifiers(payload: dict[str, object]) -> None:
+    for field in _VOICE_CONFIG_MUTABLE_IDENTIFIER_FIELDS:
+        if field not in payload:
+            continue
+        value = payload.get(field)
+        if not isinstance(value, str):
+            raise HTTPException(
+                status_code=400,
+                detail="voice_config_identifier_invalid",
+            )
+        if shared_memorials._voice_config_identifier_has_runtime_reference(value):
+            raise HTTPException(
+                status_code=400,
+                detail="voice_config_identifier_reference_forbidden",
+            )
 
 
 def _private_json_response(content: dict[str, object], *, status_code: int = 200) -> JSONResponse:
@@ -803,8 +829,11 @@ async def public_memorial_voice_config_update(slug: str, request: Request) -> JS
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="invalid_json")
         _enforce_operator_mutation_limits(request, bucket=_PUBLIC_MEMORIAL_OPERATOR_RATE_BUCKET, body=payload)
+        _validate_public_voice_config_identifiers(payload)
         _save_voice_config_payload(slug=slug, payload=payload)
-        return _private_json_response(_load_voice_config(slug))
+        return _private_json_response(
+            _public_voice_config_payload(slug, _load_voice_config(slug))
+        )
     except HTTPException as exc:
         return _private_error_response(exc.status_code, _text(exc.detail, "request_failed"))
 
@@ -893,7 +922,10 @@ async def public_memorial_voice_clone(slug: str, request: Request) -> JSONRespon
                 "tts_plugin": requested_plugin,
                 "tts_plugin_voice_id": cloned_voice_id,
             },
+            trusted_clone_activation=True,
         )
-        return _private_json_response(_load_voice_config(slug))
+        return _private_json_response(
+            _public_voice_config_payload(slug, _load_voice_config(slug))
+        )
     except HTTPException as exc:
         return _private_error_response(exc.status_code, _text(exc.detail, "request_failed"))

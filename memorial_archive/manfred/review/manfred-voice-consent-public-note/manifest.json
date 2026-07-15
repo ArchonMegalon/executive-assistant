@@ -18,15 +18,15 @@
     "html_path": "build/index.html",
     "pdf_path": "build/output.pdf"
   },
-  "sha256": "59c0038658c455fe22c57dd56aaa37fb6271c7774fd011ab104672f4a8cc3085",
+  "sha256": "1b6e98e1b4443425d4b641e78fd86407d7cfbffb18549fe5c8990d13cf80debc",
   "description": "Kurze Governance-Notiz f\u00fcr Review und sp\u00e4tere Nachvollziehbarkeit.",
-  "correction_contact": "memorial@myexternalbrain.com",
+  "correction_contact": "/memorials/manfred#memorial-contribution",
   "ai_disclosure": "KI-unterst\u00fctzte Formatierung; keine direkte Rede von Manfred, sofern sie nicht ausdr\u00fccklich als w\u00f6rtliche Quelle gekennzeichnet ist.",
-  "contact_or_correction_path": "memorial@myexternalbrain.com",
+  "contact_or_correction_path": "/memorials/manfred#memorial-contribution",
   "noindex": true,
   "share_with_memorial_app": false,
   "public": false,
   "published_date": "2026-06-05",
   "source_sha256": "3fd9c1e09aa229d84997fa0548752feae6d199654d7b1404e57c7f69141e0bec",
-  "built_at": "2026-07-11T07:07:13Z"
+  "built_at": "2026-07-15T00:23:23Z"
 }

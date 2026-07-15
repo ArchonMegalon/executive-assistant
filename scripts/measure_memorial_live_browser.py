@@ -986,6 +986,7 @@ def _measure(
                 ui_audio_play_ended = 0
                 ui_audio_play_error = ""
                 ui_audio_ready = False
+                conversation_teardown_ok = bool(text_prompt)
                 try:
                     if text_prompt:
                         payload = page.evaluate(
@@ -1193,16 +1194,35 @@ def _measure(
                     ui_audio_play_error = str(gate_state.get("last_error") or ui_audio_play_error)
                     ui_audio_ready = str(ui_audio_src or "").startswith("blob:") or ui_audio_play_calls > 0
                     if not text_prompt:
-                        page.click("#memorial-conversation", timeout=5000)
-                        page.wait_for_function(
+                        # Use a DOM click to avoid transient overlay hit-testing,
+                        # but keep teardown as a fail-closed launch assertion.
+                        stop_control_present = page.evaluate(
                             """
                             () => {
                               const button = document.getElementById("memorial-conversation");
-                              return Boolean(button && !button.disabled && button.getAttribute("aria-disabled") !== "true");
+                              if (!button) return false;
+                              if (button.getAttribute("aria-pressed") === "true") {
+                                button.click();
+                              }
+                              return true;
                             }
-                            """,
-                            timeout=30000,
+                            """
                         )
+                        if not stop_control_present:
+                            raise RuntimeError("conversation_stop_control_missing")
+                        try:
+                            page.wait_for_function(
+                                """
+                                () => {
+                                  const button = document.getElementById("memorial-conversation");
+                                  return Boolean(button && !button.disabled && button.getAttribute("aria-disabled") !== "true");
+                                }
+                                """,
+                                timeout=5000,
+                            )
+                        except Exception as exc:
+                            raise RuntimeError("conversation_teardown_failed") from exc
+                        conversation_teardown_ok = True
                 except Exception as exc:
                     turn_error = str(exc)
                     try:
@@ -1281,6 +1301,7 @@ def _measure(
                     "phase_text": str(phase_text).strip(),
                     "detail_text": str(detail_text).strip(),
                     "turn_error": turn_error[:240],
+                    "conversation_teardown_ok": bool(conversation_teardown_ok),
                     "conversation_turn_payload": payload,
                     "audio_ready_for_ui": bool(ui_audio_ready),
                     "audio_payload_ready": bool(audio_payload_ready),
@@ -1341,6 +1362,11 @@ def _with_exit_gate_status(
             add_reason(turn_error)
     elif not str(result.get("answer_preview") or "").strip():
         add_reason("missing_answer_preview")
+    if str(result.get("speech_transcribe_mode") or "") in {
+        "live",
+        "transcript_injected",
+    } and result.get("conversation_teardown_ok") is not True:
+        add_reason("conversation_teardown_failed")
     if not bool(result.get("audio_payload_ready")) and not bool(result.get("audio_ready_for_ui")):
         add_reason("missing_audio_payload")
     if not bool(result.get("audio_ready_for_ui")):

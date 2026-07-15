@@ -1,0 +1,7 @@
+{
+  "contract_name": "projection.import_parity_certification",
+  "generated_at": "2026-07-15T00:00:00Z",
+  "projection_redacted": true,
+  "coverage_percent": 100,
+  "formats": ["Hero Lab Classic", "Genesis", "CommLink6"]
+}

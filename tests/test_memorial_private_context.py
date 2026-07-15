@@ -8,8 +8,9 @@ import stat
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
-from app.api.routes import public_memorials
+from app.api.routes import public_memorial_surface, public_memorials
 from app.services import memorial_recovery_inventory
 from app.services.memorial_private_context import (
     PRIVATE_CONTEXT_DECLARATION,
@@ -142,7 +143,6 @@ def test_manfred_public_projection_matches_with_or_without_private_provisioning(
         private_root=_PRIVATE_ROOT,
         slug="manfred",
     )
-
     assert public_memorials._public_memorial_payload(
         internal_payload
     ) == public_memorials._public_memorial_payload(public_payload)
@@ -155,6 +155,153 @@ def test_manfred_public_projection_matches_with_or_without_private_provisioning(
         for source in list(internal_payload.get("external_sources") or [])
         if isinstance(source, dict) and source.get("approved") is not True
     )
+
+
+def test_private_context_merge_is_idempotent_and_preserves_original_public_projection(
+    tmp_path: Path,
+) -> None:
+    public_payload = _declared_public_payload()
+    private_root = tmp_path / "private"
+    overrides = _minimal_overrides()
+    overrides["memory_cards"] = [
+        {
+            "visibility": "public",
+            "approved": True,
+            "title": "PRIVATE_IDEMPOTENCE_CANARY",
+        }
+    ]
+    _write_json(
+        private_root / "manfred" / PRIVATE_CONTEXT_FILENAME,
+        private_context_payload(slug="manfred", overrides=overrides),
+    )
+
+    first = merge_private_memorial_context(
+        public_payload=public_payload,
+        private_root=private_root,
+        slug="manfred",
+    )
+    second = merge_private_memorial_context(
+        public_payload=first,
+        private_root=private_root,
+        slug="manfred",
+    )
+
+    assert second == first
+    assert public_memorials._public_memorial_payload(second) == (
+        public_memorials._public_memorial_payload(public_payload)
+    )
+    assert "PRIVATE_IDEMPOTENCE_CANARY" not in json.dumps(
+        public_memorials._public_memorial_payload(second),
+        ensure_ascii=False,
+    )
+
+
+def test_public_surface_excludes_public_looking_private_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    public_payload = {
+        "slug": "manfred",
+        "person_name": "Manfred",
+        "title": "Tracked public title",
+        "private_context": dict(PRIVATE_CONTEXT_DECLARATION),
+        "audio_clips": [
+            {
+                "visibility": "public",
+                "public": True,
+                "title": "Tracked public audio",
+                "asset_relpath": "audio/tracked-public.mp3",
+            }
+        ],
+        "memory_cards": [
+            {
+                "visibility": "public",
+                "public": True,
+                "approved": True,
+                "title": "TRACKED_PUBLIC_CANARY",
+                "body": "Tracked public body",
+            }
+        ],
+        "candidate_recordings": [],
+        "source_grounded_profile": [],
+        "character_notes": [],
+        "external_sources": [],
+    }
+    private_root = tmp_path / "private"
+    private_overrides = _minimal_overrides(
+        audio_clips=[
+            {
+                "visibility": "public",
+                "public": True,
+                "title": "Private public-looking audio",
+                "asset_relpath": "audio/private-canary.mp3",
+            }
+        ]
+    )
+    private_overrides["memory_cards"] = [
+        {
+            "visibility": "public",
+            "public": True,
+            "approved": True,
+            "title": "PRIVATE_PROJECTION_CANARY",
+            "body": "Private public-looking body",
+        }
+    ]
+    _write_json(
+        private_root / "manfred" / PRIVATE_CONTEXT_FILENAME,
+        private_context_payload(slug="manfred", overrides=private_overrides),
+    )
+    merged = merge_private_memorial_context(
+        public_payload=public_payload,
+        private_root=private_root,
+        slug="manfred",
+    )
+    monkeypatch.setattr(public_memorial_surface, "_load_memorial", lambda slug: merged)
+    monkeypatch.setattr(
+        public_memorial_surface,
+        "merge_public_family_contributions",
+        lambda *, slug, memorial: dict(memorial),
+    )
+
+    public_surface = public_memorial_surface._load_public_surface_memorial("manfred")
+    public_json = json.dumps(
+        public_memorial_surface._public_memorial_payload(public_surface),
+        ensure_ascii=False,
+    )
+    public_html = public_memorial_surface._public_memorial_page_html(public_surface)
+
+    assert "PRIVATE_PROJECTION_CANARY" not in public_json
+    assert "PRIVATE_PROJECTION_CANARY" not in public_html
+    assert "TRACKED_PUBLIC_CANARY" in public_json
+    assert "TRACKED_PUBLIC_CANARY" in public_html
+
+    bundle = tmp_path / "bundle"
+    (bundle / "audio").mkdir(parents=True)
+    tracked_audio = bundle / "audio" / "tracked-public.mp3"
+    tracked_audio.write_bytes(b"tracked-public-audio")
+    (bundle / "audio" / "private-canary.mp3").write_bytes(b"private-audio")
+    monkeypatch.setattr(
+        public_memorial_surface, "_memorial_bundle", lambda slug: bundle
+    )
+    monkeypatch.setattr(public_memorials, "_memorial_bundle", lambda slug: bundle)
+    monkeypatch.setattr(public_memorials, "_load_memorial", lambda slug: merged)
+
+    assert (
+        public_memorial_surface._public_memorial_asset_file(
+            "manfred", "audio/tracked-public.mp3"
+        )
+        == tracked_audio
+    )
+    assert (
+        public_memorials._asset_file("manfred", "audio/tracked-public.mp3")
+        == tracked_audio
+    )
+    with pytest.raises(HTTPException, match="memorial_file_not_found"):
+        public_memorial_surface._public_memorial_asset_file(
+            "manfred", "audio/private-canary.mp3"
+        )
+    with pytest.raises(HTTPException, match="memorial_file_not_found"):
+        public_memorials._asset_file("manfred", "audio/private-canary.mp3")
 
 
 def test_loader_reconstructs_exact_values_and_order_then_falls_back_for_malformed_context(

@@ -363,12 +363,12 @@ def _path_from_value(root: Path, value: str | Path) -> Path | None:
 
 
 def _writable_path(path: Path) -> bool:
-    probe = path if path.exists() else path.parent
-    while not probe.exists() and probe != probe.parent:
-        probe = probe.parent
     try:
+        probe = path if path.exists() else path.parent
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
         return os.access(probe, os.W_OK)
-    except Exception:
+    except OSError:
         return False
 
 

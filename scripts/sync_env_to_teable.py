@@ -866,9 +866,27 @@ def _write_private_text(path: Path, text: str) -> None:
     path.chmod(0o600)
 
 
-def _mapped_secret_file_output_path(source_path: Path, output_root: Path | None) -> Path:
+def _secret_file_relative_path_hint(row: dict[str, Any]) -> Path | None:
+    env_name = str(row.get("env_name") or "").strip()
+    prefix = "LOCAL_SECRET_FILE:"
+    if not env_name.startswith(prefix):
+        return None
+    candidate = Path(env_name[len(prefix) :].strip())
+    if not candidate.parts or candidate.is_absolute() or ".." in candidate.parts:
+        return None
+    return candidate
+
+
+def _mapped_secret_file_output_path(
+    source_path: Path,
+    output_root: Path | None,
+    *,
+    relative_path_hint: Path | None = None,
+) -> Path:
     if output_root is None:
         return source_path
+    if relative_path_hint is not None:
+        return output_root / relative_path_hint
     if source_path.is_absolute():
         try:
             relative = source_path.relative_to(ROOT)
@@ -989,7 +1007,11 @@ def restore_referenced_secret_files(
         raw_path = str(row.get("source_path") or "").strip()
         if not raw_path:
             continue
-        output_path = _mapped_secret_file_output_path(Path(raw_path), output_root)
+        output_path = _mapped_secret_file_output_path(
+            Path(raw_path),
+            output_root,
+            relative_path_hint=_secret_file_relative_path_hint(row),
+        )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         backup_path = _backup_existing_file(output_path) if backup_existing else ""
         if backup_path:
@@ -1450,7 +1472,13 @@ def verify_restored_outputs_from_table(
         source_path = Path(str(row.get("source_path") or ""))
         expected_value = _stored_secret_value_from_record(row)
         expected_hash = _restore_value_hash(expected_value)
-        matching_path = str(_mapped_secret_file_output_path(source_path, output_root))
+        matching_path = str(
+            _mapped_secret_file_output_path(
+                source_path,
+                output_root,
+                relative_path_hint=_secret_file_relative_path_hint(row),
+            )
+        )
         if not matching_path or matching_path not in file_path_set or not Path(matching_path).is_file():
             hash_mismatch_paths.append(str(source_path))
             continue

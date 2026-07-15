@@ -7,11 +7,12 @@ import fcntl
 import hashlib
 import json
 import os
+import secrets
 import shutil
 import stat
 import subprocess
 import tempfile
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
@@ -47,6 +48,60 @@ BUILDX_BUILDER_CREATE_ERROR = "manfred_image_buildx_builder_create_invalid"
 EXISTING_IMAGE_MISMATCH_ERROR = "manfred_image_existing_tag_mismatch"
 POST_BUILD_VERIFY_ERROR = "manfred_image_post_build_verification_failed"
 BUILDX_BUILD_ERROR = "manfred_image_buildx_build_failed"
+RECEIPT_CONFLICT_ERROR = "manfred_image_receipt_existing_conflict"
+RECEIPT_PATH_ERROR = "manfred_image_receipt_path_invalid"
+RECEIPT_WRITE_ERROR = "manfred_image_receipt_write_failed"
+RECEIPT_MAX_BYTES = 1024 * 1024
+RECEIPT_TEMP_BASENAME = "ea-manfred-image-receipt"
+RECEIPT_TEMP_CREATE_ATTEMPTS = 32
+SUCCESS_RECEIPT_FIELDS = frozenset(
+    {
+        "schema",
+        "status",
+        "commit",
+        "image_tag",
+        "image_id",
+        "created_at",
+        "revision_label",
+        "runtime_source_revision",
+        "rootfs_layer_count",
+        "build_engine",
+        "buildx_builder_name",
+        "buildx_builder_driver",
+        "buildx_builder_node_name",
+        "buildx_builder_endpoint",
+        "buildx_builder_created",
+        "buildx_builder_validated",
+        "buildx_load_completed",
+        "image_reused",
+        "preexisting_image_preserved",
+        "build_cache_scope",
+        "build_cache_prune",
+        "admission",
+        "global_build_cache_pruned",
+        "live_or_rollback_images_pruned",
+        "tracked_archive_context",
+        "dirty_worktree_context_used",
+        "runtime_secrets_baked_in",
+        "memorial_data_baked_in",
+        "memorial_archive_baked_in",
+    }
+)
+SUCCESS_RECEIPT_CACHE_FIELDS = frozenset(
+    {"status", "builder", "max_used_space", "reserved_space", "min_free_space"}
+)
+SUCCESS_RECEIPT_ADMISSION_FIELDS = frozenset(
+    {
+        "producer_sha256",
+        "soak_root_free_floor_bytes",
+        "build_root_free_headroom_bytes",
+        "minimum_root_free_bytes",
+        "root_free_bytes",
+        "builder_created_before_build",
+        "docker_mutations_before_build",
+        "docker_build_started",
+    }
+)
 FORBIDDEN_CONTEXT_PATHS = (
     ".env",
     ".env.local",
@@ -149,6 +204,16 @@ FORBIDDEN_IMAGE_PATHS = (
     "/tmp/src",
     "/app/.env",
     "/app/.env.local",
+)
+FORBIDDEN_IMAGE_ENV_NAMES = frozenset(
+    {
+        "EA_API_TOKEN",
+        "EA_SIGNING_SECRET",
+        "DATABASE_URL",
+        "UNMIXR_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+    }
 )
 
 
@@ -675,17 +740,9 @@ def _image_inspection(tag: str, *, expected_commit: str) -> tuple[str, dict[str,
     ]
     if configured_revisions != [expected_commit]:
         raise RuntimeError("manfred_image_source_revision_environment_mismatch")
-    forbidden_names = {
-        "EA_API_TOKEN",
-        "EA_SIGNING_SECRET",
-        "DATABASE_URL",
-        "UNMIXR_API_KEY",
-        "OPENAI_API_KEY",
-        "GEMINI_API_KEY",
-    }
     for item in configured_environment:
         name = str(item).split("=", 1)[0]
-        if name in forbidden_names:
+        if name in FORBIDDEN_IMAGE_ENV_NAMES:
             raise RuntimeError("manfred_image_runtime_secret_baked_in")
     return image_id, inspection
 
@@ -708,24 +765,789 @@ def _verify_image_filesystem(tag: str) -> None:
     )
 
 
-def _atomic_json(path: Path, payload: dict[str, object]) -> None:
-    path = path.expanduser().resolve()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+def _build_receipt_bytes(payload: dict[str, object]) -> bytes:
+    return (
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode(
+            "utf-8"
+        )
+        + b"\n"
+    )
+
+
+def _trusted_receipt_parent(path: Path) -> tuple[Path, Path]:
+    normalized = Path(os.path.abspath(os.fspath(path.expanduser())))
+    if normalized.name in {"", ".", ".."}:
+        raise RuntimeError(RECEIPT_PATH_ERROR)
+    normalized.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
     try:
-        os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            descriptor = -1
-            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        path.chmod(0o600)
+        parent = normalized.parent.resolve(strict=True)
+        metadata = parent.stat()
+    except OSError as exc:
+        raise RuntimeError(RECEIPT_PATH_ERROR) from exc
+    if (
+        parent != normalized.parent
+        or not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.getuid()
+        or stat.S_IMODE(metadata.st_mode) & 0o022
+    ):
+        raise RuntimeError(RECEIPT_PATH_ERROR)
+    return normalized, parent
+
+
+def _receipt_metadata_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _read_build_receipt_entry(
+    directory_descriptor: int,
+    name: str,
+    *,
+    required_nlink: int,
+) -> tuple[bytes, os.stat_result]:
+    descriptor = -1
+    try:
+        try:
+            descriptor = os.open(
+                name,
+                os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=directory_descriptor,
+            )
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise RuntimeError(RECEIPT_PATH_ERROR) from exc
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.getuid()
+            or before.st_nlink != required_nlink
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_size <= 0
+            or before.st_size > RECEIPT_MAX_BYTES
+        ):
+            raise RuntimeError(RECEIPT_PATH_ERROR)
+        chunks: list[bytes] = []
+        remaining = int(before.st_size)
+        while remaining:
+            chunk = os.read(descriptor, min(65536, remaining))
+            if not chunk:
+                raise RuntimeError(RECEIPT_PATH_ERROR)
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        after = os.fstat(descriptor)
+        try:
+            current = os.stat(
+                name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except OSError as exc:
+            raise RuntimeError(RECEIPT_PATH_ERROR) from exc
+        if (
+            _receipt_metadata_identity(before)
+            != _receipt_metadata_identity(after)
+            or _receipt_metadata_identity(before)
+            != _receipt_metadata_identity(current)
+        ):
+            raise RuntimeError(RECEIPT_PATH_ERROR)
+        return b"".join(chunks), before
     finally:
         if descriptor >= 0:
             os.close(descriptor)
-        Path(temporary).unlink(missing_ok=True)
+
+
+def _read_build_receipt(path: Path, *, missing_ok: bool = False) -> bytes | None:
+    normalized, parent = _trusted_receipt_parent(path)
+    directory_descriptor = os.open(
+        parent,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        try:
+            encoded, _metadata = _read_build_receipt_entry(
+                directory_descriptor,
+                normalized.name,
+                required_nlink=1,
+            )
+        except FileNotFoundError:
+            if missing_ok:
+                return None
+            raise RuntimeError(RECEIPT_PATH_ERROR)
+        return encoded
+    finally:
+        os.close(directory_descriptor)
+
+
+def _read_existing_build_receipt(path: Path) -> bytes | None:
+    try:
+        normalized = Path(os.path.abspath(os.fspath(path.expanduser())))
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise RuntimeError(RECEIPT_PATH_ERROR) from exc
+    if not normalized.is_absolute() or normalized.name in {"", ".", ".."}:
+        raise RuntimeError(RECEIPT_PATH_ERROR)
+    try:
+        metadata = os.lstat(normalized)
+    except FileNotFoundError:
+        # Do not create the receipt parent on the no-replay path.  Normal
+        # publication remains solely responsible for that later mutation.
+        return None
+    except OSError as exc:
+        raise RuntimeError(RECEIPT_PATH_ERROR) from exc
+    if metadata.st_nlink == 2:
+        completed, observed = _reconcile_interrupted_build_receipt_publication(
+            normalized,
+            expected=None,
+        )
+        if not completed or observed is None:
+            raise RuntimeError(RECEIPT_PATH_ERROR)
+        return observed
+    return _read_build_receipt(normalized)
+
+
+def _canonical_success_receipt(encoded: bytes) -> dict[str, object]:
+    try:
+        payload = json.loads(encoded)
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR) from exc
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != SUCCESS_RECEIPT_FIELDS
+        or _build_receipt_bytes(payload) != encoded
+    ):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    return dict(payload)
+
+
+def _valid_receipt_created_at(value: object) -> bool:
+    if not isinstance(value, str) or not value.endswith("Z"):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return (
+        parsed.tzinfo == timezone.utc
+        and parsed.microsecond == 0
+        and parsed.isoformat().replace("+00:00", "Z") == value
+    )
+
+
+def _valid_receipt_image_id(value: object) -> bool:
+    if not isinstance(value, str) or not value.startswith("sha256:"):
+        return False
+    digest = value.removeprefix("sha256:")
+    return len(digest) == 64 and all(
+        character in "0123456789abcdef" for character in digest
+    )
+
+
+def _validate_success_receipt_shape(
+    payload: dict[str, object],
+    *,
+    commit: str,
+    image_tag: str,
+    producer_sha256: str,
+) -> bool:
+    image_reused = payload.get("image_reused")
+    builder_created = payload.get("buildx_builder_created")
+    rootfs_layer_count = payload.get("rootfs_layer_count")
+    if (
+        payload.get("schema") != RECEIPT_SCHEMA
+        or payload.get("status") != "pass"
+        or payload.get("commit") != commit
+        or payload.get("image_tag") != image_tag
+        or not _valid_receipt_image_id(payload.get("image_id"))
+        or not _valid_receipt_created_at(payload.get("created_at"))
+        or payload.get("revision_label") != commit
+        or payload.get("runtime_source_revision") != commit
+        or not isinstance(rootfs_layer_count, int)
+        or isinstance(rootfs_layer_count, bool)
+        or rootfs_layer_count < 0
+        or payload.get("build_engine") != "docker-buildx"
+        or payload.get("buildx_builder_name") != BUILDX_BUILDER_NAME
+        or payload.get("buildx_builder_driver") != BUILDX_BUILDER_DRIVER
+        or payload.get("buildx_builder_node_name") != BUILDX_BUILDER_NODE_NAME
+        or payload.get("buildx_builder_endpoint") != BUILDX_BUILDER_ENDPOINT
+        or not isinstance(image_reused, bool)
+        or not isinstance(builder_created, bool)
+        or payload.get("build_cache_scope") != "dedicated_builder_only"
+    ):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+
+    expected_state = (
+        {
+            "buildx_builder_created": False,
+            "buildx_builder_validated": False,
+            "buildx_load_completed": False,
+            "preexisting_image_preserved": True,
+            "tracked_archive_context": False,
+        }
+        if image_reused
+        else {
+            "buildx_builder_created": builder_created,
+            "buildx_builder_validated": True,
+            "buildx_load_completed": True,
+            "preexisting_image_preserved": False,
+            "tracked_archive_context": True,
+        }
+    )
+    expected_state.update(
+        {
+            "global_build_cache_pruned": False,
+            "live_or_rollback_images_pruned": False,
+            "dirty_worktree_context_used": False,
+            "runtime_secrets_baked_in": False,
+            "memorial_data_baked_in": False,
+            "memorial_archive_baked_in": False,
+        }
+    )
+    if any(payload.get(name) is not value for name, value in expected_state.items()):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+
+    cache_policy = payload.get("build_cache_prune")
+    expected_cache_status = "not_run_existing_image_reused" if image_reused else "pass"
+    if (
+        not isinstance(cache_policy, dict)
+        or set(cache_policy) != SUCCESS_RECEIPT_CACHE_FIELDS
+        or cache_policy.get("status") != expected_cache_status
+        or cache_policy.get("builder") != BUILDX_BUILDER_NAME
+        or cache_policy.get("max_used_space") != BUILDX_CACHE_MAX_USED_SPACE
+        or cache_policy.get("reserved_space") != BUILDX_CACHE_RESERVED_SPACE
+        or cache_policy.get("min_free_space") != BUILDX_CACHE_MIN_FREE_SPACE
+    ):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+
+    admission = payload.get("admission")
+    if (
+        not isinstance(admission, dict)
+        or set(admission) != SUCCESS_RECEIPT_ADMISSION_FIELDS
+        or admission.get("producer_sha256") != producer_sha256
+        or admission.get("soak_root_free_floor_bytes")
+        != SOAK_ROOT_FREE_FLOOR_BYTES
+        or admission.get("build_root_free_headroom_bytes")
+        != BUILD_ROOT_FREE_HEADROOM_BYTES
+        or admission.get("minimum_root_free_bytes") != MINIMUM_ROOT_FREE_BYTES
+        or admission.get("builder_created_before_build") is not builder_created
+        or admission.get("docker_build_started") is not (not image_reused)
+    ):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    docker_mutations = admission.get("docker_mutations_before_build")
+    if (
+        not isinstance(docker_mutations, int)
+        or isinstance(docker_mutations, bool)
+        or docker_mutations != int(builder_created)
+    ):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    root_free = admission.get("root_free_bytes")
+    expected_stages = ("after_lock",) if image_reused else ROOT_FREE_OBSERVATION_STAGES
+    if not isinstance(root_free, dict) or set(root_free) != set(expected_stages):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    for stage in expected_stages:
+        if not _root_disk_admissible(root_free.get(stage)):
+            raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    return image_reused
+
+
+def _validate_replay_image_inspection(
+    inspection: dict[str, object],
+    *,
+    commit: str,
+    created_at: str,
+    image_reused: bool,
+    rootfs_layer_count: int,
+) -> None:
+    config = inspection.get("Config")
+    rootfs = inspection.get("RootFS")
+    if not isinstance(config, dict) or not isinstance(rootfs, dict):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    labels = config.get("Labels")
+    configured_environment = config.get("Env")
+    layers = rootfs.get("Layers")
+    if (
+        not isinstance(labels, dict)
+        or labels.get("org.opencontainers.image.revision") != commit
+        or (
+            not image_reused
+            and labels.get("org.opencontainers.image.created") != created_at
+        )
+        or not isinstance(configured_environment, list)
+        or not isinstance(layers, list)
+        or len(layers) != rootfs_layer_count
+    ):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    revisions = [
+        item.split("=", 1)[1]
+        for item in configured_environment
+        if isinstance(item, str)
+        and "=" in item
+        and item.split("=", 1)[0] == "EA_SOURCE_REVISION"
+    ]
+    if revisions != [commit]:
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    for item in configured_environment:
+        if (
+            not isinstance(item, str)
+            or item.split("=", 1)[0] in FORBIDDEN_IMAGE_ENV_NAMES
+        ):
+            raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+
+
+def _replayed_success_receipt(
+    receipt_path: Path,
+    *,
+    commit: str,
+    image_tag: str,
+    producer_sha256: str,
+) -> dict[str, object] | None:
+    encoded = _read_existing_build_receipt(receipt_path)
+    if encoded is None:
+        return None
+    payload = _canonical_success_receipt(encoded)
+    image_reused = _validate_success_receipt_shape(
+        payload,
+        commit=commit,
+        image_tag=image_tag,
+        producer_sha256=producer_sha256,
+    )
+    expected_image_id = str(payload.get("image_id") or "")
+    try:
+        initial_image_id = _listed_image_id(image_tag)
+        if initial_image_id != expected_image_id:
+            raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+        image_id, inspection = _image_inspection(image_tag, expected_commit=commit)
+        if image_id != expected_image_id:
+            raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+        _validate_replay_image_inspection(
+            inspection,
+            commit=commit,
+            created_at=str(payload.get("created_at") or ""),
+            image_reused=image_reused,
+            rootfs_layer_count=int(payload.get("rootfs_layer_count") or 0),
+        )
+        _verify_image_filesystem(expected_image_id)
+        if _listed_image_id(image_tag) != expected_image_id:
+            raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    except (
+        OSError,
+        ValueError,
+        RuntimeError,
+        subprocess.CalledProcessError,
+        json.JSONDecodeError,
+        UnicodeError,
+    ) as exc:
+        if isinstance(exc, RuntimeError) and str(exc) == RECEIPT_CONFLICT_ERROR:
+            raise
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR) from exc
+    return payload
+
+
+def _is_build_receipt_temporary_name(name: str, *, final_name: str) -> bool:
+    parts = name.split(".")
+    current_name = (
+        len(parts) == 5
+        and parts[0] == ""
+        and parts[1] == RECEIPT_TEMP_BASENAME
+        and parts[2].isdigit()
+        and len(parts[3]) == 24
+        and all(character in "0123456789abcdef" for character in parts[3])
+        and parts[4] == "tmp"
+    )
+    # The immediately preceding writer used tempfile.mkstemp with this
+    # destination-bound prefix.  Accept that strict eight-character suffix so
+    # an upgrade can also finish an already-stranded hard-link window.
+    legacy_prefix = f".{final_name}."
+    legacy_suffix = (
+        name[len(legacy_prefix) :] if name.startswith(legacy_prefix) else ""
+    )
+    legacy_name = len(legacy_suffix) == 8 and all(
+        character in "abcdefghijklmnopqrstuvwxyz0123456789_"
+        for character in legacy_suffix
+    )
+    return current_name or legacy_name
+
+
+def _reconcile_interrupted_build_receipt_publication(
+    path: Path,
+    *,
+    expected: bytes | None,
+) -> tuple[bool, bytes | None]:
+    """Normalize the one recoverable hard-link window used by ``_atomic_json``."""
+
+    normalized, parent = _trusted_receipt_parent(path)
+    directory_descriptor = os.open(
+        parent,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
+    )
+    recovery_descriptor = -1
+    recovery_identity: os.stat_result | None = None
+    recovery_mutation_attempted = False
+    known_conflict = False
+    conflict_durably_normalized = False
+    try:
+        try:
+            final = os.stat(
+                normalized.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return False, None
+        if (
+            not stat.S_ISREG(final.st_mode)
+            or final.st_uid != os.getuid()
+            or final.st_nlink != 2
+            or stat.S_IMODE(final.st_mode) != 0o600
+            or final.st_size <= 0
+            or final.st_size > RECEIPT_MAX_BYTES
+        ):
+            return False, None
+
+        recognized_names: list[str] = []
+        matches: list[str] = []
+        for name in os.listdir(directory_descriptor):
+            if name == normalized.name or not _is_build_receipt_temporary_name(
+                name,
+                final_name=normalized.name,
+            ):
+                continue
+            recognized_names.append(name)
+            try:
+                candidate = os.stat(
+                    name,
+                    dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                continue
+            if (
+                stat.S_ISREG(candidate.st_mode)
+                and candidate.st_uid == final.st_uid
+                and candidate.st_dev == final.st_dev
+                and candidate.st_ino == final.st_ino
+                and candidate.st_nlink == 2
+                and stat.S_IMODE(candidate.st_mode) == 0o600
+                and candidate.st_size == final.st_size
+            ):
+                matches.append(name)
+        if len(recognized_names) != 1 or matches != recognized_names:
+            return False, None
+
+        observed, opened = _read_build_receipt_entry(
+            directory_descriptor,
+            normalized.name,
+            required_nlink=2,
+        )
+        try:
+            recovery_descriptor = os.open(
+                normalized.name,
+                os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=directory_descriptor,
+            )
+            recovery_identity = os.fstat(recovery_descriptor)
+        except OSError as exc:
+            raise RuntimeError(RECEIPT_PATH_ERROR) from exc
+        if (
+            recovery_identity is None
+            or _receipt_metadata_identity(recovery_identity)
+            != _receipt_metadata_identity(opened)
+        ):
+            raise RuntimeError(RECEIPT_PATH_ERROR)
+        temporary = os.stat(
+            matches[0],
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            temporary.st_dev != opened.st_dev
+            or temporary.st_ino != opened.st_ino
+            or temporary.st_nlink != 2
+        ):
+            raise RuntimeError(RECEIPT_PATH_ERROR)
+        # Without caller-supplied expected bytes, the securely observed inode is
+        # the no-replace authority.  Preserve its final name on later recovery
+        # faults; only an exact expected-byte retry may roll its own staged inode
+        # back completely and publish again.
+        known_conflict = expected is None or observed != expected
+        accepted = observed if expected is None else expected
+
+        # Whether the bytes match or conflict, retire the recognized private
+        # staging name first so a prior killed writer cannot leave nlink > 1.
+        try:
+            # The unlink may commit before its caller observes an exception.
+            # From this point through exact durable validation, the retained
+            # descriptor authorizes rollback of this inode's names only.
+            recovery_mutation_attempted = True
+            os.unlink(matches[0], dir_fd=directory_descriptor)
+            os.fsync(directory_descriptor)
+            remaining, published = _read_build_receipt_entry(
+                directory_descriptor,
+                normalized.name,
+                required_nlink=1,
+            )
+            if (
+                published.st_dev != opened.st_dev
+                or published.st_ino != opened.st_ino
+            ):
+                raise RuntimeError(RECEIPT_PATH_ERROR)
+            if observed != accepted or remaining != accepted:
+                known_conflict = True
+                conflict_durably_normalized = True
+                raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+            return True, observed
+        except BaseException as exc:
+            if not recovery_mutation_attempted or conflict_durably_normalized:
+                raise
+            cleanup_failed = False
+            retained = recovery_identity
+            if recovery_descriptor >= 0:
+                try:
+                    retained = os.fstat(recovery_descriptor)
+                except OSError:
+                    cleanup_failed = True
+            if retained is not None:
+                # A securely read conflict predates this recovery call and is
+                # the no-replace authority.  Preserve its final name across
+                # later fsync/read faults while retiring only the recognized
+                # staging link.  Exact-byte recovery faults instead roll back
+                # every name for the retained staged inode so retry can publish.
+                cleanup_names = (
+                    (matches[0],)
+                    if known_conflict
+                    else (normalized.name, matches[0])
+                )
+                for name in cleanup_names:
+                    try:
+                        current = os.stat(
+                            name,
+                            dir_fd=directory_descriptor,
+                            follow_symlinks=False,
+                        )
+                        if (
+                            current.st_dev == retained.st_dev
+                            and current.st_ino == retained.st_ino
+                        ):
+                            os.unlink(name, dir_fd=directory_descriptor)
+                    except FileNotFoundError:
+                        pass
+                    except OSError:
+                        cleanup_failed = True
+            try:
+                os.fsync(directory_descriptor)
+            except OSError:
+                cleanup_failed = True
+            if cleanup_failed:
+                raise RuntimeError(RECEIPT_WRITE_ERROR) from exc
+            raise
+    finally:
+        if recovery_descriptor >= 0:
+            with suppress(OSError):
+                os.close(recovery_descriptor)
+        with suppress(OSError):
+            os.close(directory_descriptor)
+
+
+def _complete_interrupted_build_receipt_publication(
+    path: Path,
+    expected: bytes,
+) -> bool:
+    completed, _observed = _reconcile_interrupted_build_receipt_publication(
+        path,
+        expected=expected,
+    )
+    return completed
+
+
+def _atomic_json(path: Path, payload: dict[str, object]) -> None:
+    encoded = _build_receipt_bytes(payload)
+    if not encoded or len(encoded) > RECEIPT_MAX_BYTES:
+        raise RuntimeError(RECEIPT_WRITE_ERROR)
+    normalized, parent = _trusted_receipt_parent(path)
+    if _complete_interrupted_build_receipt_publication(normalized, encoded):
+        return
+    existing = _read_build_receipt(normalized, missing_ok=True)
+    if existing is not None:
+        if existing == encoded:
+            return
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+
+    directory_descriptor = os.open(
+        parent,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
+    )
+    descriptor = -1
+    temporary_name = ""
+    publication_attempted = False
+    staged: os.stat_result | None = None
+    try:
+        temporary_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
+        temporary_flags |= getattr(os, "O_NOFOLLOW", 0)
+        for _attempt in range(RECEIPT_TEMP_CREATE_ATTEMPTS):
+            temporary_name = (
+                f".{RECEIPT_TEMP_BASENAME}.{os.getpid()}."
+                f"{secrets.token_hex(12)}.tmp"
+            )
+            try:
+                descriptor = os.open(
+                    temporary_name,
+                    temporary_flags,
+                    0o600,
+                    dir_fd=directory_descriptor,
+                )
+                break
+            except FileExistsError:
+                continue
+        if descriptor < 0:
+            raise RuntimeError(RECEIPT_WRITE_ERROR)
+        os.fchmod(descriptor, 0o600)
+        staged = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(staged.st_mode)
+            or staged.st_uid != os.getuid()
+            or staged.st_nlink != 1
+            or stat.S_IMODE(staged.st_mode) != 0o600
+        ):
+            raise RuntimeError(RECEIPT_WRITE_ERROR)
+        view = memoryview(encoded)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise RuntimeError(RECEIPT_WRITE_ERROR)
+            view = view[written:]
+        os.fsync(descriptor)
+        staged = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(staged.st_mode)
+            or staged.st_uid != os.getuid()
+            or staged.st_nlink != 1
+            or stat.S_IMODE(staged.st_mode) != 0o600
+            or staged.st_size != len(encoded)
+        ):
+            raise RuntimeError(RECEIPT_WRITE_ERROR)
+        try:
+            # Treat the final name as possibly published before entering the
+            # syscall.  A wrapper or asynchronous failure can be observed only
+            # after the kernel has committed the hard link.
+            publication_attempted = True
+            os.link(
+                temporary_name,
+                normalized.name,
+                src_dir_fd=directory_descriptor,
+                dst_dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except FileExistsError as exc:
+            if _complete_interrupted_build_receipt_publication(normalized, encoded):
+                os.unlink(temporary_name, dir_fd=directory_descriptor)
+                temporary_name = ""
+                os.fsync(directory_descriptor)
+                return
+            existing = _read_build_receipt(normalized)
+            if existing != encoded:
+                raise RuntimeError(RECEIPT_CONFLICT_ERROR) from exc
+            os.unlink(temporary_name, dir_fd=directory_descriptor)
+            temporary_name = ""
+            os.fsync(directory_descriptor)
+            return
+        linked = os.stat(
+            normalized.name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(linked.st_mode)
+            or linked.st_uid != staged.st_uid
+            or linked.st_dev != staged.st_dev
+            or linked.st_ino != staged.st_ino
+            or linked.st_nlink != 2
+            or stat.S_IMODE(linked.st_mode) != 0o600
+            or linked.st_size != len(encoded)
+        ):
+            raise RuntimeError(RECEIPT_WRITE_ERROR)
+        staged_name = os.stat(
+            temporary_name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            staged_name.st_dev != staged.st_dev
+            or staged_name.st_ino != staged.st_ino
+            or staged_name.st_nlink != 2
+        ):
+            raise RuntimeError(RECEIPT_WRITE_ERROR)
+        os.unlink(temporary_name, dir_fd=directory_descriptor)
+        temporary_name = ""
+        os.fsync(directory_descriptor)
+        if _read_build_receipt(normalized) != encoded:
+            raise RuntimeError(RECEIPT_WRITE_ERROR)
+        publication_attempted = False
+    except BaseException as exc:
+        cleanup_failed = False
+        current_staged = staged
+        if descriptor >= 0:
+            try:
+                current_staged = os.fstat(descriptor)
+            except OSError:
+                cleanup_failed = True
+        if publication_attempted and current_staged is not None:
+            try:
+                current = os.stat(
+                    normalized.name,
+                    dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+                # The staged descriptor stays open until this finally path, so
+                # its inode cannot be recycled.  Device/inode equality is the
+                # exact authority to remove our published name even if the
+                # triggering failure was a concurrent metadata change.
+                if (
+                    current.st_dev == current_staged.st_dev
+                    and current.st_ino == current_staged.st_ino
+                ):
+                    os.unlink(normalized.name, dir_fd=directory_descriptor)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                cleanup_failed = True
+        if temporary_name and current_staged is not None:
+            try:
+                temporary = os.stat(
+                    temporary_name,
+                    dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+                if (
+                    temporary.st_dev == current_staged.st_dev
+                    and temporary.st_ino == current_staged.st_ino
+                ):
+                    os.unlink(temporary_name, dir_fd=directory_descriptor)
+                    temporary_name = ""
+                else:
+                    cleanup_failed = True
+            except FileNotFoundError:
+                temporary_name = ""
+            except OSError:
+                cleanup_failed = True
+        try:
+            os.fsync(directory_descriptor)
+        except OSError:
+            cleanup_failed = True
+        if cleanup_failed:
+            raise RuntimeError(RECEIPT_WRITE_ERROR) from exc
+        raise
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(directory_descriptor)
 
 
 def build_image(
@@ -760,8 +1582,21 @@ def _build_image_locked(
         raise ValueError("manfred_image_source_repo_invalid")
     commit = _commit_for_ref(source_root, ref)
     safe_tag = _safe_tag(tag, commit=commit)
-    created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     producer_digest = _producer_sha256()
+    replayed_receipt = _replayed_success_receipt(
+        receipt_path,
+        commit=commit,
+        image_tag=safe_tag,
+        producer_sha256=producer_digest,
+    )
+    if replayed_receipt is not None:
+        return replayed_receipt
+    created_at = (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
     root_free_observations: dict[str, int] = {}
     _record_root_free_or_deny(
         stage="after_lock",
@@ -780,7 +1615,7 @@ def _build_image_locked(
             image_id, inspection = _image_inspection(safe_tag, expected_commit=commit)
             if image_id != preexisting_image_id:
                 raise RuntimeError(EXISTING_IMAGE_MISMATCH_ERROR)
-            _verify_image_filesystem(safe_tag)
+            _verify_image_filesystem(image_id)
             if _listed_image_id(safe_tag) != preexisting_image_id:
                 raise RuntimeError(EXISTING_IMAGE_MISMATCH_ERROR)
         except (
@@ -948,7 +1783,7 @@ def _build_image_locked(
         image_id, inspection = _image_inspection(safe_tag, expected_commit=commit)
         if image_id != post_build_image_id:
             raise RuntimeError(POST_BUILD_VERIFY_ERROR)
-        _verify_image_filesystem(safe_tag)
+        _verify_image_filesystem(image_id)
         if _listed_image_id(safe_tag) != post_build_image_id:
             raise RuntimeError(POST_BUILD_VERIFY_ERROR)
     except (

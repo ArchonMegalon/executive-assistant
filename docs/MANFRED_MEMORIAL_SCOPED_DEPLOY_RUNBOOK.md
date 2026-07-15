@@ -62,9 +62,9 @@ the release-authority source projection must remain clean.
 Choose a unique, explicit deployment identifier. Reusing an identifier is
 rejected so a prior receipt cannot be overwritten.
 
-Select a locally present candidate image whose tag contains the full release
-revision or at least its first 12 hexadecimal characters, or use a repository
-SHA-256 digest. `latest`, unbound tags, remote-only images, and unsafe image
+Select a locally present candidate image whose tag contains the full 40-character
+release revision, or use a repository SHA-256 digest. `latest`, short or unbound
+tags, remote-only images, and unsafe image
 references are rejected. The lane never builds or pulls this image; it resolves
 the reference to a local immutable image ID before any mutation and later
 requires the rendered override to retain the exact reference with
@@ -72,7 +72,7 @@ requires the rendered override to retain the exact reference with
 
 Promotion also requires the private `0600` receipt from a passing isolated
 candidate run. A regular, single-link, non-symlink receipt is mandatory; the
-lane rejects the older v2 contract. Runtime v3 binds the exact image ID and
+lane rejects the older v2 and v3 contracts. Runtime v4 binds the exact image ID and
 source revision to the immutable memorial projection root/digest, isolated
 Compose project and clean preflight, held project-name and candidate-port locks, provider-free
 narrator/TTS/browser proof, live-EA before/after snapshots, and OpenAPI
@@ -86,44 +86,68 @@ project:
 ```bash
 cd "$RELEASE_ROOT"
 umask 077
-source_revision="$(git rev-parse HEAD)"
-candidate_root="$HOME/.local/share/ea-deploy/manfred-memorial/$source_revision"
-candidate_project="ea-manfred-candidate-${source_revision:0:12}"
+
+commit="$(git rev-parse HEAD)"
+image="ea-runtime:manfred-$commit"
+project_name="ea-manfred-candidate-${commit:0:12}"
+candidate_root="$HOME/.local/share/ea-deploy/manfred-memorial/candidate-${commit}-18092"
+public_origin="${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}"
+
+spatial_bundle="${EA_MEMORIAL_SPATIAL_TOUR_BUNDLE_DIR:?set the pinned six-file tour bundle}"
+spatial_authority="${EA_MEMORIAL_SPATIAL_AUTHORITY_RECEIPT:?set the publication-authority receipt}"
+spatial_final_review="${EA_MEMORIAL_SPATIAL_FINAL_REVIEW_RECEIPT:?set the final-review receipt}"
+spatial_browser_review="${EA_MEMORIAL_SPATIAL_BROWSER_REVIEW_RECEIPT:?set the exact-viewer browser receipt}"
+
 mkdir -p "$candidate_root"
 chmod 700 "$candidate_root"
 
 .venv/bin/python scripts/build_manfred_memorial_image.py \
   --source-root "$RELEASE_ROOT" \
-  --ref "$source_revision" \
-  --tag "ea-runtime:memorial-$source_revision" \
-  --receipt "$candidate_root/image-build.json"
+  --ref "$commit" \
+  --tag "$image" \
+  --receipt "$candidate_root/image-build.v2.json"
 
 .venv/bin/python scripts/prepare_manfred_memorial_candidate.py \
   --source-root "$RELEASE_ROOT" \
-  --ref "$source_revision" \
-  --image "ea-runtime:memorial-$source_revision" \
+  --ref "$commit" \
+  --image "$image" \
   --deploy-root "$candidate_root" \
-  --public-base-url "${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}" \
-  --project-name "$candidate_project" \
-  >"$candidate_root/prepare-output.json"
+  --public-base-url "$public_origin" \
+  --host-port 18092 \
+  --project-name "$project_name" \
+  --rotate-secrets \
+  --spatial-tour-bundle-dir "$spatial_bundle" \
+  --spatial-authority-receipt "$spatial_authority" \
+  --spatial-final-review-receipt "$spatial_final_review" \
+  --spatial-browser-review-receipt "$spatial_browser_review" \
+  >"$candidate_root/prepare-output.v3.json"
 
-candidate_env="$(jq -er .env_file "$candidate_root/prepare-output.json")"
-export EA_MEMORIAL_DATA_HOST_PATH="$(jq -er .release_root "$candidate_root/prepare-output.json")"
-export EA_MEMORIAL_CANDIDATE_RECEIPT="$candidate_root/runtime-v3.json"
+candidate_env="$(jq -er '.env_file' "$candidate_root/prepare-output.v3.json")"
+export EA_MEMORIAL_DATA_HOST_PATH
+EA_MEMORIAL_DATA_HOST_PATH="$(jq -er '.release_root' "$candidate_root/prepare-output.v3.json")"
+export EA_MEMORIAL_CANDIDATE_RECEIPT="$candidate_root/candidate-runtime.v4.json"
+
 .venv/bin/python scripts/run_manfred_memorial_candidate.py \
   --env-file "$candidate_env" \
-  --receipt "$EA_MEMORIAL_CANDIDATE_RECEIPT"
+  --compose-file "$RELEASE_ROOT/deploy/manfred-memorial/docker-compose.candidate.yml" \
+  --receipt "$EA_MEMORIAL_CANDIDATE_RECEIPT" \
+  --wait-seconds 240
+
 test "$(stat -c %a "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = 600
+test "$(jq -er '.schema' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = \
+  "ea.manfred_memorial_candidate_runtime.v4"
+test "$(jq -er '.status' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = "pass"
 ```
 
 ```bash
 cd "$RELEASE_ROOT"
-source_revision="$(git rev-parse HEAD)"
-export EA_DEPLOYMENT_ID="manfred-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short=12 HEAD)"
-export EA_MEMORIAL_IMAGE="ea-runtime:memorial-$source_revision"
+commit="$(git rev-parse HEAD)"
+export EA_DEPLOYMENT_ID="manfred-$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:12}"
+export EA_MEMORIAL_IMAGE="ea-runtime:manfred-$commit"
 test -n "${EA_MEMORIAL_CANDIDATE_RECEIPT:?run the isolated candidate first}"
 test -n "${EA_MEMORIAL_DATA_HOST_PATH:?bind the proved projection root}"
 export EA_MEMORIAL_CONTROL_TOUR_SLUG="360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
+export EA_PUBLIC_APP_BASE_URL="${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}"
 docker image inspect "$EA_MEMORIAL_IMAGE" --format '{{.Id}}'
 make verify-ea-memorial-scoped-deploy
 ```
@@ -147,7 +171,7 @@ Preflight is fail-closed and performs no Docker mutation. It verifies:
   reproduces the live API image reference/ID plus normalized environment,
   process (`Cmd`/`Entrypoint`/`User`), and mount-identity digests; `.env` drift
   therefore fails before forward mutation;
-- a private passing runtime-v3 candidate receipt bound to the exact image,
+- a private passing runtime-v4 candidate receipt bound to the exact image,
   revision, memorial projection root/digest, isolated project/port, unchanged
   live EA snapshot, and provider-free browser proof;
 - a fresh preflight recomputation of the projection tree digest, file modes,
@@ -181,12 +205,13 @@ gate result. Any checkout mutation fails before the next evidence command.
 
 ```bash
 cd "$RELEASE_ROOT"
-source_revision="$(git rev-parse HEAD)"
-export EA_DEPLOYMENT_ID="manfred-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short=12 HEAD)"
-export EA_MEMORIAL_IMAGE="ea-runtime:memorial-$source_revision"
+commit="$(git rev-parse HEAD)"
+export EA_DEPLOYMENT_ID="manfred-$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:12}"
+export EA_MEMORIAL_IMAGE="ea-runtime:manfred-$commit"
 test -n "${EA_MEMORIAL_CANDIDATE_RECEIPT:?run the isolated candidate first}"
 test -n "${EA_MEMORIAL_DATA_HOST_PATH:?bind the proved projection root}"
 export EA_MEMORIAL_CONTROL_TOUR_SLUG="360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
+export EA_PUBLIC_APP_BASE_URL="${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}"
 make deploy-ea-memorial
 ```
 
@@ -232,7 +257,9 @@ Success requires all of the following:
   public origins, including source-grounded narrator chat, TTS `409`, rendered
   browser checks, zero automatic provider work, zero WebSockets, zero failed
   requests/page errors, and zero same-origin HTTP 4xx/5xx responses;
-- the post-deploy OpenAPI path set is a superset of the captured live baseline;
+- post-deploy OpenAPI retires exactly the two fixed governed-spatial POST
+  operations, preserves every retained operation/schema/security scheme, and
+  permits only the allowlisted compatible `GET /version` evolution;
 - the required priority 3D control tour
   `360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6` still returns
   `200` for HTML and JSON, with the exact pre-deploy JSON digest unchanged;

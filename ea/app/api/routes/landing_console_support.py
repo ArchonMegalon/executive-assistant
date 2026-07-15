@@ -370,11 +370,11 @@ def admin_operator_bootstrap(
     container: AppContainer,
     context: RequestContext,
 ):
+    if not context.authenticated:
+        raise HTTPException(status_code=403, detail="auth_required")
     return_to = str(request.query_params.get("return_to") or "/admin/policies").strip() or "/admin/policies"
     if is_operator_context(context):
         return RedirectResponse(return_to, status_code=303)
-    if not context.authenticated:
-        raise HTTPException(status_code=403, detail="auth_required")
     if not operator_bootstrap_needed(container, principal_id=context.principal_id):
         raise HTTPException(status_code=409, detail="operator_profile_bootstrap_not_allowed")
     defaults = operator_bootstrap_defaults(

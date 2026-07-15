@@ -4,9 +4,21 @@ import json
 from pathlib import Path
 
 from ea.scripts.verify_whatsapp_audiobook_live_delivery_receipt import verify
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _write(path: Path, **payload: object) -> None:
+    payload.setdefault("source_git_head", resolve_source_state_head(ROOT))
+    payload.setdefault("head_semantics", "source_state")
+    payload.setdefault("source_state_fingerprint", resolve_source_worktree_fingerprint(ROOT))
+    payload.setdefault(
+        "source_state_fingerprint_semantics",
+        "worktree_source_files_sha256_excluding_generated_only_paths",
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 

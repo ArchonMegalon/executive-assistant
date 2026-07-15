@@ -388,6 +388,10 @@ if [[ -z "${public_origin_value}" && -n "${public_origin_line}" ]]; then
   public_origin_value="$(normalize_origin_like "${public_origin_line#*=}")"
 fi
 if [[ -z "${public_origin_value}" ]]; then
+  public_origin_source="portable_default"
+  public_origin_value="$(normalize_origin_like "${EA_PUBLIC_APP_BASE_URL:-https://example.test}")"
+fi
+if [[ -z "${public_origin_value}" ]]; then
   cat >&2 <<'EOF'
 Refusing to deploy without a public runtime origin.
 

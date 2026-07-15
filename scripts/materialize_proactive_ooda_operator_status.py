@@ -3245,7 +3245,10 @@ def build_proactive_ooda_operator_status(
         live_probe_timeout_seconds=live_probe_timeout_seconds,
     )
     assistant_grade_packet = _normalized_assistant_grade_packet(assistant_grade_probe)
-    assistant_grade_recovery_active = bool(assistant_grade_packet.get("requires_recovery"))
+    assistant_grade_recovery_active = bool(
+        assistant_grade_packet.get("requires_recovery")
+        and not safe_work_audit.get("filtered_non_material")
+    )
     suppressed_projection = _normalized_suppressed_projection(artifact_probe)
     suppressed_projection_blocks = bool(suppressed_projection.get("requires_recovery"))
     runtime_source_health = _runtime_source_health_summary(artifact_probe)

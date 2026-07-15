@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import mimetypes
+import os
+from pathlib import Path, PurePosixPath
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import (
@@ -12,27 +14,34 @@ from fastapi.responses import (
 )
 
 from app.api.routes.public_memorial_surface_support import (
-    _asset_file,
+    _ALLOWED_PUBLIC_ASSET_SUFFIXES,
+    _BLOCKED_PUBLIC_ASSET_NAMES,
     _apply_memorial_transport_security,
     _ensure_memorial_guest_cookie,
+    _is_public_item,
+    _list_of_dicts,
     _load_memorial,
     _load_private_profile,
+    _memorial_bundle,
     _memorial_https_redirect,
     _memorial_transport_rejection,
     _memorial_archive_publication_html_path,
-    _memorial_html,
     _memorial_pwa_icon_file,
     _memorial_pwa_icon_svg,
     _memorial_pwa_manifest_payload,
     _memorial_pwa_service_worker,
+    _memorial_video_call_avatar,
     _prime_memorial_live_warmup_on_page_render,
     _public_memorial_archive_registry,
+    _public_memorial_archive_registry_with_digest,
     _public_memorial_page_html,
     _public_memorial_payload,
     _safe_slug,
+    _text,
     request_hostname,
 )
 from app.services.memorial_family_contributions import merge_public_family_contributions
+from app.services.memorial_private_context import public_memorial_projection_source
 
 
 router = APIRouter(tags=["public-memorial-surface"])
@@ -64,6 +73,12 @@ _PUBLIC_MEMORIAL_STATIC_ASSET_HEADERS = {
 _PUBLIC_MEMORIAL_ERROR_HEADERS = {
     "X-Robots-Tag": "noindex, nofollow",
 }
+
+_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS_ENV = (
+    "EA_PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS"
+)
+_PUBLIC_MEMORIAL_ARCHIVE_GATE_SCHEMA = "ea.memorial_archive_gate.v1"
+_PUBLIC_MEMORIAL_ARCHIVE_GATE_STATE = "intentionally_unpublished"
 
 
 def _public_surface_html_error_response(status_code: int, detail: str) -> HTMLResponse:
@@ -106,15 +121,120 @@ def _public_surface_error_response(status_code: int, detail: str) -> JSONRespons
 
 
 def _load_public_surface_memorial(slug: str) -> dict[str, object]:
-    payload = _load_memorial(slug)
-    return merge_public_family_contributions(slug=slug, memorial=payload)
+    merged_payload = _load_memorial(slug)
+    public_payload = public_memorial_projection_source(merged_payload)
+    return merge_public_family_contributions(slug=slug, memorial=public_payload)
+
+
+def _public_memorial_archive_is_published(slug: str) -> bool:
+    safe_slug = _safe_slug(slug)
+    published_slugs: set[str] = set()
+    for raw_slug in os.getenv(
+        _PUBLIC_MEMORIAL_ARCHIVE_PUBLISHED_SLUGS_ENV, ""
+    ).split(","):
+        candidate = raw_slug.strip()
+        if not candidate:
+            continue
+        try:
+            published_slugs.add(_safe_slug(candidate))
+        except HTTPException:
+            continue
+    return safe_slug in published_slugs
+
+
+def _require_public_memorial_archive_publication(slug: str) -> str:
+    """Fail closed unless this memorial archive was explicitly published."""
+
+    safe_slug = _safe_slug(slug)
+    if not _public_memorial_archive_is_published(safe_slug):
+        raise HTTPException(status_code=404, detail="memorial_not_found")
+    return safe_slug
+
+
+def _public_memorial_archive_unpublished_response(slug: str) -> JSONResponse:
+    """Declare a verified unpublished gate without exposing archive content."""
+
+    safe_slug = _safe_slug(slug)
+    _load_public_surface_memorial(safe_slug)
+    registry, registry_sha256 = _public_memorial_archive_registry_with_digest(
+        safe_slug
+    )
+    if (
+        not registry_sha256
+        or str(registry.get("slug") or "").strip() != safe_slug
+        or not list(registry.get("archive_sections") or [])
+        or not list(registry.get("fliplink_publications") or [])
+    ):
+        raise HTTPException(status_code=404, detail="memorial_not_found")
+    return JSONResponse(
+        {
+            "detail": "memorial_not_found",
+            "archive_gate": {
+                "schema": _PUBLIC_MEMORIAL_ARCHIVE_GATE_SCHEMA,
+                "state": _PUBLIC_MEMORIAL_ARCHIVE_GATE_STATE,
+                "slug": safe_slug,
+                "registry_sha256": registry_sha256,
+            },
+        },
+        status_code=404,
+        headers={
+            **_PUBLIC_MEMORIAL_SUPPORT_HEADERS,
+            **_PUBLIC_MEMORIAL_ERROR_HEADERS,
+        },
+    )
+
+
+def _public_memorial_asset_file(slug: str, asset_path: str) -> Path:
+    """Resolve an asset only from the pre-private-overlay public projection."""
+
+    bundle_dir = _memorial_bundle(slug)
+    payload = _load_public_surface_memorial(slug)
+    candidate = (bundle_dir / str(asset_path or "")).resolve()
+    resolved_bundle = bundle_dir.resolve()
+    if candidate != resolved_bundle and resolved_bundle not in candidate.parents:
+        raise HTTPException(status_code=404, detail="memorial_file_not_found")
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="memorial_file_not_found")
+    if (
+        candidate.name.lower() in _BLOCKED_PUBLIC_ASSET_NAMES
+        or candidate.suffix.lower() not in _ALLOWED_PUBLIC_ASSET_SUFFIXES
+    ):
+        raise HTTPException(status_code=404, detail="memorial_file_not_found")
+
+    allowed_relpaths: set[str] = set()
+    for clip in _list_of_dicts(payload.get("audio_clips")):
+        if not _is_public_item(clip):
+            continue
+        relpath = _text(clip.get("asset_relpath"), "")
+        if relpath:
+            allowed_relpaths.add(PurePosixPath(relpath).as_posix().lstrip("/"))
+    for document in _list_of_dicts(payload.get("public_documents")):
+        if not _is_public_item(document):
+            continue
+        relpath = _text(document.get("asset_relpath"), "")
+        if relpath:
+            allowed_relpaths.add(PurePosixPath(relpath).as_posix().lstrip("/"))
+    avatar = _memorial_video_call_avatar(payload, slug)
+    for key in ("asset_relpath", "poster_relpath"):
+        relpath = _text(avatar.get(key), "")
+        if relpath:
+            allowed_relpaths.add(PurePosixPath(relpath).as_posix().lstrip("/"))
+
+    relative_path = candidate.relative_to(resolved_bundle).as_posix().lstrip("/")
+    if relative_path not in allowed_relpaths:
+        raise HTTPException(status_code=404, detail="memorial_file_not_found")
+    return candidate
 
 
 @router.get("/memorials/{slug}.json")
 def public_memorial_manifest(slug: str) -> JSONResponse:
     try:
+        payload = _public_memorial_payload(_load_public_surface_memorial(slug))
+        if not _public_memorial_archive_is_published(slug):
+            payload["archive_sections"] = []
+            payload["fliplink_publications"] = []
         return JSONResponse(
-            _public_memorial_payload(_load_public_surface_memorial(slug)),
+            payload,
             headers=dict(_PUBLIC_MEMORIAL_SUPPORT_HEADERS),
         )
     except HTTPException as exc:
@@ -124,9 +244,12 @@ def public_memorial_manifest(slug: str) -> JSONResponse:
 @router.get("/memorials/{slug}/archive.json")
 def public_memorial_archive_manifest(slug: str) -> JSONResponse:
     try:
-        _load_memorial(slug)
+        safe_slug = _safe_slug(slug)
+        if not _public_memorial_archive_is_published(safe_slug):
+            return _public_memorial_archive_unpublished_response(safe_slug)
+        _load_memorial(safe_slug)
         return JSONResponse(
-            _public_memorial_archive_registry(slug),
+            _public_memorial_archive_registry(safe_slug),
             headers=dict(_PUBLIC_MEMORIAL_SUPPORT_HEADERS),
         )
     except HTTPException as exc:
@@ -142,13 +265,11 @@ def public_memorial_archive_index(slug: str, request: Request) -> Response:
     if redirect is not None:
         return redirect
     try:
+        _require_public_memorial_archive_publication(slug)
         payload = _load_public_surface_memorial(slug)
-        private_profile = _load_private_profile(slug)
-        _prime_memorial_live_warmup_on_page_render(slug)
         response = HTMLResponse(
-            _memorial_html(
+            _public_memorial_page_html(
                 payload,
-                private_profile=private_profile,
                 hostname=request_hostname(request),
             ),
             headers=dict(_PUBLIC_MEMORIAL_HTML_HEADERS),
@@ -180,8 +301,7 @@ def _authorized_public_memorial_archive_publication(
             raw_item.get("approved") is not True
             or str(raw_item.get("audience") or "").strip().lower() != "public"
             or str(raw_item.get("sensitivity") or "").strip().upper() != "PUBLIC"
-            or str(raw_item.get("review_status") or "").strip().lower()
-            != "published"
+            or str(raw_item.get("review_status") or "").strip().lower() != "published"
             or not str(raw_item.get("url") or "").strip()
         ):
             continue
@@ -190,7 +310,9 @@ def _authorized_public_memorial_archive_publication(
 
 
 @router.get("/memorials/{slug}/archive/{publication_slug}")
-def public_memorial_archive_publication(slug: str, publication_slug: str, request: Request) -> Response:
+def public_memorial_archive_publication(
+    slug: str, publication_slug: str, request: Request
+) -> Response:
     rejection = _memorial_transport_rejection(request)
     if rejection is not None:
         return rejection
@@ -198,6 +320,7 @@ def public_memorial_archive_publication(slug: str, publication_slug: str, reques
     if redirect is not None:
         return redirect
     try:
+        _require_public_memorial_archive_publication(slug)
         _load_memorial(slug)
         safe_slug = _safe_slug(slug)
         safe_publication_slug = _safe_slug(publication_slug)
@@ -253,7 +376,7 @@ def public_memorial_archive_publication(slug: str, publication_slug: str, reques
 @router.get("/memorials/{slug}/app.webmanifest")
 def public_memorial_pwa_manifest(slug: str, request: Request) -> JSONResponse:
     try:
-        payload = _load_memorial(slug)
+        payload = _load_public_surface_memorial(slug)
         prefer_install_surface = (
             str(request.query_params.get("surface") or "").strip().lower() == "page"
         )
@@ -271,7 +394,7 @@ def public_memorial_pwa_manifest(slug: str, request: Request) -> JSONResponse:
 @router.get("/memorials/{slug}/service-worker.js")
 def public_memorial_pwa_service_worker_route(slug: str) -> Response:
     try:
-        payload = _load_memorial(slug)
+        payload = _load_public_surface_memorial(slug)
         return Response(
             content=_memorial_pwa_service_worker(slug, payload),
             media_type="application/javascript",
@@ -289,7 +412,7 @@ def public_memorial_pwa_png_icon(slug: str, size: int) -> FileResponse:
     if size not in {180, 192, 512}:
         return _public_surface_error_response(404, "memorial_icon_not_found")
     try:
-        payload = _load_memorial(slug)
+        payload = _load_public_surface_memorial(slug)
     except HTTPException as exc:
         return _public_surface_error_response(exc.status_code, str(exc.detail))
     icon_path = _memorial_pwa_icon_file(slug, payload, size)
@@ -308,7 +431,7 @@ def public_memorial_pwa_png_icon(slug: str, size: int) -> FileResponse:
 @router.get("/memorials/{slug}/icon.svg")
 def public_memorial_pwa_icon(slug: str) -> Response:
     try:
-        payload = _load_memorial(slug)
+        payload = _load_public_surface_memorial(slug)
         return Response(
             content=_memorial_pwa_icon_svg(payload),
             media_type="image/svg+xml",
@@ -324,7 +447,7 @@ def public_memorial_pwa_icon(slug: str) -> Response:
 @router.get("/memorials/files/{slug}/{asset_path:path}")
 def public_memorial_file(slug: str, asset_path: str) -> FileResponse:
     try:
-        path = _asset_file(slug, asset_path)
+        path = _public_memorial_asset_file(slug, asset_path)
     except HTTPException as exc:
         return _public_surface_error_response(exc.status_code, str(exc.detail))
     media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"

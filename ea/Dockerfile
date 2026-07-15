@@ -74,13 +74,19 @@ RUN set -eu; \
     if [ -f /tmp/src/ea/Dockerfile ]; then cp /tmp/src/ea/Dockerfile /app/ea/Dockerfile; fi; \
     if [ -f /tmp/src/ea/Dockerfile.operator ]; then cp /tmp/src/ea/Dockerfile.operator /app/ea/Dockerfile.operator; fi; \
     if [ -f /tmp/src/Dockerfile ]; then cp /tmp/src/Dockerfile /app/Dockerfile; fi; \
-    for compose_file in \
-      docker-compose.yml \
-      docker-compose.host-tools.yml \
-      docker-compose.fastestvpn.yml \
-      docker-compose.cloudflared.yml; do \
-      if [ -f "/tmp/src/$compose_file" ]; then cp "/tmp/src/$compose_file" "/app/$compose_file"; fi; \
-    done; \
+    verification_inputs=/tmp/src/deploy/runtime-image-verification-inputs.txt; \
+    [ -f "$verification_inputs" ]; \
+    while IFS= read -r verification_input || [ -n "$verification_input" ]; do \
+      case "$verification_input" in ""|\#*) continue ;; esac; \
+      case "$verification_input" in \
+        /*|..|../*|*/..|*/../*) echo "invalid runtime verification input" >&2; exit 1 ;; \
+      esac; \
+      verification_source="/tmp/src/$verification_input"; \
+      verification_target="/app/$verification_input"; \
+      [ -f "$verification_source" ] && [ ! -L "$verification_source" ]; \
+      mkdir -p "$(dirname "$verification_target")"; \
+      cp "$verification_source" "$verification_target"; \
+    done < "$verification_inputs"; \
     cp -r "$APP_SRC/app" /app/; \
     cp "$APP_SRC/docker-entrypoint.sh" /usr/local/bin/docker-entrypoint.sh; \
     if [ -d "$APP_SRC/_completion" ]; then \

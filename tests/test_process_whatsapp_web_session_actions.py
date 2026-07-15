@@ -1750,7 +1750,10 @@ def test_restore_language_matched_whatsapp_voice_samples_prefers_author_gender_m
         "provider": {
             "voice_selection": {
                 "status": "waiting_user_choice",
-                "book_profile": {"author_gender_signal": "male"},
+                "book_profile": {
+                    "author_gender_signal": "male",
+                    "author_gender_signal_provenance": "explicit_approved_metadata",
+                },
                 "dismissed_candidate_keys": ["voice-female", "voice-male"],
             }
         },
@@ -1827,7 +1830,10 @@ def test_use_best_current_whatsapp_voice_sample_prefers_author_gender_match(monk
         "provider": {
             "voice_selection": {
                 "status": "waiting_user_choice",
-                "book_profile": {"author_gender_signal": "male"},
+                "book_profile": {
+                    "author_gender_signal": "male",
+                    "author_gender_signal_provenance": "explicit_approved_metadata",
+                },
                 "pending_batch": [
                     {
                         "callback_token": "female-token",
@@ -2849,7 +2855,11 @@ def test_build_report_processes_real_whatsapp_epub_into_bound_voice_choice_job(
         wav.setsampwidth(2)
         wav.setframerate(16000)
         wav.writeframes(b"".join(struct.pack("<h", 3200 if i % 2 else -3200) for i in range(16000 // 4)))
-    monkeypatch.setattr(module.audiobook_epub_pipeline, "unmixr_synthesize_request", lambda **_: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(
+        module.audiobook_epub_pipeline,
+        "unmixr_synthesize_request",
+        lambda **kwargs: (tone.read_bytes() + str(kwargs["voice_id"]).encode(), "audio/wav"),
+    )
     monkeypatch.setattr(module.audiobook_epub_pipeline, "_normalize_rendered_audio_file", lambda path: path)
     monkeypatch.setattr(module, "_whatsapp_voice_sample_media_path", lambda path: path)
 
@@ -3032,7 +3042,11 @@ def test_build_report_real_whatsapp_dismiss_callback_applies_and_sends_replaceme
             ]
         ),
     )
-    monkeypatch.setattr(module.audiobook_epub_pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(
+        module.audiobook_epub_pipeline,
+        "unmixr_synthesize_request",
+        lambda **kwargs: (tone.read_bytes() + str(kwargs["voice_id"]).encode(), "audio/wav"),
+    )
     monkeypatch.setattr(module.audiobook_epub_pipeline, "_normalize_rendered_audio_file", lambda path: path)
 
     job = module.audiobook_epub_pipeline.create_job_from_epub(
@@ -5617,9 +5631,6 @@ def test_build_report_resends_whatsapp_playback_buttons_from_status_text(monkeyp
     serialized_state = json.dumps(state)
     assert "4368120864006" not in serialized_state
     assert "callback-token" not in serialized_state
-    serialized_state = json.dumps(state)
-    assert "4368120864006" not in serialized_state
-    assert "callback-token" not in serialized_state
 
 
 def test_build_report_resends_playback_buttons_for_matching_chat_ref(monkeypatch, tmp_path: Path) -> None:
@@ -5805,6 +5816,9 @@ def test_build_report_resends_whatsapp_playback_buttons_from_playback_text(monke
     assert str(payload["buttons"][0][0][1]).startswith("ap|a|callback-token|")
     assert str(payload["buttons"][0][1][1]).startswith("ap|r|callback-token|")
     state = json.loads((tmp_path / "wa-actions.json").read_text(encoding="utf-8"))
+    serialized_state = json.dumps(state)
+    assert "4368120864006" not in serialized_state
+    assert "callback-token" not in serialized_state
 
 
 def test_build_report_does_not_resend_playback_buttons_after_problem_recorded(monkeypatch, tmp_path: Path) -> None:

@@ -13,7 +13,7 @@ import tempfile
 import urllib.parse
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 try:
     from scripts.source_state_head import resolve_source_state_head

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -32,6 +33,10 @@ class RehearsalReport:
     def add(self, status: str, code: str, detail: str = "") -> None:
         self.checks.append(Check(status=status, code=code, detail=detail))
 
+    @property
+    def failed(self) -> bool:
+        return any(item.status == "fail" for item in self.checks)
+
     def as_dict(self) -> dict[str, object]:
         status = "pass"
         if any(item.status == "fail" for item in self.checks):
@@ -44,6 +49,60 @@ class RehearsalReport:
             "status": status,
             "checks": [asdict(item) for item in self.checks],
         }
+
+
+_MINIMAL_LANDING_MARKERS = (
+    "Gespräch beginnen",
+    "Am Handy/Desktop installieren",
+)
+_OLD_LANDING_SECTION_MARKERS = (
+    "Originalaufnahmen",
+    "Belegte Erinnerungen",
+    "Archiv lesen",
+)
+_MINIMAL_LANDING_HIDE_RULE = re.compile(
+    r"\.hero-copy\s*>\s*h1\s*,\s*"
+    r"#memorial-interaction-hint\s*,\s*"
+    r"footer\s*\{[^}]*\bdisplay\s*:\s*none\s*!important\s*;?[^}]*\}",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def check_landing(report: RehearsalReport, *, base: str, slug: str) -> None:
+    """Verify the launch landing while tolerating explicitly hidden legacy markup."""
+    status, _headers, raw = request(f"{base.rstrip('/')}/memorials/{slug}")
+    if status != 200:
+        report.add("fail", "landing_unavailable", str(status))
+        return
+    report.add("pass", "landing_available")
+
+    page = raw.decode("utf-8", errors="replace")
+    required_markers = (*_MINIMAL_LANDING_MARKERS, f"/memorials/{slug}/icon-180.png")
+    missing_markers = [marker for marker in required_markers if marker not in page]
+    if missing_markers:
+        report.add(
+            "fail",
+            "landing_minimal_marker_missing",
+            ", ".join(missing_markers),
+        )
+
+    old_markers = [marker for marker in _OLD_LANDING_SECTION_MARKERS if marker in page]
+    if not old_markers:
+        report.add("pass", "landing_minimal_source_removed")
+        return
+    if _MINIMAL_LANDING_HIDE_RULE.search(page):
+        report.add("pass", "landing_minimal_css_present")
+        report.add(
+            "warn",
+            "old_section_marker_hidden_not_removed",
+            ", ".join(old_markers),
+        )
+        return
+    report.add(
+        "fail",
+        "landing_minimal_css_missing",
+        ", ".join(old_markers),
+    )
 
 
 def load_questions(path: str) -> tuple[list[str], str]:
