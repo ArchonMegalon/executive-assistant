@@ -35,6 +35,8 @@ VERIFIER_REQUEST_HEADERS = {
 }
 MEMORIAL_GUEST_COOKIE = "ea_memorial_guest"
 MEMORIAL_HSTS = "max-age=31536000"
+MEMORIAL_ARCHIVE_GATE_SCHEMA = "ea.memorial_archive_gate.v1"
+MEMORIAL_ARCHIVE_GATE_STATE = "intentionally_unpublished"
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -169,6 +171,46 @@ def _verify_singular_memorial_alias(base_url: str) -> None:
             raise RuntimeError("candidate_memorial_alias_invalid")
         if method == "HEAD" and body:
             raise RuntimeError("candidate_memorial_alias_invalid")
+
+
+def _verify_memorial_archive_gate(
+    base_url: str,
+    *,
+    request_fn: Callable[..., tuple[int, bytes, dict[str, str]]] | None = None,
+) -> dict[str, object]:
+    request = request_fn or _request
+    status, body, _headers = request(
+        base_url,
+        "/memorials/manfred/archive.json",
+        expected={404},
+    )
+    payload = _json_body(body, path="/memorials/manfred/archive.json")
+    gate_value = payload.get("archive_gate")
+    gate = dict(gate_value) if isinstance(gate_value, dict) else {}
+    registry_sha256 = str(gate.get("registry_sha256") or "")
+    content_type = str(_headers.get("content-type") or "")
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if (
+        status != 404
+        or media_type != "application/json"
+        or set(payload) != {"detail", "archive_gate"}
+        or set(gate) != {"schema", "state", "slug", "registry_sha256"}
+        or str(payload.get("detail") or "") != "memorial_not_found"
+        or str(gate.get("schema") or "") != MEMORIAL_ARCHIVE_GATE_SCHEMA
+        or str(gate.get("state") or "") != MEMORIAL_ARCHIVE_GATE_STATE
+        or str(gate.get("slug") or "") != "manfred"
+        or len(registry_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in registry_sha256)
+    ):
+        raise RuntimeError("candidate_memorial_archive_gate_invalid")
+    return {
+        "schema": MEMORIAL_ARCHIVE_GATE_SCHEMA,
+        "state": MEMORIAL_ARCHIVE_GATE_STATE,
+        "slug": "manfred",
+        "registry_sha256": registry_sha256,
+        "http_status": 404,
+        "publication_authority": False,
+    }
 
 
 def _canonical_public_https_origin(value: str) -> tuple[str, str]:
@@ -725,11 +767,16 @@ def verify_candidate(
 
     _request(base_url, "/memorials/manfred", method="HEAD")
     _verify_singular_memorial_alias(base_url)
-    _request(base_url, "/memorials/manfred/archive.json")
+    archive_gate = _verify_memorial_archive_gate(base_url)
     _request(base_url, "/memorials/manfred/app.webmanifest")
     _request(base_url, "/memorials/manfred/service-worker.js")
     checks.extend(
-        ["head_surface_no_prewarm", "singular_memorial_alias", "archive", "pwa"]
+        [
+            "head_surface_no_prewarm",
+            "singular_memorial_alias",
+            "archive_publication_gate",
+            "pwa",
+        ]
     )
 
     _request(
@@ -836,6 +883,7 @@ def verify_candidate(
         "page_get_performed": browser_audit,
         "operator_surface_used": False,
         "private_audio_served": False,
+        "archive_gate": archive_gate,
         "transport_security": transport_security,
         "contribution": contribution,
         "browser_audit": browser_evidence,

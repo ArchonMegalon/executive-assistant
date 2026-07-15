@@ -3888,6 +3888,7 @@ class MemorialDeployLane:
             ],
         }
         required_smoke_checks = {
+            "archive_publication_gate",
             "singular_memorial_alias",
             "source_grounded_narrator_boundary",
             "voice_provider_boundary_blocked",
@@ -5560,6 +5561,7 @@ class MemorialDeployLane:
             origin=label,
         )
         required_checks = {
+            "archive_publication_gate",
             "singular_memorial_alias",
             "source_grounded_narrator_boundary",
             "voice_provider_boundary_blocked",

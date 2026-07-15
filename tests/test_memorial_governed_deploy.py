@@ -151,6 +151,7 @@ class FakeRunner:
         candidate_status: str = "pass",
         candidate_websockets: int = 0,
         candidate_http_errors: int = 0,
+        candidate_archive_gate_check: bool = True,
         candidate_failure_origin: str = "",
         candidate_failure_error: str = "candidate_browser_runtime_unavailable",
         candidate_failure_secret: str = "",
@@ -177,6 +178,7 @@ class FakeRunner:
         self.candidate_status = candidate_status
         self.candidate_websockets = candidate_websockets
         self.candidate_http_errors = candidate_http_errors
+        self.candidate_archive_gate_check = candidate_archive_gate_check
         self.candidate_failure_origin = candidate_failure_origin
         self.candidate_failure_error = candidate_failure_error
         self.candidate_failure_secret = candidate_failure_secret
@@ -652,16 +654,19 @@ class FakeRunner:
                 )
                 stderr = f"verifier stderr {self.candidate_failure_secret}"
             else:
+                candidate_checks = [
+                    "singular_memorial_alias",
+                    "source_grounded_narrator_boundary",
+                    "voice_provider_boundary_blocked",
+                    "browser_provider_websocket_boundary",
+                ]
+                if self.candidate_archive_gate_check:
+                    candidate_checks.append("archive_publication_gate")
                 stdout = json.dumps(
                     {
                         "schema": "ea.manfred_memorial_candidate_smoke.v1",
                         "status": self.candidate_status,
-                        "checks": [
-                            "singular_memorial_alias",
-                            "source_grounded_narrator_boundary",
-                            "voice_provider_boundary_blocked",
-                            "browser_provider_websocket_boundary",
-                        ],
+                        "checks": candidate_checks,
                         "provider_calls_performed": False,
                         "page_get_performed": True,
                         "browser_audit": {
@@ -1690,11 +1695,13 @@ def _lane(
                 "candidate_left_running_for_soak": True,
                 "promotion_authority": False,
                 "first_smoke_checks": [
+                    "archive_publication_gate",
                     "singular_memorial_alias",
                     "source_grounded_narrator_boundary",
                     "voice_provider_boundary_blocked",
                 ],
                 "second_smoke_checks": [
+                    "archive_publication_gate",
                     "singular_memorial_alias",
                     "source_grounded_narrator_boundary",
                     "voice_provider_boundary_blocked",
@@ -3019,6 +3026,7 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
         (
             "first_smoke_checks",
             [
+                "singular_memorial_alias",
                 "source_grounded_narrator_boundary",
                 "voice_provider_boundary_blocked",
             ],
@@ -3026,6 +3034,7 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
         (
             "second_smoke_checks",
             [
+                "singular_memorial_alias",
                 "source_grounded_narrator_boundary",
                 "voice_provider_boundary_blocked",
             ],
@@ -4129,12 +4138,13 @@ def test_memorial_probe_rejects_stale_runtime_source_revision(
     [
         {"candidate_websockets": 1},
         {"candidate_http_errors": 1},
+        {"candidate_archive_gate_check": False},
     ],
 )
 def test_candidate_browser_or_provider_boundary_failure_rolls_back(
     release_root: Path,
     monkeypatch: pytest.MonkeyPatch,
-    runner_kwargs: dict[str, int],
+    runner_kwargs: dict[str, object],
 ) -> None:
     runner = FakeRunner(release_root, **runner_kwargs)
     monkeypatch.setattr(
@@ -4190,6 +4200,7 @@ def test_nonzero_candidate_verifier_records_safe_origin_after_local_evidence(
             "origin": "local",
             "status": "pass",
             "checks": [
+                "archive_publication_gate",
                 "browser_provider_websocket_boundary",
                 "singular_memorial_alias",
                 "source_grounded_narrator_boundary",

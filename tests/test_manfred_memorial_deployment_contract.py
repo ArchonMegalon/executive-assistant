@@ -238,6 +238,210 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
     assert services["redis"]["image"].count("@sha256:") == 1
 
 
+def test_candidate_verifier_accepts_exact_unpublished_archive_gate() -> None:
+    requests: list[tuple[str, str, set[int]]] = []
+
+    def request(
+        base_url: str,
+        path: str,
+        *,
+        expected: set[int],
+    ) -> tuple[int, bytes, dict[str, str]]:
+        requests.append((base_url, path, expected))
+        return (
+            404,
+            json.dumps(
+                {
+                    "detail": "memorial_not_found",
+                    "archive_gate": {
+                        "schema": "ea.memorial_archive_gate.v1",
+                        "state": "intentionally_unpublished",
+                        "slug": "manfred",
+                        "registry_sha256": "a" * 64,
+                    },
+                }
+            ).encode("utf-8"),
+            {"content-type": "application/json"},
+        )
+
+    evidence = candidate_verify._verify_memorial_archive_gate(
+        "https://memorial.example.test",
+        request_fn=request,
+    )
+
+    assert requests == [
+        (
+            "https://memorial.example.test",
+            "/memorials/manfred/archive.json",
+            {404},
+        )
+    ]
+    assert evidence == {
+        "schema": "ea.memorial_archive_gate.v1",
+        "state": "intentionally_unpublished",
+        "slug": "manfred",
+        "registry_sha256": "a" * 64,
+        "http_status": 404,
+        "publication_authority": False,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema", "ea.memorial_archive_gate.v0"),
+        ("state", "published"),
+        ("slug", "someone-else"),
+        ("registry_sha256", "not-a-digest"),
+    ],
+)
+def test_candidate_verifier_rejects_unattested_archive_gate(
+    field: str,
+    value: str,
+) -> None:
+    gate = {
+        "schema": "ea.memorial_archive_gate.v1",
+        "state": "intentionally_unpublished",
+        "slug": "manfred",
+        "registry_sha256": "b" * 64,
+    }
+    gate[field] = value
+
+    def request(
+        _base_url: str,
+        _path: str,
+        *,
+        expected: set[int],
+    ) -> tuple[int, bytes, dict[str, str]]:
+        assert expected == {404}
+        return (
+            404,
+            json.dumps({"detail": "memorial_not_found", "archive_gate": gate}).encode(
+                "utf-8"
+            ),
+            {"content-type": "application/json"},
+        )
+
+    with pytest.raises(
+        RuntimeError,
+        match="candidate_memorial_archive_gate_invalid",
+    ):
+        candidate_verify._verify_memorial_archive_gate(
+            "https://memorial.example.test",
+            request_fn=request,
+        )
+
+
+def test_candidate_verifier_rejects_noncanonical_or_overexposed_archive_gate() -> None:
+    canonical_gate = {
+        "schema": "ea.memorial_archive_gate.v1",
+        "state": "intentionally_unpublished",
+        "slug": "manfred",
+        "registry_sha256": "c" * 64,
+    }
+    canonical_payload = {
+        "detail": "memorial_not_found",
+        "archive_gate": canonical_gate,
+    }
+    cases = [
+        (
+            {**canonical_payload, "archive_sections": [{"private": "leak"}]},
+            {"content-type": "application/json"},
+        ),
+        (
+            {
+                **canonical_payload,
+                "archive_gate": {**canonical_gate, "unexpected": "field"},
+            },
+            {"content-type": "application/json"},
+        ),
+        (
+            {
+                **canonical_payload,
+                "archive_gate": {
+                    **canonical_gate,
+                    "registry_sha256": "C" * 64,
+                },
+            },
+            {"content-type": "application/json"},
+        ),
+        (canonical_payload, {"content-type": "text/html"}),
+    ]
+
+    for payload, headers in cases:
+
+        def request(
+            _base_url: str,
+            _path: str,
+            *,
+            expected: set[int],
+        ) -> tuple[int, bytes, dict[str, str]]:
+            assert expected == {404}
+            return 404, json.dumps(payload).encode("utf-8"), headers
+
+        with pytest.raises(
+            RuntimeError,
+            match="candidate_memorial_archive_gate_invalid",
+        ):
+            candidate_verify._verify_memorial_archive_gate(
+                "https://memorial.example.test",
+                request_fn=request,
+            )
+
+
+def test_verify_candidate_wires_archive_publication_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: list[str] = []
+
+    monkeypatch.setattr(candidate_verify, "_wait_for_health", lambda *_args: None)
+    monkeypatch.setattr(
+        candidate_verify,
+        "_verify_memorial_transport_security",
+        lambda *_args, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        candidate_verify,
+        "_verify_singular_memorial_alias",
+        lambda *_args: None,
+    )
+
+    def request(
+        _base_url: str,
+        path: str,
+        **_kwargs: object,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        if path == "/memorials/manfred.json":
+            return (
+                200,
+                b'{"slug":"manfred"}',
+                {"x-content-type-options": "nosniff"},
+            )
+        return 200, b"", {}
+
+    def archive_gate(base_url: str) -> dict[str, object]:
+        called.append(base_url)
+        raise RuntimeError("archive_gate_wiring_reached")
+
+    monkeypatch.setattr(candidate_verify, "_request", request)
+    monkeypatch.setattr(
+        candidate_verify,
+        "_verify_memorial_archive_gate",
+        archive_gate,
+    )
+
+    with pytest.raises(RuntimeError, match="archive_gate_wiring_reached"):
+        candidate_verify.verify_candidate(
+            base_url="https://memorial.example.test",
+            public_origin="https://memorial.example.test",
+            wait_seconds=1,
+            submit_receipt=None,
+            withdraw_receipt=None,
+        )
+
+    assert called == ["https://memorial.example.test"]
+
+
 def test_candidate_keeps_spatial_scaffold_unregistered(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
