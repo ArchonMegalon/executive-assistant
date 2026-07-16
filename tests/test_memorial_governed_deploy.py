@@ -3487,6 +3487,44 @@ def test_required_tour_json_drift_rolls_back(
     assert receipt["rollback"]["status"] == "pass"
 
 
+def test_exact_generated_viewer_tour_evolution_is_compatible(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    payload = json.loads(SAFE_TOUR)
+    slug = deploy.REQUIRED_CONTROL_TOUR_SLUG
+    payload["generated_viewer"] = {
+        "disclosure": deploy.CONTROL_TOUR_GENERATED_VIEWER_DISCLOSURE,
+        "release_revision": f"property-3d-{deploy.PROPERTY_ARTIFACT_COMMIT[:12]}",
+        "synthetic": True,
+        "url": (f"/tours/viewer/{slug}/generated-reconstruction/viewer.html"),
+        "verified_provider_capture": False,
+    }
+    runner.forward_tour_json = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    receipt = _lane(
+        release_root,
+        runner,
+        control_tour_slug=slug,
+    ).deploy()
+
+    tour = receipt["postdeploy_non_memorial_controls"]["tour"]
+    assert tour["compatible_evolution_policy_id"] == (
+        deploy.CONTROL_TOUR_COMPATIBLE_EVOLUTION_POLICY_ID
+    )
+    assert tour["compatible_evolution_applied"] is True
+    assert tour["compatible_evolution_policy_exact_match"] is True
+
+
 @pytest.mark.parametrize(
     ("attribute", "value", "reason"),
     [

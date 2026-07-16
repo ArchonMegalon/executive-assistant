@@ -34,6 +34,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
 
 try:
     from scripts.prepare_manfred_memorial_candidate import (
+        PROPERTY_ARTIFACT_COMMIT,
         PROPERTY_AUTHORITY_SHA256,
         PROPERTY_PRE_AUTHORITY_SHA256,
         PROPERTY_TOUR_SHA256,
@@ -45,6 +46,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - direct script execution
     if exc.name not in {"scripts", "scripts.prepare_manfred_memorial_candidate"}:
         raise
     from prepare_manfred_memorial_candidate import (  # type: ignore[no-redef]
+        PROPERTY_ARTIFACT_COMMIT,
         PROPERTY_AUTHORITY_SHA256,
         PROPERTY_PRE_AUTHORITY_SHA256,
         PROPERTY_TOUR_SHA256,
@@ -76,6 +78,13 @@ REDIS_SERVICE = "ea-redis"
 MEMORIAL_SLUG = "manfred"
 REQUIRED_CONTROL_TOUR_SLUG = (
     "360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
+)
+CONTROL_TOUR_COMPATIBLE_EVOLUTION_POLICY_ID = (
+    "ea.control-tour.compatible-evolution.generated-viewer.v1"
+)
+CONTROL_TOUR_GENERATED_VIEWER_DISCLOSURE = (
+    "Generated interactive reconstruction from the supplied floor plan. "
+    "It is a layout aid, not a captured or provider-verified 3D scan."
 )
 CONTROL_TOUR_SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,127}$")
 DEPLOYMENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
@@ -1177,6 +1186,35 @@ def _version_openapi_evolution_preserved(
         return False
     candidate_schema["additionalProperties"] = {"type": "string"}
     return candidate == live
+
+
+def _control_tour_generated_viewer_evolution_preserved(
+    live_payload: object,
+    candidate_payload: object,
+    *,
+    slug: str,
+) -> bool:
+    """Accept only the pinned generated-viewer addition to the control tour."""
+    if not isinstance(live_payload, dict) or not isinstance(candidate_payload, dict):
+        return False
+    if "generated_viewer" in live_payload:
+        return False
+    live = json.loads(json.dumps(live_payload))
+    candidate = json.loads(json.dumps(candidate_payload))
+    generated_viewer = candidate.pop("generated_viewer", None)
+    if candidate != live:
+        return False
+    expected_viewer_path = (
+        f"/tours/viewer/{urllib.parse.quote(slug, safe='')}/"
+        "generated-reconstruction/viewer.html"
+    )
+    return generated_viewer == {
+        "disclosure": CONTROL_TOUR_GENERATED_VIEWER_DISCLOSURE,
+        "release_revision": f"property-3d-{PROPERTY_ARTIFACT_COMMIT[:12]}",
+        "synthetic": True,
+        "url": expected_viewer_path,
+        "verified_provider_capture": False,
+    }
 
 
 def _openapi_control_evidence(
@@ -4750,14 +4788,30 @@ class MemorialDeployLane:
             payload, tour_json = self._wait_json_control(f"{base}.json")
             prior_json = dict(prior_tour.get("json") or {})
             prior_payload = prior_tour.get("_json_payload")
-            if (
-                not isinstance(prior_payload, dict)
-                or payload != prior_payload
-                or tour_json["canonical_json_sha256"]
-                != prior_json.get("canonical_json_sha256")
-            ):
+            if not isinstance(prior_payload, dict):
                 raise DeployError("postdeploy_control_tour_json_changed")
-            evidence["tour"] = {"slug": slug, "html": html, "json": tour_json}
+            payload_unchanged = payload == prior_payload and tour_json[
+                "canonical_json_sha256"
+            ] == prior_json.get("canonical_json_sha256")
+            compatible_evolution_applied = False
+            if not payload_unchanged:
+                if not _control_tour_generated_viewer_evolution_preserved(
+                    prior_payload,
+                    payload,
+                    slug=slug,
+                ):
+                    raise DeployError("postdeploy_control_tour_json_changed")
+                compatible_evolution_applied = True
+            evidence["tour"] = {
+                "slug": slug,
+                "html": html,
+                "json": tour_json,
+                "compatible_evolution_policy_id": (
+                    CONTROL_TOUR_COMPATIBLE_EVOLUTION_POLICY_ID
+                ),
+                "compatible_evolution_applied": compatible_evolution_applied,
+                "compatible_evolution_policy_exact_match": True,
+            }
 
         self.receipt["postdeploy_non_memorial_controls"] = evidence
         self._record_check(
