@@ -1138,6 +1138,47 @@ def _canonical_openapi_contract(document: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _version_openapi_evolution_preserved(
+    live_operation: object,
+    candidate_operation: object,
+) -> bool:
+    """Accept only the reviewed string-to-string-or-boolean /version evolution."""
+    if not isinstance(live_operation, dict) or not isinstance(
+        candidate_operation, dict
+    ):
+        return False
+    live = json.loads(json.dumps(live_operation))
+    candidate = json.loads(json.dumps(candidate_operation))
+    try:
+        live_schema = live["responses"]["200"]["content"]["application/json"]["schema"]
+        candidate_schema = candidate["responses"]["200"]["content"]["application/json"][
+            "schema"
+        ]
+    except (KeyError, TypeError):
+        return False
+    if (
+        not isinstance(live_schema, dict)
+        or not isinstance(candidate_schema, dict)
+        or live_schema.get("additionalProperties") != {"type": "string"}
+    ):
+        return False
+    additional_properties = candidate_schema.get("additionalProperties")
+    if not isinstance(additional_properties, dict) or set(additional_properties) != {
+        "anyOf"
+    }:
+        return False
+    variants = additional_properties.get("anyOf")
+    if not isinstance(variants, list) or len(variants) != 2:
+        return False
+    canonical_variants = {
+        json.dumps(value, separators=(",", ":"), sort_keys=True) for value in variants
+    }
+    if canonical_variants != {'{"type":"boolean"}', '{"type":"string"}'}:
+        return False
+    candidate_schema["additionalProperties"] = {"type": "string"}
+    return candidate == live
+
+
 def _openapi_control_evidence(
     *, contract: Mapping[str, Any], probe: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -4582,6 +4623,12 @@ class MemorialDeployLane:
         receipt_controls["openapi"]["retirement_allowed_operations"] = list(
             OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
         )
+        receipt_controls["openapi"]["compatible_evolution_policy_id"] = (
+            OPENAPI_COMPATIBLE_EVOLUTION_POLICY_ID
+        )
+        receipt_controls["openapi"]["compatible_evolution_allowed_operations"] = list(
+            OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS
+        )
         self.receipt["predeploy_non_memorial_controls"] = receipt_controls
         self._record_check(
             "predeploy_non_memorial_controls",
@@ -4633,11 +4680,24 @@ class MemorialDeployLane:
         )
         if missing_or_changed_security:
             raise DeployError("postdeploy_openapi_security_regression")
-        changed_operations = sorted(
-            name
-            for name, value in prior_operations.items()
-            if name in current_operations and current_operations[name] != value
-        )
+        changed_operations: list[str] = []
+        compatible_evolved_operations: list[str] = []
+        for name, value in prior_operations.items():
+            if name not in current_operations or current_operations[name] == value:
+                continue
+            if (
+                name == "GET /version"
+                and name in OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS
+                and _version_openapi_evolution_preserved(
+                    value,
+                    current_operations[name],
+                )
+            ):
+                compatible_evolved_operations.append(name)
+                continue
+            changed_operations.append(name)
+        changed_operations.sort()
+        compatible_evolved_operations.sort()
         if changed_operations:
             raise DeployError("postdeploy_openapi_operation_changed")
 
@@ -4661,6 +4721,17 @@ class MemorialDeployLane:
                 "retired_operation_count": len(missing_operations),
                 "retirement_policy_exact_match": True,
                 "changed_operation_count": 0,
+                "compatible_evolution_policy_id": (
+                    OPENAPI_COMPATIBLE_EVOLUTION_POLICY_ID
+                ),
+                "compatible_evolution_allowed_operations": list(
+                    OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS
+                ),
+                "compatible_evolved_operations": compatible_evolved_operations,
+                "compatible_evolved_operation_count": len(
+                    compatible_evolved_operations
+                ),
+                "compatible_evolution_policy_exact_match": True,
                 "missing_or_changed_schema_count": 0,
                 "missing_or_changed_security_scheme_count": 0,
             }

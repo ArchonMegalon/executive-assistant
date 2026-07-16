@@ -151,6 +151,7 @@ class FakeRunner:
         ]
         self.rollback_openapi_paths: list[str] | None = None
         self.forward_openapi_changed_operation = False
+        self.forward_version_compatible_evolution = False
         self.prior_openapi_schema_type = "object"
         self.forward_openapi_schema_type = "object"
         self.prior_openapi_property_types = {
@@ -994,17 +995,26 @@ def _lane(
                     and path == "/health"
                     else "200"
                 )
+                response_schema: dict[str, object]
+                if path == "/version":
+                    additional_properties: dict[str, object] = {"type": "string"}
+                    if forward and runner.forward_version_compatible_evolution:
+                        additional_properties = {
+                            "anyOf": [{"type": "string"}, {"type": "boolean"}]
+                        }
+                    response_schema = {
+                        "type": "object",
+                        "additionalProperties": additional_properties,
+                    }
+                else:
+                    response_schema = {"$ref": "#/components/schemas/Control"}
                 path_contract[path] = {
                     method: {
                         "responses": {
                             response_status: {
                                 "description": response_description,
                                 "content": {
-                                    "application/json": {
-                                        "schema": {
-                                            "$ref": "#/components/schemas/Control"
-                                        }
-                                    }
+                                    "application/json": {"schema": response_schema}
                                 },
                             }
                         }
@@ -3309,6 +3319,30 @@ def test_openapi_changed_retained_operation_has_no_waiver(
     receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
     assert "postdeploy_openapi_operation_changed" in receipt["failure"]["reason"]
     assert receipt["rollback"]["status"] == "pass"
+
+
+def test_openapi_exact_version_boolean_evolution_is_compatible(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.prior_openapi_paths.append("/version")
+    runner.forward_openapi_paths.append("/version")
+    runner.forward_version_compatible_evolution = True
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    receipt = _lane(release_root, runner).deploy()
+
+    openapi = receipt["postdeploy_non_memorial_controls"]["openapi"]
+    assert openapi["compatible_evolution_policy_id"] == (
+        deploy.OPENAPI_COMPATIBLE_EVOLUTION_POLICY_ID
+    )
+    assert openapi["compatible_evolved_operations"] == ["GET /version"]
+    assert openapi["compatible_evolved_operation_count"] == 1
+    assert openapi["compatible_evolution_policy_exact_match"] is True
 
 
 def test_openapi_schema_change_has_no_waiver(
