@@ -136,9 +136,11 @@ def test_untrusted_raw_origin_alias_remains_rejected(
     assert response.json()["error"]["code"] == "host_not_allowed"
 
 
+@pytest.mark.parametrize("port", (0, 8443))
 def test_trusted_origin_alias_rejects_noncanonical_port(
     public_proxy_env: None,
     monkeypatch: pytest.MonkeyPatch,
+    port: int,
 ) -> None:
     monkeypatch.setenv(
         "EA_TRUSTED_PUBLIC_ORIGIN_ALIASES",
@@ -153,7 +155,7 @@ def test_trusted_origin_alias_rejects_noncanonical_port(
     response = client.get(
         "/privacy",
         headers={
-            "x-forwarded-host": "origin.myexternalbrain.com:8443",
+            "x-forwarded-host": f"origin.myexternalbrain.com:{port}",
             "x-forwarded-proto": "https",
         },
     )

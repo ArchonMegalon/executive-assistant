@@ -151,15 +151,17 @@ def _trusted_public_origin_alias_matches(
 ) -> bool:
     if origin is None or origin.scheme != "https":
         return False
-    expected_port = origin.authority.port or 443
-    incoming_port = authority.port or 443
+    expected_port = 443 if origin.authority.port is None else origin.authority.port
+    incoming_port = 443 if authority.port is None else authority.port
     for value in str(os.getenv("EA_TRUSTED_PUBLIC_ORIGIN_ALIASES") or "").split(","):
         alias = _authority(value)
         if alias is None or alias.host == origin.authority.host:
             continue
         if (
             alias.host == authority.host
-            and (alias.port or 443) == incoming_port == expected_port
+            and (443 if alias.port is None else alias.port)
+            == incoming_port
+            == expected_port
         ):
             return True
     return False
