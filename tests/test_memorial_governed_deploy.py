@@ -4230,5 +4230,13 @@ def test_memorial_compose_override_is_api_only() -> None:
     assert "image: ${EA_MEMORIAL_IMAGE:?" in raw
     assert "pull_policy: never" in raw
     assert "EA_SOURCE_REVISION=${EA_SOURCE_REVISION:?" in raw
+    assert "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER=0" in raw
+    assert "EA_TRUST_PROXY_HEADERS=1" in raw
+    assert "EA_TRUSTED_PROXY_CIDRS=${EA_MEMORIAL_TRUSTED_PROXY_CIDRS:?" in raw
+    assert "EA_ALLOWED_PUBLIC_HOSTS=${EA_MEMORIAL_ALLOWED_PUBLIC_HOSTS:-" in raw
+    assert "EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR=/data/memorial-writable/public-contributions" in raw
+    assert "EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR=/data/memorial-writable/private-contributions" in raw
+    assert "EA_MEMORIAL_STATE_DIR=/data/memorial-writable/state" in raw
+    assert raw.count("${EA_MEMORIAL_RUNTIME_HOST_PATH:?") == 3
     assert "\n  ea-worker:" not in raw
     assert "\n  ea-scheduler:" not in raw
