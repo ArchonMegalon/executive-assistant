@@ -1466,6 +1466,39 @@ def _docker_environment_map(value: object, *, error: str) -> dict[str, str]:
     return environment
 
 
+def _wait_for_candidate_api_healthy(
+    *,
+    compose: list[str],
+    environment: dict[str, str],
+    expected_container_id: str,
+    wait_seconds: int,
+) -> None:
+    deadline = time.monotonic() + max(1, int(wait_seconds))
+    while True:
+        container_id = _compose_service_container_id(compose, environment, "api")
+        if container_id != expected_container_id:
+            raise RuntimeError("manfred_candidate_restart_recreated_container")
+        rows = _json_rows(
+            _run(
+                ["docker", "container", "inspect", container_id],
+                timeout=30,
+            ),
+            error="manfred_candidate_restart_health_inspection_invalid",
+        )
+        if len(rows) != 1 or str(rows[0].get("Id") or "") != container_id:
+            raise RuntimeError("manfred_candidate_restart_health_inspection_invalid")
+        state = dict(rows[0].get("State") or {})
+        health = dict(state.get("Health") or {})
+        health_status = str(health.get("Status") or "")
+        if state.get("Running") is True and health_status == "healthy":
+            return
+        if state.get("Running") is not True or health_status not in {"starting"}:
+            raise RuntimeError("manfred_candidate_restart_health_invalid")
+        if time.monotonic() >= deadline:
+            raise RuntimeError("manfred_candidate_restart_health_timeout")
+        time.sleep(1)
+
+
 def _candidate_api_runtime_posture(
     *,
     compose: list[str],
@@ -4066,6 +4099,12 @@ def _prove_candidate_with_execution_inputs(
                 [*compose, "restart", "api"],
                 timeout=90,
                 environment=compose_environment,
+            )
+            _wait_for_candidate_api_healthy(
+                compose=compose,
+                environment=compose_environment,
+                expected_container_id=api_before_restart,
+                wait_seconds=wait_seconds,
             )
             second_smoke = verify_candidate(
                 base_url=base_url,

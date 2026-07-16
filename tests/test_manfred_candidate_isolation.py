@@ -975,6 +975,61 @@ def test_internal_transport_probe_rejects_unexpected_status(
         )
 
 
+def test_restart_health_wait_pins_container_identity_until_healthy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    container_id = "a" * 64
+    inspections = iter(
+        [
+            [{"Id": container_id, "State": {"Running": True, "Health": {"Status": "starting"}}}],
+            [{"Id": container_id, "State": {"Running": True, "Health": {"Status": "healthy"}}}],
+        ]
+    )
+    monotonic = iter([0.0, 0.0, 1.0])
+
+    monkeypatch.setattr(
+        runner,
+        "_compose_service_container_id",
+        lambda *_args, **_kwargs: container_id,
+    )
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda *_args, **_kwargs: json.dumps(next(inspections)).encode("utf-8"),
+    )
+    monkeypatch.setattr(runner.time, "monotonic", lambda: next(monotonic))
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+
+    runner._wait_for_candidate_api_healthy(
+        compose=["docker", "compose"],
+        environment={},
+        expected_container_id=container_id,
+        wait_seconds=30,
+    )
+
+
+def test_restart_health_wait_rejects_container_recreation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "_compose_service_container_id",
+        lambda *_args, **_kwargs: "b" * 64,
+    )
+    monkeypatch.setattr(runner.time, "monotonic", lambda: 0.0)
+
+    with pytest.raises(
+        RuntimeError,
+        match="manfred_candidate_restart_recreated_container",
+    ):
+        runner._wait_for_candidate_api_healthy(
+            compose=["docker", "compose"],
+            environment={},
+            expected_container_id="a" * 64,
+            wait_seconds=30,
+        )
+
+
 @pytest.mark.parametrize(
     "raw",
     [
