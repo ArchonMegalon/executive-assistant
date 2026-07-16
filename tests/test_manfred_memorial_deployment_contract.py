@@ -719,6 +719,66 @@ def test_candidate_transport_verifier_proves_gateway_cookie_hsts_and_redirect(
     ]
 
 
+def test_candidate_transport_verifier_does_not_model_http_over_canonical_https() -> (
+    None
+):
+    observed: list[dict[str, object]] = []
+
+    def fake_request(  # type: ignore[no-untyped-def]
+        base_url,
+        path,
+        *,
+        headers=None,
+        expected=None,
+        follow_redirects=True,
+        **_kwargs,
+    ):
+        observed.append(
+            {
+                "base_url": base_url,
+                "path": path,
+                "headers": dict(headers or {}),
+                "expected": set(expected or set()),
+                "follow_redirects": follow_redirects,
+            }
+        )
+        return (
+            200,
+            b"memorial",
+            {
+                "set-cookie": (
+                    "ea_memorial_guest=redacted; HttpOnly; Max-Age=31536000; "
+                    "Path=/memorials/manfred; SameSite=Lax; Secure"
+                ),
+                "strict-transport-security": "max-age=31536000",
+            },
+        )
+
+    evidence = candidate_verify._verify_memorial_transport_security(
+        "https://myexternalbrain.com",
+        "https://myexternalbrain.com",
+        request_fn=fake_request,
+    )
+
+    assert evidence["status"] == "pass"
+    assert evidence["http_redirect_probe"] == "not_applicable_to_https_base"
+    assert "http_redirect_status" not in evidence
+    assert observed == [
+        {
+            "base_url": "https://myexternalbrain.com",
+            "path": "/memorials/manfred",
+            "headers": {
+                "Host": "myexternalbrain.com",
+                "X-Forwarded-Host": "myexternalbrain.com",
+                "X-Forwarded-Proto": "https",
+                "CF-Visitor": '{"scheme":"https"}',
+            },
+            "expected": {200},
+            "follow_redirects": False,
+        }
+    ]
+
+
 def test_candidate_head_verifier_uses_exact_canonical_transport_headers() -> None:
     observed: list[dict[str, object]] = []
 

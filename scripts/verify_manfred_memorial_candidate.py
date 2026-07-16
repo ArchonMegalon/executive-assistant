@@ -306,6 +306,30 @@ def _verify_memorial_transport_security(
     ):
         raise RuntimeError("candidate_memorial_transport_cookie_invalid")
 
+    # A verifier already attached to the canonical HTTPS origin cannot prove an
+    # HTTP-to-HTTPS redirect by sending another HTTPS request with fewer proxy
+    # headers: the real TLS transport remains HTTPS and must continue to return
+    # the page.  The deploy lane runs this verifier against its local HTTP
+    # origin first, where the redirect is exercised below, and then against the
+    # public HTTPS origin, where HSTS, the secure cookie, and absence of a
+    # redirect are the applicable transport checks above.
+    if _http_origin(base_url) == _http_origin(canonical_origin):
+        return {
+            "status": "pass",
+            "public_origin": canonical_origin,
+            "proxy_scheme_headers_consistent": True,
+            "cookie": {
+                "name": MEMORIAL_GUEST_COOKIE,
+                "secure": True,
+                "http_only": True,
+                "same_site": "Lax",
+                "path": page_path,
+                "max_age_seconds": 31_536_000,
+            },
+            "hsts": MEMORIAL_HSTS,
+            "http_redirect_probe": "not_applicable_to_https_base",
+        }
+
     redirect_path = f"{page_path}?from=ea-transport-verifier"
     redirect_status, _redirect_body, redirect_headers = request(
         base_url,
