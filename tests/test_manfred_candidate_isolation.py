@@ -2206,20 +2206,43 @@ def test_openapi_contract_rejects_meaningful_drift(drift: str) -> None:
         runner._assert_openapi_contract_preserved(live, candidate)
 
 
-@pytest.mark.parametrize("case", ["retained_equivalent", "live_policy_stale"])
-def test_openapi_retirement_rejects_partial_or_stale_policy(case: str) -> None:
+@pytest.mark.parametrize("case", ["partially_retired", "reintroduced"])
+def test_openapi_retirement_rejects_partial_or_reintroduced_policy(case: str) -> None:
     live_document = _meaningful_openapi_document()
     candidate_document = copy.deepcopy(live_document)
-    if case == "retained_equivalent":
+    if case == "partially_retired":
         candidate_document["paths"].pop("/v1/internal/governed-spatial-render/compose")
     else:
-        live_document["paths"].pop("/v1/internal/governed-spatial-render/build")
-        _retire_governed_spatial_operations(candidate_document)
+        _retire_governed_spatial_operations(live_document)
+        candidate_document = copy.deepcopy(live_document)
+        candidate_document["paths"][
+            "/v1/internal/governed-spatial-render/build"
+        ] = {"post": {"responses": {"202": {}}}}
 
     live = runner._canonical_openapi_contract(live_document)
     candidate = runner._canonical_openapi_contract(candidate_document)
     with pytest.raises(RuntimeError, match="openapi_contract_regression"):
         runner._assert_openapi_contract_preserved(live, candidate)
+
+
+def test_openapi_retirement_is_idempotent_after_live_policy_applied() -> None:
+    live_document = _meaningful_openapi_document()
+    _retire_governed_spatial_operations(live_document)
+    contract = runner._canonical_openapi_contract(live_document)
+
+    result = runner._assert_openapi_contract_preserved(contract, contract)
+
+    assert result["retirement_policy_exact_match"] is True
+    assert result["retirement_allowed_operations"] == list(
+        EXPECTED_OPENAPI_RETIREMENT_OPERATIONS
+    )
+    assert result["retired_operations"] == list(
+        EXPECTED_OPENAPI_RETIREMENT_OPERATIONS
+    )
+    assert result["retired_operation_count"] == len(
+        EXPECTED_OPENAPI_RETIREMENT_OPERATIONS
+    )
+    assert result["candidate_preserves_live_contract"] is True
 
 
 def test_openapi_retirement_does_not_waive_changed_retained_route() -> None:

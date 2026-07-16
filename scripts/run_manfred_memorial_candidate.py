@@ -898,13 +898,8 @@ def _assert_openapi_contract_preserved(
 ) -> dict[str, object]:
     allowed_retirements = list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS)
     allowed_evolutions = list(OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS)
-    live_operations = dict(live.get("operations") or {})
     candidate_operations = dict(candidate.get("operations") or {})
-    if [
-        name for name in allowed_retirements if name in live_operations
-    ] != allowed_retirements or any(
-        name in candidate_operations for name in allowed_retirements
-    ):
+    if any(name in candidate_operations for name in allowed_retirements):
         raise RuntimeError("manfred_candidate_openapi_contract_regression")
 
     counts: dict[str, int] = {}
