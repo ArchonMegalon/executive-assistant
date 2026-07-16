@@ -679,4 +679,11 @@ Recommended sequencing: run `make release-docs` before `make release-preflight`.
 One-command local readiness check: `make all-local`.
 `make all-local` is a lighter local readiness pass; it still verifies release assets, flagship readiness, and generated release artifact cleanliness, but it does not require release-claim authority. Use `make release-preflight` for release-stage smoke + operator checks.
 CI gate sequence is documented in `RUNBOOK.md` and includes the API gate bundle (`smoke-help`, `ci-local`, `test-api`, release-asset verification, flagship release-readiness verification, generated release artifact cleanliness), Postgres-backed smoke and repository-contract jobs (`scripts/smoke_postgres.sh`, `scripts/test_postgres_contracts.sh`), and a legacy migration-regression job (`bash scripts/smoke_postgres.sh --legacy-fixture`).
+
+The Cloudflare tunnel and `ea-api` share a dedicated `ea_public_ingress`
+network. `docker-compose.cloudflared.yml` pins the tunnel peer to
+`172.31.254.2`, and EA trusts only `172.31.254.2/32`; this keeps public
+authority validation stable across Compose restarts without trusting the full
+application network. See `RUNBOOK.md` before changing the ingress subnet or
+peer address.
 Shell script lint config is tracked in `.shellcheckrc`.

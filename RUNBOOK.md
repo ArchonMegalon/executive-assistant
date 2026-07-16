@@ -917,3 +917,18 @@ Standalone-compatible service aliases for shared operator scripts:
 - `13`: runtime response missing an expected resource id (delivery or memory flow)
 
 Other transport failures (for example `curl`) return their native non-zero exit codes.
+
+## Stable public-ingress proxy identity
+
+Run the public tunnel with `docker-compose.cloudflared.yml`. The base stack
+attaches `ea-api` to the dedicated `ea_public_ingress` network, and the tunnel
+uses the fixed peer address `172.31.254.2`. EA trusts only
+`172.31.254.2/32`, so a Compose restart cannot silently change the tunnel peer
+and make every public request fail with `421 host_not_allowed`.
+
+Keep `EA_PUBLIC_INGRESS_CLOUDFLARED_IPV4` and
+`EA_PUBLIC_INGRESS_TRUSTED_PROXY_CIDRS` aligned. For a governed memorial
+promotion, set `EA_MEMORIAL_TRUSTED_PROXY_CIDRS` to the same exact `/32`.
+Changing the subnet or peer address is a maintenance migration: validate the
+rendered Compose configuration first and recreate the tunnel only in an
+authorized deployment window.

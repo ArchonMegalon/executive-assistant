@@ -173,6 +173,9 @@ services:
       - /run
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - public_ingress
     depends_on:
       ea-teable-relay:
         condition: service_healthy
@@ -639,3 +642,11 @@ volumes:
   ea_provider_ledger: {}
   ea_whatsapp_web_actions:
     name: ea_whatsapp_web_actions
+
+networks:
+  public_ingress:
+    name: ${EA_PUBLIC_INGRESS_NETWORK_NAME:-ea_public_ingress}
+    ipam:
+      config:
+        - subnet: ${EA_PUBLIC_INGRESS_SUBNET:-172.31.254.0/29}
+          gateway: ${EA_PUBLIC_INGRESS_GATEWAY:-172.31.254.1}

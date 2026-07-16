@@ -835,6 +835,33 @@ def test_cloudflared_tunnel_is_only_available_via_override() -> None:
     assert "EA_CF_TUNNEL_TOKEN" in environment_matrix
 
 
+def test_cloudflared_tunnel_uses_stable_least_privilege_proxy_identity() -> None:
+    base_compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    tunnel_override = (ROOT / "docker-compose.cloudflared.yml").read_text(encoding="utf-8")
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+
+    assert "- public_ingress" in base_compose
+    assert "name: ${EA_PUBLIC_INGRESS_NETWORK_NAME:-ea_public_ingress}" in base_compose
+    assert "subnet: ${EA_PUBLIC_INGRESS_SUBNET:-172.31.254.0/29}" in base_compose
+    assert "gateway: ${EA_PUBLIC_INGRESS_GATEWAY:-172.31.254.1}" in base_compose
+    assert "EA_TRUST_PROXY_HEADERS=1" in tunnel_override
+    assert (
+        "EA_TRUSTED_PROXY_CIDRS=${EA_PUBLIC_INGRESS_TRUSTED_PROXY_CIDRS:-172.31.254.2/32}"
+        in tunnel_override
+    )
+    assert (
+        "ipv4_address: ${EA_PUBLIC_INGRESS_CLOUDFLARED_IPV4:-172.31.254.2}"
+        in tunnel_override
+    )
+    assert "EA_PUBLIC_INGRESS_CLOUDFLARED_IPV4=172.31.254.2" in env_example
+    assert "EA_PUBLIC_INGRESS_TRUSTED_PROXY_CIDRS=172.31.254.2/32" in env_example
+    for text in (readme, runbook):
+        assert "ea_public_ingress" in text
+        assert "172.31.254.2/32" in text
+
+
 def test_property_stack_docs_describe_loopback_and_runtime_limits() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
