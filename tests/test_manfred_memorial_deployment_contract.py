@@ -634,6 +634,7 @@ def test_candidate_transport_verifier_proves_gateway_cookie_hsts_and_redirect(
             "path": "/memorials/manfred",
             "headers": {
                 "Host": "myexternalbrain.com",
+                "X-Forwarded-Host": "myexternalbrain.com",
                 "X-Forwarded-Proto": "https",
                 "CF-Visitor": '{"scheme":"https"}',
             },

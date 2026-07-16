@@ -248,6 +248,7 @@ def _verify_memorial_transport_security(
     page_path = "/memorials/manfred"
     proxy_headers = {
         "Host": authority,
+        "X-Forwarded-Host": authority,
         "X-Forwarded-Proto": "https",
         "CF-Visitor": '{"scheme":"https"}',
     }
