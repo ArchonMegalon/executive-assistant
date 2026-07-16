@@ -140,9 +140,15 @@ class _FakeCanvas:
     def __init__(self, page: _FakePage) -> None:
         self.page = page
 
-    def evaluate(self, script: str) -> str:
+    def evaluate(self, script: str, *, timeout: int) -> str:
         assert "readPixels" in script
+        assert "isContextLost" in script
         assert 'toDataURL("image/png")' in script
+        assert timeout == browser_gate._CAMERA_PROBE_TIMEOUT_MS
+        self.page.camera_probe_indices.append(self.page.active)
+        self.page.camera_probe_timeouts.append(timeout)
+        if self.page.camera_probe_failure_index == self.page.active:
+            raise TimeoutError("private renderer timeout detail")
         value = 7 if self.page.static_pixels else self.page.active + 1
         png = b"\x89PNG\r\n\x1a\n" + bytes([value]) * 128
         return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
@@ -163,12 +169,16 @@ class _FakePage:
         *,
         static_pixels: bool = False,
         actionability_failure_index: int | None = None,
+        camera_probe_failure_index: int | None = None,
     ) -> None:
         self.labels = labels
         self.static_pixels = static_pixels
         self.actionability_failure_index = actionability_failure_index
+        self.camera_probe_failure_index = camera_probe_failure_index
         self.active = -1
         self.clicked_indices: list[int] = []
+        self.camera_probe_indices: list[int] = []
+        self.camera_probe_timeouts: list[int] = []
 
     def locator(self, selector: str):  # type: ignore[no-untyped-def]
         if selector == "#viewport canvas":
@@ -307,6 +317,20 @@ def test_route_gate_interacts_all_stops_and_binds_unique_camera_pixels() -> None
     assert len({row["camera_canvas_screenshot_sha256"] for row in rows}) == 9
     assert all(row["active_state_verified"] is True for row in rows)
     assert page.clicked_indices == [*range(1, 9), 0]
+    assert page.camera_probe_indices == [*range(1, 9), 0]
+    assert page.camera_probe_timeouts == [browser_gate._CAMERA_PROBE_TIMEOUT_MS] * 9
+
+
+def test_route_gate_redacts_and_does_not_retry_camera_probe_timeout() -> None:
+    page = _FakePage(LABELS, camera_probe_failure_index=4)
+
+    with pytest.raises(RuntimeError, match="camera_probe_failed") as captured:
+        browser_gate._route_interactions(page, LABELS)
+
+    assert "private renderer timeout detail" not in str(captured.value)
+    assert captured.value.__cause__ is None
+    assert page.clicked_indices == [1, 2, 3, 4]
+    assert page.camera_probe_indices == [1, 2, 3, 4]
 
 
 def test_route_gate_rejects_failed_normal_playwright_actionability() -> None:

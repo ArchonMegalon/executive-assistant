@@ -56,6 +56,7 @@ _SINGLETON_EVIDENCE_HEADERS = frozenset(
 )
 _EXPECTED_ROUTE_STOP_COUNT = 9
 _ROUTE_ACTIONABILITY_TIMEOUT_MS = 30_000
+_CAMERA_PROBE_TIMEOUT_MS = 45_000
 _MAX_HTTP_BYTES = 8 * 1024 * 1024
 _REQUEST_MEDIA_TYPES = {
     "floorplan": "image/png",
@@ -133,6 +134,7 @@ element => {
   const height = Math.min(96, bufferHeight);
   if (
     !gl ||
+    gl.isContextLost() ||
     !attributes ||
     attributes.preserveDrawingBuffer !== true ||
     width < 1 ||
@@ -1043,7 +1045,15 @@ def _route_interactions(
             "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
         )
         canvas = page.locator("#viewport canvas")  # type: ignore[attr-defined]
-        data_url = canvas.evaluate(_BOUNDED_CANVAS_SCREENSHOT_SCRIPT)
+        try:
+            data_url = canvas.evaluate(
+                _BOUNDED_CANVAS_SCREENSHOT_SCRIPT,
+                timeout=_CAMERA_PROBE_TIMEOUT_MS,
+            )
+        except Exception:
+            raise RuntimeError(
+                "manfred_candidate_spatial_browser_camera_probe_failed"
+            ) from None
         prefix = "data:image/png;base64,"
         if type(data_url) is not str or not data_url.startswith(prefix):
             raise RuntimeError("manfred_candidate_spatial_browser_camera_probe_failed")
