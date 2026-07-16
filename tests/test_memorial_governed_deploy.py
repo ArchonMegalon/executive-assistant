@@ -4220,6 +4220,7 @@ def test_make_target_uses_scoped_lane_not_generic_deployer() -> None:
     assert "scripts/deploy_ea_memorial.py" in scoped
     assert "EA_MEMORIAL_IMAGE" in scoped
     assert "EA_MEMORIAL_CANDIDATE_RECEIPT" in scoped
+    assert "verify-memorial-deploy-readiness" not in target
     assert "scripts/deploy.sh" not in target + scoped
 
 

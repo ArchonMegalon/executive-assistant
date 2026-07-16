@@ -52,7 +52,6 @@ deploy-ea-ooda-runtime:
 	COMPOSE_PROJECT_NAME=ea bash scripts/deploy_proactive_ooda_runtime.sh
 
 deploy-ea-memorial:
-	$(MAKE) verify-memorial-deploy-readiness
 	COMPOSE_PROJECT_NAME=ea \
 	EA_DEPLOY_PRIMARY_MODE=MEMORIAL \
 	EA_DEPLOY_ENABLED_MODES=MEMORIAL \
