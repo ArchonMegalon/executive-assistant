@@ -143,11 +143,34 @@ ROLLBACK_ENV_PASSTHROUGH = {
     "XDG_RUNTIME_DIR",
 }
 MAX_HTTP_BODY_BYTES = 2 * 1024 * 1024
+MAX_INTERNAL_OPENAPI_BYTES = 8 * 1024 * 1024
 MAX_FIXED_JSON_SCRIPT_OUTPUT_BYTES = 64 * 1024
 MAX_PRIVATE_RELEASE_EVIDENCE_BYTES = 2 * 1024 * 1024
 MAX_DEPLOYMENT_INPUT_BYTES = 8 * 1024 * 1024
 MAX_GIT_INDEX_LIST_BYTES = 16 * 1024 * 1024
 MAX_RECEIPT_CONTENT_TYPE_CHARS = 160
+CONTAINER_OPENAPI_SNAPSHOT_SCRIPT = f"""
+import json
+import sys
+
+from app.main import app
+
+payload = {{
+    "docs_url": app.docs_url,
+    "document": app.openapi(),
+    "openapi_url": app.openapi_url,
+    "redoc_url": app.redoc_url,
+}}
+raw = json.dumps(
+    payload,
+    ensure_ascii=False,
+    separators=(",", ":"),
+    sort_keys=True,
+).encode("utf-8")
+if len(raw) > {MAX_INTERNAL_OPENAPI_BYTES}:
+    raise SystemExit(86)
+sys.stdout.buffer.write(raw)
+""".strip()
 RELEASE_EVIDENCE_ENV_ALLOWLIST = frozenset(
     {
         "EA_DEPLOY_BRANCH",
@@ -1159,6 +1182,7 @@ class MemorialDeployLane:
         wait_seconds: float = 90.0,
         poll_seconds: float = 2.0,
         request_timeout_seconds: float = 10.0,
+        internal_openapi_snapshot: Callable[[], Mapping[str, Any]] | None = None,
         receipt_dir: Path | None = None,
         global_lock_path: Path | None = None,
         durable_root_check: Callable[[Path], None] = _require_durable_release_root,
@@ -1173,6 +1197,7 @@ class MemorialDeployLane:
         self.wait_seconds = max(float(wait_seconds), 0.0)
         self.poll_seconds = max(float(poll_seconds), 0.05)
         self.request_timeout_seconds = max(float(request_timeout_seconds), 0.1)
+        self.internal_openapi_snapshot = internal_openapi_snapshot
         self.durable_root_check = durable_root_check
         self.env_file_values = _parse_env_file(self.root / ".env")
         self.deployment_id = _safe_deployment_id(self.env)
@@ -2837,9 +2862,7 @@ class MemorialDeployLane:
             value = payload.get(name)
             return dict(value) if isinstance(value, dict) else {}
 
-        initial_container_images = receipt_mapping(
-            "candidate_container_images_initial"
-        )
+        initial_container_images = receipt_mapping("candidate_container_images_initial")
         final_container_images = receipt_mapping("candidate_container_images_final")
         runtime_projection_initial = receipt_mapping("runtime_projection_initial")
         runtime_projection_final = receipt_mapping("runtime_projection_final")
@@ -2949,8 +2972,7 @@ class MemorialDeployLane:
                 and directives.get("frame-ancestors") == ("'none'",)
                 and str(security_headers.get("x_content_type_options") or "").lower()
                 == "nosniff"
-                and str(security_headers.get("x_frame_options") or "").upper()
-                == "DENY"
+                and str(security_headers.get("x_frame_options") or "").upper() == "DENY"
                 and value.get("public_endpoint_retired") is True
             )
 
@@ -3085,8 +3107,7 @@ class MemorialDeployLane:
                     "mount_roots",
                     "runtime_bytes_match_prepared_projection",
                 }
-                and value.get("schema")
-                == "ea.manfred_candidate_runtime_projection.v1"
+                and value.get("schema") == "ea.manfred_candidate_runtime_projection.v1"
                 and value.get("projection_sha256") == payload.get("projection_sha256")
                 and type(value.get("file_count")) is int
                 and value.get("file_count") == expected_projection_count
@@ -3187,8 +3208,7 @@ class MemorialDeployLane:
                     "mutable_source_paths_consumed_by_compose",
                     "mutable_image_locator_consumed_by_compose",
                 }
-                and value.get("schema")
-                == "ea.manfred_candidate_execution_inputs.v1"
+                and value.get("schema") == "ea.manfred_candidate_execution_inputs.v1"
                 and value.get("compose_sha256") == compose_attestation.get("sha256")
                 and value.get("compose_size_bytes")
                 == compose_attestation.get("size_bytes")
@@ -3202,11 +3222,9 @@ class MemorialDeployLane:
                 and int(value.get("environment_size_bytes") or 0) > 0
                 and environment_keys == expected_candidate_env_keys
                 and value.get("compose_image_id") == image_id
-                and value.get("compose_image_reference_source")
-                == "prepared_image_id"
+                and value.get("compose_image_reference_source") == "prepared_image_id"
                 and value.get("transport") == "sealed_memfd"
-                and value.get("required_seals")
-                == ["grow", "seal", "shrink", "write"]
+                and value.get("required_seals") == ["grow", "seal", "shrink", "write"]
                 and value.get("all_compose_commands_use_sealed_inputs") is True
                 and value.get("mutable_source_paths_consumed_by_compose") is False
                 and value.get("mutable_image_locator_consumed_by_compose") is False
@@ -3263,16 +3281,12 @@ class MemorialDeployLane:
                 ):
                     return False
                 mutable_parents.add(str(identity.parent))
-            return (
-                len(mutable_parents) == 1
-                and rows.get("/data/artifacts")
-                == {
-                    "destination": "/data/artifacts",
-                    "identity": f"{candidate_project}_artifacts",
-                    "read_only": False,
-                    "type": "volume",
-                }
-            )
+            return len(mutable_parents) == 1 and rows.get("/data/artifacts") == {
+                "destination": "/data/artifacts",
+                "identity": f"{candidate_project}_artifacts",
+                "read_only": False,
+                "type": "volume",
+            }
 
         def valid_runtime_posture(value: Mapping[str, Any]) -> bool:
             environment_keys = value.get("environment_keys")
@@ -3315,8 +3329,7 @@ class MemorialDeployLane:
                     "runtime_user",
                     "running_and_healthy",
                 }
-                and value.get("schema")
-                == "ea.manfred_candidate_api_runtime_posture.v1"
+                and value.get("schema") == "ea.manfred_candidate_api_runtime_posture.v1"
                 and value.get("api_container_id")
                 == dict(container_images.get("api") or {}).get("container_id")
                 and value.get("image_id") == image_id
@@ -3356,8 +3369,7 @@ class MemorialDeployLane:
             state = value.get("state_before_launch")
             return (
                 state in {"absent", "pending_only"}
-                and value.get("crash_intent_reconciled")
-                is (state == "pending_only")
+                and value.get("crash_intent_reconciled") is (state == "pending_only")
                 and type(value.get("pending_contribution_reconciled")) is bool
                 and (
                     state == "pending_only"
@@ -3423,14 +3435,18 @@ class MemorialDeployLane:
 
         def valid_spatial_projection(value: Mapping[str, Any]) -> bool:
             asset_paths = value.get("asset_paths")
-            expected_spatial_files = {
-                f"{spatial_slug}/tour.json",
-                *(
-                    f"{spatial_slug}/{asset_path}"
-                    for asset_path in asset_paths
-                    if isinstance(asset_path, str)
-                ),
-            } if isinstance(asset_paths, list) else set()
+            expected_spatial_files = (
+                {
+                    f"{spatial_slug}/tour.json",
+                    *(
+                        f"{spatial_slug}/{asset_path}"
+                        for asset_path in asset_paths
+                        if isinstance(asset_path, str)
+                    ),
+                }
+                if isinstance(asset_paths, list)
+                else set()
+            )
             return (
                 set(value)
                 == {
@@ -3459,13 +3475,11 @@ class MemorialDeployLane:
                 and spatial_slug == REQUIRED_CONTROL_TOUR_SLUG
                 and value.get("release_root")
                 == str((expected_data_root / "public_property_tours").resolve())
-                and value.get("projection_sha256")
-                == observed_spatial_projection_sha256
+                and value.get("projection_sha256") == observed_spatial_projection_sha256
                 and value.get("file_count")
                 == len(observed_spatial_projection_files)
                 == 6
-                and value.get("projection_bytes")
-                == observed_spatial_projection_bytes
+                and value.get("projection_bytes") == observed_spatial_projection_bytes
                 and observed_spatial_projection_bytes > 0
                 and type(value.get("receipt_path")) is str
                 and Path(str(value["receipt_path"])).is_absolute()
@@ -3482,8 +3496,7 @@ class MemorialDeployLane:
                     if isinstance(row, dict)
                 }
                 == expected_spatial_files
-                and spatial_viewer_relpath
-                == "generated-reconstruction/viewer.html"
+                and spatial_viewer_relpath == "generated-reconstruction/viewer.html"
                 and spatial_proof_relpath
                 == "generated-reconstruction/reconstruction.json"
                 and isinstance(spatial_route_labels, list)
@@ -3496,8 +3509,7 @@ class MemorialDeployLane:
                 )
                 and len(set(spatial_route_labels)) == 9
                 and all(
-                    SHA256_HEX_PATTERN.fullmatch(str(value.get(name) or ""))
-                    is not None
+                    SHA256_HEX_PATTERN.fullmatch(str(value.get(name) or "")) is not None
                     for name in (
                         "receipt_sha256",
                         "upstream_publication_authority_sha256",
@@ -3567,8 +3579,7 @@ class MemorialDeployLane:
                 and isinstance(package, dict)
                 and package.get("package_sha256") == spatial_package_sha256
                 and package.get("local_files") == observed_spatial_local_files
-                and package.get("tour_manifest_sha256")
-                == observed_spatial_tour_sha256
+                and package.get("tour_manifest_sha256") == observed_spatial_tour_sha256
             )
 
         def valid_spatial_runtime(value: Mapping[str, Any]) -> bool:
@@ -3632,6 +3643,7 @@ class MemorialDeployLane:
                 and value.get("ea_public_activation_authority") is False
                 and value.get("upstream_public_activation_authority") is True
             )
+
         if (
             str(payload.get("schema") or "")
             != "ea.manfred_memorial_candidate_runtime.v4"
@@ -3729,8 +3741,7 @@ class MemorialDeployLane:
             or runtime_projection_initial != runtime_projection_final
             or payload.get("runtime_projection_identity_stable") is not True
             or runtime_version != expected_runtime_version
-            or str(payload.get("runtime_authority_commit") or "")
-            != source_revision
+            or str(payload.get("runtime_authority_commit") or "") != source_revision
             or not valid_compose_attestation(compose_attestation)
             or not valid_execution_inputs(execution_inputs)
             or not valid_runtime_posture(runtime_api_posture)
@@ -3786,9 +3797,7 @@ class MemorialDeployLane:
             or type(openapi.get("missing_or_changed_security_scheme_count")) is not int
             or openapi["missing_or_changed_security_scheme_count"] != 0
             or not valid_openapi_snapshot(live_openapi_before)
-            or not valid_openapi_snapshot(
-                candidate_openapi, candidate_snapshot=True
-            )
+            or not valid_openapi_snapshot(candidate_openapi, candidate_snapshot=True)
             or not valid_candidate_openapi_public_endpoint(
                 candidate_openapi_public_endpoint
             )
@@ -3892,17 +3901,13 @@ class MemorialDeployLane:
             },
             "runtime_posture": {
                 "schema": "ea.manfred_candidate_api_runtime_posture.v1",
-                "environment_sha256": str(
-                    runtime_api_posture["environment_sha256"]
-                ),
+                "environment_sha256": str(runtime_api_posture["environment_sha256"]),
                 "mount_count": len(list(runtime_api_posture["mounts"])),
                 "network": f"{candidate_project}_backend",
                 "hardened": True,
             },
             "registry_recovery": {
-                "state_before_launch": str(
-                    registry_recovery["state_before_launch"]
-                ),
+                "state_before_launch": str(registry_recovery["state_before_launch"]),
                 "safe": True,
             },
             "spatial_handoff": {
@@ -4481,6 +4486,66 @@ class MemorialDeployLane:
             "_contract": contract,
         }
 
+    def _capture_internal_openapi_control(self) -> dict[str, Any]:
+        if self.internal_openapi_snapshot is None:
+            completed = self._run(
+                [
+                    "/usr/bin/timeout",
+                    "--signal=KILL",
+                    "30s",
+                    "docker",
+                    "exec",
+                    API_SERVICE,
+                    "python3",
+                    "-c",
+                    CONTAINER_OPENAPI_SNAPSHOT_SCRIPT,
+                ],
+                check=False,
+            )
+            if completed.returncode != 0:
+                raise DeployError("deployed_api_internal_openapi_snapshot_failed")
+            encoded = completed.stdout.encode("utf-8", errors="strict")
+            if not encoded or len(encoded) > MAX_INTERNAL_OPENAPI_BYTES:
+                raise DeployError("deployed_api_internal_openapi_snapshot_size_invalid")
+            envelope = _json_object(
+                completed.stdout,
+                reason="deployed_api_internal_openapi_snapshot_invalid",
+            )
+        else:
+            envelope = dict(self.internal_openapi_snapshot())
+
+        if (
+            set(envelope) != {"docs_url", "document", "openapi_url", "redoc_url"}
+            or envelope.get("docs_url") is not None
+            or envelope.get("openapi_url") is not None
+            or envelope.get("redoc_url") is not None
+            or not isinstance(envelope.get("document"), dict)
+        ):
+            raise DeployError("deployed_api_internal_openapi_snapshot_invalid")
+        document = dict(envelope["document"])
+        encoded_document = json.dumps(
+            document,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        if not encoded_document or len(encoded_document) > MAX_INTERNAL_OPENAPI_BYTES:
+            raise DeployError("deployed_api_internal_openapi_snapshot_size_invalid")
+        contract = _canonical_openapi_contract(document)
+        return {
+            **_openapi_control_evidence(
+                contract=contract,
+                probe={
+                    "source": "deployed_api_container_app.openapi",
+                    "container": API_SERVICE,
+                    "public_docs_config_retired": True,
+                    "document_bytes": len(encoded_document),
+                    "document_sha256": hashlib.sha256(encoded_document).hexdigest(),
+                },
+            ),
+            "_contract": contract,
+        }
+
     @staticmethod
     def _sanitized_openapi_control(control: Mapping[str, Any]) -> dict[str, Any]:
         return {key: value for key, value in control.items() if key != "_contract"}
@@ -4526,7 +4591,12 @@ class MemorialDeployLane:
         )
         return controls
 
-    def _verify_non_memorial_controls(self, baseline: Mapping[str, Any]) -> None:
+    def _verify_non_memorial_controls(
+        self,
+        baseline: Mapping[str, Any],
+        *,
+        internal_openapi: bool = False,
+    ) -> None:
         prior_openapi = dict(baseline.get("openapi") or {})
         prior_contract_value = prior_openapi.get("_contract")
         prior_contract = (
@@ -4537,7 +4607,11 @@ class MemorialDeployLane:
         prior_security = dict(prior_contract.get("security_schemes") or {})
         if not prior_operations:
             raise DeployError("predeploy_openapi_contract_invalid")
-        current_openapi = self._capture_openapi_control()
+        current_openapi = (
+            self._capture_internal_openapi_control()
+            if internal_openapi
+            else self._capture_openapi_control()
+        )
         current_contract = dict(current_openapi.get("_contract") or {})
         current_operations = dict(current_contract.get("operations") or {})
         current_schemas = dict(current_contract.get("schemas") or {})
@@ -5003,7 +5077,10 @@ class MemorialDeployLane:
                 source_revision=str(context["source_revision"]),
             )
             self._verify_candidate_origins(str(context["public_origin"]))
-            self._verify_non_memorial_controls(non_memorial_controls)
+            self._verify_non_memorial_controls(
+                non_memorial_controls,
+                internal_openapi=True,
+            )
 
             # Rebuild the public-access projection in private release evidence only
             # after both edge probes pass. Any failure here enters rollback.

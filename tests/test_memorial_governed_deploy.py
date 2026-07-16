@@ -37,10 +37,7 @@ SPATIAL_ASSET_PATHS = [
     SPATIAL_PROOF_RELPATH,
     "generated-reconstruction/source-floorplan.png",
     "generated-reconstruction/vendor/three.module.js",
-    (
-        "generated-reconstruction/vendor/examples/jsm/controls/"
-        "OrbitControls.js"
-    ),
+    ("generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js"),
 ]
 SPATIAL_ROUTE_LABELS = [f"Room {index}" for index in range(1, 10)]
 SPATIAL_TEST_FILES = {
@@ -57,8 +54,7 @@ SPATIAL_TEST_FILES = {
     "generated-reconstruction/source-floorplan.png": b"\x89PNG\r\n\x1a\nspatial-test",
     "generated-reconstruction/vendor/three.module.js": b"export const THREE = true;\n",
     (
-        "generated-reconstruction/vendor/examples/jsm/controls/"
-        "OrbitControls.js"
+        "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js"
     ): b"export const OrbitControls = true;\n",
 }
 
@@ -650,16 +646,14 @@ def _exact_spatial_browser_receipt(
     proof_path = f"/tours/viewer/{slug}/{SPATIAL_PROOF_RELPATH}"
     required_paths = {
         "floorplan": (
-            f"/tours/viewer/{slug}/"
-            "generated-reconstruction/source-floorplan.png"
+            f"/tours/viewer/{slug}/generated-reconstruction/source-floorplan.png"
         ),
         "orbit_controls": (
             f"/tours/viewer/{slug}/generated-reconstruction/vendor/"
             "examples/jsm/controls/OrbitControls.js"
         ),
         "three_module": (
-            f"/tours/viewer/{slug}/"
-            "generated-reconstruction/vendor/three.module.js"
+            f"/tours/viewer/{slug}/generated-reconstruction/vendor/three.module.js"
         ),
     }
     required_relpaths = {
@@ -1345,9 +1339,7 @@ def _lane(
     spatial_projection = {
         "included": True,
         "slug": spatial_slug,
-        "release_root": str(
-            (projection_root / "public_property_tours").resolve()
-        ),
+        "release_root": str((projection_root / "public_property_tours").resolve()),
         "projection_sha256": spatial_projection_sha256,
         "file_count": len(spatial_projection_files),
         "projection_bytes": spatial_projection_bytes,
@@ -1581,8 +1573,7 @@ def _lane(
                     ),
                     "retirement_policy_exact_match": True,
                     "compatible_evolution_policy_id": (
-                        "ea.openapi.compatible-evolution."
-                        "version-remote-reachability.v1"
+                        "ea.openapi.compatible-evolution.version-remote-reachability.v1"
                     ),
                     "compatible_evolution_allowed_operations": ["GET /version"],
                     "compatible_evolved_operations": ["GET /version"],
@@ -1706,12 +1697,22 @@ def _lane(
         del public_authority
         return (http_no_redirect or safe_no_redirect)(url, timeout, method)
 
+    def internal_openapi_snapshot() -> dict[str, object]:
+        response = safe_http("http://127.0.0.1:8090/openapi.json", 1)
+        return {
+            "docs_url": None,
+            "document": json.loads(response.body),
+            "openapi_url": None,
+            "redoc_url": None,
+        }
+
     return deploy.MemorialDeployLane(
         root=root,
         env=env,
         runner=runner,
         http_get=selected_http,
         http_no_redirect=selected_no_redirect,
+        internal_openapi_snapshot=internal_openapi_snapshot,
         sleep=lambda _: None,
         wait_seconds=0,
         receipt_dir=receipt_dir or root / ".runtime" / "test-receipts",
@@ -2936,8 +2937,7 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
             3,
         ),
         (
-            "spatial_handoff_runtime.candidate_browser_gate."
-            "surfaces.desktop.status",
+            "spatial_handoff_runtime.candidate_browser_gate.surfaces.desktop.status",
             500,
         ),
         (
@@ -2959,8 +2959,7 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
             "e" * 64,
         ),
         (
-            "spatial_handoff_runtime.candidate_browser_gate."
-            "secret_material_recorded",
+            "spatial_handoff_runtime.candidate_browser_gate.secret_material_recorded",
             True,
         ),
         ("candidate_api_container_id", "different-container"),
@@ -3069,6 +3068,56 @@ def test_candidate_openapi_evidence_rejects_extra_unbounded_fields(
         lane.deploy(preflight_only=True)
 
     assert not any("up" in call for call in runner.calls)
+
+
+def test_postdeploy_openapi_uses_retired_internal_container_snapshot(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane = _lane(release_root, FakeRunner(release_root))
+    assert lane.internal_openapi_snapshot is not None
+    envelope = dict(lane.internal_openapi_snapshot())
+    observed: list[list[str]] = []
+
+    def fake_run(args, **_kwargs):  # type: ignore[no-untyped-def]
+        observed.append(list(args))
+        return _completed(args, stdout=json.dumps(envelope))
+
+    lane.internal_openapi_snapshot = None
+    monkeypatch.setattr(lane, "_run", fake_run)
+
+    control = lane._capture_internal_openapi_control()
+
+    assert observed == [
+        [
+            "/usr/bin/timeout",
+            "--signal=KILL",
+            "30s",
+            "docker",
+            "exec",
+            "ea-api",
+            "python3",
+            "-c",
+            deploy.CONTAINER_OPENAPI_SNAPSHOT_SCRIPT,
+        ]
+    ]
+    assert control["operation_count"] > 0
+    assert control["probe"]["source"] == "deployed_api_container_app.openapi"
+    assert control["probe"]["public_docs_config_retired"] is True
+
+
+def test_postdeploy_internal_openapi_rejects_exposed_docs(release_root: Path) -> None:
+    lane = _lane(release_root, FakeRunner(release_root))
+    assert lane.internal_openapi_snapshot is not None
+    envelope = dict(lane.internal_openapi_snapshot())
+    envelope["docs_url"] = "/docs"
+    lane.internal_openapi_snapshot = lambda: envelope
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="deployed_api_internal_openapi_snapshot_invalid",
+    ):
+        lane._capture_internal_openapi_control()
 
 
 def test_deploy_openapi_canonicalizer_matches_candidate_producer() -> None:
@@ -4401,8 +4450,14 @@ def test_memorial_compose_override_is_api_only() -> None:
         in raw
     )
     assert "EA_ALLOWED_PUBLIC_HOSTS=${EA_MEMORIAL_ALLOWED_PUBLIC_HOSTS:-" in raw
-    assert "EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR=/data/memorial-writable/public-contributions" in raw
-    assert "EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR=/data/memorial-writable/private-contributions" in raw
+    assert (
+        "EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR=/data/memorial-writable/public-contributions"
+        in raw
+    )
+    assert (
+        "EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR=/data/memorial-writable/private-contributions"
+        in raw
+    )
     assert "EA_MEMORIAL_STATE_DIR=/data/memorial-writable/state" in raw
     assert raw.count("${EA_MEMORIAL_RUNTIME_HOST_PATH:?") == 3
     assert "\n  ea-worker:" not in raw
