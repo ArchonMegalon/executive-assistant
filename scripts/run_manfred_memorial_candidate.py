@@ -508,6 +508,7 @@ OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS = ("GET /version",)
 MAX_OPENAPI_DOCUMENT_BYTES = 8 * 1024 * 1024
 MAX_OPENAPI_SNAPSHOT_STDERR_BYTES = 1024 * 1024
 CANDIDATE_OPENAPI_SNAPSHOT_SOURCE = "candidate_api_container_app.openapi"
+LIVE_OPENAPI_SNAPSHOT_SOURCE = "live_api_container_app.openapi"
 CANDIDATE_OPENAPI_RETIREMENT_SINGLETON_HEADERS = frozenset(
     {
         "content-security-policy",
@@ -972,34 +973,6 @@ def _openapi_document(
     return payload
 
 
-def _openapi_contract_snapshot(
-    base_url: str,
-) -> tuple[dict[str, object], dict[str, object]]:
-    request = urllib.request.Request(
-        f"{str(base_url or '').rstrip('/')}/openapi.json",
-        method="GET",
-        headers={"Accept": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            if int(response.status or 0) != 200:
-                raise RuntimeError("manfred_candidate_openapi_status_invalid")
-            body = response.read(MAX_OPENAPI_DOCUMENT_BYTES + 1)
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError(
-            f"manfred_candidate_openapi_status_invalid:{int(exc.code)}"
-        ) from exc
-    except (OSError, urllib.error.URLError) as exc:
-        raise RuntimeError("manfred_candidate_openapi_unreachable") from exc
-    payload = _openapi_document(
-        body,
-        invalid_error="manfred_candidate_openapi_invalid",
-        too_large_error="manfred_candidate_openapi_response_too_large",
-    )
-    contract = _canonical_openapi_contract(payload)
-    return contract, _openapi_contract_evidence(contract)
-
-
 def _candidate_openapi_contract_snapshot(
     compose: list[str],
     environment: dict[str, str],
@@ -1046,6 +1019,75 @@ def _candidate_openapi_contract_snapshot(
         **_openapi_contract_evidence(contract),
         "snapshot_source": CANDIDATE_OPENAPI_SNAPSHOT_SOURCE,
         "public_docs_config_retired": True,
+    }
+
+
+def _live_openapi_contract_snapshot(
+    snapshot: dict[str, object],
+) -> tuple[dict[str, object], dict[str, object]]:
+    api = _main_api_snapshot(snapshot)
+    container_id = str(api.get("container_id") or "").strip().lower()
+    image_id = str(api.get("image_id") or "").strip().lower()
+    if (
+        len(container_id) != 64
+        or any(character not in "0123456789abcdef" for character in container_id)
+        or len(image_id) != 71
+        or not image_id.startswith("sha256:")
+        or any(character not in "0123456789abcdef" for character in image_id[7:])
+        or str(api.get("name") or "") != "ea-api"
+        or str(api.get("service") or "") != "ea-api"
+        or api.get("running") is not True
+        or str(api.get("health") or "") != "healthy"
+    ):
+        raise RuntimeError("manfred_candidate_live_api_identity_invalid")
+    try:
+        body = _run_bounded_output(
+            [
+                "docker",
+                "exec",
+                container_id,
+                "python",
+                "-c",
+                CANDIDATE_OPENAPI_SNAPSHOT_SCRIPT,
+            ],
+            timeout=120,
+            environment=_safe_subprocess_environment(),
+            stdout_limit=MAX_OPENAPI_DOCUMENT_BYTES,
+            stderr_limit=MAX_OPENAPI_SNAPSHOT_STDERR_BYTES,
+            output_limit_error=(
+                "manfred_candidate_live_internal_openapi_snapshot_output_too_large"
+            ),
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(
+            "manfred_candidate_live_internal_openapi_snapshot_unavailable"
+        ) from exc
+    envelope = _openapi_document(
+        body,
+        invalid_error="manfred_candidate_live_internal_openapi_snapshot_invalid",
+        too_large_error="manfred_candidate_live_internal_openapi_snapshot_too_large",
+    )
+    if (
+        envelope.get("docs_url") is not None
+        or envelope.get("openapi_url") is not None
+        or envelope.get("redoc_url") is not None
+    ):
+        raise RuntimeError("manfred_candidate_live_internal_openapi_docs_exposed")
+    document = envelope.get("document")
+    if not isinstance(document, dict):
+        raise RuntimeError("manfred_candidate_live_internal_openapi_snapshot_invalid")
+    contract = _canonical_openapi_contract(document)
+    return contract, {
+        **_openapi_contract_evidence(contract),
+        "snapshot_source": LIVE_OPENAPI_SNAPSHOT_SOURCE,
+        "public_docs_config_retired": True,
+        "container_id": container_id,
+        "image_id": image_id,
+        "started_at": str(api.get("started_at") or ""),
+        "service": "ea-api",
+        "container_name": "ea-api",
+        "running": True,
+        "health": "healthy",
     }
 
 
@@ -3761,9 +3803,7 @@ def _assert_live_recovery_unchanged(
     after = _live_snapshot()
     _assert_live_unchanged(before, after)
     _assert_live_http()
-    after_contract, _after_evidence = _openapi_contract_snapshot(
-        "http://127.0.0.1:8090"
-    )
+    after_contract, _after_evidence = _live_openapi_contract_snapshot(after)
     if after_contract != openapi_contract:
         raise RuntimeError("manfred_candidate_live_openapi_changed")
 
@@ -3854,8 +3894,8 @@ def _prove_candidate_with_execution_inputs(
         live_before = _live_snapshot()
         _assert_live_healthy(live_before)
         _assert_live_http()
-        live_openapi_contract, live_openapi_before = _openapi_contract_snapshot(
-            "http://127.0.0.1:8090"
+        live_openapi_contract, live_openapi_before = _live_openapi_contract_snapshot(
+            live_before
         )
         recovery = candidate_registry_recovery_state(
             project=project,
@@ -4198,7 +4238,7 @@ def _prove_candidate_with_execution_inputs(
             _assert_live_unchanged(live_before, live_after)
             _assert_live_http()
             live_openapi_after_contract, live_openapi_after = (
-                _openapi_contract_snapshot("http://127.0.0.1:8090")
+                _live_openapi_contract_snapshot(live_after)
             )
             if live_openapi_after_contract != live_openapi_contract:
                 raise RuntimeError("manfred_candidate_live_openapi_changed")
@@ -4343,7 +4383,7 @@ def _prove_candidate_with_execution_inputs(
                     _assert_live_unchanged(live_before, recovered_live)
                     _assert_live_http()
                     recovered_openapi_contract, _recovered_openapi = (
-                        _openapi_contract_snapshot("http://127.0.0.1:8090")
+                        _live_openapi_contract_snapshot(recovered_live)
                     )
                     if recovered_openapi_contract != live_openapi_contract:
                         raise RuntimeError("manfred_candidate_live_openapi_changed")

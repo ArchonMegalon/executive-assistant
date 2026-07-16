@@ -321,8 +321,8 @@ def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> Non
     monkeypatch.setattr(runner, "_assert_live_http", lambda: None)
     monkeypatch.setattr(
         runner,
-        "_openapi_contract_snapshot",
-        lambda _base: copy.deepcopy(_openapi_snapshot()),
+        "_live_openapi_contract_snapshot",
+        lambda _snapshot: copy.deepcopy(_openapi_snapshot()),
     )
     monkeypatch.setattr(
         runner,
@@ -1780,6 +1780,87 @@ def test_candidate_openapi_snapshot_is_internal_bounded_and_docs_retired(
     )
     with pytest.raises(RuntimeError, match="internal_openapi_docs_exposed"):
         runner._candidate_openapi_contract_snapshot(["docker", "compose"], {})
+
+
+def test_live_openapi_snapshot_is_identity_bound_internal_and_docs_retired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = _meaningful_openapi_document()
+    envelope = {
+        "docs_url": None,
+        "document": document,
+        "openapi_url": None,
+        "redoc_url": None,
+    }
+    container_id = "a" * 64
+    image_id = "sha256:" + "b" * 64
+    snapshot = _baseline_snapshot()
+    snapshot["containers"][0]["container_id"] = container_id
+    snapshot["containers"][0]["image_id"] = image_id
+    commands: list[list[str]] = []
+    environments: list[dict[str, str]] = []
+
+    def run(
+        argv: list[str],
+        *,
+        timeout: int,
+        environment: dict[str, str],
+        stdout_limit: int,
+        stderr_limit: int,
+        output_limit_error: str,
+    ) -> bytes:
+        commands.append(list(argv))
+        environments.append(environment)
+        assert timeout == 120
+        assert stdout_limit == runner.MAX_OPENAPI_DOCUMENT_BYTES
+        assert stderr_limit == runner.MAX_OPENAPI_SNAPSHOT_STDERR_BYTES
+        assert output_limit_error.endswith("snapshot_output_too_large")
+        return json.dumps(envelope, separators=(",", ":"), sort_keys=True).encode(
+            "utf-8"
+        )
+
+    monkeypatch.setattr(runner, "_run_bounded_output", run)
+    monkeypatch.setattr(
+        runner,
+        "_safe_subprocess_environment",
+        lambda: {"PATH": "/usr/bin:/bin"},
+    )
+    contract, evidence = runner._live_openapi_contract_snapshot(snapshot)
+
+    assert contract == runner._canonical_openapi_contract(document)
+    assert evidence["snapshot_source"] == runner.LIVE_OPENAPI_SNAPSHOT_SOURCE
+    assert evidence["public_docs_config_retired"] is True
+    assert evidence["container_id"] == container_id
+    assert evidence["image_id"] == image_id
+    assert evidence["service"] == "ea-api"
+    assert evidence["container_name"] == "ea-api"
+    assert evidence["running"] is True
+    assert evidence["health"] == "healthy"
+    assert environments == [{"PATH": "/usr/bin:/bin"}]
+    assert commands == [
+        [
+            "docker",
+            "exec",
+            container_id,
+            "python",
+            "-c",
+            runner.CANDIDATE_OPENAPI_SNAPSHOT_SCRIPT,
+        ]
+    ]
+
+    exposed = copy.deepcopy(envelope)
+    exposed["docs_url"] = "/docs"
+    monkeypatch.setattr(
+        runner,
+        "_run_bounded_output",
+        lambda *_args, **_kwargs: json.dumps(exposed).encode("utf-8"),
+    )
+    with pytest.raises(RuntimeError, match="live_internal_openapi_docs_exposed"):
+        runner._live_openapi_contract_snapshot(snapshot)
+
+    snapshot["containers"][0]["container_id"] = "not-a-container-id"
+    with pytest.raises(RuntimeError, match="live_api_identity_invalid"):
+        runner._live_openapi_contract_snapshot(snapshot)
 
 
 def test_candidate_openapi_public_endpoint_must_be_structured_secure_404(
