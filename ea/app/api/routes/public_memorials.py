@@ -10700,16 +10700,30 @@ def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str
       </section>""".format("".join(clips_html))
         )
     if memories_html:
+        primary_memories_html = "".join(
+            memories_html[:3] if safe_slug == "manfred" else memories_html
+        )
+        remaining_memories_html = (
+            "".join(memories_html[3:]) if safe_slug == "manfred" else ""
+        )
+        remaining_memories_disclosure = ""
+        if remaining_memories_html:
+            remaining_memories_disclosure = f"""
+        <details class="story-more">
+          <summary>Weitere belegte Spuren ({len(memories_html) - 3})</summary>
+          <div class="story-grid story-grid-more">{remaining_memories_html}</div>
+        </details>"""
         sections.append(
-            """
+            f"""
       <section class="story-section" aria-labelledby="memorial-memories-title">
         <div class="story-heading">
           <p class="story-kicker">Erinnerungen</p>
           <h2 id="memorial-memories-title">Behutsam bewahrte Spuren</h2>
           <p>Nur ausdrücklich freigegebene, stark gekürzte Vorschauen aus dem Archiv.</p>
         </div>
-        <div class="story-grid">{}</div>
-      </section>""".format("".join(memories_html))
+        <div class="story-grid">{primary_memories_html}</div>
+        {remaining_memories_disclosure}
+      </section>"""
         )
     if sources_html:
         sections.append(
@@ -10750,6 +10764,11 @@ def _minimal_public_memorial_html(
     video_call_avatar_fallback_html: str = "",
 ) -> str:
     safe_person_name = html.escape(person_name)
+    body_theme_attributes = (
+        ' class="memorial-theme-minimal" data-memorial-theme="editorial-minimal-v2"'
+        if slug == "manfred"
+        else ""
+    )
     person_first_name = person_name.strip().split(maxsplit=1)[0] if person_name.strip() else "Person"
     safe_person_first_name = html.escape(person_first_name)
     safe_subtitle = html.escape(subtitle)
@@ -11337,6 +11356,26 @@ def _minimal_public_memorial_html(
         text-align: left;
         font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
       }}
+      .story-more {{
+        margin-top: 16px;
+        border-top: 1px solid var(--line);
+      }}
+      .story-more > summary {{
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        color: var(--blue);
+        cursor: pointer;
+        font: 700 13px/1.35 ui-sans-serif, system-ui, sans-serif;
+        list-style: none;
+      }}
+      .story-more > summary::-webkit-details-marker {{ display: none; }}
+      .story-more > summary::after {{ content: "+"; color: var(--muted); }}
+      .story-more[open] > summary::after {{ content: "−"; }}
+      .story-grid-more {{ margin-top: 0; }}
+      .story-more:not([open]) > .story-grid-more {{ display: none; }}
       [hidden] {{ display: none !important; }}
       @media (max-width: 760px) {{
         header {{ min-height: auto; }}
@@ -11652,6 +11691,228 @@ def _minimal_public_memorial_html(
         0%, 100% {{ transform: scaleY(.34); opacity: .55; }}
         50% {{ transform: scaleY(1); opacity: 1; }}
       }}
+      /*
+       * Manfred's public surface is deliberately editorial rather than app-like.
+       * Keep this scoped: other memorials retain their established presentation.
+       */
+      .memorial-theme-minimal {{
+        --paper: #f7f4ee;
+        --paper-soft: #fbfaf7;
+        --panel: transparent;
+        --ink: #2b2925;
+        --muted: #6d6962;
+        --blue: #48677e;
+        --line: rgba(43, 41, 37, .14);
+        --line-strong: rgba(43, 41, 37, .24);
+        --shadow: none;
+        background: var(--paper);
+        font-size: 17px;
+        line-height: 1.65;
+      }}
+      .memorial-theme-minimal::before,
+      .memorial-theme-minimal::after {{
+        display: none;
+        content: none;
+      }}
+      .memorial-theme-minimal .skip-link:focus,
+      .memorial-theme-minimal .skip-link:focus-visible {{
+        transform: none !important;
+        transition: none;
+      }}
+      .memorial-theme-minimal .wrap {{
+        width: min(100vw - 40px, 680px);
+      }}
+      .memorial-theme-minimal header {{
+        min-height: 54dvh;
+        min-height: 54svh;
+        padding: clamp(48px, 8vh, 76px) 0 clamp(44px, 7vh, 68px);
+      }}
+      .memorial-theme-minimal .hero,
+      .memorial-theme-minimal .hero-shell {{ gap: 16px; }}
+      .memorial-theme-minimal .hero-shell {{ width: min(100%, 520px); }}
+      .memorial-theme-minimal .hero-avatar {{
+        width: clamp(68px, 12vw, 82px);
+        height: clamp(68px, 12vw, 82px);
+        border: 0;
+        border-radius: 50%;
+        background: transparent;
+        box-shadow: none;
+        filter: contrast(1.24) grayscale(.18);
+        mix-blend-mode: multiply;
+      }}
+      .memorial-theme-minimal .hero-copy {{ gap: 12px; }}
+      .memorial-theme-minimal .hero-nav {{
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 4px 22px;
+      }}
+      .memorial-theme-minimal .hero-copy h1 {{
+        max-width: 13ch;
+        font-size: clamp(2.25rem, 7vw, 3.35rem);
+        line-height: 1;
+        letter-spacing: -.025em;
+      }}
+      .memorial-theme-minimal .hero-subtitle {{
+        max-width: 36ch;
+        color: var(--muted);
+        font-size: 1rem;
+        line-height: 1.55;
+      }}
+      .memorial-theme-minimal .hero-story-link {{
+        min-height: 38px;
+        padding: 6px 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--blue);
+        text-decoration: underline;
+        text-decoration-color: rgba(72, 103, 126, .35);
+        text-underline-offset: 6px;
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .story {{
+        gap: clamp(44px, 7vw, 64px);
+        padding-bottom: clamp(64px, 9vw, 88px);
+      }}
+      .memorial-theme-minimal .story-intro,
+      .memorial-theme-minimal .story-section {{
+        padding-top: clamp(24px, 4vw, 32px);
+      }}
+      .memorial-theme-minimal .story-kicker {{
+        color: var(--muted);
+        letter-spacing: .1em;
+      }}
+      .memorial-theme-minimal .story h2 {{
+        font-size: clamp(1.65rem, 4.5vw, 2.15rem);
+        letter-spacing: -.015em;
+      }}
+      .memorial-theme-minimal .story-grid {{
+        grid-template-columns: 1fr;
+        gap: 0;
+        margin-top: 18px;
+      }}
+      .memorial-theme-minimal .story-card {{
+        padding: 18px 0;
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .story-grid > .story-card:last-child {{
+        border-bottom: 1px solid var(--line);
+      }}
+      .memorial-theme-minimal .story-card > p:not(.story-kicker) {{ max-width: 62ch; }}
+      .memorial-theme-minimal .story-more {{ margin-top: 0; }}
+      .memorial-theme-minimal .story-more > summary {{
+        border-bottom: 1px solid var(--line);
+      }}
+      .memorial-theme-minimal .story-more[open] > summary {{ border-bottom: 0; }}
+      .memorial-theme-minimal .contribution-panel,
+      .memorial-theme-minimal .memorial-noscript-notice {{
+        margin-top: 0;
+        padding: clamp(24px, 4vw, 32px) 0 0;
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .contribution-form input:not([type="checkbox"]),
+      .memorial-theme-minimal .contribution-form textarea,
+      .memorial-theme-minimal .contribution-recovery-import input,
+      .memorial-theme-minimal .contribution-correction-form input:not([type="checkbox"]),
+      .memorial-theme-minimal .contribution-correction-form textarea,
+      .memorial-theme-minimal .text-turn-controls input {{
+        border-radius: 5px;
+        background: var(--paper-soft);
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal button,
+      .memorial-theme-minimal .hero-cta,
+      .memorial-theme-minimal .contribution-actions button,
+      .memorial-theme-minimal .contribution-recovery-actions button,
+      .memorial-theme-minimal .contribution-management-actions button,
+      .memorial-theme-minimal .contribution-recovery-import button,
+      .memorial-theme-minimal .contribution-correction-form button,
+      .memorial-theme-minimal .text-turn-controls button,
+      .memorial-theme-minimal .chat-tool,
+      .memorial-theme-minimal .speech-primary {{
+        border-radius: 6px;
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .hero-actions.is-readying::before,
+      .memorial-theme-minimal .hero-cta.is-readying::after {{
+        display: none;
+        content: none;
+      }}
+      .memorial-theme-minimal .hero-cta {{
+        min-height: 52px;
+        background: var(--blue);
+        transition: none;
+      }}
+      .memorial-theme-minimal .conversation-dock {{
+        padding: clamp(48px, 7vw, 68px) 0 max(32px, env(safe-area-inset-bottom, 0px));
+        border-top: 1px solid var(--line);
+        background: #efede7;
+      }}
+      .memorial-theme-minimal .chat {{
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .conversation-settings {{
+        padding: 10px 0 14px;
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .contribution-recovery-panel,
+      .memorial-theme-minimal .contribution-recovery-import,
+      .memorial-theme-minimal .contribution-management-card,
+      .memorial-theme-minimal .contribution-proposal,
+      .memorial-theme-minimal .speech-transcript-live,
+      .memorial-theme-minimal .speech-turn,
+      .memorial-theme-minimal .chat-answer,
+      .memorial-theme-minimal .chat-status {{
+        border-radius: 5px;
+        background: var(--paper-soft);
+        box-shadow: none;
+      }}
+      .memorial-theme-minimal .speech-meter {{
+        border-radius: 2px;
+        box-shadow: none;
+      }}
+      @media (max-width: 760px) {{
+        .memorial-theme-minimal .wrap {{ width: min(100vw - 28px, 680px); }}
+        .memorial-theme-minimal header {{
+          min-height: auto;
+          padding: 30px 0 34px;
+        }}
+        .memorial-theme-minimal .hero-avatar {{
+          width: 58px;
+          height: 58px;
+        }}
+        .memorial-theme-minimal .hero-copy h1 {{
+          max-width: 12ch;
+          font-size: clamp(2rem, 9vw, 2.4rem);
+        }}
+        .memorial-theme-minimal .story {{
+          gap: 40px;
+          padding-bottom: 54px;
+        }}
+        .memorial-theme-minimal .story-intro,
+        .memorial-theme-minimal .story-section {{ padding-top: 24px; }}
+        .memorial-theme-minimal .conversation-dock {{
+          padding: 38px 0 calc(24px + env(safe-area-inset-bottom, 0px));
+        }}
+      }}
       @media (prefers-reduced-motion: reduce) {{
         * {{
           animation-duration: 0.001ms !important;
@@ -11661,7 +11922,7 @@ def _minimal_public_memorial_html(
       }}
     </style>
   </head>
-  <body>
+  <body{body_theme_attributes}>
     <a class="skip-link" href="#memorial-story">Zum Inhalt springen</a>
     <a class="skip-link" href="#memorial-conversation-region">Zum Gespräch mit {safe_person_name}</a>
     <header>
@@ -11671,8 +11932,10 @@ def _minimal_public_memorial_html(
           <div class="hero-copy">
             <h1>{page_title}</h1>
             <p class="hero-subtitle">{safe_subtitle}</p>
-            <a class="hero-story-link" href="#memorial-conversation-region">Zum quellengebundenen Gedenkbegleiter</a>
-            <a class="hero-story-link" href="#memorial-story">Erinnerungen und Quellen ansehen</a>
+            <nav class="hero-nav" aria-label="Bereiche der Erinnerungsseite">
+              <a class="hero-story-link" href="#memorial-story">Erinnerungen ansehen</a>
+              <a class="hero-story-link" href="#memorial-conversation-region">Gedenkbegleiter</a>
+            </nav>
           </div>
         </div>
       </div>

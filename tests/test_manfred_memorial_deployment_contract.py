@@ -1625,6 +1625,74 @@ def test_page_render_prewarm_can_be_disabled_without_changing_default(
     assert calls == ["manfred"]
 
 
+def test_manfred_public_page_uses_scoped_editorial_minimal_theme() -> None:
+    from app.api.routes import public_memorials
+
+    common = {
+        "person_name": "Manfred Hoza",
+        "page_title": "Erinnerungen an Manfred Hoza",
+        "subtitle": "Eine ruhige Seite für Erinnerungen.",
+        "memorial_avatar_url": "/memorials/manfred/icon-180.png",
+        "pwa_short_name": "Manfred",
+        "clickrank_html": "",
+        "story_html": "<section>Story</section>",
+    }
+    manfred_html = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        **common,
+    )
+    other_html = public_memorials._minimal_public_memorial_html(
+        slug="another-memorial",
+        **common,
+    )
+
+    assert (
+        '<body class="memorial-theme-minimal" '
+        'data-memorial-theme="editorial-minimal-v2">'
+    ) in manfred_html
+    assert ".memorial-theme-minimal::before" in manfred_html
+    assert ".memorial-theme-minimal .story-card" in manfred_html
+    assert ".memorial-theme-minimal .skip-link:focus-visible" in manfred_html
+    assert '<body class="memorial-theme-minimal"' not in other_html
+    assert "data-memorial-theme=" not in other_html
+
+
+def test_manfred_story_progressively_discloses_secondary_memories() -> None:
+    from app.api.routes import public_memorials
+
+    payload = {
+        "memory_cards": [
+            {
+                "visibility": "public",
+                "public": True,
+                "title": f"Erinnerung {index}",
+                "body": f"Freigegebene Kurzfassung {index}.",
+            }
+            for index in range(1, 7)
+        ]
+    }
+    story_html = public_memorials._public_memorial_story_html(
+        payload,
+        slug="manfred",
+    )
+    other_story_html = public_memorials._public_memorial_story_html(
+        payload,
+        slug="another-memorial",
+    )
+
+    assert story_html.count('article class="story-card memory-card"') == 6
+    assert '<details class="story-more">' in story_html
+    assert "Weitere belegte Spuren (3)" in story_html
+    assert story_html.index("Erinnerung 3") < story_html.index(
+        '<details class="story-more">'
+    )
+    assert story_html.index('<details class="story-more">') < story_html.index(
+        "Erinnerung 4"
+    )
+    assert '<details class="story-more">' not in other_story_html
+    assert other_story_html.count('article class="story-card memory-card"') == 6
+
+
 def test_share_verifier_rejects_real_recipient_fields_not_safety_receipts() -> None:
     assert candidate_verify._contains_forbidden_recipient_field(
         {"draft": {"recipient_address": "+430000000"}}
