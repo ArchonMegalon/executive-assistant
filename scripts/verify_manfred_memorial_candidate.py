@@ -68,6 +68,16 @@ def _http_origin(value: str) -> tuple[str, str, int] | None:
     return scheme, hostname, port
 
 
+def _browser_proxy_headers(base_url: str, public_origin: str) -> dict[str, str]:
+    authority, canonical_origin = _canonical_public_https_origin(public_origin)
+    if _http_origin(base_url) == _http_origin(canonical_origin):
+        return {}
+    return {
+        "X-Forwarded-Host": authority,
+        "X-Forwarded-Proto": "https",
+    }
+
+
 def _is_same_origin_http_error(
     *, base_url: str, response_url: str, status: int
 ) -> bool:
@@ -407,8 +417,13 @@ def _chromium_launch_executable(browser_type: object) -> str:
     raise RuntimeError("candidate_browser_executable_unavailable")
 
 
-def audit_browser_surface(base_url: str) -> dict[str, object]:
+def audit_browser_surface(
+    base_url: str,
+    *,
+    public_origin: str | None = None,
+) -> dict[str, object]:
     try:
+        from playwright.sync_api import Error as PlaywrightError
         from playwright.sync_api import sync_playwright
     except ModuleNotFoundError as exc:
         raise RuntimeError("candidate_browser_runtime_unavailable") from exc
@@ -438,9 +453,16 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
             browser = playwright.chromium.launch(
                 **launch_options,
             )
+            context_options: dict[str, object] = {
+                "viewport": {"width": 390, "height": 844},
+                "reduced_motion": "reduce",
+            }
+            if public_origin is not None:
+                proxy_headers = _browser_proxy_headers(base_url, public_origin)
+                if proxy_headers:
+                    context_options["extra_http_headers"] = proxy_headers
             context = browser.new_context(
-                viewport={"width": 390, "height": 844},
-                reduced_motion="reduce",
+                **context_options,
             )
             page = context.new_page()
             page.on("request", lambda request: requested_urls.append(request.url))
@@ -634,6 +656,8 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
             context.close()
             browser.close()
             browser = None
+    except PlaywrightError as exc:
+        raise RuntimeError("candidate_browser_runtime_error") from exc
     finally:
         if browser is not None:
             with contextlib.suppress(Exception):
@@ -906,7 +930,10 @@ def verify_candidate(
 
     browser_evidence: dict[str, object] = {"status": "not_run"}
     if browser_audit:
-        browser_evidence = audit_browser_surface(base_url)
+        browser_evidence = audit_browser_surface(
+            base_url,
+            public_origin=public_origin,
+        )
         if browser_evidence.get("status") != "pass" or not _has_exact_zero_counts(
             browser_evidence
         ):

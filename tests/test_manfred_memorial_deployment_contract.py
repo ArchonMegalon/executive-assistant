@@ -1646,6 +1646,25 @@ def test_candidate_browser_classifies_same_origin_http_errors_exactly() -> None:
     )
 
 
+def test_candidate_browser_uses_forwarded_https_authority_only_for_local_origin() -> (
+    None
+):
+    assert candidate_verify._browser_proxy_headers(
+        "http://127.0.0.1:8090",
+        "https://myexternalbrain.com",
+    ) == {
+        "X-Forwarded-Host": "myexternalbrain.com",
+        "X-Forwarded-Proto": "https",
+    }
+    assert (
+        candidate_verify._browser_proxy_headers(
+            "https://myexternalbrain.com",
+            "https://myexternalbrain.com",
+        )
+        == {}
+    )
+
+
 def test_candidate_http_uses_fixed_verifier_identity_and_bounded_accept(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
