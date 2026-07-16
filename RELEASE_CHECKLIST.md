@@ -33,6 +33,7 @@
 - [ ] Memorial preflight proves the captured prior Compose topology still renders to the live API image, normalized environment/process identity, and mount digest under the stripped rollback environment.
 - [ ] `EA_MEMORIAL_CANDIDATE_RECEIPT` is a mode-`0600` passing runtime-v3 receipt bound to the exact image/revision and `EA_MEMORIAL_DATA_HOST_PATH`; its browser audit has zero provider work, WebSockets, failed requests, page errors, external requests, and same-origin HTTP errors.
 - [ ] `EA_MEMORIAL_CONTROL_TOUR_SLUG` is set for any priority 3D tour that must survive promotion; OpenAPI remains a path superset and the tour's pre/post JSON digest is identical.
+- [ ] If the owner explicitly waives the seven-day vexp certificate, all seven revision/deployment-bound break-glass variables from `docs/MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md` are set, the lock guard is stopped and disabled without forging its state, and the deploy receipt records `owner_exception`, the raw vexp status, `certification_bypassed: true`, and `certification_result_forged: false` at every boundary.
 
 ## Migrations
 

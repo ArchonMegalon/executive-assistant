@@ -81,6 +81,7 @@ CONTROL_TOUR_SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,127}$")
 DEPLOYMENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
 IMAGE_ID_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+SOURCE_REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_TAG_PATTERN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
 IMAGE_REPOSITORY_PATTERN = re.compile(
     r"^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?"
@@ -156,6 +157,23 @@ VEXP_SENTINEL_STATE_MAX_AGE_SECONDS = 75 * 60
 VEXP_SENTINEL_CLOCK_SKEW_SECONDS = 60
 VEXP_EFFECTIVE_ELAPSED_TOLERANCE_MS = 1
 VEXP_TOKEN_COVERAGE_SCHEMA = "ea.vexp_certification_token_coverage.v1"
+OWNER_BREAK_GLASS_TOKEN = "remove-seven-day-vexp-certification-and-publish-manfred"
+OWNER_BREAK_GLASS_PREFIX = "EA_MEMORIAL_OWNER_BREAK_GLASS"
+OWNER_BREAK_GLASS_ACK = "I_ACCEPT_VEXP_CERTIFICATION_IS_INCOMPLETE"
+OWNER_BREAK_GLASS_AUTHORIZER = "repository_owner"
+OWNER_BREAK_GLASS_REASON = "owner_requested_immediate_publication"
+OWNER_BREAK_GLASS_ENV_KEYS = frozenset(
+    {
+        OWNER_BREAK_GLASS_PREFIX,
+        f"{OWNER_BREAK_GLASS_PREFIX}_ACK",
+        f"{OWNER_BREAK_GLASS_PREFIX}_AUTHORIZATION_ID",
+        f"{OWNER_BREAK_GLASS_PREFIX}_AUTHORIZER",
+        f"{OWNER_BREAK_GLASS_PREFIX}_DEPLOYMENT_ID",
+        f"{OWNER_BREAK_GLASS_PREFIX}_REASON",
+        f"{OWNER_BREAK_GLASS_PREFIX}_SOURCE_REVISION",
+    }
+)
+OWNER_BREAK_GLASS_AUTHORIZATION_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{7,127}$")
 SAFE_VEXP_CERTIFICATION_BLOCKER_CODES = frozenset(
     {
         "daemon:swap_pressure_pending",
@@ -2001,6 +2019,7 @@ class MemorialDeployLane:
         self._global_lock_handle: Any | None = None
         self.compose_bin: tuple[str, ...] = ()
         self.target_compose_files: tuple[str, ...] = ()
+        self.owner_break_glass = self._parse_owner_break_glass_authorization()
         self.release_env = self._release_env()
         self.receipt: dict[str, Any] = {
             "contract_name": "ea.memorial_scoped_deploy_receipt.v1",
@@ -2015,9 +2034,22 @@ class MemorialDeployLane:
             "rollback": {"status": "not_required"},
             "checks": [],
         }
+        if self.owner_break_glass is not None:
+            self.receipt.update(
+                {
+                    "governance_posture": "owner_vexp_exception",
+                    "vexp_certification_completed": False,
+                    "all_non_vexp_gates_enforced": True,
+                    "certification_policy_override": dict(self.owner_break_glass),
+                }
+            )
 
     def _release_env(self) -> dict[str, str]:
-        env = dict(self.env)
+        env = {
+            key: value
+            for key, value in self.env.items()
+            if not str(key).startswith(OWNER_BREAK_GLASS_PREFIX)
+        }
         env.update(
             {
                 "COMPOSE_PROJECT_NAME": PROJECT_NAME,
@@ -2103,11 +2135,98 @@ class MemorialDeployLane:
         self.receipt["checks"] = checks
         self._write_receipt()
 
+    def _parse_owner_break_glass_authorization(
+        self,
+    ) -> dict[str, object] | None:
+        supplied_keys = {
+            str(key)
+            for key in self.env
+            if str(key).startswith(OWNER_BREAK_GLASS_PREFIX)
+        }
+        if not supplied_keys:
+            return None
+        if supplied_keys != OWNER_BREAK_GLASS_ENV_KEYS:
+            raise DeployError("memorial_owner_break_glass_authorization_invalid")
+        raw: dict[str, str] = {}
+        for key in sorted(OWNER_BREAK_GLASS_ENV_KEYS):
+            value = self.env.get(key)
+            if (
+                not isinstance(value, str)
+                or not value
+                or value != value.strip()
+                or any(ord(character) < 32 for character in value)
+            ):
+                raise DeployError("memorial_owner_break_glass_authorization_invalid")
+            raw[key] = value
+        if (
+            raw[OWNER_BREAK_GLASS_PREFIX] != OWNER_BREAK_GLASS_TOKEN
+            or raw[f"{OWNER_BREAK_GLASS_PREFIX}_ACK"] != OWNER_BREAK_GLASS_ACK
+            or raw[f"{OWNER_BREAK_GLASS_PREFIX}_AUTHORIZER"]
+            != OWNER_BREAK_GLASS_AUTHORIZER
+            or raw[f"{OWNER_BREAK_GLASS_PREFIX}_REASON"] != OWNER_BREAK_GLASS_REASON
+            or OWNER_BREAK_GLASS_AUTHORIZATION_ID_PATTERN.fullmatch(
+                raw[f"{OWNER_BREAK_GLASS_PREFIX}_AUTHORIZATION_ID"]
+            )
+            is None
+            or raw[f"{OWNER_BREAK_GLASS_PREFIX}_DEPLOYMENT_ID"] != self.deployment_id
+            or SOURCE_REVISION_PATTERN.fullmatch(
+                raw[f"{OWNER_BREAK_GLASS_PREFIX}_SOURCE_REVISION"]
+            )
+            is None
+        ):
+            raise DeployError("memorial_owner_break_glass_authorization_invalid")
+        try:
+            real_uid, effective_uid, saved_uid = os.getresuid()
+            release_root_uid = self.root.stat().st_uid
+        except (AttributeError, OSError) as exc:
+            raise DeployError(
+                "memorial_owner_break_glass_authority_unavailable"
+            ) from exc
+        if not (
+            real_uid == effective_uid == saved_uid == release_root_uid
+            and effective_uid != 0
+        ):
+            raise DeployError("memorial_owner_break_glass_authority_mismatch")
+        safe_contract: dict[str, object] = {
+            "schema": "ea.memorial_owner_break_glass.v1",
+            "authorization_id": raw[f"{OWNER_BREAK_GLASS_PREFIX}_AUTHORIZATION_ID"],
+            "authorization_source": "explicit_process_environment",
+            "authorized_by": OWNER_BREAK_GLASS_AUTHORIZER,
+            "authorization_uid": effective_uid,
+            "deployment_id": self.deployment_id,
+            "memorial_slug": MEMORIAL_SLUG,
+            "reason": OWNER_BREAK_GLASS_REASON,
+            "source_revision": raw[f"{OWNER_BREAK_GLASS_PREFIX}_SOURCE_REVISION"],
+            "waived_requirement": "vexp_seven_day_certification",
+            "waived_requirement_seconds": VEXP_CERTIFICATION_SOAK_SECONDS,
+            "authorization_token_sha256": hashlib.sha256(
+                raw[OWNER_BREAK_GLASS_PREFIX].encode("utf-8")
+            ).hexdigest(),
+            "certification_result_forged": False,
+            "non_vexp_gates_bypassed": False,
+        }
+        safe_contract["authorization_digest"] = _canonical_json_sha256(safe_contract)
+        return safe_contract
+
+    def _validated_owner_break_glass_authorization(
+        self,
+    ) -> dict[str, object] | None:
+        authorization = self.owner_break_glass
+        if authorization is None:
+            return None
+        if authorization.get("deployment_id") != self.deployment_id:
+            raise DeployError("memorial_owner_break_glass_deployment_mismatch")
+        observed_revision = self._git_head()
+        if authorization.get("source_revision") != observed_revision:
+            raise DeployError("memorial_owner_break_glass_source_revision_mismatch")
+        return dict(authorization)
+
     def _require_vexp_certification_token_coverage(
         self, boundary: str
     ) -> dict[str, object]:
         if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", boundary) is None:
             raise DeployError("vexp_token_coverage_boundary_invalid")
+        owner_authorization = self._validated_owner_break_glass_authorization()
         checked_at_ms = int(time.time() * 1000)
         try:
             state, source = _read_trusted_vexp_sentinel_state(
@@ -2140,13 +2259,50 @@ class MemorialDeployLane:
             evidence["boundary"] = boundary
             evidence["state_source"] = source
 
+        status = str(evidence.get("status") or "fail").lower()
+        if owner_authorization is not None:
+            evidence.update(
+                {
+                    "enforcement_decision": "owner_exception",
+                    "observed_vexp_status": status,
+                    "certification_bypassed": True,
+                    "certification_result_forged": False,
+                    "non_vexp_gates_bypassed": False,
+                    "owner_authorization": dict(owner_authorization),
+                }
+            )
         history = list(
             self.receipt.get("vexp_certification_token_coverage_history") or []
         )
         history.append(dict(evidence))
         self.receipt["vexp_certification_token_coverage_history"] = history[-32:]
         self.receipt["vexp_certification_token_coverage"] = dict(evidence)
-        status = str(evidence.get("status") or "fail").lower()
+        if owner_authorization is not None:
+            self.receipt["certification_policy_override"] = dict(owner_authorization)
+            self.receipt["governance_posture"] = "owner_vexp_exception"
+            self.receipt["vexp_certification_completed"] = False
+            self.receipt["observed_vexp_token_coverage_passed"] = status == "pass"
+            self.receipt["all_non_vexp_gates_enforced"] = True
+            self._record_check(
+                f"vexp_token_coverage_{boundary}",
+                "owner_exception",
+                reason="owner_break_glass_authorized",
+                observed_vexp_status=status,
+                observed_vexp_reason=str(
+                    evidence.get("reason") or "sentinel_state_invalid"
+                ),
+                state_sha256=str(evidence.get("state_sha256") or ""),
+                authorization_id=str(owner_authorization["authorization_id"]),
+                authorization_digest=str(owner_authorization["authorization_digest"]),
+                waived_requirement="vexp_seven_day_certification",
+                waived_requirement_seconds=VEXP_CERTIFICATION_SOAK_SECONDS,
+                certification_bypassed=True,
+                certification_result_forged=False,
+                non_vexp_gates_bypassed=False,
+                credential_material_included=False,
+                secrets_included=False,
+            )
+            return evidence
         self._record_check(
             f"vexp_token_coverage_{boundary}",
             "pass" if status == "pass" else "fail",
