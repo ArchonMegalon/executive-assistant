@@ -17,6 +17,7 @@ services:
       - EA_TRUST_API_TOKEN_PRINCIPAL_HEADER=0
       - EA_TRUST_PROXY_HEADERS=1
       - EA_TRUSTED_PROXY_CIDRS=${EA_MEMORIAL_TRUSTED_PROXY_CIDRS:?set the exact trusted memorial proxy CIDR}
+      - EA_TRUSTED_PUBLIC_ORIGIN_ALIASES=${EA_MEMORIAL_TRUSTED_PUBLIC_ORIGIN_ALIASES:-origin.myexternalbrain.com}
       - EA_ALLOWED_PUBLIC_HOSTS=${EA_MEMORIAL_ALLOWED_PUBLIC_HOSTS:-myexternalbrain.com,www.myexternalbrain.com}
     volumes:
       - ${EA_MEMORIAL_DATA_HOST_PATH:-./memorial_data}:/data/memorial_data:ro

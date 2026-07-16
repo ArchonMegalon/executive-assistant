@@ -85,6 +85,138 @@ def test_trusted_proxy_can_canonicalize_opaque_origin_without_forwarded_host(pub
     assert response.json()["scheme"] == "https"
 
 
+def test_trusted_proxy_canonicalizes_exact_configured_forwarded_origin_alias(
+    public_proxy_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "EA_TRUSTED_PUBLIC_ORIGIN_ALIASES",
+        "origin.myexternalbrain.com",
+    )
+    client = TestClient(
+        _policy_app(),
+        base_url="http://origin.myexternalbrain.com",
+        client=("127.0.0.1", 50000),
+    )
+
+    response = client.get(
+        "/privacy",
+        headers={
+            "x-forwarded-host": "origin.myexternalbrain.com",
+            "x-forwarded-proto": "https",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "host": "myexternalbrain.com",
+        "scheme": "https",
+        "forwarded_host": "myexternalbrain.com",
+        "forwarded_for": "",
+    }
+
+
+def test_untrusted_raw_origin_alias_remains_rejected(
+    public_proxy_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "EA_TRUSTED_PUBLIC_ORIGIN_ALIASES",
+        "origin.myexternalbrain.com",
+    )
+    client = TestClient(
+        _policy_app(),
+        base_url="https://origin.myexternalbrain.com",
+        client=("203.0.113.10", 50000),
+    )
+
+    response = client.get("/privacy")
+
+    assert response.status_code == 421
+    assert response.json()["error"]["code"] == "host_not_allowed"
+
+
+def test_trusted_origin_alias_rejects_noncanonical_port(
+    public_proxy_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "EA_TRUSTED_PUBLIC_ORIGIN_ALIASES",
+        "origin.myexternalbrain.com",
+    )
+    client = TestClient(
+        _policy_app(),
+        base_url="http://origin.myexternalbrain.com",
+        client=("127.0.0.1", 50000),
+    )
+
+    response = client.get(
+        "/privacy",
+        headers={
+            "x-forwarded-host": "origin.myexternalbrain.com:8443",
+            "x-forwarded-proto": "https",
+        },
+    )
+
+    assert response.status_code == 421
+    assert response.json()["error"]["code"] == "forwarded_host_not_allowed"
+
+
+def test_trusted_origin_alias_rejects_raw_and_forwarded_host_mismatch(
+    public_proxy_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "EA_TRUSTED_PUBLIC_ORIGIN_ALIASES",
+        "origin.myexternalbrain.com",
+    )
+    client = TestClient(
+        _policy_app(),
+        base_url="http://attacker.invalid",
+        client=("127.0.0.1", 50000),
+    )
+
+    response = client.get(
+        "/privacy",
+        headers={
+            "x-forwarded-host": "origin.myexternalbrain.com",
+            "x-forwarded-proto": "https",
+        },
+    )
+
+    assert response.status_code == 421
+    assert response.json()["error"]["code"] == "forwarded_host_not_allowed"
+
+
+def test_trusted_property_host_is_not_rewritten_as_ea_origin_alias(
+    public_proxy_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "EA_TRUSTED_PUBLIC_ORIGIN_ALIASES",
+        "origin.myexternalbrain.com",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_HOSTS", "propertyquarry.com")
+    client = TestClient(
+        _policy_app(),
+        base_url="http://propertyquarry.com",
+        client=("127.0.0.1", 50000),
+    )
+
+    response = client.get(
+        "/privacy",
+        headers={
+            "x-forwarded-host": "propertyquarry.com",
+            "x-forwarded-proto": "https",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["host"] == "propertyquarry.com"
+    assert response.json()["forwarded_host"] == "propertyquarry.com"
+
+
 def test_untrusted_proxy_metadata_is_removed_before_routing(public_proxy_env: None) -> None:
     client = TestClient(
         _policy_app(),
@@ -156,6 +288,27 @@ def test_trusted_proxy_rejects_unapproved_forwarded_host(public_proxy_env: None)
     assert response.status_code == 421
     assert response.json()["error"]["code"] == "forwarded_host_not_allowed"
     assert "attacker.invalid" not in response.text
+
+
+def test_trusted_forwarded_origin_alias_requires_explicit_configuration(
+    public_proxy_env: None,
+) -> None:
+    client = TestClient(
+        _policy_app(),
+        base_url="http://origin.myexternalbrain.com",
+        client=("127.0.0.1", 50000),
+    )
+
+    response = client.get(
+        "/privacy",
+        headers={
+            "x-forwarded-host": "origin.myexternalbrain.com",
+            "x-forwarded-proto": "https",
+        },
+    )
+
+    assert response.status_code == 421
+    assert response.json()["error"]["code"] == "forwarded_host_not_allowed"
 
 
 def test_production_rejects_unapproved_raw_host(public_proxy_env: None) -> None:

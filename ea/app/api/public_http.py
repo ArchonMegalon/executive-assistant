@@ -144,6 +144,27 @@ def _configured_hosts() -> set[str]:
     return hosts
 
 
+def _trusted_public_origin_alias_matches(
+    authority: _Authority,
+    *,
+    origin: _PublicOrigin | None,
+) -> bool:
+    if origin is None or origin.scheme != "https":
+        return False
+    expected_port = origin.authority.port or 443
+    incoming_port = authority.port or 443
+    for value in str(os.getenv("EA_TRUSTED_PUBLIC_ORIGIN_ALIASES") or "").split(","):
+        alias = _authority(value)
+        if alias is None or alias.host == origin.authority.host:
+            continue
+        if (
+            alias.host == authority.host
+            and (alias.port or 443) == incoming_port == expected_port
+        ):
+            return True
+    return False
+
+
 def _proxy_headers_enabled() -> bool:
     return any(
         _env_truthy(os.getenv(key))
@@ -397,7 +418,17 @@ def install_public_http_hardening(app: FastAPI, *, settings: Any) -> None:
                 request, host=effective_host, proto=effective_proto
             )
         if trusted_proxy and metadata.host is not None:
-            if production and metadata.host.host not in _configured_hosts():
+            metadata_host = metadata.host
+            if (
+                origin is not None
+                and metadata_host == raw_host
+                and _trusted_public_origin_alias_matches(
+                    metadata_host,
+                    origin=origin,
+                )
+            ):
+                metadata_host = origin.authority
+            if production and metadata_host.host not in _configured_hosts():
                 return _error_response(
                     status_code=421,
                     code="forwarded_host_not_allowed",
@@ -406,11 +437,12 @@ def install_public_http_hardening(app: FastAPI, *, settings: Any) -> None:
             if (
                 not effective_proto
                 and origin is not None
-                and metadata.host.host == origin.authority.host
+                and metadata_host.host == origin.authority.host
             ):
                 effective_proto = origin.scheme
+            effective_host = metadata_host
             _rewrite_request_authority(
-                request, host=metadata.host, proto=effective_proto or "https"
+                request, host=metadata_host, proto=effective_proto or "https"
             )
 
         local_request = effective_host.host in _LOCAL_HOSTS

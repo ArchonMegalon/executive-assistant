@@ -4334,6 +4334,11 @@ def test_memorial_compose_override_is_api_only() -> None:
     assert "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER=0" in raw
     assert "EA_TRUST_PROXY_HEADERS=1" in raw
     assert "EA_TRUSTED_PROXY_CIDRS=${EA_MEMORIAL_TRUSTED_PROXY_CIDRS:?" in raw
+    assert (
+        "EA_TRUSTED_PUBLIC_ORIGIN_ALIASES="
+        "${EA_MEMORIAL_TRUSTED_PUBLIC_ORIGIN_ALIASES:-origin.myexternalbrain.com}"
+        in raw
+    )
     assert "EA_ALLOWED_PUBLIC_HOSTS=${EA_MEMORIAL_ALLOWED_PUBLIC_HOSTS:-" in raw
     assert "EA_PUBLIC_MEMORIAL_CONTRIBUTION_DIR=/data/memorial-writable/public-contributions" in raw
     assert "EA_PRIVATE_MEMORIAL_CONTRIBUTION_DIR=/data/memorial-writable/private-contributions" in raw
