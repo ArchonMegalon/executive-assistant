@@ -751,17 +751,35 @@ def _fixed_json_script_failure_evidence(
     }
 
 
-def _default_http_get(url: str, timeout_seconds: float) -> HttpResponse:
+def _default_http_get(
+    url: str,
+    timeout_seconds: float,
+    public_authority: str = "",
+) -> HttpResponse:
+    headers = {
+        "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
+        "User-Agent": "EA-Memorial-Scoped-Deploy/1.0",
+    }
+    if public_authority:
+        headers.update(
+            {
+                "Host": public_authority,
+                "X-Forwarded-Host": public_authority,
+                "X-Forwarded-Proto": "https",
+            }
+        )
     request = urllib.request.Request(
         url,
         method="GET",
-        headers={
-            "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
-            "User-Agent": "EA-Memorial-Scoped-Deploy/1.0",
-        },
+        headers=headers,
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        opener = (
+            urllib.request.build_opener(_NoRedirectHandler())
+            if public_authority
+            else urllib.request.build_opener()
+        )
+        with opener.open(request, timeout=timeout_seconds) as response:
             body = response.read(MAX_HTTP_BODY_BYTES + 1)
             if len(body) > MAX_HTTP_BODY_BYTES:
                 raise DeployError(f"http_body_too_large:{url}")
@@ -807,16 +825,26 @@ def _default_http_no_redirect(
     url: str,
     timeout_seconds: float,
     method: str,
+    public_authority: str = "",
 ) -> HttpResponse:
     if method not in {"GET", "HEAD"}:
         raise DeployError("http_no_redirect_method_invalid")
+    headers = {
+        "Accept": "text/html,*/*;q=0.1",
+        "User-Agent": "EA-Memorial-Scoped-Deploy/1.0",
+    }
+    if public_authority:
+        headers.update(
+            {
+                "Host": public_authority,
+                "X-Forwarded-Host": public_authority,
+                "X-Forwarded-Proto": "https",
+            }
+        )
     request = urllib.request.Request(
         url,
         method=method,
-        headers={
-            "Accept": "text/html,*/*;q=0.1",
-            "User-Agent": "EA-Memorial-Scoped-Deploy/1.0",
-        },
+        headers=headers,
     )
     response: Any
     try:
@@ -1101,9 +1129,9 @@ class MemorialDeployLane:
         root: Path = ROOT,
         env: Mapping[str, str] | None = None,
         runner: Runner | None = None,
-        http_get: Callable[[str, float], HttpResponse] = _default_http_get,
+        http_get: Callable[[str, float, str], HttpResponse] = _default_http_get,
         http_no_redirect: Callable[
-            [str, float, str], HttpResponse
+            [str, float, str, str], HttpResponse
         ] = _default_http_no_redirect,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
@@ -4256,13 +4284,22 @@ class MemorialDeployLane:
         return f"http://127.0.0.1:{host_port}"
 
     def _wait_http(
-        self, url: str, *, kind: str, expected_source_revision: str = ""
+        self,
+        url: str,
+        *,
+        kind: str,
+        expected_source_revision: str = "",
+        public_authority: str = "",
     ) -> dict[str, Any]:
         deadline = self.monotonic() + self.wait_seconds
         last_error = ""
         while True:
             try:
-                response = self.http_get(url, self.request_timeout_seconds)
+                response = self.http_get(
+                    url,
+                    self.request_timeout_seconds,
+                    public_authority,
+                )
                 if response.status != 200:
                     raise DeployError(f"http_status_invalid:{url}:{response.status}")
                 if (
@@ -4329,7 +4366,12 @@ class MemorialDeployLane:
                 raise DeployError(f"http_probe_exhausted:{url}:{last_error}")
             self.sleep(self.poll_seconds)
 
-    def _verify_singular_memorial_alias(self, origin: str) -> dict[str, Any]:
+    def _verify_singular_memorial_alias(
+        self,
+        origin: str,
+        *,
+        public_authority: str = "",
+    ) -> dict[str, Any]:
         query = "from=ea-launch-verifier"
         url = f"{origin}/memorial/{MEMORIAL_SLUG}?{query}"
         expected_location = f"/memorials/{MEMORIAL_SLUG}?{query}"
@@ -4345,6 +4387,7 @@ class MemorialDeployLane:
                 url,
                 self.request_timeout_seconds,
                 method,
+                public_authority,
             )
             headers = {
                 str(name).strip().casefold(): str(value).strip()
@@ -4561,6 +4604,17 @@ class MemorialDeployLane:
     def _verify_deployed_surface(
         self, public_origin: str, *, source_revision: str
     ) -> None:
+        validated_public_origin = _validate_public_origin(
+            public_origin,
+            allowed_hosts=self.allowed_public_hosts,
+        )
+        parsed_public_origin = urllib.parse.urlsplit(validated_public_origin)
+        public_hostname = str(parsed_public_origin.hostname or "").lower().rstrip(".")
+        public_authority = (
+            f"[{public_hostname}]" if ":" in public_hostname else public_hostname
+        )
+        if not public_authority:
+            raise DeployError("public_origin_invalid")
         local = self._local_origin()
         probes = [
             self._wait_http(f"{local}/health", kind="health"),
@@ -4568,11 +4622,13 @@ class MemorialDeployLane:
                 f"{local}/memorials/{MEMORIAL_SLUG}",
                 kind="html",
                 expected_source_revision=source_revision,
+                public_authority=public_authority,
             ),
             self._wait_http(
                 f"{local}/memorials/{MEMORIAL_SLUG}.json",
                 kind="json",
                 expected_source_revision=source_revision,
+                public_authority=public_authority,
             ),
             self._wait_http(
                 f"{public_origin}/memorials/{MEMORIAL_SLUG}",
@@ -4586,7 +4642,10 @@ class MemorialDeployLane:
             ),
         ]
         alias_probes = [
-            self._verify_singular_memorial_alias(local),
+            self._verify_singular_memorial_alias(
+                local,
+                public_authority=public_authority,
+            ),
             self._verify_singular_memorial_alias(public_origin),
         ]
         if probes[2]["body_sha256"] != probes[4]["body_sha256"]:

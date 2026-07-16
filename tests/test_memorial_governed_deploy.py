@@ -1668,7 +1668,12 @@ def _lane(
     if control_tour_slug:
         env["EA_MEMORIAL_CONTROL_TOUR_SLUG"] = control_tour_slug
 
-    def selected_http(url: str, timeout: float) -> deploy.HttpResponse:
+    def selected_http(
+        url: str,
+        timeout: float,
+        public_authority: str = "",
+    ) -> deploy.HttpResponse:
+        del public_authority
         if url.endswith("/openapi.json") or "/tours/" in url:
             return safe_http(url, timeout)
         return (http_get or safe_http)(url, timeout)
@@ -1692,12 +1697,21 @@ def _lane(
             },
         )
 
+    def selected_no_redirect(
+        url: str,
+        timeout: float,
+        method: str,
+        public_authority: str = "",
+    ) -> deploy.HttpResponse:
+        del public_authority
+        return (http_no_redirect or safe_no_redirect)(url, timeout, method)
+
     return deploy.MemorialDeployLane(
         root=root,
         env=env,
         runner=runner,
         http_get=selected_http,
-        http_no_redirect=http_no_redirect or safe_no_redirect,
+        http_no_redirect=selected_no_redirect,
         sleep=lambda _: None,
         wait_seconds=0,
         receipt_dir=receipt_dir or root / ".runtime" / "test-receipts",
@@ -1912,6 +1926,48 @@ def test_public_origin_requires_https_and_approved_exact_host(
         )
         == "https://www.myexternalbrain.com"
     )
+
+
+def test_local_public_authority_probe_sets_exact_headers_and_never_follows_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[object] = []
+    handlers: list[object] = []
+
+    class RedirectingOpener:
+        def open(self, request, timeout):  # type: ignore[no-untyped-def]
+            del timeout
+            requests.append(request)
+            raise deploy.urllib.error.HTTPError(
+                request.full_url,
+                308,
+                "Permanent Redirect",
+                {"Location": "https://memorial.example.org/memorials/manfred"},
+                None,
+            )
+
+    def fake_build_opener(*configured_handlers):  # type: ignore[no-untyped-def]
+        handlers.extend(configured_handlers)
+        return RedirectingOpener()
+
+    monkeypatch.setattr(deploy.urllib.request, "build_opener", fake_build_opener)
+
+    with pytest.raises(deploy.DeployError, match="http_status_invalid:.*:308"):
+        deploy._default_http_get(
+            "http://127.0.0.1:8090/memorials/manfred",
+            1.0,
+            "memorial.example.org",
+        )
+
+    assert len(requests) == 1
+    request_headers = {
+        str(name).casefold(): str(value)
+        for name, value in requests[0].header_items()  # type: ignore[union-attr]
+    }
+    assert request_headers["host"] == "memorial.example.org"
+    assert request_headers["x-forwarded-host"] == "memorial.example.org"
+    assert request_headers["x-forwarded-proto"] == "https"
+    assert any(isinstance(handler, deploy._NoRedirectHandler) for handler in handlers)
 
 
 @pytest.mark.parametrize(
@@ -3865,11 +3921,16 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
     release_root: Path,
 ) -> None:
     runner = FakeRunner(release_root)
-    observed_urls: list[str] = []
-    observed_alias_requests: list[tuple[str, str]] = []
+    observed_requests: list[tuple[str, str]] = []
+    observed_alias_requests: list[tuple[str, str, str]] = []
 
-    def recording_http(url: str, timeout: float) -> deploy.HttpResponse:
-        observed_urls.append(url)
+    def recording_http(
+        url: str,
+        timeout: float,
+        public_authority: str = "",
+    ) -> deploy.HttpResponse:
+        del timeout
+        observed_requests.append((url, public_authority))
         if url.endswith("/health"):
             return deploy.HttpResponse(200, "application/json", b'{"status":"ok"}')
         if url.endswith(".json"):
@@ -3885,9 +3946,10 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
         url: str,
         timeout: float,
         method: str,
+        public_authority: str = "",
     ) -> deploy.HttpResponse:
         del timeout
-        observed_alias_requests.append((method, url))
+        observed_alias_requests.append((method, url, public_authority))
         return deploy.HttpResponse(
             308,
             "text/plain; charset=utf-8",
@@ -3901,41 +3963,80 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
             },
         )
 
-    lane = _lane(
-        release_root,
-        runner,
-        http_get=recording_http,
-        http_no_redirect=recording_no_redirect,
-    )
+    lane = _lane(release_root, runner)
+    lane.http_get = recording_http
+    lane.http_no_redirect = recording_no_redirect
     lane._verify_deployed_surface(
         "https://memorial.example.org",
         source_revision="b" * 40,
     )
 
-    assert {
+    assert (
         "http://127.0.0.1:8090/memorials/manfred",
+        "memorial.example.org",
+    ) in observed_requests
+    assert (
+        "http://127.0.0.1:8090/memorials/manfred.json",
+        "memorial.example.org",
+    ) in observed_requests
+    assert (
         "https://memorial.example.org/memorials/manfred",
-    } <= set(observed_urls)
+        "",
+    ) in observed_requests
+    assert (
+        "https://memorial.example.org/memorials/manfred.json",
+        "",
+    ) in observed_requests
     assert observed_alias_requests == [
         (
             "GET",
             "http://127.0.0.1:8090/memorial/manfred?from=ea-launch-verifier",
+            "memorial.example.org",
         ),
         (
             "HEAD",
             "http://127.0.0.1:8090/memorial/manfred?from=ea-launch-verifier",
+            "memorial.example.org",
         ),
         (
             "GET",
             "https://memorial.example.org/memorial/manfred?from=ea-launch-verifier",
+            "",
         ),
         (
             "HEAD",
             "https://memorial.example.org/memorial/manfred?from=ea-launch-verifier",
+            "",
         ),
     ]
     assert lane.receipt["alias_probes"][0]["query_preserved"] is True
     assert lane.receipt["alias_probes"][1]["query_preserved"] is True
+
+
+def test_deployed_surface_revalidates_public_authority_before_http(
+    release_root: Path,
+) -> None:
+    lane = _lane(release_root, FakeRunner(release_root))
+    observed: list[str] = []
+
+    def unexpected_http(
+        url: str,
+        timeout: float,
+        public_authority: str = "",
+    ) -> deploy.HttpResponse:
+        del timeout, public_authority
+        observed.append(url)
+        return deploy.HttpResponse(200, "text/html", SAFE_HTML, "b" * 40)
+
+    lane.http_get = unexpected_http
+
+    with pytest.raises(deploy.DeployError, match="public_origin_host_not_approved"):
+        lane._verify_deployed_surface(
+            "https://attacker.example",
+            source_revision="b" * 40,
+        )
+
+    assert observed == []
 
 
 @pytest.mark.parametrize(
