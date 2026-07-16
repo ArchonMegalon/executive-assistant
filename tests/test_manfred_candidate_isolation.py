@@ -944,7 +944,12 @@ def test_internal_transport_probe_is_api_loopback_only_and_parses_security_heade
     assert "Host: myexternalbrain.com" in command
     assert "X-Forwarded-Host: myexternalbrain.com" in command
     assert "X-Forwarded-Proto: https" in command
-    assert command[command.index("--request") + 1] == method
+    if method == "HEAD":
+        assert "--head" in command
+        assert "--request" not in command
+    else:
+        assert "--head" not in command
+        assert command[command.index("--request") + 1] == method
 
 
 def test_internal_transport_probe_rejects_unexpected_status(

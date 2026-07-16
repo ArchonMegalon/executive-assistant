@@ -2944,15 +2944,21 @@ def _candidate_api_loopback_request(
         "--show-error",
         "--max-time",
         "20",
-        "--request",
-        normalized_method,
-        "--output",
-        "/dev/null",
-        "--dump-header",
-        "-",
-        "--write-out",
-        f"\n{INTERNAL_TRANSPORT_STATUS_MARKER}%{{http_code}}\n",
     ]
+    if normalized_method == "HEAD":
+        argv.append("--head")
+    else:
+        argv.extend(["--request", normalized_method])
+    argv.extend(
+        [
+            "--output",
+            "/dev/null",
+            "--dump-header",
+            "-",
+            "--write-out",
+            f"\n{INTERNAL_TRANSPORT_STATUS_MARKER}%{{http_code}}\n",
+        ]
+    )
     outgoing_header_names: set[str] = set()
     for name, value in sorted(request_headers.items()):
         normalized_name = str(name or "")
