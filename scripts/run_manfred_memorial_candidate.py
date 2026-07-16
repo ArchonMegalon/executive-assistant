@@ -129,6 +129,7 @@ HTTP_HEADER_NAME_CHARACTERS = frozenset(
 )
 INTERNAL_TRANSPORT_PATHS = frozenset(
     {
+        "/memorial/manfred?from=ea-launch-verifier",
         "/memorials/manfred",
         "/memorials/manfred?from=ea-transport-verifier",
     }

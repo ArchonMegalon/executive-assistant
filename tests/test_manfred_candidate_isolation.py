@@ -952,6 +952,58 @@ def test_internal_transport_probe_is_api_loopback_only_and_parses_security_heade
         assert command[command.index("--request") + 1] == method
 
 
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+def test_internal_transport_probe_allows_exact_singular_alias_first_hop(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+) -> None:
+    commands: list[list[str]] = []
+    raw = (
+        b"HTTP/1.1 308 Permanent Redirect\r\n"
+        b"Location: /memorials/manfred?from=ea-launch-verifier\r\n"
+        b"Cache-Control: no-store\r\n\r\n"
+        + f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}308\n".encode("ascii")
+    )
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda argv, **_kwargs: commands.append(list(argv)) or raw,
+    )
+
+    status, body, headers = runner._candidate_api_loopback_request(
+        ["docker", "compose", "--project-name", PROJECT],
+        {"PATH": "/usr/bin:/bin"},
+        "http://127.0.0.1:18091",
+        "/memorial/manfred?from=ea-launch-verifier",
+        method=method,
+        headers={
+            "Host": "myexternalbrain.com",
+            "X-Forwarded-Host": "myexternalbrain.com",
+            "X-Forwarded-Proto": "https",
+        },
+        expected={308},
+        follow_redirects=False,
+    )
+
+    assert status == 308
+    assert body == b""
+    assert headers["location"] == "/memorials/manfred?from=ea-launch-verifier"
+    command = commands[0]
+    assert command[-1] == (
+        "http://127.0.0.1:8090/memorial/manfred?from=ea-launch-verifier"
+    )
+    assert "--location" not in command
+    assert "Host: myexternalbrain.com" in command
+    assert "X-Forwarded-Host: myexternalbrain.com" in command
+    assert "X-Forwarded-Proto: https" in command
+    if method == "HEAD":
+        assert "--head" in command
+        assert "--request" not in command
+    else:
+        assert "--head" not in command
+        assert command[command.index("--request") + 1] == method
+
+
 def test_internal_transport_probe_rejects_unexpected_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1119,6 +1171,9 @@ def test_internal_transport_probe_rejects_malformed_http_versions(
 @pytest.mark.parametrize(
     "path",
     [
+        "/memorial/manfred",
+        "/memorial/manfred?from=ea-launch-verifier&extra=1",
+        "/memorial/manfred?from=EA-launch-verifier",
         "/memorials/manfred#not-sent-by-http",
         "/memorials/manfred#",
         "/memorials/../manfred",
