@@ -318,6 +318,28 @@ def _verify_memorial_transport_security(
     }
 
 
+def _verify_memorial_head_surface(
+    base_url: str,
+    public_origin: str,
+    *,
+    request_fn: Callable[..., tuple[int, bytes, dict[str, str]]] | None = None,
+) -> None:
+    request = request_fn or _request
+    authority, _canonical_origin = _canonical_public_https_origin(public_origin)
+    request(
+        base_url,
+        "/memorials/manfred",
+        method="HEAD",
+        headers={
+            "Host": authority,
+            "X-Forwarded-Host": authority,
+            "X-Forwarded-Proto": "https",
+        },
+        expected={200},
+        follow_redirects=False,
+    )
+
+
 def _contains_forbidden_recipient_field(value: object) -> bool:
     forbidden = {
         "recipient",
@@ -766,7 +788,11 @@ def verify_candidate(
     )
     checks.append("memorial_transport_security")
 
-    _request(base_url, "/memorials/manfred", method="HEAD")
+    _verify_memorial_head_surface(
+        base_url,
+        public_origin,
+        request_fn=transport_request,
+    )
     _verify_singular_memorial_alias(base_url)
     archive_gate = _verify_memorial_archive_gate(base_url)
     _request(base_url, "/memorials/manfred/app.webmanifest")

@@ -393,6 +393,7 @@ def test_verify_candidate_wires_archive_publication_gate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     called: list[str] = []
+    transport_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(candidate_verify, "_wait_for_health", lambda *_args: None)
     monkeypatch.setattr(
@@ -423,6 +424,14 @@ def test_verify_candidate_wires_archive_publication_gate(
         called.append(base_url)
         raise RuntimeError("archive_gate_wiring_reached")
 
+    def transport_request(  # type: ignore[no-untyped-def]
+        base_url,
+        path,
+        **kwargs,
+    ):
+        transport_calls.append({"base_url": base_url, "path": path, **kwargs})
+        return 200, b"", {}
+
     monkeypatch.setattr(candidate_verify, "_request", request)
     monkeypatch.setattr(
         candidate_verify,
@@ -437,9 +446,24 @@ def test_verify_candidate_wires_archive_publication_gate(
             wait_seconds=1,
             submit_receipt=None,
             withdraw_receipt=None,
+            transport_request=transport_request,
         )
 
     assert called == ["https://memorial.example.test"]
+    assert transport_calls == [
+        {
+            "base_url": "https://memorial.example.test",
+            "path": "/memorials/manfred",
+            "method": "HEAD",
+            "headers": {
+                "Host": "memorial.example.test",
+                "X-Forwarded-Host": "memorial.example.test",
+                "X-Forwarded-Proto": "https",
+            },
+            "expected": {200},
+            "follow_redirects": False,
+        }
+    ]
 
 
 def test_candidate_keeps_spatial_scaffold_unregistered(
@@ -648,6 +672,39 @@ def test_candidate_transport_verifier_proves_gateway_cookie_hsts_and_redirect(
             "expected": {308},
             "follow_redirects": False,
         },
+    ]
+
+
+def test_candidate_head_verifier_uses_exact_canonical_transport_headers() -> None:
+    observed: list[dict[str, object]] = []
+
+    def fake_request(  # type: ignore[no-untyped-def]
+        base_url,
+        path,
+        **kwargs,
+    ):
+        observed.append({"base_url": base_url, "path": path, **kwargs})
+        return 200, b"", {}
+
+    candidate_verify._verify_memorial_head_surface(
+        "http://127.0.0.1:8090",
+        "https://myexternalbrain.com",
+        request_fn=fake_request,
+    )
+
+    assert observed == [
+        {
+            "base_url": "http://127.0.0.1:8090",
+            "path": "/memorials/manfred",
+            "method": "HEAD",
+            "headers": {
+                "Host": "myexternalbrain.com",
+                "X-Forwarded-Host": "myexternalbrain.com",
+                "X-Forwarded-Proto": "https",
+            },
+            "expected": {200},
+            "follow_redirects": False,
+        }
     ]
 
 

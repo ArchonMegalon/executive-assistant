@@ -889,8 +889,10 @@ def test_candidate_compose_api_environment_is_exactly_allowlisted(
         )
 
 
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
 def test_internal_transport_probe_is_api_loopback_only_and_parses_security_headers(
     monkeypatch: pytest.MonkeyPatch,
+    method: str,
 ) -> None:
     commands: list[list[str]] = []
     raw = (
@@ -910,8 +912,10 @@ def test_internal_transport_probe_is_api_loopback_only_and_parses_security_heade
         {"PATH": "/usr/bin:/bin"},
         "http://127.0.0.1:18091",
         "/memorials/manfred",
+        method=method,
         headers={
             "Host": "myexternalbrain.com",
+            "X-Forwarded-Host": "myexternalbrain.com",
             "X-Forwarded-Proto": "https",
         },
         expected={200},
@@ -938,7 +942,9 @@ def test_internal_transport_probe_is_api_loopback_only_and_parses_security_heade
     assert command[-1] == "http://127.0.0.1:8090/memorials/manfred"
     assert "--location" not in command
     assert "Host: myexternalbrain.com" in command
+    assert "X-Forwarded-Host: myexternalbrain.com" in command
     assert "X-Forwarded-Proto: https" in command
+    assert command[command.index("--request") + 1] == method
 
 
 def test_internal_transport_probe_rejects_unexpected_status(

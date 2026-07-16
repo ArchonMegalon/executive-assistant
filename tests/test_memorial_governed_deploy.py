@@ -4249,6 +4249,67 @@ def test_nonzero_candidate_verifier_records_safe_origin_after_local_evidence(
     assert "stderr" not in failure
 
 
+def test_candidate_http_status_failure_records_only_allowlisted_safe_evidence() -> None:
+    completed = _completed(
+        ["python", "scripts/verify_manfred_memorial_candidate.py"],
+        stdout=json.dumps(
+            {
+                "schema": "ea.manfred_memorial_candidate_smoke.v1",
+                "status": "fail",
+                "error": "candidate_http_status_unexpected:/memorials/manfred:421",
+            }
+        ),
+        returncode=1,
+    )
+
+    evidence = deploy._fixed_json_script_failure_evidence(
+        script="scripts/verify_manfred_memorial_candidate.py",
+        origin="local",
+        completed=completed,
+    )
+
+    assert evidence["error_code"] == "candidate_http_status_unexpected"
+    assert evidence["error_path"] == "/memorials/manfred"
+    assert evidence["http_status"] == 421
+
+
+@pytest.mark.parametrize(
+    "unsafe_error",
+    [
+        "candidate_http_status_unexpected:/healthz:421",
+        "candidate_http_status_unexpected:/memorials/manfred:099",
+        "candidate_http_status_unexpected:/memorials/manfred:600",
+        "candidate_http_status_unexpected:/memorials/manfred:421:secret",
+        "candidate_http_status_unexpected:/memorials/manfred%0a:421",
+    ],
+)
+def test_candidate_http_status_failure_redacts_unallowlisted_details(
+    unsafe_error: str,
+) -> None:
+    completed = _completed(
+        ["python", "scripts/verify_manfred_memorial_candidate.py"],
+        stdout=json.dumps(
+            {
+                "schema": "ea.manfred_memorial_candidate_smoke.v1",
+                "status": "fail",
+                "error": unsafe_error,
+            }
+        ),
+        returncode=1,
+    )
+
+    evidence = deploy._fixed_json_script_failure_evidence(
+        script="scripts/verify_manfred_memorial_candidate.py",
+        origin="local",
+        completed=completed,
+    )
+
+    assert evidence["error_code"] == "candidate_http_status_unexpected"
+    assert "error_path" not in evidence
+    assert "http_status" not in evidence
+    assert unsafe_error not in json.dumps(evidence, sort_keys=True)
+
+
 def test_candidate_verifier_browser_flag_is_explicit() -> None:
     from scripts import verify_manfred_memorial_candidate as candidate
 

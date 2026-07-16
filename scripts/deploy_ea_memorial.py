@@ -216,6 +216,10 @@ SAFE_CANDIDATE_ERROR_CODES = frozenset(
         "candidate_voice_release_boundary_invalid",
     }
 )
+SAFE_CANDIDATE_HTTP_STATUS_PATHS = frozenset({"/memorials/manfred"})
+SAFE_CANDIDATE_HTTP_STATUS_ERROR_PATTERN = re.compile(
+    r"^candidate_http_status_unexpected:([^:\x00-\x20\x7f]{1,160}):([1-5][0-9]{2})$"
+)
 CONTAINER_PROJECTION_DIGEST_SCRIPT = r"""
 import hashlib
 import json
@@ -726,15 +730,31 @@ def _fixed_json_script_failure_evidence(
         len(encoded_stdout) <= MAX_FIXED_JSON_SCRIPT_OUTPUT_BYTES
     )
     error_code = "fixed_json_script_failed"
+    safe_http_status_evidence: dict[str, object] = {}
     if stdout_within_parse_limit:
         try:
             payload = json.loads(raw_stdout)
         except (TypeError, ValueError):
             payload = None
         if isinstance(payload, dict) and script_label == "manfred_candidate_verifier":
-            candidate = str(payload.get("error") or "").split(":", 1)[0].strip()
+            raw_candidate_error = payload.get("error")
+            candidate = str(raw_candidate_error or "").split(":", 1)[0].strip()
             if candidate in SAFE_CANDIDATE_ERROR_CODES:
                 error_code = candidate
+            status_match = (
+                SAFE_CANDIDATE_HTTP_STATUS_ERROR_PATTERN.fullmatch(raw_candidate_error)
+                if type(raw_candidate_error) is str
+                else None
+            )
+            if (
+                error_code == "candidate_http_status_unexpected"
+                and status_match is not None
+                and status_match.group(1) in SAFE_CANDIDATE_HTTP_STATUS_PATHS
+            ):
+                safe_http_status_evidence = {
+                    "error_path": status_match.group(1),
+                    "http_status": int(status_match.group(2)),
+                }
 
     return_code = int(completed.returncode)
     return {
@@ -748,6 +768,7 @@ def _fixed_json_script_failure_evidence(
             else MAX_FIXED_JSON_SCRIPT_OUTPUT_BYTES + 1
         ),
         "stdout_size_capped": not stdout_within_parse_limit,
+        **safe_http_status_evidence,
     }
 
 
