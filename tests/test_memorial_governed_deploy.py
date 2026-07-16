@@ -3712,11 +3712,17 @@ def test_forward_topology_rebases_ordered_baseline_layers_into_release_root(
     ]
 
 
-def test_existing_memorial_baseline_is_rejected_before_mutation(
-    release_root: Path, monkeypatch: pytest.MonkeyPatch
+def test_existing_memorial_baseline_is_replaced_for_governed_update(
+    release_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    prior_root = tmp_path / "prior-live"
+    prior_root.mkdir()
+    (prior_root / ".env").write_text("EA_HOST_PORT=8090\n", encoding="utf-8")
+    for filename in ("docker-compose.yml", "docker-compose.memorial.yml"):
+        (prior_root / filename).write_text("services: {}\n", encoding="utf-8")
     runner = FakeRunner(
         release_root,
+        baseline_root=prior_root,
         baseline_files=("docker-compose.yml", "docker-compose.memorial.yml"),
     )
     monkeypatch.setattr(
@@ -3725,11 +3731,22 @@ def test_existing_memorial_baseline_is_rejected_before_mutation(
         lambda *_args, **_kwargs: {"source_worktree_dirty": False},
     )
 
-    with pytest.raises(
-        deploy.DeployError, match="forward_baseline_already_contains_memorial"
-    ):
-        _lane(release_root, runner).deploy(preflight_only=True)
+    receipt = _lane(release_root, runner).deploy(preflight_only=True)
 
+    assert receipt["target_compose_files"] == [
+        "docker-compose.yml",
+        "docker-compose.memorial.yml",
+    ]
+    assert receipt["forward_topology_source"]["prior_memorial_layer_replaced"] is True
+    assert receipt["rollback_compose_files"] == [
+        str(prior_root / "docker-compose.yml"),
+        str(prior_root / "docker-compose.memorial.yml"),
+    ]
+    config_call = [call for call in runner.calls if call[-2:] == ["config", "--quiet"]][
+        0
+    ]
+    assert config_call.count(str(release_root / "docker-compose.memorial.yml")) == 1
+    assert str(prior_root / "docker-compose.memorial.yml") not in config_call
     assert not any("up" in call for call in runner.calls)
 
 

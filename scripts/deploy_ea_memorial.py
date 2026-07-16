@@ -1502,6 +1502,7 @@ class MemorialDeployLane:
 
         release_files: list[str] = []
         seen: set[str] = set()
+        prior_memorial_layer_replaced = False
         for prior_file in prior_files:
             try:
                 relative = prior_file.relative_to(prior_root)
@@ -1510,10 +1511,14 @@ class MemorialDeployLane:
                     f"forward_baseline_compose_file_unmappable:{prior_file}"
                 ) from exc
             relative_name = relative.as_posix()
-            if relative.name == MEMORIAL_COMPOSE_FILE:
-                raise DeployError("forward_baseline_already_contains_memorial")
             if relative_name in seen:
                 raise DeployError("forward_baseline_compose_file_duplicate")
+            seen.add(relative_name)
+            if relative.name == MEMORIAL_COMPOSE_FILE:
+                if relative_name != MEMORIAL_COMPOSE_FILE:
+                    raise DeployError("forward_baseline_memorial_path_invalid")
+                prior_memorial_layer_replaced = True
+                continue
             release_file = (self.root / relative).resolve()
             try:
                 release_file.relative_to(self.root)
@@ -1525,7 +1530,6 @@ class MemorialDeployLane:
                 raise DeployError(
                     f"forward_release_compose_file_missing:{release_file}"
                 )
-            seen.add(relative_name)
             release_files.append(relative_name)
 
         memorial_path = (self.root / MEMORIAL_COMPOSE_FILE).resolve()
@@ -1538,7 +1542,11 @@ class MemorialDeployLane:
         self.receipt["forward_topology_source"] = {
             "working_dir": str(prior_root),
             "compose_config_files": [str(path) for path in prior_files],
-            "mapping": "baseline_relative_paths_rebased_to_release_root_plus_memorial",
+            "mapping": (
+                "baseline_relative_paths_rebased_to_release_root_"
+                "with_current_memorial_layer"
+            ),
+            "prior_memorial_layer_replaced": prior_memorial_layer_replaced,
         }
         self._write_receipt()
 
