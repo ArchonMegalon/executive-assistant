@@ -72,6 +72,8 @@ from scripts.verify_manfred_spatial_candidate_browser import (  # noqa: E402
 
 
 RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_runtime.v4"
+ROUTE_ACTIONABILITY_DIAGNOSTIC_SCHEMA = "ea.manfred_route_actionability_diagnostic.v1"
+MAX_FAILURE_DIAGNOSTIC_BYTES = 8 * 1024
 ALLOWED_ENV_KEYS = {
     "DATABASE_URL",
     "EA_API_TOKEN",
@@ -4466,6 +4468,28 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _bounded_failure_diagnostics(exc: Exception) -> dict[str, object] | None:
+    raw = getattr(exc, "diagnostics", None)
+    if not isinstance(raw, dict):
+        return None
+    if raw.get("schema") != ROUTE_ACTIONABILITY_DIAGNOSTIC_SCHEMA:
+        return None
+    try:
+        encoded = json.dumps(
+            raw,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError):
+        return None
+    if not encoded or len(encoded) > MAX_FAILURE_DIAGNOSTIC_BYTES:
+        return None
+    decoded = json.loads(encoded)
+    return decoded if isinstance(decoded, dict) else None
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -4503,17 +4527,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 130
     except Exception as exc:
-        print(
-            json.dumps(
-                {
-                    "schema": RECEIPT_SCHEMA,
-                    "status": "fail",
-                    "error": str(exc)[:200],
-                    "live_ea_api_mutation_requested": False,
-                },
-                sort_keys=True,
-            )
-        )
+        failure: dict[str, object] = {
+            "schema": RECEIPT_SCHEMA,
+            "status": "fail",
+            "error": str(exc)[:200],
+            "live_ea_api_mutation_requested": False,
+        }
+        diagnostics = _bounded_failure_diagnostics(exc)
+        if diagnostics is not None:
+            failure["diagnostics"] = diagnostics
+        print(json.dumps(failure, sort_keys=True))
         return 1
     print(json.dumps(receipt, sort_keys=True))
     return 0

@@ -8,6 +8,7 @@ import base64
 import binascii
 import hashlib
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -56,6 +57,13 @@ _SINGLETON_EVIDENCE_HEADERS = frozenset(
 )
 _EXPECTED_ROUTE_STOP_COUNT = 9
 _ROUTE_ACTIONABILITY_TIMEOUT_MS = 30_000
+_ROUTE_ACTIONABILITY_DIAGNOSTIC_SCHEMA = "ea.manfred_route_actionability_diagnostic.v1"
+_ROUTE_ACTIONABILITY_ERROR = (
+    "manfred_candidate_spatial_browser_route_actionability_invalid"
+)
+_ROUTE_DIAGNOSTIC_TEXT_MAX = 160
+_ROUTE_DIAGNOSTIC_COUNT_MAX = 99
+_ROUTE_DIAGNOSTIC_COORDINATE_MAX = 100_000.0
 _CAMERA_PROBE_TIMEOUT_MS = 45_000
 _MAX_HTTP_BYTES = 8 * 1024 * 1024
 _REQUEST_MEDIA_TYPES = {
@@ -119,6 +127,81 @@ _ROUTE_CAMERA_READY_SCRIPT = """
     metrics.isTransitioning === false &&
     Number(metrics.frameCount || 0) > 0
   );
+}
+"""
+_ROUTE_ACTIONABILITY_DIAGNOSTIC_SCRIPT = """
+({selector}) => {
+  const nodes = Array.from(document.querySelectorAll(selector));
+  const element = nodes.length === 1 ? nodes[0] : null;
+  const bounded = (value, maximum = 160) => String(value || '').slice(0, maximum);
+  let elementState = null;
+  let hitTest = null;
+  let scrollContainer = null;
+  if (element) {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const centerX = rect.left + (rect.width / 2);
+    const centerY = rect.top + (rect.height / 2);
+    const hit = document.elementFromPoint(centerX, centerY);
+    const scroller = element.closest('aside');
+    elementState = {
+      attached: element.isConnected,
+      visible: Boolean(
+        rect.width > 0 && rect.height > 0 &&
+        style.display !== 'none' && style.visibility !== 'hidden' &&
+        Number(style.opacity || 1) > 0
+      ),
+      enabled: !element.disabled && element.getAttribute('aria-disabled') !== 'true',
+      bounding_box: {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      },
+      display: bounded(style.display, 40),
+      visibility: bounded(style.visibility, 40),
+      pointer_events: bounded(style.pointerEvents, 40),
+      opacity: bounded(style.opacity, 40),
+    };
+    hitTest = {
+      tag: bounded(hit && hit.tagName, 40).toLowerCase(),
+      classes: bounded(hit && hit.className, 160),
+      route_index: bounded(hit && hit.getAttribute && hit.getAttribute('data-route-index'), 20),
+      target_matches: Boolean(hit && (hit === element || element.contains(hit))),
+    };
+    if (scroller) {
+      scrollContainer = {
+        scroll_top: scroller.scrollTop,
+        client_height: scroller.clientHeight,
+        scroll_height: scroller.scrollHeight,
+      };
+    }
+  }
+  let metrics = null;
+  try {
+    const debug = window.__pqReconstructionDebug;
+    const raw = debug && typeof debug.getRenderMetrics === 'function'
+      ? debug.getRenderMetrics()
+      : null;
+    if (raw && typeof raw === 'object') {
+      metrics = {
+        active_route_index: raw.activeRouteIndex,
+        view_mode: bounded(raw.viewMode, 40),
+        is_transitioning: raw.isTransitioning === true,
+        frame_count: raw.frameCount,
+      };
+    }
+  } catch (_error) {
+    metrics = null;
+  }
+  return {
+    locator_count: nodes.length,
+    viewer_status: bounded(document.documentElement.dataset.viewerStatus, 40),
+    element: elementState,
+    hit_test: hitTest,
+    scroll_container: scrollContainer,
+    viewer_metrics: metrics,
+  };
 }
 """
 _BOUNDED_CANVAS_SCREENSHOT_SCRIPT = """
@@ -995,6 +1078,241 @@ def _candidate_required_request_path(
     return parsed.path
 
 
+class _RouteActionabilityError(RuntimeError):
+    """Stable public error code with bounded, receipt-safe diagnostics."""
+
+    def __init__(self, diagnostics: dict[str, object]) -> None:
+        super().__init__(_ROUTE_ACTIONABILITY_ERROR)
+        self.diagnostics = diagnostics
+
+
+def _bounded_route_diagnostic_text(value: object, *, maximum: int) -> str:
+    if type(value) is not str:
+        return ""
+    normalized = " ".join(value.split())
+    printable = "".join(
+        character for character in normalized if character.isprintable()
+    )
+    return printable[:maximum]
+
+
+def _bounded_route_diagnostic_int(
+    value: object,
+    *,
+    default: int = -1,
+    minimum: int = -1,
+    maximum: int = 1_000_000_000,
+) -> int:
+    if type(value) is not int:
+        return default
+    return max(minimum, min(maximum, value))
+
+
+def _bounded_route_diagnostic_number(value: object) -> float | None:
+    if type(value) not in {int, float}:
+        return None
+    normalized = float(value)
+    if not math.isfinite(normalized):
+        return None
+    return round(
+        max(
+            -_ROUTE_DIAGNOSTIC_COORDINATE_MAX,
+            min(_ROUTE_DIAGNOSTIC_COORDINATE_MAX, normalized),
+        ),
+        2,
+    )
+
+
+def _route_actionability_diagnostic_payload(
+    *,
+    raw: dict[str, object],
+    index: int,
+    label: str,
+    selector: str,
+    phase: str,
+    locator_count_before_click: int | None,
+    cause: Exception,
+    collection_status: str,
+) -> dict[str, object]:
+    raw_element = raw.get("element")
+    element = dict(raw_element) if isinstance(raw_element, dict) else {}
+    raw_box = element.get("bounding_box")
+    box = dict(raw_box) if isinstance(raw_box, dict) else {}
+    bounded_box = {
+        name: _bounded_route_diagnostic_number(box.get(name))
+        for name in ("x", "y", "width", "height")
+    }
+    if any(value is None for value in bounded_box.values()):
+        bounded_box_or_none: dict[str, float | None] | None = None
+    else:
+        bounded_box_or_none = bounded_box
+
+    raw_hit_test = raw.get("hit_test")
+    hit_test = dict(raw_hit_test) if isinstance(raw_hit_test, dict) else {}
+    raw_scroll = raw.get("scroll_container")
+    scroll = dict(raw_scroll) if isinstance(raw_scroll, dict) else {}
+    raw_metrics = raw.get("viewer_metrics")
+    metrics = dict(raw_metrics) if isinstance(raw_metrics, dict) else {}
+    try:
+        failure_message = str(cause)
+    except Exception:
+        failure_message = ""
+    failure_message_bytes = failure_message.encode("utf-8", errors="replace")
+    return {
+        "schema": _ROUTE_ACTIONABILITY_DIAGNOSTIC_SCHEMA,
+        "collection_status": (
+            collection_status if collection_status in {"pass", "failed"} else "failed"
+        ),
+        "phase": phase if phase in {"locator_count", "click"} else "unknown",
+        "route_index": _bounded_route_diagnostic_int(
+            index,
+            minimum=0,
+            maximum=_EXPECTED_ROUTE_STOP_COUNT - 1,
+        ),
+        "route_label": _bounded_route_diagnostic_text(
+            label,
+            maximum=80,
+        ),
+        "selector": _bounded_route_diagnostic_text(
+            selector,
+            maximum=_ROUTE_DIAGNOSTIC_TEXT_MAX,
+        ),
+        "failure_type": _bounded_route_diagnostic_text(
+            type(cause).__name__,
+            maximum=80,
+        ),
+        "failure_message_sha256": hashlib.sha256(failure_message_bytes).hexdigest(),
+        "failure_message_size_bytes": min(len(failure_message_bytes), 1_000_000),
+        "locator_count_before_click": _bounded_route_diagnostic_int(
+            locator_count_before_click,
+            maximum=_ROUTE_DIAGNOSTIC_COUNT_MAX,
+        ),
+        "locator_count_after_failure": _bounded_route_diagnostic_int(
+            raw.get("locator_count"),
+            maximum=_ROUTE_DIAGNOSTIC_COUNT_MAX,
+        ),
+        "viewer_status": _bounded_route_diagnostic_text(
+            raw.get("viewer_status"),
+            maximum=40,
+        ),
+        "element": {
+            "attached": element.get("attached") is True,
+            "visible": element.get("visible") is True,
+            "enabled": element.get("enabled") is True,
+            "bounding_box": bounded_box_or_none,
+            "display": _bounded_route_diagnostic_text(
+                element.get("display"), maximum=40
+            ),
+            "visibility": _bounded_route_diagnostic_text(
+                element.get("visibility"), maximum=40
+            ),
+            "pointer_events": _bounded_route_diagnostic_text(
+                element.get("pointer_events"), maximum=40
+            ),
+            "opacity": _bounded_route_diagnostic_text(
+                element.get("opacity"), maximum=40
+            ),
+        },
+        "hit_test": {
+            "tag": _bounded_route_diagnostic_text(hit_test.get("tag"), maximum=40),
+            "classes": _bounded_route_diagnostic_text(
+                hit_test.get("classes"), maximum=_ROUTE_DIAGNOSTIC_TEXT_MAX
+            ),
+            "route_index": _bounded_route_diagnostic_text(
+                hit_test.get("route_index"), maximum=20
+            ),
+            "target_matches": hit_test.get("target_matches") is True,
+        },
+        "scroll_container": {
+            "scroll_top": _bounded_route_diagnostic_number(scroll.get("scroll_top")),
+            "client_height": _bounded_route_diagnostic_number(
+                scroll.get("client_height")
+            ),
+            "scroll_height": _bounded_route_diagnostic_number(
+                scroll.get("scroll_height")
+            ),
+        },
+        "viewer_metrics": {
+            "active_route_index": _bounded_route_diagnostic_int(
+                metrics.get("active_route_index"),
+                minimum=-1,
+                maximum=_EXPECTED_ROUTE_STOP_COUNT - 1,
+            ),
+            "view_mode": _bounded_route_diagnostic_text(
+                metrics.get("view_mode"), maximum=40
+            ),
+            "is_transitioning": metrics.get("is_transitioning") is True,
+            "frame_count": _bounded_route_diagnostic_int(
+                metrics.get("frame_count"),
+                default=0,
+                minimum=0,
+            ),
+        },
+    }
+
+
+def _route_actionability_diagnostics(
+    page: object,
+    *,
+    index: int,
+    label: str,
+    selector: str,
+    phase: str,
+    locator_count_before_click: int | None,
+    cause: Exception,
+) -> dict[str, object]:
+    raw = page.evaluate(  # type: ignore[attr-defined]
+        _ROUTE_ACTIONABILITY_DIAGNOSTIC_SCRIPT,
+        {"selector": selector},
+    )
+    if not isinstance(raw, dict):
+        raise RuntimeError("route_actionability_diagnostic_invalid")
+    return _route_actionability_diagnostic_payload(
+        raw=raw,
+        index=index,
+        label=label,
+        selector=selector,
+        phase=phase,
+        locator_count_before_click=locator_count_before_click,
+        cause=cause,
+        collection_status="pass",
+    )
+
+
+def _route_actionability_error(
+    page: object,
+    *,
+    index: int,
+    label: str,
+    selector: str,
+    phase: str,
+    locator_count_before_click: int | None,
+    cause: Exception,
+) -> _RouteActionabilityError:
+    try:
+        diagnostics = _route_actionability_diagnostics(
+            page,
+            index=index,
+            label=label,
+            selector=selector,
+            phase=phase,
+            locator_count_before_click=locator_count_before_click,
+            cause=cause,
+        )
+    except Exception:
+        diagnostics = _route_actionability_diagnostic_payload(
+            raw={},
+            index=index,
+            label=label,
+            selector=selector,
+            phase=phase,
+            locator_count_before_click=locator_count_before_click,
+            cause=cause,
+            collection_status="failed",
+        )
+    return _RouteActionabilityError(diagnostics)
+
+
 def _route_interactions(
     page: object, expected_labels: list[str]
 ) -> list[dict[str, object]]:
@@ -1005,11 +1323,26 @@ def _route_interactions(
         label = expected_labels[index]
         selector = f".route-button[data-route-index='{index}']"
         button = page.locator(selector)  # type: ignore[attr-defined]
+        locator_count: int | None = None
+        phase = "locator_count"
         try:
+            raw_locator_count = button.count()
+            if type(raw_locator_count) is not int:
+                raise RuntimeError("route_button_locator_count_invalid")
+            locator_count = raw_locator_count
+            if locator_count != 1:
+                raise RuntimeError("route_button_locator_count_invalid")
+            phase = "click"
             button.click(timeout=_ROUTE_ACTIONABILITY_TIMEOUT_MS)
         except Exception as exc:
-            raise RuntimeError(
-                "manfred_candidate_spatial_browser_route_actionability_invalid"
+            raise _route_actionability_error(
+                page,
+                index=index,
+                label=label,
+                selector=selector,
+                phase=phase,
+                locator_count_before_click=locator_count,
+                cause=exc,
             ) from exc
         state_ready = False
         for _attempt in range(50):

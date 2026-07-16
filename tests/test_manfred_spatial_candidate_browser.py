@@ -14,6 +14,7 @@ import urllib.request
 import pytest
 
 from scripts import prepare_manfred_memorial_candidate as prepare
+from scripts import run_manfred_memorial_candidate as candidate_runner
 from scripts import verify_manfred_spatial_candidate_browser as browser_gate
 
 
@@ -112,8 +113,12 @@ class _FakeButton:
         self.page = page
         self.index = index
 
-    def click(self, *, timeout: int) -> None:
-        assert timeout == browser_gate._ROUTE_ACTIONABILITY_TIMEOUT_MS
+    def count(self) -> int:
+        return self.page.locator_counts.get(self.index, 1)
+
+    def click(self, **kwargs: object) -> None:
+        self.page.click_calls.append({"index": self.index, **kwargs})
+        assert kwargs == {"timeout": browser_gate._ROUTE_ACTIONABILITY_TIMEOUT_MS}
         if self.page.actionability_failure_index == self.index:
             raise TimeoutError("route remained obstructed")
         self.page.clicked_indices.append(self.index)
@@ -170,13 +175,20 @@ class _FakePage:
         static_pixels: bool = False,
         actionability_failure_index: int | None = None,
         camera_probe_failure_index: int | None = None,
+        locator_counts: dict[int, int] | None = None,
+        diagnostic_payload: dict[str, object] | None = None,
+        diagnostic_failure: bool = False,
     ) -> None:
         self.labels = labels
         self.static_pixels = static_pixels
         self.actionability_failure_index = actionability_failure_index
         self.camera_probe_failure_index = camera_probe_failure_index
+        self.locator_counts = dict(locator_counts or {})
+        self.diagnostic_payload = diagnostic_payload
+        self.diagnostic_failure = diagnostic_failure
         self.active = -1
         self.clicked_indices: list[int] = []
+        self.click_calls: list[dict[str, object]] = []
         self.camera_probe_indices: list[int] = []
         self.camera_probe_timeouts: list[int] = []
 
@@ -189,6 +201,48 @@ class _FakePage:
         return _FakeButton(self, index)
 
     def evaluate(self, script: str, arg=None):  # type: ignore[no-untyped-def]
+        if script == browser_gate._ROUTE_ACTIONABILITY_DIAGNOSTIC_SCRIPT:
+            if self.diagnostic_failure:
+                raise TimeoutError("private diagnostic collection detail")
+            if self.diagnostic_payload is not None:
+                return copy.deepcopy(self.diagnostic_payload)
+            index = int(arg["selector"].split("'")[1])
+            return {
+                "locator_count": self.locator_counts.get(index, 1),
+                "viewer_status": "ready",
+                "element": {
+                    "attached": True,
+                    "visible": True,
+                    "enabled": True,
+                    "bounding_box": {
+                        "x": 100.0,
+                        "y": 200.0,
+                        "width": 96.0,
+                        "height": 44.0,
+                    },
+                    "display": "block",
+                    "visibility": "visible",
+                    "pointer_events": "auto",
+                    "opacity": "1",
+                },
+                "hit_test": {
+                    "tag": "button",
+                    "classes": "route-button",
+                    "route_index": str(index),
+                    "target_matches": True,
+                },
+                "scroll_container": {
+                    "scroll_top": 220.0,
+                    "client_height": 900.0,
+                    "scroll_height": 1240.0,
+                },
+                "viewer_metrics": {
+                    "active_route_index": self.active,
+                    "view_mode": "room" if self.active >= 0 else "overview",
+                    "is_transitioning": False,
+                    "frame_count": 42,
+                },
+            }
         if "__pqReconstructionDebug" in script:
             return self.active == arg["index"]
         return None
@@ -317,6 +371,13 @@ def test_route_gate_interacts_all_stops_and_binds_unique_camera_pixels() -> None
     assert len({row["camera_canvas_screenshot_sha256"] for row in rows}) == 9
     assert all(row["active_state_verified"] is True for row in rows)
     assert page.clicked_indices == [*range(1, 9), 0]
+    assert page.click_calls == [
+        {
+            "index": index,
+            "timeout": browser_gate._ROUTE_ACTIONABILITY_TIMEOUT_MS,
+        }
+        for index in [*range(1, 9), 0]
+    ]
     assert page.camera_probe_indices == [*range(1, 9), 0]
     assert page.camera_probe_timeouts == [browser_gate._CAMERA_PROBE_TIMEOUT_MS] * 9
 
@@ -335,9 +396,199 @@ def test_route_gate_redacts_and_does_not_retry_camera_probe_timeout() -> None:
 
 def test_route_gate_rejects_failed_normal_playwright_actionability() -> None:
     page = _FakePage(LABELS, actionability_failure_index=4)
-    with pytest.raises(RuntimeError, match="route_actionability_invalid"):
+    with pytest.raises(RuntimeError, match="route_actionability_invalid") as captured:
         browser_gate._route_interactions(page, LABELS)
+
+    assert str(captured.value) == browser_gate._ROUTE_ACTIONABILITY_ERROR
+    assert isinstance(captured.value.__cause__, TimeoutError)
+    diagnostics = captured.value.diagnostics  # type: ignore[attr-defined]
+    assert diagnostics["schema"] == browser_gate._ROUTE_ACTIONABILITY_DIAGNOSTIC_SCHEMA
+    assert diagnostics["collection_status"] == "pass"
+    assert diagnostics["phase"] == "click"
+    assert diagnostics["route_index"] == 4
+    assert diagnostics["route_label"] == LABELS[4]
+    assert diagnostics["locator_count_before_click"] == 1
+    assert diagnostics["locator_count_after_failure"] == 1
+    assert diagnostics["failure_type"] == "TimeoutError"
+    assert (
+        diagnostics["failure_message_sha256"]
+        == hashlib.sha256(b"route remained obstructed").hexdigest()
+    )
+    assert "route remained obstructed" not in json.dumps(diagnostics)
     assert page.clicked_indices == [1, 2, 3]
+    assert page.click_calls[-1] == {
+        "index": 4,
+        "timeout": browser_gate._ROUTE_ACTIONABILITY_TIMEOUT_MS,
+    }
+
+
+@pytest.mark.parametrize("locator_count", [0, 2])
+def test_route_gate_requires_exactly_one_route_button(locator_count: int) -> None:
+    page = _FakePage(LABELS, locator_counts={1: locator_count})
+
+    with pytest.raises(RuntimeError, match="route_actionability_invalid") as captured:
+        browser_gate._route_interactions(page, LABELS)
+
+    assert str(captured.value) == browser_gate._ROUTE_ACTIONABILITY_ERROR
+    diagnostics = captured.value.diagnostics  # type: ignore[attr-defined]
+    assert diagnostics["phase"] == "locator_count"
+    assert diagnostics["route_index"] == 1
+    assert diagnostics["locator_count_before_click"] == locator_count
+    assert diagnostics["locator_count_after_failure"] == locator_count
+    assert page.click_calls == []
+    assert page.clicked_indices == []
+
+
+def test_route_gate_bounds_actionability_diagnostics() -> None:
+    oversized = "x" * 2_000
+    page = _FakePage(
+        LABELS,
+        actionability_failure_index=1,
+        diagnostic_payload={
+            "locator_count": 20_000,
+            "viewer_status": oversized,
+            "element": {
+                "attached": True,
+                "visible": True,
+                "enabled": True,
+                "bounding_box": {
+                    "x": -1_000_000_000,
+                    "y": 1_000_000_000,
+                    "width": 1_000_000_000,
+                    "height": 1_000_000_000,
+                },
+                "display": oversized,
+                "visibility": oversized,
+                "pointer_events": oversized,
+                "opacity": oversized,
+                "ignored": oversized,
+            },
+            "hit_test": {
+                "tag": oversized,
+                "classes": oversized,
+                "route_index": oversized,
+                "target_matches": True,
+                "ignored": oversized,
+            },
+            "scroll_container": {
+                "scroll_top": -1_000_000_000,
+                "client_height": 1_000_000_000,
+                "scroll_height": 1_000_000_000,
+            },
+            "viewer_metrics": {
+                "active_route_index": 50_000,
+                "view_mode": oversized,
+                "is_transitioning": True,
+                "frame_count": 50_000_000_000,
+            },
+            "ignored": oversized,
+        },
+    )
+
+    with pytest.raises(RuntimeError) as captured:
+        browser_gate._route_interactions(page, LABELS)
+
+    diagnostics = captured.value.diagnostics  # type: ignore[attr-defined]
+    assert diagnostics["locator_count_after_failure"] == 99
+    assert len(diagnostics["viewer_status"]) == 40
+    assert set(diagnostics["element"]) == {
+        "attached",
+        "visible",
+        "enabled",
+        "bounding_box",
+        "display",
+        "visibility",
+        "pointer_events",
+        "opacity",
+    }
+    assert diagnostics["element"]["bounding_box"] == {  # type: ignore[index]
+        "x": -100_000.0,
+        "y": 100_000.0,
+        "width": 100_000.0,
+        "height": 100_000.0,
+    }
+    assert len(diagnostics["element"]["display"]) == 40  # type: ignore[index]
+    assert len(diagnostics["hit_test"]["classes"]) == 160  # type: ignore[index]
+    assert len(diagnostics["viewer_metrics"]["view_mode"]) == 40  # type: ignore[index]
+    assert diagnostics["viewer_metrics"]["active_route_index"] == 8  # type: ignore[index]
+    assert diagnostics["viewer_metrics"]["frame_count"] == 1_000_000_000  # type: ignore[index]
+    assert "ignored" not in json.dumps(diagnostics)
+    assert len(json.dumps(diagnostics)) < 3_000
+
+
+def test_route_gate_diagnostic_failure_does_not_mask_actionability_error() -> None:
+    page = _FakePage(
+        LABELS,
+        actionability_failure_index=1,
+        diagnostic_failure=True,
+    )
+
+    with pytest.raises(RuntimeError, match="route_actionability_invalid") as captured:
+        browser_gate._route_interactions(page, LABELS)
+
+    assert str(captured.value) == browser_gate._ROUTE_ACTIONABILITY_ERROR
+    assert isinstance(captured.value.__cause__, TimeoutError)
+    diagnostics = captured.value.diagnostics  # type: ignore[attr-defined]
+    assert diagnostics["collection_status"] == "failed"
+    assert diagnostics["phase"] == "click"
+    assert diagnostics["route_index"] == 1
+    assert diagnostics["locator_count_before_click"] == 1
+    assert diagnostics["locator_count_after_failure"] == -1
+    assert "private diagnostic collection detail" not in json.dumps(diagnostics)
+
+
+def test_candidate_runner_emits_bounded_route_actionability_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    page = _FakePage(LABELS, actionability_failure_index=1)
+    with pytest.raises(RuntimeError) as captured:
+        browser_gate._route_interactions(page, LABELS)
+    failure = captured.value
+
+    def fail_candidate(**_kwargs: object) -> dict[str, object]:
+        raise failure
+
+    monkeypatch.setattr(candidate_runner, "prove_candidate", fail_candidate)
+    exit_code = candidate_runner.main(
+        [
+            "--env-file",
+            str(tmp_path / "candidate.env"),
+            "--receipt",
+            str(tmp_path / "candidate-runtime.json"),
+        ]
+    )
+
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"] == browser_gate._ROUTE_ACTIONABILITY_ERROR
+    assert payload["status"] == "fail"
+    assert payload["diagnostics"] == failure.diagnostics  # type: ignore[attr-defined]
+    assert (
+        len(json.dumps(payload["diagnostics"]))
+        < candidate_runner.MAX_FAILURE_DIAGNOSTIC_BYTES
+    )
+    assert "route remained obstructed" not in json.dumps(payload)
+
+
+@pytest.mark.parametrize(
+    "diagnostics",
+    [
+        {"schema": "unexpected", "detail": "not trusted"},
+        {
+            "schema": candidate_runner.ROUTE_ACTIONABILITY_DIAGNOSTIC_SCHEMA,
+            "detail": "x" * candidate_runner.MAX_FAILURE_DIAGNOSTIC_BYTES,
+        },
+    ],
+)
+def test_candidate_runner_rejects_untrusted_or_oversized_failure_diagnostics(
+    diagnostics: dict[str, object],
+) -> None:
+    failure = RuntimeError(browser_gate._ROUTE_ACTIONABILITY_ERROR)
+    failure.diagnostics = diagnostics  # type: ignore[attr-defined]
+
+    assert candidate_runner._bounded_failure_diagnostics(failure) is None
 
 
 @pytest.mark.parametrize(
