@@ -201,39 +201,6 @@ their tracked default paths. Each `0600` artifact is hash-bound into a private
 phase manifest with the source tree, candidate image, projection digest, and
 gate result. Any checkout mutation fails before the next evidence command.
 
-## Owner-authorized certification break-glass
-
-The seven-day vexp certificate remains fail-closed by default. A direct owner
-decision may waive only that certificate for one deployment and one exact
-source revision. Set all seven fields; a missing, malformed, cross-deployment,
-or stale-revision field fails closed:
-
-```bash
-cd "$RELEASE_ROOT"
-commit="$(git rev-parse HEAD)"
-export EA_DEPLOYMENT_ID="manfred-owner-$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:12}"
-export EA_MEMORIAL_OWNER_BREAK_GLASS="remove-seven-day-vexp-certification-and-publish-manfred"
-export EA_MEMORIAL_OWNER_BREAK_GLASS_ACK="I_ACCEPT_VEXP_CERTIFICATION_IS_INCOMPLETE"
-export EA_MEMORIAL_OWNER_BREAK_GLASS_AUTHORIZATION_ID="owner-directive-$(date -u +%Y%m%d%H%M%S)-publish-now"
-export EA_MEMORIAL_OWNER_BREAK_GLASS_AUTHORIZER="repository_owner"
-export EA_MEMORIAL_OWNER_BREAK_GLASS_DEPLOYMENT_ID="$EA_DEPLOYMENT_ID"
-export EA_MEMORIAL_OWNER_BREAK_GLASS_REASON="owner_requested_immediate_publication"
-export EA_MEMORIAL_OWNER_BREAK_GLASS_SOURCE_REVISION="$commit"
-```
-
-This does not forge a qualified sentinel state and does not relax source,
-candidate, release-authority, 3D-tour, public-origin, compatibility, or
-rollback checks. Every certification boundary is recorded as an owner
-break-glass decision with the authorization ID, deployment ID, source
-revision, raw vexp status, waived requirement, and
-`certification_bypassed: true` / `certification_result_forged: false`.
-
-The fixed host-global deployment lock is still mandatory. If a separately
-installed certification guard holds it, preserve that guard's last state and
-unit identity, then stop and disable the guard under the same explicit owner
-authorization before preflight. Never acquire a second lock or point the
-deploy lane at another lock path.
-
 ## Deploy
 
 ```bash
