@@ -1410,6 +1410,23 @@ def _lane(
         "ea_public_activation_authority": False,
         "upstream_public_activation_authority": True,
     }
+    live_openapi_evidence = {
+        "path_count": 3,
+        "operation_count": 5,
+        "schema_count": 2,
+        "security_scheme_count": 1,
+        "path_digest_sha256": "1" * 64,
+        "contract_digest_sha256": "3" * 64,
+        "snapshot_source": "live_api_container_app.openapi",
+        "public_docs_config_retired": True,
+        "container_id": "d" * 64,
+        "image_id": runner.old_image,
+        "started_at": "2026-07-13T00:00:01Z",
+        "service": "ea-api",
+        "container_name": "ea-api",
+        "running": True,
+        "health": "healthy",
+    }
     candidate_receipt.write_text(
         json.dumps(
             {
@@ -1531,14 +1548,7 @@ def _lane(
                 "provider_calls_performed": False,
                 "spatial_handoff_runtime": spatial_runtime,
                 "openapi_contract": {
-                    "live_before": {
-                        "path_count": 3,
-                        "operation_count": 5,
-                        "schema_count": 2,
-                        "security_scheme_count": 1,
-                        "path_digest_sha256": "1" * 64,
-                        "contract_digest_sha256": "3" * 64,
-                    },
+                    "live_before": dict(live_openapi_evidence),
                     "candidate": {
                         "path_count": 1,
                         "operation_count": 3,
@@ -1563,14 +1573,7 @@ def _lane(
                         },
                         "public_endpoint_retired": True,
                     },
-                    "live_after": {
-                        "path_count": 3,
-                        "operation_count": 5,
-                        "schema_count": 2,
-                        "security_scheme_count": 1,
-                        "path_digest_sha256": "1" * 64,
-                        "contract_digest_sha256": "3" * 64,
-                    },
+                    "live_after": dict(live_openapi_evidence),
                     "retirement_policy_id": deploy.OPENAPI_RETIREMENT_POLICY_ID,
                     "retirement_allowed_operations": list(
                         deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
@@ -2147,6 +2150,63 @@ def test_rendered_mount_identity_matches_named_volume_runtime_source(
     )
 
     assert runtime == rendered
+
+
+def test_memorial_rollback_environment_is_reconstructed_from_live_identity(
+    tmp_path: Path,
+) -> None:
+    container_values = {
+        "EA_SOURCE_REVISION": "a" * 40,
+        "EA_ENABLE_PUBLIC_MEMORIALS": "1",
+        "EA_HEALTHCHECK_MEMORIAL_SLUG": "manfred",
+        "EA_PUBLIC_MEMORIAL_RATE_BACKEND": "redis",
+        "EA_PUBLIC_MEMORIAL_REDIS_URL": "redis://ea-redis:6379/0",
+        "EA_PUBLIC_MEMORIAL_DIR": "/data/memorial_data/public_memorials",
+        "EA_PRIVATE_MEMORIAL_PROFILE_DIR": (
+            "/data/memorial_data/private_memorial_profiles"
+        ),
+        "EA_MEMORIAL_LIVE_TTS_PLUGIN": "unmixr_clone",
+        "EA_TRUSTED_PROXY_CIDRS": "172.22.0.12/32,172.22.0.1/32",
+        "EA_TRUSTED_PUBLIC_ORIGIN_ALIASES": "origin.myexternalbrain.com",
+        "EA_ALLOWED_PUBLIC_HOSTS": "myexternalbrain.com,www.myexternalbrain.com",
+        "SECRET_TOKEN": "must-not-be-copied",
+    }
+    data_root = (tmp_path / "release").resolve()
+    runtime_root = (tmp_path / "runtime").resolve()
+    mounts = [
+        {
+            "type": "bind",
+            "source": str(data_root),
+            "destination": "/data/memorial_data",
+            "read_write": False,
+        },
+        *[
+            {
+                "type": "bind",
+                "source": str(runtime_root / leaf),
+                "destination": f"/data/memorial-writable/{leaf}",
+                "read_write": True,
+            }
+            for leaf in ("public-contributions", "private-contributions", "state")
+        ],
+    ]
+
+    environment = deploy._memorial_rollback_environment(
+        config={
+            "Env": [
+                f"{name}={value}" for name, value in container_values.items()
+            ]
+        },
+        mount_identities=mounts,
+        image_reference="ea-runtime:manfred-prior",
+    )
+
+    assert set(environment) == deploy.ROLLBACK_MEMORIAL_RENDER_ENV_KEYS
+    assert environment["EA_SOURCE_REVISION"] == "a" * 40
+    assert environment["EA_MEMORIAL_DATA_HOST_PATH"] == str(data_root)
+    assert environment["EA_MEMORIAL_RUNTIME_HOST_PATH"] == str(runtime_root)
+    assert environment["EA_MEMORIAL_IMAGE"] == "ea-runtime:manfred-prior"
+    assert "SECRET_TOKEN" not in environment
 
 
 def test_rollback_render_environment_drift_fails_before_mutation(
@@ -3301,6 +3361,28 @@ def test_predeploy_requires_both_safety_retirement_operations(
     assert not any("up" in call for call in runner.calls)
 
 
+def test_openapi_retirement_is_idempotent_for_governed_update(
+    release_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.prior_openapi_paths = list(runner.forward_openapi_paths)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    receipt = _lane(release_root, runner).deploy()
+
+    assert receipt["status"] == "pass"
+    predeploy = receipt["predeploy_non_memorial_controls"]["openapi"]
+    postdeploy = receipt["postdeploy_non_memorial_controls"]["openapi"]
+    assert predeploy["retirement_state"] == "applied"
+    assert postdeploy["retired_operations"] == []
+    assert postdeploy["retired_operation_count"] == 0
+    assert postdeploy["retirement_policy_exact_match"] is True
+
+
 def test_openapi_changed_retained_operation_has_no_waiver(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3692,7 +3774,6 @@ def test_forward_topology_rebases_ordered_baseline_layers_into_release_root(
         "source_worktree_metadata",
         lambda *_args, **_kwargs: {"source_worktree_dirty": False},
     )
-
     receipt = _lane(release_root, runner).deploy(preflight_only=True)
 
     assert receipt["target_compose_files"] == [
@@ -3729,6 +3810,11 @@ def test_existing_memorial_baseline_is_replaced_for_governed_update(
         deploy,
         "source_worktree_metadata",
         lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    monkeypatch.setattr(
+        deploy,
+        "_memorial_rollback_environment",
+        lambda **_kwargs: {},
     )
 
     receipt = _lane(release_root, runner).deploy(preflight_only=True)

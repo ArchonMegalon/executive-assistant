@@ -151,6 +151,29 @@ ROLLBACK_ENV_PASSTHROUGH = {
     "USER",
     "XDG_RUNTIME_DIR",
 }
+ROLLBACK_MEMORIAL_CONTAINER_ENV_MAP = {
+    "EA_SOURCE_REVISION": "EA_SOURCE_REVISION",
+    "EA_ENABLE_PUBLIC_MEMORIALS": "EA_ENABLE_PUBLIC_MEMORIALS",
+    "EA_HEALTHCHECK_MEMORIAL_SLUG": "EA_HEALTHCHECK_MEMORIAL_SLUG",
+    "EA_PUBLIC_MEMORIAL_RATE_BACKEND": "EA_PUBLIC_MEMORIAL_RATE_BACKEND",
+    "EA_PUBLIC_MEMORIAL_REDIS_URL": "EA_PUBLIC_MEMORIAL_REDIS_URL",
+    "EA_PUBLIC_MEMORIAL_DIR": "EA_PUBLIC_MEMORIAL_DIR",
+    "EA_PRIVATE_MEMORIAL_PROFILE_DIR": "EA_PRIVATE_MEMORIAL_PROFILE_DIR",
+    "EA_MEMORIAL_LIVE_TTS_PLUGIN": "EA_MEMORIAL_LIVE_TTS_PLUGIN",
+    "EA_MEMORIAL_TRUSTED_PROXY_CIDRS": "EA_TRUSTED_PROXY_CIDRS",
+    "EA_MEMORIAL_TRUSTED_PUBLIC_ORIGIN_ALIASES": (
+        "EA_TRUSTED_PUBLIC_ORIGIN_ALIASES"
+    ),
+    "EA_MEMORIAL_ALLOWED_PUBLIC_HOSTS": "EA_ALLOWED_PUBLIC_HOSTS",
+}
+ROLLBACK_MEMORIAL_RENDER_ENV_KEYS = frozenset(
+    {
+        *ROLLBACK_MEMORIAL_CONTAINER_ENV_MAP,
+        "EA_MEMORIAL_IMAGE",
+        "EA_MEMORIAL_DATA_HOST_PATH",
+        "EA_MEMORIAL_RUNTIME_HOST_PATH",
+    }
+)
 MAX_HTTP_BODY_BYTES = 2 * 1024 * 1024
 MAX_INTERNAL_OPENAPI_BYTES = 8 * 1024 * 1024
 MAX_FIXED_JSON_SCRIPT_OUTPUT_BYTES = 64 * 1024
@@ -720,6 +743,71 @@ def _container_runtime_config_digests(
         **_environment_identity(list(config.get("Env") or [])),
         "process_config_sha256": _process_config_identity(config),
     }
+
+
+def _memorial_rollback_environment(
+    *,
+    config: Mapping[str, Any],
+    mount_identities: Sequence[Mapping[str, object]],
+    image_reference: str,
+) -> dict[str, str]:
+    container_environment = {
+        entry.split("=", 1)[0]: entry.split("=", 1)[1]
+        for entry in _normalized_environment(list(config.get("Env") or []))
+    }
+    environment: dict[str, str] = {}
+    for host_name, container_name in ROLLBACK_MEMORIAL_CONTAINER_ENV_MAP.items():
+        value = container_environment.get(container_name)
+        if value is None or "\n" in value or "\r" in value:
+            raise DeployError("rollback_memorial_environment_invalid")
+        environment[host_name] = value
+    if not re.fullmatch(r"[0-9a-f]{40}", environment["EA_SOURCE_REVISION"]):
+        raise DeployError("rollback_memorial_environment_invalid")
+    if not image_reference or "\n" in image_reference or "\r" in image_reference:
+        raise DeployError("rollback_memorial_environment_invalid")
+    environment["EA_MEMORIAL_IMAGE"] = image_reference
+
+    by_destination: dict[str, Mapping[str, object]] = {}
+    for item in mount_identities:
+        destination = str(item.get("destination") or "")
+        if destination in by_destination:
+            raise DeployError("rollback_memorial_mount_identity_invalid")
+        by_destination[destination] = item
+    data_mount = by_destination.get("/data/memorial_data")
+    if (
+        not isinstance(data_mount, Mapping)
+        or str(data_mount.get("type") or "") != "bind"
+        or data_mount.get("read_write") is not False
+    ):
+        raise DeployError("rollback_memorial_mount_identity_invalid")
+    data_root = Path(str(data_mount.get("source") or "")).expanduser()
+    if not data_root.is_absolute():
+        raise DeployError("rollback_memorial_mount_identity_invalid")
+    environment["EA_MEMORIAL_DATA_HOST_PATH"] = str(data_root.resolve())
+
+    runtime_root: Path | None = None
+    for leaf in ("public-contributions", "private-contributions", "state"):
+        mount = by_destination.get(f"/data/memorial-writable/{leaf}")
+        if (
+            not isinstance(mount, Mapping)
+            or str(mount.get("type") or "") != "bind"
+            or mount.get("read_write") is not True
+        ):
+            raise DeployError("rollback_memorial_mount_identity_invalid")
+        source = Path(str(mount.get("source") or "")).expanduser()
+        if not source.is_absolute() or source.name != leaf:
+            raise DeployError("rollback_memorial_mount_identity_invalid")
+        parent = source.resolve().parent
+        if runtime_root is None:
+            runtime_root = parent
+        elif parent != runtime_root:
+            raise DeployError("rollback_memorial_mount_identity_invalid")
+    if runtime_root is None:
+        raise DeployError("rollback_memorial_mount_identity_invalid")
+    environment["EA_MEMORIAL_RUNTIME_HOST_PATH"] = str(runtime_root)
+    if set(environment) != ROLLBACK_MEMORIAL_RENDER_ENV_KEYS:
+        raise DeployError("rollback_memorial_environment_invalid")
+    return environment
 
 
 def _has_exact_zero_browser_counts(payload: Mapping[str, Any]) -> bool:
@@ -1555,12 +1643,24 @@ class MemorialDeployLane:
     ) -> list[str]:
         return [*self._compose_args(root=root, files=files), *args]
 
-    def _rollback_environment(self) -> dict[str, str]:
-        return {
+    def _rollback_environment(
+        self, previous: Mapping[str, Any]
+    ) -> dict[str, str]:
+        environment = {
             key: value
             for key, value in self.env.items()
             if key in ROLLBACK_ENV_PASSTHROUGH and key not in FORWARD_ONLY_ENV_KEYS
         }
+        memorial_environment = previous.get("rollback_environment") or {}
+        if not isinstance(memorial_environment, dict) or (
+            memorial_environment
+            and set(memorial_environment) != ROLLBACK_MEMORIAL_RENDER_ENV_KEYS
+        ):
+            raise DeployError("rollback_memorial_environment_invalid")
+        environment.update(
+            {str(key): str(value) for key, value in memorial_environment.items()}
+        )
+        return environment
 
     @staticmethod
     def _deployment_input_file_seal(path: Path) -> dict[str, object]:
@@ -2736,7 +2836,7 @@ class MemorialDeployLane:
             for item in list(previous.get("compose_config_files") or [])
             if str(item).strip()
         ]
-        rollback_env = self._rollback_environment()
+        rollback_env = self._rollback_environment(previous)
         rendered = _json_object(
             self._run(
                 self._rollback_compose(
@@ -2977,12 +3077,31 @@ class MemorialDeployLane:
         live_openapi_after = openapi_snapshot("live_after")
 
         def valid_openapi_snapshot(
-            value: Mapping[str, Any], *, candidate_snapshot: bool = False
+            value: Mapping[str, Any],
+            *,
+            candidate_snapshot: bool = False,
+            live_snapshot: bool = False,
         ) -> bool:
+            if candidate_snapshot and live_snapshot:
+                return False
             expected_fields = set(OPENAPI_EVIDENCE_FIELDS)
             if candidate_snapshot:
                 expected_fields.update(
                     {"snapshot_source", "public_docs_config_retired"}
+                )
+            if live_snapshot:
+                expected_fields.update(
+                    {
+                        "snapshot_source",
+                        "public_docs_config_retired",
+                        "container_id",
+                        "image_id",
+                        "started_at",
+                        "service",
+                        "container_name",
+                        "running",
+                        "health",
+                    }
                 )
             return (
                 set(value) == expected_fields
@@ -3008,6 +3127,28 @@ class MemorialDeployLane:
                         value.get("snapshot_source")
                         == "candidate_api_container_app.openapi"
                         and value.get("public_docs_config_retired") is True
+                    )
+                )
+                and (
+                    not live_snapshot
+                    or (
+                        value.get("snapshot_source")
+                        == "live_api_container_app.openapi"
+                        and value.get("public_docs_config_retired") is True
+                        and re.fullmatch(
+                            r"[0-9a-f]{64}",
+                            str(value.get("container_id") or ""),
+                        )
+                        is not None
+                        and IMAGE_ID_PATTERN.fullmatch(
+                            str(value.get("image_id") or "")
+                        )
+                        is not None
+                        and bool(str(value.get("started_at") or "").strip())
+                        and value.get("service") == API_SERVICE
+                        and value.get("container_name") == API_SERVICE
+                        and value.get("running") is True
+                        and value.get("health") == "healthy"
                     )
                 )
             )
@@ -3883,12 +4024,12 @@ class MemorialDeployLane:
             or openapi["missing_or_changed_schema_count"] != 0
             or type(openapi.get("missing_or_changed_security_scheme_count")) is not int
             or openapi["missing_or_changed_security_scheme_count"] != 0
-            or not valid_openapi_snapshot(live_openapi_before)
+            or not valid_openapi_snapshot(live_openapi_before, live_snapshot=True)
             or not valid_openapi_snapshot(candidate_openapi, candidate_snapshot=True)
             or not valid_candidate_openapi_public_endpoint(
                 candidate_openapi_public_endpoint
             )
-            or not valid_openapi_snapshot(live_openapi_after)
+            or not valid_openapi_snapshot(live_openapi_after, live_snapshot=True)
             or live_openapi_before != live_openapi_after
             or int(candidate_openapi.get("path_count") or 0)
             < max(
@@ -4094,7 +4235,9 @@ class MemorialDeployLane:
     @staticmethod
     def _sanitized_previous_api(previous: Mapping[str, Any]) -> dict[str, Any]:
         return {
-            key: value for key, value in previous.items() if key != "mount_identities"
+            key: value
+            for key, value in previous.items()
+            if key not in {"mount_identities", "rollback_environment"}
         }
 
     def _verify_forward_api(
@@ -4263,6 +4406,22 @@ class MemorialDeployLane:
             raise DeployError(f"prior_api_rollback_input_missing:{env_path}")
         mount_identities = _mount_identities(inspection)
         runtime_config = _container_runtime_config_digests(inspection)
+        memorial_layers = [
+            path
+            for path in list(topology["compose_config_files"])
+            if Path(str(path)).name == MEMORIAL_COMPOSE_FILE
+        ]
+        if len(memorial_layers) > 1:
+            raise DeployError("prior_api_memorial_compose_duplicate")
+        rollback_environment = (
+            _memorial_rollback_environment(
+                config=config,
+                mount_identities=mount_identities,
+                image_reference=image_reference,
+            )
+            if memorial_layers
+            else {}
+        )
         return {
             "container_id": str(inspection.get("Id") or ""),
             "created_at": str(inspection.get("Created") or ""),
@@ -4273,6 +4432,7 @@ class MemorialDeployLane:
             "mount_identities": mount_identities,
             "mount_identity_sha256": _identity_digest(mount_identities),
             "mount_identity_count": len(mount_identities),
+            "rollback_environment": rollback_environment,
             **runtime_config,
             "state": {
                 "running": bool(state.get("Running")),
@@ -4646,7 +4806,15 @@ class MemorialDeployLane:
         predeploy_operations = dict(
             dict(controls["openapi"].get("_contract") or {}).get("operations") or {}
         )
-        if not set(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS) <= set(predeploy_operations):
+        predeploy_retirement_operations = [
+            operation
+            for operation in OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+            if operation in predeploy_operations
+        ]
+        if predeploy_retirement_operations not in (
+            [],
+            list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS),
+        ):
             raise DeployError("predeploy_openapi_retirement_operations_missing")
         if self.control_tour_slug:
             base = f"{self._local_origin()}/tours/{self.control_tour_slug}"
@@ -4668,6 +4836,9 @@ class MemorialDeployLane:
         )
         receipt_controls["openapi"]["retirement_allowed_operations"] = list(
             OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+        )
+        receipt_controls["openapi"]["retirement_state"] = (
+            "pending" if predeploy_retirement_operations else "applied"
         )
         receipt_controls["openapi"]["compatible_evolution_policy_id"] = (
             OPENAPI_COMPATIBLE_EVOLUTION_POLICY_ID
@@ -4710,7 +4881,15 @@ class MemorialDeployLane:
         current_schemas = dict(current_contract.get("schemas") or {})
         current_security = dict(current_contract.get("security_schemes") or {})
         missing_operations = sorted(set(prior_operations) - set(current_operations))
-        if missing_operations != list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS):
+        expected_retirements = sorted(
+            operation
+            for operation in OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+            if operation in prior_operations
+        )
+        if missing_operations != expected_retirements or any(
+            operation in current_operations
+            for operation in OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+        ):
             raise DeployError("postdeploy_openapi_operation_retirement_mismatch")
         missing_or_changed_schemas = sorted(
             name
@@ -4985,9 +5164,15 @@ class MemorialDeployLane:
             dict(prior_contract_value) if isinstance(prior_contract_value, dict) else {}
         )
         prior_operations = dict(prior_contract.get("operations") or {})
-        if not prior_operations or not set(
-            OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
-        ) <= set(prior_operations):
+        prior_retirement_operations = [
+            operation
+            for operation in OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
+            if operation in prior_operations
+        ]
+        if not prior_operations or prior_retirement_operations not in (
+            [],
+            list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS),
+        ):
             raise DeployError("rollback_openapi_baseline_invalid")
         rollback_root = Path(str(previous["working_dir"])).resolve()
         rollback_files = [
@@ -5004,7 +5189,7 @@ class MemorialDeployLane:
             str(previous.get("image_reference") or ""),
             reason="rollback_image_reference_unrestorable",
         )
-        rollback_env = self._rollback_environment()
+        rollback_env = self._rollback_environment(previous)
         self._run(
             ["docker", "image", "tag", str(previous["image_id"]), prior_reference],
             env=rollback_env,
