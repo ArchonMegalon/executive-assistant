@@ -393,6 +393,7 @@ def test_verify_candidate_wires_archive_publication_gate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     called: list[str] = []
+    alias_calls: list[dict[str, object]] = []
     transport_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(candidate_verify, "_wait_for_health", lambda *_args: None)
@@ -401,10 +402,23 @@ def test_verify_candidate_wires_archive_publication_gate(
         "_verify_memorial_transport_security",
         lambda *_args, **_kwargs: {},
     )
+
+    def singular_alias(
+        base_url: str,
+        public_origin: str,
+        *,
+        request_fn: object,
+    ) -> None:
+        alias_calls.append(
+            {
+                "base_url": base_url,
+                "public_origin": public_origin,
+                "request_fn": request_fn,
+            }
+        )
+
     monkeypatch.setattr(
-        candidate_verify,
-        "_verify_singular_memorial_alias",
-        lambda *_args: None,
+        candidate_verify, "_verify_singular_memorial_alias", singular_alias
     )
 
     def request(
@@ -450,6 +464,13 @@ def test_verify_candidate_wires_archive_publication_gate(
         )
 
     assert called == ["https://memorial.example.test"]
+    assert alias_calls == [
+        {
+            "base_url": "https://memorial.example.test",
+            "public_origin": "https://memorial.example.test",
+            "request_fn": transport_request,
+        }
+    ]
     assert transport_calls == [
         {
             "base_url": "https://memorial.example.test",
@@ -535,10 +556,8 @@ def test_public_memorial_singular_alias_is_permanent_safe_and_schema_hidden() ->
     assert "/memorial/manfred" not in app.openapi()["paths"]
 
 
-def test_candidate_alias_verifier_inspects_exact_get_and_head_first_hops(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    observed: list[tuple[str, str, bool, set[int]]] = []
+def test_candidate_alias_verifier_inspects_exact_get_and_head_first_hops() -> None:
+    observed: list[dict[str, object]] = []
 
     def fake_request(  # type: ignore[no-untyped-def]
         base_url,
@@ -547,9 +566,19 @@ def test_candidate_alias_verifier_inspects_exact_get_and_head_first_hops(
         method="GET",
         expected=None,
         follow_redirects=True,
+        headers=None,
         **_kwargs,
     ):
-        observed.append((method, path, follow_redirects, set(expected or set())))
+        observed.append(
+            {
+                "base_url": base_url,
+                "path": path,
+                "method": method,
+                "headers": dict(headers or {}),
+                "follow_redirects": follow_redirects,
+                "expected": set(expected or set()),
+            }
+        )
         return (
             308,
             b"" if method == "HEAD" else b"Permanent Redirect",
@@ -562,22 +591,37 @@ def test_candidate_alias_verifier_inspects_exact_get_and_head_first_hops(
             },
         )
 
-    monkeypatch.setattr(candidate_verify, "_request", fake_request)
-    candidate_verify._verify_singular_memorial_alias("https://memorial.example.org")
+    candidate_verify._verify_singular_memorial_alias(
+        "http://127.0.0.1:8090",
+        "https://myexternalbrain.com",
+        request_fn=fake_request,
+    )
 
     assert observed == [
-        (
-            "GET",
-            "/memorial/manfred?from=ea-launch-verifier",
-            False,
-            {308},
-        ),
-        (
-            "HEAD",
-            "/memorial/manfred?from=ea-launch-verifier",
-            False,
-            {308},
-        ),
+        {
+            "base_url": "http://127.0.0.1:8090",
+            "path": "/memorial/manfred?from=ea-launch-verifier",
+            "method": "GET",
+            "headers": {
+                "Host": "myexternalbrain.com",
+                "X-Forwarded-Host": "myexternalbrain.com",
+                "X-Forwarded-Proto": "https",
+            },
+            "follow_redirects": False,
+            "expected": {308},
+        },
+        {
+            "base_url": "http://127.0.0.1:8090",
+            "path": "/memorial/manfred?from=ea-launch-verifier",
+            "method": "HEAD",
+            "headers": {
+                "Host": "myexternalbrain.com",
+                "X-Forwarded-Host": "myexternalbrain.com",
+                "X-Forwarded-Proto": "https",
+            },
+            "follow_redirects": False,
+            "expected": {308},
+        },
     ]
 
 
@@ -781,7 +825,10 @@ def test_no_redirect_clients_observe_308_without_requesting_canonical_target() -
     try:
         host, port = server.server_address[:2]
         origin = f"http://{host}:{port}"
-        candidate_verify._verify_singular_memorial_alias(origin)
+        candidate_verify._verify_singular_memorial_alias(
+            origin,
+            "https://myexternalbrain.com",
+        )
         for method in ("GET", "HEAD"):
             response = memorial_deploy._default_http_no_redirect(
                 f"{origin}/memorial/manfred?from=ea-launch-verifier",

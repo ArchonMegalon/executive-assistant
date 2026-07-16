@@ -144,7 +144,19 @@ def _json_body(body: bytes, *, path: str) -> dict[str, object]:
     return payload
 
 
-def _verify_singular_memorial_alias(base_url: str) -> None:
+def _verify_singular_memorial_alias(
+    base_url: str,
+    public_origin: str,
+    *,
+    request_fn: Callable[..., tuple[int, bytes, dict[str, str]]] | None = None,
+) -> None:
+    request = request_fn or _request
+    authority, _canonical_origin = _canonical_public_https_origin(public_origin)
+    proxy_headers = {
+        "Host": authority,
+        "X-Forwarded-Host": authority,
+        "X-Forwarded-Proto": "https",
+    }
     query = "from=ea-launch-verifier"
     path = f"/memorial/manfred?{query}"
     expected_location = f"/memorials/manfred?{query}"
@@ -155,10 +167,11 @@ def _verify_singular_memorial_alias(base_url: str) -> None:
         "x-robots-tag": "noindex, nofollow",
     }
     for method in ("GET", "HEAD"):
-        status, body, headers = _request(
+        status, body, headers = request(
             base_url,
             path,
             method=method,
+            headers=proxy_headers,
             expected={308},
             follow_redirects=False,
         )
@@ -261,8 +274,7 @@ def _verify_memorial_transport_security(
     )
     if (
         status != 200
-        or headers.get("strict-transport-security", "").strip()
-        != MEMORIAL_HSTS
+        or headers.get("strict-transport-security", "").strip() != MEMORIAL_HSTS
         or "location" in headers
     ):
         raise RuntimeError("candidate_memorial_transport_https_invalid")
@@ -793,7 +805,11 @@ def verify_candidate(
         public_origin,
         request_fn=transport_request,
     )
-    _verify_singular_memorial_alias(base_url)
+    _verify_singular_memorial_alias(
+        base_url,
+        public_origin,
+        request_fn=transport_request,
+    )
     archive_gate = _verify_memorial_archive_gate(base_url)
     _request(base_url, "/memorials/manfred/app.webmanifest")
     _request(base_url, "/memorials/manfred/service-worker.js")
