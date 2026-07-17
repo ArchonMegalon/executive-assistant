@@ -312,3 +312,148 @@ python3 scripts/verify_memorial_deploy_readiness.py --pretty
 
 Do not claim memorial public-origin readiness unless both public routes and the
 transparent-narrator contract pass at the configured production origin.
+
+## Terminal qualification and root permit
+
+The candidate and promotion window is closed unless the schema-v6 sentinel is
+terminal `qualified` and a short-lived root-owned permit proves that exact
+epoch. `enforced_soak` is an unconditional deny. Missing state, lock, or permit
+files; stale or malformed JSON; wrong ownership/mode; symlinks/hardlinks; an
+unhealthy current resource set; or any certification blocker also deny. Do not
+repair those conditions by editing sentinel state, hand-authoring permit JSON,
+or invoking Docker directly.
+
+The permit manager uses the fixed files
+`/run/ea/memorial-vexp-mutation-permit.json` and
+`/run/ea/memorial-vexp-mutation-permit.lock`. The lock is a stable root-owned
+coordination inode: the deploy lane holds a shared lease across each exact
+mutation, while issue and revoke take an exclusive lease. A permit lasts at
+most one hour and is revalidated at every mutation boundary.
+
+Install the manager once per reviewed revision from a root shell. The Git
+object is treated only as data: root does not import or execute Python from the
+checkout. Replace all three required variables with review receipts before
+running this block. `reviewed_commit` must be the exact 40-character commit ID,
+not a branch or tag, and `reviewed_manager_sha256` must be the reviewed digest
+of that commit's manager blob.
+
+```bash
+set -eu
+umask 077
+reviewed_repo="${EA_REVIEWED_EA_REPOSITORY:?set its absolute path}"
+reviewed_commit="${EA_REVIEWED_EA_COMMIT:?set the reviewed 40-character commit ID}"
+reviewed_manager_sha256="${EA_REVIEWED_PERMIT_MANAGER_SHA256:?set the reviewed blob SHA-256}"
+stage_dir="$(/usr/bin/mktemp -d /root/ea-permit-manager.XXXXXX)"
+trap '/usr/bin/rm -rf -- "$stage_dir"' EXIT HUP INT TERM
+stage_file="$stage_dir/manage-manfred-vexp-mutation-permit"
+
+materialized_commit="$(
+  /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
+    /usr/bin/git -c safe.directory="$reviewed_repo" -C "$reviewed_repo" \
+    rev-parse --verify "$reviewed_commit^{commit}"
+)"
+/usr/bin/test "$materialized_commit" = "$reviewed_commit"
+/usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
+  /usr/bin/git -c safe.directory="$reviewed_repo" -C "$reviewed_repo" \
+  cat-file blob "$reviewed_commit:scripts/manage_manfred_vexp_mutation_permit.py" \
+  >"$stage_file"
+/usr/bin/chmod 0400 "$stage_file"
+materialized_sha256="$(/usr/bin/sha256sum "$stage_file" | /usr/bin/cut -d ' ' -f 1)"
+/usr/bin/test "$materialized_sha256" = "$reviewed_manager_sha256"
+/usr/bin/install -d -o root -g root -m 0755 /usr/local/libexec/ea
+/usr/bin/install -o root -g root -m 0555 "$stage_file" \
+  /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit
+/usr/bin/test "$(/usr/bin/sha256sum \
+  /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit | \
+  /usr/bin/cut -d ' ' -f 1)" = "$reviewed_manager_sha256"
+/usr/bin/test "$(/usr/bin/env -i LANG=C PATH=/usr/bin:/bin \
+  /usr/bin/stat -c '%a:%u:%g:%h:%F' \
+  /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit)" \
+  = "555:0:0:1:regular file"
+```
+
+Do not replace the fixed installed file with a symlink or hardlink. Every
+manager invocation below uses the fixed system interpreter in isolated mode
+and an empty environment. The manager independently verifies those facts, its
+fixed path, its exact mode and ownership, and its root-owned parent before it
+reads or changes authority state.
+
+Use this sequence:
+
+1. Complete source-only memorial and 3D-tour authority inputs without creating
+   a candidate image/runtime.
+2. After the sentinel becomes terminal, enter a reviewed root shell and issue
+   the first exact-epoch permit. The state path and owner UID must be explicit.
+   Run state-bound `status` immediately afterward; candidate creation may start
+   only after this exact command succeeds:
+
+   ```bash
+   state_path="${VEXP_SENTINEL_STATE_PATH:?set the absolute schema-v6 state path}"
+   state_owner_uid="${VEXP_SENTINEL_STATE_OWNER_UID:?set its numeric owner uid}"
+   /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
+     /usr/bin/python3 -I \
+     /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit issue \
+     --state-path "$state_path" \
+     --state-owner-uid "$state_owner_uid" \
+     --ttl-seconds 3600
+   /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
+     /usr/bin/python3 -I \
+     /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit status \
+     --state-path "$state_path" \
+     --state-owner-uid "$state_owner_uid"
+   ```
+
+3. Start the governed candidate immediately after that state-bound status.
+   While the authority is current, prove the exact image ID, source revision,
+   projection digest, memorial routes, and priority 3D-tour HTML/JSON routes.
+   Do not replace the governed candidate scripts with raw Docker commands.
+4. Run the non-mutating scoped production preflight:
+
+   ```bash
+   python3 scripts/deploy_ea_memorial.py --preflight-only
+   ```
+
+5. From the root shell, issue a fresh short-lived permit for the same state and
+   run state-bound `status` again. Start deploy immediately after this succeeds:
+
+   ```bash
+   /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
+     /usr/bin/python3 -I \
+     /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit issue \
+     --state-path "$state_path" \
+     --state-owner-uid "$state_owner_uid" \
+     --ttl-seconds 900
+   /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
+     /usr/bin/python3 -I \
+     /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit status \
+     --state-path "$state_path" \
+     --state-owner-uid "$state_owner_uid"
+   ```
+
+6. In the release operator shell, deploy only through the scoped lane:
+
+   ```bash
+   python3 scripts/deploy_ea_memorial.py
+   ```
+
+7. Prove the exact deployed revision at the credential-free HTTPS origin,
+   including `/memorials/manfred`, `/memorials/manfred.json`, and the configured
+   priority `/tours/...` HTML and JSON. Preserve the private deployment/browser
+   receipts.
+8. Return to the root shell and revoke immediately:
+
+   ```bash
+   /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
+     /usr/bin/python3 -I \
+     /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit revoke
+   ```
+
+If revoke reports a busy lock, a governed mutation still owns the shared lease.
+Wait for that action's 180-second deadline, inspect its receipt, then retry
+revoke. If the lock remains busy because its holder was externally stopped or
+is wedged, never delete or replace the stable lock. Use root process tooling to
+identify the exact holder, capture its receipt and current container state, and
+terminate only the governed deploy process tree under the incident procedure.
+Verify API and rollback truth before retrying revoke. Do not stop, restart,
+replace, or otherwise mutate sentinel or qualification units. A failed or
+expired permit is a deny, not an invitation to bypass the lane.

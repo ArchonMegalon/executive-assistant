@@ -932,3 +932,22 @@ promotion, set `EA_MEMORIAL_TRUSTED_PROXY_CIDRS` to the same exact `/32`.
 Changing the subnet or peer address is a maintenance migration: validate the
 rendered Compose configuration first and recreate the tunnel only in an
 authorized deployment window.
+
+## Manfred qualification authority
+
+Manfred candidate creation and live promotion require a current root-owned
+permit bound to the exact terminal schema-v6 VEXP epoch. During
+`enforced_soak`, or when the state, stable lock, or permit is missing or
+untrusted, stop: neither candidate creation nor live EA mutation is authorized.
+Never create the JSON by hand and never substitute raw Docker commands.
+
+Install the exact reviewed manager commit to
+`/usr/local/libexec/ea/manage-manfred-vexp-mutation-permit`; never execute its
+checkout source as root. From a reviewed root shell, invoke the installed file
+only with `/usr/bin/python3 -I` under sanitized `env -i`, passing the explicit
+absolute sentinel state path and numeric owner UID to both `issue` and `status`.
+Run state-bound `status` immediately before candidate start and again
+immediately before the scoped deployment. Run `revoke` after exact-revision
+public memorial and priority 3D-tour proof. The pinned install commands and
+receipt expectations are in
+`docs/MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md`.

@@ -2,13 +2,55 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 import pytest
 
 from scripts import deploy_ea_memorial as deploy
+
+
+class TestVexpMemorialMutationAuthority(deploy.VexpMemorialMutationAuthority):
+    __test__ = False
+
+    def __init__(
+        self,
+        *,
+        state_path: Path,
+        permit_path: Path,
+        lock_path: Path,
+        utc_now: Callable[[], datetime],
+    ) -> None:
+        self._state_path = state_path
+        self._permit_path = permit_path
+        self._lock_path = lock_path
+        self._utc_now = utc_now
+
+    @property
+    def sentinel_state_path(self) -> Path:
+        return self._state_path
+
+    @property
+    def mutation_permit_path(self) -> Path:
+        return self._permit_path
+
+    @property
+    def mutation_permit_owner_uid(self) -> int:
+        return os.geteuid()
+
+    @property
+    def mutation_permit_lock_path(self) -> Path:
+        return self._lock_path
+
+    @property
+    def mutation_permit_lock_owner_uid(self) -> int:
+        return os.geteuid()
+
+    def utc_now(self) -> datetime:
+        return self._utc_now()
 
 
 SAFE_HTML = (
@@ -1672,6 +1714,50 @@ def _lane(
     if control_tour_slug:
         env["EA_MEMORIAL_CONTROL_TOUR_SLUG"] = control_tour_slug
 
+    vexp_authority_root = root.parent / "vexp-test-authority"
+    vexp_authority_root.mkdir(parents=True, exist_ok=True)
+    vexp_state_path = vexp_authority_root / "state.json"
+    vexp_permit_path = vexp_authority_root / "memorial-mutation-permit.json"
+    vexp_lock_path = vexp_authority_root / "memorial-mutation-permit.lock"
+    vexp_state: dict[str, object] = {
+        "version": deploy.VEXP_SENTINEL_STATE_VERSION,
+        "epoch_started_at": "2026-07-13T09:43:56.206Z",
+        "epoch_started_ms": 1783935836206,
+        "qualification_phase": "qualified",
+        "qualification_earliest_completion_at": "2026-07-20T09:43:56.206Z",
+        "qualified_at": "2026-07-20T09:43:56.206Z",
+        "updated_at": "2026-07-20T09:59:00.000Z",
+        "current_resources_healthy": True,
+        "certification_blockers": [],
+    }
+    vexp_permit = {
+        "contract_name": deploy.VEXP_MUTATION_PERMIT_CONTRACT_NAME,
+        "version": deploy.VEXP_MUTATION_PERMIT_VERSION,
+        "status": "allow",
+        "epoch_started_at": vexp_state["epoch_started_at"],
+        "epoch_started_ms": vexp_state["epoch_started_ms"],
+        "qualification_earliest_completion_at": vexp_state[
+            "qualification_earliest_completion_at"
+        ],
+        "qualified_at": vexp_state["qualified_at"],
+        "terminal_identity_sha256": deploy._vexp_terminal_identity_sha256(
+            vexp_state
+        ),
+        "issued_at": "2026-07-20T09:45:00.000Z",
+        "expires_at": "2026-07-20T10:30:00.000Z",
+        "mutation_boundaries": list(deploy.VEXP_MUTATION_BOUNDARIES),
+    }
+    vexp_state_path.write_text(
+        json.dumps(vexp_state, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    vexp_state_path.chmod(0o600)
+    vexp_permit_path.write_text(
+        json.dumps(vexp_permit, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    vexp_permit_path.chmod(0o644)
+    vexp_lock_path.touch()
+    vexp_lock_path.chmod(0o644)
+
     def selected_http(
         url: str,
         timeout: float,
@@ -1719,7 +1805,7 @@ def _lane(
             "redoc_url": None,
         }
 
-    return deploy.MemorialDeployLane(
+    lane = deploy.MemorialDeployLane(
         root=root,
         env=env,
         runner=runner,
@@ -1732,6 +1818,13 @@ def _lane(
         global_lock_path=global_lock_path or root / ".runtime" / "test-global.lock",
         durable_root_check=lambda _root: None,
     )
+    lane._vexp_mutation_authority = TestVexpMemorialMutationAuthority(
+        state_path=vexp_state_path,
+        permit_path=vexp_permit_path,
+        lock_path=vexp_lock_path,
+        utc_now=lambda: datetime(2026, 7, 20, 10, 0, tzinfo=UTC),
+    )
+    return lane
 
 
 @pytest.mark.parametrize(

@@ -687,3 +687,15 @@ authority validation stable across Compose restarts without trusting the full
 application network. See `RUNBOOK.md` before changing the ingress subnet or
 peer address.
 Shell script lint config is tracked in `.shellcheckrc`.
+
+### Manfred mutation authority
+
+Manfred candidate creation and scoped production promotion are authorized only
+after terminal VEXP qualification and a short-lived, root-owned permit bound to
+that exact epoch. Root operators must install the reviewed manager at
+`/usr/local/libexec/ea/manage-manfred-vexp-mutation-permit` and invoke it only
+with `/usr/bin/python3 -I` under a sanitized `env -i`. Never run a checkout copy
+as root. A hand-written permit, a raw Docker command, or a missing guard is
+never promotion authority. The pinned install, state-bound status, refresh,
+deploy, proof, and revoke sequence is documented in
+[`docs/MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md`](docs/MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md).

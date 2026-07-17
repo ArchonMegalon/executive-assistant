@@ -67,3 +67,15 @@
 - [ ] Re-deploy prior image if smoke fails.
 - [ ] Preserve DB data volume; do not drop tables during rollback.
 - [ ] Open incident note with failing endpoint, timestamps, and logs.
+
+## Manfred qualification permit
+
+- [ ] The schema-v6 sentinel is terminal `qualified`, its required completion time has elapsed, current resources are healthy, and `certification_blockers` is empty.
+- [ ] A root operator materialized the manager from the exact reviewed Git commit and reviewed blob digest, then installed it root:root mode `0555` at `/usr/local/libexec/ea/manage-manfred-vexp-mutation-permit`; no checkout Python was executed as root.
+- [ ] Every manager command used `/usr/bin/python3 -I` under sanitized `env -i`; `issue` and `status` received the explicit absolute state path and numeric state-owner UID, and no permit JSON was created or edited by hand.
+- [ ] State-bound `status` passed immediately before candidate image/runtime creation; the accepted image, source revision, public projection, and priority 3D-tour receipts all match.
+- [ ] `python3 scripts/deploy_ea_memorial.py --preflight-only` passed without a mutation claim.
+- [ ] The root operator refreshed the short-lived permit immediately before promotion, and state-bound `status` passed again immediately before deploy.
+- [ ] Promotion used only `python3 scripts/deploy_ea_memorial.py`; no raw Docker or broad EA deploy bypass was used.
+- [ ] The exact revision passed credential-free public proof for `/memorials/manfred`, `/memorials/manfred.json`, and the configured priority `/tours/...` HTML/JSON route.
+- [ ] The root operator revoked the permit after proof; a busy lock was retried only after the bounded governed mutation completed.

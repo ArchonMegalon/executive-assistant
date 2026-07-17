@@ -13,6 +13,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import stat
@@ -22,10 +23,11 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Mapping, Protocol, Sequence
+from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
 
 try:
     from scripts.source_state_head import source_worktree_metadata
@@ -181,6 +183,50 @@ MAX_PRIVATE_RELEASE_EVIDENCE_BYTES = 2 * 1024 * 1024
 MAX_DEPLOYMENT_INPUT_BYTES = 8 * 1024 * 1024
 MAX_GIT_INDEX_LIST_BYTES = 16 * 1024 * 1024
 MAX_RECEIPT_CONTENT_TYPE_CHARS = 160
+MAX_VEXP_SENTINEL_STATE_BYTES = 1024 * 1024
+MAX_VEXP_MUTATION_PERMIT_BYTES = 16 * 1024
+DEFAULT_VEXP_SENTINEL_STATE_PATH = (
+    Path.home() / ".local" / "state" / "vexp-sentinel" / "state.json"
+)
+DEFAULT_VEXP_MUTATION_PERMIT_PATH = Path(
+    "/run/ea/memorial-vexp-mutation-permit.json"
+)
+DEFAULT_VEXP_MUTATION_PERMIT_LOCK_PATH = Path(
+    "/run/ea/memorial-vexp-mutation-permit.lock"
+)
+VEXP_SENTINEL_STATE_VERSION = 6
+VEXP_MUTATION_PERMIT_CONTRACT_NAME = "ea.vexp_memorial_mutation_permit.v1"
+VEXP_MUTATION_PERMIT_VERSION = 1
+VEXP_MUTATION_BOUNDARIES = (
+    "before_ensure_redis",
+    "before_protect_previous_image",
+    "before_recreate_api",
+)
+VEXP_MUTATION_PERMIT_KEYS = frozenset(
+    {
+        "contract_name",
+        "version",
+        "status",
+        "epoch_started_at",
+        "epoch_started_ms",
+        "qualification_earliest_completion_at",
+        "qualified_at",
+        "terminal_identity_sha256",
+        "issued_at",
+        "expires_at",
+        "mutation_boundaries",
+    }
+)
+VEXP_UTC_TIMESTAMP_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$"
+)
+MINIMUM_VEXP_QUALIFICATION_AT = datetime(
+    2026, 7, 20, 9, 43, 56, 206_000, tzinfo=UTC
+)
+MAX_VEXP_MUTATION_PERMIT_LIFETIME = timedelta(hours=1)
+MAX_VEXP_MUTATION_ACTION_SECONDS = 180.0
+MAX_VEXP_SENTINEL_STATE_AGE = timedelta(minutes=5)
+MAX_VEXP_SENTINEL_STATE_FUTURE_SKEW = timedelta(seconds=30)
 CONTAINER_OPENAPI_SNAPSHOT_SCRIPT = f"""
 import json
 import sys
@@ -513,25 +559,204 @@ class SubprocessRunner:
         cwd: Path,
         env: Mapping[str, str],
         check: bool = True,
+        timeout_seconds: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        completed = subprocess.run(  # nosec B603 - fixed executable/arguments
-            list(args),
-            cwd=cwd,
-            env=dict(env),
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        executable = Path(str(args[0] or "command")).name or "command"
+        if executable.startswith("python") and len(args) > 1:
+            executable = f"{executable}:{Path(str(args[1])).name}"
+        try:
+            completed = subprocess.run(  # nosec B603 - fixed executable/arguments
+                list(args),
+                cwd=cwd,
+                env=dict(env),
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            raise DeployError(f"command_timeout:{executable}") from None
         if check and completed.returncode != 0:
-            executable = Path(str(args[0] or "command")).name or "command"
-            if executable.startswith("python") and len(args) > 1:
-                executable = f"{executable}:{Path(str(args[1])).name}"
             raise DeployError(f"command_failed:{completed.returncode}:{executable}")
         return completed
 
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _parse_vexp_utc_timestamp(value: object, *, reason: str) -> datetime:
+    if not isinstance(value, str) or not VEXP_UTC_TIMESTAMP_PATTERN.fullmatch(value):
+        raise DeployError(reason)
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise DeployError(reason) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != UTC.utcoffset(parsed):
+        raise DeployError(reason)
+    return parsed.astimezone(UTC)
+
+
+def _datetime_epoch_ms(value: datetime) -> int:
+    delta = value - datetime(1970, 1, 1, tzinfo=UTC)
+    return (
+        delta.days * 86_400_000
+        + delta.seconds * 1_000
+        + delta.microseconds // 1_000
+    )
+
+
+def _trusted_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _decode_guard_json(raw: bytes, *, reason: str) -> dict[str, Any]:
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in payload:
+                raise ValueError("duplicate_json_key")
+            payload[key] = value
+        return payload
+
+    def reject_constant(_value: str) -> None:
+        raise ValueError("non_finite_json_constant")
+
+    try:
+        payload = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=unique_object,
+            parse_constant=reject_constant,
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise DeployError(reason) from exc
+    if not isinstance(payload, dict):
+        raise DeployError(reason)
+    return payload
+
+
+def _vexp_terminal_identity(state: Mapping[str, Any]) -> dict[str, object]:
+    return {
+        "epoch_started_at": state.get("epoch_started_at"),
+        "epoch_started_ms": state.get("epoch_started_ms"),
+        "qualification_earliest_completion_at": state.get(
+            "qualification_earliest_completion_at"
+        ),
+        "qualified_at": state.get("qualified_at"),
+    }
+
+
+def _vexp_terminal_identity_sha256(state: Mapping[str, Any]) -> str:
+    encoded = json.dumps(
+        _vexp_terminal_identity(state),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+class VexpMemorialMutationAuthority:
+    """Fixed production authority boundary for memorial mutations.
+
+    This object cannot mutate the deployment. Tests may replace the lane's private
+    authority with a test-only subclass, while every normally constructed deploy
+    lane receives these fixed production paths, owners, and clock.
+    """
+
+    @property
+    def sentinel_state_path(self) -> Path:
+        return DEFAULT_VEXP_SENTINEL_STATE_PATH
+
+    @property
+    def sentinel_state_owner_uid(self) -> int:
+        return os.geteuid()
+
+    @property
+    def mutation_permit_path(self) -> Path:
+        return DEFAULT_VEXP_MUTATION_PERMIT_PATH
+
+    @property
+    def mutation_permit_owner_uid(self) -> int:
+        return 0
+
+    @property
+    def mutation_permit_lock_path(self) -> Path:
+        return DEFAULT_VEXP_MUTATION_PERMIT_LOCK_PATH
+
+    @property
+    def mutation_permit_lock_owner_uid(self) -> int:
+        return 0
+
+    def utc_now(self) -> datetime:
+        return datetime.now(UTC)
+
+    @contextmanager
+    def shared_lease(self) -> Iterator[None]:
+        """Hold the issuer-coordinated shared authorization lock."""
+        reason_prefix = "vexp_mutation_permit_lock"
+        if not hasattr(os, "O_NOFOLLOW"):
+            raise DeployError(f"{reason_prefix}_nofollow_unavailable")
+        if not hasattr(os, "O_NONBLOCK"):
+            raise DeployError(f"{reason_prefix}_nonblock_unavailable")
+        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+        try:
+            descriptor = os.open(self.mutation_permit_lock_path, flags)
+        except OSError as exc:
+            raise DeployError(f"{reason_prefix}_unavailable") from exc
+        locked = False
+        try:
+            try:
+                metadata = os.fstat(descriptor)
+            except OSError as exc:
+                raise DeployError(f"{reason_prefix}_unreadable") from exc
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or stat.S_IMODE(metadata.st_mode) != 0o644
+                or metadata.st_uid != self.mutation_permit_lock_owner_uid
+            ):
+                raise DeployError(f"{reason_prefix}_untrusted")
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                locked = True
+            except BlockingIOError as exc:
+                raise DeployError(f"{reason_prefix}_busy") from exc
+            except OSError as exc:
+                raise DeployError(f"{reason_prefix}_unavailable") from exc
+            try:
+                final_metadata = os.fstat(descriptor)
+                final_path_metadata = os.stat(
+                    self.mutation_permit_lock_path,
+                    follow_symlinks=False,
+                )
+            except OSError as exc:
+                raise DeployError(f"{reason_prefix}_changed_during_acquire") from exc
+            if (
+                _trusted_file_identity(final_metadata)
+                != _trusted_file_identity(metadata)
+                or _trusted_file_identity(final_path_metadata)
+                != _trusted_file_identity(metadata)
+            ):
+                raise DeployError(f"{reason_prefix}_changed_during_acquire")
+            yield
+        finally:
+            if locked:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            os.close(descriptor)
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -1416,6 +1641,9 @@ class MemorialDeployLane:
         )
         if not self.global_lock_path.is_absolute():
             raise DeployError("global_lock_path_not_absolute")
+        self._vexp_mutation_authority = VexpMemorialMutationAuthority()
+        self._vexp_mutation_deadline: float | None = None
+        self._vexp_mutation_expires_at: datetime | None = None
         self._lock_handle: Any | None = None
         self._global_lock_handle: Any | None = None
         self.compose_bin: tuple[str, ...] = ()
@@ -1432,6 +1660,16 @@ class MemorialDeployLane:
             "started_at": _utc_now(),
             "status": "preflight",
             "rollback": {"status": "not_required"},
+            "preparation": {
+                "status": "not_started",
+                "attempted_actions": [],
+                "completed_actions": [],
+                "pending_action": None,
+                "active_action": None,
+                "preparation_side_effects_possible": False,
+                "api_mutation_started": False,
+                "api_runtime_state": "unchanged",
+            },
             "checks": [],
         }
 
@@ -1522,6 +1760,519 @@ class MemorialDeployLane:
         self.receipt["checks"] = checks
         self._write_receipt()
 
+    def _read_trusted_guard_file(
+        self,
+        path: Path,
+        *,
+        expected_mode: int,
+        expected_uid: int,
+        max_bytes: int,
+        reason_prefix: str,
+    ) -> bytes:
+        if not hasattr(os, "O_NOFOLLOW"):
+            raise DeployError(f"{reason_prefix}_nofollow_unavailable")
+        if not hasattr(os, "O_NONBLOCK"):
+            raise DeployError(f"{reason_prefix}_nonblock_unavailable")
+        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+        descriptor = -1
+        try:
+            descriptor = os.open(path, flags)
+        except OSError as exc:
+            raise DeployError(f"{reason_prefix}_unavailable") from exc
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or stat.S_IMODE(metadata.st_mode) != expected_mode
+                or metadata.st_uid != expected_uid
+            ):
+                raise DeployError(f"{reason_prefix}_untrusted")
+            if not 0 < metadata.st_size <= max_bytes:
+                raise DeployError(f"{reason_prefix}_size_invalid")
+            with os.fdopen(descriptor, "rb") as handle:
+                descriptor = -1
+                raw = handle.read(max_bytes + 1)
+                final_metadata = os.fstat(handle.fileno())
+        except OSError as exc:
+            raise DeployError(f"{reason_prefix}_unreadable") from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        try:
+            final_path_metadata = os.stat(path, follow_symlinks=False)
+        except OSError as exc:
+            raise DeployError(f"{reason_prefix}_changed_during_read") from exc
+        if (
+            len(raw) != metadata.st_size
+            or len(raw) > max_bytes
+            or _trusted_file_identity(final_metadata)
+            != _trusted_file_identity(metadata)
+            or _trusted_file_identity(final_path_metadata)
+            != _trusted_file_identity(metadata)
+        ):
+            raise DeployError(f"{reason_prefix}_changed_during_read")
+        return raw
+
+    def _read_trusted_vexp_sentinel_state(self) -> tuple[dict[str, Any], str]:
+        raw = self._read_trusted_guard_file(
+            self._vexp_mutation_authority.sentinel_state_path,
+            expected_mode=0o600,
+            expected_uid=self._vexp_mutation_authority.sentinel_state_owner_uid,
+            max_bytes=MAX_VEXP_SENTINEL_STATE_BYTES,
+            reason_prefix="vexp_sentinel_state",
+        )
+        payload = _decode_guard_json(raw, reason="vexp_sentinel_state_json_invalid")
+        if (
+            type(payload.get("version")) is not int
+            or payload["version"] != VEXP_SENTINEL_STATE_VERSION
+        ):
+            raise DeployError("vexp_sentinel_state_version_invalid")
+        if (
+            type(payload.get("epoch_started_ms")) is not int
+            or payload["epoch_started_ms"] <= 0
+            or not isinstance(payload.get("epoch_started_at"), str)
+            or not payload["epoch_started_at"].strip()
+        ):
+            raise DeployError("vexp_sentinel_state_epoch_invalid")
+        epoch_started_at = _parse_vexp_utc_timestamp(
+            payload["epoch_started_at"],
+            reason="vexp_sentinel_state_epoch_invalid",
+        )
+        if (
+            epoch_started_at.microsecond % 1_000 != 0
+            or _datetime_epoch_ms(epoch_started_at) != payload["epoch_started_ms"]
+        ):
+            raise DeployError("vexp_sentinel_state_epoch_invalid")
+        return payload, hashlib.sha256(raw).hexdigest()
+
+    def _read_trusted_vexp_mutation_permit(
+        self,
+    ) -> tuple[dict[str, Any], str]:
+        raw = self._read_trusted_guard_file(
+            self._vexp_mutation_authority.mutation_permit_path,
+            expected_mode=0o644,
+            expected_uid=self._vexp_mutation_authority.mutation_permit_owner_uid,
+            max_bytes=MAX_VEXP_MUTATION_PERMIT_BYTES,
+            reason_prefix="vexp_mutation_permit",
+        )
+        payload = _decode_guard_json(raw, reason="vexp_mutation_permit_json_invalid")
+        if set(payload) != VEXP_MUTATION_PERMIT_KEYS:
+            raise DeployError("vexp_mutation_permit_schema_invalid")
+        if payload.get("contract_name") != VEXP_MUTATION_PERMIT_CONTRACT_NAME:
+            raise DeployError("vexp_mutation_permit_contract_invalid")
+        if (
+            type(payload.get("version")) is not int
+            or payload["version"] != VEXP_MUTATION_PERMIT_VERSION
+        ):
+            raise DeployError("vexp_mutation_permit_version_invalid")
+        if payload.get("status") != "allow":
+            raise DeployError("vexp_mutation_permit_not_positive")
+        if payload.get("mutation_boundaries") != list(VEXP_MUTATION_BOUNDARIES):
+            raise DeployError("vexp_mutation_permit_boundaries_invalid")
+        return payload, hashlib.sha256(raw).hexdigest()
+
+    def _validate_vexp_mutation_permit(
+        self,
+        permit: Mapping[str, Any],
+        *,
+        state: Mapping[str, Any],
+        now: datetime,
+        parsed_qualified_at: datetime,
+    ) -> datetime:
+        expected_identity = _vexp_terminal_identity(state)
+        if any(permit.get(key) != value for key, value in expected_identity.items()):
+            raise DeployError("vexp_mutation_permit_terminal_binding_invalid")
+        if (
+            permit.get("terminal_identity_sha256")
+            != _vexp_terminal_identity_sha256(state)
+        ):
+            raise DeployError("vexp_mutation_permit_identity_digest_invalid")
+        issued_at = _parse_vexp_utc_timestamp(
+            permit.get("issued_at"), reason="vexp_mutation_permit_issued_at_invalid"
+        )
+        expires_at = _parse_vexp_utc_timestamp(
+            permit.get("expires_at"),
+            reason="vexp_mutation_permit_expires_at_invalid",
+        )
+        if (
+            issued_at < parsed_qualified_at
+            or expires_at <= issued_at
+            or expires_at - issued_at > MAX_VEXP_MUTATION_PERMIT_LIFETIME
+        ):
+            raise DeployError("vexp_mutation_permit_validity_invalid")
+        if now < issued_at or now >= expires_at:
+            raise DeployError("vexp_mutation_permit_not_current")
+        return expires_at
+
+    @staticmethod
+    def _validate_vexp_sentinel_liveness(
+        state: Mapping[str, Any], *, now: datetime
+    ) -> None:
+        updated_at = _parse_vexp_utc_timestamp(
+            state.get("updated_at"), reason="vexp_sentinel_updated_at_invalid"
+        )
+        if updated_at < now - MAX_VEXP_SENTINEL_STATE_AGE:
+            raise DeployError("vexp_sentinel_state_stale")
+        if updated_at > now + MAX_VEXP_SENTINEL_STATE_FUTURE_SKEW:
+            raise DeployError("vexp_sentinel_state_from_future")
+        if state.get("current_resources_healthy") is not True:
+            raise DeployError("vexp_sentinel_resources_unhealthy")
+        blockers = state.get("certification_blockers")
+        if not isinstance(blockers, list) or blockers:
+            raise DeployError("vexp_sentinel_certification_blockers_present")
+
+    def _vexp_guard_now(self) -> datetime:
+        try:
+            now = self._vexp_mutation_authority.utc_now()
+        except Exception as exc:
+            raise DeployError("vexp_mutation_guard_clock_invalid") from exc
+        if (
+            not isinstance(now, datetime)
+            or now.tzinfo is None
+            or now.utcoffset() != UTC.utcoffset(now)
+        ):
+            raise DeployError("vexp_mutation_guard_clock_invalid")
+        return now.astimezone(UTC)
+
+    def _vexp_monotonic_now(self) -> float:
+        try:
+            monotonic_now = self.monotonic()
+        except Exception as exc:
+            raise DeployError("vexp_mutation_action_clock_invalid") from exc
+        if (
+            isinstance(monotonic_now, bool)
+            or not isinstance(monotonic_now, (int, float))
+            or not math.isfinite(monotonic_now)
+        ):
+            raise DeployError("vexp_mutation_action_clock_invalid")
+        return float(monotonic_now)
+
+    def _remaining_vexp_mutation_seconds(self) -> float | None:
+        deadline = self._vexp_mutation_deadline
+        expires_at = self._vexp_mutation_expires_at
+        if deadline is None and expires_at is None:
+            return None
+        if deadline is None or expires_at is None:
+            raise DeployError("vexp_mutation_action_lease_invalid")
+        monotonic_now = self._vexp_monotonic_now()
+        remaining = min(
+            deadline - monotonic_now,
+            (expires_at - self._vexp_guard_now()).total_seconds(),
+        )
+        if not math.isfinite(remaining) or remaining <= 0:
+            raise DeployError("vexp_mutation_action_deadline_exceeded")
+        return remaining
+
+    def _record_vexp_soak_guard(
+        self,
+        *,
+        boundary: str,
+        status: str,
+        reason: str,
+        state: Mapping[str, Any] | None = None,
+        state_sha256: str = "",
+        permit: Mapping[str, Any] | None = None,
+        permit_sha256: str = "",
+    ) -> None:
+        detail: dict[str, object] = {
+            "boundary": boundary,
+            "reason": reason,
+            "checked_at": _utc_now(),
+        }
+        if state is not None:
+            epoch_started_at = str(state.get("epoch_started_at") or "")
+            raw_phase = state.get("qualification_phase")
+            safe_phase = (
+                raw_phase
+                if isinstance(raw_phase, str)
+                and 0 < len(raw_phase) <= 128
+                and not any(ord(character) < 32 for character in raw_phase)
+                else "<invalid>"
+            )
+            detail.update(
+                {
+                    "state_sha256": state_sha256,
+                    "state_version": state.get("version"),
+                    "epoch_started_ms": state.get("epoch_started_ms"),
+                    "epoch_started_at_sha256": hashlib.sha256(
+                        epoch_started_at.encode("utf-8")
+                    ).hexdigest(),
+                    "qualification_phase": safe_phase,
+                    "qualified_at_present": state.get("qualified_at") is not None,
+                    "terminal_identity_sha256": _vexp_terminal_identity_sha256(
+                        state
+                    ),
+                }
+            )
+        if permit is not None:
+            detail.update(
+                {
+                    "permit_sha256": permit_sha256,
+                    "permit_contract_name": permit.get("contract_name"),
+                    "permit_version": permit.get("version"),
+                    "permit_status": permit.get("status"),
+                    "permit_expires_at": permit.get("expires_at"),
+                }
+            )
+        self._record_check("vexp_soak_mutation_guard", status, **detail)
+
+    @contextmanager
+    def _vexp_mutation_lease(self, boundary: str) -> Iterator[None]:
+        if (
+            self._vexp_mutation_deadline is not None
+            or self._vexp_mutation_expires_at is not None
+        ):
+            raise DeployError("vexp_mutation_action_lease_nested")
+        lease_acquired = False
+        try:
+            with self._vexp_mutation_authority.shared_lease():
+                lease_acquired = True
+                permit_expires_at = self._require_vexp_mutation_permitted(boundary)
+                monotonic_now = self._vexp_monotonic_now()
+                permit_remaining = (
+                    permit_expires_at - self._vexp_guard_now()
+                ).total_seconds()
+                action_seconds = min(
+                    MAX_VEXP_MUTATION_ACTION_SECONDS,
+                    permit_remaining,
+                )
+                if not math.isfinite(action_seconds) or action_seconds <= 0:
+                    raise DeployError("vexp_mutation_action_deadline_exceeded")
+                deadline = monotonic_now + action_seconds
+                if not math.isfinite(deadline) or deadline <= monotonic_now:
+                    raise DeployError("vexp_mutation_action_clock_invalid")
+                self._vexp_mutation_deadline = deadline
+                self._vexp_mutation_expires_at = permit_expires_at
+                try:
+                    yield
+                    self._remaining_vexp_mutation_seconds()
+                finally:
+                    self._vexp_mutation_deadline = None
+                    self._vexp_mutation_expires_at = None
+        except DeployError as exc:
+            if not lease_acquired:
+                self._record_vexp_soak_guard(
+                    boundary=boundary,
+                    status="fail",
+                    reason=str(exc),
+                )
+            raise
+
+    def _require_vexp_mutation_permitted(self, boundary: str) -> datetime:
+        if boundary not in VEXP_MUTATION_BOUNDARIES:
+            raise DeployError("vexp_mutation_boundary_invalid")
+        try:
+            state, state_sha256 = self._read_trusted_vexp_sentinel_state()
+        except DeployError as exc:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=str(exc),
+            )
+            raise
+
+        phase = state.get("qualification_phase")
+        qualified_at = state.get("qualified_at")
+        if phase == "enforced_soak" and qualified_at is None:
+            self.receipt["status"] = "blocked_vexp_soak"
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="blocked",
+                reason="active_enforced_soak",
+                state=state,
+                state_sha256=state_sha256,
+            )
+            raise DeployError("vexp_soak_mutation_blocked")
+        if phase != "qualified" or qualified_at is None:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason="vexp_sentinel_state_not_terminal",
+                state=state,
+                state_sha256=state_sha256,
+            )
+            raise DeployError("vexp_sentinel_state_not_terminal")
+        try:
+            parsed_qualified_at = _parse_vexp_utc_timestamp(
+                qualified_at,
+                reason="vexp_sentinel_qualified_at_invalid",
+            )
+            epoch_started_at = _parse_vexp_utc_timestamp(
+                state.get("epoch_started_at"),
+                reason="vexp_sentinel_state_epoch_invalid",
+            )
+            earliest_completion_at = _parse_vexp_utc_timestamp(
+                state.get("qualification_earliest_completion_at"),
+                reason="vexp_sentinel_earliest_completion_invalid",
+            )
+        except DeployError as exc:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=str(exc),
+                state=state,
+                state_sha256=state_sha256,
+            )
+            raise
+        try:
+            seven_day_floor = epoch_started_at + timedelta(days=7)
+        except OverflowError as exc:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason="vexp_sentinel_qualification_time_invalid",
+                state=state,
+                state_sha256=state_sha256,
+            )
+            raise DeployError("vexp_sentinel_qualification_time_invalid") from exc
+        if earliest_completion_at < seven_day_floor:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason="vexp_sentinel_earliest_completion_invalid",
+                state=state,
+                state_sha256=state_sha256,
+            )
+            raise DeployError("vexp_sentinel_earliest_completion_invalid")
+        required_completion_at = max(
+            MINIMUM_VEXP_QUALIFICATION_AT,
+            seven_day_floor,
+            earliest_completion_at,
+        )
+        if parsed_qualified_at < required_completion_at:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason="vexp_sentinel_qualification_before_minimum",
+                state=state,
+                state_sha256=state_sha256,
+            )
+            raise DeployError("vexp_sentinel_qualification_before_minimum")
+        try:
+            now = self._vexp_guard_now()
+        except DeployError as exc:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=str(exc),
+                state=state,
+                state_sha256=state_sha256,
+            )
+            raise
+        try:
+            self._validate_vexp_sentinel_liveness(state, now=now)
+        except DeployError as exc:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=str(exc),
+                state=state,
+                state_sha256=state_sha256,
+            )
+            raise
+        if now < required_completion_at or parsed_qualified_at > now:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason="vexp_sentinel_qualification_not_elapsed",
+                state=state,
+                state_sha256=state_sha256,
+            )
+            raise DeployError("vexp_sentinel_qualification_not_elapsed")
+        try:
+            permit, permit_sha256 = self._read_trusted_vexp_mutation_permit()
+            permit_expires_at = self._validate_vexp_mutation_permit(
+                permit,
+                state=state,
+                now=now,
+                parsed_qualified_at=parsed_qualified_at,
+            )
+        except DeployError as exc:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=str(exc),
+                state=state,
+                state_sha256=state_sha256,
+            )
+            raise
+        expected_terminal_identity = _vexp_terminal_identity(state)
+        expected_terminal_identity_sha256 = _vexp_terminal_identity_sha256(state)
+        try:
+            final_state, final_state_sha256 = (
+                self._read_trusted_vexp_sentinel_state()
+            )
+        except DeployError as exc:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=str(exc),
+                state=state,
+                state_sha256=state_sha256,
+                permit=permit,
+                permit_sha256=permit_sha256,
+            )
+            raise
+        if (
+            final_state.get("qualification_phase") != "qualified"
+            or final_state.get("qualified_at") is None
+        ):
+            reason = "vexp_sentinel_state_not_terminal_after_permit"
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=reason,
+                state=final_state,
+                state_sha256=final_state_sha256,
+                permit=permit,
+                permit_sha256=permit_sha256,
+            )
+            raise DeployError(reason)
+        try:
+            self._validate_vexp_sentinel_liveness(final_state, now=now)
+        except DeployError as exc:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=str(exc),
+                state=final_state,
+                state_sha256=final_state_sha256,
+                permit=permit,
+                permit_sha256=permit_sha256,
+            )
+            raise
+        final_terminal_identity = _vexp_terminal_identity(final_state)
+        final_terminal_identity_sha256 = _vexp_terminal_identity_sha256(final_state)
+        if (
+            final_terminal_identity != expected_terminal_identity
+            or final_terminal_identity_sha256
+            != expected_terminal_identity_sha256
+            or final_terminal_identity_sha256
+            != permit.get("terminal_identity_sha256")
+        ):
+            reason = "vexp_sentinel_terminal_identity_changed_after_permit"
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=reason,
+                state=final_state,
+                state_sha256=final_state_sha256,
+                permit=permit,
+                permit_sha256=permit_sha256,
+            )
+            raise DeployError(reason)
+        self._record_vexp_soak_guard(
+            boundary=boundary,
+            status="pass",
+            reason="trusted_terminal_qualification_and_root_permit",
+            state=final_state,
+            state_sha256=final_state_sha256,
+            permit=permit,
+            permit_sha256=permit_sha256,
+        )
+        return permit_expires_at
+
     def _run(
         self,
         args: Sequence[str],
@@ -1530,12 +2281,19 @@ class MemorialDeployLane:
         env: Mapping[str, str] | None = None,
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
-        return self.runner.run(
-            list(args),
-            cwd=(cwd or self.root),
-            env=(self.release_env if env is None else env),
-            check=check,
-        )
+        remaining_seconds = self._remaining_vexp_mutation_seconds()
+        run_kwargs = {
+            "cwd": (cwd or self.root),
+            "env": (self.release_env if env is None else env),
+            "check": check,
+        }
+        if isinstance(self.runner, SubprocessRunner):
+            return self.runner.run(
+                list(args),
+                **run_kwargs,
+                timeout_seconds=remaining_seconds,
+            )
+        return self.runner.run(list(args), **run_kwargs)
 
     def _detect_compose(self) -> None:
         docker_compose = self._run(["docker", "compose", "version"], check=False)
@@ -4473,11 +5231,18 @@ class MemorialDeployLane:
                     return last_detail
             except DeployError as exc:
                 last_detail = {"error": str(exc)}
-            if self.monotonic() >= deadline:
+            monotonic_now = self.monotonic()
+            if monotonic_now >= deadline:
                 raise DeployError(
                     f"container_not_ready:{name}:{json.dumps(last_detail, sort_keys=True)}"
                 )
-            self.sleep(self.poll_seconds)
+            sleep_seconds = min(self.poll_seconds, deadline - monotonic_now)
+            lease_remaining = self._remaining_vexp_mutation_seconds()
+            if lease_remaining is not None:
+                sleep_seconds = min(sleep_seconds, lease_remaining)
+            if sleep_seconds <= 0:
+                raise DeployError("vexp_mutation_action_deadline_exceeded")
+            self.sleep(sleep_seconds)
 
     def _ensure_redis(self) -> None:
         inspection = self._inspect_container_optional(REDIS_SERVICE)
@@ -5350,8 +6115,35 @@ class MemorialDeployLane:
     def deploy(self, *, preflight_only: bool = False) -> dict[str, Any]:
         mutation_started = False
         rollback_tag = ""
+        preparation_attempted: list[str] = []
+        preparation_completed: list[str] = []
+        pending_action: str | None = None
+        active_action: str | None = None
         previous: dict[str, Any] = {}
         non_memorial_controls: dict[str, Any] = {}
+
+        def persist_preparation(
+            status: str,
+            *,
+            api_mutation_started: bool | None = None,
+            api_runtime_state: str = "unchanged",
+        ) -> None:
+            self.receipt["preparation"] = {
+                "status": status,
+                "attempted_actions": list(preparation_attempted),
+                "completed_actions": list(preparation_completed),
+                "pending_action": pending_action,
+                "active_action": active_action,
+                "preparation_side_effects_possible": bool(preparation_attempted),
+                "api_mutation_started": (
+                    mutation_started
+                    if api_mutation_started is None
+                    else api_mutation_started
+                ),
+                "api_runtime_state": api_runtime_state,
+            }
+            self._write_receipt()
+
         self._acquire_lock()
         try:
             context = self.preflight()
@@ -5364,8 +6156,27 @@ class MemorialDeployLane:
                 return self.receipt
 
             self._require_deployment_input_seal(context["deployment_input_seal"])
-            self._ensure_redis()
-            rollback_tag = self._protect_previous_image(previous)
+            pending_action = "ensure_redis"
+            persist_preparation("authorization_pending")
+            with self._vexp_mutation_lease("before_ensure_redis"):
+                pending_action = None
+                active_action = "ensure_redis"
+                preparation_attempted.append("ensure_redis")
+                persist_preparation("in_progress")
+                self._ensure_redis()
+            preparation_completed.append("ensure_redis")
+            active_action = None
+            persist_preparation("in_progress")
+            pending_action = "protect_previous_image"
+            persist_preparation("authorization_pending")
+            with self._vexp_mutation_lease("before_protect_previous_image"):
+                pending_action = None
+                active_action = "protect_previous_image"
+                preparation_attempted.append("protect_previous_image")
+                persist_preparation("in_progress")
+                rollback_tag = self._protect_previous_image(previous)
+            preparation_completed.append("protect_previous_image")
+            active_action = None
             self.receipt["rollback"] = {
                 "status": "available",
                 "working_dir": previous["working_dir"],
@@ -5373,11 +6184,25 @@ class MemorialDeployLane:
                 "image_tag": rollback_tag,
             }
             self.receipt["status"] = "changing_api"
-            self._write_receipt()
+            persist_preparation("complete")
 
             self._require_deployment_input_seal(context["deployment_input_seal"])
-            mutation_started = True
-            self._recreate_api()
+            pending_action = "recreate_api"
+            persist_preparation("api_authorization_pending")
+            with self._vexp_mutation_lease("before_recreate_api"):
+                pending_action = None
+                persist_preparation(
+                    "complete",
+                    api_mutation_started=True,
+                    api_runtime_state="mutation_possible",
+                )
+                mutation_started = True
+                self._recreate_api()
+            persist_preparation(
+                "complete",
+                api_mutation_started=True,
+                api_runtime_state="changed_pending_verification",
+            )
             api_detail = self._wait_container(API_SERVICE, require_health=True)
             api_identity = self._verify_forward_api(
                 candidate=dict(context["candidate"]),
@@ -5414,6 +6239,13 @@ class MemorialDeployLane:
             self.receipt["status"] = "pass"
             self.receipt["completed_at"] = _utc_now()
             self.receipt["rollback"]["status"] = "available"
+            self.receipt["preparation"].update(
+                {
+                    "status": "complete",
+                    "api_mutation_started": True,
+                    "api_runtime_state": "changed_verified",
+                }
+            )
             self._write_receipt()
             return self.receipt
         except (Exception, KeyboardInterrupt) as exc:
@@ -5433,6 +6265,13 @@ class MemorialDeployLane:
                     )
                     self.receipt["status"] = "failed_rolled_back"
                     self.receipt["rollback"] = rollback
+                    self.receipt["preparation"].update(
+                        {
+                            "status": "api_mutation_failed_rolled_back",
+                            "api_mutation_started": True,
+                            "api_runtime_state": "restored_by_rollback",
+                        }
+                    )
                     self.receipt["completed_at"] = _utc_now()
                     self._write_receipt()
                     raise DeployError(
@@ -5447,12 +6286,63 @@ class MemorialDeployLane:
                         "failed_at": _utc_now(),
                         "reason": str(rollback_exc),
                     }
+                    self.receipt["preparation"].update(
+                        {
+                            "status": "api_mutation_rollback_failed",
+                            "api_mutation_started": True,
+                            "api_runtime_state": "unknown_after_failed_rollback",
+                        }
+                    )
                     self.receipt["completed_at"] = _utc_now()
                     self._write_receipt()
                     raise DeployError(
                         f"deployment_and_rollback_failed:{original_error}:{rollback_exc}"
                     ) from rollback_exc
-            self.receipt["status"] = "preflight_failed"
+            if preparation_attempted:
+                failed_during_action = active_action is not None
+                self.receipt["status"] = (
+                    "failed_during_preparation"
+                    if failed_during_action
+                    else "failed_after_preparation"
+                )
+                self.receipt["preparation"] = {
+                    "status": (
+                        "failed_during_action"
+                        if failed_during_action
+                        else "failed_before_api_mutation"
+                    ),
+                    "attempted_actions": list(preparation_attempted),
+                    "completed_actions": list(preparation_completed),
+                    "pending_action": pending_action,
+                    "active_action": active_action,
+                    "preparation_side_effects_possible": True,
+                    "api_mutation_started": False,
+                    "api_runtime_state": "unchanged",
+                    "rollback_required": False,
+                }
+                self.receipt["rollback"] = {
+                    "status": "not_required",
+                    "reason": "api_unchanged",
+                    **(
+                        {"protected_image_tag": rollback_tag}
+                        if rollback_tag
+                        else {}
+                    ),
+                }
+            else:
+                if pending_action is not None:
+                    self.receipt["preparation"] = {
+                        "status": "authorization_failed",
+                        "attempted_actions": [],
+                        "completed_actions": [],
+                        "pending_action": pending_action,
+                        "active_action": None,
+                        "preparation_side_effects_possible": False,
+                        "api_mutation_started": False,
+                        "api_runtime_state": "unchanged",
+                    }
+                if self.receipt.get("status") != "blocked_vexp_soak":
+                    self.receipt["status"] = "preflight_failed"
             self.receipt["completed_at"] = _utc_now()
             self._write_receipt()
             if isinstance(exc, DeployError):

@@ -320,3 +320,19 @@ If live voice is unstable:
 4. If those paths are also unstable, stop the live demo and preserve the evidence for review.
 
 Do not expose private recordings, raw source notes, provider identifiers, or operator voice A/B tooling as a fallback.
+
+## Manfred production authority
+
+Flagship evidence is not deployment authority. Manfred candidate creation and
+promotion also require the terminal schema-v6 qualification state plus the
+short-lived root-owned exact-epoch permit managed by
+the reviewed root:root `0555` installation at
+`/usr/local/libexec/ea/manage-manfred-vexp-mutation-permit`. Never execute the
+checkout script as root, omit `/usr/bin/python3 -I`, issue during
+`enforced_soak`, create a permit by hand, or bypass the scoped lane with raw
+Docker. After source/3D inputs are ready, the governed order is terminal permit,
+state-bound status immediately before candidate start, candidate and exact-tour
+proof, non-mutating production preflight, freshly issued permit, state-bound
+status immediately before scoped deploy, credential-free public browser proof,
+then root revocation. See `MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md` for the
+pinned install commands and lock/receipt contract.
