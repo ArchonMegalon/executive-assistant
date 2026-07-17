@@ -73,6 +73,17 @@ Do not present live if any of these fail:
 
 ## Preflight
 
+Prove the source tree before any candidate or live-release action. This gate is
+provider-free and performs no public-origin, ingress, candidate-runtime, or
+deployment mutation:
+
+```bash
+make verify-manfred-memorial-source-gate
+```
+
+A passing source gate is necessary but never promotion authority. Continue only
+when the terminal state and exact root-owned permit described above are present.
+
 Prepare the release from an attached temporary branch, not detached `HEAD`. The upstream is part of the strict release-authority binding. Apply and commit only the approved memorial release changes in this worktree before running preflight:
 
 ```bash
@@ -115,7 +126,7 @@ scripts/memorial_flagship_exit_gates.sh \
   --base-url "${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}"
 ```
 
-The runner fails before executing its suite when no base URL is supplied. `real-public` is the default mode and always invokes the browser proof with `--real-stt --gold-mode --require-public-origin`; omitting those semantics is not a launch pass. It then evaluates that fresh browser receipt through `verify_memorial_gold_readiness.py`, which still requires the other current voice, meaningful-turn, room, source-state, and surface receipts. `provider-free-local` is deliberately restricted to a loopback origin and produces local/diagnostic evidence only. After the deterministic suites and live privacy preflight pass, it exits before room-ready or conversational browser actions so it cannot spend provider quota or manufacture microphone/voice proof. It does not prove a real microphone, provider availability, voice identity, room playback, or family approval.
+The runner fails before executing its suite when no base URL is supplied. `real-public` is the default mode and always invokes the browser proof with `--real-stt --gold-mode --require-public-origin`; omitting those semantics is not a launch pass. It then evaluates that fresh browser receipt through `verify_memorial_gold_readiness.py`, which still requires the other current voice, meaningful-turn, room, source-state, surface, and strict spatial-tour receipts. The spatial receipt must bind the pinned PropertyQuarry authority and package to the polished v5 candidate-browser proof, governed deploy receipt, and exact public-origin memorial/tour GET and HEAD observations; candidate-only or status-only evidence cannot pass. `provider-free-local` is deliberately restricted to a loopback origin and produces local/diagnostic evidence only. After the deterministic suites and live privacy preflight pass, it exits before room-ready or conversational browser actions so it cannot spend provider quota or manufacture microphone/voice proof. It does not prove a real microphone, provider availability, voice identity, room playback, or family approval.
 
 The live preflight requires the raw manifest route to return exactly `404`, independently probes both `voice_name` and `tts_plugin_voice_id` override rejection, rejects family-only archive entries on the public archive projection, and scans the decoded public JSON and voice configuration for token, raw-voice, transcript, consent, and private-profile field names. A `401` or `403` raw-manifest response is not equivalent to the required non-existent public route.
 

@@ -1,6 +1,7 @@
 .PHONY: deploy deploy-ea-prod deploy-ea-ooda-runtime deploy-ea-memorial deploy-property deploy-legacy-ea-stack deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-principal smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-all test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune documentation-ai-public-openapi verify-documentation-ai-public-docs materialize-documentation-ai-deployment-readiness verify-documentation-ai-deployment-readiness endpoints version-info release-authority-probe materialize-deploy-context refresh-deploy-context materialize-release-manifest refresh-release-manifest materialize-release-authority-status verify-release-authority-runtime verify-release-authority-runtime-authoritative proactive-ooda verify-proactive-ooda verify-proactive-ooda-live-receipt materialize-proactive-ooda-operator-status verify-proactive-ooda-operator-status materialize-proactive-ooda-gold-acceptance verify-proactive-ooda-gold-acceptance operator-summary operator-help provider-readiness probe-live-provider probe-live-provider-cost-pressure overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets materialize-continuous-improvement-goal-posture verify-continuous-improvement-goal-posture materialize-telegram-business-signal-readiness verify-telegram-business-signal-readiness materialize-teable-env-recovery-readiness verify-teable-env-recovery-readiness materialize-teable-env-recovery-proof verify-teable-env-recovery-proof send-audiobook-public-share-followups materialize-office-loop-goal-receipt verify-office-loop-goal-receipt materialize-executive-assistant-acceptance-evidence verify-executive-assistant-acceptance-evidence materialize-executive-assistant-quality-readiness verify-executive-assistant-quality-readiness materialize-whole-project-signal-to-decision-receipt verify-whole-project-signal-to-decision-receipt materialize-whole-project-scope-gap-audit verify-whole-project-scope-gap-audit materialize-active-media-ltd-goal-bundle verify-active-media-ltd-goal-bundle materialize-memorial-chatlab-external-evidence materialize-manfred-realtime-conversation-readiness verify-manfred-realtime-conversation-readiness materialize-telegram-audiobook-live-readiness verify-telegram-audiobook-live-readiness verify-telegram-audiobook-deployed-runtime materialize-telegram-audiobook-live-delivery-receipt verify-telegram-audiobook-live-delivery-receipt materialize-whatsapp-audiobook-local-intake-proof verify-whatsapp-audiobook-local-intake-proof materialize-whatsapp-audiobook-operator-proof-bundle verify-whatsapp-audiobook-operator-proof-bundle materialize-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-public-share-playback materialize-whatsapp-audiobook-live-voice-selection-shadow verify-whatsapp-audiobook-live-voice-selection-shadow materialize-telegram-video-delivery-operator-receipt materialize-telegram-video-delivery-live-receipt materialize-telegram-video-delivery-receipts verify-telegram-video-delivery-live-receipt materialize-memorial-public-voice-gold materialize-memorial-public-browser-gold materialize-memorial-public-browser-meaningful-gold materialize-memorial-spatial-tour-public-origin verify-memorial-spatial-tour-public-origin materialize-memorial-public-auto-receipts-clean materialize-memorial-room-audio-attestation-packet materialize-memorial-room-audio-gold materialize-memorial-room-audio-gold-clean materialize-memorial-public-gold materialize-memorial-phrase-bank materialize-memorial-operator-status inspect-source-dirty-groups materialize-memorial-stt-provider-benchmark verify-memorial-stt-provider-benchmark verify-memorial-runtime-overlay verify-memorial-deploy-readiness sync-memorial-public-sources-teable env-backup-teable env-bootstrap-teable env-check-teable env-disable-extra-teable env-drill-teable env-ensure-local-teable env-fresh-host-teable env-local-status-teable env-probe-teable probe-teable-recovery probe-mymedia-alexa rescan-mymedia-library repair-mymedia-public-surface materialize-mymedia-alexa-readiness verify-mymedia-alexa-readiness trigger-mymedia-amazon-pairing submit-mymedia-amazon-pairing-code send-mymedia-amazon-pairing-telegram env-recover-teable env-restore-teable env-restore-teable-local env-restore-teable-service verify-env-teable-recovery verify-generated-release-artifacts-clean verify-runtime-supply-chain materialize-runtime-dependency-evidence verify-runtime-dependency-evidence verify-local-quality-gates verify-release-authority verify-codexea-e2e-exit-gate verify-codexea-fleet-shim-parity ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy property-release-gates hard-exit-gates runtime-hard-exit-gates ltd-release-gates memorial-gold-gates verify-release-assets verify-flagship-release-readiness verify-project-mode-runtime verify-whole-project-gold-map verify-memorial-voice-stability verify-memorial-gold-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-ltd-provider-lanes verify-poppy-draft-workflow verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle repair-design_mirror-bundle docs-verify all-local
 .PHONY: deploy-ea-memorial-scoped verify-ea-memorial-scoped-deploy
 .PHONY: reconcile-ea-public-ingress verify-ea-public-ingress-preflight verify-ea-public-ingress-public
+.PHONY: verify-manfred-memorial-source-gate
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 TEST_API_PYTEST_IGNORE ?= --ignore-glob=tests/test_chummer*.py --ignore-glob=tests/test_next90*.py --ignore=tests/test_design_mirror_bundle_contracts.py
@@ -160,6 +161,36 @@ release-docs:
 test-api:
 	$(MAKE) materialize-release-assets
 	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q tests $(TEST_API_PYTEST_IGNORE) $(TEST_API_PYTEST_DESELECT)
+
+# Provider-free source proof only. This target never creates a candidate runtime,
+# calls a public origin, reconciles ingress, or authorizes production promotion.
+verify-manfred-memorial-source-gate:
+	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
+		tests/test_manfred_memorial_deployment_contract.py \
+		tests/test_manfred_spatial_candidate_browser.py \
+		tests/test_memorial_governed_deploy.py
+	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
+		tests/test_memorial_private_context.py \
+		tests/test_memorial_security_contracts.py \
+		tests/test_memorial_release_policy.py \
+		tests/test_public_tour_release_policy.py \
+		tests/test_propertyquarry_public_tour_branding.py \
+		tests/test_public_tour_publication_quarantine.py \
+		tests/test_public_tour_no_media_renderer.py
+	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
+		tests/test_memorial_spatial_tour_public_origin.py \
+		tests/test_ea_public_ingress_reconciliation.py \
+		tests/test_memorial_gold_readiness.py \
+		tests/test_memorial_operator_artifacts.py \
+		tests/test_project_mode_manifests.py \
+		tests/test_release_materialization_service.py \
+		tests/test_whole_project_gold_map.py
+	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
+		tests/test_memorial_live_conversation_contracts.py
+	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
+		tests/test_providers_api_contracts.py -k 'public_memorial or public_tour'
+	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
+		--rootdir=ea ea/tests/test_memorial_runtime.py
 
 test-all:
 	PYTHONPATH=ea $(PYTHON_BIN) -m pytest -q
@@ -520,6 +551,7 @@ ci-gates:
 	$(MAKE) verify-local-quality-gates
 	$(MAKE) verify-runtime-dependency-evidence
 	$(MAKE) test-api
+	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q --rootdir=ea ea/tests/test_memorial_runtime.py
 	$(MAKE) ltd-release-gates
 	$(MAKE) verify-release-assets
 	$(MAKE) verify-flagship-release-readiness

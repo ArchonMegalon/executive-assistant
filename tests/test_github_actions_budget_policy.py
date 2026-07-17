@@ -23,7 +23,11 @@ def test_former_actions_gates_remain_available_as_local_commands() -> None:
     assert "release-preflight:" in makefile
     assert "materialize-memorial-public-gold" in makefile
     assert "materialize-memorial-operator-status" in makefile
+    assert "verify-manfred-memorial-source-gate:" in makefile
+    assert "ea/tests/test_memorial_runtime.py" in makefile
     assert "verify-whole-project-gold-map" in makefile
+    assert "make verify-manfred-memorial-source-gate" in readme
+    assert "make verify-manfred-memorial-source-gate" in runbook
     assert "GitHub Actions workflows are intentionally not tracked in this repo." in readme
     assert "Hosted GitHub Actions workflows are intentionally absent from this repo." in runbook
     assert "hosted CI:         intentionally absent; use local gate bundles below" in operator_summary
