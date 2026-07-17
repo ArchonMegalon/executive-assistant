@@ -261,6 +261,41 @@ def test_runtime_context_rejects_an_unresolved_dependency(
         materializer._runtime_context(python_bin.as_posix())
 
 
+def test_lane_identity_redaction_fails_closed_for_malformed_shapes() -> None:
+    malformed_python = {
+        **PYTHON_IDENTITY,
+        "operator_home": "/home/tibor/private",
+    }
+    lane = {
+        "status": "blocked",
+        "python_identity": malformed_python,
+        "browser_identity": "/home/tibor/.cache/chromium",
+    }
+
+    published = materializer._redact_lane_identity_paths(lane)
+
+    sentinel = {"status": materializer.INVALID_IDENTITY_REDACTED}
+    assert published["python_identity"] == sentinel
+    assert published["browser_identity"] == sentinel
+    assert "/home/tibor" not in json.dumps(published)
+
+
+def test_python_identity_rejects_path_shaped_version_labels() -> None:
+    identity = {
+        **PYTHON_IDENTITY,
+        "version": "/home/tibor/python",
+    }
+
+    assert materializer._python_identity_is_complete(identity) is False
+    published = materializer._redact_lane_identity_paths(
+        {"python_identity": identity}
+    )
+    assert published["python_identity"] == {
+        "status": materializer.INVALID_IDENTITY_REDACTED
+    }
+    assert "/home/tibor" not in json.dumps(published)
+
+
 def test_build_receipt_uses_one_immutable_snapshot_for_both_lanes(
     tmp_path: Path,
 ) -> None:
@@ -324,6 +359,25 @@ def test_build_receipt_uses_one_immutable_snapshot_for_both_lanes(
             for stage in materializer.SNAPSHOT_MUTATION_WATCH_STAGES
         ],
     }
+    source_python = receipt["source_backed_journey_proof"]["python_identity"]
+    browser_python = receipt["real_browser_e2e_proof"]["python_identity"]
+    browser_identity = receipt["real_browser_e2e_proof"]["browser_identity"]
+    for identity in (source_python, browser_python):
+        assert identity["executable"] == materializer.REDACTED_PYTHON_EXECUTABLE
+        assert identity["dependency_root"] == (
+            materializer.REDACTED_PYTHON_DEPENDENCY_ROOT
+        )
+        assert identity["sha256"] == PYTHON_IDENTITY["sha256"]
+        assert identity["version"] == PYTHON_IDENTITY["version"]
+        assert identity["dependency_versions"] == PYTHON_IDENTITY[
+            "dependency_versions"
+        ]
+    assert browser_identity == {
+        "executable": materializer.REDACTED_BROWSER_EXECUTABLE,
+        "sha256": BROWSER_IDENTITY["sha256"],
+    }
+    assert PYTHON_IDENTITY["executable"] == "/usr/bin/python3"
+    assert BROWSER_IDENTITY["executable"] == "/opt/chromium/chrome"
 
 
 def test_transient_snapshot_chmod_write_restore_is_detected(tmp_path: Path) -> None:

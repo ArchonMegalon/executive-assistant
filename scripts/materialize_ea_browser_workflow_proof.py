@@ -76,6 +76,10 @@ REAL_BROWSER_CASES = [
     "test_draft_and_commitment_workflows_in_real_browser",
 ]
 DEPENDENCY_NAMES = ("playwright", "pytest", "uvicorn")
+REDACTED_PYTHON_EXECUTABLE = "/__redacted__/python-executable"
+REDACTED_PYTHON_DEPENDENCY_ROOT = "/__redacted__/python-dependency-root"
+REDACTED_BROWSER_EXECUTABLE = "/__redacted__/browser-executable"
+INVALID_IDENTITY_REDACTED = "invalid_identity_redacted"
 
 COMMON_ENVIRONMENT_TEMPLATE = {
     "PATH": "/usr/bin:/bin",
@@ -1032,14 +1036,13 @@ def _python_identity_is_complete(identity: object) -> bool:
         and type(identity.get("executable")) is str
         and Path(identity["executable"]).is_absolute()
         and _is_canonical_digest(identity.get("sha256"))
-        and type(identity.get("version")) is str
-        and bool(identity.get("version"))
+        and _identity_version_is_safe(identity.get("version"))
         and type(identity.get("dependency_root")) is str
         and Path(identity["dependency_root"]).is_absolute()
         and isinstance(dependencies, dict)
         and set(dependencies) == set(DEPENDENCY_NAMES)
         and all(
-            type(dependencies[name]) is str and dependencies[name]
+            _identity_version_is_safe(dependencies[name])
             for name in DEPENDENCY_NAMES
         )
     )
@@ -1053,6 +1056,59 @@ def _browser_identity_is_complete(identity: object) -> bool:
         and Path(identity["executable"]).is_absolute()
         and _is_canonical_digest(identity.get("sha256"))
     )
+
+
+def _identity_version_is_safe(value: object) -> bool:
+    return bool(
+        type(value) is str
+        and re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.!+_-]{0,127}", value)
+    )
+
+
+def _invalid_identity_sentinel() -> dict[str, str]:
+    return {"status": INVALID_IDENTITY_REDACTED}
+
+
+def _redact_lane_identity_paths(lane: dict[str, Any]) -> dict[str, Any]:
+    """Remove operator-specific host paths from the published proof lane.
+
+    The raw paths are required while the hermetic subprocess is assembled and
+    verified.  They are not evidence: the executable digests, runtime version,
+    and dependency versions bind the identities without disclosing the host's
+    user name, checkout location, or browser-cache layout.
+    """
+
+    published = dict(lane)
+    if "python_identity" in lane:
+        python_identity = lane.get("python_identity")
+        if _python_identity_is_complete(python_identity):
+            assert isinstance(python_identity, dict)
+            published["python_identity"] = {
+                "executable": REDACTED_PYTHON_EXECUTABLE,
+                "sha256": python_identity["sha256"],
+                "version": python_identity["version"],
+                "dependency_root": REDACTED_PYTHON_DEPENDENCY_ROOT,
+                "dependency_versions": {
+                    name: python_identity["dependency_versions"][name]
+                    for name in DEPENDENCY_NAMES
+                },
+            }
+        else:
+            published["python_identity"] = _invalid_identity_sentinel()
+
+    if "browser_identity" in lane:
+        browser_identity = lane.get("browser_identity")
+        if browser_identity is None:
+            published["browser_identity"] = None
+        elif _browser_identity_is_complete(browser_identity):
+            assert isinstance(browser_identity, dict)
+            published["browser_identity"] = {
+                "executable": REDACTED_BROWSER_EXECUTABLE,
+                "sha256": browser_identity["sha256"],
+            }
+        else:
+            published["browser_identity"] = _invalid_identity_sentinel()
+    return published
 
 
 def _structured_lane_evidence_is_exact(
@@ -1578,8 +1634,8 @@ def build_receipt(
             (seed.get("browser_workflow_proof") or {}).get("expected_browser_signals")
             or []
         ),
-        "source_backed_journey_proof": source_lane,
-        "real_browser_e2e_proof": browser_lane,
+        "source_backed_journey_proof": _redact_lane_identity_paths(source_lane),
+        "real_browser_e2e_proof": _redact_lane_identity_paths(browser_lane),
         "blocking_reasons": blocking_reasons,
         "current_limitations": sorted(set(limitations)),
     }
