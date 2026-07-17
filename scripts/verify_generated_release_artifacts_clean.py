@@ -45,6 +45,8 @@ MATERIALIZER_COMMANDS = (
     ("scripts/materialize_memorial_operator_status.py",),
 )
 VOLATILE_KEYS = {
+    "available_bytes",
+    "available_gb",
     "generated_at",
     "as_of",
     "created_at",
@@ -65,6 +67,7 @@ VOLATILE_KEYS = {
     "output_excerpt",
     "python_bin",
     "review_due",
+    "run_id",
     "source_tree_fingerprint",
     "state_age_seconds",
     "state_updated_at",

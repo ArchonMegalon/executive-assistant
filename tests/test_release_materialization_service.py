@@ -133,3 +133,30 @@ def test_generated_clean_verifier_preserves_release_materializer_order() -> None
         )
         in verify_generated_release_artifacts_clean.GENERATED_ARTIFACTS
     )
+
+
+def test_generated_clean_verifier_ignores_only_point_in_time_resource_fields() -> None:
+    left = {
+        "run_id": "run-one",
+        "delivery_guard": {
+            "available_bytes": 1,
+            "available_gb": 0.001,
+            "status": "pass",
+        },
+    }
+    right = {
+        "run_id": "run-two",
+        "delivery_guard": {
+            "available_bytes": 2,
+            "available_gb": 0.002,
+            "status": "pass",
+        },
+    }
+
+    assert verify_generated_release_artifacts_clean._normalize(
+        left
+    ) == verify_generated_release_artifacts_clean._normalize(right)
+    right["delivery_guard"]["status"] = "blocked"
+    assert verify_generated_release_artifacts_clean._normalize(
+        left
+    ) != verify_generated_release_artifacts_clean._normalize(right)
