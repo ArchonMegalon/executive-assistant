@@ -106,6 +106,45 @@ def test_generated_release_artifact_normalizer_ignores_raw_junit_timing_not_outc
     assert module._normalize(before) != module._normalize(after)
 
 
+def test_generated_release_artifact_normalizer_ignores_live_followthrough_catchup_not_other_errors() -> None:
+    module = _load_module()
+    missing_followthrough = {
+        "status": "ready_with_recovery_action",
+        "live_receipt": {
+            "ok": False,
+            "errors": ["receipt_not_sent", "followthrough_artifacts_missing"],
+            "delivery_next_action": "repair_proactive_operator_runtime_posture",
+            "followthrough_status": "",
+            "followthrough_source": "",
+            "followthrough_run_receipt_path": "",
+            "followthrough_goal_posture_queue_count": 0,
+        },
+    }
+    caught_up = {
+        "status": "ready_with_recovery_action",
+        "live_receipt": {
+            "ok": False,
+            "errors": ["receipt_not_sent"],
+            "delivery_next_action": "",
+            "followthrough_status": "ok",
+            "followthrough_source": "latest_receipt",
+            "followthrough_run_receipt_path": "/runtime/followthrough.json",
+            "followthrough_goal_posture_queue_count": 8,
+        },
+    }
+
+    assert module._normalize(missing_followthrough) == module._normalize(caught_up)
+    caught_up["live_receipt"]["errors"] = ["receipt_signature_invalid"]
+    assert module._normalize(missing_followthrough) != module._normalize(caught_up)
+    caught_up["live_receipt"]["errors"] = ["receipt_not_sent"]
+    caught_up["live_receipt"]["delivery_next_action"] = "reauthorize_delivery_binding"
+    assert module._normalize(missing_followthrough) != module._normalize(caught_up)
+    caught_up["live_receipt"]["delivery_next_action"] = ""
+    caught_up["live_receipt"]["followthrough_integrity_status"] = "failed"
+    caught_up["live_receipt"]["errors"] = ["receipt_not_sent", "followthrough_signature_invalid"]
+    assert module._normalize(missing_followthrough) != module._normalize(caught_up)
+
+
 def test_generated_release_artifact_normalizer_ignores_current_head_provenance_field() -> None:
     module = _load_module()
     before = {

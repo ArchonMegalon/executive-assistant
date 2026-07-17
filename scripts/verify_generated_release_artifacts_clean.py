@@ -83,6 +83,24 @@ HOST_RESOURCE_VOLATILE_KEYS = {
 }
 JUNIT_VOLATILE_ATTRIBUTES = {"hostname", "time", "timestamp"}
 PYTEST_TERMINAL_DURATION_RE = re.compile(r"(?<=\bin )\d+(?:\.\d+)?s\b")
+LIVE_RECEIPT_FOLLOWTHROUGH_REPAIR_ACTION = "repair_proactive_operator_runtime_posture"
+LIVE_RECEIPT_EVENTUAL_FOLLOWTHROUGH_KEYS = {
+    "followthrough_current_receipt_overlay_applied",
+    "followthrough_current_receipt_overlay_components",
+    "followthrough_digest_item_count",
+    "followthrough_digest_notification_status",
+    "followthrough_digest_status",
+    "followthrough_goal_posture_queue_count",
+    "followthrough_goal_posture_status",
+    "followthrough_gold_acceptance_status",
+    "followthrough_operator_status",
+    "followthrough_run_receipt_path",
+    "followthrough_source",
+    "followthrough_status",
+}
+LIVE_RECEIPT_EVENTUAL_FOLLOWTHROUGH_ERRORS = {
+    "followthrough_artifacts_missing",
+}
 
 
 def _normalize_junit_xml(value: Any) -> Any:
@@ -127,6 +145,35 @@ def _normalize(value: Any, *, _path: tuple[str, ...] = ()) -> Any:
         normalized: dict[str, Any] = {}
         for key, item in value.items():
             key_str = str(key)
+            if _path and _path[-1] == "live_receipt":
+                if key_str in LIVE_RECEIPT_EVENTUAL_FOLLOWTHROUGH_KEYS:
+                    # These fields mirror downstream generated receipts from the
+                    # live runtime container. Their authoritative host artifacts
+                    # are compared separately, so container catch-up is telemetry,
+                    # not release-artifact semantic drift.
+                    continue
+                if key_str == "errors" and isinstance(item, list):
+                    normalized[key] = _normalize(
+                        [
+                            error
+                            for error in item
+                            if str(error).strip()
+                            not in LIVE_RECEIPT_EVENTUAL_FOLLOWTHROUGH_ERRORS
+                        ],
+                        _path=(*_path, key_str),
+                    )
+                    continue
+                if (
+                    key_str == "delivery_next_action"
+                    and str(item or "").strip() == LIVE_RECEIPT_FOLLOWTHROUGH_REPAIR_ACTION
+                    and any(
+                        str(error).strip()
+                        in LIVE_RECEIPT_EVENTUAL_FOLLOWTHROUGH_ERRORS
+                        for error in list(value.get("errors") or [])
+                    )
+                ):
+                    normalized[key] = ""
+                    continue
             if key_str == "junit_xml":
                 normalized[key] = _normalize_junit_xml(item)
                 continue

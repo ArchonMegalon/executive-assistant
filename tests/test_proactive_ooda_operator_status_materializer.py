@@ -638,7 +638,7 @@ def test_materialize_proactive_ooda_operator_status_prefers_source_health_over_f
         "live_receipt_checked": True,
         "live_receipt": {
             "ok": False,
-            "errors": ["followthrough_artifacts_missing"],
+            "errors": ["receipt_not_sent", "followthrough_artifacts_missing"],
             "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
             "notification_status": "sent",
             "delivery_next_action": "repair_proactive_operator_runtime_posture",
@@ -746,6 +746,23 @@ def test_materialize_proactive_ooda_operator_status_prefers_source_health_over_f
         "Proactive OODA route and packet runtime are available, but "
         "Google workspace recovery cooldown is active until 2026-07-06T20:00:00Z."
     )
+
+    source_health_route_probe = module.ea_live_ops.probe_proactive_route
+
+    def _stage_error_route_probe(**kwargs: object) -> dict[str, object]:
+        payload = source_health_route_probe(**kwargs)
+        payload["route_report"]["stage_packets"]["errors"] = ["receipt_not_sent"]
+        return payload
+
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", _stage_error_route_probe)
+    unrelated_receipt_error = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.unrelated-error.generated.json",
+        generated_at="2026-07-06T18:02:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert unrelated_receipt_error["status"] == "ready_with_recovery_action"
+    assert unrelated_receipt_error["reason"] == "receipt_not_sent"
 
 
 def test_materialize_proactive_ooda_operator_status_recovers_on_runtime_artifact_drift(

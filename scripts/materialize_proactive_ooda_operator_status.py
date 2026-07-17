@@ -923,13 +923,42 @@ def _runtime_source_health_recovery_next_action(source_health: Mapping[str, Any]
     return "repair_proactive_signal_source"
 
 
-def _source_health_recovery_candidate_status(status: str, reason: str) -> bool:
+def _source_health_recovery_candidate_status(
+    status: str,
+    reason: str,
+    *,
+    report: Mapping[str, Any],
+    live_receipt: Mapping[str, Any],
+    live_receipt_checked: bool,
+) -> bool:
     normalized_status = str(status or "").strip()
     if normalized_status in {"ready_local_runtime", "ready_with_live_receipt"}:
         return True
+    normalized_reason = str(reason or "").strip()
+    live_errors = {
+        str(item).strip()
+        for item in list(live_receipt.get("errors") or [])
+        if str(item).strip()
+    }
+    transient_followthrough_receipt = bool(
+        "followthrough_artifacts_missing" in live_errors
+        or str(live_receipt.get("followthrough_status") or "").strip()
+    )
     return bool(
         normalized_status == "ready_with_recovery_action"
-        and str(reason or "").strip().startswith("followthrough_")
+        and (
+            (
+                normalized_reason == "receipt_not_sent"
+                and transient_followthrough_receipt
+                and _reason_is_live_receipt_error(
+                    report=report,
+                    live_receipt=live_receipt,
+                    live_receipt_checked=live_receipt_checked,
+                    reason=normalized_reason,
+                )
+            )
+            or normalized_reason.startswith("followthrough_")
+        )
     )
 
 
@@ -2285,6 +2314,33 @@ def _reason(report: dict[str, Any], *, live_receipt: dict[str, Any], live_receip
     return "ready"
 
 
+def _reason_is_live_receipt_error(
+    *,
+    report: Mapping[str, Any],
+    live_receipt: Mapping[str, Any],
+    live_receipt_checked: bool,
+    reason: str,
+) -> bool:
+    normalized_reason = str(reason or "").strip()
+    if not live_receipt_checked or not normalized_reason:
+        return False
+    route = _normalized_delivery_route(report)
+    if str(route.get("route_error") or "").strip() or _deferred_reason(dict(report)):
+        return False
+    stage_packets = _normalized_stage_packets(report)
+    safe_work = _normalized_safe_work_results(report)
+    if list(stage_packets.get("errors") or []) or list(safe_work.get("errors") or []):
+        return False
+    if _report_errors(dict(report)):
+        return False
+    live_errors = {
+        str(item).strip()
+        for item in list(live_receipt.get("errors") or [])
+        if str(item).strip()
+    }
+    return normalized_reason in live_errors
+
+
 def _next_action(report: dict[str, Any], *, live_receipt: dict[str, Any], live_receipt_checked: bool) -> str:
     route = _normalized_delivery_route(report)
     guard = _normalized_delivery_guard(report)
@@ -3314,7 +3370,13 @@ def build_proactive_ooda_operator_status(
         and not assistant_grade_recovery_active
         and not suppressed_projection_blocks
         and not browser_handoff_recovery_active
-        and _source_health_recovery_candidate_status(status, reason)
+        and _source_health_recovery_candidate_status(
+            status,
+            reason,
+            report=report,
+            live_receipt=live_receipt,
+            live_receipt_checked=live_receipt_checked,
+        )
         and _runtime_source_health_requires_recovery(runtime_source_health)
     )
     if source_health_recovery_active:
