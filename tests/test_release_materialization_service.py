@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 from app.services import release_materialization_service
+from scripts import verify_generated_release_artifacts_clean
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -115,3 +116,20 @@ def test_materialize_release_bundle_help_resolves_service_import() -> None:
     )
 
     assert "Materialize the full EA release-truth bundle in one orchestrated pass." in result.stdout
+
+
+def test_generated_clean_verifier_preserves_release_materializer_order() -> None:
+    release_commands = [step.command for step in release_materialization_service._steps()]
+    verifier_commands = list(verify_generated_release_artifacts_clean.MATERIALIZER_COMMANDS)
+
+    assert len(verifier_commands) == len(set(verifier_commands))
+    assert verifier_commands == [
+        command for command in release_commands if command in verifier_commands
+    ]
+    assert (
+        Path(
+            ".codex-studio/published/"
+            "memorial_spatial_tour_public_origin.generated.json"
+        )
+        in verify_generated_release_artifacts_clean.GENERATED_ARTIFACTS
+    )
