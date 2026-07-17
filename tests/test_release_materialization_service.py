@@ -80,6 +80,10 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
         for _, name, command, env in calls
     )
     names = [name for _, name, _, _ in calls]
+    assert names.index("memorial_spatial_tour_public_origin") < names.index("project_mode_manifests")
+    assert names.index("memorial_spatial_tour_public_origin") < names.index("whole_project_gold_map")
+    assert names.index("project_mode_manifests") < names.index("whole_project_gold_map")
+    assert names.index("whole_project_gold_map") < names.index("memorial_operator_status")
     assert names.index("telegram_video_delivery_receipt") < names.index("telegram_video_delivery_live_receipt")
     assert names.index("telegram_video_delivery_live_receipt") < names.index("whole_project_gold_map")
     assert names.index("ea_provider_contract_receipts") < names.index("whole_project_gold_map")

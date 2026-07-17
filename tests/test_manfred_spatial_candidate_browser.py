@@ -45,6 +45,32 @@ PACKAGE_SHA256 = prepare._sha256(
 )
 
 
+def _projected_public_tour_payload() -> dict[str, object]:
+    return {
+        "slug": SLUG,
+        "tour_privacy_mode": "coarse_location",
+        "facts": {},
+        "brief": {},
+        "scenes": [],
+        "public_assets": [],
+        "generated_viewer": {
+            "url": f"/tours/viewer/{SLUG}/{VIEWER_RELPATH}",
+            "release_revision": "test-release-v1",
+            "disclosure": "Generated interactive reconstruction.",
+            "synthetic": True,
+            "verified_provider_capture": False,
+        },
+    }
+
+
+def _projected_public_tour_body() -> bytes:
+    return json.dumps(
+        _projected_public_tour_payload(),
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
 def test_browser_gate_launches_the_resolved_installed_chromium(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1214,6 +1240,12 @@ def test_browser_gate_binds_http_assets_to_local_package_bytes(
     def exact_http(  # type: ignore[no-untyped-def]
         _base_url, path, *, expected_status, maximum=browser_gate._MAX_HTTP_BYTES
     ):
+        if path == f"/tours/{SLUG}.json":
+            assert expected_status == 200
+            return _projected_public_tour_body(), {
+                "content-type": "application/json",
+                "x-ea-source-revision": COMMIT,
+            }
         relpath = path.removeprefix(prefix)
         binding = bindings[relpath]
         if binding["role"] == "reconstruction_manifest":
@@ -1235,6 +1267,7 @@ def test_browser_gate_binds_http_assets_to_local_package_bytes(
         snapshot=snapshot,
         bindings=bindings,
         release_revision="test-release-v1",
+        candidate_commit=COMMIT,
     )
     assert evidence["http_asset_count"] == 4
     assert evidence["http_assets_match_local_package"] is True
@@ -1260,6 +1293,7 @@ def test_browser_gate_binds_http_assets_to_local_package_bytes(
             snapshot=snapshot,
             bindings=bindings,
             release_revision="test-release-v1",
+            candidate_commit=COMMIT,
         )
 
 
@@ -1348,6 +1382,15 @@ def test_user_agent_varying_server_cannot_split_urllib_and_browser_evidence(
     class VaryingHandler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             path = urllib.parse.urlsplit(self.path).path
+            if path == f"/tours/{SLUG}.json":
+                body = _projected_public_tour_body()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("X-EA-Source-Revision", COMMIT)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             relpath = urllib.parse.unquote(path.removeprefix(prefix))
             binding = bindings.get(relpath)
             if binding is None:
@@ -1392,6 +1435,7 @@ def test_user_agent_varying_server_cannot_split_urllib_and_browser_evidence(
             snapshot=snapshot,
             bindings=bindings,
             release_revision="test-release-v1",
+            candidate_commit=COMMIT,
         )
         assert urllib_evidence["http_assets_match_local_package"] is True
         expectations = browser_gate._browser_resource_expectations(
@@ -1519,6 +1563,53 @@ def _valid_receipt() -> dict[str, object]:
             "viewer_subtree_non_2xx_count": 0,
         }
 
+    def landing_surface(
+        name: str,
+        width: int,
+        height: int,
+        *,
+        mobile: bool,
+    ) -> dict[str, object]:
+        return {
+            "name": name,
+            "path": f"/tours/{SLUG}",
+            "status": 200,
+            "viewport": {"width": width, "height": height},
+            "mobile": mobile,
+            "horizontal_overflow_px": 0,
+            "iframe": {
+                "src": viewer_path,
+                "title_suffix": " interactive generated 3D reconstruction",
+                "title_suffix_verified": True,
+                "sandbox": "allow-scripts",
+                "loading": "eager",
+                "referrer_policy": "no-referrer",
+                "aria_described_by": "generated-viewer-disclosure",
+                "description_verified": True,
+                "visible": True,
+                "width": width - 32,
+                "height": 620 if not mobile else 480,
+            },
+            "nested_viewer": {
+                "url": viewer_url,
+                "exact_candidate_url_verified": True,
+                "viewer_status": "ready",
+                "canvas_ready": True,
+                "route_stop_count": 9,
+                "route_labels": LABELS,
+                "horizontal_overflow_px": 0,
+                "undersized_target_count": 0,
+            },
+            "page_error_count": 0,
+            "console_error_count": 0,
+            "request_failure_count": 0,
+            "non_2xx_response_count": 0,
+            "external_request_count": 0,
+            "page_url": landing_url,
+            "response_url": landing_url,
+            "exact_candidate_url_verified": True,
+        }
+
     local_files = copy.deepcopy(RECEIPT_LOCAL_FILES)
     local_by_path = {str(row["path"]): row for row in local_files}
     proof_sha256 = next(
@@ -1544,6 +1635,8 @@ def _valid_receipt() -> dict[str, object]:
             "text/javascript",
         ),
     )
+    public_tour_payload = _projected_public_tour_payload()
+    public_tour_body = _projected_public_tour_body()
     return {
         "schema": browser_gate.RECEIPT_SCHEMA,
         "status": "pass",
@@ -1619,18 +1712,51 @@ def _valid_receipt() -> dict[str, object]:
                 "serveable": False,
                 "local_sha256": proof_sha256,
             },
+            "public_tour_manifest": {
+                "path": f"/tours/{SLUG}.json",
+                "status": 200,
+                "content_type": "application/json",
+                "body_sha256": hashlib.sha256(public_tour_body).hexdigest(),
+                "body_bytes": len(public_tour_body),
+                "canonical_json_sha256": hashlib.sha256(
+                    browser_gate._canonical_json_bytes_without_lf(
+                        public_tour_payload
+                    )
+                ).hexdigest(),
+                "source_revision": COMMIT,
+                "source_revision_verified": True,
+                "slug": SLUG,
+                "release_revision": "test-release-v1",
+                "generated_viewer_url": viewer_path,
+                "public_projection_verified": True,
+            },
             "runtime_identity_revalidated_after_browser": True,
         },
         "landing": {
             "path": f"/tours/{SLUG}",
             "status": 200,
-            "horizontal_overflow_px": 0,
-            "viewer_route_referenced": True,
+            "surface_count": 2,
+            "surfaces": {
+                "desktop": landing_surface(
+                    "desktop",
+                    1440,
+                    1000,
+                    mobile=False,
+                ),
+                "mobile": landing_surface(
+                    "mobile",
+                    390,
+                    844,
+                    mobile=True,
+                ),
+            },
+            "responsive_iframe_verified": True,
+            "nested_viewer_ready_verified": True,
             "page_error_count": 0,
             "console_error_count": 0,
-            "page_url": landing_url,
-            "response_url": landing_url,
-            "exact_candidate_url_verified": True,
+            "request_failure_count": 0,
+            "non_2xx_response_count": 0,
+            "external_request_count": 0,
         },
         "proof_manifest": {
             "path": proof_path,
@@ -1644,14 +1770,14 @@ def _valid_receipt() -> dict[str, object]:
                 1000,
                 mobile=False,
                 reduced_motion=False,
-                collect_routes=False,
+                collect_routes=True,
             ),
             "mobile": normal_surface(
                 390,
                 844,
                 mobile=True,
                 reduced_motion=False,
-                collect_routes=False,
+                collect_routes=True,
             ),
             "reduced_motion": normal_surface(
                 1200,
@@ -1748,6 +1874,9 @@ def test_strict_receipt_validator_accepts_the_complete_bound_receipt() -> None:
         ("http_mime", "package_invalid"),
         ("request_mime", "surfaces_invalid"),
         ("landing_bool", "landing_invalid"),
+        ("landing_iframe_sandbox", "landing_invalid"),
+        ("landing_nested_url", "landing_invalid"),
+        ("landing_external_request", "landing_invalid"),
         ("package_proof_bool", "package_invalid"),
         ("proof_bool", "proof_invalid"),
         ("fallback_bool", "surfaces_invalid"),
@@ -1852,7 +1981,24 @@ def test_strict_receipt_validator_rejects_unbound_or_partial_evidence(
         elif mutation == "landing_bool":
             landing = receipt["landing"]
             assert isinstance(landing, dict)
-            landing["viewer_route_referenced"] = 1
+            landing["responsive_iframe_verified"] = 1
+        elif mutation.startswith("landing_") and mutation != "landing_url":
+            landing = receipt["landing"]
+            assert isinstance(landing, dict)
+            landing_surfaces = landing["surfaces"]
+            assert isinstance(landing_surfaces, dict)
+            desktop = landing_surfaces["desktop"]
+            assert isinstance(desktop, dict)
+            if mutation == "landing_iframe_sandbox":
+                iframe = desktop["iframe"]
+                assert isinstance(iframe, dict)
+                iframe["sandbox"] = "allow-scripts allow-same-origin"
+            elif mutation == "landing_nested_url":
+                nested_viewer = desktop["nested_viewer"]
+                assert isinstance(nested_viewer, dict)
+                nested_viewer["url"] = "http://attacker.test/viewer.html"
+            else:
+                desktop["external_request_count"] = 1
         elif mutation == "package_proof_bool":
             package = receipt["package_binding"]
             assert isinstance(package, dict)
@@ -1911,7 +2057,11 @@ def test_strict_receipt_validator_rejects_unbound_or_partial_evidence(
         elif mutation == "landing_url":
             landing = receipt["landing"]
             assert isinstance(landing, dict)
-            landing["page_url"] = "http://attacker.test/tours/tour-slug"
+            landing_surfaces = landing["surfaces"]
+            assert isinstance(landing_surfaces, dict)
+            desktop = landing_surfaces["desktop"]
+            assert isinstance(desktop, dict)
+            desktop["page_url"] = "http://attacker.test/tours/tour-slug"
         elif mutation == "surface_url":
             surfaces = receipt["surfaces"]
             assert isinstance(surfaces, dict)

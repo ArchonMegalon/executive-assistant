@@ -83,7 +83,18 @@ def test_tracked_manfred_source_is_public_only_without_private_artifact() -> Non
             "character_notes",
         )
     ] == [0, 6, 0, 9, 0]
-    assert public_payload["external_sources"] == []
+    assert public_payload["external_sources"] == [
+        {
+            "visibility": "public",
+            "label": "Manfred Hoza: öffentliche Jimdo-Quelle",
+            "url": (
+                "https://mobbing-konkret.jimdofree.com/"
+                "notwehrgesetze-angst-der-b%C3%BCrger-waffen-boom/"
+            ),
+            "status": "approved_public_reference",
+            "approved": True,
+        }
+    ]
     assert "conversation_style" not in public_payload
     assert not {"memory_principal_id", "chat_models", "chat_model_default"} & set(
         public_payload
@@ -97,7 +108,9 @@ def test_tracked_manfred_source_is_public_only_without_private_artifact() -> Non
         )
     projection = public_memorials._public_memorial_payload(public_payload)
     assert "private_context" not in projection
-    assert projection["external_sources"] == []
+    assert len(projection["external_sources"]) == 1
+    assert projection["external_sources"][0]["approved"] is True
+    assert str(projection["external_sources"][0]["url"]).startswith("https://")
 
 
 def test_local_manfred_context_exact_audit_skips_when_not_provisioned() -> None:

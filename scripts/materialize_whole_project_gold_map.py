@@ -4,16 +4,27 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.source_state_head import resolve_source_state_head
+    from scripts.memorial_spatial_public_origin_contract import (
+        validate_memorial_spatial_public_origin_receipt,
+    )
+    from scripts.source_state_head import (
+        resolve_source_state_head,
+        resolve_source_worktree_fingerprint,
+    )
 except ModuleNotFoundError:  # pragma: no cover - script execution path
-    from source_state_head import resolve_source_state_head
+    from memorial_spatial_public_origin_contract import (
+        validate_memorial_spatial_public_origin_receipt,
+    )
+    from source_state_head import (
+        resolve_source_state_head,
+        resolve_source_worktree_fingerprint,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +46,7 @@ DEFAULT_MEMORIAL_VOICE_ROUNDTRIP_RECEIPT = ROOT / ".codex-studio/published/memor
 DEFAULT_MEMORIAL_PUBLIC_VOICE_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"
 DEFAULT_MEMORIAL_PUBLIC_BROWSER_RECEIPT = ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
 DEFAULT_MEMORIAL_PUBLIC_ROOM_RECEIPT = ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
+DEFAULT_MEMORIAL_SPATIAL_PUBLIC_ORIGIN_RECEIPT = ROOT / ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"
 DEFAULT_MEMORIAL_OPERATOR_STATUS = ROOT / ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
 DEFAULT_TELEGRAM_VIDEO_DELIVERY_RECEIPT = ROOT / ".codex-studio/published/telegram_video_delivery_operator.generated.json"
 DEFAULT_TELEGRAM_VIDEO_DELIVERY_LIVE_RECEIPT = ROOT / ".codex-studio/published/telegram_video_delivery_live.generated.json"
@@ -338,12 +350,14 @@ def build_gold_map(
     memorial_public_voice_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_VOICE_RECEIPT,
     memorial_public_browser_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_BROWSER_RECEIPT,
     memorial_public_room_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_ROOM_RECEIPT,
+    memorial_spatial_public_origin_receipt: Path = DEFAULT_MEMORIAL_SPATIAL_PUBLIC_ORIGIN_RECEIPT,
     memorial_operator_status_path: Path = DEFAULT_MEMORIAL_OPERATOR_STATUS,
     telegram_video_delivery_receipt: Path = DEFAULT_TELEGRAM_VIDEO_DELIVERY_RECEIPT,
     telegram_video_delivery_live_receipt: Path = DEFAULT_TELEGRAM_VIDEO_DELIVERY_LIVE_RECEIPT,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     source_git_head = _git_head()
+    source_fingerprint = resolve_source_worktree_fingerprint(ROOT)
     flagship_status = _status_from_receipt(flagship_receipt_path, {"pass"})
     weekly_status = _status_from_receipt(weekly_pulse_path, {"ready", "clear", "pass"})
     browser_status = _status_from_receipt(browser_proof_path, {"pass"})
@@ -372,6 +386,13 @@ def build_gold_map(
     memorial_public_voice_status = _status_from_receipt(memorial_public_voice_receipt, {"pass"})
     memorial_public_browser_status = _status_from_receipt(memorial_public_browser_receipt, {"pass"})
     memorial_public_room_status = _room_receipt_status(memorial_public_room_receipt)
+    memorial_spatial_payload = _json(memorial_spatial_public_origin_receipt)
+    memorial_spatial_issues = validate_memorial_spatial_public_origin_receipt(
+        memorial_spatial_payload,
+        current_head=source_git_head,
+        current_fingerprint=source_fingerprint,
+    )
+    memorial_spatial_status = "pass" if not memorial_spatial_issues else "blocked"
     memorial_operator_status = _json(memorial_operator_status_path)
     memorial_public_runtime_status = str(memorial_operator_status.get("public_runtime_mode") or "").strip().lower()
     memorial_public_runtime_reason = str(
@@ -392,6 +413,7 @@ def build_gold_map(
         if memorial_public_voice_status == "pass"
         and memorial_public_browser_status == "pass"
         and memorial_public_room_status == "pass"
+        and memorial_spatial_status == "pass"
         and memorial_public_access_status not in {"access_blocked", "blocked", "missing"}
         else "blocked"
     )
@@ -407,6 +429,13 @@ def build_gold_map(
         memorial_public_missing.append("public-origin browser realtime/audio playback gold receipt")
     if memorial_public_room_status != "pass":
         memorial_public_missing.append("public-origin room/device audio intelligibility receipt with manual attestation")
+    if memorial_spatial_status != "pass":
+        memorial_public_missing.append(
+            "public-origin polished 3D-tour receipt with pinned PropertyQuarry authority, v5 browser interactions, deploy binding, and exact public bytes"
+        )
+        memorial_public_missing.extend(
+            f"public spatial-tour receipt: {issue}" for issue in memorial_spatial_issues
+        )
     if memorial_public_runtime_status in {"blocked", "missing"}:
         if memorial_public_runtime_reason == "public_origin_not_deployed_in_memorial_mode":
             memorial_public_missing.append("public origin is still deployed in EA_CORE mode instead of MEMORIAL mode")
@@ -565,13 +594,14 @@ def build_gold_map(
             title="Memorial Public-Origin Experience Gold",
             owner_repo="memorial runtime",
             status=memorial_public_gold_status,
-            claim="The public memorial experience is gold only when the deployed public origin proves the voice roundtrip receipt, browser realtime playback with live STT, room/device intelligibility, and latency. Local release receipts do not satisfy this plane.",
+            claim="The public memorial experience is gold only when the deployed public origin proves voice, realtime playback, room/device intelligibility, latency, and the polished generated 3D tour through exact-byte public-origin and browser-interaction evidence. Local or candidate-only receipts do not satisfy this plane.",
             evidence=[
                 _display_path(path)
                 for path in (
                     memorial_public_voice_receipt,
                     memorial_public_browser_receipt,
                     memorial_public_room_receipt,
+                    memorial_spatial_public_origin_receipt,
                     memorial_operator_status_path,
                 )
                 if path.is_file()
@@ -665,7 +695,8 @@ def build_gold_map(
             "Telegram video delivery requires a dedicated live delivery receipt before it can support whole-project gold.",
             "Design mirror parity is bounded; canonical product/UI proof must come from owning repos.",
             "Memorial voice/realtime readiness requires its own browser, STT, TTS, and latency receipts.",
-            "Memorial public-origin gold requires the public voice roundtrip receipt, public browser realtime receipt, and public room-audio receipt.",
+            "Memorial public-origin gold requires the public voice roundtrip receipt, public browser realtime receipt, public room-audio receipt, and strict public spatial-tour receipt.",
+            "The spatial-tour receipt must bind the pinned PropertyQuarry authority and package to polished v5 candidate-browser proof, the governed deploy receipt, and all exact public-origin GET/HEAD observations; status-only or candidate-only evidence is insufficient.",
         ],
         "blocking_planes": blocking_planes,
         "planes": planes,

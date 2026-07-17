@@ -61,7 +61,6 @@ from app.services.memorial_openvoice import (
     voicewave_plugin_option,
     voicewave_synthesize_request,
 )
-from app.services.public_clickrank import clickrank_head_snippet, request_hostname
 from app.services.responses_upstream import ResponsesUpstreamError, generate_text
 from app.domain.memorial.turns import MemorialTurnRequest
 from app.services.memorial_turn_service import build_public_memorial_turn
@@ -10640,13 +10639,17 @@ def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str
         allowed_keys={"title", "body", "source_label", "public_excerpt"},
     )[:8]:
         title = _public_memorial_story_text(card.get("title"), max_chars=160) or "Erinnerung"
+        source_label = _public_memorial_story_text(card.get("source_label"), max_chars=120)
         approved_excerpt = _approved_public_memory_excerpt(card.get("public_excerpt"))
         preview = approved_excerpt or _censored_memory_preview(card.get("body") or card.get("title"))
-        memory_kicker = "Freigegebene Erinnerung" if approved_excerpt else "Stark redigierte Kurzfassung"
+        memory_kicker = source_label or (
+            "Freigegebene Erinnerung" if approved_excerpt else "Stark redigierte Kurzfassung"
+        )
+        safe_memory_kicker = html.escape(memory_kicker)
         memories_html.append(
             f"""
         <article class="story-card memory-card">
-          <p class="story-kicker">{memory_kicker}</p>
+          <p class="story-kicker">{safe_memory_kicker}</p>
           <h3>{html.escape(title)}</h3>
           <p>{html.escape(preview)}</p>
         </article>"""
@@ -10805,6 +10808,15 @@ def _minimal_public_memorial_html(
     )
     voice_autostart_attributes = (
         ' hidden aria-hidden="true"' if voice_release_blocked else ""
+    )
+    memorial_autostart_storage_key = _json_for_html_script(
+        f"memorial_autostart_enabled_{slug}_v2"
+    )
+    memorial_personal_memory_storage_key = _json_for_html_script(
+        f"memorial_personal_memory_enabled_{slug}_v2"
+    )
+    memorial_contribution_storage_key = _json_for_html_script(
+        f"memorial_contribution_receipt_{slug}_v1"
     )
     return f"""<!doctype html>
 <html lang="de">
@@ -11030,7 +11042,30 @@ def _minimal_public_memorial_html(
         background: rgba(255,251,244,.8);
         box-shadow: 0 16px 34px rgba(56,45,36,.07);
       }}
-      .contribution-panel > p:not(.story-kicker) {{ max-width: 64ch; color: var(--muted); }}
+      .contribution-disclosure > summary {{
+        min-height: 56px;
+        cursor: pointer;
+        list-style: none;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        color: var(--ink);
+        font: 700 clamp(1.15rem, 3vw, 1.4rem)/1.25 Georgia, "Times New Roman", serif;
+      }}
+      .contribution-disclosure > summary::-webkit-details-marker {{ display: none; }}
+      .contribution-disclosure > summary::after {{
+        content: "+";
+        color: var(--blue);
+        font: 700 1.25rem/1 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .contribution-disclosure[open] > summary::after {{ content: "−"; }}
+      .contribution-disclosure-body {{
+        margin-top: 20px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+      }}
+      .contribution-disclosure-body > p:not(.story-kicker) {{ max-width: 64ch; color: var(--muted); }}
       .contribution-form {{ display: grid; gap: 14px; margin-top: 22px; }}
       .memorial-js-required-form[hidden] {{ display: none !important; }}
       .memorial-noscript-notice {{
@@ -11924,7 +11959,7 @@ def _minimal_public_memorial_html(
   </head>
   <body{body_theme_attributes}>
     <a class="skip-link" href="#memorial-story">Zum Inhalt springen</a>
-    <a class="skip-link" href="#memorial-conversation-region">Zum Gespräch mit {safe_person_name}</a>
+    <a class="skip-link" href="#memorial-conversation-region">Zum quellengebundenen Gedenkbegleiter</a>
     <header>
       <div class="wrap hero">
         <div class="hero-shell">
@@ -11949,7 +11984,9 @@ def _minimal_public_memorial_html(
       </noscript>
       <div class="wrap story">
         {story_html}
-        <section class="story-section contribution-panel" id="memorial-contribution" aria-labelledby="memorial-contribution-title">
+        <details class="story-section contribution-panel contribution-disclosure" id="memorial-contribution">
+          <summary>Eine private Erinnerung beitragen</summary>
+          <div class="contribution-disclosure-body">
           <p class="story-kicker">Familie und Wegbegleiter</p>
           <h2 id="memorial-contribution-title">Eine Erinnerung beitragen</h2>
           <p>Dein Beitrag bleibt zunächst privat und geht in eine geschützte Prüfung. Öffentlich erscheint nur eine ausdrücklich freigegebene, redigierte Fassung. Du kannst deine Einreichung von diesem Browser aus zurückziehen oder eine dauerhafte Löschung beantragen.</p>
@@ -12007,7 +12044,8 @@ def _minimal_public_memorial_html(
             <p class="contribution-management-summary" id="memorial-contribution-management-summary" role="status" aria-live="polite" aria-atomic="true">Auf diesem Gerät ist noch kein Rücknahmebeleg gespeichert.</p>
             <div class="contribution-management-cards" id="memorial-contribution-management-cards" aria-label="Gespeicherte Einreichungen"></div>
           </section>
-        </section>
+          </div>
+        </details>
       </div>
     </main>
     <aside class="conversation-dock" aria-label="Quellengebundener Gedenkbegleiter für {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-voice-release="{'blocked' if voice_release_blocked else 'available'}">
@@ -12108,6 +12146,7 @@ def _minimal_public_memorial_html(
       const memorialPagePrewarmEnabled = {_json_for_html_script(_memorial_page_prewarm_enabled() and voice_release_allowed)};
       const installHint = document.getElementById("memorial-install-hint");
       const installButton = document.getElementById("memorial-install-button");
+      const contributionDisclosure = document.getElementById("memorial-contribution");
       const contributionForm = document.getElementById("memorial-contribution-form");
       const contributionSubmit = document.getElementById("memorial-contribution-submit");
       const contributionManagementJump = document.getElementById("memorial-contribution-management-jump");
@@ -12169,9 +12208,9 @@ def _minimal_public_memorial_html(
           }}
         }});
       }}
-      const memorialAutostartStorageKey = "memorial_autostart_enabled_v1";
-      const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
-      const memorialContributionStorageKey = "memorial_contribution_receipt_{html.escape(slug)}_v1";
+      const memorialAutostartStorageKey = {memorial_autostart_storage_key};
+      const memorialPersonalMemoryStorageKey = {memorial_personal_memory_storage_key};
+      const memorialContributionStorageKey = {memorial_contribution_storage_key};
       const memorialContributionSlug = {_json_for_html_script(slug)};
       const memorialContributionRecoverySchema = "ea.memorial_family_contribution.recovery_receipt.v1";
       const memorialContributionReceiptLimit = 10;
@@ -15377,6 +15416,7 @@ def _minimal_public_memorial_html(
       }}
       if (contributionManagementJump) {{
         contributionManagementJump.addEventListener("click", () => {{
+          if (contributionDisclosure) contributionDisclosure.open = true;
           if (contributionManagement) {{
             contributionManagement.scrollIntoView({{
               block: "start",
@@ -15386,6 +15426,21 @@ def _minimal_public_memorial_html(
           if (contributionManagementTitle) contributionManagementTitle.focus();
           void refreshContributionManagement();
         }});
+      }}
+      for (const contributionLink of document.querySelectorAll(
+        'a[href="#memorial-contribution-management"]'
+      )) {{
+        contributionLink.addEventListener("click", () => {{
+          if (contributionDisclosure) contributionDisclosure.open = true;
+        }});
+      }}
+      if (
+        contributionDisclosure &&
+        ["#memorial-contribution", "#memorial-contribution-management"].includes(
+          window.location.hash
+        )
+      ) {{
+        contributionDisclosure.open = true;
       }}
       if (contributionRecoveryDownload) {{
         contributionRecoveryDownload.addEventListener("click", () => {{
@@ -15667,7 +15722,9 @@ def _memorial_html(
     if not tts_plugin_options_html:
         tts_plugin_options_html = '<option value="" disabled selected>Keine TTS-Plug-ins verfügbar</option>'
     voice_build_default_query = html.escape(f"{person_name} interview")
-    clickrank_html = clickrank_head_snippet(hostname)
+    # The memorial page may hold contribution-management tokens in localStorage.
+    # Keep its document free of third-party scripts.
+    clickrank_html = ""
     clips_html = "\n".join(
         f"""
         <article class="clip">
@@ -20539,7 +20596,9 @@ def _public_memorial_page_html(
         subtitle=subtitle,
         memorial_avatar_url=html.escape(_memorial_pwa_icon_url(slug, payload, 180)),
         pwa_short_name=_memorial_pwa_short_name(payload),
-        clickrank_html=clickrank_head_snippet(hostname),
+        # Keep the public memorial document free of third-party scripts because
+        # contribution-management tokens live in this origin's localStorage.
+        clickrank_html="",
         story_html=_public_memorial_story_html(payload, slug=slug),
         video_call_avatar_fallback_html=_memorial_video_call_avatar_fallback_html(video_call_avatar),
     )

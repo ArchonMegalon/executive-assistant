@@ -23,6 +23,10 @@ def _steps() -> tuple[ReleaseMaterializerStep, ...]:
             command=("scripts/materialize_ea_browser_workflow_proof.py",),
         ),
         ReleaseMaterializerStep(
+            name="memorial_spatial_tour_public_origin",
+            command=("scripts/materialize_memorial_spatial_tour_public_origin.py",),
+        ),
+        ReleaseMaterializerStep(
             name="project_mode_manifests",
             command=("scripts/materialize_project_mode_manifests.py",),
         ),

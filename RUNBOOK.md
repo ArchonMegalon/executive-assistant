@@ -892,6 +892,16 @@ make release-preflight
 
 Memorial-mode deploy:
 
+> **Manfred authority hard stop:** Do not run the commands below, create a
+> candidate image/runtime, or mutate the public ingress topology unless the
+> schema-v6 sentinel is terminal `qualified` and the fixed root-installed
+> permit manager proves that exact epoch. `enforced_soak`, unhealthy current
+> resources, any certification blocker, or missing/untrusted state, lock, or
+> permit means deny. Follow the terminal permit → candidate plus priority 3D
+> proof → non-mutating preflight → fresh permit → scoped deploy → public
+> memorial plus 3D proof → revoke sequence in
+> `docs/MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md`.
+
 ```bash
 make verify-memorial-deploy-readiness
 make deploy-ea-memorial

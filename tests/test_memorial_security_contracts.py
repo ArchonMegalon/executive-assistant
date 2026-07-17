@@ -16,6 +16,16 @@ from starlette.requests import Request
 from app.services.hedy_meeting_evidence import hedy_webhook_signature
 
 
+_PUBLIC_MEMORIAL_CSP = (
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+    "media-src 'self' blob:; connect-src 'self'; worker-src 'self'; "
+    "manifest-src 'self'; font-src 'self'; object-src 'none'; "
+    "frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
 def _client(*, principal_id: str, client_host: str = "testclient") -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ["EA_API_TOKEN"] = ""
@@ -2145,6 +2155,12 @@ def test_public_memorial_page_keeps_archive_and_voice_feedback_collapsed(
     assert "Am Handy/Desktop installieren" in body
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in body
     assert "Bitte noch einmal sprechen" in body
+    assert (
+        '<details class="story-section contribution-panel contribution-disclosure" '
+        'id="memorial-contribution">'
+    ) in body
+    assert "<summary>Eine private Erinnerung beitragen</summary>" in body
+    assert 'id="memorial-contribution" open' not in body
 
 
 def test_public_memorial_page_exposes_conversation_settings_and_memory_consent_controls(
@@ -2190,7 +2206,16 @@ def test_public_memorial_page_exposes_conversation_settings_and_memory_consent_c
     assert "Es gibt noch kein Gesprächsgedächtnis zu löschen" in body
     assert "KI-gestützten, synthetischen Manfred-Stimme" in body
     assert "eingesetzte Sprachdienste verarbeiten das Audio" in body
-    assert 'href="#memorial-conversation-region">Zum Gespräch mit Manfred Hoza</a>' in body
+    assert (
+        'href="#memorial-conversation-region">'
+        "Zum quellengebundenen Gedenkbegleiter</a>"
+    ) in body
+    assert 'const memorialAutostartStorageKey = "memorial_autostart_enabled_manfred_v2";' in body
+    assert 'const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_manfred_v2";' in body
+    assert 'const memorialContributionStorageKey = "memorial_contribution_receipt_manfred_v1";' in body
+    assert '"memorial_autostart_enabled_v1"' not in body
+    assert '"memorial_personal_memory_enabled_v1"' not in body
+    assert "js.clickrank.ai" not in body
     assert "/memorials/manfred/realtime" in body
     assert "/memorials/manfred/realtime/webrtc" not in body
     assert "RTCPeerConnection" not in body
@@ -2221,6 +2246,7 @@ def test_public_memorial_page_exposes_conversation_settings_and_memory_consent_c
     assert 'id="memorial-contribution-management"' in body
     assert 'data-js-ready="false"' in body
     assert "Rücknahmebeleg sicher aufbewahren" in body
+    assert "if (contributionDisclosure) contributionDisclosure.open = true;" in body
     assert 'id="memorial-contribution-token"' not in body
     assert "/memorials/manfred/conversation-turn" not in body
     assert ".contribution-management-section dd" in body
@@ -2404,7 +2430,7 @@ def test_public_memorial_page_issues_and_preserves_signed_guest_cookie(
     assert response.headers.get("Referrer-Policy") == "no-referrer"
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.headers.get("X-Frame-Options") == "DENY"
-    assert response.headers.get("Content-Security-Policy") == "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    assert response.headers.get("Content-Security-Policy") == _PUBLIC_MEMORIAL_CSP
     assert response.headers.get("Permissions-Policy") == "microphone=(self), camera=(), geolocation=(), interest-cohort=()"
     assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
 
@@ -2417,7 +2443,7 @@ def test_public_memorial_page_issues_and_preserves_signed_guest_cookie(
     assert second.headers.get("Referrer-Policy") == "no-referrer"
     assert second.headers.get("X-Content-Type-Options") == "nosniff"
     assert second.headers.get("X-Frame-Options") == "DENY"
-    assert second.headers.get("Content-Security-Policy") == "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    assert second.headers.get("Content-Security-Policy") == _PUBLIC_MEMORIAL_CSP
     assert second.headers.get("Permissions-Policy") == "microphone=(self), camera=(), geolocation=(), interest-cohort=()"
     assert second.headers.get("X-Robots-Tag") == "noindex, nofollow"
 
@@ -3128,7 +3154,7 @@ def test_public_memorial_archive_index_success_uses_hardened_html_headers(
     assert response.headers.get("Referrer-Policy") == "no-referrer"
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.headers.get("X-Frame-Options") == "DENY"
-    assert response.headers.get("Content-Security-Policy") == "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    assert response.headers.get("Content-Security-Policy") == _PUBLIC_MEMORIAL_CSP
     assert response.headers.get("Permissions-Policy") == "microphone=(self), camera=(), geolocation=(), interest-cohort=()"
     assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
 
@@ -3396,7 +3422,7 @@ def test_public_memorial_archive_publication_success_uses_hardened_html_headers(
     assert response.headers.get("Referrer-Policy") == "no-referrer"
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.headers.get("X-Frame-Options") == "DENY"
-    assert response.headers.get("Content-Security-Policy") == "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    assert response.headers.get("Content-Security-Policy") == _PUBLIC_MEMORIAL_CSP
     assert response.headers.get("Permissions-Policy") == "microphone=(self), camera=(), geolocation=(), interest-cohort=()"
     assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
     assert "Local publication" in response.text
@@ -5265,6 +5291,7 @@ def test_public_memorial_preserves_explicitly_approved_curated_memory_excerpt(
                     "visibility": "public",
                     "public": True,
                     "title": "Ruhig den nächsten Schritt finden",
+                    "source_label": "Familienarchiv <script>alert(1)</script>",
                     "body": "Unredigierter Arbeitsentwurf darf nicht erscheinen.",
                     "public_excerpt": approved_excerpt,
                 }
@@ -5283,7 +5310,8 @@ def test_public_memorial_preserves_explicitly_approved_curated_memory_excerpt(
     assert public_json.json()["memory_cards"][0]["curation_status"] == "approved_public_excerpt"
     assert public_page.status_code == 200
     assert approved_excerpt in public_page.text
-    assert "Freigegebene Erinnerung" in public_page.text
+    assert "Familienarchiv &lt;script&gt;alert(1)&lt;/script&gt;" in public_page.text
+    assert "Familienarchiv <script>alert(1)</script>" not in public_page.text
     assert "Unredigierter Arbeitsentwurf" not in public_json.text
     assert "Unredigierter Arbeitsentwurf" not in public_page.text
 

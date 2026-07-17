@@ -4,6 +4,23 @@
 
 This runbook matches the current public memorial product as it exists now: a calm source-first page with a prominent conversation jump, curated public memories and sources below the hero, and no raw-recording browser, private source profile, or voice A/B controls on the landing page.
 
+## Production authority hard stop
+
+Before using any candidate, preflight, or deploy command in this runbook, the
+schema-v6 sentinel must be terminal `qualified` and the fixed root-installed
+manager must issue a current permit for that exact epoch. `enforced_soak`; a
+missing or untrusted state, lock, or permit; unhealthy current resources; or
+any certification blocker means stop. Source-only memorial and
+PropertyQuarry-owned 3D inputs may be prepared while denied, but no candidate
+image/runtime or live mutation may be created.
+
+The required sequence is terminal permit and state-bound `status` immediately
+before candidate creation; isolated memorial plus exact-tour proof;
+non-mutating production preflight; a fresh permit and state-bound `status`
+immediately before scoped deploy; credential-free public memorial and 3D
+proof; then permit revocation. The pinned commands and lock contract are in
+`MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md`.
+
 ## Presentation order
 
 1. Open `/memorials/manfred`.

@@ -38,7 +38,7 @@ from scripts.measure_memorial_live_browser import (  # noqa: E402
 )
 
 
-RECEIPT_SCHEMA = "ea.manfred_spatial_candidate_browser.v4"
+RECEIPT_SCHEMA = "ea.manfred_spatial_candidate_browser.v5"
 _SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -73,10 +73,14 @@ _REQUEST_MEDIA_TYPES = {
 }
 _RECONSTRUCTION_MANIFEST_RELPATH = "generated-reconstruction/reconstruction.json"
 _SURFACES = (
-    ("desktop", 1440, 1000, False, False, False),
-    ("mobile", 390, 844, True, False, False),
+    ("desktop", 1440, 1000, False, False, True),
+    ("mobile", 390, 844, True, False, True),
     ("reduced_motion", 1200, 900, False, True, True),
     ("webgl_fallback", 1200, 900, False, False, False),
+)
+_LANDING_SURFACES = (
+    ("desktop", 1440, 1000, False),
+    ("mobile", 390, 844, True),
 )
 _WEBGL_FALLBACK_INIT = """
 (() => {
@@ -803,6 +807,7 @@ def _http_package_binding(
     snapshot: dict[str, bytes],
     bindings: dict[str, dict[str, object]],
     release_revision: str,
+    candidate_commit: str,
 ) -> dict[str, object]:
     quoted_slug = urllib.parse.quote(slug, safe="")
     http_assets: list[dict[str, object]] = []
@@ -862,11 +867,73 @@ def _http_package_binding(
         )
     if len(http_assets) != 4 or proof_manifest is None:
         raise RuntimeError("manfred_candidate_spatial_browser_http_package_mismatch")
+    viewer_asset = next(
+        (row for row in http_assets if row.get("role") == "viewer_document"),
+        None,
+    )
+    if not isinstance(viewer_asset, dict):
+        raise RuntimeError("manfred_candidate_spatial_browser_http_package_mismatch")
+    public_tour_path = f"/tours/{quoted_slug}.json"
+    public_tour_body, public_tour_headers = _http_get(
+        base_url,
+        public_tour_path,
+        expected_status=200,
+    )
+    try:
+        public_tour_payload = json.loads(public_tour_body)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_public_tour_invalid"
+        ) from exc
+    generated_viewer = (
+        dict(public_tour_payload.get("generated_viewer") or {})
+        if isinstance(public_tour_payload, dict)
+        else {}
+    )
+    public_content_type = str(public_tour_headers.get("content-type") or "")
+    source_revision = str(
+        public_tour_headers.get("x-ea-source-revision") or ""
+    ).strip()
+    if (
+        not isinstance(public_tour_payload, dict)
+        or public_tour_payload.get("slug") != slug
+        or "tour_privacy_mode" not in public_tour_payload
+        or not isinstance(public_tour_payload.get("facts"), dict)
+        or not isinstance(public_tour_payload.get("brief"), dict)
+        or not isinstance(public_tour_payload.get("scenes"), list)
+        or not isinstance(public_tour_payload.get("public_assets"), list)
+        or _media_type(public_content_type) != "application/json"
+        or source_revision != candidate_commit
+        or generated_viewer.get("url") != viewer_asset.get("path")
+        or generated_viewer.get("release_revision") != release_revision
+        or generated_viewer.get("synthetic") is not True
+        or generated_viewer.get("verified_provider_capture") is not False
+    ):
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_public_tour_invalid"
+        )
+    public_tour_manifest = {
+        "path": public_tour_path,
+        "status": 200,
+        "content_type": public_content_type[:120],
+        "body_sha256": _sha256(public_tour_body),
+        "body_bytes": len(public_tour_body),
+        "canonical_json_sha256": _sha256(
+            _canonical_json_bytes_without_lf(public_tour_payload)
+        ),
+        "source_revision": source_revision,
+        "source_revision_verified": True,
+        "slug": slug,
+        "release_revision": release_revision,
+        "generated_viewer_url": str(viewer_asset["path"]),
+        "public_projection_verified": True,
+    }
     return {
         "http_asset_count": len(http_assets),
         "http_assets": http_assets,
         "http_assets_match_local_package": True,
         "proof_manifest": proof_manifest,
+        "public_tour_manifest": public_tour_manifest,
     }
 
 
@@ -1460,12 +1527,31 @@ def _wait_for_viewer_status(
     raise RuntimeError("manfred_candidate_spatial_browser_viewer_status_unavailable")
 
 
-def _audit_landing(browser: object, *, url: str, viewer_path: str) -> dict[str, object]:
-    context = browser.new_context(viewport={"width": 1440, "height": 1000})  # type: ignore[attr-defined]
+def _audit_landing_surface(
+    browser: object,
+    *,
+    base_url: str,
+    landing_path: str,
+    viewer_path: str,
+    surface: tuple[str, int, int, bool],
+    expected_labels: list[str],
+) -> dict[str, object]:
+    name, width, height, is_mobile = surface
+    context = browser.new_context(  # type: ignore[attr-defined]
+        viewport={"width": width, "height": height},
+        is_mobile=is_mobile,
+    )
     try:
         page = context.new_page()
+        page.set_default_timeout(15_000)
         page_errors: list[bool] = []
         console_errors: list[bool] = []
+        request_failures: list[bool] = []
+        non_2xx_responses: list[bool] = []
+        external_requests: list[bool] = []
+        expected_base = urllib.parse.urlsplit(base_url)
+        expected_landing_url = f"{base_url}{landing_path}"
+        expected_viewer_url = f"{base_url}{viewer_path}"
         page.on("pageerror", lambda _error: page_errors.append(True))
         page.on(
             "console",
@@ -1473,32 +1559,166 @@ def _audit_landing(browser: object, *, url: str, viewer_path: str) -> dict[str, 
                 console_errors.append(True) if message.type == "error" else None
             ),
         )
-        response = page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+
+        def record_request(request: object) -> None:
+            parsed = urllib.parse.urlsplit(str(request.url))  # type: ignore[attr-defined]
+            if parsed.scheme in {"http", "https"} and (
+                parsed.scheme != expected_base.scheme
+                or parsed.netloc != expected_base.netloc
+            ):
+                external_requests.append(True)
+
+        def record_response(response: object) -> None:
+            parsed = urllib.parse.urlsplit(str(response.url))  # type: ignore[attr-defined]
+            if parsed.scheme in {"http", "https"} and not 200 <= int(  # type: ignore[attr-defined]
+                response.status  # type: ignore[attr-defined]
+            ) < 300:
+                non_2xx_responses.append(True)
+
+        page.on("request", record_request)
+        page.on("requestfailed", lambda _request: request_failures.append(True))
+        page.on("response", record_response)
+        response = page.goto(
+            expected_landing_url,
+            wait_until="domcontentloaded",
+            timeout=30_000,
+        )
+        iframe = page.locator("#generated-tour-viewer")
+        iframe.wait_for(state="visible", timeout=20_000)
+        page.wait_for_load_state("load", timeout=20_000)
         page.wait_for_timeout(250)
         navigation = _navigation_evidence(
             page,
             response,
-            expected_url=url,
+            expected_url=expected_landing_url,
         )
-        source = page.content()
+        iframe_count = iframe.count()
+        iframe_src = iframe.get_attribute("src")
+        iframe_title = str(iframe.get_attribute("title") or "")
+        iframe_sandbox = iframe.get_attribute("sandbox")
+        iframe_loading = iframe.get_attribute("loading")
+        iframe_referrer_policy = iframe.get_attribute("referrerpolicy")
+        iframe_described_by = iframe.get_attribute("aria-describedby")
+        iframe_box = iframe.bounding_box()
+        description = page.locator("#generated-viewer-disclosure")
+        iframe_handle = iframe.element_handle()
+        nested_frame = iframe_handle.content_frame() if iframe_handle else None
         if (
-            page_errors
+            iframe_count != 1
+            or iframe_src != viewer_path
+            or not iframe_title.endswith(" interactive generated 3D reconstruction")
+            or iframe_sandbox != "allow-scripts"
+            or iframe_loading != "eager"
+            or iframe_referrer_policy != "no-referrer"
+            or iframe_described_by != "generated-viewer-disclosure"
+            or description.count() != 1
+            or not str(description.text_content() or "").strip()
+            or iframe_box is None
+            or float(iframe_box.get("width") or 0) < 280
+            or float(iframe_box.get("height") or 0) < 240
+            or nested_frame is None
+            or page_errors
             or console_errors
+            or request_failures
+            or non_2xx_responses
+            or external_requests
             or _overflow(page) != 0
-            or viewer_path not in source
+        ):
+            raise RuntimeError("manfred_candidate_spatial_browser_landing_failed")
+        _wait_for_viewer_status(nested_frame, expected="ready", timeout_ms=20_000)
+        nested_frame.wait_for_load_state("load", timeout=15_000)
+        nested_frame.wait_for_timeout(250)
+        nested_state = dict(nested_frame.evaluate(_VIEWER_STATE_SCRIPT))
+        _assert_route_contract(nested_state, expected_labels)
+        if (
+            nested_frame.url != expected_viewer_url
+            or nested_state.get("viewer_status") != "ready"
+            or int(nested_state.get("canvas_count") or 0) != 1
+            or nested_state.get("canvas_visible") is not True
+            or nested_state.get("canvas_role") != "img"
+            or not str(nested_state.get("canvas_label") or "").strip()
+            or int(nested_state.get("undersized_target_count") or 0) != 0
+            or int(nested_state.get("horizontal_overflow_px") or 0) != 0
+            or page_errors
+            or console_errors
+            or request_failures
+            or non_2xx_responses
+            or external_requests
         ):
             raise RuntimeError("manfred_candidate_spatial_browser_landing_failed")
         return {
-            "path": urllib.parse.urlsplit(url).path,
+            "name": name,
+            "path": landing_path,
             "status": 200,
+            "viewport": {"width": width, "height": height},
+            "mobile": is_mobile,
             "horizontal_overflow_px": 0,
-            "viewer_route_referenced": True,
+            "iframe": {
+                "src": viewer_path,
+                "title_suffix": " interactive generated 3D reconstruction",
+                "title_suffix_verified": True,
+                "sandbox": "allow-scripts",
+                "loading": "eager",
+                "referrer_policy": "no-referrer",
+                "aria_described_by": "generated-viewer-disclosure",
+                "description_verified": True,
+                "visible": True,
+                "width": int(math.floor(float(iframe_box["width"]))),
+                "height": int(math.floor(float(iframe_box["height"]))),
+            },
+            "nested_viewer": {
+                "url": expected_viewer_url,
+                "exact_candidate_url_verified": True,
+                "viewer_status": "ready",
+                "canvas_ready": True,
+                "route_stop_count": _EXPECTED_ROUTE_STOP_COUNT,
+                "route_labels": expected_labels,
+                "horizontal_overflow_px": 0,
+                "undersized_target_count": 0,
+            },
             "page_error_count": 0,
             "console_error_count": 0,
+            "request_failure_count": 0,
+            "non_2xx_response_count": 0,
+            "external_request_count": 0,
             **navigation,
         }
     finally:
         context.close()
+
+
+def _audit_landing(
+    browser: object,
+    *,
+    base_url: str,
+    landing_path: str,
+    viewer_path: str,
+    expected_labels: list[str],
+) -> dict[str, object]:
+    surfaces = {
+        surface[0]: _audit_landing_surface(
+            browser,
+            base_url=base_url,
+            landing_path=landing_path,
+            viewer_path=viewer_path,
+            surface=surface,
+            expected_labels=expected_labels,
+        )
+        for surface in _LANDING_SURFACES
+    }
+    return {
+        "path": landing_path,
+        "status": 200,
+        "surface_count": len(surfaces),
+        "surfaces": surfaces,
+        "responsive_iframe_verified": True,
+        "nested_viewer_ready_verified": True,
+        "page_error_count": 0,
+        "console_error_count": 0,
+        "request_failure_count": 0,
+        "non_2xx_response_count": 0,
+        "external_request_count": 0,
+    }
 
 
 def _audit_surface(
@@ -1813,6 +2033,7 @@ def audit_spatial_candidate_browser(
         snapshot=snapshot,
         bindings=bindings,
         release_revision=str(local_package["release_revision"]),
+        candidate_commit=expected_commit,
     )
     try:
         from playwright.sync_api import sync_playwright
@@ -1826,8 +2047,10 @@ def audit_spatial_candidate_browser(
         try:
             landing = _audit_landing(
                 browser,
-                url=f"{normalized_base_url}{landing_path}",
+                base_url=normalized_base_url,
+                landing_path=landing_path,
                 viewer_path=viewer_path,
+                expected_labels=expected_labels,
             )
             proof_context = browser.new_context()
             try:
@@ -1862,12 +2085,17 @@ def audit_spatial_candidate_browser(
             }
         finally:
             browser.close()
-    reduced = dict(surfaces["reduced_motion"])
     fallback = dict(surfaces["webgl_fallback"])
     if (
-        int(reduced.get("route_interaction_count") or 0) != _EXPECTED_ROUTE_STOP_COUNT
-        or reduced.get("camera_state_changes_verified") is not True
+        any(
+            int(dict(surfaces[name]).get("route_interaction_count") or 0)
+            != _EXPECTED_ROUTE_STOP_COUNT
+            or dict(surfaces[name]).get("camera_state_changes_verified") is not True
+            for name in ("desktop", "mobile", "reduced_motion")
+        )
         or fallback.get("fallback_visible") is not True
+        or landing.get("responsive_iframe_verified") is not True
+        or landing.get("nested_viewer_ready_verified") is not True
         or any(
             dict(surface).get("browser_consumed_package_verified") is not True
             for surface in surfaces.values()
@@ -1891,6 +2119,7 @@ def audit_spatial_candidate_browser(
         snapshot=snapshot,
         bindings=bindings,
         release_revision=str(local_package["release_revision"]),
+        candidate_commit=expected_commit,
     )
     (
         final_snapshot,
@@ -2184,6 +2413,7 @@ def validate_spatial_candidate_browser_receipt(
         "local_root_identity_bound",
         "package_sha256",
         "proof_manifest",
+        "public_tour_manifest",
         "release_revision",
         "runtime_identity_revalidated_after_browser",
         "tour_manifest_sha256",
@@ -2191,6 +2421,7 @@ def validate_spatial_candidate_browser_receipt(
     local_files = package.get("local_files")
     http_assets = package.get("http_assets")
     package_proof = package.get("proof_manifest")
+    public_tour_manifest = package.get("public_tour_manifest")
     if (
         set(package) != package_keys
         or package.get("package_sha256") != expected_package
@@ -2212,6 +2443,7 @@ def validate_spatial_candidate_browser_receipt(
         or not isinstance(http_assets, list)
         or len(http_assets) != 4
         or not isinstance(package_proof, dict)
+        or not isinstance(public_tour_manifest, dict)
     ):
         raise RuntimeError("manfred_candidate_spatial_browser_receipt_package_invalid")
     local_paths: set[str] = set()
@@ -2373,44 +2605,184 @@ def validate_spatial_candidate_browser_receipt(
         or dict(package_proof).get("serveable") is not False
     ):
         raise RuntimeError("manfred_candidate_spatial_browser_receipt_package_invalid")
+    expected_public_tour_manifest_keys = {
+        "body_bytes",
+        "body_sha256",
+        "canonical_json_sha256",
+        "content_type",
+        "generated_viewer_url",
+        "path",
+        "public_projection_verified",
+        "release_revision",
+        "slug",
+        "source_revision",
+        "source_revision_verified",
+        "status",
+    }
     if (
-        set(landing)
-        != {
-            "path",
-            "status",
-            "horizontal_overflow_px",
-            "viewer_route_referenced",
-            "page_error_count",
-            "console_error_count",
-            "page_url",
-            "response_url",
-            "exact_candidate_url_verified",
-        }
-        or landing
-        != {
-            "path": f"/tours/{quoted_slug}",
-            "status": 200,
-            "horizontal_overflow_px": 0,
-            "viewer_route_referenced": True,
-            "page_error_count": 0,
-            "console_error_count": 0,
-            "page_url": expected_landing_url,
-            "response_url": expected_landing_url,
-            "exact_candidate_url_verified": True,
-        }
+        set(public_tour_manifest) != expected_public_tour_manifest_keys
+        or public_tour_manifest.get("path") != f"/tours/{quoted_slug}.json"
+        or not exact_int(public_tour_manifest.get("status"), 200)
+        or _media_type(public_tour_manifest.get("content_type"))
+        != "application/json"
+        or type(public_tour_manifest.get("body_bytes")) is not int
+        or int(public_tour_manifest.get("body_bytes") or 0) <= 0
+        or type(public_tour_manifest.get("body_sha256")) is not str
+        or _SHA256_RE.fullmatch(str(public_tour_manifest.get("body_sha256") or ""))
+        is None
+        or type(public_tour_manifest.get("canonical_json_sha256")) is not str
+        or _SHA256_RE.fullmatch(
+            str(public_tour_manifest.get("canonical_json_sha256") or "")
+        )
+        is None
+        or public_tour_manifest.get("source_revision") != expected_commit
+        or public_tour_manifest.get("source_revision_verified") is not True
+        or public_tour_manifest.get("slug") != expected_slug
+        or public_tour_manifest.get("release_revision")
+        != package.get("release_revision")
+        or public_tour_manifest.get("generated_viewer_url")
+        != expected_viewer_path
+        or public_tour_manifest.get("public_projection_verified") is not True
+    ):
+        raise RuntimeError("manfred_candidate_spatial_browser_receipt_package_invalid")
+    landing_keys = {
+        "path",
+        "status",
+        "surface_count",
+        "surfaces",
+        "responsive_iframe_verified",
+        "nested_viewer_ready_verified",
+        "page_error_count",
+        "console_error_count",
+        "request_failure_count",
+        "non_2xx_response_count",
+        "external_request_count",
+    }
+    landing_surfaces = landing.get("surfaces")
+    if (
+        set(landing) != landing_keys
+        or landing.get("path") != f"/tours/{quoted_slug}"
+        or not exact_int(landing.get("status"), 200)
+        or not exact_int(landing.get("surface_count"), len(_LANDING_SURFACES))
+        or landing.get("responsive_iframe_verified") is not True
+        or landing.get("nested_viewer_ready_verified") is not True
         or any(
-            not exact_int(landing.get(name), expected)
-            for name, expected in (
-                ("status", 200),
-                ("horizontal_overflow_px", 0),
-                ("page_error_count", 0),
-                ("console_error_count", 0),
+            not exact_int(landing.get(name), 0)
+            for name in (
+                "page_error_count",
+                "console_error_count",
+                "request_failure_count",
+                "non_2xx_response_count",
+                "external_request_count",
             )
         )
-        or landing.get("viewer_route_referenced") is not True
-        or landing.get("exact_candidate_url_verified") is not True
+        or not isinstance(landing_surfaces, dict)
+        or set(landing_surfaces) != {surface[0] for surface in _LANDING_SURFACES}
     ):
         raise RuntimeError("manfred_candidate_spatial_browser_receipt_landing_invalid")
+    landing_surface_keys = {
+        "name",
+        "path",
+        "status",
+        "viewport",
+        "mobile",
+        "horizontal_overflow_px",
+        "iframe",
+        "nested_viewer",
+        "page_error_count",
+        "console_error_count",
+        "request_failure_count",
+        "non_2xx_response_count",
+        "external_request_count",
+        "page_url",
+        "response_url",
+        "exact_candidate_url_verified",
+    }
+    iframe_keys = {
+        "src",
+        "title_suffix",
+        "title_suffix_verified",
+        "sandbox",
+        "loading",
+        "referrer_policy",
+        "aria_described_by",
+        "description_verified",
+        "visible",
+        "width",
+        "height",
+    }
+    nested_viewer_keys = {
+        "url",
+        "exact_candidate_url_verified",
+        "viewer_status",
+        "canvas_ready",
+        "route_stop_count",
+        "route_labels",
+        "horizontal_overflow_px",
+        "undersized_target_count",
+    }
+    for name, width, height, is_mobile in _LANDING_SURFACES:
+        raw_surface = dict(landing_surfaces or {}).get(name)
+        if not isinstance(raw_surface, dict) or set(raw_surface) != landing_surface_keys:
+            raise RuntimeError(
+                "manfred_candidate_spatial_browser_receipt_landing_invalid"
+            )
+        surface = dict(raw_surface)
+        iframe = surface.get("iframe")
+        nested_viewer = surface.get("nested_viewer")
+        if (
+            surface.get("name") != name
+            or surface.get("path") != f"/tours/{quoted_slug}"
+            or not exact_int(surface.get("status"), 200)
+            or surface.get("viewport") != {"width": width, "height": height}
+            or surface.get("mobile") is not is_mobile
+            or not exact_int(surface.get("horizontal_overflow_px"), 0)
+            or surface.get("page_url") != expected_landing_url
+            or surface.get("response_url") != expected_landing_url
+            or surface.get("exact_candidate_url_verified") is not True
+            or any(
+                not exact_int(surface.get(key), 0)
+                for key in (
+                    "page_error_count",
+                    "console_error_count",
+                    "request_failure_count",
+                    "non_2xx_response_count",
+                    "external_request_count",
+                )
+            )
+            or not isinstance(iframe, dict)
+            or set(iframe) != iframe_keys
+            or iframe.get("src") != expected_viewer_path
+            or iframe.get("title_suffix")
+            != " interactive generated 3D reconstruction"
+            or iframe.get("title_suffix_verified") is not True
+            or iframe.get("sandbox") != "allow-scripts"
+            or iframe.get("loading") != "eager"
+            or iframe.get("referrer_policy") != "no-referrer"
+            or iframe.get("aria_described_by") != "generated-viewer-disclosure"
+            or iframe.get("description_verified") is not True
+            or iframe.get("visible") is not True
+            or type(iframe.get("width")) is not int
+            or int(iframe.get("width") or 0) < 280
+            or type(iframe.get("height")) is not int
+            or int(iframe.get("height") or 0) < 240
+            or not isinstance(nested_viewer, dict)
+            or set(nested_viewer) != nested_viewer_keys
+            or nested_viewer.get("url") != expected_viewer_url
+            or nested_viewer.get("exact_candidate_url_verified") is not True
+            or nested_viewer.get("viewer_status") != "ready"
+            or nested_viewer.get("canvas_ready") is not True
+            or not exact_int(
+                nested_viewer.get("route_stop_count"),
+                _EXPECTED_ROUTE_STOP_COUNT,
+            )
+            or nested_viewer.get("route_labels") != expected_labels
+            or not exact_int(nested_viewer.get("horizontal_overflow_px"), 0)
+            or not exact_int(nested_viewer.get("undersized_target_count"), 0)
+        ):
+            raise RuntimeError(
+                "manfred_candidate_spatial_browser_receipt_landing_invalid"
+            )
     if (
         set(proof) != {"path", "status", "serveable"}
         or proof

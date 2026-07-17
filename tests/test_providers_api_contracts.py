@@ -10617,7 +10617,7 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
     assert "Am Handy/Desktop installieren" in page.text
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
     assert "voice clone" not in page.text.lower()
-    assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" in page.text
+    assert "https://js.clickrank.ai/seo/" not in page.text
 
     payload = client.get(f"/memorials/{slug}.json")
     assert payload.status_code == 200

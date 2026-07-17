@@ -88,6 +88,22 @@ CONTROL_TOUR_GENERATED_VIEWER_DISCLOSURE = (
     "Generated interactive reconstruction from the supplied floor plan. "
     "It is a layout aid, not a captured or provider-verified 3D scan."
 )
+PUBLIC_SPATIAL_VIEWER_RELPATH = "generated-reconstruction/viewer.html"
+PUBLIC_SPATIAL_PROOF_RELPATH = "generated-reconstruction/reconstruction.json"
+PUBLIC_SPATIAL_FLOORPLAN_RELPATH = (
+    "generated-reconstruction/source-floorplan.png"
+)
+PUBLIC_SPATIAL_JAVASCRIPT_RELPATHS = (
+    "generated-reconstruction/vendor/three.module.js",
+    "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
+)
+PUBLIC_SPATIAL_ALLOWED_FILE_RELPATHS = (
+    "tour.json",
+    PUBLIC_SPATIAL_VIEWER_RELPATH,
+    PUBLIC_SPATIAL_PROOF_RELPATH,
+    PUBLIC_SPATIAL_FLOORPLAN_RELPATH,
+    *PUBLIC_SPATIAL_JAVASCRIPT_RELPATHS,
+)
 CONTROL_TOUR_SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,127}$")
 DEPLOYMENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
 IMAGE_ID_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -1219,7 +1235,7 @@ def _default_http_no_redirect(
             timeout=timeout_seconds,
         )
     except urllib.error.HTTPError as exc:
-        if int(exc.code or 0) not in {301, 302, 303, 307, 308}:
+        if int(exc.code or 0) not in {301, 302, 303, 307, 308, 404}:
             raise DeployError(
                 f"http_status_invalid:{url}:{int(exc.code or 0)}"
             ) from exc
@@ -3818,6 +3834,29 @@ class MemorialDeployLane:
         registry_recovery = receipt_mapping("registry_recovery")
         spatial_projection = receipt_mapping("spatial_handoff")
         spatial_runtime = receipt_mapping("spatial_handoff_runtime")
+        spatial_browser_value = spatial_runtime.get("candidate_browser_gate")
+        spatial_browser = (
+            dict(spatial_browser_value)
+            if isinstance(spatial_browser_value, dict)
+            else {}
+        )
+        spatial_browser_package_value = spatial_browser.get("package_binding")
+        spatial_browser_package = (
+            dict(spatial_browser_package_value)
+            if isinstance(spatial_browser_package_value, dict)
+            else {}
+        )
+        candidate_public_tour_manifest_value = spatial_browser_package.get(
+            "public_tour_manifest"
+        )
+        candidate_public_tour_manifest = (
+            dict(candidate_public_tour_manifest_value)
+            if isinstance(candidate_public_tour_manifest_value, dict)
+            else {}
+        )
+        candidate_public_tour_canonical_sha256 = str(
+            candidate_public_tour_manifest.get("canonical_json_sha256") or ""
+        )
         fleet_lock_value = locks.get("fleet")
         fleet_lock = (
             dict(fleet_lock_value) if isinstance(fleet_lock_value, dict) else {}
@@ -4400,6 +4439,13 @@ class MemorialDeployLane:
             }
             for relpath, content in sorted(observed_spatial_snapshot.items())
         ]
+        observed_spatial_allowed_files = {
+            str(row["path"]): {
+                "sha256": str(row["sha256"]),
+                "size_bytes": int(row["size_bytes"]),
+            }
+            for row in observed_spatial_local_files
+        }
         observed_spatial_package_sha256 = (
             _spatial_package_sha256(observed_spatial_snapshot)
             if observed_spatial_snapshot
@@ -4410,6 +4456,12 @@ class MemorialDeployLane:
             if "tour.json" in observed_spatial_snapshot
             else ""
         )
+        try:
+            observed_spatial_tour_canonical_sha256 = _canonical_json_sha256(
+                json.loads(observed_spatial_snapshot["tour.json"])
+            )
+        except (KeyError, TypeError, ValueError):
+            observed_spatial_tour_canonical_sha256 = ""
 
         def passing_spatial_verifier(value: object) -> bool:
             return (
@@ -4475,6 +4527,8 @@ class MemorialDeployLane:
                 and len(asset_paths) == 5
                 and all(isinstance(asset_path, str) for asset_path in asset_paths)
                 and len(set(asset_paths)) == 5
+                and set(asset_paths)
+                == set(PUBLIC_SPATIAL_ALLOWED_FILE_RELPATHS) - {"tour.json"}
                 and set(observed_spatial_snapshot) == {"tour.json", *asset_paths}
                 and {
                     str(row.get("path") or "")
@@ -4485,6 +4539,10 @@ class MemorialDeployLane:
                 and spatial_viewer_relpath == "generated-reconstruction/viewer.html"
                 and spatial_proof_relpath
                 == "generated-reconstruction/reconstruction.json"
+                and SHA256_HEX_PATTERN.fullmatch(
+                    observed_spatial_tour_canonical_sha256
+                )
+                is not None
                 and isinstance(spatial_route_labels, list)
                 and len(spatial_route_labels) == 9
                 and all(
@@ -4539,6 +4597,11 @@ class MemorialDeployLane:
             oci_image = value.get("candidate_oci_image")
             serving = value.get("serving_container")
             package = value.get("package_binding")
+            public_tour_manifest = (
+                package.get("public_tour_manifest")
+                if isinstance(package, dict)
+                else None
+            )
             return (
                 version == expected_runtime_version
                 and isinstance(oci_image, dict)
@@ -4566,6 +4629,21 @@ class MemorialDeployLane:
                 and package.get("package_sha256") == spatial_package_sha256
                 and package.get("local_files") == observed_spatial_local_files
                 and package.get("tour_manifest_sha256") == observed_spatial_tour_sha256
+                and isinstance(public_tour_manifest, dict)
+                and public_tour_manifest == candidate_public_tour_manifest
+                and SHA256_HEX_PATTERN.fullmatch(
+                    candidate_public_tour_canonical_sha256
+                )
+                is not None
+                and public_tour_manifest.get("source_revision") == source_revision
+                and public_tour_manifest.get("source_revision_verified") is True
+                and public_tour_manifest.get("slug") == spatial_slug
+                and public_tour_manifest.get("generated_viewer_url")
+                == (
+                    f"/tours/viewer/{spatial_slug}/"
+                    f"{spatial_viewer_relpath}"
+                )
+                and public_tour_manifest.get("public_projection_verified") is True
             )
 
         def valid_spatial_runtime(value: Mapping[str, Any]) -> bool:
@@ -4902,10 +4980,27 @@ class MemorialDeployLane:
                 "html_json_viewer_200": True,
                 "proof_only_404": True,
                 "release_verifier_pass": True,
-                "browser_schema": "ea.manfred_spatial_candidate_browser.v4",
+                "browser_schema": "ea.manfred_spatial_candidate_browser.v5",
                 "browser_pass": True,
                 "identity_bound": True,
                 "package_sha256": spatial_package_sha256,
+                "allowed_files": observed_spatial_allowed_files,
+                "viewer_relpath": spatial_viewer_relpath,
+                "proof_relpath": spatial_proof_relpath,
+                "tour_manifest_canonical_sha256": (
+                    candidate_public_tour_canonical_sha256
+                ),
+                "property_artifact_commit": PROPERTY_ARTIFACT_COMMIT,
+                "upstream_publication_authority_sha256": (
+                    PROPERTY_AUTHORITY_SHA256
+                ),
+                "upstream_tour_manifest_sha256": PROPERTY_TOUR_SHA256,
+                "pre_authority_manifest_canonical_sha256": (
+                    PROPERTY_PRE_AUTHORITY_SHA256
+                ),
+                "upstream_public_activation_authority": True,
+                "ea_public_activation_authority": False,
+                "provider_calls_performed": False,
             },
             "live_ea": {
                 "snapshot_sha256": _canonical_json_sha256(live_before),
@@ -5773,8 +5868,275 @@ class MemorialDeployLane:
             tour_slug=self.control_tour_slug or None,
         )
 
+    def _verify_public_spatial_tour(
+        self,
+        public_origin: str,
+        source_revision: str,
+        candidate_promotion_evidence: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        validated_public_origin = _validate_public_origin(
+            public_origin,
+            allowed_hosts=self.allowed_public_hosts,
+        )
+        if SOURCE_REVISION_PATTERN.fullmatch(source_revision) is None:
+            raise DeployError("public_spatial_source_revision_invalid")
+        if candidate_promotion_evidence.get("provider_calls_performed") is not False:
+            raise DeployError("public_spatial_provider_boundary_invalid")
+        spatial_value = candidate_promotion_evidence.get("spatial_handoff")
+        spatial = dict(spatial_value) if isinstance(spatial_value, dict) else {}
+        expected_spatial_fields = {
+            "slug",
+            "route_count",
+            "html_json_viewer_200",
+            "proof_only_404",
+            "release_verifier_pass",
+            "browser_schema",
+            "browser_pass",
+            "identity_bound",
+            "package_sha256",
+            "allowed_files",
+            "viewer_relpath",
+            "proof_relpath",
+            "tour_manifest_canonical_sha256",
+            "property_artifact_commit",
+            "upstream_publication_authority_sha256",
+            "upstream_tour_manifest_sha256",
+            "pre_authority_manifest_canonical_sha256",
+            "upstream_public_activation_authority",
+            "ea_public_activation_authority",
+            "provider_calls_performed",
+        }
+        allowed_files_value = spatial.get("allowed_files")
+        allowed_files = (
+            dict(allowed_files_value)
+            if isinstance(allowed_files_value, dict)
+            else {}
+        )
+        slug = str(spatial.get("slug") or "")
+        if (
+            set(spatial) != expected_spatial_fields
+            or slug != REQUIRED_CONTROL_TOUR_SLUG
+            or CONTROL_TOUR_SLUG_PATTERN.fullmatch(slug) is None
+            or spatial.get("route_count") != 8
+            or spatial.get("html_json_viewer_200") is not True
+            or spatial.get("proof_only_404") is not True
+            or spatial.get("release_verifier_pass") is not True
+            or spatial.get("browser_schema")
+            != "ea.manfred_spatial_candidate_browser.v5"
+            or spatial.get("browser_pass") is not True
+            or spatial.get("identity_bound") is not True
+            or SHA256_HEX_PATTERN.fullmatch(
+                str(spatial.get("package_sha256") or "")
+            )
+            is None
+            or spatial.get("viewer_relpath") != PUBLIC_SPATIAL_VIEWER_RELPATH
+            or spatial.get("proof_relpath") != PUBLIC_SPATIAL_PROOF_RELPATH
+            or SHA256_HEX_PATTERN.fullmatch(
+                str(spatial.get("tour_manifest_canonical_sha256") or "")
+            )
+            is None
+            or spatial.get("property_artifact_commit") != PROPERTY_ARTIFACT_COMMIT
+            or spatial.get("upstream_publication_authority_sha256")
+            != PROPERTY_AUTHORITY_SHA256
+            or spatial.get("upstream_tour_manifest_sha256")
+            != PROPERTY_TOUR_SHA256
+            or spatial.get("pre_authority_manifest_canonical_sha256")
+            != PROPERTY_PRE_AUTHORITY_SHA256
+            or spatial.get("upstream_public_activation_authority") is not True
+            or spatial.get("ea_public_activation_authority") is not False
+            or spatial.get("provider_calls_performed") is not False
+            or set(allowed_files) != set(PUBLIC_SPATIAL_ALLOWED_FILE_RELPATHS)
+        ):
+            raise DeployError("public_spatial_candidate_evidence_invalid")
+        for relpath in PUBLIC_SPATIAL_ALLOWED_FILE_RELPATHS:
+            file_value = allowed_files.get(relpath)
+            file_evidence = dict(file_value) if isinstance(file_value, dict) else {}
+            if (
+                set(file_evidence) != {"sha256", "size_bytes"}
+                or SHA256_HEX_PATTERN.fullmatch(
+                    str(file_evidence.get("sha256") or "")
+                )
+                is None
+                or type(file_evidence.get("size_bytes")) is not int
+                or int(file_evidence["size_bytes"]) <= 0
+            ):
+                raise DeployError("public_spatial_candidate_file_evidence_invalid")
+        if (
+            dict(allowed_files["tour.json"]).get("sha256")
+            != spatial.get("upstream_tour_manifest_sha256")
+        ):
+            raise DeployError("public_spatial_candidate_authority_mismatch")
+
+        quoted_slug = urllib.parse.quote(slug, safe="")
+        viewer_root = f"/tours/viewer/{quoted_slug}"
+        request_specs = (
+            ("version", "/version", 200, ("application/json",), None),
+            (
+                "landing",
+                f"/tours/{quoted_slug}",
+                200,
+                ("text/html",),
+                None,
+            ),
+            (
+                "tour_json",
+                f"/tours/{quoted_slug}.json",
+                200,
+                ("application/json",),
+                "tour.json",
+            ),
+            (
+                "viewer",
+                f"{viewer_root}/{PUBLIC_SPATIAL_VIEWER_RELPATH}",
+                200,
+                ("text/html",),
+                PUBLIC_SPATIAL_VIEWER_RELPATH,
+            ),
+            (
+                "floorplan",
+                f"{viewer_root}/{PUBLIC_SPATIAL_FLOORPLAN_RELPATH}",
+                200,
+                ("image/png",),
+                PUBLIC_SPATIAL_FLOORPLAN_RELPATH,
+            ),
+            (
+                "three_module",
+                f"{viewer_root}/{PUBLIC_SPATIAL_JAVASCRIPT_RELPATHS[0]}",
+                200,
+                ("application/javascript", "text/javascript"),
+                PUBLIC_SPATIAL_JAVASCRIPT_RELPATHS[0],
+            ),
+            (
+                "orbit_controls",
+                f"{viewer_root}/{PUBLIC_SPATIAL_JAVASCRIPT_RELPATHS[1]}",
+                200,
+                ("application/javascript", "text/javascript"),
+                PUBLIC_SPATIAL_JAVASCRIPT_RELPATHS[1],
+            ),
+            (
+                "proof_only",
+                f"{viewer_root}/{PUBLIC_SPATIAL_PROOF_RELPATH}",
+                404,
+                ("application/json",),
+                PUBLIC_SPATIAL_PROOF_RELPATH,
+            ),
+        )
+        expected_origin = urllib.parse.urlsplit(validated_public_origin)
+        route_evidence: dict[str, dict[str, Any]] = {}
+        for label, path, expected_status, media_types, relpath in request_specs:
+            url = f"{validated_public_origin}{path}"
+            parsed_url = urllib.parse.urlsplit(url)
+            if (
+                parsed_url.scheme != expected_origin.scheme
+                or parsed_url.netloc != expected_origin.netloc
+                or parsed_url.query
+                or parsed_url.fragment
+            ):
+                raise DeployError("public_spatial_external_request_rejected")
+            for method in ("GET", "HEAD"):
+                response = self.http_no_redirect(
+                    url,
+                    self.request_timeout_seconds,
+                    method,
+                    "",
+                )
+                response_headers = {
+                    str(name).lower(): str(value or "").strip()
+                    for name, value in dict(response.headers or {}).items()
+                }
+                if response_headers.get("location"):
+                    raise DeployError(f"public_spatial_redirect_rejected:{path}")
+                if response.status != expected_status:
+                    raise DeployError(f"public_spatial_status_invalid:{path}")
+                if response.source_revision != source_revision:
+                    raise DeployError(f"public_spatial_source_revision_mismatch:{path}")
+                media_type = response.content_type.partition(";")[0].strip().lower()
+                if media_type not in media_types:
+                    raise DeployError(f"public_spatial_content_type_invalid:{path}")
+                if method == "HEAD" and response.body:
+                    raise DeployError(f"public_spatial_head_body_invalid:{path}")
+
+                row: dict[str, Any] = {
+                    "path": path,
+                    "method": method,
+                    "status": response.status,
+                    "content_type": response.content_type,
+                    "source_revision": response.source_revision,
+                    "body_bytes": len(response.body),
+                    "body_sha256": hashlib.sha256(response.body).hexdigest(),
+                }
+                if method == "GET" and label == "version":
+                    version = _json_object(
+                        response.body.decode("utf-8"),
+                        reason="public_spatial_version_json_invalid",
+                    )
+                    if str(version.get("commit_sha") or "") != source_revision:
+                        raise DeployError("public_spatial_version_revision_mismatch")
+                    row["commit_sha"] = source_revision
+                elif method == "GET" and label == "tour_json":
+                    try:
+                        tour_manifest = json.loads(response.body)
+                    except (TypeError, ValueError) as exc:
+                        raise DeployError("public_spatial_tour_json_invalid") from exc
+                    canonical_sha256 = _canonical_json_sha256(tour_manifest)
+                    if canonical_sha256 != spatial.get(
+                        "tour_manifest_canonical_sha256"
+                    ):
+                        raise DeployError("public_spatial_tour_json_digest_mismatch")
+                    row["canonical_json_sha256"] = canonical_sha256
+                elif method == "GET" and relpath and label != "proof_only":
+                    expected_file = dict(allowed_files[relpath])
+                    if (
+                        len(response.body) != expected_file["size_bytes"]
+                        or row["body_sha256"] != expected_file["sha256"]
+                    ):
+                        raise DeployError(
+                            f"public_spatial_asset_digest_mismatch:{path}"
+                        )
+                    row["candidate_file_identity_verified"] = True
+                elif method == "GET" and label == "proof_only":
+                    proof_file = dict(allowed_files[PUBLIC_SPATIAL_PROOF_RELPATH])
+                    if row["body_sha256"] == proof_file["sha256"]:
+                        raise DeployError("public_spatial_proof_disclosed")
+                    row["candidate_file_not_disclosed"] = True
+                route_evidence[f"{label}_{method.lower()}"] = row
+
+        evidence = {
+            "status": "pass",
+            "origin": validated_public_origin,
+            "slug": slug,
+            "source_revision": source_revision,
+            "request_count": len(route_evidence),
+            "get_count": sum(
+                row.get("method") == "GET" for row in route_evidence.values()
+            ),
+            "head_count": sum(
+                row.get("method") == "HEAD" for row in route_evidence.values()
+            ),
+            "routes": route_evidence,
+            "exact_byte_file_count": 4,
+            "canonical_json_file_count": 1,
+            "proof_only_404": True,
+            "redirect_count": 0,
+            "external_request_count": 0,
+            "provider_calls_performed": False,
+            "property_authority": {
+                "owner": "PropertyQuarry",
+                "artifact_commit": PROPERTY_ARTIFACT_COMMIT,
+                "publication_authority_sha256": PROPERTY_AUTHORITY_SHA256,
+                "package_sha256": str(spatial["package_sha256"]),
+                "upstream_public_activation_authority": True,
+                "ea_public_activation_authority": False,
+            },
+        }
+        return evidence
+
     def _verify_deployed_surface(
-        self, public_origin: str, *, source_revision: str
+        self,
+        public_origin: str,
+        *,
+        source_revision: str,
+        candidate_promotion_evidence: Mapping[str, Any],
     ) -> None:
         validated_public_origin = _validate_public_origin(
             public_origin,
@@ -5822,14 +6184,21 @@ class MemorialDeployLane:
         ]
         if probes[2]["body_sha256"] != probes[4]["body_sha256"]:
             raise DeployError("public_memorial_manifest_differs_from_local")
+        spatial_probe = self._verify_public_spatial_tour(
+            validated_public_origin,
+            source_revision,
+            candidate_promotion_evidence,
+        )
         self.receipt["probes"] = probes
         self.receipt["alias_probes"] = alias_probes
+        self.receipt["public_spatial_tour"] = spatial_probe
         self._record_check(
             "local_and_public_memorial",
             "pass",
             alias_method_probes=sum(
                 len(list(item.get("methods") or [])) for item in alias_probes
             ),
+            spatial_method_probes=int(spatial_probe["request_count"]),
         )
 
     def _verify_candidate_origin(
@@ -6218,6 +6587,9 @@ class MemorialDeployLane:
             self._verify_deployed_surface(
                 str(context["public_origin"]),
                 source_revision=str(context["source_revision"]),
+                candidate_promotion_evidence=dict(
+                    context["candidate_promotion"]
+                ),
             )
             self._verify_candidate_origins(str(context["public_origin"]))
             self._verify_non_memorial_controls(

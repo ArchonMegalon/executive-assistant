@@ -52,7 +52,14 @@ _PUBLIC_MEMORIAL_HTML_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
-    "Content-Security-Policy": "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "media-src 'self' blob:; connect-src 'self'; worker-src 'self'; "
+        "manifest-src 'self'; font-src 'self'; object-src 'none'; "
+        "frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; "
+        "form-action 'self'"
+    ),
     "Permissions-Policy": "microphone=(self), camera=(), geolocation=(), interest-cohort=()",
     "X-Robots-Tag": "noindex, nofollow",
 }

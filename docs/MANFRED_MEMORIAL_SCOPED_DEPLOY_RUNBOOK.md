@@ -1,5 +1,32 @@
 # Manfred memorial scoped deploy runbook
 
+## Hard stop before candidate or deploy work
+
+Do not create a Manfred candidate image/runtime, run the memorial deploy lane,
+or mutate the live ingress topology until the schema-v6 sentinel is terminal
+`qualified` and the fixed root-installed manager has issued a current permit
+for that exact epoch. `enforced_soak`; a missing or untrusted state, lock, or
+permit; unhealthy current resources; or any certification blocker means deny.
+Source-only preparation may continue, but none of the candidate or deployment
+commands later in this runbook are authorized.
+
+The only governed order is:
+
+1. finish source-only memorial and PropertyQuarry-owned 3D inputs;
+2. prove terminal qualification, issue the first permit, and run state-bound
+   `status` immediately before candidate creation;
+3. build and verify the isolated candidate, including the exact priority 3D
+   browser/actionability proof;
+4. run non-mutating production preflight;
+5. issue a fresh short-lived permit and run state-bound `status` immediately
+   before promotion;
+6. deploy only through `scripts/deploy_ea_memorial.py`;
+7. prove the exact public memorial and priority 3D routes; and
+8. revoke the permit.
+
+The installation, status, lease, and incident commands are pinned under
+[Terminal qualification and root permit](#terminal-qualification-and-root-permit).
+
 ## Purpose
 
 `make deploy-ea-memorial` is the governed public-memorial lane. It no longer

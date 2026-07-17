@@ -27,22 +27,6 @@
     },
     {
       "visibility": "public",
-      "source_label": "Gestaltungsregel",
-      "title": "Keine direkte Simulation",
-      "body": "Die Seite darf vorsichtig formulieren, was aus Quellen hervorgeht, aber sie gibt neue Sätze nicht als echte Worte von Manfred aus.",
-      "public_excerpt": "Die Seite darf vorsichtig formulieren, was aus Quellen hervorgeht, aber sie gibt neue Sätze nicht als echte Worte von Manfred aus.",
-      "approved": true
-    },
-    {
-      "visibility": "public",
-      "source_label": "Für Angehörige",
-      "title": "Ein Ort für belegte Erinnerungen",
-      "body": "Der Schwerpunkt liegt auf belegten Erinnerungen und einem Gedenkbegleiter, der seine Quellen und Grenzen zeigt. Originalaufnahmen erscheinen erst nach einer eigenen Freigabe.",
-      "public_excerpt": "Der Schwerpunkt liegt auf belegten Erinnerungen und einem Gedenkbegleiter, der seine Quellen und Grenzen zeigt. Originalaufnahmen erscheinen erst nach einer eigenen Freigabe.",
-      "approved": true
-    },
-    {
-      "visibility": "public",
       "source_label": "Öffentliche Quelle",
       "title": "Interviews zu Mobbing und Diskriminierung",
       "body": "Es gibt belegbare öffentliche Interview-Hinweise mit Manfred Hoza, unter anderem ein 22-Minuten-Interview und zwei YouTube-Teile, die vor einer Nutzung einzeln gesichert und rechtlich/ethisch freigegeben werden sollten.",
@@ -55,6 +39,22 @@
       "title": "Jimdo-Seite als biografischer und thematischer Signalgeber",
       "body": "Die Jimdo-Seite zu Manfred Hoza liefert öffentliche Signale zu Berufsweg, rechtswissenschaftlichen Schwerpunkten, Vorträgen, Mobbing-Kontext und seiner skeptischen Haltung gegenüber Autoritäten und ungeprüften Behauptungen. Sie darf als Quellen- und Charaktersignal dienen, aber nicht als Beleg für aktuelle Gegenwartswahrnehmung.",
       "public_excerpt": "Die Jimdo-Seite zu Manfred Hoza liefert öffentliche Signale zu Berufsweg, rechtswissenschaftlichen Schwerpunkten, Vorträgen, Mobbing-Kontext und seiner skeptischen Haltung gegenüber Autoritäten und ungeprüften Behauptungen. Sie darf als Quellen- und Charaktersignal dienen, aber nicht als Beleg für aktuelle Gegenwartswahrnehmung.",
+      "approved": true
+    },
+    {
+      "visibility": "public",
+      "source_label": "Für Angehörige",
+      "title": "Ein Ort für belegte Erinnerungen",
+      "body": "Der Schwerpunkt liegt auf belegten Erinnerungen und einem Gedenkbegleiter, der seine Quellen und Grenzen zeigt. Originalaufnahmen erscheinen erst nach einer eigenen Freigabe.",
+      "public_excerpt": "Der Schwerpunkt liegt auf belegten Erinnerungen und einem Gedenkbegleiter, der seine Quellen und Grenzen zeigt. Originalaufnahmen erscheinen erst nach einer eigenen Freigabe.",
+      "approved": true
+    },
+    {
+      "visibility": "public",
+      "source_label": "Gestaltungsregel",
+      "title": "Keine direkte Simulation",
+      "body": "Die Seite darf vorsichtig formulieren, was aus Quellen hervorgeht, aber sie gibt neue Sätze nicht als echte Worte von Manfred aus.",
+      "public_excerpt": "Die Seite darf vorsichtig formulieren, was aus Quellen hervorgeht, aber sie gibt neue Sätze nicht als echte Worte von Manfred aus.",
       "approved": true
     },
     {
@@ -73,7 +73,15 @@
     "Was war ihm bei Familie wichtig?",
     "Was zeigt die Jimdo-Seite über seine Arbeit und seine Themen?"
   ],
-  "external_sources": [],
+  "external_sources": [
+    {
+      "visibility": "public",
+      "label": "Manfred Hoza: öffentliche Jimdo-Quelle",
+      "url": "https://mobbing-konkret.jimdofree.com/notwehrgesetze-angst-der-b%C3%BCrger-waffen-boom/",
+      "status": "approved_public_reference",
+      "approved": true
+    }
+  ],
   "source_grounded_profile": [
     {
       "visibility": "public",
