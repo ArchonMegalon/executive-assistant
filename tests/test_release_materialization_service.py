@@ -139,24 +139,41 @@ def test_generated_clean_verifier_ignores_only_point_in_time_resource_fields() -
     left = {
         "run_id": "run-one",
         "delivery_guard": {
-            "available_bytes": 1,
-            "available_gb": 0.001,
-            "status": "pass",
+            "host_resource_guard": {
+                "available_bytes": 1,
+                "available_gb": 0.001,
+                "blocking_reason": "memory_pressure",
+                "triggered_thresholds": ["available_bytes"],
+                "usage_percent": 90.0,
+                "status": "pass",
+            }
         },
+        "blocking_reason": "stable_reason",
     }
     right = {
         "run_id": "run-two",
         "delivery_guard": {
-            "available_bytes": 2,
-            "available_gb": 0.002,
-            "status": "pass",
+            "host_resource_guard": {
+                "available_bytes": 2,
+                "available_gb": 0.002,
+                "blocking_reason": "",
+                "triggered_thresholds": [],
+                "usage_percent": 70.0,
+                "status": "pass",
+            }
         },
+        "blocking_reason": "stable_reason",
     }
 
     assert verify_generated_release_artifacts_clean._normalize(
         left
     ) == verify_generated_release_artifacts_clean._normalize(right)
-    right["delivery_guard"]["status"] = "blocked"
+    right["delivery_guard"]["host_resource_guard"]["status"] = "blocked"
+    assert verify_generated_release_artifacts_clean._normalize(
+        left
+    ) != verify_generated_release_artifacts_clean._normalize(right)
+    right["delivery_guard"]["host_resource_guard"]["status"] = "pass"
+    right["blocking_reason"] = "different_reason"
     assert verify_generated_release_artifacts_clean._normalize(
         left
     ) != verify_generated_release_artifacts_clean._normalize(right)

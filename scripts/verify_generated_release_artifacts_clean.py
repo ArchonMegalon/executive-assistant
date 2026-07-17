@@ -45,8 +45,6 @@ MATERIALIZER_COMMANDS = (
     ("scripts/materialize_memorial_operator_status.py",),
 )
 VOLATILE_KEYS = {
-    "available_bytes",
-    "available_gb",
     "generated_at",
     "as_of",
     "created_at",
@@ -73,9 +71,16 @@ VOLATILE_KEYS = {
     "state_updated_at",
     "sidecar_last_qr_at",
 }
+HOST_RESOURCE_VOLATILE_KEYS = {
+    "available_bytes",
+    "available_gb",
+    "blocking_reason",
+    "triggered_thresholds",
+    "usage_percent",
+}
 
 
-def _normalize(value: Any) -> Any:
+def _normalize(value: Any, *, _path: tuple[str, ...] = ()) -> Any:
     if isinstance(value, dict):
         normalized: dict[str, Any] = {}
         for key, item in value.items():
@@ -92,12 +97,17 @@ def _normalize(value: Any) -> Any:
                 or key_str.endswith("_updated_at")
                 or key_str.endswith("_observed_at")
                 or key_str.endswith("_age_seconds")
+                or (
+                    _path
+                    and _path[-1] == "host_resource_guard"
+                    and key_str in HOST_RESOURCE_VOLATILE_KEYS
+                )
             ):
                 continue
-            normalized[key] = _normalize(item)
+            normalized[key] = _normalize(item, _path=(*_path, key_str))
         return normalized
     if isinstance(value, list):
-        return [_normalize(item) for item in value]
+        return [_normalize(item, _path=_path) for item in value]
     return value
 
 
