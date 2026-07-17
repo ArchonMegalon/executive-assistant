@@ -21,22 +21,62 @@ if str(ROOT / "ea") not in sys.path:
 from app.yaml_inputs import load_yaml_dict  # noqa: E402
 
 LOCAL_PRODUCT_ROOT = ROOT / ".codex-design" / "product"
-WORKSPACE_ROOT = Path(os.environ.get("EA_WORKSPACE_ROOT") or ROOT.parent).expanduser()
-CANONICAL_PRODUCT_ROOT = Path(
-    os.environ.get("CHUMMER6_DESIGN_PRODUCT_ROOT")
-    or WORKSPACE_ROOT / "chummercomplete" / "chummer-design" / "products" / "chummer"
-).expanduser()
+MIRROR_MANIFEST_PATH = ROOT / ".codex-design" / "repo" / "DESIGN_MIRROR_MANIFEST.yaml"
+QUEUE_BINDING_KEY = "next_90_day_queue_staging"
+QUEUE_LOCAL_PATH = ".codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+
+
+def _canonical_product_root_from_manifest() -> Path:
+    payload = load_yaml_dict(MIRROR_MANIFEST_PATH)
+    bindings = payload.get("bindings") or []
+    matches = [
+        binding
+        for binding in bindings
+        if isinstance(binding, dict) and str(binding.get("key") or "").strip() == QUEUE_BINDING_KEY
+    ]
+    if len(matches) != 1:
+        raise RuntimeError(f"design mirror manifest must define exactly one {QUEUE_BINDING_KEY!r} binding")
+    binding = matches[0]
+    if (
+        str(binding.get("kind") or "").strip() != "file"
+        or binding.get("required") is not True
+        or str(binding.get("local_path") or "").strip() != QUEUE_LOCAL_PATH
+    ):
+        raise RuntimeError(f"design mirror manifest has an invalid {QUEUE_BINDING_KEY!r} binding")
+    source_path = Path(str(binding.get("source_path") or "").strip()).expanduser()
+    if not source_path.is_absolute() or source_path.name != Path(QUEUE_LOCAL_PATH).name:
+        raise RuntimeError(f"design mirror manifest has an invalid {QUEUE_BINDING_KEY!r} source_path")
+    return source_path.parent
+
+
+def _design_root() -> Path:
+    for env_name in (
+        "EA_DESIGN_ROOT",
+        "EA_MIRROR_FIXTURE_ROOT",
+        "CHUMMER6_DESIGN_PRODUCT_ROOT",
+    ):
+        value = str(os.environ.get(env_name) or "").strip()
+        if value:
+            return Path(value).expanduser()
+    workspace_root = str(os.environ.get("EA_WORKSPACE_ROOT") or "").strip()
+    if workspace_root:
+        return (
+            Path(workspace_root).expanduser()
+            / "chummercomplete"
+            / "chummer-design"
+            / "products"
+            / "chummer"
+        )
+    return _canonical_product_root_from_manifest()
+
+
 _CANONICAL_EA_ROOT_VALUE = str(os.environ.get("EA_CANONICAL_ROOT") or "").strip()
 CANONICAL_EA_ROOT = (
     Path(_CANONICAL_EA_ROOT_VALUE).expanduser()
     if _CANONICAL_EA_ROOT_VALUE
     else None
 )
-DEFAULT_DESIGN_ROOT = Path(
-    os.environ.get("EA_DESIGN_ROOT")
-    or os.environ.get("EA_MIRROR_FIXTURE_ROOT")
-    or CANONICAL_PRODUCT_ROOT
-).expanduser()
+DEFAULT_DESIGN_ROOT = _design_root()
 QUEUE_OVERLAY_PATH = ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml"
 EXPECTED_QUEUE_PACKAGE_ID = "audit-task-4257456"
 EXPECTED_QUEUE_SOURCE_REF = "audit_task_candidates[4257456]"

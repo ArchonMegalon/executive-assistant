@@ -76,16 +76,56 @@ def test_design_mirror_bundle_bindings_cover_the_audited_queue_slice() -> None:
     ]
 
 
-def test_design_mirror_bundle_default_is_portable_and_never_self_compares() -> None:
-    source = SCRIPT.read_text(encoding="utf-8")
+def test_design_mirror_bundle_default_uses_the_manifest_queue_source() -> None:
+    manifest = yaml.safe_load(FULL_MIRROR_MANIFEST.read_text(encoding="utf-8")) or {}
+    queue_binding = next(
+        binding
+        for binding in manifest.get("bindings") or []
+        if binding.get("key") == "next_90_day_queue_staging"
+    )
+    env = dict(os.environ)
+    for key in (
+        "CHUMMER6_DESIGN_PRODUCT_ROOT",
+        "EA_DESIGN_ROOT",
+        "EA_MIRROR_FIXTURE_ROOT",
+        "EA_WORKSPACE_ROOT",
+    ):
+        env.pop(key, None)
 
-    assert "CHUMMER6_DESIGN_PRODUCT_ROOT" in source
-    assert 'os.environ.get("EA_WORKSPACE_ROOT") or ROOT.parent' in source
-    assert "or CANONICAL_PRODUCT_ROOT" in source
-    assert "or LOCAL_PRODUCT_ROOT\n)" not in source
-    assert "source_not_external" in source
-    assert "/docker/" + "chummercomplete" not in source
-    assert "/docker/" + "EA" not in source
+    completed = subprocess.run(
+        [sys.executable, str(SCRIPT), "--json"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    payload = json.loads(completed.stdout)
+    queue_row = next(row for row in payload if row["key"] == "next_90_day_queue_staging")
+
+    assert queue_row["source_path"] == queue_binding["source_path"]
+    assert queue_row["source_is_external"] is True
+    assert not Path(queue_row["source_path"]).is_relative_to(ROOT)
+
+
+def test_full_mirror_manifest_excludes_ea_owned_weekly_product_pulse() -> None:
+    manifest = yaml.safe_load(FULL_MIRROR_MANIFEST.read_text(encoding="utf-8")) or {}
+    bindings = manifest.get("bindings") or []
+
+    assert {binding["key"] for binding in bindings} == {
+        "next_90_day_queue_staging",
+        "next_90_day_product_advance_registry",
+        "product_readme",
+    }
+    assert all(
+        binding["local_path"] != ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
+        for binding in bindings
+    )
+    materializer = (ROOT / "ea" / "app" / "services" / "release_materialization_service.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'name="weekly_product_pulse"' in materializer
+    assert 'command=("scripts/materialize_weekly_product_pulse.py",)' in materializer
 
 
 def test_repair_design_mirror_bundle_help_mentions_bounded_bundle() -> None:

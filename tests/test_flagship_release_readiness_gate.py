@@ -976,27 +976,13 @@ def test_flagship_release_readiness_gate_rejects_mapping_launch_readiness(
     assert "weekly launch_readiness must be a non-empty string" in issues
 
 
-def test_design_mirror_manifest_binds_absolute_canonical_pulse_source() -> None:
+def test_design_mirror_manifest_does_not_claim_ea_owned_pulse() -> None:
     rows = VERIFIER.inspect_manifest(
         ROOT,
         ROOT / ".codex-design" / "repo" / "DESIGN_MIRROR_MANIFEST.yaml",
     )
-    row = next(item for item in rows if item["key"] == "weekly_product_pulse")
 
-    assert (
-        row["local_path"]
-        == (
-            ROOT / ".codex-design" / "product" / "WEEKLY_PRODUCT_PULSE.generated.json"
-        ).as_posix()
-    )
-    assert row["source_path"] == (
-        "/docker/chummercomplete/chummer-design/products/chummer/"
-        "WEEKLY_PRODUCT_PULSE.generated.json"
-    )
-    assert Path(row["local_path"]).is_absolute()
-    assert Path(row["source_path"]).is_absolute()
-    assert row["required"] is True
-    assert row["kind"] == "file"
+    assert all(item["key"] != "weekly_product_pulse" for item in rows)
 
 
 def test_flagship_release_readiness_gate_rejects_failed_release_authority(
