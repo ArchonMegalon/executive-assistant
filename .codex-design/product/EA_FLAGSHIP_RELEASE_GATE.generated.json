@@ -3,10 +3,10 @@
   "surface": "flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-07-14T13:42:20Z",
+  "generated_at": "2026-07-17T12:38:23Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
-  "source_git_head": "0a23ea9828379068c34c577d5ad5db3dd1ba592f",
-  "source_tree_fingerprint": "66f9d883a89bde0e2a330af198f511bbd957f00a44151ce61069d6b4e4e525e6",
+  "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
+  "source_tree_fingerprint": "cb0eee6a69feb73eaec1e6ee930e77b297c403b3759292dc4e4104220b63f480",
   "head_semantics": "source_state",
   "status": "blocked",
   "operator_summary": "EA flagship release truth is materialized, but the current browser-proof or release-doc state still blocks the claim.",
@@ -140,10 +140,6 @@
     "project_modes_present": true,
     "state": "blocked",
     "issues": [
-      "source_remote_ref_missing",
-      "source_remote_ref_commit_sha_missing",
-      "source_remote_ref_evidence_invalid",
-      "source_commit_not_reachable_from_remote_ref",
       "deployment_id_local_fallback"
     ]
   },
@@ -190,9 +186,15 @@
     }
   ],
   "blocking_reasons": [
-    "release authority: source_remote_ref_missing, source_remote_ref_commit_sha_missing, source_remote_ref_evidence_invalid, source_commit_not_reachable_from_remote_ref, deployment_id_local_fallback"
+    "release authority: deployment_id_local_fallback",
+    "browser workflow proof: source-backed browser journey proof is not passing",
+    "browser workflow proof: real browser E2E proof is not passing",
+    "browser workflow proof: original source revision, tree, or cleanliness changed during proof",
+    "browser workflow proof: committed snapshot changed during proof execution"
   ],
-  "current_limitations": [],
+  "current_limitations": [
+    "original source was not clean"
+  ],
   "release_truth": {
     "oracle": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
     "seed": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",

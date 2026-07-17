@@ -111,7 +111,7 @@
       "version": "1.60.0"
     },
     {
-      "bom-ref": "pkg:Pillow@12.2.0#1-10",
+      "bom-ref": "pkg:Pillow@12.3.0#1-10",
       "name": "Pillow",
       "properties": [
         {
@@ -120,7 +120,7 @@
         }
       ],
       "type": "library",
-      "version": "12.2.0"
+      "version": "12.3.0"
     },
     {
       "bom-ref": "pkg:numpy@2.4.3#1-11",
@@ -248,7 +248,7 @@
       "ref": "pkg:playwright@1.60.0#1-9"
     },
     {
-      "ref": "pkg:Pillow@12.2.0#1-10"
+      "ref": "pkg:Pillow@12.3.0#1-10"
     },
     {
       "ref": "pkg:numpy@2.4.3#1-11"
@@ -276,9 +276,9 @@
     }
   ],
   "metadata": {
-    "timestamp": "2026-07-07T12:57:34.349773Z"
+    "timestamp": "2026-07-17T13:08:54.955786Z"
   },
-  "serialNumber": "urn:uuid:b89cf9c1-4979-4e4c-81ec-68118f84f12e",
+  "serialNumber": "urn:uuid:3cfdc40a-59f0-4d03-950f-ba8046d50e36",
   "specVersion": "1.6",
   "version": 1
 }

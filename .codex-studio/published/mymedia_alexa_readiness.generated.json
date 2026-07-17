@@ -2,7 +2,7 @@
   "claim": "This receipt proves only the My Media for Alexa runtime posture: container health, redacted Amazon pairing state, watch-folder/index readiness, and whether a no-secret pairing handoff is resumable. It does not prove Alexa/Echo playback from a real device.",
   "contract_name": "ea.mymedia_alexa_readiness.v1",
   "echo_playback_claim_allowed": false,
-  "generated_at": "2026-07-07T12:56:31Z",
+  "generated_at": "2026-07-17T13:07:10Z",
   "generated_by": "scripts/materialize_mymedia_alexa_readiness.py",
   "head_semantics": "source_state",
   "next_action": "",
@@ -22,7 +22,7 @@
     "telegram_delivery_ready": false,
     "user_action_required": false
   },
-  "output_path": "/docker/EA/.codex-studio/published/mymedia_alexa_readiness.generated.json",
+  "output_path": "/home/tibor/.local/share/ea-releases/ea-manfred-main-integration-20260714/.codex-studio/published/mymedia_alexa_readiness.generated.json",
   "pairing_resume_command": "",
   "pairing_resume_ready": false,
   "pairing_telegram_delivery": {
@@ -42,11 +42,11 @@
     "next_action_href": "",
     "next_action_label": "",
     "next_action_method": "",
-    "observed_at": "2026-07-07T12:56:31Z",
+    "observed_at": "2026-07-17T13:07:09Z",
     "otp_channel": "whatsapp",
     "pairing_resume_ready": false,
     "pairing_session_pending": false,
-    "phone_suffix": "419",
+    "phone_suffix": "",
     "privacy": {
       "raw_chat_ref_exposed": false,
       "raw_message_ids_exposed": false,
@@ -59,7 +59,7 @@
     "surface_kind": "local_console",
     "telegram_delivery": {
       "delivery_transport": "telegram_bot",
-      "observed_at": "2026-07-07T12:56:31Z",
+      "observed_at": "2026-07-17T13:07:09Z",
       "principal_id_present": true,
       "reason": "no_operator_action_required",
       "sent": false,
@@ -75,7 +75,7 @@
     "raw_watch_folder_paths_exposed": false
   },
   "probe": {
-    "albums": 1520,
+    "albums": 1536,
     "api_error_reasons": {
       "login": "",
       "summary": "",
@@ -87,13 +87,13 @@
       "watchfolders": 200
     },
     "api_reachable": true,
-    "artists": 1787,
+    "artists": 1790,
     "connection_status": "connected",
     "container_name": "mymediaalexa",
     "container_running": true,
     "container_state_status": "running",
     "data_mount_present": true,
-    "genres": 233,
+    "genres": 235,
     "library_scan_blocked_by_pairing": false,
     "library_scan_pending": false,
     "message_count": 200,
@@ -104,7 +104,7 @@
     "next_action_href": "",
     "next_action_label": "",
     "next_action_method": "",
-    "observed_at": "2026-07-07T12:56:31Z",
+    "observed_at": "2026-07-17T13:07:09Z",
     "paired_user_present": true,
     "pairing_artifact_cleanup_attempted": false,
     "pairing_artifact_cleanup_error_count": 0,
@@ -153,7 +153,7 @@
     "remote_access_mode": "push",
     "source": "docker.inspect+mymedia.api+xml_mount",
     "status": "ready",
-    "tracks": 37836,
+    "tracks": 37956,
     "watch_folder_count": 2,
     "watch_folder_error_count": 0,
     "watch_folder_states": [
@@ -196,8 +196,8 @@
     "Public IP presence may be reported only as a boolean posture flag, never as the literal IP value.",
     "The embedded pairing_telegram_delivery section is a dry-run readiness probe and does not prove a live Telegram message was sent."
   ],
-  "source_git_head": "bb575cc976c55adb1de1ef9734d15f2db0acfb4e",
-  "source_state_fingerprint": "52e853e2e581b1dcf0a2c3171bf2e76df05a0184ec6a46b81a8efac46e6d9346",
+  "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
+  "source_state_fingerprint": "2d523dbb85f71adf49d356ee9fd5ed70d2c2c3ba6bf6b6cbc44ff8b3f6e26e7c",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready"
 }

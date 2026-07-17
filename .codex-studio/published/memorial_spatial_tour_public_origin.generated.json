@@ -1,0 +1,15 @@
+{
+  "contract_name": "ea.memorial_spatial_tour_public_origin.v1",
+  "failed_codes": [
+    "spatial_public_origin_inputs_missing"
+  ],
+  "generated_by": "scripts/materialize_memorial_spatial_tour_public_origin.py",
+  "gold_claim_allowed": false,
+  "head_semantics": "source_state",
+  "provider_calls_performed": false,
+  "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
+  "source_state_fingerprint": "2d523dbb85f71adf49d356ee9fd5ed70d2c2c3ba6bf6b6cbc44ff8b3f6e26e7c",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+  "source_worktree_dirty": false,
+  "status": "blocked"
+}

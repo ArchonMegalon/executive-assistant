@@ -1,7 +1,7 @@
 {
   "contract_name": "ea.memorial_operator_status",
   "generated_by": "scripts/materialize_memorial_operator_status.py",
-  "source_git_head": "bb575cc976c55adb1de1ef9734d15f2db0acfb4e",
+  "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
   "head_semantics": "source_state",
   "source_worktree_dirty": false,
   "source_dirty_count": 0,
@@ -57,6 +57,7 @@
   "public_origin_access": "blocked",
   "memorial_surface_contract": "pass",
   "room_audio_receipt": "missing_or_blocked",
+  "public_spatial_tour_receipt": "missing_or_blocked",
   "whole_project_gold": "blocked",
   "memorial_public_gold_next_action": "clear_release_authority_for_memorial_deploy",
   "memorial_public_gold_next_command": "python3 scripts/verify_release_authority.py --pretty",
@@ -77,23 +78,37 @@
         "key": "public_voice_receipt",
         "label": "Public voice receipt",
         "issues": [
-          "receipt_stale_relative_to_current_head"
+          "receipt_stale_relative_to_current_head",
+          "public_runtime_source_revision_missing_or_invalid"
         ],
         "next_action": "refresh_public_memorial_voice_receipt",
         "code": "public_voice_receipt",
         "component": "Public voice receipt",
-        "next_command": "scripts/materialize_memorial_public_auto_receipts_clean.py"
+        "next_command": "make materialize-memorial-public-auto-receipts-clean"
       },
       {
         "key": "public_browser_receipt",
         "label": "Public browser receipt",
         "issues": [
-          "browser_receipt_stale_relative_to_current_head"
+          "browser_receipt_stale_relative_to_current_head",
+          "browser_runtime_source_revision_missing_or_invalid"
         ],
         "next_action": "refresh_public_memorial_browser_receipt",
         "code": "public_browser_receipt",
         "component": "Public browser receipt",
-        "next_command": "scripts/materialize_memorial_public_auto_receipts_clean.py"
+        "next_command": "make materialize-memorial-public-auto-receipts-clean"
+      },
+      {
+        "key": "meaningful_browser_receipt",
+        "label": "Meaningful browser receipt",
+        "issues": [
+          "browser_receipt_stale_relative_to_current_head",
+          "browser_runtime_source_revision_missing_or_invalid"
+        ],
+        "next_action": "refresh_meaningful_memorial_browser_receipt",
+        "code": "meaningful_browser_receipt",
+        "component": "Meaningful browser receipt",
+        "next_command": "make materialize-memorial-public-auto-receipts-clean"
       },
       {
         "key": "room_audio_receipt",
@@ -102,6 +117,7 @@
           "room_receipt_status_not_pass",
           "room_receipt_stale_relative_to_current_head",
           "room_receipt_generated_from_dirty_worktree",
+          "room_runtime_source_revision_missing_or_invalid",
           "room_manual_attestation_id_missing",
           "room_manual_attestation_signed_at_missing",
           "room_interruption_behavior_confirmed_missing",
@@ -112,6 +128,53 @@
         "code": "room_audio_receipt",
         "component": "Room audio receipt",
         "next_command": "make materialize-memorial-room-audio-gold-clean"
+      },
+      {
+        "key": "public_spatial_tour_receipt",
+        "label": "Public spatial-tour receipt",
+        "issues": [
+          "spatial_public_origin_schema_invalid",
+          "spatial_public_origin_status_not_pass",
+          "spatial_public_origin_generated_at_invalid",
+          "spatial_public_origin_https_origin_invalid",
+          "spatial_public_origin_runtime_revision_mismatch",
+          "spatial_public_origin_slug_invalid",
+          "spatial_public_origin_provider_boundary_invalid",
+          "spatial_public_origin_gold_claim_invalid",
+          "spatial_public_origin_checks_invalid",
+          "spatial_public_origin_authority_invalid",
+          "spatial_public_origin_package_invalid",
+          "spatial_package_files_invalid",
+          "spatial_public_origin_tour_manifest_mismatch",
+          "spatial_candidate_browser_schema_invalid",
+          "public_spatial_tour_schema_invalid",
+          "spatial_public_origin_deploy_binding_invalid"
+        ],
+        "next_action": "refresh_memorial_public_auto_receipts_clean",
+        "code": "public_spatial_tour_receipt",
+        "component": "Public spatial-tour receipt",
+        "next_command": "make materialize-memorial-public-auto-receipts-clean"
+      },
+      {
+        "key": "receipt_set_binding",
+        "label": "Public receipt-set binding",
+        "issues": [
+          "receipt_set_public_voice_runtime_revision_missing_or_invalid",
+          "receipt_set_public_voice_source_fingerprint_missing",
+          "receipt_set_public_browser_runtime_revision_missing_or_invalid",
+          "receipt_set_public_browser_source_fingerprint_missing",
+          "receipt_set_room_audio_runtime_revision_missing_or_invalid",
+          "receipt_set_room_audio_source_fingerprint_missing",
+          "receipt_set_spatial_tour_slug_missing",
+          "receipt_set_spatial_tour_origin_missing_or_invalid",
+          "receipt_set_spatial_tour_runtime_revision_missing_or_invalid",
+          "receipt_set_meaningful_browser_runtime_revision_missing_or_invalid",
+          "receipt_set_meaningful_browser_source_fingerprint_missing"
+        ],
+        "next_action": "refresh_memorial_public_auto_receipts_clean",
+        "code": "receipt_set_binding",
+        "component": "Public receipt-set binding",
+        "next_command": "make materialize-memorial-public-auto-receipts-clean"
       },
       {
         "key": "public_runtime_mode",
@@ -130,8 +193,7 @@
         "label": "Release authority",
         "component": "Release authority",
         "issues": [
-          "deployment_id_local_fallback",
-          "dirty_worktree"
+          "deployment_id_local_fallback"
         ],
         "next_action": "clear_release_authority_for_memorial_deploy",
         "next_command": "python3 scripts/verify_release_authority.py --pretty"
@@ -141,23 +203,30 @@
       "local_release_receipt",
       "public_voice_receipt",
       "public_browser_receipt",
+      "meaningful_browser_receipt",
       "room_audio_receipt",
+      "public_spatial_tour_receipt",
+      "receipt_set_binding",
       "public_runtime_mode",
       "release_authority"
     ],
     "blocked_commands": [
       "make materialize-memorial-public-voice-gold",
-      "scripts/materialize_memorial_public_auto_receipts_clean.py",
-      "scripts/materialize_memorial_public_auto_receipts_clean.py",
+      "make materialize-memorial-public-auto-receipts-clean",
+      "make materialize-memorial-public-auto-receipts-clean",
+      "make materialize-memorial-public-auto-receipts-clean",
       "make materialize-memorial-room-audio-gold-clean",
+      "make materialize-memorial-public-auto-receipts-clean",
+      "make materialize-memorial-public-auto-receipts-clean",
       "make deploy-ea-memorial",
       "python3 scripts/verify_release_authority.py --pretty"
     ],
-    "blocked_count": 6
+    "blocked_count": 9
   },
   "operator_notes": [
     "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
-    "Public-origin gold requires voice, browser, and room receipts at current HEAD/public origin.",
+    "Public-origin gold requires voice, browser, room, and exact-byte 3D-tour receipts at the current clean source state and public origin.",
+    "The public 3D-tour receipt must bind the pinned PropertyQuarry authority/package, polished v5 candidate-browser interactions, deploy receipt, and all 16 GET/HEAD public route observations; status-only or candidate-only evidence cannot pass.",
     "If public_runtime_mode is blocked, the configured public origin is not currently deployed in MEMORIAL mode; use make deploy-ea-memorial before treating public memorial routes as publishable.",
     "If release_authority.status is blocked while public_runtime_mode is blocked, clear release authority first; memorial deploy claims must not be refreshed from a dirty tree or stale deploy context.",
     "If local/public/browser memorial receipts are stale or missing, refresh the non-manual proof set first with scripts/materialize_memorial_public_auto_receipts_clean.py before asking for a fresh room/device attestation.",
@@ -191,6 +260,7 @@
     "public_origin_probe": "GET /memorials/manfred and /memorials/manfred.json on the configured public origin",
     "memorial_surface_contract": "scripts/verify_project_mode_runtime.py --mode memorial",
     "room_audio_receipt": ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    "public_spatial_tour_receipt": ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
     "room_audio_attestation_packet": ".codex-studio/published/memorial_room_audio_attestation_packet.generated.json",
     "spoken_stt_provider_benchmark": ".codex-studio/published/memorial_stt_provider_benchmark.generated.json",
     "stt_fixture_candidate": ".codex-studio/published/memorial_stt_fixture_candidate.generated.json",
@@ -200,7 +270,7 @@
   },
   "readiness": {
     "status": "blocked",
-    "current_head": "bb575cc976c55adb1de1ef9734d15f2db0acfb4e",
+    "current_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
@@ -212,14 +282,21 @@
     ],
     "public_gold_receipt": ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
     "public_gold_issues": [
-      "receipt_stale_relative_to_current_head"
+      "receipt_stale_relative_to_current_head",
+      "public_runtime_source_revision_missing_or_invalid"
     ],
     "public_browser_gold_receipt": ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
     "public_browser_gold_issues": [
-      "browser_receipt_stale_relative_to_current_head"
+      "browser_receipt_stale_relative_to_current_head",
+      "browser_runtime_source_revision_missing_or_invalid"
     ],
     "public_meaningful_browser_gold_receipt": ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
-    "public_meaningful_browser_gold_issues": [],
+    "public_meaningful_browser_gold_required": true,
+    "public_meaningful_browser_diagnostic_override": false,
+    "public_meaningful_browser_gold_issues": [
+      "browser_receipt_stale_relative_to_current_head",
+      "browser_runtime_source_revision_missing_or_invalid"
+    ],
     "memorial_surface_contract": "scripts/verify_project_mode_runtime.py --mode memorial",
     "memorial_surface_contract_issues": [],
     "room_audio_receipt": ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
@@ -227,12 +304,46 @@
       "room_receipt_status_not_pass",
       "room_receipt_stale_relative_to_current_head",
       "room_receipt_generated_from_dirty_worktree",
+      "room_runtime_source_revision_missing_or_invalid",
       "room_manual_attestation_id_missing",
       "room_manual_attestation_signed_at_missing",
       "room_interruption_behavior_confirmed_missing",
       "room_normal_spoken_turn_confirmed_missing",
       "room_retry_path_confirmed_missing"
     ],
+    "public_spatial_tour_receipt": ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
+    "public_spatial_tour_issues": [
+      "spatial_public_origin_schema_invalid",
+      "spatial_public_origin_status_not_pass",
+      "spatial_public_origin_generated_at_invalid",
+      "spatial_public_origin_https_origin_invalid",
+      "spatial_public_origin_runtime_revision_mismatch",
+      "spatial_public_origin_slug_invalid",
+      "spatial_public_origin_provider_boundary_invalid",
+      "spatial_public_origin_gold_claim_invalid",
+      "spatial_public_origin_checks_invalid",
+      "spatial_public_origin_authority_invalid",
+      "spatial_public_origin_package_invalid",
+      "spatial_package_files_invalid",
+      "spatial_public_origin_tour_manifest_mismatch",
+      "spatial_candidate_browser_schema_invalid",
+      "public_spatial_tour_schema_invalid",
+      "spatial_public_origin_deploy_binding_invalid"
+    ],
+    "receipt_set_binding_issues": [
+      "receipt_set_public_voice_runtime_revision_missing_or_invalid",
+      "receipt_set_public_voice_source_fingerprint_missing",
+      "receipt_set_public_browser_runtime_revision_missing_or_invalid",
+      "receipt_set_public_browser_source_fingerprint_missing",
+      "receipt_set_room_audio_runtime_revision_missing_or_invalid",
+      "receipt_set_room_audio_source_fingerprint_missing",
+      "receipt_set_spatial_tour_slug_missing",
+      "receipt_set_spatial_tour_origin_missing_or_invalid",
+      "receipt_set_spatial_tour_runtime_revision_missing_or_invalid",
+      "receipt_set_meaningful_browser_runtime_revision_missing_or_invalid",
+      "receipt_set_meaningful_browser_source_fingerprint_missing"
+    ],
+    "receipt_set_runtime_source_revision": "",
     "blocker_summary": {
       "blocked_components": [
         {
@@ -250,23 +361,37 @@
           "key": "public_voice_receipt",
           "label": "Public voice receipt",
           "issues": [
-            "receipt_stale_relative_to_current_head"
+            "receipt_stale_relative_to_current_head",
+            "public_runtime_source_revision_missing_or_invalid"
           ],
           "next_action": "refresh_public_memorial_voice_receipt",
           "code": "public_voice_receipt",
           "component": "Public voice receipt",
-          "next_command": "scripts/materialize_memorial_public_auto_receipts_clean.py"
+          "next_command": "make materialize-memorial-public-auto-receipts-clean"
         },
         {
           "key": "public_browser_receipt",
           "label": "Public browser receipt",
           "issues": [
-            "browser_receipt_stale_relative_to_current_head"
+            "browser_receipt_stale_relative_to_current_head",
+            "browser_runtime_source_revision_missing_or_invalid"
           ],
           "next_action": "refresh_public_memorial_browser_receipt",
           "code": "public_browser_receipt",
           "component": "Public browser receipt",
-          "next_command": "scripts/materialize_memorial_public_auto_receipts_clean.py"
+          "next_command": "make materialize-memorial-public-auto-receipts-clean"
+        },
+        {
+          "key": "meaningful_browser_receipt",
+          "label": "Meaningful browser receipt",
+          "issues": [
+            "browser_receipt_stale_relative_to_current_head",
+            "browser_runtime_source_revision_missing_or_invalid"
+          ],
+          "next_action": "refresh_meaningful_memorial_browser_receipt",
+          "code": "meaningful_browser_receipt",
+          "component": "Meaningful browser receipt",
+          "next_command": "make materialize-memorial-public-auto-receipts-clean"
         },
         {
           "key": "room_audio_receipt",
@@ -275,6 +400,7 @@
             "room_receipt_status_not_pass",
             "room_receipt_stale_relative_to_current_head",
             "room_receipt_generated_from_dirty_worktree",
+            "room_runtime_source_revision_missing_or_invalid",
             "room_manual_attestation_id_missing",
             "room_manual_attestation_signed_at_missing",
             "room_interruption_behavior_confirmed_missing",
@@ -285,24 +411,77 @@
           "code": "room_audio_receipt",
           "component": "Room audio receipt",
           "next_command": "make materialize-memorial-room-audio-gold-clean"
+        },
+        {
+          "key": "public_spatial_tour_receipt",
+          "label": "Public spatial-tour receipt",
+          "issues": [
+            "spatial_public_origin_schema_invalid",
+            "spatial_public_origin_status_not_pass",
+            "spatial_public_origin_generated_at_invalid",
+            "spatial_public_origin_https_origin_invalid",
+            "spatial_public_origin_runtime_revision_mismatch",
+            "spatial_public_origin_slug_invalid",
+            "spatial_public_origin_provider_boundary_invalid",
+            "spatial_public_origin_gold_claim_invalid",
+            "spatial_public_origin_checks_invalid",
+            "spatial_public_origin_authority_invalid",
+            "spatial_public_origin_package_invalid",
+            "spatial_package_files_invalid",
+            "spatial_public_origin_tour_manifest_mismatch",
+            "spatial_candidate_browser_schema_invalid",
+            "public_spatial_tour_schema_invalid",
+            "spatial_public_origin_deploy_binding_invalid"
+          ],
+          "next_action": "refresh_memorial_public_auto_receipts_clean",
+          "code": "public_spatial_tour_receipt",
+          "component": "Public spatial-tour receipt",
+          "next_command": "make materialize-memorial-public-auto-receipts-clean"
+        },
+        {
+          "key": "receipt_set_binding",
+          "label": "Public receipt-set binding",
+          "issues": [
+            "receipt_set_public_voice_runtime_revision_missing_or_invalid",
+            "receipt_set_public_voice_source_fingerprint_missing",
+            "receipt_set_public_browser_runtime_revision_missing_or_invalid",
+            "receipt_set_public_browser_source_fingerprint_missing",
+            "receipt_set_room_audio_runtime_revision_missing_or_invalid",
+            "receipt_set_room_audio_source_fingerprint_missing",
+            "receipt_set_spatial_tour_slug_missing",
+            "receipt_set_spatial_tour_origin_missing_or_invalid",
+            "receipt_set_spatial_tour_runtime_revision_missing_or_invalid",
+            "receipt_set_meaningful_browser_runtime_revision_missing_or_invalid",
+            "receipt_set_meaningful_browser_source_fingerprint_missing"
+          ],
+          "next_action": "refresh_memorial_public_auto_receipts_clean",
+          "code": "receipt_set_binding",
+          "component": "Public receipt-set binding",
+          "next_command": "make materialize-memorial-public-auto-receipts-clean"
         }
       ],
       "blocked_component_keys": [
         "local_release_receipt",
         "public_voice_receipt",
         "public_browser_receipt",
-        "room_audio_receipt"
+        "meaningful_browser_receipt",
+        "room_audio_receipt",
+        "public_spatial_tour_receipt",
+        "receipt_set_binding"
       ],
       "blocked_commands": [
         "make materialize-memorial-public-voice-gold",
-        "scripts/materialize_memorial_public_auto_receipts_clean.py",
-        "scripts/materialize_memorial_public_auto_receipts_clean.py",
-        "make materialize-memorial-room-audio-gold-clean"
+        "make materialize-memorial-public-auto-receipts-clean",
+        "make materialize-memorial-public-auto-receipts-clean",
+        "make materialize-memorial-public-auto-receipts-clean",
+        "make materialize-memorial-room-audio-gold-clean",
+        "make materialize-memorial-public-auto-receipts-clean",
+        "make materialize-memorial-public-auto-receipts-clean"
       ],
-      "blocked_count": 4
+      "blocked_count": 7
     },
     "next_action": "refresh_memorial_public_auto_receipts_clean",
-    "next_command": "scripts/materialize_memorial_public_auto_receipts_clean.py",
+    "next_command": "make materialize-memorial-public-auto-receipts-clean",
     "source_worktree_dirty": false,
     "source_dirty_count": 0,
     "source_dirty_files": [],
@@ -359,15 +538,17 @@
       "public_receipt": "Memorial public voice provenance proof",
       "browser_receipt": "Memorial public browser realtime proof",
       "surface_contract": "Memorial mounted public surface contract proof",
-      "room_receipt": "Memorial public room/device playback proof"
+      "room_receipt": "Memorial public room/device playback proof",
+      "spatial_tour_receipt": "Memorial public 3D-tour origin and exact-byte proof"
     }
   },
   "evidence_heads": {
-    "whole_project_map": "bb575cc976c55adb1de1ef9734d15f2db0acfb4e",
+    "whole_project_map": "58560772373c5c6d7a2a56f652e952ec669313a3",
     "public_voice_receipt": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
     "public_browser_receipt": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
     "public_meaningful_browser_receipt": "65f80831660870d44a2150960ff5ade4aa4f6455",
-    "room_audio_receipt": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c"
+    "room_audio_receipt": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
+    "public_spatial_tour_receipt": "58560772373c5c6d7a2a56f652e952ec669313a3"
   },
   "workflow_backing": {
     "status": "no",
@@ -379,16 +560,15 @@
     "state": "watch",
     "authority_posture": "local_only_deploy_id",
     "issues": [
-      "deployment_id_local_fallback",
-      "dirty_worktree"
+      "deployment_id_local_fallback"
     ],
-    "next_action": "Deploy from a clean committed tree with an explicit deployment ID from the real deploy system, then rematerialize the release manifest.",
+    "next_action": "Set an explicit deployment ID from the real deploy system and rematerialize the release manifest.",
     "detail": "Release authority is present but still has gaps to resolve.",
-    "deployment_id": "local-20260704T133516544937Z-4496e6a10582",
+    "deployment_id": "local-20260717T130901932756Z-885a2fd61874",
     "deployment_id_source": "local_fallback",
     "dirty_worktree": true,
-    "deploy_context_commit_sha": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
-    "commit_sha": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7"
+    "deploy_context_commit_sha": "885a2fd618746227d0877dd8ba9d62d1cc7bff90",
+    "commit_sha": "885a2fd618746227d0877dd8ba9d62d1cc7bff90"
   },
   "public_runtime_mode_detail": {
     "status": "blocked",
@@ -409,14 +589,14 @@
     "status": "blocked",
     "base_url": "https://myexternalbrain.com",
     "source_key": "EA_PUBLIC_APP_BASE_URL",
-    "page_status_code": 404,
-    "manifest_status_code": 404,
+    "page_status_code": 421,
+    "manifest_status_code": 421,
     "page_probe_url": "https://myexternalbrain.com/memorials/manfred",
     "manifest_probe_url": "https://myexternalbrain.com/memorials/manfred.json",
-    "page_detail": "{\"detail\":\"Not Found\"}",
-    "manifest_detail": "{\"detail\":\"Not Found\"}",
-    "next_action": "republish_public_memorial_bundle_or_fix_slug",
-    "reason": "public_origin_memorial_not_found"
+    "page_detail": "{\"error\":{\"code\":\"host_not_allowed\",\"message\":\"request authority rejected\"}}",
+    "manifest_detail": "{\"error\":{\"code\":\"host_not_allowed\",\"message\":\"request authority rejected\"}}",
+    "next_action": "inspect_public_memorial_origin_http_failure",
+    "reason": "public_origin_http_probe_failed"
   },
   "memorial_surface_contract_detail": {
     "status": "pass",
@@ -543,6 +723,35 @@
     "attestation_source": "operator_room_review",
     "next_action": "collect_real_room_audio_attestation"
   },
+  "public_spatial_tour_receipt_detail": {
+    "status": "missing_or_blocked",
+    "receipt_path": ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
+    "contract_name": "ea.memorial_spatial_tour_public_origin.v1",
+    "tour_slug": "",
+    "public_base_url": "",
+    "runtime_revision": "",
+    "package_sha256": "",
+    "publication_authority": {},
+    "deploy_binding": {},
+    "issues": [
+      "spatial_public_origin_schema_invalid",
+      "spatial_public_origin_status_not_pass",
+      "spatial_public_origin_generated_at_invalid",
+      "spatial_public_origin_https_origin_invalid",
+      "spatial_public_origin_runtime_revision_mismatch",
+      "spatial_public_origin_slug_invalid",
+      "spatial_public_origin_provider_boundary_invalid",
+      "spatial_public_origin_gold_claim_invalid",
+      "spatial_public_origin_checks_invalid",
+      "spatial_public_origin_authority_invalid",
+      "spatial_public_origin_package_invalid",
+      "spatial_package_files_invalid",
+      "spatial_public_origin_tour_manifest_mismatch",
+      "spatial_candidate_browser_schema_invalid",
+      "public_spatial_tour_schema_invalid",
+      "spatial_public_origin_deploy_binding_invalid"
+    ]
+  },
   "room_audio_attestation_packet": {
     "status": "ready",
     "receipt_path": ".codex-studio/published/memorial_room_audio_attestation_packet.generated.json",
@@ -608,24 +817,27 @@
     "next_action": "collect_real_room_audio_attestation"
   },
   "spoken_conversation_stt": {
-    "status": "blocked",
-    "receipt_status": "blocked",
-    "production_eligible": false,
-    "best_provider": "",
-    "production_provider": "",
+    "status": "pass",
+    "receipt_status": "pass",
+    "production_eligible": true,
+    "best_provider": "full_runtime",
+    "production_provider": "full_runtime",
     "top_candidate_provider": "full_runtime",
-    "provider_label": "no_production_stt_provider",
+    "provider_label": "full_runtime",
     "provider_key": "full_runtime",
     "production_transcriber": "",
-    "production_transcriber_set": [],
+    "production_transcriber_set": [
+      "{'family': 'cartesia', 'identifier_sha256': '6e40259d3b564bc9230f166b59a7d60c97d9c5cc58e5b0685c74ba07b7f10d0d'}",
+      "{'family': 'memorial', 'identifier_sha256': 'c0ef897f5d79f9c095885e3cd6a07ba89d9583ded6dd3f3bcb9e3946e588396e'}"
+    ],
     "fallback_provider_statuses": [
       {
         "provider": "onemin_sample",
-        "passed_samples": 2,
+        "passed_samples": 0,
         "sample_count": 4,
         "scored_samples": 4,
-        "avg_token_f1": 0.9445,
-        "avg_wer": 0.0556,
+        "avg_token_f1": 0.215,
+        "avg_wer": 6.8333,
         "production_eligible": false
       },
       {
@@ -640,75 +852,54 @@
     ],
     "fallback_production_eligible": false,
     "fallback_health": "blocked",
-    "passed_samples": 3,
+    "passed_samples": 4,
     "sample_count": 4,
-    "avg_token_f1": 0.9722,
-    "avg_wer": 0.0278,
-    "avg_latency_ms": 555.4,
+    "avg_token_f1": 1.0,
+    "avg_wer": 0.0,
+    "avg_latency_ms": 321.4,
     "receipt_path": ".codex-studio/published/memorial_stt_provider_benchmark.generated.json",
     "availability": {
-      "shadow_provider": "blipai",
-      "cartesia_configured": true,
-      "cartesia_default_credential_file_present": true,
-      "cartesia": {
-        "configured": true,
-        "credential_source": "default_credential_file",
-        "accepted_source_types": [
-          "direct_env",
-          "inline_json_env",
-          "credential_file_env",
-          "default_credential_file"
-        ],
-        "default_credential_files": [
-          {
-            "path": "config/cartesia.local.json",
-            "resolved_path": "config/cartesia.local.json",
-            "present": true,
-            "contains_key": true
-          }
-        ],
-        "operator_hint": ""
+      "providers": {
+        "full_runtime": {
+          "configured": true,
+          "credential_source": "default_credential_file"
+        },
+        "shadow": {
+          "configured": true,
+          "provider_family": "blipai"
+        },
+        "onemin_sample": {
+          "configured": true,
+          "key_count": 71,
+          "max_key_attempts": 4
+        }
       },
-      "onemin_key_count": 71,
-      "onemin_max_key_attempts": 4,
-      "provider_env": {
-        "files": [
-          ".env",
-          ".env.local"
-        ],
-        "loaded_count": 435,
+      "credential_environment": {
+        "file_count": 2,
+        "loaded_count": 434,
         "provider_families": {
           "cartesia": true,
           "onemin": true,
           "blipai_shadow": true
         }
+      },
+      "governance_preflight": {
+        "blocked": false,
+        "failed_codes": [],
+        "external_candidate_failed_codes": [],
+        "tracked_fixture_failed_codes": [],
+        "captured_candidate_pair_count": 0
       }
     },
     "fixture_quality_status": "pass",
     "fixture_quality_failed_codes": [],
     "ground_truth_fixture_mode": "synthetic_only",
-    "cartesia_credential_status": {
-      "configured": true,
-      "credential_source": "default_credential_file",
-      "accepted_source_types": [
-        "direct_env",
-        "inline_json_env",
-        "credential_file_env",
-        "default_credential_file"
-      ],
-      "default_credential_files": [
-        {
-          "path": "config/cartesia.local.json",
-          "resolved_path": "config/cartesia.local.json",
-          "present": true,
-          "contains_key": true
-        }
-      ],
-      "operator_hint": ""
-    },
-    "next_action": "inspect_provider_accuracy_failures",
+    "cartesia_credential_status": {},
+    "next_action": "rerun_operator_local_full_text_benchmark_or_correct_ground_truth_transcript",
     "scoring": {
       "pass_rule": "usable transcript + required tokens present + token_f1 >= sample min + WER <= sample max",
+      "raw_provider_transcript_scored": true,
+      "semantic_repair_applied": false,
       "fixture_quality_rule": "ground-truth fixtures must be long enough to contain their expected transcript before provider accuracy is scored",
       "known_bad_non_empty_text_is_not_enough": true,
       "production_eligible_rule": "provider must pass every ground-truth benchmark sample and hostile variant",
@@ -716,7 +907,8 @@
       "raw_transcript_fields": false,
       "redacted_text_fields": true,
       "redacted_receipt_rule": "Default receipts store transcript hashes, lengths, and token hashes instead of raw expected/actual text. Set EA_MEMORIAL_STT_BENCHMARK_TEXT_MODE=full or pass --text-mode full for operator-local raw transcript diagnostics."
-    }
+    },
+    "real_captured_fixture_status": "captured_candidate_diagnostic_blocked"
   },
   "stt_fixture_candidate": {
     "status": "pass",
@@ -860,9 +1052,7 @@
     "status": "blocked",
     "issues": [
       "EA release-control plane must be pass before this map can pass",
-      "memorial voice receipt is stale relative to current HEAD",
-      "configured public origin is not deployed in MEMORIAL mode; run make deploy-ea-memorial before refreshing public memorial gold receipts",
-      "memorial public-origin deploy next action: deploy_ea_memorial"
+      "memorial voice receipt is stale relative to current HEAD"
     ]
   },
   "whole_project_map_summary": {
@@ -870,6 +1060,7 @@
     "gold_claim_allowed": false,
     "blocking_planes": [
       "ea_release_control",
+      "fleet_journey_gates",
       "design_surface",
       "chummer_core_rules",
       "chummer_desktop_ui",
