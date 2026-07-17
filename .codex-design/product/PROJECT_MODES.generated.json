@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.project_modes",
-  "generated_at": "2026-07-07T12:56:16Z",
+  "generated_at": "2026-07-17T07:55:16Z",
   "generated_by": "scripts/materialize_project_mode_manifests.py",
-  "source_git_head": "bb575cc976c55adb1de1ef9734d15f2db0acfb4e",
+  "source_git_head": "5dd75945e6e3346646773f1f14a3155424c62bfb",
   "head_semantics": "source_state",
   "modes": [
     {
@@ -41,13 +41,15 @@
       "hard_gates": [
         ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
         ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
-        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
+        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+        ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"
       ],
       "local_release_gate": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
       "public_gold_gates": [
         ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
         ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
-        ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
+        ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+        ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"
       ],
       "design_language": "quiet, source-bound, emotionally safe"
     },
