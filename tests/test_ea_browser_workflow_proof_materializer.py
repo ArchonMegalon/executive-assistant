@@ -296,6 +296,46 @@ def test_python_identity_rejects_path_shaped_version_labels() -> None:
     assert "/home/tibor" not in json.dumps(published)
 
 
+def test_process_output_paths_are_replaced_with_stable_placeholders(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    operator_home = tmp_path / "home" / "operator"
+    snapshot_root = tmp_path / "private" / "snapshot"
+    private_root = tmp_path / "private" / "browser"
+    dependency_root = operator_home / ".local/lib/python3.12/site-packages"
+    python_bin = operator_home / "checkout/.venv/bin/python"
+    browser_cache = operator_home / ".cache/ms-playwright"
+    monkeypatch.setattr(materializer, "_operator_home", lambda: operator_home)
+    raw = "\n".join(
+        [
+            f"{dependency_root}/starlette/formparsers.py:12: warning",
+            f"browser={browser_cache}/chromium/chrome",
+            f"snapshot={snapshot_root}/tests/example.py",
+            f"private={private_root}/pytest/output",
+            f"python={python_bin}",
+        ]
+    )
+
+    published = materializer._redact_process_output_paths(
+        raw,
+        snapshot_root=snapshot_root,
+        private_root=private_root,
+        dependency_root=dependency_root,
+        python_bin=python_bin.as_posix(),
+        environment={"PLAYWRIGHT_BROWSERS_PATH": browser_cache.as_posix()},
+    )
+
+    assert published.splitlines() == [
+        "{dependency_root}/starlette/formparsers.py:12: warning",
+        "browser={browser_cache}/chromium/chrome",
+        "snapshot={snapshot_root}/tests/example.py",
+        "private={private_root}/pytest/output",
+        "python={python_executable}",
+    ]
+    assert operator_home.as_posix() not in published
+
+
 def test_build_receipt_uses_one_immutable_snapshot_for_both_lanes(
     tmp_path: Path,
 ) -> None:

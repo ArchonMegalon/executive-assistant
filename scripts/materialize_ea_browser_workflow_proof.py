@@ -987,6 +987,36 @@ def _truncate_output(text: str) -> list[str]:
     ]
 
 
+def _redact_process_output_paths(
+    text: str,
+    *,
+    snapshot_root: Path,
+    private_root: Path,
+    dependency_root: Path,
+    python_bin: str,
+    environment: Mapping[str, str],
+) -> str:
+    replacements: list[tuple[str, str]] = [
+        (snapshot_root.as_posix(), "{snapshot_root}"),
+        (private_root.as_posix(), "{private_root}"),
+        (dependency_root.as_posix(), "{dependency_root}"),
+        (Path(python_bin).as_posix(), "{python_executable}"),
+        (_operator_home().as_posix(), "{operator_home}"),
+    ]
+    browser_cache = str(environment.get("PLAYWRIGHT_BROWSERS_PATH") or "").strip()
+    if browser_cache:
+        replacements.append((Path(browser_cache).as_posix(), "{browser_cache}"))
+    redacted = text
+    for path, placeholder in sorted(
+        set(replacements),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
+        if path and Path(path).is_absolute():
+            redacted = redacted.replace(path, placeholder)
+    return redacted
+
+
 def _extract_limitations(text: str) -> list[str]:
     lowered = text.lower()
     limitations: list[str] = []
@@ -1269,9 +1299,17 @@ def _run_pytest_cases(
         for part in (str(result.stdout or "").strip(), str(result.stderr or "").strip())
         if part
     )
+    published_output = _redact_process_output_paths(
+        combined_output,
+        snapshot_root=root,
+        private_root=lane_private,
+        dependency_root=dependency_root,
+        python_bin=python_bin,
+        environment=environment,
+    )
     xml_text, xml_sha256, junit_limitations = _read_bounded_junit(junit_path)
     junit_evidence = _parse_junit_xml(xml_text)
-    terminal_summary = _terminal_summary(combined_output)
+    terminal_summary = _terminal_summary(published_output)
     terminal_evidence = _parse_terminal_summary(
         terminal_summary,
         full_output=combined_output,
@@ -1300,7 +1338,7 @@ def _run_pytest_cases(
         "browser_identity": resolved_browser_identity,
         "exit_code": result.returncode,
         "duration_seconds": duration_seconds,
-        "output_excerpt": _truncate_output(combined_output),
+        "output_excerpt": _truncate_output(published_output),
         "terminal_summary": terminal_summary,
         "report_format": "junit_xml_embedded",
         "junit_xml": xml_text,
