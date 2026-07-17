@@ -1,23 +1,23 @@
 {
   "branch": "integrate/ea-manfred-flagship-20260714",
-  "commit_sha": "885a2fd618746227d0877dd8ba9d62d1cc7bff90",
+  "commit_sha": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
   "compose_files": [
     "docker-compose.yml",
     "docker-compose.prod.yml"
   ],
   "compose_overrides": [],
   "contract_name": "ea.deploy_context.v1",
-  "deployment_id": "local-20260717T130901932756Z-885a2fd61874",
+  "deployment_id": "local-20260717T162908327840Z-b9fa090e6915",
   "deployment_id_source": "local_fallback",
   "enabled_project_modes": [
     "EA_CORE"
   ],
-  "generated_at": "2026-07-17T13:09:01.932756Z",
+  "generated_at": "2026-07-17T16:29:08.327840Z",
   "generated_by": "scripts/materialize_deploy_context.py",
   "project_mode": "EA_CORE",
   "public_origin": "https://myexternalbrain.com",
   "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
-  "release_label": "local-20260717T130901932756Z-885a2fd61874",
+  "release_label": "local-20260717T162908327840Z-b9fa090e6915",
   "repository": "ea-manfred-main-integration-20260714",
   "tracking_branch": "origin/main"
 }

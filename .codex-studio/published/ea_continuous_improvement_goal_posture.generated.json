@@ -136,12 +136,12 @@
     },
     {
       "action_context": {
-        "approval_capture_current_packet_user_action_required": false,
+        "approval_capture_current_packet_user_action_required": true,
         "approval_capture_latest_expires_at": "",
         "approval_capture_latest_status": "",
         "approval_capture_live_pending_count": 0,
-        "approval_capture_manual_outcome_capture_ready": false,
-        "approval_capture_ready": false,
+        "approval_capture_manual_outcome_capture_ready": true,
+        "approval_capture_ready": true,
         "approval_capture_selected_channel": "telegram",
         "approval_capture_telegram_surface_ready": false,
         "approval_outcome_accepted": false,
@@ -149,22 +149,22 @@
         "callback_tokens_exposed": false,
         "console_deep_link": "",
         "delivery_policy": "queue_only",
-        "gold_status": "blocked_missing_proactive_packet_evidence",
-        "instruction": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing.",
+        "gold_status": "blocked_operator_runtime_posture",
+        "instruction": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored.",
         "interruption_budget": "none",
         "irreversible_actions_consent_gated": true,
         "kind": "proactive_ooda_acceptance_followthrough",
-        "next_action": "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof",
-        "next_action_form_href": "",
-        "next_action_form_label": "",
-        "next_action_form_method": "",
-        "next_action_href": "https://myexternalbrain.com/admin/goals",
-        "next_action_label": "Open goals",
+        "next_action": "reauthorize_google_workspace_binding",
+        "next_action_form_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
+        "next_action_form_label": "Reconnect Google workspace",
+        "next_action_form_method": "get",
+        "next_action_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
+        "next_action_label": "Reconnect Google workspace",
         "next_action_method": "get",
         "non_action_progress_push_allowed": false,
         "notification_policy": "default",
         "operator_queue_visible": true,
-        "operator_runtime_status": "ready_local_runtime",
+        "operator_runtime_status": "ready_with_recovery_action",
         "quiet_hours_respected": true,
         "raw_chat_ids_exposed": false,
         "raw_pair_url_exposed": false,
@@ -175,6 +175,7 @@
         "raw_voice_ids_exposed": false,
         "raw_whatsapp_session_ref_exposed": false,
         "remaining_external_proofs": [
+          "healthy operator runtime posture across approved proactive sources",
           "routed delivery proof for a real proactive OODA packet",
           "action-required-only Telegram delivery proof for the proactive OODA packet",
           "assistant-grade source intent and candidate alignment for the proactive OODA packet",
@@ -183,7 +184,8 @@
           "chosen candidate proof for a real proactive OODA packet",
           "staged reversible artifact proof for a real proactive OODA packet",
           "mirrored Teable projection for the proactive OODA packet",
-          "current recordable proactive OODA packet acceptance evidence"
+          "redacted approval-capture readiness for the proactive OODA packet",
+          "redacted explicit approval outcome for the proactive OODA packet"
         ],
         "telegram_message": "",
         "telegram_push_allowed": false,
@@ -197,12 +199,12 @@
       "evidence_kind": "approval_outcome",
       "key": "proactive_ooda_packet_acceptance",
       "lens": "decide",
-      "next_action": "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof",
-      "next_action_form_href": "",
-      "next_action_form_label": "",
-      "next_action_form_method": "",
-      "next_action_href": "https://myexternalbrain.com/admin/goals",
-      "next_action_label": "Open goals",
+      "next_action": "reauthorize_google_workspace_binding",
+      "next_action_form_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
+      "next_action_form_label": "Reconnect Google workspace",
+      "next_action_form_method": "get",
+      "next_action_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
+      "next_action_label": "Reconnect Google workspace",
       "next_action_method": "get",
       "required_next_receipt": "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
       "source_receipts": [
@@ -211,18 +213,18 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
-          "source_state_fingerprint": "2d523dbb85f71adf49d356ee9fd5ed70d2c2c3ba6bf6b6cbc44ff8b3f6e26e7c",
-          "status": "blocked_missing_proactive_packet_evidence"
+          "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+          "source_state_fingerprint": "e7c5e24e9c2a6e72fa7820b585b437b4cd0837660f8b14890de49eb4c5c9d7ec",
+          "status": "blocked_operator_runtime_posture"
         },
         {
           "contract_name": "ea.proactive_ooda_operator_status.v1",
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
-          "source_state_fingerprint": "2d523dbb85f71adf49d356ee9fd5ed70d2c2c3ba6bf6b6cbc44ff8b3f6e26e7c",
-          "status": "ready_local_runtime"
+          "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+          "source_state_fingerprint": "e7c5e24e9c2a6e72fa7820b585b437b4cd0837660f8b14890de49eb4c5c9d7ec",
+          "status": "ready_with_recovery_action"
         }
       ],
       "status": "pending_real_world_evidence",
@@ -440,8 +442,8 @@
           "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
-          "source_state_fingerprint": "2d523dbb85f71adf49d356ee9fd5ed70d2c2c3ba6bf6b6cbc44ff8b3f6e26e7c",
+          "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+          "source_state_fingerprint": "e7c5e24e9c2a6e72fa7820b585b437b4cd0837660f8b14890de49eb4c5c9d7ec",
           "status": "ready_local_audit"
         },
         {
@@ -721,7 +723,7 @@
             "status": "pending_after_pairing"
           }
         ],
-        "sidecar_qr_age_seconds": 40,
+        "sidecar_qr_age_seconds": 46,
         "sidecar_qr_fresh": true,
         "sidecar_qr_present": true,
         "sidecar_qr_required": true,
@@ -755,8 +757,8 @@
           "path": ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
-          "source_state_fingerprint": "2d523dbb85f71adf49d356ee9fd5ed70d2c2c3ba6bf6b6cbc44ff8b3f6e26e7c",
+          "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+          "source_state_fingerprint": "e7c5e24e9c2a6e72fa7820b585b437b4cd0837660f8b14890de49eb4c5c9d7ec",
           "status": "blocked"
         },
         {
@@ -806,7 +808,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-17T13:08:39Z",
+  "generated_at": "2026-07-17T16:28:43Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -1086,7 +1088,7 @@
           "magixai",
           "gemini_vortex"
         ],
-        "observed_at": "2026-07-17T13:07:56Z",
+        "observed_at": "2026-07-17T16:28:01Z",
         "onemin_configured_slots": 70,
         "onemin_preferred_when_speed_is_not_critical": true,
         "onemin_preferred_whenever_usable": true,
@@ -1202,8 +1204,8 @@
               "path": ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
-              "source_state_fingerprint": "2d523dbb85f71adf49d356ee9fd5ed70d2c2c3ba6bf6b6cbc44ff8b3f6e26e7c",
+              "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+              "source_state_fingerprint": "e7c5e24e9c2a6e72fa7820b585b437b4cd0837660f8b14890de49eb4c5c9d7ec",
               "status": "blocked"
             },
             {
@@ -1285,8 +1287,8 @@
               "path": ".codex-studio/published/mymedia_alexa_readiness.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
-              "source_state_fingerprint": "2d523dbb85f71adf49d356ee9fd5ed70d2c2c3ba6bf6b6cbc44ff8b3f6e26e7c",
+              "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+              "source_state_fingerprint": "e7c5e24e9c2a6e72fa7820b585b437b4cd0837660f8b14890de49eb4c5c9d7ec",
               "status": "ready"
             }
           ],
@@ -1329,8 +1331,8 @@
           "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
-          "source_state_fingerprint": "2d523dbb85f71adf49d356ee9fd5ed70d2c2c3ba6bf6b6cbc44ff8b3f6e26e7c",
+          "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+          "source_state_fingerprint": "e7c5e24e9c2a6e72fa7820b585b437b4cd0837660f8b14890de49eb4c5c9d7ec",
           "status": "ready_local_audit"
         },
         {
@@ -1618,7 +1620,7 @@
           "status": "pending_after_pairing"
         }
       ],
-      "sidecar_qr_age_seconds": 40,
+      "sidecar_qr_age_seconds": 46,
       "sidecar_qr_fresh": true,
       "sidecar_qr_present": true,
       "sidecar_qr_required": true,
@@ -1717,15 +1719,18 @@
       "default_action_digest_suppressed_reason": "not_user_action_required",
       "delivery_policy": "queue_only",
       "evidence_kind": "approval_outcome",
-      "instruction": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing.",
+      "instruction": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored.",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
       "key": "proactive_ooda_packet_acceptance",
       "kind": "proactive_ooda_acceptance_followthrough",
       "lens": "decide",
-      "next_action": "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof",
-      "next_action_href": "https://myexternalbrain.com/admin/goals",
-      "next_action_label": "Open goals",
+      "next_action": "reauthorize_google_workspace_binding",
+      "next_action_form_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
+      "next_action_form_label": "Reconnect Google workspace",
+      "next_action_form_method": "get",
+      "next_action_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
+      "next_action_label": "Reconnect Google workspace",
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
       "notification_policy": "default",
@@ -1860,7 +1865,7 @@
       "magixai",
       "gemini_vortex"
     ],
-    "observed_at": "2026-07-17T13:07:56Z",
+    "observed_at": "2026-07-17T16:28:01Z",
     "onemin_configured_slots": 70,
     "onemin_preferred_when_speed_is_not_critical": true,
     "onemin_preferred_whenever_usable": true,
@@ -1903,8 +1908,8 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
-  "source_state_fingerprint": "2d523dbb85f71adf49d356ee9fd5ed70d2c2c3ba6bf6b6cbc44ff8b3f6e26e7c",
+  "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+  "source_state_fingerprint": "e7c5e24e9c2a6e72fa7820b585b437b4cd0837660f8b14890de49eb4c5c9d7ec",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_real_world_acceptance"
 }

@@ -3,10 +3,10 @@
   "surface": "flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-07-17T12:38:23Z",
+  "generated_at": "2026-07-17T16:29:14Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
-  "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
-  "source_tree_fingerprint": "cb0eee6a69feb73eaec1e6ee930e77b297c403b3759292dc4e4104220b63f480",
+  "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+  "source_tree_fingerprint": "240caf13e5625bb82f2d94c9e0a44b9013905a383fa8ad14ca9d1b3a004bd25a",
   "head_semantics": "source_state",
   "status": "blocked",
   "operator_summary": "EA flagship release truth is materialized, but the current browser-proof or release-doc state still blocks the claim.",
@@ -186,15 +186,9 @@
     }
   ],
   "blocking_reasons": [
-    "release authority: deployment_id_local_fallback",
-    "browser workflow proof: source-backed browser journey proof is not passing",
-    "browser workflow proof: real browser E2E proof is not passing",
-    "browser workflow proof: original source revision, tree, or cleanliness changed during proof",
-    "browser workflow proof: committed snapshot changed during proof execution"
+    "release authority: deployment_id_local_fallback"
   ],
-  "current_limitations": [
-    "original source was not clean"
-  ],
+  "current_limitations": [],
   "release_truth": {
     "oracle": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
     "seed": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",

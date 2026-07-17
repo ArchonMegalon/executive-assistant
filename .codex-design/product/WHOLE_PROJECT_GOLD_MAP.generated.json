@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-07-17T12:38:23Z",
+  "generated_at": "2026-07-17T16:29:15Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
+  "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
   "head_semantics": "source_state",
   "head_semantics_note": "source_git_head records the proved source state. Generated-only artifact commits may advance repository HEAD without changing the source state that the receipts prove.",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
@@ -52,8 +52,7 @@
         ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json is not pass",
         "weekly release_health=blocked: The EA flagship receipt is blocked by the current browser workflow proof or release evidence.",
         "weekly flagship_readiness=blocked: Browser workflow proof is currently blocked, so the flagship receipt cannot support wider release claims.",
-        "weekly launch_readiness: Hold launch expansion pending browser execution proof and cross-host journey coverage.",
-        ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json is not pass"
+        "weekly launch_readiness: Hold launch expansion pending browser execution proof and cross-host journey coverage."
       ],
       "design_notes": []
     },
@@ -384,7 +383,6 @@
     "weekly release_health=blocked: The EA flagship receipt is blocked by the current browser workflow proof or release evidence.",
     "weekly flagship_readiness=blocked: Browser workflow proof is currently blocked, so the flagship receipt cannot support wider release claims.",
     "weekly launch_readiness: Hold launch expansion pending browser execution proof and cross-host journey coverage.",
-    ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json is not pass",
     "ea/_completion/fleet/JOURNEY_GATES.generated.json",
     "canonical Chummer product/UI design review receipt from the owning design repo",
     "public/human-facing Chummer documentation humanization review receipt",

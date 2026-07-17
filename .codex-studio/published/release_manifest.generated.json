@@ -55,7 +55,7 @@
     ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json"
   ],
   "branch": "integrate/ea-manfred-flagship-20260714",
-  "commit_sha": "885a2fd618746227d0877dd8ba9d62d1cc7bff90",
+  "commit_sha": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
   "compose_files": [
     "docker-compose.yml",
     "docker-compose.prod.yml"
@@ -63,22 +63,22 @@
   "compose_overrides": [],
   "contract_name": "ea.release_manifest.v1",
   "deploy_context_branch": "integrate/ea-manfred-flagship-20260714",
-  "deploy_context_commit_sha": "885a2fd618746227d0877dd8ba9d62d1cc7bff90",
-  "deploy_context_generated_at": "2026-07-17T13:09:01.932756Z",
+  "deploy_context_commit_sha": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+  "deploy_context_generated_at": "2026-07-17T16:29:08.327840Z",
   "deploy_context_tracking_branch": "origin/main",
-  "deployment_id": "local-20260717T130901932756Z-885a2fd61874",
+  "deployment_id": "local-20260717T162908327840Z-b9fa090e6915",
   "deployment_id_source": "local_fallback",
   "dirty_worktree": true,
   "enabled_project_modes": [
     "EA_CORE"
   ],
-  "generated_at": "2026-07-17T13:09:01.971184Z",
+  "generated_at": "2026-07-17T16:29:08.384696Z",
   "generated_by": "scripts/materialize_release_manifest.py",
   "git_remote_origin": "https://github.com/ArchonMegalon/executive-assistant.git",
   "project_mode": "EA_CORE",
   "public_origin": "https://myexternalbrain.com",
   "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
-  "release_label": "local-20260717T130901932756Z-885a2fd61874",
+  "release_label": "local-20260717T162908327840Z-b9fa090e6915",
   "repository": "ea-manfred-main-integration-20260714",
   "source_commit_reachable_from_remote_ref": true,
   "source_dirty_count": 0,
@@ -86,7 +86,7 @@
   "source_dirty_omitted_count": 0,
   "source_dirty_status_sha256": "",
   "source_remote_ref": "refs/remotes/origin/main",
-  "source_remote_ref_commit_sha": "885a2fd618746227d0877dd8ba9d62d1cc7bff90",
+  "source_remote_ref_commit_sha": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
   "source_remote_ref_evidence": "local_remote_tracking_ref",
   "source_worktree_dirty": false,
   "tracking_branch": "origin/main"

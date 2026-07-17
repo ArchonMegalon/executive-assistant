@@ -1,7 +1,7 @@
 {
   "contract_name": "ea.memorial_operator_status",
   "generated_by": "scripts/materialize_memorial_operator_status.py",
-  "source_git_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
+  "source_git_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
   "head_semantics": "source_state",
   "source_worktree_dirty": false,
   "source_dirty_count": 0,
@@ -270,7 +270,7 @@
   },
   "readiness": {
     "status": "blocked",
-    "current_head": "58560772373c5c6d7a2a56f652e952ec669313a3",
+    "current_head": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
@@ -543,12 +543,12 @@
     }
   },
   "evidence_heads": {
-    "whole_project_map": "58560772373c5c6d7a2a56f652e952ec669313a3",
+    "whole_project_map": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
     "public_voice_receipt": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
     "public_browser_receipt": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
     "public_meaningful_browser_receipt": "65f80831660870d44a2150960ff5ade4aa4f6455",
     "room_audio_receipt": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
-    "public_spatial_tour_receipt": "58560772373c5c6d7a2a56f652e952ec669313a3"
+    "public_spatial_tour_receipt": "b9fa090e69157d5ecebe537a7023c61492f05bbf"
   },
   "workflow_backing": {
     "status": "no",
@@ -564,11 +564,11 @@
     ],
     "next_action": "Set an explicit deployment ID from the real deploy system and rematerialize the release manifest.",
     "detail": "Release authority is present but still has gaps to resolve.",
-    "deployment_id": "local-20260717T130901932756Z-885a2fd61874",
+    "deployment_id": "local-20260717T162908327840Z-b9fa090e6915",
     "deployment_id_source": "local_fallback",
     "dirty_worktree": true,
-    "deploy_context_commit_sha": "885a2fd618746227d0877dd8ba9d62d1cc7bff90",
-    "commit_sha": "885a2fd618746227d0877dd8ba9d62d1cc7bff90"
+    "deploy_context_commit_sha": "b9fa090e69157d5ecebe537a7023c61492f05bbf",
+    "commit_sha": "b9fa090e69157d5ecebe537a7023c61492f05bbf"
   },
   "public_runtime_mode_detail": {
     "status": "blocked",
@@ -856,7 +856,7 @@
     "sample_count": 4,
     "avg_token_f1": 1.0,
     "avg_wer": 0.0,
-    "avg_latency_ms": 321.4,
+    "avg_latency_ms": 321.6,
     "receipt_path": ".codex-studio/published/memorial_stt_provider_benchmark.generated.json",
     "availability": {
       "providers": {
