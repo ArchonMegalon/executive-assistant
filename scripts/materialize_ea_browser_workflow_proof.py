@@ -23,6 +23,14 @@ from typing import Any, Callable, Iterator, Mapping
 import uuid
 import xml.etree.ElementTree as ET
 
+try:
+    from scripts.source_state_head import (
+        resolve_source_state_head,
+        source_worktree_metadata,
+    )
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head, source_worktree_metadata
+
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SEED = Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json")
@@ -180,18 +188,18 @@ def _run_git(root: Path, arguments: list[str]) -> subprocess.CompletedProcess[st
     )
 
 
-def _relative_output_exclusion(root: Path, output_path: Path | None) -> str | None:
-    if output_path is None:
-        return None
-    absolute_root = root.resolve()
-    absolute_output = output_path.resolve(strict=False)
-    try:
-        relative = absolute_output.relative_to(absolute_root)
-    except ValueError:
-        return None
-    if not relative.parts:
-        return None
-    return f":(top,exclude,literal){relative.as_posix()}"
+def _hardened_git_stdout(root: Path, *arguments: str) -> str:
+    result = _run_git(root, list(arguments))
+    if result.returncode != 0:
+        raise RuntimeError("could not inspect canonical Git source state")
+    return str(result.stdout or "").strip()
+
+
+def _hardened_git_stdout_raw(root: Path, *arguments: str) -> str:
+    result = _run_git(root, list(arguments))
+    if result.returncode != 0:
+        raise RuntimeError("could not inspect canonical Git worktree state")
+    return str(result.stdout or "")
 
 
 def _git_source_state(
@@ -199,36 +207,41 @@ def _git_source_state(
     *,
     excluded_output: Path | None = None,
 ) -> dict[str, Any]:
-    revision_result = _run_git(root, ["rev-parse", "--verify", "HEAD^{commit}"])
-    tree_result = _run_git(root, ["rev-parse", "--verify", "HEAD^{tree}"])
-    revision = str(revision_result.stdout or "").strip()
+    # The validated in-repository output lives under the repository's declared
+    # generated-only prefixes; an external output cannot affect Git status.
+    del excluded_output
+    revision = resolve_source_state_head(
+        root,
+        git_stdout=_hardened_git_stdout,
+    )
+    tree_result = _run_git(root, ["rev-parse", "--verify", f"{revision}^{{tree}}"])
     tree = str(tree_result.stdout or "").strip()
     if (
-        revision_result.returncode != 0
-        or tree_result.returncode != 0
+        tree_result.returncode != 0
         or not _is_canonical_revision(revision)
         or not _is_canonical_revision(tree)
         or len(revision) != len(tree)
     ):
-        raise RuntimeError("could not resolve canonical HEAD commit and tree")
+        raise RuntimeError("could not resolve canonical source-state commit and tree")
 
-    status_arguments = [
-        "status",
-        "--porcelain=v1",
-        "--untracked-files=normal",
-        "--",
-        ".",
-    ]
-    exclusion = _relative_output_exclusion(root, excluded_output)
-    if exclusion is not None:
-        status_arguments.append(exclusion)
-    status_result = _run_git(root, status_arguments)
-    if status_result.returncode != 0:
-        raise RuntimeError("could not inspect source worktree state")
+    source_metadata = source_worktree_metadata(
+        root,
+        dirty_path_limit=0,
+        git_stdout_raw=_hardened_git_stdout_raw,
+    )
+    dirty_count = source_metadata.get("source_dirty_count")
+    dirty = source_metadata.get("source_worktree_dirty")
+    if (
+        type(dirty_count) is not int
+        or dirty_count < 0
+        or type(dirty) is not bool
+        or dirty != (dirty_count > 0)
+    ):
+        raise RuntimeError("source worktree metadata was invalid or inconsistent")
     return {
         "revision": revision,
         "tree": tree,
-        "dirty": bool(str(status_result.stdout or "").strip()),
+        "dirty": dirty,
     }
 
 

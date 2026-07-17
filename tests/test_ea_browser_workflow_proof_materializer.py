@@ -295,6 +295,10 @@ def test_build_receipt_uses_one_immutable_snapshot_for_both_lanes(
 
     assert receipt["version"] == 3
     assert receipt["status"] == "pass"
+    assert receipt["source_revision"] == REVISION
+    assert receipt["source_tree"] == TREE
+    assert receipt["source_worktree_dirty"] is False
+    assert all(row["dirty"] is False for row in receipt["source_state_samples"])
     assert roots[0] == roots[1]
     assert contents == ["committed", "committed"]
     assert [
@@ -418,9 +422,20 @@ def test_original_mutation_cannot_change_shared_snapshot_runner_root(
     assert receipt["status"] == "pass"
 
 
-def test_final_source_tree_change_blocks_current_receipt(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "final_state",
+    [
+        _state(tree="f" * 40),
+        _state(revision="f" * 40),
+        _state(dirty=True),
+    ],
+)
+def test_final_source_state_change_blocks_current_receipt(
+    tmp_path: Path,
+    final_state: dict[str, object],
+) -> None:
     _write_seed(tmp_path)
-    states = iter([_state(), _state(), _state(), _state(tree="f" * 40)])
+    states = iter([_state(), _state(), _state(), final_state])
 
     def changing_state(
         root: Path, *, excluded_output: Path | None = None
@@ -771,3 +786,146 @@ def test_git_environment_is_absolute_and_ignores_inherited_git_configuration() -
     assert environment["GIT_CONFIG_GLOBAL"] == "/dev/null"
     assert "GIT_DIR" not in environment
     assert "GIT_WORK_TREE" not in environment
+
+
+def test_git_source_state_ignores_generated_evidence_but_not_source_changes(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*arguments: str) -> str:
+        result = subprocess.run(
+            [materializer.GIT_BIN.as_posix(), *arguments],
+            cwd=repo,
+            env=materializer._git_environment(),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+
+    git("init", "-q")
+    git("config", "user.name", "EA Test")
+    git("config", "user.email", "ea-test@example.invalid")
+    (repo / "app.py").write_text("SOURCE = 1\n", encoding="utf-8")
+    design_receipt = (
+        repo / ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
+    )
+    browser_receipt = (
+        repo / ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"
+    )
+    design_receipt.parent.mkdir(parents=True)
+    browser_receipt.parent.mkdir(parents=True)
+    design_receipt.write_text('{"status":"blocked"}\n', encoding="utf-8")
+    browser_receipt.write_text('{"status":"blocked"}\n', encoding="utf-8")
+    git("add", ".")
+    git("commit", "-q", "-m", "source")
+    source_revision = git("rev-parse", "HEAD")
+    source_tree = git("rev-parse", "HEAD^{tree}")
+
+    design_receipt.write_text('{"status":"pass"}\n', encoding="utf-8")
+    browser_receipt.write_text('{"status":"pass"}\n', encoding="utf-8")
+    generated_dirty = materializer._git_source_state(
+        repo,
+        excluded_output=browser_receipt,
+    )
+    assert generated_dirty == {
+        "revision": source_revision,
+        "tree": source_tree,
+        "dirty": False,
+    }
+
+    generated_looking_source = repo / "outside.generated.json"
+    generated_looking_source.write_text('{"source":true}\n', encoding="utf-8")
+    assert materializer._git_source_state(
+        repo,
+        excluded_output=browser_receipt,
+    )["dirty"] is True
+    generated_looking_source.unlink()
+
+    git("add", ".")
+    git("commit", "-q", "-m", "generated evidence")
+    generated_commit = git("rev-parse", "HEAD")
+    assert generated_commit != source_revision
+    generated_committed = materializer._git_source_state(
+        repo,
+        excluded_output=browser_receipt,
+    )
+    assert generated_committed == {
+        "revision": source_revision,
+        "tree": source_tree,
+        "dirty": False,
+    }
+
+    (repo / "app.py").write_text("SOURCE = 2\n", encoding="utf-8")
+    source_dirty = materializer._git_source_state(
+        repo,
+        excluded_output=browser_receipt,
+    )
+    assert source_dirty["revision"] == source_revision
+    assert source_dirty["tree"] == source_tree
+    assert source_dirty["dirty"] is True
+
+    git("add", "app.py")
+    git("commit", "-q", "-m", "source change")
+    source_committed = materializer._git_source_state(
+        repo,
+        excluded_output=browser_receipt,
+    )
+    assert source_committed["revision"] != source_revision
+    assert source_committed["tree"] != source_tree
+    assert source_committed["dirty"] is False
+
+
+def test_hardened_git_readers_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        materializer,
+        "_run_git",
+        lambda root, arguments: subprocess.CompletedProcess(
+            [materializer.GIT_BIN.as_posix(), *arguments],
+            1,
+            "",
+            "git failed",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="canonical Git source state"):
+        materializer._hardened_git_stdout(tmp_path, "rev-parse", "HEAD")
+    with pytest.raises(RuntimeError, match="canonical Git worktree state"):
+        materializer._hardened_git_stdout_raw(tmp_path, "status", "--porcelain=v1")
+
+
+def test_git_source_state_rejects_inconsistent_worktree_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        materializer,
+        "resolve_source_state_head",
+        lambda root, **kwargs: REVISION,
+    )
+    monkeypatch.setattr(
+        materializer,
+        "_run_git",
+        lambda root, arguments: subprocess.CompletedProcess(
+            [materializer.GIT_BIN.as_posix(), *arguments],
+            0,
+            TREE + "\n",
+            "",
+        ),
+    )
+    monkeypatch.setattr(
+        materializer,
+        "source_worktree_metadata",
+        lambda root, **kwargs: {
+            "source_worktree_dirty": False,
+            "source_dirty_count": 1,
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="invalid or inconsistent"):
+        materializer._git_source_state(tmp_path)
