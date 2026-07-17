@@ -2341,6 +2341,70 @@ def test_existing_runtime_receipt_is_preserved_and_blocks_start(
     assert commands == []
 
 
+def test_existing_spatial_browser_receipt_is_preserved_and_blocks_start(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda argv, **_kwargs: commands.append(list(argv)) or b"",
+    )
+    runtime_receipt = tmp_path / "runtime.json"
+    spatial_receipt = tmp_path / "candidate-browser.v5.json"
+    original = b'{"status":"operator-owned"}\n'
+    spatial_receipt.write_bytes(original)
+    spatial_receipt.chmod(0o600)
+
+    with pytest.raises(RuntimeError, match=runner.RECEIPT_OUTPUT_EXISTS):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=runtime_receipt,
+            spatial_browser_receipt_path=spatial_receipt,
+            wait_seconds=60,
+        )
+
+    assert spatial_receipt.read_bytes() == original
+    assert not runtime_receipt.exists()
+    assert commands == []
+
+
+@pytest.mark.parametrize(
+    "spatial_name",
+    ["runtime.json", "candidate-contribution.private.json"],
+)
+def test_spatial_browser_receipt_cannot_alias_other_candidate_receipts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    spatial_name: str,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda argv, **_kwargs: commands.append(list(argv)) or b"",
+    )
+    runtime_receipt = tmp_path / "runtime.json"
+
+    with pytest.raises(RuntimeError, match=runner.RECEIPT_PATH_INVALID):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=runtime_receipt,
+            spatial_browser_receipt_path=tmp_path / spatial_name,
+            wait_seconds=60,
+        )
+
+    assert not runtime_receipt.exists()
+    assert commands == []
+
+
 def test_cleanup_detects_any_main_project_snapshot_change(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2749,6 +2813,35 @@ def test_main_maps_governed_signals_to_shell_exit_status(
     )
 
 
+@pytest.mark.parametrize("include_spatial_output", [False, True])
+def test_main_spatial_browser_receipt_option_is_backward_compatible(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    include_spatial_output: bool,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def prove(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"schema": runner.RECEIPT_SCHEMA, "status": "pass"}
+
+    monkeypatch.setattr(runner, "prove_candidate", prove)
+    spatial_output = tmp_path / "candidate-browser.v5.json"
+    argv = [
+        "--env-file",
+        str(tmp_path / "candidate.env"),
+        "--receipt",
+        str(tmp_path / "runtime.json"),
+    ]
+    if include_spatial_output:
+        argv.extend(["--spatial-browser-receipt", str(spatial_output)])
+
+    assert runner.main(argv) == 0
+    assert captured["spatial_browser_receipt_path"] == (
+        spatial_output if include_spatial_output else None
+    )
+
+
 def test_existing_release_is_rehashed_and_mode_bound_before_reuse(
     tmp_path: Path,
 ) -> None:
@@ -2808,6 +2901,97 @@ def test_runtime_receipt_is_no_replace_private_and_inode_bound(
     receipt.chmod(0o600)
     assert runner._unlink_created_receipt_artifact(artifact) is False
     assert receipt.read_bytes() == replacement
+
+
+def test_spatial_browser_receipt_is_exact_private_no_replace_artifact(
+    tmp_path: Path,
+) -> None:
+    browser_receipt = {
+        "schema": runner.SPATIAL_BROWSER_RECEIPT_SCHEMA,
+        "status": "pass",
+        "secret_material_recorded": False,
+        "surfaces": {"desktop": {"status": 200}},
+    }
+    runtime_receipt = {
+        "schema": runner.RECEIPT_SCHEMA,
+        "status": "pass",
+        "spatial_handoff_runtime": {
+            "candidate_browser_gate": browser_receipt,
+        },
+    }
+    output = tmp_path / "candidate-browser.v5.json"
+    artifacts: dict[Path, runner._CreatedReceiptArtifact] = {}
+
+    artifact = runner._persist_spatial_browser_receipt(
+        output,
+        runtime_receipt,
+        created_artifacts=artifacts,
+    )
+
+    metadata = output.stat()
+    assert artifact.path == output
+    assert artifacts == {output: artifact}
+    assert metadata.st_uid == os.geteuid()
+    assert metadata.st_nlink == 1
+    assert stat.S_IMODE(metadata.st_mode) == 0o600
+    assert json.loads(output.read_text(encoding="utf-8")) == browser_receipt
+    original = output.read_bytes()
+    with pytest.raises(RuntimeError, match=runner.RECEIPT_OUTPUT_EXISTS):
+        runner._persist_spatial_browser_receipt(output, runtime_receipt)
+    assert output.read_bytes() == original
+
+
+def test_spatial_browser_receipt_rejects_symlink_and_unsafe_parent(
+    tmp_path: Path,
+) -> None:
+    browser_receipt = {
+        "schema": runner.SPATIAL_BROWSER_RECEIPT_SCHEMA,
+        "status": "pass",
+        "secret_material_recorded": False,
+    }
+    runtime_receipt = {
+        "spatial_handoff_runtime": {
+            "candidate_browser_gate": browser_receipt,
+        }
+    }
+    target = tmp_path / "operator-owned.json"
+    original = b'{"operator":"preserve"}\n'
+    target.write_bytes(original)
+    target.chmod(0o600)
+    symlink_output = tmp_path / "candidate-browser.v5.json"
+    symlink_output.symlink_to(target)
+
+    with pytest.raises(RuntimeError, match=runner.RECEIPT_PATH_INVALID):
+        runner._persist_spatial_browser_receipt(symlink_output, runtime_receipt)
+    assert target.read_bytes() == original
+
+    unsafe_parent = tmp_path / "unsafe"
+    unsafe_parent.mkdir()
+    unsafe_parent.chmod(0o777)
+    with pytest.raises(RuntimeError, match=runner.RECEIPT_PARENT_INVALID):
+        runner._persist_spatial_browser_receipt(
+            unsafe_parent / "candidate-browser.v5.json",
+            runtime_receipt,
+        )
+
+
+def test_spatial_browser_receipt_rejects_invalid_embedded_gate(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "candidate-browser.v5.json"
+    runtime_receipt = {
+        "spatial_handoff_runtime": {
+            "candidate_browser_gate": {
+                "schema": runner.SPATIAL_BROWSER_RECEIPT_SCHEMA,
+                "status": "pass",
+                "secret_material_recorded": True,
+            }
+        }
+    }
+
+    with pytest.raises(RuntimeError, match=runner.SPATIAL_BROWSER_RECEIPT_INVALID):
+        runner._persist_spatial_browser_receipt(output, runtime_receipt)
+    assert not output.exists()
 
 
 def test_contribution_withdrawal_helper_preserves_token_on_failure(
@@ -3237,7 +3421,19 @@ def test_pending_receipt_crash_resumes_exact_running_candidate_without_up(
 ) -> None:
     env_file, env = _candidate_env(tmp_path)
     _patch_prestart(monkeypatch, env)
-    receipt_payload = {"schema": runner.RECEIPT_SCHEMA, "status": "pass"}
+    browser_receipt = {
+        "schema": runner.SPATIAL_BROWSER_RECEIPT_SCHEMA,
+        "status": "pass",
+        "secret_material_recorded": False,
+    }
+    receipt_payload = {
+        "schema": runner.RECEIPT_SCHEMA,
+        "status": "pass",
+        "spatial_handoff_runtime": {
+            "candidate_browser_gate": browser_receipt,
+        },
+    }
+    spatial_receipt = tmp_path / "candidate-browser.v5.json"
     events: list[str] = []
     monkeypatch.setattr(
         runner,
@@ -3276,11 +3472,16 @@ def test_pending_receipt_crash_resumes_exact_running_candidate_without_up(
         env_file=env_file,
         compose_file=tmp_path / "compose.yml",
         receipt_path=tmp_path / "runtime-v4.json",
+        spatial_browser_receipt_path=spatial_receipt,
         wait_seconds=60,
     )
 
     assert recovered == receipt_payload
     assert events == ["runtime-verified", "live-unchanged", "registered"]
+    assert json.loads(spatial_receipt.read_text(encoding="utf-8")) == browser_receipt
+    assert spatial_receipt.stat().st_uid == os.geteuid()
+    assert spatial_receipt.stat().st_nlink == 1
+    assert stat.S_IMODE(spatial_receipt.stat().st_mode) == 0o600
 
 
 def test_invalid_pending_receipt_is_preserved_after_exact_cleanup(

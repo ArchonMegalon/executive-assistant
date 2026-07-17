@@ -46,6 +46,32 @@ def test_runtime_dependency_materializer_writes_pass_receipts() -> None:
     assert {"ea/requirements.txt"} <= sbom_sources
 
 
+def test_runtime_dependency_audit_uses_invoking_python(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script("materialize_runtime_dependency_evidence")
+    requirements_path = tmp_path / "requirements.txt"
+    requirements_path.write_text("example==1.0\n", encoding="utf-8")
+    captured: list[str] = []
+
+    def fake_run(command: list[str], **_kwargs):
+        captured.extend(command)
+        return materializer.subprocess.CompletedProcess(
+            command,
+            0,
+            stdout='{"dependencies": [], "fixes": []}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(materializer.subprocess, "run", fake_run)
+
+    payload = materializer._pip_audit_json(requirements_path)
+
+    assert payload == {"dependencies": [], "fixes": []}
+    assert captured[:3] == [sys.executable, "-m", "pip_audit"]
+
+
 def test_runtime_dependency_verifier_passes_for_current_tree() -> None:
     materializer = _load_script("materialize_runtime_dependency_evidence")
     verifier = _load_script("verify_runtime_dependency_evidence")

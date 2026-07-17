@@ -3,7 +3,10 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -14,9 +17,45 @@ from scripts.prepare_manfred_memorial_candidate import _spatial_package_sha256
 from tests.test_manfred_spatial_candidate_browser import _valid_receipt
 
 
+ROOT = Path(__file__).resolve().parents[1]
 HEAD = "a" * 40
 FINGERPRINT = "b" * 64
 ORIGIN = "https://myexternalbrain.com"
+
+
+@pytest.mark.parametrize(
+    "script_name",
+    (
+        "materialize_memorial_spatial_tour_public_origin.py",
+        "verify_memorial_spatial_tour_public_origin.py",
+    ),
+)
+def test_spatial_entrypoints_support_external_direct_execution(
+    script_name: str,
+    tmp_path: Path,
+) -> None:
+    external_python = tmp_path / "external-venv" / "bin" / "python"
+    external_python.parent.mkdir(parents=True)
+    external_python.symlink_to(Path(sys.executable).resolve())
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "ea")
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+
+    completed = subprocess.run(
+        [
+            str(external_python),
+            str(ROOT / "scripts" / script_name),
+            "--help",
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def _encoded(payload: object) -> bytes:
@@ -33,6 +72,20 @@ def _write_private(path: Path, payload: object) -> bytes:
     path.write_bytes(content)
     path.chmod(0o600)
     return content
+
+
+def _cleanup_state_directory_identity(path: Path) -> dict[str, object]:
+    metadata = path.stat()
+    return {
+        "path": str(path),
+        "dev": int(metadata.st_dev),
+        "inode": int(metadata.st_ino),
+        "uid": int(metadata.st_uid),
+        "gid": int(metadata.st_gid),
+        "mode": int(stat.S_IMODE(metadata.st_mode)),
+        "mtime_ns": int(metadata.st_mtime_ns),
+        "ctime_ns": int(metadata.st_ctime_ns),
+    }
 
 
 def _public_spatial(
@@ -158,6 +211,8 @@ def _public_spatial(
 def _valid_inputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    joint_deploy: bool = True,
 ) -> tuple[Path, Path, materializer.SourceState]:
     browser = copy.deepcopy(_valid_receipt())
     browser["slug"] = contract.PROPERTY_TOUR_SLUG
@@ -292,7 +347,7 @@ def _valid_inputs(
     candidate_path = tmp_path / "candidate.private.json"
     candidate_bytes = _write_private(candidate_path, candidate)
     browser_path = tmp_path / "browser.private.json"
-    _write_private(browser_path, browser)
+    browser_bytes = _write_private(browser_path, browser)
     public_spatial = _public_spatial(browser, authority_sha256=authority_sha)
     deploy = {
         "contract_name": contract.DEPLOY_RECEIPT_CONTRACT,
@@ -311,6 +366,81 @@ def _valid_inputs(
         "public_spatial_tour": public_spatial,
     }
     deploy_path = tmp_path / "deploy.private.json"
+    if joint_deploy:
+        cleanup_state_directory = tmp_path / "joint-cleanup-state"
+        cleanup_state_directory.mkdir(mode=0o700)
+        cleanup_journal_path = (
+            cleanup_state_directory
+            / materializer.JOINT_RECOVERY_JOURNAL_FILENAME
+        )
+        candidate_sha256 = hashlib.sha256(candidate_bytes).hexdigest()
+        browser_sha256 = hashlib.sha256(browser_bytes).hexdigest()
+        browser_binding = {
+            "status": "pass",
+            "candidate_runtime_receipt_path": str(candidate_path),
+            "candidate_runtime_receipt_sha256": candidate_sha256,
+            "candidate_runtime_schema": materializer.CANDIDATE_RUNTIME_SCHEMA,
+            "browser_receipt_path": str(browser_path),
+            "browser_receipt_sha256": browser_sha256,
+            "browser_schema": contract.CANDIDATE_BROWSER_SCHEMA,
+            "secret_material_recorded": False,
+            "exact_embedded_binding": True,
+        }
+        deploy.update(
+            {
+                "contract_name": materializer.JOINT_DEPLOY_RECEIPT_CONTRACT,
+                "coordination_contract_name": (
+                    materializer.JOINT_DEPLOY_RECEIPT_CONTRACT
+                ),
+                "component_contracts": {
+                    "memorial_deploy": contract.DEPLOY_RECEIPT_CONTRACT,
+                },
+                "service_scope": list(materializer.JOINT_SERVICE_SCOPE),
+                "api_mutation_scope": ["ea-api"],
+                "ingress_mutation_scope": ["ea-cloudflared"],
+                "joint_atomicity": dict(materializer.JOINT_ATOMICITY),
+                "joint_public_edge": {
+                    "status": "pass",
+                    "request_count": 12,
+                    "source_revision": HEAD,
+                },
+                "recovery_journal_cleanup": {
+                    "status": "removed",
+                    "path": str(cleanup_journal_path),
+                    "contains_secret_material": True,
+                    "state_directory": _cleanup_state_directory_identity(
+                        cleanup_state_directory
+                    ),
+                },
+                "spatial_browser_binding": browser_binding,
+                "spatial_materializer_handoff": {
+                    "deploy_receipt": {
+                        "environment": materializer.DEPLOY_RECEIPT_ENV,
+                        "path": str(deploy_path),
+                        "contract_name": (
+                            materializer.JOINT_DEPLOY_RECEIPT_CONTRACT
+                        ),
+                    },
+                    "candidate_runtime_receipt": {
+                        "path": str(candidate_path),
+                        "sha256": candidate_sha256,
+                        "schema": materializer.CANDIDATE_RUNTIME_SCHEMA,
+                    },
+                    "candidate_browser_receipt": {
+                        "environment": (
+                            materializer.CANDIDATE_BROWSER_RECEIPT_ENV
+                        ),
+                        "path": str(browser_path),
+                        "sha256": browser_sha256,
+                        "schema": contract.CANDIDATE_BROWSER_SCHEMA,
+                        "exact_binding": (
+                            "candidate_runtime.spatial_handoff_runtime."
+                            "candidate_browser_gate"
+                        ),
+                    },
+                },
+            }
+        )
     _write_private(deploy_path, deploy)
     return (
         deploy_path,
@@ -356,6 +486,79 @@ def test_materializer_emits_strict_sanitized_pass_receipt(
     assert str(tmp_path) not in encoded
     assert "provider_calls_performed" in receipt
     assert receipt["external_requests"] == 0
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "identity_tamper",
+        "journal_present",
+        "state_directory_swap",
+        "state_directory_symlink",
+        "wrong_mode",
+    ),
+)
+def test_materializer_revalidates_bound_cleanup_state_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    deploy_path, browser_path, source_state = _valid_inputs(tmp_path, monkeypatch)
+    deploy = json.loads(deploy_path.read_bytes())
+    cleanup = deploy["recovery_journal_cleanup"]
+    state_directory = Path(cleanup["state_directory"]["path"])
+    if mutation == "identity_tamper":
+        cleanup["state_directory"]["inode"] += 1
+        _write_private(deploy_path, deploy)
+    elif mutation == "journal_present":
+        journal = Path(cleanup["path"])
+        journal.write_bytes(b"{}\n")
+        journal.chmod(0o600)
+    elif mutation == "wrong_mode":
+        state_directory.chmod(0o755)
+    else:
+        moved = state_directory.with_name(f"{mutation}-original")
+        state_directory.rename(moved)
+        if mutation == "state_directory_swap":
+            state_directory.mkdir(mode=0o700)
+        else:
+            state_directory.symlink_to(moved, target_is_directory=True)
+
+    receipt = materializer.materialize(
+        deploy_receipt_path=deploy_path,
+        candidate_browser_receipt_path=browser_path,
+        source_state=source_state,
+        browser_validator=lambda payload, **_kwargs: payload,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["gold_claim_allowed"] is False
+    assert receipt["failed_codes"] == [
+        "joint_recovery_journal_cleanup_state_invalid"
+    ]
+
+
+def test_materializer_rejects_unbound_legacy_joint_cleanup_shape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deploy_path, browser_path, source_state = _valid_inputs(tmp_path, monkeypatch)
+    deploy = json.loads(deploy_path.read_bytes())
+    deploy["recovery_journal_cleanup"].pop("state_directory")
+    _write_private(deploy_path, deploy)
+
+    receipt = materializer.materialize(
+        deploy_receipt_path=deploy_path,
+        candidate_browser_receipt_path=browser_path,
+        source_state=source_state,
+        browser_validator=lambda payload, **_kwargs: payload,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["gold_claim_allowed"] is False
+    assert receipt["failed_codes"] == [
+        "joint_recovery_journal_cleanup_invalid"
+    ]
 
 
 def test_materializer_rejects_symlinked_private_deploy_input(

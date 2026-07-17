@@ -7,7 +7,7 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 
 ## API Contract Summary
 
-Hosted GitHub Actions workflows are intentionally absent from this repo. Operator verification is local-only and is expected to run through the Make gate bundles: `make ci-gates`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, and `make release-preflight`. Use `make verify-manfred-memorial-source-gate` for the provider-free Manfred route, privacy, polished 3D-tour, deploy-contract, public-receipt-consumer, and EA memorial runtime proof; it is not live-promotion authority.
+Hosted GitHub Actions workflows are intentionally absent from this repo. Operator verification is local-only and is expected to run through the Make gate bundles: `make ci-gates`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, and `make release-preflight`. Use `make verify-manfred-memorial-source-gate` for provider-free source proof, `make verify-manfred-memorial-promotion-preflight` for the permit-aware joint API/ingress preflight, and `make manfred-memorial-public-launch-gates` only after an authorized joint deploy. None of these verification commands grants live-mutation authority.
 
 `X-Forwarded-Host` is fail-closed by default. Set `PROPERTYQUARRY_TRUST_X_FORWARDED_HOST=1` only when a trusted ingress or tunnel is the sole caller rewriting that header; otherwise public canonicals, callback origins, and public host routing use the direct request host.
 

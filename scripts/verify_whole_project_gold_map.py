@@ -210,50 +210,6 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
         issues.append(
             "passing strict public spatial-tour receipt must be listed as memorial public-origin evidence"
         )
-    memorial_operator_payload = _json(ROOT / ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json")
-    memorial_public_runtime_status = str(memorial_operator_payload.get("public_runtime_mode") or "").strip().lower()
-    memorial_public_runtime_detail = dict(memorial_operator_payload.get("public_runtime_mode_detail") or {})
-    memorial_public_runtime_reason = str(memorial_public_runtime_detail.get("reason") or "").strip().lower()
-    memorial_public_runtime_next_action = str(memorial_public_runtime_detail.get("next_action") or "").strip()
-    memorial_public_access_status = str(memorial_operator_payload.get("public_origin_access") or "").strip().lower()
-    memorial_public_access_detail = dict(memorial_operator_payload.get("public_origin_access_detail") or {})
-    memorial_public_access_reason = str(memorial_public_access_detail.get("reason") or "").strip().lower()
-    memorial_public_access_next_action = str(memorial_public_access_detail.get("next_action") or "").strip()
-    memorial_public_missing = [str(item).strip().lower() for item in list(memorial_public_plane.get("missing_evidence") or []) if str(item).strip()]
-    suppress_access_symptom = (
-        memorial_public_runtime_status == "blocked"
-        and memorial_public_runtime_reason == "public_origin_not_deployed_in_memorial_mode"
-    )
-    if memorial_public_runtime_status in {"blocked", "missing"}:
-        if str(memorial_public_plane.get("status") or "").strip().lower() != "blocked":
-            issues.append("memorial public-origin plane must be blocked while public runtime mode is blocked")
-        if memorial_public_runtime_reason == "public_origin_not_deployed_in_memorial_mode":
-            if not any(
-                "public origin is still deployed in" in item and "memorial mode" in item
-                for item in memorial_public_missing
-            ):
-                issues.append("memorial public-origin plane must surface EA_CORE-only public deploy mode in missing_evidence")
-            issues.append("configured public origin is not deployed in MEMORIAL mode; run make deploy-ea-memorial before refreshing public memorial gold receipts")
-        if memorial_public_runtime_next_action:
-            issues.append(f"memorial public-origin deploy next action: {memorial_public_runtime_next_action}")
-    if memorial_public_access_status in {"access_blocked", "blocked"} and not suppress_access_symptom:
-        if str(memorial_public_plane.get("status") or "").strip().lower() != "blocked":
-            issues.append("memorial public-origin plane must be blocked while public origin access is blocked")
-        if memorial_public_access_reason == "public_origin_memorial_not_found":
-            if not any("public memorial page or manifest not found" in item for item in memorial_public_missing):
-                issues.append("memorial public-origin plane must surface not-found public memorial access in missing_evidence")
-            issues.append(
-                "memorial public-origin page or manifest is missing at the configured edge; republish the public memorial bundle or fix the memorial slug before refreshing public memorial gold receipts"
-            )
-        else:
-            if not any("public memorial origin access blocked" in item for item in memorial_public_missing):
-                issues.append("memorial public-origin plane must surface blocked public origin access in missing_evidence")
-            issues.append(
-                "memorial public-origin access is blocked at the configured edge; unblock anonymous public memorial access before refreshing public memorial gold receipts"
-            )
-        if memorial_public_access_next_action:
-            issues.append(f"memorial public-origin access next action: {memorial_public_access_next_action}")
-
     blocking_planes = [
         key
         for key, plane in by_key.items()

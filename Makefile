@@ -1,7 +1,8 @@
 .PHONY: deploy deploy-ea-prod deploy-ea-ooda-runtime deploy-ea-memorial deploy-property deploy-legacy-ea-stack deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-principal smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-all test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune documentation-ai-public-openapi verify-documentation-ai-public-docs materialize-documentation-ai-deployment-readiness verify-documentation-ai-deployment-readiness endpoints version-info release-authority-probe materialize-deploy-context refresh-deploy-context materialize-release-manifest refresh-release-manifest materialize-release-authority-status verify-release-authority-runtime verify-release-authority-runtime-authoritative proactive-ooda verify-proactive-ooda verify-proactive-ooda-live-receipt materialize-proactive-ooda-operator-status verify-proactive-ooda-operator-status materialize-proactive-ooda-gold-acceptance verify-proactive-ooda-gold-acceptance operator-summary operator-help provider-readiness probe-live-provider probe-live-provider-cost-pressure overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets materialize-continuous-improvement-goal-posture verify-continuous-improvement-goal-posture materialize-telegram-business-signal-readiness verify-telegram-business-signal-readiness materialize-teable-env-recovery-readiness verify-teable-env-recovery-readiness materialize-teable-env-recovery-proof verify-teable-env-recovery-proof send-audiobook-public-share-followups materialize-office-loop-goal-receipt verify-office-loop-goal-receipt materialize-executive-assistant-acceptance-evidence verify-executive-assistant-acceptance-evidence materialize-executive-assistant-quality-readiness verify-executive-assistant-quality-readiness materialize-whole-project-signal-to-decision-receipt verify-whole-project-signal-to-decision-receipt materialize-whole-project-scope-gap-audit verify-whole-project-scope-gap-audit materialize-active-media-ltd-goal-bundle verify-active-media-ltd-goal-bundle materialize-memorial-chatlab-external-evidence materialize-manfred-realtime-conversation-readiness verify-manfred-realtime-conversation-readiness materialize-telegram-audiobook-live-readiness verify-telegram-audiobook-live-readiness verify-telegram-audiobook-deployed-runtime materialize-telegram-audiobook-live-delivery-receipt verify-telegram-audiobook-live-delivery-receipt materialize-whatsapp-audiobook-local-intake-proof verify-whatsapp-audiobook-local-intake-proof materialize-whatsapp-audiobook-operator-proof-bundle verify-whatsapp-audiobook-operator-proof-bundle materialize-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-public-share-playback materialize-whatsapp-audiobook-live-voice-selection-shadow verify-whatsapp-audiobook-live-voice-selection-shadow materialize-telegram-video-delivery-operator-receipt materialize-telegram-video-delivery-live-receipt materialize-telegram-video-delivery-receipts verify-telegram-video-delivery-live-receipt materialize-memorial-public-voice-gold materialize-memorial-public-browser-gold materialize-memorial-public-browser-meaningful-gold materialize-memorial-spatial-tour-public-origin verify-memorial-spatial-tour-public-origin materialize-memorial-public-auto-receipts-clean materialize-memorial-room-audio-attestation-packet materialize-memorial-room-audio-gold materialize-memorial-room-audio-gold-clean materialize-memorial-public-gold materialize-memorial-phrase-bank materialize-memorial-operator-status inspect-source-dirty-groups materialize-memorial-stt-provider-benchmark verify-memorial-stt-provider-benchmark verify-memorial-runtime-overlay verify-memorial-deploy-readiness sync-memorial-public-sources-teable env-backup-teable env-bootstrap-teable env-check-teable env-disable-extra-teable env-drill-teable env-ensure-local-teable env-fresh-host-teable env-local-status-teable env-probe-teable probe-teable-recovery probe-mymedia-alexa rescan-mymedia-library repair-mymedia-public-surface materialize-mymedia-alexa-readiness verify-mymedia-alexa-readiness trigger-mymedia-amazon-pairing submit-mymedia-amazon-pairing-code send-mymedia-amazon-pairing-telegram env-recover-teable env-restore-teable env-restore-teable-local env-restore-teable-service verify-env-teable-recovery verify-generated-release-artifacts-clean verify-runtime-supply-chain materialize-runtime-dependency-evidence verify-runtime-dependency-evidence verify-local-quality-gates verify-release-authority verify-codexea-e2e-exit-gate verify-codexea-fleet-shim-parity ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy property-release-gates hard-exit-gates runtime-hard-exit-gates ltd-release-gates memorial-gold-gates verify-release-assets verify-flagship-release-readiness verify-project-mode-runtime verify-whole-project-gold-map verify-memorial-voice-stability verify-memorial-gold-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-ltd-provider-lanes verify-poppy-draft-workflow verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle repair-design_mirror-bundle docs-verify all-local
 .PHONY: deploy-ea-memorial-scoped verify-ea-memorial-scoped-deploy
+.PHONY: deploy-ea-memorial-joint verify-ea-memorial-joint-deploy
 .PHONY: reconcile-ea-public-ingress verify-ea-public-ingress-preflight verify-ea-public-ingress-public
-.PHONY: verify-manfred-memorial-source-gate
+.PHONY: verify-manfred-memorial-source-gate verify-manfred-memorial-promotion-preflight manfred-memorial-public-launch-gates
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 TEST_API_PYTEST_IGNORE ?= --ignore-glob=tests/test_chummer*.py --ignore-glob=tests/test_next90*.py --ignore=tests/test_design_mirror_bundle_contracts.py
@@ -58,7 +59,31 @@ deploy-ea-memorial:
 	EA_DEPLOY_PRIMARY_MODE=MEMORIAL \
 	EA_DEPLOY_ENABLED_MODES=MEMORIAL \
 	EA_DEPLOY_COMPOSE_OVERRIDES=docker-compose.memorial.yml \
-	$(MAKE) deploy-ea-memorial-scoped
+	$(MAKE) deploy-ea-memorial-joint
+
+deploy-ea-memorial-joint:
+	@ : "$${EA_DEPLOYMENT_ID:?Set an explicit EA_DEPLOYMENT_ID before joint memorial deployment}"
+	@ : "$${EA_MEMORIAL_IMAGE:?Set an immutable revision-bound EA_MEMORIAL_IMAGE before joint memorial deployment}"
+	@ : "$${EA_MEMORIAL_CANDIDATE_RECEIPT:?Set the private passing EA_MEMORIAL_CANDIDATE_RECEIPT before joint memorial deployment}"
+	@ : "$${EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT:?Set the private passing standalone v5 EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT before joint memorial deployment}"
+	@ : "$${EA_PUBLIC_APP_BASE_URL:?Set the approved HTTPS EA_PUBLIC_APP_BASE_URL before joint memorial deployment}"
+	COMPOSE_PROJECT_NAME=ea \
+	EA_DEPLOY_PRIMARY_MODE=MEMORIAL \
+	EA_DEPLOY_ENABLED_MODES=MEMORIAL \
+	EA_DEPLOY_COMPOSE_OVERRIDES=docker-compose.memorial.yml \
+	$(PYTHON_BIN) scripts/deploy_ea_memorial_joint.py
+
+verify-ea-memorial-joint-deploy:
+	@ : "$${EA_DEPLOYMENT_ID:?Set an explicit EA_DEPLOYMENT_ID before joint memorial preflight}"
+	@ : "$${EA_MEMORIAL_IMAGE:?Set an immutable revision-bound EA_MEMORIAL_IMAGE before joint memorial preflight}"
+	@ : "$${EA_MEMORIAL_CANDIDATE_RECEIPT:?Set the private passing EA_MEMORIAL_CANDIDATE_RECEIPT before joint memorial preflight}"
+	@ : "$${EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT:?Set the private passing standalone v5 EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT before joint memorial preflight}"
+	@ : "$${EA_PUBLIC_APP_BASE_URL:?Set the approved HTTPS EA_PUBLIC_APP_BASE_URL before joint memorial preflight}"
+	COMPOSE_PROJECT_NAME=ea \
+	EA_DEPLOY_PRIMARY_MODE=MEMORIAL \
+	EA_DEPLOY_ENABLED_MODES=MEMORIAL \
+	EA_DEPLOY_COMPOSE_OVERRIDES=docker-compose.memorial.yml \
+	$(PYTHON_BIN) scripts/deploy_ea_memorial_joint.py --preflight-only
 
 deploy-ea-memorial-scoped:
 	@ : "$${EA_DEPLOYMENT_ID:?Set an explicit EA_DEPLOYMENT_ID before memorial deployment}"
@@ -89,6 +114,18 @@ verify-ea-public-ingress-public:
 	@ : "$${EA_SOURCE_REVISION:?Set the exact 40-character deployed revision}"
 	@ : "$${EA_PUBLIC_ORIGIN:?Set the approved HTTPS public origin}"
 	$(PYTHON_BIN) scripts/reconcile_ea_public_ingress.py --verify-public-only
+
+verify-manfred-memorial-promotion-preflight:
+	$(MAKE) verify-manfred-memorial-source-gate
+	$(MAKE) verify-ea-memorial-joint-deploy
+
+# Run only after an authorized joint deploy. This materializes real public,
+# provider, room-review, and spatial evidence; it never grants mutation authority.
+manfred-memorial-public-launch-gates:
+	EA_PUBLIC_ORIGIN="$${EA_PUBLIC_ORIGIN:-$${MEMORIAL_PUBLIC_ORIGIN:?Set EA_PUBLIC_ORIGIN or MEMORIAL_PUBLIC_ORIGIN}}" $(MAKE) verify-ea-public-ingress-public
+	$(MAKE) materialize-memorial-public-gold
+	$(MAKE) memorial-gold-gates
+	$(MAKE) materialize-memorial-operator-status
 
 deploy-property:
 	docker compose -f docker-compose.property.yml up -d --build --remove-orphans
@@ -168,6 +205,7 @@ verify-manfred-memorial-source-gate:
 	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
 		tests/test_manfred_memorial_deployment_contract.py \
 		tests/test_manfred_spatial_candidate_browser.py \
+		tests/test_manfred_joint_deploy.py \
 		tests/test_memorial_governed_deploy.py
 	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
 		tests/test_memorial_private_context.py \
@@ -182,6 +220,8 @@ verify-manfred-memorial-source-gate:
 		tests/test_ea_public_ingress_reconciliation.py \
 		tests/test_memorial_gold_readiness.py \
 		tests/test_memorial_operator_artifacts.py \
+		tests/test_memorial_source_gate_contract.py \
+		tests/test_github_actions_budget_policy.py \
 		tests/test_project_mode_manifests.py \
 		tests/test_release_materialization_service.py \
 		tests/test_whole_project_gold_map.py
@@ -298,6 +338,8 @@ probe-live-provider-cost-pressure:
 
 operator-help:
 	@$(PYTHON_BIN) scripts/deploy_ea_memorial.py --help
+	@$(PYTHON_BIN) scripts/deploy_ea_memorial_joint.py --help
+	@$(PYTHON_BIN) scripts/reconcile_ea_public_ingress.py --help
 	@for s in scripts/deploy.sh scripts/deploy_proactive_ooda_runtime.sh scripts/db_bootstrap.sh scripts/db_status.sh scripts/db_size.sh scripts/db_retention.sh scripts/smoke_api.sh scripts/smoke_api_runtime.sh scripts/smoke_help.sh scripts/smoke_postgres.sh scripts/test_postgres_contracts.sh scripts/hard_exit_gates.sh scripts/runtime_hard_exit_gates.sh scripts/verify_codexea_e2e_exit_gate.sh scripts/verify_codexea_fleet_shim_parity.py scripts/verify_local_quality_gates.py scripts/verify_ltd_critical_entries.py scripts/verify_ltd_flagship_subset.py scripts/verify_ltd_provider_lanes.py scripts/bootstrap_from_teable.sh scripts/sync_env_to_teable.py scripts/ea_live_ops.py scripts/materialize_teable_env_recovery_proof.py scripts/verify_teable_env_recovery_proof.py scripts/verify_proactive_ooda.py scripts/verify_proactive_ooda_live_receipt.py scripts/materialize_proactive_ooda_operator_status.py scripts/verify_proactive_ooda_operator_status.py scripts/materialize_proactive_ooda_gold_acceptance.py scripts/verify_proactive_ooda_gold_acceptance.py scripts/materialize_continuous_improvement_goal_posture.py scripts/verify_continuous_improvement_goal_posture.py scripts/materialize_poppy_draft_packet.py scripts/materialize_memorial_voice_roundtrip_exit_gate.py scripts/materialize_memorial_room_audio_receipt.py scripts/materialize_deploy_context.py scripts/verify_memorial_voice_stability_gate.py scripts/verify_memorial_gold_readiness.py scripts/materialize_project_mode_manifests.py scripts/verify_project_mode_manifests.py scripts/verify_project_mode_runtime.py scripts/materialize_whole_project_gold_map.py scripts/verify_whole_project_gold_map.py scripts/materialize_whatsapp_web_action_processor_readiness.py scripts/verify_whatsapp_web_action_processor_readiness.py scripts/materialize_mymedia_alexa_readiness.py scripts/verify_mymedia_alexa_readiness.py ea/scripts/materialize_office_loop_goal_receipt.py ea/scripts/verify_office_loop_goal_receipt.py ea/scripts/materialize_executive_assistant_acceptance_evidence.py ea/scripts/verify_executive_assistant_acceptance_evidence.py ea/scripts/materialize_executive_assistant_quality_readiness.py ea/scripts/verify_executive_assistant_quality_readiness.py ea/scripts/materialize_whole_project_signal_to_decision_receipt.py ea/scripts/verify_whole_project_signal_to_decision_receipt.py ea/scripts/materialize_whole_project_scope_gap_audit.py ea/scripts/verify_whole_project_scope_gap_audit.py ea/scripts/materialize_active_media_ltd_goal_bundle.py ea/scripts/verify_active_media_ltd_goal_bundle.py ea/scripts/materialize_telegram_audiobook_live_readiness.py ea/scripts/verify_telegram_audiobook_live_readiness.py ea/scripts/verify_whatsapp_audiobook_live_delivery_receipt.py ea/scripts/verify_whatsapp_audiobook_operator_proof_bundle.py ea/scripts/verify_whatsapp_audiobook_public_share_playback.py scripts/list_endpoints.sh scripts/version_info.sh scripts/release_authority_probe.sh scripts/export_openapi.sh scripts/diff_openapi.sh scripts/prune_openapi.sh scripts/operator_summary.sh scripts/support_bundle.sh scripts/archive_tasks.sh scripts/bootstrap_payfunnels_propertyquarry.py scripts/bootstrap_emailit_propertyquarry.py scripts/verify_release_assets.sh scripts/chummer6_overlay_vision_readiness.py; do \
 	  echo "===== $$s --help ====="; \
 	  case "$$s" in \

@@ -145,86 +145,60 @@ def _trusted_file_seal(
     private: bool = False,
     expected_uid: int | None = None,
 ) -> dict[str, object]:
-    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
     try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
+        seal = MemorialDeployLane._deployment_input_file_seal(path)
+    except DeployError as exc:
+        try:
+            path_metadata = path.lstat()
+        except OSError:
+            path_metadata = None
         reason = (
             "reconciliation_input_unavailable"
-            if isinstance(exc, FileNotFoundError)
+            if str(exc)
+            == f"deployment_input_file_unavailable:{path.name}"
+            and (
+                path_metadata is None
+                or not stat.S_ISLNK(path_metadata.st_mode)
+            )
             else "reconciliation_input_untrusted"
         )
         raise DeployError(f"{reason}:{path.name}") from exc
+    size_bytes = int(seal.get("size_bytes") or 0)
+    mode = str(seal.get("mode") or "")
+    sealed_uid = seal.get("uid")
+    required_uid = os.geteuid() if expected_uid is None else expected_uid
+    if (
+        not 0 < size_bytes <= MAX_INPUT_BYTES
+        or (
+            private
+            and (
+                type(sealed_uid) is not int
+                or sealed_uid != required_uid
+                or mode != "0600"
+            )
+        )
+    ):
+        raise DeployError(f"reconciliation_input_untrusted:{path.name}")
+    return dict(seal)
+
+
+def _trusted_optional_private_file_seal(path: Path) -> dict[str, object]:
     try:
-        try:
-            before = os.fstat(descriptor)
-            if (
-                not stat.S_ISREG(before.st_mode)
-                or before.st_nlink != 1
-                or not 0 < before.st_size <= MAX_INPUT_BYTES
-            ):
-                raise DeployError(f"reconciliation_input_untrusted:{path.name}")
-            required_uid = os.geteuid() if expected_uid is None else expected_uid
-            if private and (
-                before.st_uid != required_uid
-                or stat.S_IMODE(before.st_mode) != 0o600
-            ):
-                raise DeployError(f"reconciliation_input_untrusted:{path.name}")
-            chunks: list[bytes] = []
-            total = 0
-            while True:
-                chunk = os.read(
-                    descriptor,
-                    min(1024 * 1024, MAX_INPUT_BYTES + 1 - total),
-                )
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                total += len(chunk)
-                if total > MAX_INPUT_BYTES:
-                    raise DeployError(
-                        f"reconciliation_input_changed:{path.name}"
-                    )
-            after = os.fstat(descriptor)
-        except OSError as exc:
-            raise DeployError(
-                f"reconciliation_input_unreadable:{path.name}"
-            ) from exc
-    finally:
-        os.close(descriptor)
-    raw = b"".join(chunks)
-    identity = (
-        before.st_dev,
-        before.st_ino,
-        before.st_mode,
-        before.st_nlink,
-        before.st_uid,
-        before.st_gid,
-        before.st_size,
-        before.st_mtime_ns,
-        before.st_ctime_ns,
-    )
-    final_identity = (
-        after.st_dev,
-        after.st_ino,
-        after.st_mode,
-        after.st_nlink,
-        after.st_uid,
-        after.st_gid,
-        after.st_size,
-        after.st_mtime_ns,
-        after.st_ctime_ns,
-    )
-    if identity != final_identity or len(raw) != before.st_size:
-        raise DeployError(f"reconciliation_input_changed:{path.name}")
-    return {
-        "path": str(path.absolute()),
-        "sha256": _sha256(raw),
-        "size_bytes": len(raw),
-        "mode": format(stat.S_IMODE(before.st_mode), "03o"),
-        "uid": before.st_uid,
-        "gid": before.st_gid,
-    }
+        return {
+            "present": True,
+            **_trusted_file_seal(
+                path,
+                private=True,
+                expected_uid=os.geteuid(),
+            ),
+        }
+    except DeployError as exc:
+        if str(exc) != f"reconciliation_input_unavailable:{path.name}":
+            raise
+    try:
+        return MemorialDeployLane._deployment_input_absence_seal(path)
+    except DeployError as exc:
+        raise DeployError(f"reconciliation_input_untrusted:{path.name}") from exc
 
 
 def _environment_mapping(value: object) -> dict[str, str]:
@@ -336,6 +310,7 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
             allowed_hosts=self.allowed_public_hosts,
         )
         self.baseline_path = self.receipt_dir / f"{self.deployment_id}.baseline.json"
+        self.command_timeout_provider: Callable[[], float | None] | None = None
         self.target_compose_files = TARGET_COMPOSE_FILES
         self.release_env = dict(source_env)
         self.release_env.update(
@@ -409,7 +384,21 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
             "check": check,
         }
         if isinstance(selected_runner, SubprocessRunner):
-            return selected_runner.run(list(command), **kwargs, timeout_seconds=30.0)
+            timeout_seconds = 30.0
+            if self.command_timeout_provider is not None:
+                remaining = self.command_timeout_provider()
+                if remaining is None or remaining <= 0:
+                    raise DeployError("public_ingress_command_deadline_exceeded")
+                timeout_seconds = min(timeout_seconds, remaining)
+            return selected_runner.run(
+                list(command),
+                **kwargs,
+                timeout_seconds=timeout_seconds,
+            )
+        if self.command_timeout_provider is not None:
+            remaining = self.command_timeout_provider()
+            if remaining is None or remaining <= 0:
+                raise DeployError("public_ingress_command_deadline_exceeded")
         return selected_runner.run(list(command), **kwargs)
 
     def _git_source_preflight(self) -> None:
@@ -423,16 +412,81 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
             raise DeployError("public_ingress_source_worktree_dirty")
         self._record_check("source_revision", "pass", source_revision=head)
 
-    def _render_compose(
+    @staticmethod
+    def _compose_input_paths(*, root: Path, files: Sequence[str]) -> list[Path]:
+        selected_root = root.expanduser()
+        return [
+            selected_root / ".env",
+            *(
+                candidate
+                if (candidate := Path(str(item)).expanduser()).is_absolute()
+                else selected_root / candidate
+                for item in files
+            ),
+        ]
+
+    def _capture_compose_input_seals(
         self, *, root: Path, files: Sequence[str]
-    ) -> dict[str, Any]:
-        args = self._compose_args(root=root, files=files)
-        self._run([*args, "config", "--quiet"], cwd=root)
-        return _json_object(
-            self._run(
-                [*args, "config", "--format", "json"], cwd=root
-            ).stdout,
-            reason="public_ingress_compose_render_invalid",
+    ) -> list[dict[str, object]]:
+        selected_root = root.expanduser()
+        required = [
+            _trusted_file_seal(
+                path,
+                private=(index == 0),
+                expected_uid=os.geteuid(),
+            )
+            for index, path in enumerate(
+                self._compose_input_paths(root=root, files=files)
+            )
+        ]
+        return [
+            *required,
+            _trusted_optional_private_file_seal(selected_root / ".env.local"),
+        ]
+
+    def _render_compose(
+        self,
+        *,
+        root: Path,
+        files: Sequence[str],
+        expected_input_seals: Sequence[Mapping[str, object]] | None = None,
+    ) -> tuple[dict[str, Any], list[dict[str, object]]]:
+        selected_root = root.expanduser()
+        before = self._capture_compose_input_seals(root=selected_root, files=files)
+        if expected_input_seals is not None and before != [
+            dict(item) for item in expected_input_seals
+        ]:
+            raise DeployError("public_ingress_compose_input_changed")
+
+        args = self._compose_args(root=selected_root, files=files)
+        rendered_stdout = ""
+        render_error: BaseException | None = None
+        try:
+            self._run([*args, "config", "--quiet"], cwd=selected_root)
+            rendered_stdout = self._run(
+                [*args, "config", "--format", "json"], cwd=selected_root
+            ).stdout
+        except BaseException as exc:
+            render_error = exc
+        try:
+            after = self._capture_compose_input_seals(
+                root=selected_root,
+                files=files,
+            )
+        except DeployError as seal_error:
+            if render_error is not None:
+                raise DeployError("public_ingress_compose_input_changed") from render_error
+            raise seal_error
+        if after != before:
+            raise DeployError("public_ingress_compose_input_changed") from render_error
+        if render_error is not None:
+            raise render_error
+        return (
+            _json_object(
+                rendered_stdout,
+                reason="public_ingress_compose_render_invalid",
+            ),
+            before,
         )
 
     @staticmethod
@@ -476,9 +530,12 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
         topology = self._compose_topology(
             inspection, reason_prefix="prior_cloudflared"
         )
-        prior_root = Path(str(topology["working_dir"])).resolve()
+        prior_root = Path(str(topology["working_dir"])).expanduser()
         prior_files = [str(item) for item in topology["compose_config_files"]]
-        rendered = self._render_compose(root=prior_root, files=prior_files)
+        rendered, input_seals = self._render_compose(
+            root=prior_root,
+            files=prior_files,
+        )
         service = self._service(rendered, CLOUDFLARED_SERVICE)
         config = dict(inspection.get("Config") or {})
         host = dict(inspection.get("HostConfig") or {})
@@ -546,17 +603,6 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
                     expected_aliases=expected_aliases,
                 )
             )
-        input_seals = [
-            _trusted_file_seal(
-                prior_root / ".env",
-                private=True,
-                expected_uid=os.geteuid(),
-            ),
-            *(
-                _trusted_file_seal(Path(item))
-                for item in prior_files
-            ),
-        ]
         baseline = {
             "contract_name": "ea.public_ingress_cloudflared_baseline.v1",
             "captured_at": _utc_now(),
@@ -626,9 +672,15 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
             except FileNotFoundError:
                 pass
 
-    def _validate_target_compose(self) -> dict[str, Any]:
-        rendered = self._render_compose(
-            root=self.root, files=self.target_compose_files
+    def _validate_target_compose(
+        self,
+        *,
+        expected_input_seals: Sequence[Mapping[str, object]],
+    ) -> dict[str, Any]:
+        rendered, input_seals = self._render_compose(
+            root=self.root,
+            files=self.target_compose_files,
+            expected_input_seals=expected_input_seals,
         )
         api = self._service(rendered, API_SERVICE)
         cloudflared = self._service(rendered, CLOUDFLARED_SERVICE)
@@ -710,17 +762,6 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
             or ipam_configs[0].get("gateway") != PUBLIC_INGRESS_GATEWAY
         ):
             raise DeployError("target_public_ingress_ipam_invalid")
-        input_seals = [
-            *(
-                _trusted_file_seal(self.root / name)
-                for name in self.target_compose_files
-            ),
-            _trusted_file_seal(
-                self.root / ".env",
-                private=True,
-                expected_uid=os.geteuid(),
-            ),
-        ]
         self._record_check(
             "target_compose",
             "pass",
@@ -961,8 +1002,14 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
             raise DeployError("env_file_missing")
         self._git_source_preflight()
         self._detect_compose()
+        target_input_seals = self._capture_compose_input_seals(
+            root=self.root,
+            files=self.target_compose_files,
+        )
         baseline = self._capture_cloudflared_baseline()
-        self._validate_target_compose()
+        self._validate_target_compose(
+            expected_input_seals=target_input_seals,
+        )
         try:
             self._validate_api_runtime_posture(baseline)
         except DeployError as exc:

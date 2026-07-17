@@ -1,5 +1,14 @@
 # Manfred memorial scoped deploy runbook
 
+## Scope notice
+
+This document preserves the API-only component contract and candidate details.
+Public promotion now uses the joint API-and-ingress lane documented in
+`MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md`. `make deploy-ea-memorial` selects
+that joint lane. The explicit `deploy-ea-memorial-scoped` target cannot repair
+or authorize ingress and must not be substituted for the joint path when the
+public edge is unhealthy.
+
 ## Hard stop before candidate or deploy work
 
 Do not create a Manfred candidate image/runtime, run the memorial deploy lane,
@@ -20,7 +29,7 @@ The only governed order is:
 4. run non-mutating production preflight;
 5. issue a fresh short-lived permit and run state-bound `status` immediately
    before promotion;
-6. deploy only through `scripts/deploy_ea_memorial.py`;
+6. deploy the public release only through `scripts/deploy_ea_memorial_joint.py`;
 7. prove the exact public memorial and priority 3D routes; and
 8. revoke the permit.
 
@@ -29,9 +38,9 @@ The installation, status, lease, and incident commands are pinned under
 
 ## Purpose
 
-`make deploy-ea-memorial` is the governed public-memorial lane. It no longer
-invokes the inherited EA mega-stack deployer. The lane may start `ea-redis`,
-but the only service it force-recreates is `ea-api`.
+`make deploy-ea-memorial-scoped` is the API-only component lane used by the
+joint coordinator. It no longer invokes the inherited EA mega-stack deployer.
+It may start `ea-redis`, but the only service it force-recreates is `ea-api`.
 
 All runs take the fixed host-global lock
 `/run/lock/ea-memorial-ea-api.lock` as well as a deployment-ID lock. Distinct
@@ -153,17 +162,23 @@ candidate_env="$(jq -er '.env_file' "$candidate_root/prepare-output.v3.json")"
 export EA_MEMORIAL_DATA_HOST_PATH
 EA_MEMORIAL_DATA_HOST_PATH="$(jq -er '.release_root' "$candidate_root/prepare-output.v3.json")"
 export EA_MEMORIAL_CANDIDATE_RECEIPT="$candidate_root/candidate-runtime.v4.json"
+export EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT="$candidate_root/candidate-browser.v5.json"
 
 .venv/bin/python scripts/run_manfred_memorial_candidate.py \
   --env-file "$candidate_env" \
   --compose-file "$RELEASE_ROOT/deploy/manfred-memorial/docker-compose.candidate.yml" \
   --receipt "$EA_MEMORIAL_CANDIDATE_RECEIPT" \
+  --spatial-browser-receipt "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT" \
   --wait-seconds 240
 
 test "$(stat -c %a "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = 600
 test "$(jq -er '.schema' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = \
   "ea.manfred_memorial_candidate_runtime.v4"
 test "$(jq -er '.status' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = "pass"
+test "$(stat -c %a "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT")" = 600
+test "$(jq -er '.schema' "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT")" = \
+  "ea.manfred_spatial_candidate_browser.v5"
+test "$(jq -er '.status' "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT")" = "pass"
 ```
 
 ```bash
@@ -239,7 +254,7 @@ test -n "${EA_MEMORIAL_CANDIDATE_RECEIPT:?run the isolated candidate first}"
 test -n "${EA_MEMORIAL_DATA_HOST_PATH:?bind the proved projection root}"
 export EA_MEMORIAL_CONTROL_TOUR_SLUG="360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
 export EA_PUBLIC_APP_BASE_URL="${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}"
-make deploy-ea-memorial
+make deploy-ea-memorial-scoped
 ```
 
 The lane performs these mutations only:
@@ -341,6 +356,11 @@ Do not claim memorial public-origin readiness unless both public routes and the
 transparent-narrator contract pass at the configured production origin.
 
 ## Terminal qualification and root permit
+
+The commands in this section retain the API-only component permit contract.
+They are not public joint-promotion instructions. For public promotion, use the
+explicit `--permit-mode joint` sequence in
+`MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md`.
 
 The candidate and promotion window is closed unless the schema-v6 sentinel is
 terminal `qualified` and a short-lived root-owned permit proves that exact

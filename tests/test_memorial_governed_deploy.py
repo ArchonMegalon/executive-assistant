@@ -5171,17 +5171,20 @@ def test_receipt_is_private_and_deployment_id_cannot_be_reused(
         duplicate.deploy(preflight_only=True)
 
 
-def test_make_target_uses_scoped_lane_not_generic_deployer() -> None:
+def test_make_target_uses_joint_lane_not_generic_deployer() -> None:
     makefile = (deploy.ROOT / "Makefile").read_text(encoding="utf-8")
     target = makefile.split("deploy-ea-memorial:", 1)[1].split("\n\n", 1)[0]
+    joint = makefile.split("deploy-ea-memorial-joint:\n", 1)[1].split("\n\n", 1)[0]
     scoped = makefile.split("deploy-ea-memorial-scoped:\n", 1)[1].split("\n\n", 1)[0]
 
-    assert "deploy-ea-memorial-scoped" in target
+    assert "deploy-ea-memorial-joint" in target
+    assert "scripts/deploy_ea_memorial_joint.py" in joint
+    assert "EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT" in joint
     assert "scripts/deploy_ea_memorial.py" in scoped
     assert "EA_MEMORIAL_IMAGE" in scoped
     assert "EA_MEMORIAL_CANDIDATE_RECEIPT" in scoped
     assert "verify-memorial-deploy-readiness" not in target
-    assert "scripts/deploy.sh" not in target + scoped
+    assert "scripts/deploy.sh" not in target + joint + scoped
 
 
 def test_memorial_compose_override_is_api_only() -> None:

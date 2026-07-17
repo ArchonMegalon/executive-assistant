@@ -1575,6 +1575,10 @@ def _openapi_control_evidence(
 
 
 class MemorialDeployLane:
+    vexp_mutation_permit_contract_name = VEXP_MUTATION_PERMIT_CONTRACT_NAME
+    vexp_mutation_permit_version = VEXP_MUTATION_PERMIT_VERSION
+    vexp_mutation_boundaries = VEXP_MUTATION_BOUNDARIES
+
     def __init__(
         self,
         *,
@@ -1707,40 +1711,207 @@ class MemorialDeployLane:
         return env
 
     def _write_receipt(self) -> None:
-        self.receipt_dir.mkdir(parents=True, exist_ok=True)
+        self.receipt_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         try:
             self.receipt_dir.chmod(0o700)
-        except OSError:
-            pass
-        payload = json.dumps(self.receipt, indent=2, sort_keys=True) + "\n"
-        temporary = self.receipt_path.with_name(
-            f".{self.receipt_path.name}.tmp.{os.getpid()}"
+        except OSError as exc:
+            raise DeployError("deployment_receipt_directory_unavailable") from exc
+        if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+            raise DeployError("deployment_receipt_nofollow_unavailable")
+
+        payload = (json.dumps(self.receipt, indent=2, sort_keys=True) + "\n").encode(
+            "utf-8"
         )
-        temporary.write_text(payload, encoding="utf-8")
-        temporary.chmod(0o600)
-        os.replace(temporary, self.receipt_path)
+        temporary_name = f".{self.receipt_path.name}.tmp.{os.getpid()}"
+        directory_flags = os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW
+        file_flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | os.O_CLOEXEC
+            | os.O_NOFOLLOW
+        )
+        directory_descriptor = -1
+        descriptor = -1
+        temporary_created = False
+        try:
+            directory_path_metadata = self.receipt_dir.lstat()
+            directory_descriptor = os.open(self.receipt_dir, directory_flags)
+            directory_metadata = os.fstat(directory_descriptor)
+            if (
+                not stat.S_ISDIR(directory_metadata.st_mode)
+                or stat.S_ISLNK(directory_path_metadata.st_mode)
+                or directory_metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(directory_metadata.st_mode) != 0o700
+                or (directory_metadata.st_dev, directory_metadata.st_ino)
+                != (directory_path_metadata.st_dev, directory_path_metadata.st_ino)
+            ):
+                raise DeployError("deployment_receipt_directory_invalid")
+
+            descriptor = os.open(
+                temporary_name,
+                file_flags,
+                0o600,
+                dir_fd=directory_descriptor,
+            )
+            temporary_created = True
+            os.fchmod(descriptor, 0o600)
+            created_metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(created_metadata.st_mode)
+                or created_metadata.st_nlink != 1
+                or created_metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(created_metadata.st_mode) != 0o600
+            ):
+                raise DeployError("deployment_receipt_temporary_invalid")
+
+            remaining = memoryview(payload)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise DeployError("deployment_receipt_write_failed")
+                remaining = remaining[written:]
+            os.fsync(descriptor)
+
+            written_metadata = os.fstat(descriptor)
+            temporary_metadata = os.stat(
+                temporary_name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                not stat.S_ISREG(written_metadata.st_mode)
+                or written_metadata.st_nlink != 1
+                or written_metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(written_metadata.st_mode) != 0o600
+                or written_metadata.st_size != len(payload)
+                or (written_metadata.st_dev, written_metadata.st_ino)
+                != (created_metadata.st_dev, created_metadata.st_ino)
+                or (temporary_metadata.st_dev, temporary_metadata.st_ino)
+                != (created_metadata.st_dev, created_metadata.st_ino)
+            ):
+                raise DeployError("deployment_receipt_temporary_changed")
+
+            os.close(descriptor)
+            descriptor = -1
+            os.replace(
+                temporary_name,
+                self.receipt_path.name,
+                src_dir_fd=directory_descriptor,
+                dst_dir_fd=directory_descriptor,
+            )
+            temporary_created = False
+            receipt_metadata = os.stat(
+                self.receipt_path.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                not stat.S_ISREG(receipt_metadata.st_mode)
+                or receipt_metadata.st_nlink != 1
+                or receipt_metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(receipt_metadata.st_mode) != 0o600
+                or receipt_metadata.st_size != len(payload)
+                or (receipt_metadata.st_dev, receipt_metadata.st_ino)
+                != (created_metadata.st_dev, created_metadata.st_ino)
+            ):
+                raise DeployError("deployment_receipt_replacement_invalid")
+            os.fsync(directory_descriptor)
+            final_directory_metadata = self.receipt_dir.lstat()
+            if (
+                stat.S_ISLNK(final_directory_metadata.st_mode)
+                or (final_directory_metadata.st_dev, final_directory_metadata.st_ino)
+                != (directory_metadata.st_dev, directory_metadata.st_ino)
+            ):
+                raise DeployError("deployment_receipt_directory_changed")
+        except DeployError:
+            raise
+        except OSError as exc:
+            raise DeployError("deployment_receipt_write_unavailable") from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if temporary_created and directory_descriptor >= 0:
+                try:
+                    os.unlink(temporary_name, dir_fd=directory_descriptor)
+                except OSError:
+                    pass
+            if directory_descriptor >= 0:
+                os.close(directory_descriptor)
 
     def _open_lock(self, path: Path, *, busy_reason: str) -> Any:
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        flags = os.O_RDWR | os.O_CREAT | os.O_CLOEXEC
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
+        selected_path = path.expanduser()
+        if not selected_path.is_absolute() or ".." in selected_path.parts:
+            raise DeployError("lock_file_path_invalid")
+        selected_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_NONBLOCK"):
+            raise DeployError("lock_file_nofollow_unavailable")
+        flags = os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+        descriptor = -1
+        handle: Any | None = None
+        created = False
         try:
-            descriptor = os.open(path, flags, 0o600)
+            descriptor = os.open(selected_path, flags | os.O_CREAT | os.O_EXCL, 0o600)
+            created = True
+        except FileExistsError:
+            try:
+                descriptor = os.open(selected_path, flags)
+            except OSError as exc:
+                raise DeployError(
+                    f"lock_file_unavailable:{selected_path.name}"
+                ) from exc
         except OSError as exc:
-            raise DeployError(f"lock_file_unavailable:{path.name}") from exc
-        handle = os.fdopen(descriptor, "a+", encoding="utf-8")
-        os.fchmod(handle.fileno(), 0o600)
+            raise DeployError(f"lock_file_unavailable:{selected_path.name}") from exc
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            handle.close()
-            raise DeployError(busy_reason) from exc
-        handle.seek(0)
-        handle.truncate()
-        handle.write(f"pid={os.getpid()}\n")
-        handle.flush()
-        return handle
+            if created:
+                os.fchmod(descriptor, 0o600)
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o600
+            ):
+                raise DeployError(f"lock_file_untrusted:{selected_path.name}")
+            handle = os.fdopen(descriptor, "a+", encoding="utf-8")
+            descriptor = -1
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise DeployError(busy_reason) from exc
+            try:
+                path_metadata = os.stat(selected_path, follow_symlinks=False)
+            except OSError as exc:
+                raise DeployError(
+                    f"lock_file_changed:{selected_path.name}"
+                ) from exc
+            if _trusted_file_identity(path_metadata) != _trusted_file_identity(metadata):
+                raise DeployError(f"lock_file_changed:{selected_path.name}")
+            handle.seek(0)
+            handle.truncate()
+            handle.write(f"pid={os.getpid()}\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+            final_metadata = os.fstat(handle.fileno())
+            final_path_metadata = os.stat(selected_path, follow_symlinks=False)
+            if _trusted_file_identity(final_path_metadata) != _trusted_file_identity(
+                final_metadata
+            ):
+                raise DeployError(f"lock_file_changed:{selected_path.name}")
+            return handle
+        except BaseException as exc:
+            if descriptor >= 0:
+                os.close(descriptor)
+            elif handle is not None:
+                try:
+                    handle.close()
+                except OSError:
+                    pass
+            if isinstance(exc, OSError):
+                raise DeployError(
+                    f"lock_file_unavailable:{selected_path.name}"
+                ) from exc
+            raise
 
     def _acquire_lock(self) -> None:
         self.receipt_dir.mkdir(parents=True, exist_ok=True)
@@ -1875,16 +2046,16 @@ class MemorialDeployLane:
         payload = _decode_guard_json(raw, reason="vexp_mutation_permit_json_invalid")
         if set(payload) != VEXP_MUTATION_PERMIT_KEYS:
             raise DeployError("vexp_mutation_permit_schema_invalid")
-        if payload.get("contract_name") != VEXP_MUTATION_PERMIT_CONTRACT_NAME:
+        if payload.get("contract_name") != self.vexp_mutation_permit_contract_name:
             raise DeployError("vexp_mutation_permit_contract_invalid")
         if (
             type(payload.get("version")) is not int
-            or payload["version"] != VEXP_MUTATION_PERMIT_VERSION
+            or payload["version"] != self.vexp_mutation_permit_version
         ):
             raise DeployError("vexp_mutation_permit_version_invalid")
         if payload.get("status") != "allow":
             raise DeployError("vexp_mutation_permit_not_positive")
-        if payload.get("mutation_boundaries") != list(VEXP_MUTATION_BOUNDARIES):
+        if payload.get("mutation_boundaries") != list(self.vexp_mutation_boundaries):
             raise DeployError("vexp_mutation_permit_boundaries_invalid")
         return payload, hashlib.sha256(raw).hexdigest()
 
@@ -2068,15 +2239,21 @@ class MemorialDeployLane:
                     self._vexp_mutation_expires_at = None
         except DeployError as exc:
             if not lease_acquired:
-                self._record_vexp_soak_guard(
-                    boundary=boundary,
-                    status="fail",
-                    reason=str(exc),
-                )
+                try:
+                    self._record_vexp_soak_guard(
+                        boundary=boundary,
+                        status="fail",
+                        reason=str(exc),
+                    )
+                except DeployError as record_exc:
+                    # A missing safe-open primitive can also make the private
+                    # receipt writer unavailable. Preserve the original guard
+                    # denial while chaining the evidence-persistence failure.
+                    raise DeployError(str(exc)) from record_exc
             raise
 
     def _require_vexp_mutation_permitted(self, boundary: str) -> datetime:
-        if boundary not in VEXP_MUTATION_BOUNDARIES:
+        if boundary not in self.vexp_mutation_boundaries:
             raise DeployError("vexp_mutation_boundary_invalid")
         try:
             state, state_sha256 = self._read_trusted_vexp_sentinel_state()
@@ -2325,22 +2502,36 @@ class MemorialDeployLane:
     def _compose_args(self, *, root: Path, files: Sequence[str]) -> list[str]:
         if not self.compose_bin:
             raise DeployError("docker_compose_unavailable")
-        env_file = root / ".env"
-        if not env_file.is_file():
-            raise DeployError(f"env_file_missing:{env_file}")
+        selected_root = root.expanduser()
+        if not selected_root.is_absolute() or ".." in selected_root.parts:
+            raise DeployError("compose_root_invalid")
+        env_file = selected_root / ".env"
+        try:
+            self._deployment_input_file_seal(env_file)
+        except DeployError as exc:
+            if str(exc) == f"deployment_input_file_unavailable:{env_file.name}":
+                raise DeployError(f"env_file_missing:{env_file}") from exc
+            raise
         args = [
             *self.compose_bin,
             "--project-name",
             PROJECT_NAME,
             "--project-directory",
-            str(root),
+            str(selected_root),
             "--env-file",
             str(env_file),
         ]
         for filename in files:
-            path = root / filename
-            if not path.is_file():
-                raise DeployError(f"compose_file_missing:{path}")
+            candidate = Path(str(filename)).expanduser()
+            path = candidate if candidate.is_absolute() else selected_root / candidate
+            if not path.is_absolute() or ".." in path.parts:
+                raise DeployError(f"compose_file_path_invalid:{path.name}")
+            try:
+                self._deployment_input_file_seal(path)
+            except DeployError as exc:
+                if str(exc) == f"deployment_input_file_unavailable:{path.name}":
+                    raise DeployError(f"compose_file_missing:{path}") from exc
+                raise
             args.extend(["-f", str(path)])
         return args
 
@@ -2353,9 +2544,11 @@ class MemorialDeployLane:
         ]
 
     def _configure_forward_topology(self, previous: Mapping[str, Any]) -> None:
-        prior_root = Path(str(previous.get("working_dir") or "")).resolve()
+        prior_root = Path(str(previous.get("working_dir") or "")).expanduser()
+        if not prior_root.is_absolute() or ".." in prior_root.parts:
+            raise DeployError("forward_baseline_working_dir_invalid")
         prior_files = [
-            Path(str(item)).resolve()
+            Path(str(item)).expanduser()
             for item in list(previous.get("compose_config_files") or [])
             if str(item).strip()
         ]
@@ -2381,22 +2574,28 @@ class MemorialDeployLane:
                     raise DeployError("forward_baseline_memorial_path_invalid")
                 prior_memorial_layer_replaced = True
                 continue
-            release_file = (self.root / relative).resolve()
+            release_file = self.root / relative
             try:
                 release_file.relative_to(self.root)
             except ValueError as exc:
                 raise DeployError(
                     f"forward_release_compose_file_escapes_root:{release_file}"
                 ) from exc
-            if not release_file.is_file():
+            try:
+                self._deployment_input_file_seal(release_file)
+            except DeployError as exc:
                 raise DeployError(
-                    f"forward_release_compose_file_missing:{release_file}"
-                )
+                    f"forward_release_compose_file_invalid:{release_file.name}"
+                ) from exc
             release_files.append(relative_name)
 
-        memorial_path = (self.root / MEMORIAL_COMPOSE_FILE).resolve()
-        if not memorial_path.is_file():
-            raise DeployError(f"forward_memorial_compose_file_missing:{memorial_path}")
+        memorial_path = self.root / MEMORIAL_COMPOSE_FILE
+        try:
+            self._deployment_input_file_seal(memorial_path)
+        except DeployError as exc:
+            raise DeployError(
+                f"forward_memorial_compose_file_invalid:{memorial_path.name}"
+            ) from exc
         release_files.append(MEMORIAL_COMPOSE_FILE)
         self.target_compose_files = tuple(release_files)
         self.release_env["EA_DEPLOY_COMPOSE_FILES"] = ",".join(release_files)
@@ -3427,9 +3626,8 @@ class MemorialDeployLane:
         if not raw_working_dir:
             raise DeployError(f"{reason_prefix}_compose_working_dir_missing")
         working_dir = Path(raw_working_dir).expanduser()
-        if not working_dir.is_absolute():
+        if not working_dir.is_absolute() or ".." in working_dir.parts:
             raise DeployError(f"{reason_prefix}_working_dir_invalid")
-        working_dir = working_dir.resolve()
         raw_config_files = str(
             labels.get("com.docker.compose.project.config_files") or ""
         ).strip()
@@ -3437,12 +3635,18 @@ class MemorialDeployLane:
             raise DeployError(f"{reason_prefix}_compose_config_files_missing")
         compose_files: list[str] = []
         for raw_path in raw_config_files.split(","):
-            candidate = Path(raw_path.strip()).expanduser()
+            normalized_path = raw_path.strip()
+            if not normalized_path:
+                raise DeployError(f"{reason_prefix}_rollback_input_missing")
+            candidate = Path(normalized_path).expanduser()
             if not candidate.is_absolute():
                 candidate = working_dir / candidate
-            candidate = candidate.resolve()
-            if not candidate.is_file():
-                raise DeployError(f"{reason_prefix}_rollback_input_missing")
+            if not candidate.is_absolute() or ".." in candidate.parts:
+                raise DeployError(f"{reason_prefix}_rollback_input_invalid")
+            try:
+                MemorialDeployLane._deployment_input_file_seal(candidate)
+            except DeployError as exc:
+                raise DeployError(f"{reason_prefix}_rollback_input_invalid") from exc
             compose_files.append(str(candidate))
         if not compose_files:
             raise DeployError(f"{reason_prefix}_compose_config_files_missing")
@@ -3604,7 +3808,11 @@ class MemorialDeployLane:
     def _verify_rollback_renderability(
         self, previous: Mapping[str, Any]
     ) -> dict[str, Any]:
-        rollback_root = Path(str(previous.get("working_dir") or "")).resolve()
+        rollback_root = Path(
+            str(previous.get("working_dir") or "")
+        ).expanduser()
+        if not rollback_root.is_absolute() or ".." in rollback_root.parts:
+            raise DeployError("rollback_render_working_dir_invalid")
         rollback_files = [
             str(item)
             for item in list(previous.get("compose_config_files") or [])
@@ -5255,8 +5463,10 @@ class MemorialDeployLane:
         topology = self._compose_topology(inspection, reason_prefix="prior_api")
         working_dir = Path(str(topology["working_dir"]))
         env_path = working_dir / ".env"
-        if not env_path.is_file():
-            raise DeployError(f"prior_api_rollback_input_missing:{env_path}")
+        try:
+            self._deployment_input_file_seal(env_path)
+        except DeployError as exc:
+            raise DeployError(f"prior_api_rollback_input_invalid:{env_path.name}") from exc
         mount_identities = _mount_identities(inspection)
         runtime_config = _container_runtime_config_digests(inspection)
         memorial_layers = [
@@ -6432,7 +6642,9 @@ class MemorialDeployLane:
         self._detect_compose()
         previous = self._previous_api()
         self._configure_forward_topology(previous)
+        deployment_input_seal = self._capture_deployment_input_seal(previous)
         rollback_render = self._verify_rollback_renderability(previous)
+        self._require_deployment_input_seal(deployment_input_seal)
         source_revision = self._bind_source_revision(
             str(release_source["source_revision"])
         )
@@ -6441,7 +6653,6 @@ class MemorialDeployLane:
             candidate=candidate,
             source_revision=source_revision,
         )
-        deployment_input_seal = self._capture_deployment_input_seal(previous)
         authority = self._materialize_and_verify_release_evidence(
             deployment_input_seal=deployment_input_seal
         )

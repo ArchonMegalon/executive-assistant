@@ -65,6 +65,7 @@ from scripts.verify_manfred_memorial_candidate import (  # noqa: E402
     verify_candidate,
 )
 from scripts.verify_manfred_spatial_candidate_browser import (  # noqa: E402
+    RECEIPT_SCHEMA as SPATIAL_BROWSER_RECEIPT_SCHEMA,
     _candidate_version as _verified_candidate_version,
     audit_spatial_candidate_browser,
     validate_spatial_candidate_browser_receipt,
@@ -74,6 +75,7 @@ from scripts.verify_manfred_spatial_candidate_browser import (  # noqa: E402
 RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_runtime.v4"
 ROUTE_ACTIONABILITY_DIAGNOSTIC_SCHEMA = "ea.manfred_route_actionability_diagnostic.v1"
 MAX_FAILURE_DIAGNOSTIC_BYTES = 8 * 1024
+SPATIAL_BROWSER_RECEIPT_INVALID = "manfred_candidate_spatial_browser_receipt_invalid"
 ALLOWED_ENV_KEYS = {
     "DATABASE_URL",
     "EA_API_TOKEN",
@@ -3727,6 +3729,38 @@ def _persist_runtime_receipt(
     return register_candidate_receipt(artifact.path, require_pending=True)
 
 
+def _embedded_spatial_browser_receipt(
+    runtime_receipt: dict[str, object],
+) -> dict[str, object]:
+    spatial_handoff = runtime_receipt.get("spatial_handoff_runtime")
+    if not isinstance(spatial_handoff, dict):
+        raise RuntimeError(SPATIAL_BROWSER_RECEIPT_INVALID)
+    browser_receipt = spatial_handoff.get("candidate_browser_gate")
+    if (
+        not isinstance(browser_receipt, dict)
+        or browser_receipt.get("schema") != SPATIAL_BROWSER_RECEIPT_SCHEMA
+        or browser_receipt.get("status") != "pass"
+        or browser_receipt.get("secret_material_recorded") is not False
+    ):
+        raise RuntimeError(SPATIAL_BROWSER_RECEIPT_INVALID)
+    return dict(browser_receipt)
+
+
+def _persist_spatial_browser_receipt(
+    path: Path,
+    runtime_receipt: dict[str, object],
+    *,
+    created_artifacts: dict[Path, _CreatedReceiptArtifact] | None = None,
+) -> _CreatedReceiptArtifact:
+    artifact = _atomic_receipt(
+        path,
+        _embedded_spatial_browser_receipt(runtime_receipt),
+    )
+    if created_artifacts is not None:
+        created_artifacts[artifact.path] = artifact
+    return artifact
+
+
 def _assert_recovered_candidate_runtime(
     *,
     receipt: dict[str, object],
@@ -3813,6 +3847,7 @@ def _prove_candidate_with_execution_inputs(
     projection: dict[str, object],
     compose_attestation: dict[str, object],
     execution_inputs: _SealedExecutionInputs,
+    spatial_browser_receipt_path: Path | None = None,
 ) -> dict[str, object]:
     env_file = execution_inputs.environment_path
     compose_file = execution_inputs.compose_path
@@ -3821,6 +3856,15 @@ def _prove_candidate_with_execution_inputs(
     if contribution_receipt == receipt_path:
         raise RuntimeError(RECEIPT_PATH_INVALID)
     contribution_receipt = _normalized_receipt_path(contribution_receipt)
+    if spatial_browser_receipt_path is not None:
+        spatial_browser_receipt_path = _normalized_receipt_path(
+            spatial_browser_receipt_path
+        )
+        if spatial_browser_receipt_path in {receipt_path, contribution_receipt}:
+            raise RuntimeError(RECEIPT_PATH_INVALID)
+        spatial_browser_receipt_path = _assert_new_receipt_path(
+            spatial_browser_receipt_path
+        )
     project = _validate_project_name(env["EA_MANFRED_COMPOSE_PROJECT"])
     port = int(env["EA_MANFRED_HOST_PORT"])
     compose_environment = _compose_environment(
@@ -3960,7 +4004,6 @@ def _prove_candidate_with_execution_inputs(
                         raise RuntimeError(
                             "manfred_candidate_registry_registration_failed"
                         )
-                return dict(recovered_receipt)
             except BaseException as recovery_exc:
                 if recovery_state == "registered_receipt":
                     raise RuntimeError(
@@ -4015,6 +4058,12 @@ def _prove_candidate_with_execution_inputs(
                     "manfred_candidate_recovered_receipt_runtime_invalid:"
                     "fresh_receipt_path_required"
                 ) from recovery_exc
+            if spatial_browser_receipt_path is not None:
+                _persist_spatial_browser_receipt(
+                    spatial_browser_receipt_path,
+                    dict(recovered_receipt),
+                )
+            return dict(recovered_receipt)
         if recovery_state == "pending_only":
             recovery_errors = []
             with _shield_cleanup_interrupts():
@@ -4308,6 +4357,12 @@ def _prove_candidate_with_execution_inputs(
                 "promotion_authority": False,
             }
             with _shield_cleanup_interrupts():
+                if spatial_browser_receipt_path is not None:
+                    _persist_spatial_browser_receipt(
+                        spatial_browser_receipt_path,
+                        receipt,
+                        created_artifacts=created_artifacts,
+                    )
                 registration = _persist_runtime_receipt(
                     receipt_path,
                     receipt,
@@ -4366,6 +4421,22 @@ def _prove_candidate_with_execution_inputs(
                         recovery_errors.append(
                             "candidate_private_receipt_cleanup_failed"
                         )
+                if spatial_browser_receipt_path is not None:
+                    try:
+                        spatial_browser_artifact = created_artifacts.get(
+                            spatial_browser_receipt_path
+                        )
+                        if (
+                            spatial_browser_artifact is not None
+                            and not _unlink_created_receipt_artifact(
+                                spatial_browser_artifact
+                            )
+                        ):
+                            raise RuntimeError(RECEIPT_ARTIFACT_INVALID)
+                    except BaseException:
+                        recovery_errors.append(
+                            "candidate_spatial_browser_receipt_cleanup_failed"
+                        )
                 try:
                     runtime_artifact = created_artifacts.get(receipt_path)
                     if (
@@ -4417,6 +4488,7 @@ def prove_candidate(
     compose_file: Path,
     receipt_path: Path,
     wait_seconds: int,
+    spatial_browser_receipt_path: Path | None = None,
 ) -> dict[str, object]:
     canonical_env_file = Path(
         os.path.abspath(os.fspath(env_file.expanduser()))
@@ -4450,6 +4522,7 @@ def prove_candidate(
             projection=projection,
             compose_attestation=compose_attestation,
             execution_inputs=execution_inputs,
+            spatial_browser_receipt_path=spatial_browser_receipt_path,
         )
 
 
@@ -4464,6 +4537,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(root / "deploy/manfred-memorial/docker-compose.candidate.yml"),
     )
     parser.add_argument("--receipt", required=True)
+    parser.add_argument("--spatial-browser-receipt")
     parser.add_argument("--wait-seconds", type=int, default=240)
     return parser
 
@@ -4499,6 +4573,11 @@ def main(argv: list[str] | None = None) -> int:
                 compose_file=Path(args.compose_file),
                 receipt_path=Path(args.receipt).expanduser().resolve(),
                 wait_seconds=max(60, min(600, int(args.wait_seconds))),
+                spatial_browser_receipt_path=(
+                    Path(args.spatial_browser_receipt).expanduser()
+                    if args.spatial_browser_receipt
+                    else None
+                ),
             )
     except GovernedSignalInterrupt as exc:
         print(

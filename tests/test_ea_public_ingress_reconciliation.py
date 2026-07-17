@@ -5,7 +5,7 @@ import stat
 import subprocess
 import urllib.parse
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 import pytest
 
@@ -205,12 +205,14 @@ class FakeRunner:
         target_rendered: Mapping[str, object] | None = None,
         baseline_mounts: list[dict[str, object]] | None = None,
         foreign_public_ipv4_owner: bool = False,
+        after_render: Callable[[], None] | None = None,
     ) -> None:
         self.root = root
         self.api_stable = api_stable
         self.target_rendered = dict(target_rendered or _target_rendered())
         self.baseline_mounts = list(baseline_mounts or [])
         self.foreign_public_ipv4_owner = foreign_public_ipv4_owner
+        self.after_render = after_render
         self.commands: list[tuple[str, ...]] = []
 
     def run(
@@ -336,6 +338,11 @@ class FakeRunner:
                 if any(item.endswith("docker-compose.previous.yml") for item in files)
                 else self.target_rendered
             )
+            if command[config_index:] == ("config", "--format", "json"):
+                callback = self.after_render
+                self.after_render = None
+                if callback is not None:
+                    callback()
             return _completed(args, stdout=json.dumps(rendered))
         completed = _completed(args, returncode=1, stderr="unexpected command")
         if check:
@@ -386,6 +393,12 @@ def _assert_no_mutation(commands: Sequence[Sequence[str]]) -> None:
     assert not any("down" in command for command in flattened)
     assert not any(command[:3] == ("docker", "network", "rm") for command in flattened)
     assert not any(command[:2] == ("docker", "start") for command in flattened)
+
+
+def _compose_config_commands(
+    commands: Sequence[Sequence[str]],
+) -> list[tuple[str, ...]]:
+    return [tuple(command) for command in commands if "config" in command]
 
 
 def test_preflight_captures_private_redacted_baseline_and_stable_api(tmp_path: Path) -> None:
@@ -635,6 +648,25 @@ def test_preflight_rejects_world_readable_env_file(tmp_path: Path) -> None:
     ):
         lane.run(preflight_only=True)
 
+    assert _compose_config_commands(lane.runner.commands) == []
+
+
+def test_preflight_rejects_world_readable_optional_env_before_any_render(
+    tmp_path: Path,
+) -> None:
+    lane = _lane(tmp_path)
+    optional_env = tmp_path / ".env.local"
+    optional_env.write_text("EA_API_TOKEN=private\n", encoding="utf-8")
+    optional_env.chmod(0o644)
+
+    with pytest.raises(
+        ingress.DeployError,
+        match=r"reconciliation_input_untrusted:\.env\.local",
+    ):
+        lane.run(preflight_only=True)
+
+    assert _compose_config_commands(lane.runner.commands) == []
+
 
 def test_preflight_rejects_symlinked_env_file(tmp_path: Path) -> None:
     lane = _lane(tmp_path)
@@ -649,3 +681,64 @@ def test_preflight_rejects_symlinked_env_file(tmp_path: Path) -> None:
         ingress.DeployError, match="reconciliation_input_untrusted:.env"
     ):
         lane.run(preflight_only=True)
+
+    assert _compose_config_commands(lane.runner.commands) == []
+
+
+def test_preflight_rejects_symlinked_target_compose_before_any_render(
+    tmp_path: Path,
+) -> None:
+    lane = _lane(tmp_path)
+    target = tmp_path / "outside-compose.yml"
+    target.write_text("services: {}\n", encoding="utf-8")
+    compose_path = tmp_path / "docker-compose.cloudflared.yml"
+    compose_path.unlink()
+    compose_path.symlink_to(target)
+
+    with pytest.raises(
+        ingress.DeployError,
+        match="reconciliation_input_untrusted:docker-compose.cloudflared.yml",
+    ):
+        lane.run(preflight_only=True)
+
+    assert _compose_config_commands(lane.runner.commands) == []
+
+
+def test_preflight_rejects_symlinked_prior_compose_before_any_render(
+    tmp_path: Path,
+) -> None:
+    lane = _lane(tmp_path)
+    target = tmp_path / "outside-prior-compose.yml"
+    target.write_text("services: {}\n", encoding="utf-8")
+    compose_path = tmp_path / "docker-compose.previous.yml"
+    compose_path.unlink()
+    compose_path.symlink_to(target)
+
+    with pytest.raises(
+        ingress.DeployError,
+        match="prior_cloudflared_rollback_input_invalid",
+    ):
+        lane.run(preflight_only=True)
+
+    assert _compose_config_commands(lane.runner.commands) == []
+
+
+def test_preflight_rejects_input_changed_after_compose_render(
+    tmp_path: Path,
+) -> None:
+    root = _root(tmp_path)
+
+    def mutate_env() -> None:
+        (root / ".env").write_text("# changed after render\n", encoding="utf-8")
+
+    runner = FakeRunner(root, after_render=mutate_env)
+    lane = _lane(tmp_path, runner=runner)
+
+    with pytest.raises(
+        ingress.DeployError,
+        match="public_ingress_compose_input_changed",
+    ):
+        lane.run(preflight_only=True)
+
+    assert len(_compose_config_commands(runner.commands)) == 2
+    _assert_no_mutation(runner.commands)

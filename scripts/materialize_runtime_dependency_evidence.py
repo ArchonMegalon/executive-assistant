@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import sys
 from typing import Any
 import uuid
 
@@ -87,7 +88,7 @@ def _build_sbom(requirement_sets: list[tuple[Path, list[tuple[str, str]]]]) -> d
 def _pip_audit_json(requirements_path: Path) -> dict[str, Any]:
     completed = subprocess.run(  # nosec B603
         [
-            str(ROOT / ".venv" / "bin" / "python"),
+            sys.executable,
             "-m",
             "pip_audit",
             "-r",

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-try:
+if __package__:
     from scripts.memorial_spatial_public_origin_contract import (
         validate_memorial_spatial_public_origin_receipt,
     )
@@ -14,7 +14,7 @@ try:
         resolve_source_state_head,
         resolve_source_worktree_fingerprint,
     )
-except ModuleNotFoundError:  # pragma: no cover - direct script execution
+else:  # pragma: no cover - direct script execution
     from memorial_spatial_public_origin_contract import (
         validate_memorial_spatial_public_origin_receipt,
     )

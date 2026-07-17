@@ -250,17 +250,23 @@ candidate_env="$(jq -er '.env_file' "$candidate_root/prepare-output.v3.json")"
 export EA_MEMORIAL_DATA_HOST_PATH
 EA_MEMORIAL_DATA_HOST_PATH="$(jq -er '.release_root' "$candidate_root/prepare-output.v3.json")"
 export EA_MEMORIAL_CANDIDATE_RECEIPT="$candidate_root/candidate-runtime.v4.json"
+export EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT="$candidate_root/candidate-browser.v5.json"
 
 .venv/bin/python scripts/run_manfred_memorial_candidate.py \
   --env-file "$candidate_env" \
   --compose-file "$EA_REPO_ROOT/deploy/manfred-memorial/docker-compose.candidate.yml" \
   --receipt "$EA_MEMORIAL_CANDIDATE_RECEIPT" \
+  --spatial-browser-receipt "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT" \
   --wait-seconds 240
 
 test "$(stat -c %a "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = 600
 test "$(jq -er '.schema' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = \
   "ea.manfred_memorial_candidate_runtime.v4"
 test "$(jq -er '.status' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = "pass"
+test "$(stat -c %a "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT")" = 600
+test "$(jq -er '.schema' "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT")" = \
+  "ea.manfred_spatial_candidate_browser.v5"
+test "$(jq -er '.status' "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT")" = "pass"
 ```
 
 Do not replace the governed runner with raw `docker compose` commands. It pins the explicit deployment project, removes hostile ambient Compose interpolation, and holds host-stable nonblocking locks for both the project name and loopback port across absence checks, startup, proof, receipt writing, and cleanup. It fails before mutation if the project, its exact resource names, or the loopback port already exist. Before startup it rehashes the locked projection tree, including file modes, and confirms that the tag still resolves to the projection's prepared image ID and revision. Projection directories are mode `0550`, private files are `0440`, public files are `0444`, and the preparing operator's group retains read/traverse access for this verification while the runtime UID owns the tree. At the end it inspects the actual API and gateway containers and requires both `.Image` IDs to equal the prepared image ID. A tag is never accepted as immutability evidence.
@@ -361,6 +367,7 @@ checkout script as root, omit `/usr/bin/python3 -I`, issue during
 Docker. After source/3D inputs are ready, the governed order is terminal permit,
 state-bound status immediately before candidate start, candidate and exact-tour
 proof, non-mutating production preflight, freshly issued permit, state-bound
-status immediately before scoped deploy, credential-free public browser proof,
+status immediately before joint deploy, credential-free public browser proof,
 then root revocation. See `MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md` for the
-pinned install commands and lock/receipt contract.
+pinned candidate/component contract and `MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md`
+for the joint permit, rollback, and public-evidence sequence.

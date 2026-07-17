@@ -44,6 +44,11 @@ PROPERTY_PRE_AUTHORITY_SHA256 = (
 )
 CANDIDATE_BROWSER_SCHEMA = "ea.manfred_spatial_candidate_browser.v5"
 DEPLOY_RECEIPT_CONTRACT = "ea.memorial_scoped_deploy_receipt.v1"
+JOINT_DEPLOY_RECEIPT_CONTRACT = "ea.memorial_joint_api_ingress_deploy.v1"
+DEPLOY_RECEIPT_CONTRACTS = {
+    DEPLOY_RECEIPT_CONTRACT,
+    JOINT_DEPLOY_RECEIPT_CONTRACT,
+}
 VIEWER_RELPATH = "generated-reconstruction/viewer.html"
 PROOF_RELPATH = "generated-reconstruction/reconstruction.json"
 FLOORPLAN_RELPATH = "generated-reconstruction/source-floorplan.png"
@@ -719,7 +724,7 @@ def validate_memorial_spatial_public_origin_receipt(
     deployment_id = deploy.get("deployment_id")
     if (
         set(deploy) != _DEPLOY_BINDING_KEYS
-        or deploy.get("contract_name") != DEPLOY_RECEIPT_CONTRACT
+        or deploy.get("contract_name") not in DEPLOY_RECEIPT_CONTRACTS
         or deploy.get("status") != "pass"
         or not isinstance(deployment_id, str)
         or _DEPLOYMENT_ID_RE.fullmatch(deployment_id) is None

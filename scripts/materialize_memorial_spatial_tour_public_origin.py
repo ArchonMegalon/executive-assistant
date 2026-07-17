@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-try:
+if __package__:
     from scripts import memorial_spatial_public_origin_contract as contract
     from scripts.source_state_head import (
         resolve_source_state_head,
@@ -30,7 +30,7 @@ try:
     from scripts.verify_manfred_spatial_candidate_browser import (
         validate_spatial_candidate_browser_receipt,
     )
-except ModuleNotFoundError:  # pragma: no cover - direct script execution
+else:  # pragma: no cover - direct script execution
     import memorial_spatial_public_origin_contract as contract  # type: ignore[no-redef]
     from source_state_head import (  # type: ignore[no-redef]
         resolve_source_state_head,
@@ -55,6 +55,21 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SPATIAL_PROJECTION_SCHEMA = "ea.manfred_memorial_spatial_projection.v2"
 CANDIDATE_RUNTIME_SCHEMA = "ea.manfred_memorial_candidate_runtime.v4"
+JOINT_DEPLOY_RECEIPT_CONTRACT = contract.JOINT_DEPLOY_RECEIPT_CONTRACT
+JOINT_RECOVERY_JOURNAL_FILENAME = "joint-active-recovery.json"
+JOINT_SERVICE_SCOPE = ["ea-api", "ea-redis", "ea-cloudflared"]
+JOINT_ATOMICITY = {
+    "api_rollback_baseline_verified": True,
+    "ingress_rollback_baseline_verified": True,
+    "network_rollback_baseline_captured": True,
+    "public_edge_rollback_baseline_captured": True,
+    "rollback_executed": False,
+    "rollback_execution_status": "not_required",
+    "transaction_status": "committed",
+    "baseline_semantics": (
+        "prechange-inputs-captured-and-rollback-renderability-validated"
+    ),
+}
 AUTHORITY_STATUS = "authorized"
 FILE_SPECS = {
     "tour.json": ("tour_manifest", "application/json"),
@@ -234,6 +249,250 @@ def _absolute_private_path(value: object, code: str) -> Path:
     path = Path(str(value))
     _require(path.is_absolute() and ".." not in path.parts, code)
     return path
+
+
+def _state_directory_identity(
+    path: Path,
+    metadata: os.stat_result,
+) -> dict[str, object]:
+    return {
+        "path": str(path),
+        "dev": int(metadata.st_dev),
+        "inode": int(metadata.st_ino),
+        "uid": int(metadata.st_uid),
+        "gid": int(metadata.st_gid),
+        "mode": int(stat.S_IMODE(metadata.st_mode)),
+        "mtime_ns": int(metadata.st_mtime_ns),
+        "ctime_ns": int(metadata.st_ctime_ns),
+    }
+
+
+def _require_joint_cleanup_state(
+    cleanup: Mapping[str, Any],
+    cleanup_path: Path,
+) -> None:
+    code = "joint_recovery_journal_cleanup_state_invalid"
+    raw_identity = cleanup.get("state_directory")
+    _require(isinstance(raw_identity, Mapping), code)
+    expected = dict(raw_identity)
+    state_directory = cleanup_path.parent
+    _require(
+        cleanup_path.name == JOINT_RECOVERY_JOURNAL_FILENAME
+        and state_directory.is_absolute()
+        and ".." not in state_directory.parts
+        and set(expected)
+        == {
+            "ctime_ns",
+            "dev",
+            "gid",
+            "inode",
+            "mode",
+            "mtime_ns",
+            "path",
+            "uid",
+        }
+        and expected.get("path") == str(state_directory)
+        and expected.get("uid") == os.geteuid()
+        and expected.get("mode") == 0o700
+        and all(
+            type(expected.get(key)) is int and int(expected[key]) >= 0
+            for key in (
+                "ctime_ns",
+                "dev",
+                "gid",
+                "inode",
+                "mode",
+                "mtime_ns",
+                "uid",
+            )
+        ),
+        code,
+    )
+    if not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
+        raise EvidenceError(code)
+    descriptor = -1
+    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        path_before = state_directory.lstat()
+        descriptor = os.open(state_directory, flags)
+        descriptor_before = os.fstat(descriptor)
+        _require(
+            not stat.S_ISLNK(path_before.st_mode)
+            and stat.S_ISDIR(descriptor_before.st_mode)
+            and descriptor_before.st_uid == os.geteuid()
+            and stat.S_IMODE(descriptor_before.st_mode) == 0o700
+            and (path_before.st_dev, path_before.st_ino)
+            == (descriptor_before.st_dev, descriptor_before.st_ino)
+            and _state_directory_identity(
+                state_directory,
+                descriptor_before,
+            )
+            == expected,
+            code,
+        )
+        try:
+            os.stat(
+                cleanup_path.name,
+                dir_fd=descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            pass
+        else:
+            raise EvidenceError(code)
+        descriptor_after = os.fstat(descriptor)
+        path_after = state_directory.lstat()
+        _require(
+            not stat.S_ISLNK(path_after.st_mode)
+            and (path_after.st_dev, path_after.st_ino)
+            == (descriptor_after.st_dev, descriptor_after.st_ino)
+            and _state_directory_identity(
+                state_directory,
+                descriptor_after,
+            )
+            == expected,
+            code,
+        )
+    except EvidenceError:
+        raise
+    except OSError as exc:
+        raise EvidenceError(code) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _deploy_contract(
+    deploy: dict[str, Any],
+    *,
+    deploy_receipt_path: Path,
+    candidate_browser_receipt_path: Path,
+    candidate_browser_sha256: str,
+    source_revision: str,
+) -> str:
+    contract_name = str(deploy.get("contract_name") or "")
+    if contract_name == contract.DEPLOY_RECEIPT_CONTRACT:
+        raise EvidenceError("joint_deploy_receipt_required")
+    _require(
+        contract_name == JOINT_DEPLOY_RECEIPT_CONTRACT,
+        "deploy_receipt_contract_invalid",
+    )
+    _require(
+        deploy.get("coordination_contract_name") == JOINT_DEPLOY_RECEIPT_CONTRACT
+        and deploy.get("component_contracts")
+        == {"memorial_deploy": contract.DEPLOY_RECEIPT_CONTRACT}
+        and deploy.get("service_scope") == JOINT_SERVICE_SCOPE
+        and deploy.get("api_mutation_scope") == ["ea-api"]
+        and deploy.get("ingress_mutation_scope") == ["ea-cloudflared"]
+        and deploy.get("joint_atomicity") == JOINT_ATOMICITY,
+        "joint_deploy_atomicity_invalid",
+    )
+    cleanup = _mapping(
+        deploy.get("recovery_journal_cleanup"),
+        "joint_recovery_journal_cleanup_missing",
+    )
+    cleanup_path = _absolute_private_path(
+        cleanup.get("path"),
+        "joint_recovery_journal_cleanup_invalid",
+    )
+    _require(
+        set(cleanup)
+        == {
+            "contains_secret_material",
+            "path",
+            "state_directory",
+            "status",
+        }
+        and cleanup.get("status") == "removed"
+        and cleanup.get("contains_secret_material") is True
+        and str(cleanup_path) == cleanup.get("path"),
+        "joint_recovery_journal_cleanup_invalid",
+    )
+    _require_joint_cleanup_state(cleanup, cleanup_path)
+    edge = _mapping(deploy.get("joint_public_edge"), "joint_public_edge_missing")
+    _require(
+        set(edge) == {"request_count", "source_revision", "status"}
+        and edge.get("status") == "pass"
+        and edge.get("source_revision") == source_revision
+        and type(edge.get("request_count")) is int
+        and edge["request_count"] == 12,
+        "joint_public_edge_invalid",
+    )
+    handoff = _mapping(
+        deploy.get("spatial_materializer_handoff"),
+        "joint_spatial_materializer_handoff_missing",
+    )
+    _require(
+        set(handoff)
+        == {
+            "candidate_browser_receipt",
+            "candidate_runtime_receipt",
+            "deploy_receipt",
+        },
+        "joint_spatial_materializer_handoff_invalid",
+    )
+    deploy_handoff = _mapping(
+        handoff.get("deploy_receipt"),
+        "joint_spatial_materializer_handoff_invalid",
+    )
+    browser_handoff = _mapping(
+        handoff.get("candidate_browser_receipt"),
+        "joint_spatial_materializer_handoff_invalid",
+    )
+    runtime_handoff = _mapping(
+        handoff.get("candidate_runtime_receipt"),
+        "joint_spatial_materializer_handoff_invalid",
+    )
+    promotion = _mapping(
+        deploy.get("candidate_promotion_evidence"),
+        "candidate_promotion_evidence_missing",
+    )
+    browser_binding = _mapping(
+        deploy.get("spatial_browser_binding"),
+        "joint_spatial_browser_binding_missing",
+    )
+    _require(
+        deploy_handoff
+        == {
+            "environment": DEPLOY_RECEIPT_ENV,
+            "path": str(deploy_receipt_path),
+            "contract_name": JOINT_DEPLOY_RECEIPT_CONTRACT,
+        }
+        and browser_handoff
+        == {
+            "environment": CANDIDATE_BROWSER_RECEIPT_ENV,
+            "path": str(candidate_browser_receipt_path),
+            "sha256": candidate_browser_sha256,
+            "schema": contract.CANDIDATE_BROWSER_SCHEMA,
+            "exact_binding": (
+                "candidate_runtime.spatial_handoff_runtime."
+                "candidate_browser_gate"
+            ),
+        }
+        and runtime_handoff
+        == {
+            "path": promotion.get("path"),
+            "sha256": promotion.get("sha256"),
+            "schema": CANDIDATE_RUNTIME_SCHEMA,
+        },
+        "joint_spatial_materializer_handoff_invalid",
+    )
+    _require(
+        browser_binding
+        == {
+            "status": "pass",
+            "candidate_runtime_receipt_path": runtime_handoff["path"],
+            "candidate_runtime_receipt_sha256": runtime_handoff["sha256"],
+            "candidate_runtime_schema": CANDIDATE_RUNTIME_SCHEMA,
+            "browser_receipt_path": browser_handoff["path"],
+            "browser_receipt_sha256": browser_handoff["sha256"],
+            "browser_schema": contract.CANDIDATE_BROWSER_SCHEMA,
+            "secret_material_recorded": False,
+            "exact_embedded_binding": True,
+        },
+        "joint_spatial_browser_binding_invalid",
+    )
+    return contract_name
 
 
 def _candidate_chain(
@@ -527,9 +786,15 @@ def materialize(
             candidate_browser_receipt_path,
             code="candidate_browser_receipt_invalid",
         )
+        deploy_contract_name = _deploy_contract(
+            deploy,
+            deploy_receipt_path=deploy_receipt_path,
+            candidate_browser_receipt_path=candidate_browser_receipt_path,
+            candidate_browser_sha256=_sha256(browser_bytes),
+            source_revision=state.head,
+        )
         _require(
-            deploy.get("contract_name") == contract.DEPLOY_RECEIPT_CONTRACT
-            and deploy.get("status") == "pass"
+            deploy.get("status") == "pass"
             and deploy.get("source_revision") == state.head
             and _mapping(deploy.get("source_worktree"), "deploy_source_state_missing").get(
                 "source_worktree_dirty"
@@ -590,7 +855,7 @@ def materialize(
             "contract_name": contract.CONTRACT_NAME,
             "deploy_binding": {
                 "candidate_promotion_evidence_sha256": candidate_sha,
-                "contract_name": contract.DEPLOY_RECEIPT_CONTRACT,
+                "contract_name": deploy_contract_name,
                 "deployment_id": deploy.get("deployment_id"),
                 "public_origin": public_origin,
                 "public_spatial_tour_sha256": contract.canonical_json_sha256(

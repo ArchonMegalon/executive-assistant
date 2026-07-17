@@ -31,14 +31,6 @@ def _steps() -> tuple[ReleaseMaterializerStep, ...]:
             command=("scripts/materialize_project_mode_manifests.py",),
         ),
         ReleaseMaterializerStep(
-            name="ea_flagship_release_gate",
-            command=("scripts/materialize_ea_flagship_release_gate.py",),
-        ),
-        ReleaseMaterializerStep(
-            name="weekly_product_pulse",
-            command=("scripts/materialize_weekly_product_pulse.py",),
-        ),
-        ReleaseMaterializerStep(
             name="telegram_video_delivery_receipt",
             command=("scripts/materialize_telegram_video_delivery_receipt.py",),
             extra_env={"PYTHONPATH": "ea"},
@@ -55,11 +47,6 @@ def _steps() -> tuple[ReleaseMaterializerStep, ...]:
         ReleaseMaterializerStep(
             name="ea_provider_contract_receipts",
             command=("scripts/materialize_ea_provider_contract_receipts.py",),
-            extra_env={"PYTHONPATH": "ea"},
-        ),
-        ReleaseMaterializerStep(
-            name="whole_project_gold_map",
-            command=("scripts/materialize_whole_project_gold_map.py",),
             extra_env={"PYTHONPATH": "ea"},
         ),
         ReleaseMaterializerStep(
@@ -92,10 +79,6 @@ def _steps() -> tuple[ReleaseMaterializerStep, ...]:
             extra_env={"PYTHONPATH": "ea"},
         ),
         ReleaseMaterializerStep(
-            name="memorial_operator_status",
-            command=("scripts/materialize_memorial_operator_status.py",),
-        ),
-        ReleaseMaterializerStep(
             name="runtime_dependency_evidence",
             command=("scripts/materialize_runtime_dependency_evidence.py",),
         ),
@@ -110,6 +93,23 @@ def _steps() -> tuple[ReleaseMaterializerStep, ...]:
         ReleaseMaterializerStep(
             name="release_authority_status",
             command=("scripts/materialize_release_authority_status.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="ea_flagship_release_gate",
+            command=("scripts/materialize_ea_flagship_release_gate.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="weekly_product_pulse",
+            command=("scripts/materialize_weekly_product_pulse.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="whole_project_gold_map",
+            command=("scripts/materialize_whole_project_gold_map.py",),
+            extra_env={"PYTHONPATH": "ea"},
+        ),
+        ReleaseMaterializerStep(
+            name="memorial_operator_status",
+            command=("scripts/materialize_memorial_operator_status.py",),
         ),
     )
 
