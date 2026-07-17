@@ -48,6 +48,64 @@ def test_generated_release_artifact_normalizer_ignores_host_runner_execution_fie
     assert module._normalize(head) == module._normalize(hosted)
 
 
+def test_generated_release_artifact_normalizer_ignores_raw_junit_timing_not_outcomes() -> None:
+    module = _load_module()
+    before = {
+        "status": "pass",
+        "source_backed_journey_proof": {
+            "status": "pass",
+            "terminal_summary": "4 passed in 9.20s",
+            "junit_xml": (
+                '<testsuite name="pytest" tests="4" failures="0" time="9.20" '
+                'timestamp="2026-07-17T14:49:50Z" hostname="runner-a">'
+                '<testcase classname="tests.test_journeys" name="test_memorial" time="3.20" />'
+                "</testsuite>"
+            ),
+            "junit_xml_sha256": "a" * 64,
+            "passed_count": 4,
+            "failed_count": 0,
+        },
+    }
+    after = {
+        "status": "pass",
+        "source_backed_journey_proof": {
+            "status": "pass",
+            "terminal_summary": "4 passed in 9.41s",
+            "junit_xml": (
+                '<testsuite name="pytest" tests="4" failures="0" time="9.41" '
+                'timestamp="2026-07-17T14:51:12Z" hostname="runner-b">'
+                '<testcase classname="tests.test_journeys" name="test_memorial" time="3.41" />'
+                "</testsuite>"
+            ),
+            "junit_xml_sha256": "b" * 64,
+            "passed_count": 4,
+            "failed_count": 0,
+        },
+    }
+
+    assert module._normalize(before) == module._normalize(after)
+    after["source_backed_journey_proof"]["status"] = "blocked"
+    assert module._normalize(before) != module._normalize(after)
+    after["source_backed_journey_proof"]["status"] = "pass"
+    after["source_backed_journey_proof"]["passed_count"] = 3
+    assert module._normalize(before) != module._normalize(after)
+    after["source_backed_journey_proof"]["passed_count"] = 4
+    after["source_backed_journey_proof"]["junit_xml"] = str(
+        after["source_backed_journey_proof"]["junit_xml"]
+    ).replace('name="test_memorial"', 'name="test_different_journey"')
+    assert module._normalize(before) != module._normalize(after)
+    after["source_backed_journey_proof"]["junit_xml"] = str(
+        before["source_backed_journey_proof"]["junit_xml"]
+    ).replace(
+        ' time="3.20" />',
+        ' time="3.20"><failure message="page unreachable">HTTP 404</failure></testcase>',
+    )
+    assert module._normalize(before) != module._normalize(after)
+    after["source_backed_journey_proof"]["junit_xml"] = before["source_backed_journey_proof"]["junit_xml"]
+    after["source_backed_journey_proof"]["terminal_summary"] = "3 passed, 1 skipped in 9.41s"
+    assert module._normalize(before) != module._normalize(after)
+
+
 def test_generated_release_artifact_normalizer_ignores_current_head_provenance_field() -> None:
     module = _load_module()
     before = {

@@ -129,7 +129,7 @@ def _safe_float(value: str, *, default: float) -> float:
 
 def _live_probe_timeout_seconds() -> float:
     return max(
-        _safe_float(str(os.getenv("EA_PROACTIVE_OODA_LIVE_PROBE_TIMEOUT_SECONDS") or "30"), default=30.0),
+        _safe_float(str(os.getenv("EA_PROACTIVE_OODA_LIVE_PROBE_TIMEOUT_SECONDS") or "120"), default=120.0),
         1.0,
     )
 
@@ -1415,6 +1415,22 @@ def _artifact_probe_evidence_score(artifact_probe: Mapping[str, Any] | None) -> 
     if dict(probe.get("run_receipt") or {}) or _path_text(probe.get("run_receipt_path")):
         score += 1
     return score
+
+
+def _route_artifact_probe_reusable(
+    artifact_probe: Mapping[str, Any] | None,
+) -> bool:
+    probe = dict(artifact_probe or {})
+    if not probe:
+        return False
+    if bool(probe.get("timed_out")) or str(probe.get("blocking_reason") or "").strip():
+        return False
+    if "probe_ok" in probe:
+        return bool(probe.get("probe_ok"))
+    status = str(probe.get("status") or "").strip()
+    if status and status != "ok" and not status.startswith("ready"):
+        return False
+    return _artifact_probe_evidence_score(probe) > 1
 
 
 def _route_probe_live_receipt_missing(
@@ -3070,6 +3086,10 @@ def build_proactive_ooda_operator_status(
         bundle_gmail_draft_probe: dict[str, Any] = {}
         bundle_source_coverage_probe: dict[str, Any] = {}
         bundle_provider_cost_pressure_probe: dict[str, Any] = {}
+        include_route_artifact_probe = bool(
+            live_receipt_path is None
+            and not _has_explicit_artifact_dirs(effective_report_args)
+        )
         with _host_runtime_proactive_probe_override(prefer_host_runtime):
             if allow_live_route_probe:
                 try:
@@ -3077,20 +3097,28 @@ def build_proactive_ooda_operator_status(
                         principal_id=principal_id,
                         receipt_path=str(configured_live_receipt_path or ""),
                         timeout_seconds=live_probe_timeout_seconds,
-                        include_artifact_probe=False,
+                        include_artifact_probe=include_route_artifact_probe,
                     )
                 except Exception:
                     bundle_route_probe = {}
-                if isinstance(bundle_route_probe.get("artifact_probe"), dict):
-                    bundle_artifact_probe = dict(bundle_route_probe.get("artifact_probe") or {})
+                route_artifact_probe = (
+                    dict(bundle_route_probe.get("artifact_probe") or {})
+                    if isinstance(bundle_route_probe.get("artifact_probe"), dict)
+                    else {}
+                )
+                if _route_artifact_probe_reusable(route_artifact_probe):
+                    bundle_artifact_probe = route_artifact_probe
                 if live_receipt_path is None:
                     route_live_receipt_path = _route_live_receipt_host_path(bundle_route_probe)
                     if not bundle_artifact_probe:
-                        bundle_artifact_probe = _local_artifact_probe(
+                        fallback_artifact_probe = _local_artifact_probe(
                             report_args=effective_report_args,
                             live_receipt_path=route_live_receipt_path or effective_live_receipt_path,
                             allow_live_runtime_probe=allow_live_artifact_probe,
                             live_probe_timeout_seconds=live_probe_timeout_seconds,
+                        )
+                        bundle_artifact_probe = dict(
+                            fallback_artifact_probe or route_artifact_probe
                         )
                     if not skip_gmail_draft_followthrough_probe:
                         bundle_gmail_draft_probe = _gmail_draft_followthrough_probe(

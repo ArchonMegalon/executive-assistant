@@ -1333,6 +1333,7 @@ def test_build_operator_status_reuses_route_artifact_probe(tmp_path: Path, monke
     module = _load_script()
     monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
     artifact_calls: list[object] = []
+    route_calls: list[dict[str, object]] = []
     route_artifact = {
         "probe_ok": True,
         "source": "docker_compose_exec",
@@ -1348,7 +1349,8 @@ def test_build_operator_status_reuses_route_artifact_probe(tmp_path: Path, monke
         "safe_work_result": {"result_ref": "safe_work_result:res-route"},
     }
 
-    def _fake_route(**_kwargs: object) -> dict[str, object]:
+    def _fake_route(**kwargs: object) -> dict[str, object]:
+        route_calls.append(kwargs)
         return {
             "probe_ok": True,
             "source": "docker_compose_exec",
@@ -1385,11 +1387,35 @@ def test_build_operator_status_reuses_route_artifact_probe(tmp_path: Path, monke
     )
 
     assert artifact_calls == []
+    assert route_calls
+    assert route_calls[0]["include_artifact_probe"] is True
     assert receipt["approval_capture_surface"]["source"] == "docker_compose_exec"
     assert receipt["approval_capture_surface"]["current_packet_callback_record_count"] == 1
 
 
-def test_build_operator_status_uses_local_artifact_probe_when_route_skips_artifacts(
+def test_route_artifact_probe_reuse_fails_closed_on_explicit_probe_failure(monkeypatch) -> None:
+    monkeypatch.delenv("EA_PROACTIVE_OODA_LIVE_PROBE_TIMEOUT_SECONDS", raising=False)
+    module = _load_script()
+
+    assert module._live_probe_timeout_seconds() == 120.0
+    assert module._route_artifact_probe_reusable(
+        {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "blocking_reason": "runtime_artifact_probe_timed_out:TimeoutExpired:22s",
+            "timed_out": True,
+            "stage_packet": {"packet_id": "stale-packet"},
+        }
+    ) is False
+    assert module._route_artifact_probe_reusable(
+        {
+            "status": "ok",
+            "stage_packet": {"packet_id": "legacy-authoritative-packet"},
+        }
+    ) is True
+
+
+def test_build_operator_status_rejects_timed_out_route_artifacts_and_uses_local_probe(
     tmp_path: Path, monkeypatch
 ) -> None:
     module = _load_script()
@@ -1459,7 +1485,7 @@ def test_build_operator_status_uses_local_artifact_probe_when_route_skips_artifa
         return dict(local_artifact)
 
     def _fake_route(**kwargs: object) -> dict[str, object]:
-        assert kwargs.get("include_artifact_probe") is False
+        assert kwargs.get("include_artifact_probe") is True
         return {
             "probe_ok": True,
             "source": "docker_compose_exec",
@@ -1471,7 +1497,15 @@ def test_build_operator_status_uses_local_artifact_probe_when_route_skips_artifa
                 "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
                 "errors": [],
             },
-            "artifact_probe": {},
+            "artifact_probe": {
+                "probe_ok": False,
+                "status": "probe_failed",
+                "source": "docker_compose_exec",
+                "blocking_reason": "runtime_artifact_probe_timed_out:TimeoutExpired:22s",
+                "timed_out": True,
+                "stage_packet": {"packet_ref": "stage_packet:stale-route-packet"},
+                "safe_work_result": {"result_ref": "safe_work_result:stale-route-result"},
+            },
             "route_report": {
                 "ok": True,
                 "delivery_route": {"ready": True, "selected_channel": "telegram", "selected_by": "tool_runtime_binding"},
@@ -1513,6 +1547,7 @@ def test_build_operator_status_uses_local_artifact_probe_when_route_skips_artifa
     assert receipt["provider_cost_pressure"]["primary_background_provider"] == "onemin"
     assert receipt["approval_capture_surface"]["source"] == "local_filesystem"
     assert receipt["approval_capture_surface"]["current_packet_live_pending_count"] == 1
+    assert "stale-route" not in json.dumps(receipt, sort_keys=True)
 
 
 def test_host_path_for_runtime_container_path_translates_provider_ledger_mount(monkeypatch) -> None:

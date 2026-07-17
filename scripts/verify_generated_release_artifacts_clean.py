@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +81,45 @@ HOST_RESOURCE_VOLATILE_KEYS = {
     "triggered_thresholds",
     "usage_percent",
 }
+JUNIT_VOLATILE_ATTRIBUTES = {"hostname", "time", "timestamp"}
+PYTEST_TERMINAL_DURATION_RE = re.compile(r"(?<=\bin )\d+(?:\.\d+)?s\b")
+
+
+def _normalize_junit_xml(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        root = ET.fromstring(value)
+    except (ET.ParseError, ValueError):
+        return value
+    for element in root.iter():
+        stable_attributes = {
+            key: item
+            for key, item in element.attrib.items()
+            if key.rsplit("}", 1)[-1] not in JUNIT_VOLATILE_ATTRIBUTES
+        }
+        element.attrib.clear()
+        element.attrib.update(sorted(stable_attributes.items()))
+    return ET.tostring(root, encoding="unicode", short_empty_elements=True)
+
+
+def _normalize_junit_sha256(*, declared: Any, junit_xml: Any) -> Any:
+    if not isinstance(junit_xml, str):
+        return declared
+    normalized_xml = _normalize_junit_xml(junit_xml)
+    if not isinstance(normalized_xml, str):
+        return declared
+    raw_sha256 = hashlib.sha256(junit_xml.encode("utf-8")).hexdigest()
+    return {
+        "canonical_sha256": hashlib.sha256(normalized_xml.encode("utf-8")).hexdigest(),
+        "declared_matches_raw": str(declared or "").strip() == raw_sha256,
+    }
+
+
+def _normalize_terminal_summary(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    return PYTEST_TERMINAL_DURATION_RE.sub("<duration>", value)
 
 
 def _normalize(value: Any, *, _path: tuple[str, ...] = ()) -> Any:
@@ -85,6 +127,18 @@ def _normalize(value: Any, *, _path: tuple[str, ...] = ()) -> Any:
         normalized: dict[str, Any] = {}
         for key, item in value.items():
             key_str = str(key)
+            if key_str == "junit_xml":
+                normalized[key] = _normalize_junit_xml(item)
+                continue
+            if key_str == "junit_xml_sha256":
+                normalized[key] = _normalize_junit_sha256(
+                    declared=item,
+                    junit_xml=value.get("junit_xml"),
+                )
+                continue
+            if key_str == "terminal_summary":
+                normalized[key] = _normalize_terminal_summary(item)
+                continue
             if (
                 key in VOLATILE_KEYS
                 or key_str in VOLATILE_KEYS
