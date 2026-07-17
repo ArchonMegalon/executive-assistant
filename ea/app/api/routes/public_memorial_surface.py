@@ -13,6 +13,7 @@ from fastapi.responses import (
     Response,
 )
 
+from app.api.routes.memorial_memory_room import render_memorial_memory_room
 from app.api.routes.public_memorial_surface_support import (
     _ALLOWED_PUBLIC_ASSET_SUFFIXES,
     _BLOCKED_PUBLIC_ASSET_NAMES,
@@ -62,6 +63,19 @@ _PUBLIC_MEMORIAL_HTML_HEADERS = {
     ),
     "Permissions-Policy": "microphone=(self), camera=(), geolocation=(), interest-cohort=()",
     "X-Robots-Tag": "noindex, nofollow",
+}
+
+_PUBLIC_MEMORIAL_MEMORY_ROOM_HEADERS = {
+    **_PUBLIC_MEMORIAL_HTML_HEADERS,
+    "Content-Security-Policy": (
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+        "img-src 'none'; media-src 'none'; connect-src 'none'; worker-src 'none'; "
+        "manifest-src 'none'; font-src 'none'; object-src 'none'; frame-src 'none'; "
+        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    ),
+    "Permissions-Policy": (
+        "microphone=(), camera=(), geolocation=(), interest-cohort=()"
+    ),
 }
 
 _PUBLIC_MEMORIAL_SUPPORT_HEADERS = {
@@ -378,6 +392,50 @@ def public_memorial_archive_publication(
         headers=dict(_PUBLIC_MEMORIAL_HTML_HEADERS),
     )
     return _apply_memorial_transport_security(response, request)
+
+
+def _public_memorial_memory_room_response(
+    slug: str,
+    request: Request,
+    *,
+    head_only: bool,
+) -> Response:
+    rejection = _memorial_transport_rejection(request)
+    if rejection is not None:
+        return rejection
+    redirect = _memorial_https_redirect(request)
+    if redirect is not None:
+        return redirect
+    try:
+        safe_slug = _safe_slug(slug)
+        payload = _public_memorial_payload(_load_public_surface_memorial(safe_slug))
+        content = render_memorial_memory_room(payload, slug=safe_slug)
+        response: Response
+        if head_only:
+            response = Response(
+                content=b"",
+                media_type="text/html",
+                headers=dict(_PUBLIC_MEMORIAL_MEMORY_ROOM_HEADERS),
+            )
+        else:
+            response = HTMLResponse(
+                content,
+                headers=dict(_PUBLIC_MEMORIAL_MEMORY_ROOM_HEADERS),
+            )
+        return _apply_memorial_transport_security(response, request)
+    except HTTPException as exc:
+        response = _public_surface_html_error_response(exc.status_code, str(exc.detail))
+        return _apply_memorial_transport_security(response, request)
+
+
+@router.get("/memorials/{slug}/memory-room", response_class=HTMLResponse)
+def public_memorial_memory_room(slug: str, request: Request) -> Response:
+    return _public_memorial_memory_room_response(slug, request, head_only=False)
+
+
+@router.head("/memorials/{slug}/memory-room")
+def public_memorial_memory_room_head(slug: str, request: Request) -> Response:
+    return _public_memorial_memory_room_response(slug, request, head_only=True)
 
 
 @router.get("/memorials/{slug}/app.webmanifest")

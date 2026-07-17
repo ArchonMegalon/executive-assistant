@@ -93,8 +93,29 @@ def _source_first_memorial_payload(slug: str) -> dict[str, object]:
             {
                 "visibility": "public",
                 "public": True,
-                "title": f"Freigegebene Erinnerung {index}",
-                "body": f"Behutsam gekürzte Erinnerung Nummer {index}.",
+                "title": (
+                    "Jimdo-Seite, Familienchronik und die lange Spur durch mehrere Lebensabschnitte"
+                    if index == 3
+                    else f"Freigegebene Erinnerung {index}"
+                ),
+                "body": (
+                    "Eine ausführliche freigegebene Erinnerung mit genügend ruhigem Kontext, "
+                    "um die längste reale Kartenform auf einem schmalen Mobilgerät abzubilden. "
+                    "Sie beschreibt mehrere Stationen, Menschen und belegte Zusammenhänge, ohne "
+                    "private Angaben zu ergänzen. Der vollständige Text bleibt in der Liste lesbar, "
+                    "während die räumliche Karte nur eine bounded Vorschau zeigt."
+                    if index == 3
+                    else f"Behutsam gekürzte Erinnerung Nummer {index}."
+                ),
+                "public_excerpt": (
+                    "Eine ausführliche freigegebene Erinnerung mit genügend ruhigem Kontext, "
+                    "um die längste reale Kartenform auf einem schmalen Mobilgerät abzubilden. "
+                    "Sie beschreibt mehrere Stationen, Menschen und belegte Zusammenhänge, ohne "
+                    "private Angaben zu ergänzen. Der vollständige Text bleibt in der Liste lesbar, "
+                    "während die räumliche Karte nur eine kurze Vorschau zeigt."
+                    if index == 3
+                    else f"Behutsam gekürzte Erinnerung Nummer {index}."
+                ),
                 "source_label": "Familienfreigabe",
             }
             for index in range(1, 7)
@@ -555,6 +576,206 @@ def test_memorial_source_first_page_scrolls_without_conversation_dock_overlap(
             PRIVATE_FAMILY_SENTINEL,
         ):
             assert sentinel not in page_html
+    finally:
+        context.close()
+
+
+def test_memorial_memory_room_mobile_keyboard_and_back_journey(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(viewport={"width": 320, "height": 568})
+    page: Page = context.new_page()
+    room_requests: list[str] = []
+    page.on("request", lambda request: room_requests.append(request.url))
+    try:
+        response = page.goto(
+            f"{base_url}/memorials/{slug}",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        room_requests.clear()
+        page.locator('a[href="/memorials/manfred/memory-room"]').first.click()
+        page.wait_for_url(f"{base_url}/memorials/{slug}/memory-room")
+        page.wait_for_function(
+            "() => document.querySelector('[data-room-status]')?.textContent?.startsWith('Bereit')",
+            timeout=3000,
+        )
+
+        metrics = page.evaluate(
+            """() => {
+              const stage = document.getElementById("memory-room-stage");
+              const lastEntry = document.querySelector(".memory-entry:last-child");
+              return {
+                lang: document.documentElement.lang,
+                scrollWidth: document.documentElement.scrollWidth,
+                viewportWidth: window.innerWidth,
+                bodyOverflow: getComputedStyle(document.body).overflowY,
+                htmlOverflow: getComputedStyle(document.documentElement).overflowY,
+                touchAction: getComputedStyle(stage).touchAction,
+                perspective: getComputedStyle(stage).perspective,
+                transformStyle: getComputedStyle(document.querySelector("[data-room-orbit]")).transformStyle,
+                memoryCount: document.querySelectorAll(".memory-entry").length,
+                lastEntryExists: Boolean(lastEntry),
+                externalAssets: Array.from(document.querySelectorAll("script[src],link[rel=stylesheet],iframe"))
+                  .map((node) => node.getAttribute("src") || node.getAttribute("href")),
+              };
+            }"""
+        )
+        assert metrics["lang"] == "de"
+        assert int(metrics["scrollWidth"]) <= int(metrics["viewportWidth"]) + 1
+        assert metrics["bodyOverflow"] == "auto"
+        assert metrics["htmlOverflow"] == "auto"
+        assert "pan-y" in str(metrics["touchAction"])
+        assert metrics["perspective"] != "none"
+        assert metrics["transformStyle"] == "preserve-3d"
+        assert int(metrics["memoryCount"]) == 6
+        assert metrics["lastEntryExists"] is True
+        assert metrics["externalAssets"] == []
+        assert all(url.startswith(base_url) for url in room_requests)
+        assert page.get_by_text("keine Rekonstruktion eines realen Ortes").is_visible()
+
+        stage = page.locator("#memory-room-stage")
+        stage.focus()
+        page.keyboard.press("ArrowRight")
+        assert page.locator("[data-room-position]").text_content() == "2 / 6"
+        rotated = page.evaluate(
+            """() => ({
+              angle: document.querySelector("[data-room-orbit]").style.getPropertyValue("--room-angle"),
+              active: document.querySelector(".room-panel.is-active")?.getAttribute("data-room-panel"),
+            })"""
+        )
+        assert rotated == {"angle": "-60deg", "active": "1"}
+        page.keyboard.press("ArrowRight")
+        page.wait_for_function(
+            "() => document.querySelector('[data-room-position]')?.textContent === '3 / 6'"
+        )
+        bounds = page.evaluate(
+            """() => {
+              const stage = document.getElementById("memory-room-stage").getBoundingClientRect();
+              const status = document.querySelector("[data-room-status]").getBoundingClientRect();
+              const controls = document.querySelector(".room-controls").getBoundingClientRect();
+              const panel = document.querySelector(".room-panel.is-active").getBoundingClientRect();
+              return {
+                panelTop: panel.top,
+                panelBottom: panel.bottom,
+                statusBottom: status.bottom,
+                controlsTop: controls.top,
+                stageTop: stage.top,
+                stageBottom: stage.bottom,
+              };
+            }"""
+        )
+        assert float(bounds["panelTop"]) >= float(bounds["statusBottom"]) + 4
+        assert float(bounds["panelBottom"]) <= float(bounds["controlsTop"]) - 4
+        assert float(bounds["panelTop"]) >= float(bounds["stageTop"])
+        assert float(bounds["panelBottom"]) <= float(bounds["stageBottom"])
+
+        stage.hover()
+        before_scroll = page.evaluate("window.scrollY")
+        page.mouse.wheel(0, 520)
+        page.wait_for_timeout(120)
+        after_scroll = page.evaluate("window.scrollY")
+        assert float(after_scroll) > float(before_scroll)
+
+        page.emulate_media(reduced_motion="reduce")
+        page.locator('[data-memory-focus="5"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-room-position]')?.textContent === '6 / 6'"
+        )
+        reduced_motion = page.evaluate(
+            """() => ({
+              matches: matchMedia("(prefers-reduced-motion: reduce)").matches,
+              transition: getComputedStyle(document.querySelector("[data-room-orbit]")).transitionDuration,
+              activePanels: document.querySelectorAll(".room-panel.is-active").length,
+            })"""
+        )
+        assert reduced_motion["matches"] is True
+        assert reduced_motion["transition"] == "0s"
+        assert int(reduced_motion["activePanels"]) == 1
+
+        page.locator("[data-room-back]").first.click()
+        page.wait_for_url(f"{base_url}/memorials/{slug}#memorial-story")
+        assert page.locator("#memorial-story").is_visible()
+    finally:
+        context.close()
+
+
+def test_memorial_memory_room_no_js_keeps_every_memory_and_back_link(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(
+        viewport={"width": 320, "height": 568},
+        java_script_enabled=False,
+    )
+    page: Page = context.new_page()
+    try:
+        response = page.goto(
+            f"{base_url}/memorials/{slug}/memory-room",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        assert page.locator("#memory-room-stage").is_hidden()
+        no_js_notice = page.locator("noscript .room-trust")
+        assert no_js_notice.is_visible()
+        assert "Alle freigegebenen Erinnerungen bleiben vollständig" in (
+            no_js_notice.text_content() or ""
+        )
+        assert page.locator(".memory-entry").count() == 6
+        assert page.locator(".memory-focus:visible").count() == 0
+        footer_link = page.locator("footer [data-room-back]")
+        footer_link.scroll_into_view_if_needed()
+        assert footer_link.is_visible()
+        metrics = page.evaluate(
+            """() => ({
+              scrollWidth: document.documentElement.scrollWidth,
+              viewportWidth: window.innerWidth,
+              scrollY: window.scrollY,
+            })"""
+        )
+        assert int(metrics["scrollWidth"]) <= int(metrics["viewportWidth"]) + 1
+        assert float(metrics["scrollY"]) > 0
+    finally:
+        context.close()
+
+
+def test_memorial_memory_room_initialization_failure_keeps_readable_fallback(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    context.add_init_script(
+        """
+        (() => {
+          const original = Document.prototype.querySelector;
+          Document.prototype.querySelector = function querySelector(selector) {
+            if (selector === "[data-room-orbit]") return null;
+            return original.call(this, selector);
+          };
+        })();
+        """
+    )
+    page: Page = context.new_page()
+    try:
+        response = page.goto(
+            f"{base_url}/memorials/{slug}/memory-room",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        page.wait_for_function(
+            "() => document.querySelector('[data-room-status]')?.textContent?.startsWith('Die 3D-Ansicht konnte nicht')"
+        )
+        assert page.locator(".memory-entry").count() == 6
+        assert page.locator(".memory-focus:visible").count() == 0
+        assert page.locator(".room-controls").is_hidden()
+        assert page.locator("footer [data-room-back]").is_visible()
     finally:
         context.close()
 

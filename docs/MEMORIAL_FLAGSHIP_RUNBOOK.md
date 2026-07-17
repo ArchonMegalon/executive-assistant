@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This runbook matches the current public memorial product as it exists now: a calm source-first page with a prominent conversation jump, curated public memories and sources below the hero, and no raw-recording browser, private source profile, or voice A/B controls on the landing page.
+This runbook matches the current public memorial product as it exists now: a calm source-first page, a first-party symbolic 3D Erinnerungsraum generated only from approved public memories, a prominent conversation jump, curated public memories and sources below the hero, and no raw-recording browser, private source profile, or voice A/B controls on the landing page.
 
 ## Production authority hard stop
 
@@ -29,12 +29,13 @@ proof; then permit revocation. The pinned commands and lock contract are in
 
    > This is a sourced memorial conversation interface. It does not claim that Manfred is literally present.
 
-4. Show the restrained hero and choose `Zum Gespräch mit Manfred Hoza`. The conversation card stays in normal document flow and must never cover the title or source content.
-5. Start one short conversation turn.
-6. Let the source-grounded memorial guide answer fully once.
-7. Interrupt once briefly to demonstrate natural turn-taking if the machine is stable.
-8. Ask one grounded follow-up question.
-9. End cleanly without drifting into source browsing, archive browsing, or admin tooling.
+4. Open `3D-Erinnerungsraum`. State that this is a symbolic arrangement of approved memories, not a reconstruction of a real place. Move once with the visible controls or arrow keys, open one item from the readable list, then return to the memorial.
+5. Choose `Gedenkbegleiter`. The conversation card stays in normal document flow and must never cover the title or source content.
+6. Start one short conversation turn.
+7. Let the source-grounded memorial guide answer fully once.
+8. Interrupt once briefly to demonstrate natural turn-taking if the machine is stable.
+9. Ask one grounded follow-up question.
+10. End cleanly without drifting into source browsing, archive browsing, or admin tooling.
 
 ## Safe demo questions
 
@@ -66,6 +67,7 @@ Do not present live if any of these fail:
 - `/memorials/files/manfred/memorial.json` returns anything except `404`
 - `/memorials/manfred.json` exposes tokens, raw voice IDs, or private profile fields
 - `/memorials/manfred` exposes raw recordings, a raw archive browser, private profiles, or voice A/B UI
+- `/memorials/manfred/memory-room` is not `200` for both `GET` and `HEAD`, loads any third-party/provider subresource, sets a new cookie, exposes a non-public memory, traps mobile scrolling, or describes itself as a physical reconstruction
 - `voice_consent` is missing, revoked, or not approved
 - public TTS accepts `tts_plugin_voice_id`
 - the microphone permission flow is unstable on the exact presentation machine
@@ -295,9 +297,26 @@ Promotion must reuse the exact accepted image ID; do not rebuild it. The build e
 
 ### Spatial-tour preservation boundary
 
+The memorial-owned spatial surface is `/memorials/manfred/memory-room`. It is a
+provider-free, first-party symbolic 3D arrangement generated at render time
+from the same bounded public-memory projection used by the memorial JSON. It
+does not load a module, texture, iframe, provider URL, or private profile; its
+complete semantic memory list and back link remain usable without JavaScript.
+Its scene is event-driven rather than continuously rendered, permits native
+one-finger page scrolling, supports keyboard controls and reduced motion, and
+states visibly that it is not a reconstruction of a real place. Verify it with:
+
+```bash
+PYTHONPATH=ea .venv/bin/python -m pytest -q \
+  tests/test_memorial_memory_room.py \
+  tests/e2e/test_memorial_minimal_browser.py
+```
+
 The memorial candidate enables the existing legacy and public-tour route bundles so its OpenAPI proof cannot hide an unrelated EA regression. The warmed runtime also exposes two authenticated governed-spatial operations that are not authorized by the proposed design petition and can only return HTTP 503 because `create_app()` installs no `governed_spatial_runtime_factory`. The candidate therefore retires exactly `POST /v1/internal/governed-spatial-render/compose` and `POST /v1/internal/governed-spatial-render/build`; its receipt records that fixed policy, and every other live operation, schema, and security contract must remain equivalent. No wildcard or changed-operation waiver is allowed. The provider-neutral scaffold is not registered or shipped as a live application surface in this memorial release, and the candidate API has no provider egress.
 
-The memorial candidate must bind the pinned six-file Property bundle, its
+The separate pinned six-file Property bundle remains a PropertyQuarry route
+regression control; it is not the memorial's 3D experience and must never be
+presented as Manfred content. The memorial candidate must still bind that bundle, its
 publication-authority receipt, the final structural/security/accessibility
 review receipt, and the exact-viewer browser receipt shown above. Preparation
 and runtime proof fail closed when any path, digest, authority, browser check,

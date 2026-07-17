@@ -10690,6 +10690,18 @@ def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str
         {f'<p class="story-disclosure">{html.escape(disclosure)}</p>' if disclosure else ''}
       </section>"""
     ]
+    if safe_slug == "manfred":
+        sections.append(
+            """
+      <section class="story-section memory-room-invitation" aria-labelledby="memorial-memory-room-title">
+        <div class="story-heading">
+          <p class="story-kicker">Räumlicher Erinnerungsraum</p>
+          <h2 id="memorial-memory-room-title">Freigegebene Spuren in 3D</h2>
+          <p>Ein symbolischer, begehbarer Zugang zu den Erinnerungen auf dieser Seite. Er ist keine Rekonstruktion eines realen Ortes und ergänzt keine neuen biografischen Behauptungen.</p>
+        </div>
+        <a class="memory-room-link" href="/memorials/manfred/memory-room">Symbolische 3D-Ansicht öffnen</a>
+      </section>"""
+        )
     if clips_html:
         sections.append(
             """
@@ -10767,6 +10779,11 @@ def _minimal_public_memorial_html(
     video_call_avatar_fallback_html: str = "",
 ) -> str:
     safe_person_name = html.escape(person_name)
+    memory_room_nav_html = (
+        '<a class="hero-story-link" href="/memorials/manfred/memory-room">3D-Erinnerungsraum</a>'
+        if slug == "manfred"
+        else ""
+    )
     body_theme_attributes = (
         ' class="memorial-theme-minimal" data-memorial-theme="editorial-minimal-v2"'
         if slug == "manfred"
@@ -11034,6 +11051,19 @@ def _minimal_public_memorial_html(
       }}
       .story-card > p:not(.story-kicker) {{ margin: 10px 0 0; color: var(--muted); }}
       .story-card audio {{ display: block; width: 100%; margin-top: 16px; }}
+      .memory-room-link {{
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        margin-top: 20px;
+        padding: 10px 16px;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        color: var(--blue);
+        background: rgba(255, 251, 244, .72);
+        font: 700 13px/1.25 ui-sans-serif, system-ui, sans-serif;
+        text-decoration: none;
+      }}
       .contribution-panel {{
         margin-top: clamp(34px, 7vw, 64px);
         padding: clamp(22px, 5vw, 34px);
@@ -11839,6 +11869,15 @@ def _minimal_public_memorial_html(
         border-bottom: 1px solid var(--line);
       }}
       .memorial-theme-minimal .story-card > p:not(.story-kicker) {{ max-width: 62ch; }}
+      .memorial-theme-minimal .memory-room-link {{
+        padding: 8px 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        text-decoration: underline;
+        text-decoration-color: rgba(72, 103, 126, .35);
+        text-underline-offset: 6px;
+      }}
       .memorial-theme-minimal .story-more {{ margin-top: 0; }}
       .memorial-theme-minimal .story-more > summary {{
         border-bottom: 1px solid var(--line);
@@ -11969,6 +12008,7 @@ def _minimal_public_memorial_html(
             <p class="hero-subtitle">{safe_subtitle}</p>
             <nav class="hero-nav" aria-label="Bereiche der Erinnerungsseite">
               <a class="hero-story-link" href="#memorial-story">Erinnerungen ansehen</a>
+              {memory_room_nav_html}
               <a class="hero-story-link" href="#memorial-conversation-region">Gedenkbegleiter</a>
             </nav>
           </div>

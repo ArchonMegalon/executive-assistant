@@ -210,6 +210,7 @@ verify-manfred-memorial-source-gate:
 	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
 		tests/test_memorial_private_context.py \
 		tests/test_memorial_security_contracts.py \
+		tests/test_memorial_memory_room.py \
 		tests/test_memorial_release_policy.py \
 		tests/test_public_tour_release_policy.py \
 		tests/test_propertyquarry_public_tour_branding.py \
