@@ -35,14 +35,28 @@ Intent auto-detection, hybrid ranking, session memory, auto-expanding budget.
 `run_pipeline` auto-queries all indexed repos. Use `repos: ["alias"]` to scope. Run `index_status` to see aliases.
 <!-- /vexp -->
 
-## Active vexp qualification safety
+## Active vexp qualification safety and unblock lane
 
-- Treat vexp schema-v6 `qualification_phase=enforced_soak` as a hard mutation hold.
+- Treat vexp schema-v6 `qualification_phase=enforced_soak` as a hard live,
+  candidate, merge, and promotion mutation hold.
+- Safe work during the hold is limited to read-only runtime/authority checks and
+  source-only edits, tests, workflow preparation, branches, and draft PRs in a
+  clean attached worktree that cannot create a candidate or mutate live EA.
 - Do not stop, disable, delete, replace, or restart vexp sentinel, qualification,
-  certificate, AppArmor, event-guard, or mutation-gate units/files during the hold.
+  certificate, AppArmor, event-guard, or mutation-gate units/files during the hold;
+  do not hand-edit their clocks, epochs, state, receipts, or checksums.
 - Do not run the EA memorial deploy lane or create a Manfred candidate image/runtime
   until a root-owned positive permit proves the exact terminal epoch. A missing
   guard, lock, unit, state, certificate, or permit means **deny**, never permission.
+- Terminal qualification alone is not deploy authority. The root-owned issuer must
+  atomically materialize the exact-epoch permit and coordination lock, and the
+  tracked deploy lane must validate both immediately before every live mutation.
+- A qualification timestamp or earliest-completion value before the exact seven-day
+  floor is invalid. Await root-owned correction or a fresh terminal certificate;
+  never repair the trusted state by hand.
+- After authority exists, deploy only from a clean attached worktree using the
+  tracked governed entrypoint. An untracked, copied, generated, or locally shadowed
+  deploy script is never release authority.
 - The exact automatic `ea-manfred-candidate-retention.timer` cleanup lane may
   continue; it is not promotion authority and must not mutate live EA.
 - If a requested task conflicts with this hold, report the conflict instead of
