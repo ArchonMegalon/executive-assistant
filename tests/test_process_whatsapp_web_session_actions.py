@@ -90,6 +90,15 @@ def _write_test_wav(path: Path, *, seconds: float = 0.25, sample_rate: int = 160
         wav.writeframes(b"".join(struct.pack("<h", 3200 if i % 2 else -3200) for i in range(max(int(sample_rate * seconds), 1))))
 
 
+def _voice_specific_test_wav_bytes(tmp_path: Path, voice_ids: list[str]) -> dict[str, bytes]:
+    payloads: dict[str, bytes] = {}
+    for index, voice_id in enumerate(voice_ids, start=1):
+        path = tmp_path / f"voice-sample-{index}.wav"
+        _write_test_wav(path, seconds=0.20 + (index * 0.025))
+        payloads[voice_id] = path.read_bytes()
+    return payloads
+
+
 def _selected_message(**overrides: object) -> dict[str, object]:
     values: dict[str, object] = {
         "direction": "inbound",
@@ -1661,7 +1670,7 @@ def test_build_report_restores_language_matched_voice_batch_from_management_butt
                 ],
             }
         },
-        "whatsapp": {
+                        "whatsapp": {
             "chat_ref": "chat-ref-1",
             "sender_ref": "4368120864006",
         },
@@ -1750,7 +1759,10 @@ def test_restore_language_matched_whatsapp_voice_samples_prefers_author_gender_m
         "provider": {
             "voice_selection": {
                 "status": "waiting_user_choice",
-                "book_profile": {"author_gender_signal": "male"},
+                "book_profile": {
+                    "author_gender_signal": "male",
+                    "author_gender_signal_provenance": "explicit_approved_metadata",
+                },
                 "dismissed_candidate_keys": ["voice-female", "voice-male"],
             }
         },
@@ -1827,7 +1839,10 @@ def test_use_best_current_whatsapp_voice_sample_prefers_author_gender_match(monk
         "provider": {
             "voice_selection": {
                 "status": "waiting_user_choice",
-                "book_profile": {"author_gender_signal": "male"},
+                "book_profile": {
+                    "author_gender_signal": "male",
+                    "author_gender_signal_provenance": "explicit_approved_metadata",
+                },
                 "pending_batch": [
                     {
                         "callback_token": "female-token",
@@ -2143,8 +2158,12 @@ def test_build_report_processes_whatsapp_epub_media_and_sends_voice_samples(monk
     buttons = dict(button_post[0]["body"])["buttons"]
     assert buttons[0][0][0] == "Use Narrator One"
     assert buttons[0][1][0] == "Dismiss Narrator One"
+    assert buttons[0][2][0] == "Use automatic cast"
     assert str(buttons[0][0][1]).startswith("ab|u|sample-token-1|")
     assert str(buttons[0][1][1]).startswith("ab|d|sample-token-1|")
+    assert str(buttons[0][2][1]).startswith("ab|a|sample-token-1|")
+    assert "preview is optional" in str(dict(button_post[0]["body"])["text"]).lower()
+    assert "use automatic cast" in str(dict(button_post[0]["body"])["text"]).lower()
     assert len(text_post) == 1
     assert dict(text_post[0]["body"])["chat_ref"] == "chat-ref-1"
 
@@ -2679,10 +2698,31 @@ def test_build_report_gates_unknown_whatsapp_epub_until_telegram_approval(monkey
 
     module.audiobook_access_approval.update_status(approval_id, status="approved", decided_by="telegram:42")
 
+    start_calls = {"count": 0}
+
     def _fake_create_job_from_epub(**kwargs: object) -> dict[str, object]:
+        start_calls["count"] += 1
         assert Path(str(kwargs["epub_path"])).read_bytes() == b"fake epub"
         assert kwargs["original_filename"] == "book.epub"
-        return job
+        deterministic_job_id = str(kwargs["deterministic_job_id"])
+        identity = str(kwargs["intake_idempotency_key_sha256"])
+        deterministic_job_dir = jobs_root / deterministic_job_id
+        deterministic_job_dir.mkdir(parents=True, exist_ok=True)
+        started_job = {
+            **job,
+            "job_id": deterministic_job_id,
+            "source": {
+                "intake_idempotency_key_sha256": identity,
+                "source_sha256": module.audiobook_epub_pipeline._sha256_file(
+                    Path(str(kwargs["epub_path"]))
+                ),
+            },
+            "storage": {"job_dir": str(deterministic_job_dir)},
+        }
+        (deterministic_job_dir / "job.json").write_text(
+            json.dumps(started_job), encoding="utf-8"
+        )
+        return started_job
 
     monkeypatch.setattr(module.audiobook_epub_pipeline, "create_job_from_epub", _fake_create_job_from_epub)
     monkeypatch.setattr(
@@ -2703,6 +2743,171 @@ def test_build_report_gates_unknown_whatsapp_epub_until_telegram_approval(monkey
     assert second["epub_processed"] == 1
     assert second["voice_sample_sent"] == 1
     assert downloads["count"] == 1
+    assert start_calls["count"] == 1
+    started_record = module.audiobook_access_approval.load_request(approval_id)
+    assert started_record["status"] == "started"
+    assert str(started_record["job_id"]).startswith("approval-audiobook-")
+
+    # Simulate a WhatsApp worker crash after the canonical approval start was
+    # committed but before its local action state was finalized.  Recovery must
+    # bind to the existing job and must not repeat job/provider/sample sends.
+    state_path = tmp_path / "wa-actions.json"
+    replay_state = json.loads(state_path.read_text(encoding="utf-8"))
+    replay_action = next(iter(dict(replay_state["actions"]).values()))
+    replay_action["status"] = "pending_approval"
+    replay_action["reply_sent"] = False
+    state_path.write_text(json.dumps(replay_state), encoding="utf-8")
+    post_count_before_replay = sum(1 for row in requests if row["method"] == "POST")
+
+    replay = module.build_report(
+        _args(tmp_path),
+        request_json=_fake_request_json,
+        request_bytes=lambda **_: (_ for _ in ()).throw(
+            AssertionError("approval replay must use the existing job")
+        ),
+    )
+
+    assert replay["status"] == "pass"
+    assert replay["status_counts"]["started_reused"] == 1
+    assert start_calls["count"] == 1
+    assert sum(1 for row in requests if row["method"] == "POST") == post_count_before_replay
+    replay_state = json.loads(state_path.read_text(encoding="utf-8"))
+    replay_action = next(iter(dict(replay_state["actions"]).values()))
+    assert replay_action["status"] == "started_reused"
+    assert replay_action["start_replayed"] is True
+
+
+def test_whatsapp_approved_start_is_concurrent_and_crash_recoverable(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    jobs_root = tmp_path / "jobs"
+    source_path = tmp_path / "book.epub"
+    source_path.write_bytes(b"whatsapp approval source")
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+    monkeypatch.setattr(module.audiobook_epub_pipeline, "audiobook_jobs_root", lambda: jobs_root)
+    args = _args(tmp_path)
+    message = _epub_message()
+
+    def _approved_request(message_id: str) -> dict[str, object]:
+        request = module.audiobook_access_approval.create_pending_request(
+            channel="whatsapp",
+            principal_id="principal-1",
+            filename="book.epub",
+            source_path=source_path,
+            phone_number="4368120864006",
+            sender_ref="whatsapp:4368120864006",
+            session_ref="session-1",
+            chat_ref="chat-ref-1",
+            message_id=message_id,
+        )
+        return module.audiobook_access_approval.update_status(
+            str(request["approval_id"]),
+            status="approved",
+            decided_by="telegram:42",
+            expected_statuses=("pending",),
+        )
+
+    concurrent_request = _approved_request("wamid.concurrent")
+    concurrent_id = str(concurrent_request["approval_id"])
+    start_entered = threading.Event()
+    release_start = threading.Event()
+    start_calls = {"count": 0}
+    counter_lock = threading.Lock()
+
+    def _concurrent_create(**kwargs: object) -> dict[str, object]:
+        with counter_lock:
+            start_calls["count"] += 1
+        start_entered.set()
+        assert release_start.wait(timeout=5)
+        job_id = str(kwargs["deterministic_job_id"])
+        identity = str(kwargs["intake_idempotency_key_sha256"])
+        job_dir = jobs_root / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        job = {
+            "job_id": job_id,
+            "status": "waiting_voice_selection",
+            "source": {
+                "intake_idempotency_key_sha256": identity,
+                "source_sha256": module.audiobook_epub_pipeline._sha256_file(
+                    Path(str(kwargs["epub_path"]))
+                ),
+            },
+            "storage": {"job_dir": str(job_dir)},
+            "metadata": {"title": "Concurrent WhatsApp Book"},
+        }
+        (job_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")
+        return job
+
+    monkeypatch.setattr(module.audiobook_epub_pipeline, "create_job_from_epub", _concurrent_create)
+
+    def _run_start(approval_id: str) -> dict[str, object]:
+        return module.audiobook_access_approval.run_approved_start_once(
+            approval_id,
+            starter=lambda claimed, job_id, identity: module._start_approved_whatsapp_audiobook_request(
+                args=args,
+                message=message,
+                record=claimed,
+                deterministic_job_id=job_id,
+                start_identity_sha256=identity,
+            ),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(_run_start, concurrent_id)
+        assert start_entered.wait(timeout=5)
+        second = executor.submit(_run_start, concurrent_id)
+        release_start.set()
+        results = [first.result(timeout=5), second.result(timeout=5)]
+
+    assert start_calls["count"] == 1
+    assert sorted(bool(result["started_now"]) for result in results) == [False, True]
+    concurrent_persisted = module.audiobook_access_approval.load_request(concurrent_id)
+    assert concurrent_persisted["status"] == "started"
+
+    crash_request = _approved_request("wamid.crash")
+    crash_id = str(crash_request["approval_id"])
+    paid_calls = {"count": 0}
+
+    def _crashing_create(**kwargs: object) -> dict[str, object]:
+        job_id = str(kwargs["deterministic_job_id"])
+        identity = str(kwargs["intake_idempotency_key_sha256"])
+        job_dir = jobs_root / job_id
+        manifest_path = job_dir / "job.json"
+        if manifest_path.is_file():
+            return json.loads(manifest_path.read_text(encoding="utf-8"))
+        paid_calls["count"] += 1
+        job_dir.mkdir(parents=True, exist_ok=True)
+        job = {
+            "job_id": job_id,
+            "status": "waiting_voice_selection",
+            "source": {
+                "intake_idempotency_key_sha256": identity,
+                "source_sha256": module.audiobook_epub_pipeline._sha256_file(
+                    Path(str(kwargs["epub_path"]))
+                ),
+            },
+            "storage": {"job_dir": str(job_dir)},
+            "metadata": {"title": "Crash WhatsApp Book"},
+        }
+        manifest_path.write_text(json.dumps(job), encoding="utf-8")
+        raise KeyboardInterrupt("simulated WhatsApp worker crash")
+
+    monkeypatch.setattr(module.audiobook_epub_pipeline, "create_job_from_epub", _crashing_create)
+    with pytest.raises(KeyboardInterrupt, match="simulated WhatsApp worker crash"):
+        _run_start(crash_id)
+    assert module.audiobook_access_approval.load_request(crash_id)["status"] == "starting"
+
+    recovered = _run_start(crash_id)
+
+    assert recovered["started_now"] is True
+    assert recovered["replayed"] is True
+    assert paid_calls["count"] == 1
+    crash_persisted = module.audiobook_access_approval.load_request(crash_id)
+    assert crash_persisted["status"] == "started"
+    assert dict(crash_persisted["start"])["attempt_count"] == 2
 
 
 def test_build_report_discovers_whatsapp_epub_from_conversation_fallback(monkeypatch, tmp_path: Path) -> None:
@@ -2843,13 +3048,15 @@ def test_build_report_processes_real_whatsapp_epub_into_bound_voice_choice_job(
             ]
         ),
     )
-    tone = tmp_path / "voice-sample.wav"
-    with wave.open(str(tone), "wb") as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(16000)
-        wav.writeframes(b"".join(struct.pack("<h", 3200 if i % 2 else -3200) for i in range(16000 // 4)))
-    monkeypatch.setattr(module.audiobook_epub_pipeline, "unmixr_synthesize_request", lambda **_: (tone.read_bytes(), "audio/wav"))
+    voice_audio = _voice_specific_test_wav_bytes(
+        tmp_path,
+        ["voice-clear", "voice-warm", "voice-story"],
+    )
+    monkeypatch.setattr(
+        module.audiobook_epub_pipeline,
+        "unmixr_synthesize_request",
+        lambda **kwargs: (voice_audio[str(kwargs["voice_id"])], "audio/wav"),
+    )
     monkeypatch.setattr(module.audiobook_epub_pipeline, "_normalize_rendered_audio_file", lambda path: path)
     monkeypatch.setattr(module, "_whatsapp_voice_sample_media_path", lambda path: path)
 
@@ -3013,10 +3220,12 @@ def test_build_report_real_whatsapp_dismiss_callback_applies_and_sends_replaceme
     module = _module()
     requests: list[dict[str, object]] = []
     jobs_root = tmp_path / "jobs"
-    tone = tmp_path / "tone.wav"
     epub = tmp_path / "book.epub"
-    _write_test_wav(tone)
     _write_minimal_epub(epub)
+    voice_audio = _voice_specific_test_wav_bytes(
+        tmp_path,
+        [f"voice-{index}" for index in range(1, 7)],
+    )
 
     monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
     monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
@@ -3032,7 +3241,11 @@ def test_build_report_real_whatsapp_dismiss_callback_applies_and_sends_replaceme
             ]
         ),
     )
-    monkeypatch.setattr(module.audiobook_epub_pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(
+        module.audiobook_epub_pipeline,
+        "unmixr_synthesize_request",
+        lambda **kwargs: (voice_audio[str(kwargs["voice_id"])], "audio/wav"),
+    )
     monkeypatch.setattr(module.audiobook_epub_pipeline, "_normalize_rendered_audio_file", lambda path: path)
 
     job = module.audiobook_epub_pipeline.create_job_from_epub(
@@ -3276,6 +3489,101 @@ def test_build_report_recovers_generic_poll_vote_label_for_single_pending_sample
     assert len(post) == 1
     assert dict(post[0]["body"])["chat_ref"] == "chat-ref-1"
     assert dict(post[0]["body"])["text"] == "Dismissed."
+
+
+def test_build_report_recovers_automatic_cast_poll_label_without_callback_payload(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    requests: list[dict[str, object]] = []
+    handled: list[dict[str, object]] = []
+    jobs_root = tmp_path / "jobs"
+    job_dir = jobs_root / "job-poll-automatic-cast"
+    job_dir.mkdir(parents=True)
+    job = {
+        "job_id": "job-poll-automatic-cast",
+        "status": "waiting_voice_selection",
+        "storage": {"job_dir": str(job_dir)},
+        "provider": {
+            "voice_selection": {
+                "status": "waiting_user_choice",
+                "pending_candidate_keys": ["voice-one", "voice-two"],
+                "pending_batch": [
+                    {
+                        "label": "Narrator One",
+                        "preset_key": "voice-one",
+                        "callback_token": "ranked-sample-token",
+                    },
+                    {
+                        "label": "Narrator Two",
+                        "preset_key": "voice-two",
+                        "callback_token": "second-sample-token",
+                    },
+                ],
+            }
+        },
+        "whatsapp": {
+            "chat_ref": "chat-ref-1",
+            "sender_ref": "4368120864006",
+        },
+    }
+    (job_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")
+
+    def _fake_request_json(**kwargs: object) -> dict[str, object]:
+        requests.append(dict(kwargs))
+        if kwargs["method"] == "GET":
+            return {
+                "messages": [
+                    {
+                        "chat_ref": "chat-ref-1",
+                        "direction": "inbound",
+                        "from_me": False,
+                        "id": "pollvote:automatic-cast:1",
+                        "media_present": False,
+                        "selected_button_id_present": False,
+                        "selected_button_label": "Use automatic cast",
+                        "sender_digits": "4368120864006",
+                        "type": "poll_vote",
+                    }
+                ],
+                "ok": True,
+            }
+        return {"ok": True, "message_id": f"wamid.out.{len(requests)}"}
+
+    def _fake_handle_callback(**kwargs: object) -> dict[str, object]:
+        handled.append(dict(kwargs))
+        assert str(kwargs["callback_data"]).startswith(
+            "ab|a|ranked-sample-token|"
+        )
+        return {
+            "status": "applied",
+            "kind": "audiobook_voice",
+            "action": "use_automatic_cast",
+            "job": job,
+            "reply_text": "Automatic cast selected.",
+        }
+
+    monkeypatch.setenv("EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setattr(
+        module.audiobook_epub_pipeline,
+        "audiobook_jobs_root",
+        lambda: jobs_root,
+    )
+
+    report = module.build_report(
+        _args(tmp_path),
+        request_json=_fake_request_json,
+        handle_callback=_fake_handle_callback,
+    )
+
+    assert report["status"] == "pass"
+    assert report["candidate_count"] == 1
+    assert report["processed"] == 1
+    assert handled[0]["sender_ref"] == "4368120864006"
+    post = [row for row in requests if row["method"] == "POST"]
+    assert len(post) == 1
+    assert dict(post[0]["body"])["text"] == "Automatic cast selected."
 
 
 def test_build_report_recovers_generic_poll_vote_label_by_button_message_id(monkeypatch, tmp_path: Path) -> None:
@@ -4063,7 +4371,9 @@ def test_build_report_dismiss_all_text_sends_replacement_voice_batch(monkeypatch
     assert dict(media_post[0]["body"])["chat_ref"] == "chat-ref-1"
     assert len(button_post) == 1
     assert dict(button_post[0]["body"])["chat_ref"] == "chat-ref-1"
-    assert "reply 'use Narrator New' or 'dismiss all'" in str(dict(button_post[0]["body"]).get("text") or "")
+    assert "reply 'use Narrator New', 'use automatic cast', or 'dismiss all'" in str(
+        dict(button_post[0]["body"]).get("text") or ""
+    )
     assert dict(button_post[0]["body"])["buttons"][0][0][0] == "Use Narrator New"
     assert len(final_reply) == 1
     state = json.loads((tmp_path / "wa-actions.json").read_text(encoding="utf-8"))
@@ -4148,6 +4458,98 @@ def test_build_report_bare_voice_name_text_selects_pending_sample(monkeypatch, t
     selection = dict(dict(updated_job.get("provider") or {}).get("voice_selection") or {})
     assert selection["selected"]["label"] == "Florian"
     assert selection["selected_candidate_key"] == "voice-florian"
+
+
+def test_build_report_use_automatic_cast_text_skips_optional_preview(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    requests: list[dict[str, object]] = []
+    selected: list[dict[str, str]] = []
+    jobs_root = tmp_path / "jobs"
+    job_dir = jobs_root / "job-automatic-cast-text"
+    job_dir.mkdir(parents=True)
+    job = {
+        "job_id": "job-automatic-cast-text",
+        "status": "waiting_voice_selection",
+        "storage": {"job_dir": str(job_dir)},
+        "whatsapp": {
+            "sender_ref": "4368120864006",
+            "session_ref": "session-1",
+            "chat_ref": "chat-ref-1",
+        },
+        "provider": {
+            "voice_selection": {
+                "status": "waiting_user_choice",
+                "pending_candidate_keys": ["voice-ranked", "voice-second"],
+                "pending_batch": [
+                    {
+                        "label": "Ranked Narrator",
+                        "preset_key": "voice-ranked",
+                        "callback_token": "ranked-token",
+                    },
+                    {
+                        "label": "Second Narrator",
+                        "preset_key": "voice-second",
+                        "callback_token": "second-token",
+                    },
+                ],
+            }
+        },
+    }
+    (job_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")
+
+    def _fake_request_json(**kwargs: object) -> dict[str, object]:
+        requests.append(dict(kwargs))
+        if kwargs["method"] == "GET":
+            return {"messages": [_text_message(body_text="use automatic cast")], "ok": True}
+        return {"ok": True, "message_id": f"wamid.out.{len(requests)}"}
+
+    def _fake_apply(*, callback_token: str, action: str) -> dict[str, object]:
+        selected.append({"callback_token": callback_token, "action": action})
+        return {
+            **job,
+            "status": "rendering",
+            "provider": {
+                "voice_selection": {
+                    "status": "selected_by_user",
+                    "selected": {"label": "Ranked Narrator", "preset_key": "voice-ranked"},
+                    "selected_candidate_key": "voice-ranked",
+                    "automatic_cast_approved_by_user": True,
+                    "optional_preview_skipped": True,
+                    "pending_candidate_keys": [],
+                    "pending_batch": [],
+                }
+            },
+        }
+
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+    monkeypatch.setattr(module.audiobook_epub_pipeline, "audiobook_jobs_root", lambda: jobs_root)
+    monkeypatch.setattr(
+        module.audiobook_epub_pipeline,
+        "apply_audiobook_voice_audition_action",
+        _fake_apply,
+    )
+    monkeypatch.setattr(module, "_send_public_share_if_ready", lambda **_: {"status": "not_ready"})
+
+    report = module.build_report(
+        _args(tmp_path),
+        request_json=_fake_request_json,
+    )
+
+    assert report["status"] == "pass"
+    assert report["voice_text_candidate_count"] == 1
+    assert report["voice_text_processed"] == 1
+    assert selected == [{"callback_token": "ranked-token", "action": "use_automatic_cast"}]
+    post = [row for row in requests if row["method"] == "POST"]
+    assert len(post) == 1
+    assert dict(post[0]["body"])["text"] == "Automatic cast selected. I am rendering the audiobook now."
+    state = json.loads((tmp_path / "wa-actions.json").read_text(encoding="utf-8"))
+    action = next(iter(state["actions"].values()))
+    assert action["automatic_cast_approved_by_user"] is True
+    assert action["optional_preview_skipped"] is True
+    serialized_state = json.dumps(state)
+    assert "4368120864006" not in serialized_state
+    assert "ranked-token" not in serialized_state
+    assert "second-token" not in serialized_state
 
 
 def test_build_report_dismiss_named_text_sends_replacement_voice(monkeypatch, tmp_path: Path) -> None:
@@ -5556,6 +5958,7 @@ def test_build_report_resends_whatsapp_playback_buttons_from_status_text(monkeyp
         "metadata": {"title": "Ready Book", "author": "A. Writer", "language": "en-US"},
         "storage": {"job_dir": str(job_dir)},
         "whatsapp": {"sender_ref": "4368120864006", "session_ref": "session-1"},
+        "audio_publication_gate": {"status": "pass", "issues": []},
         "audiobookshelf_import": {
             "status": "imported",
             "target_path": str(tmp_path / "Ready Book.m4b"),
@@ -5608,11 +6011,17 @@ def test_build_report_resends_whatsapp_playback_buttons_from_status_text(monkeyp
     assert "Audiobook intake and voice samples are ready." in str(payload["text"])
     assert "reply with the voice name" in str(payload["text"])
     assert "'dismiss <voice>', or 'dismiss all'" in str(payload["text"])
-    assert "Latest Audiobookshelf delivery awaiting playback confirmation: Ready Book." in str(payload["text"])
-    assert payload["buttons"][0][0][0] == "Playback works"
+    assert "Latest Audiobookshelf delivery awaiting perceptual attestation: Ready Book." in str(payload["text"])
+    assert "Tapping attests every check" in str(payload["text"])
+    assert payload["buttons"][0][0][0] == "Attest all 7 checks pass"
     assert payload["buttons"][0][1][0] == "Problem"
-    assert str(payload["buttons"][0][0][1]).startswith("ap|a|callback-token|")
-    assert str(payload["buttons"][0][1][1]).startswith("ap|r|callback-token|")
+    accepted_parts = str(payload["buttons"][0][0][1]).split("|")
+    problem_parts = str(payload["buttons"][0][1][1]).split("|")
+    assert accepted_parts[:2] == ["ap2", "a"]
+    assert problem_parts[:2] == ["ap2", "r"]
+    assert accepted_parts[2] == problem_parts[2]
+    assert len(accepted_parts[2]) == 32
+    assert accepted_parts[2] != "callback-token"
     state = json.loads((tmp_path / "wa-actions.json").read_text(encoding="utf-8"))
     serialized_state = json.dumps(state)
     assert "4368120864006" not in serialized_state
@@ -5640,9 +6049,10 @@ def test_build_report_resends_playback_buttons_for_matching_chat_ref(monkeypatch
                     "whatsapp": {
                         "sender_ref": "4368120864006",
                         "session_ref": "session-1",
-                        "chat_ref": chat_ref,
-                    },
-                    "audiobookshelf_import": {
+                            "chat_ref": chat_ref,
+                        },
+                        "audio_publication_gate": {"status": "pass", "issues": []},
+                        "audiobookshelf_import": {
                         "status": "imported",
                         "target_path": str(tmp_path / f"{title}.m4b"),
                         "public_share": {
@@ -5690,7 +6100,10 @@ def test_build_report_resends_playback_buttons_for_matching_chat_ref(monkeypatch
     payload = dict([row for row in requests if row["method"] == "POST"][0]["body"])
     assert "Correct Chat Book" in str(payload["text"])
     assert "Other Chat Book" not in str(payload["text"])
-    assert str(payload["buttons"][0][0][1]).startswith("ap|a|correct-token|")
+    accepted_parts = str(payload["buttons"][0][0][1]).split("|")
+    assert accepted_parts[:2] == ["ap2", "a"]
+    assert len(accepted_parts[2]) == 32
+    assert accepted_parts[2] not in {"correct-token", "other-token"}
 
 
 def test_whatsapp_audiobook_status_reply_prefers_matching_chat_ref(monkeypatch, tmp_path: Path) -> None:
@@ -5750,6 +6163,7 @@ def test_build_report_resends_whatsapp_playback_buttons_from_playback_text(monke
         "metadata": {"title": "Ready Book", "author": "A. Writer", "language": "en-US"},
         "storage": {"job_dir": str(job_dir)},
         "whatsapp": {"sender_ref": "4368120864006", "session_ref": "session-1"},
+        "audio_publication_gate": {"status": "pass", "issues": []},
         "audiobookshelf_import": {
             "status": "imported",
             "target_path": str(tmp_path / "Ready Book.m4b"),
@@ -5799,11 +6213,16 @@ def test_build_report_resends_whatsapp_playback_buttons_from_playback_text(monke
     assert len(posts) == 1
     payload = dict(posts[0]["body"])
     assert payload["chat_ref"] == "chat-ref-1"
-    assert "Latest Audiobookshelf delivery awaiting playback confirmation: Ready Book." in str(payload["text"])
-    assert payload["buttons"][0][0][0] == "Playback works"
+    assert "Latest Audiobookshelf delivery awaiting perceptual attestation: Ready Book." in str(payload["text"])
+    assert "Tapping attests every check" in str(payload["text"])
+    assert payload["buttons"][0][0][0] == "Attest all 7 checks pass"
     assert payload["buttons"][0][1][0] == "Problem"
-    assert str(payload["buttons"][0][0][1]).startswith("ap|a|callback-token|")
-    assert str(payload["buttons"][0][1][1]).startswith("ap|r|callback-token|")
+    accepted_parts = str(payload["buttons"][0][0][1]).split("|")
+    problem_parts = str(payload["buttons"][0][1][1]).split("|")
+    assert accepted_parts[:2] == ["ap2", "a"]
+    assert problem_parts[:2] == ["ap2", "r"]
+    assert accepted_parts[2] == problem_parts[2]
+    assert len(accepted_parts[2]) == 32
     state = json.loads((tmp_path / "wa-actions.json").read_text(encoding="utf-8"))
 
 
@@ -5873,7 +6292,7 @@ def test_build_report_does_not_resend_playback_buttons_after_problem_recorded(mo
     payload = dict(posts[0]["body"])
     assert "Ready Book" in str(payload["text"])
     assert "playback problem" in str(payload["text"]).lower()
-    assert "awaiting playback confirmation" not in str(payload["text"])
+    assert "awaiting perceptual attestation" not in str(payload["text"])
     assert payload.get("buttons") in (None, [])
 
 
@@ -5890,6 +6309,7 @@ def test_build_report_resends_playback_buttons_when_delivery_progressed_to_deliv
         "metadata": {"title": "Ready Book", "author": "A. Writer", "language": "en-US"},
         "storage": {"job_dir": str(job_dir)},
         "whatsapp": {"sender_ref": "4368120864006", "session_ref": "session-1"},
+        "audio_publication_gate": {"status": "pass", "issues": []},
         "audiobookshelf_import": {
             "status": "imported",
             "target_path": str(tmp_path / "Ready Book.m4b"),
@@ -5931,9 +6351,12 @@ def test_build_report_resends_playback_buttons_when_delivery_progressed_to_deliv
 
     assert report["status"] == "pass"
     payload = dict([row for row in requests if row["method"] == "POST"][0]["body"])
-    assert "awaiting playback confirmation: Ready Book." in str(payload["text"])
-    assert payload["buttons"][0][0][0] == "Playback works"
-    assert str(payload["buttons"][0][0][1]).startswith("ap|a|callback-token|")
+    assert "awaiting perceptual attestation: Ready Book." in str(payload["text"])
+    assert "Tapping attests every check" in str(payload["text"])
+    assert payload["buttons"][0][0][0] == "Attest all 7 checks pass"
+    accepted_parts = str(payload["buttons"][0][0][1]).split("|")
+    assert accepted_parts[:2] == ["ap2", "a"]
+    assert len(accepted_parts[2]) == 32
 
 
 def test_whatsapp_playback_problem_note_survives_delivered_status(monkeypatch, tmp_path: Path) -> None:
@@ -5983,9 +6406,10 @@ def test_whatsapp_playback_buttons_ignore_newer_superseded_duplicate(monkeypatch
         "status": "audiobookshelf_imported",
         "updated_at": "2026-06-23T09:00:00Z",
         "metadata": {"title": "Active Book", "author": "A. Writer", "language": "en-US"},
-        "storage": {"job_dir": str(active_dir)},
-        "whatsapp": {"sender_ref": "4368120864006", "session_ref": "session-1", "chat_ref": "chat-ref-1"},
-        "audiobookshelf_import": {
+            "storage": {"job_dir": str(active_dir)},
+            "whatsapp": {"sender_ref": "4368120864006", "session_ref": "session-1", "chat_ref": "chat-ref-1"},
+            "audio_publication_gate": {"status": "pass", "issues": []},
+            "audiobookshelf_import": {
             "status": "imported",
             "public_share": {
                 "status": "public_share_ready",
@@ -6028,7 +6452,10 @@ def test_whatsapp_playback_buttons_ignore_newer_superseded_duplicate(monkeypatch
 
     assert title == "Active Book"
     assert buttons
-    assert str(buttons[0][0][1]).startswith("ap|a|active-token|")
+    accepted_parts = str(buttons[0][0][1]).split("|")
+    assert accepted_parts[:2] == ["ap2", "a"]
+    assert len(accepted_parts[2]) == 32
+    assert accepted_parts[2] not in {"active-token", "superseded-token"}
 
 
 def test_whatsapp_playback_problem_note_ignores_newer_superseded_duplicate(monkeypatch, tmp_path: Path) -> None:

@@ -20,7 +20,8 @@ DEFAULT_PUBLIC_SHARE_PLAYBACK = ROOT / ".codex-studio" / "published" / "whatsapp
 DEFAULT_OPERATOR_PROOF_BUNDLE = ROOT / ".codex-studio" / "published" / "whatsapp_audiobook_operator_proof_bundle.generated.json"
 DEFAULT_READINESS_RECEIPT = ROOT / ".codex-studio" / "published" / "whatsapp_web_action_processor_readiness.generated.json"
 DEFAULT_RUNTIME_CONTAINER = "ea-api"
-CONTRACT_NAME = "ea.whatsapp_audiobook_live_delivery_receipt.v1"
+CONTRACT_NAME = "ea.whatsapp_audiobook_live_delivery_receipt.v2"
+LEGACY_CONTRACT_NAME = "ea.whatsapp_audiobook_live_delivery_receipt.v1"
 
 
 if str(EA_ROOT) not in sys.path:
@@ -29,12 +30,32 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.services.audiobook_epub_pipeline import audiobook_runtime_preflight
+from scripts.materialize_telegram_audiobook_live_delivery_receipt import HUMAN_LISTENED_CANARY_CONTRACT_NAME
+from scripts.materialize_telegram_audiobook_live_delivery_receipt import LIVE_PROOF_MAX_AGE_SECONDS
+from scripts.materialize_telegram_audiobook_live_delivery_receipt import NARRATION_PLAN_CONTRACT_NAME
+from scripts.materialize_telegram_audiobook_live_delivery_receipt import _freshness_evidence
+from scripts.materialize_telegram_audiobook_live_delivery_receipt import _human_listened_canary_evidence
+from scripts.materialize_telegram_audiobook_live_delivery_receipt import _job_dir_identity
+from scripts.materialize_telegram_audiobook_live_delivery_receipt import _parse_utc
+from scripts.materialize_telegram_audiobook_live_delivery_receipt import _performance_evidence
+from scripts.materialize_telegram_audiobook_live_delivery_receipt import _public_load_error_codes
+from scripts.materialize_telegram_audiobook_live_delivery_receipt import _receipt_nonnegative_float
+from scripts.materialize_telegram_audiobook_live_delivery_receipt import _receipt_nonnegative_int
+from scripts.materialize_telegram_audiobook_live_delivery_receipt import _safe_mtime
 from scripts.source_state_head import resolve_source_state_head
 from scripts.source_state_head import resolve_source_worktree_fingerprint
 
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _logical_output_path(output_path: Path) -> str:
+    """Return a portable artifact identity, never a machine-local path."""
+    try:
+        return output_path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except (OSError, ValueError):
+        return output_path.name
 
 
 def _sha256_text(value: object) -> str:
@@ -118,10 +139,16 @@ def _public_share_ready(status: object) -> bool:
 
 def _machine_playback_verified(import_section: dict[str, object]) -> bool:
     status = str(import_section.get("public_share_playback_e2e_status") or "").strip().lower()
-    response = int(import_section.get("public_share_playback_e2e_track_response_status") or 0)
+    response = _receipt_nonnegative_int(
+        import_section.get("public_share_playback_e2e_track_response_status") or 0
+    )
     content_type = str(import_section.get("public_share_playback_e2e_track_content_type") or "").strip().lower()
-    current_time = float(import_section.get("public_share_playback_e2e_current_time_after_play_seconds") or 0)
-    duration = float(import_section.get("public_share_playback_e2e_duration_seconds") or 0)
+    current_time = _receipt_nonnegative_float(
+        import_section.get("public_share_playback_e2e_current_time_after_play_seconds") or 0
+    )
+    duration = _receipt_nonnegative_float(
+        import_section.get("public_share_playback_e2e_duration_seconds") or 0
+    )
     media_error = bool(import_section.get("public_share_playback_e2e_media_error_present"))
     return (
         status == "pass"
@@ -155,7 +182,7 @@ def _chapter_metadata_verified(
 ) -> bool:
     if assembly.get("chapter_metadata_embedded") is True:
         return True
-    return int(audio_publication_gate.get("chapters") or 0) > 0
+    return _receipt_nonnegative_int(audio_publication_gate.get("chapters") or 0) > 0
 
 
 def _voice_selection(job: dict[str, object]) -> dict[str, object]:
@@ -196,20 +223,13 @@ def _replacement_choice_pending(job: dict[str, object]) -> bool:
     )
 
 
-def _whatsapp_playback_acceptance_verified(playback: dict[str, object]) -> bool:
-    return (
-        bool(playback.get("accepted"))
-        and str(playback.get("status") or "").strip() == "accepted"
-        and str(playback.get("source") or "").strip().startswith("whatsapp")
-    )
-
-
 def _playback_acceptance_evidence(candidate: dict[str, object]) -> dict[str, object]:
+    canary = _as_dict(candidate.get("human_listened_canary"))
     status = str(candidate.get("playback_acceptance_status") or "").strip().lower()
     source = str(candidate.get("playback_acceptance_source") or "").strip().lower()
     feedback_sha256 = str(candidate.get("playback_acceptance_feedback_sha256") or "").strip()
     whatsapp_sourced = source.startswith("whatsapp")
-    accepted = bool(candidate.get("playback_acceptance_verified"))
+    accepted = bool(canary.get("claim_allowed"))
     rejected_claim_observed = status == "rejected" and whatsapp_sourced
     feedback_sha256_present = bool(feedback_sha256)
     feedback_sha256_valid = _is_sha256(feedback_sha256)
@@ -226,6 +246,10 @@ def _playback_acceptance_evidence(candidate: dict[str, object]) -> dict[str, obj
         evidence_status = "not_human_verified"
         next_action = "capture_hashed_audiobook_playback_problem_feedback"
         evidence_grade = "insufficient_feedback_hash"
+    elif str(canary.get("status") or "") == "legacy_non_complete":
+        evidence_status = "legacy_non_complete"
+        next_action = "capture_real_user_playback_acceptance_or_close_operator_loop"
+        evidence_grade = "legacy_non_complete"
     else:
         evidence_status = "not_human_verified"
         next_action = "capture_real_user_playback_acceptance_or_close_operator_loop"
@@ -244,6 +268,17 @@ def _playback_acceptance_evidence(candidate: dict[str, object]) -> dict[str, obj
         "evidence_grade": evidence_grade,
         "claim_allowed": accepted,
         "next_action": next_action,
+        "canary_contract_name": str(canary.get("contract_name") or ""),
+        "required_canary_contract_name": HUMAN_LISTENED_CANARY_CONTRACT_NAME,
+        "canary_receipt_sha256": str(canary.get("receipt_sha256") or ""),
+        "canary_receipt_digest_valid": bool(canary.get("receipt_digest_valid")),
+        "canary_blocked_fields": list(canary.get("blocked_fields") or []),
+        "artifact_sha256": str(canary.get("artifact_sha256") or ""),
+        "narration_plan_sha256": str(canary.get("narration_plan_sha256") or ""),
+        "render_signature_sha256": str(canary.get("render_signature_sha256") or ""),
+        "cast_map_sha256": str(canary.get("cast_map_sha256") or ""),
+        "recorded_at": str(canary.get("recorded_at") or ""),
+        "freshness": _as_dict(canary.get("freshness")),
     }
 
 
@@ -288,7 +323,7 @@ def _job_matches_runtime_session(
     return job_session_ref == runtime_session_ref
 
 
-def _candidate(job: dict[str, object]) -> dict[str, object]:
+def _candidate(job: dict[str, object], *, reference: datetime) -> dict[str, object]:
     metadata = _as_dict(job.get("metadata"))
     source = _as_dict(job.get("source"))
     assembly = _as_dict(job.get("assembly"))
@@ -304,6 +339,22 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
     public_url = str(imported.get("public_share_url") or "").strip()
     parsed_host = urlparse(public_url).hostname or ""
     failed_codes: list[str] = []
+    performance, performance_issues = _performance_evidence(job)
+    job_freshness = _freshness_evidence(job.get("observed_at"), reference=reference)
+    publication_freshness = _freshness_evidence(
+        audio_publication_gate.get("checked_at"),
+        reference=reference,
+    )
+    playback_freshness = _freshness_evidence(
+        imported.get("public_share_playback_e2e_checked_at"),
+        reference=reference,
+    )
+    canary = _human_listened_canary_evidence(
+        job,
+        performance=performance,
+        channel="whatsapp",
+        reference=reference,
+    )
 
     if str(job.get("status") or "").strip() != "audiobookshelf_imported":
         failed_codes.append("job_not_audiobookshelf_imported")
@@ -339,6 +390,13 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
         failed_codes.append("whatsapp_session_not_bound")
     if not _machine_playback_verified(imported):
         failed_codes.append("machine_playback_e2e_not_verified")
+    if not job_freshness.get("fresh"):
+        failed_codes.append("live_job_receipt_stale_or_timestamp_invalid")
+    if not publication_freshness.get("fresh"):
+        failed_codes.append("audio_publication_gate_stale_or_timestamp_invalid")
+    if not playback_freshness.get("fresh"):
+        failed_codes.append("machine_playback_proof_stale_or_timestamp_invalid")
+    failed_codes.extend(performance_issues)
 
     for key, issue in {
         "public_share_token_exposed": "audiobookshelf_public_share_token_exposed",
@@ -382,24 +440,45 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
         "machine_playback_e2e_status": str(imported.get("public_share_playback_e2e_status") or ""),
         "machine_playback_e2e_browser": str(imported.get("public_share_playback_e2e_browser") or ""),
         "machine_playback_e2e_reason": str(imported.get("public_share_playback_e2e_reason") or ""),
-        "machine_playback_e2e_page_response_status": int(imported.get("public_share_playback_e2e_page_response_status") or 0),
-        "machine_playback_e2e_track_response_status": int(imported.get("public_share_playback_e2e_track_response_status") or 0),
+        "machine_playback_e2e_page_response_status": _receipt_nonnegative_int(
+            imported.get("public_share_playback_e2e_page_response_status") or 0
+        ),
+        "machine_playback_e2e_track_response_status": _receipt_nonnegative_int(
+            imported.get("public_share_playback_e2e_track_response_status") or 0
+        ),
         "machine_playback_e2e_track_content_type": str(imported.get("public_share_playback_e2e_track_content_type") or ""),
         "machine_playback_e2e_track_response_resource_type": str(
             imported.get("public_share_playback_e2e_track_response_resource_type") or ""
         ),
-        "machine_playback_e2e_duration_seconds": float(imported.get("public_share_playback_e2e_duration_seconds") or 0),
-        "machine_playback_e2e_current_time_after_play_seconds": float(
+        "machine_playback_e2e_duration_seconds": _receipt_nonnegative_float(
+            imported.get("public_share_playback_e2e_duration_seconds") or 0
+        ),
+        "machine_playback_e2e_current_time_after_play_seconds": _receipt_nonnegative_float(
             imported.get("public_share_playback_e2e_current_time_after_play_seconds") or 0
         ),
         "machine_playback_e2e_media_error_present": bool(imported.get("public_share_playback_e2e_media_error_present")),
-        "machine_playback_e2e_media_error_code": int(imported.get("public_share_playback_e2e_media_error_code") or 0),
+        "machine_playback_e2e_media_error_code": _receipt_nonnegative_int(
+            imported.get("public_share_playback_e2e_media_error_code") or 0
+        ),
         "player_scoped_reference_status": player_reference_status,
         "player_scoped_reference_ready": player_reference_status == "signed_reference_ready",
-        "playback_acceptance_verified": _whatsapp_playback_acceptance_verified(playback),
+        "playback_acceptance_verified": bool(canary.get("claim_allowed")),
         "playback_acceptance_status": str(playback.get("status") or ""),
         "playback_acceptance_source": str(playback.get("source") or ""),
         "playback_acceptance_feedback_sha256": str(playback.get("feedback_sha256") or ""),
+        "proof_freshness": {
+            "job_receipt": job_freshness,
+            "audio_publication_gate": publication_freshness,
+            "machine_playback": playback_freshness,
+            "all_required_proof_fresh": bool(
+                job_freshness.get("fresh")
+                and publication_freshness.get("fresh")
+                and playback_freshness.get("fresh")
+            ),
+        },
+        "performance_evidence": performance,
+        "human_listened_canary": canary,
+        "canary_completion_claim_allowed": bool(canary.get("claim_allowed")),
         "voice_selected_by_user": _voice_selected_by_user(job),
         "voice_selected_default": _voice_selected_default(job),
         "voice_choice_pending": _voice_choice_pending(job),
@@ -409,6 +488,84 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
         "provider_retry_after": str(render.get("provider_retry_after") or scheduler.get("retry_after") or ""),
         "failed_codes": failed_codes,
     }
+
+
+def _candidate_or_malformed(
+    job: dict[str, object],
+    *,
+    reference: datetime,
+) -> dict[str, object]:
+    try:
+        return _candidate(job, reference=reference)
+    except (TypeError, ValueError, OverflowError):
+        metadata = _as_dict(job.get("metadata"))
+        source = _as_dict(job.get("source"))
+        invalid_freshness = {
+            "timestamp_present": False,
+            "fresh": False,
+            "age_seconds": None,
+            "max_age_seconds": LIVE_PROOF_MAX_AGE_SECONDS,
+            "future_skew_seconds": None,
+        }
+        return {
+            "raw": job,
+            "job_id_sha256": _sha256_text(job.get("job_id")),
+            "status": "malformed_job_receipt",
+            "source_kind": str(source.get("kind") or "").strip().lower(),
+            "title_present": bool(str(metadata.get("title") or "").strip()),
+            "title_sha256": _sha256_text(metadata.get("title")),
+            "author_present": bool(str(metadata.get("author") or "").strip()),
+            "author_sha256": _sha256_text(metadata.get("author")),
+            "public_share_status": "",
+            "public_share_url_present": False,
+            "public_share_host": "",
+            "whatsapp_delivery_status": "",
+            "whatsapp_delivery_message_id_present": False,
+            "whatsapp_sender_bound": False,
+            "whatsapp_session_bound": False,
+            "machine_playback_e2e_verified": False,
+            "machine_playback_e2e_status": "",
+            "machine_playback_e2e_browser": "",
+            "machine_playback_e2e_reason": "",
+            "machine_playback_e2e_page_response_status": 0,
+            "machine_playback_e2e_track_response_status": 0,
+            "machine_playback_e2e_track_content_type": "",
+            "machine_playback_e2e_track_response_resource_type": "",
+            "machine_playback_e2e_duration_seconds": 0.0,
+            "machine_playback_e2e_current_time_after_play_seconds": 0.0,
+            "machine_playback_e2e_media_error_present": False,
+            "machine_playback_e2e_media_error_code": 0,
+            "player_scoped_reference_status": "",
+            "player_scoped_reference_ready": False,
+            "playback_acceptance_verified": False,
+            "playback_acceptance_status": "",
+            "playback_acceptance_source": "",
+            "playback_acceptance_feedback_sha256": "",
+            "proof_freshness": {
+                "job_receipt": dict(invalid_freshness),
+                "audio_publication_gate": dict(invalid_freshness),
+                "machine_playback": dict(invalid_freshness),
+                "all_required_proof_fresh": False,
+            },
+            "performance_evidence": {
+                "status": "blocked",
+                "all_required_proof_passed": False,
+                "issues": ["malformed_job_receipt"],
+            },
+            "human_listened_canary": {
+                "status": "blocked",
+                "claim_allowed": False,
+                "blocked_fields": ["malformed_job_receipt"],
+            },
+            "canary_completion_claim_allowed": False,
+            "voice_selected_by_user": False,
+            "voice_selected_default": False,
+            "voice_choice_pending": False,
+            "replacement_choice_pending": False,
+            "provider_pacing_waiting": False,
+            "provider_retry_after": "",
+            "failed_codes": ["malformed_job_receipt"],
+        }
 
 
 def _pending_user_selected_job(candidate: dict[str, object]) -> bool:
@@ -802,13 +959,15 @@ def build_receipt(
     historical_receipts: dict[str, dict[str, object]] | None = None,
     readiness_receipt: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    generated_timestamp = generated_at or _now_iso()
+    reference = _parse_utc(generated_timestamp) or datetime.now(UTC)
     observed_jobs = [job for job in list(job_receipts or [])[:limit] if isinstance(job, dict)]
     jobs = [
         job
         for job in observed_jobs
         if _is_whatsapp_job(job) and _job_matches_runtime_session(job, readiness_receipt=readiness_receipt)
     ]
-    candidates = [_candidate(job) for job in jobs]
+    candidates = [_candidate_or_malformed(job, reference=reference) for job in jobs]
     selected_pool = _selected_candidate_pool(candidates)
     valid_candidates = [candidate for candidate in selected_pool if not candidate["failed_codes"]]
     selected = valid_candidates[0] if valid_candidates else (
@@ -897,13 +1056,13 @@ def build_receipt(
 
     receipt = {
         "contract_name": CONTRACT_NAME,
-        "generated_at": generated_at or _now_iso(),
+        "generated_at": generated_timestamp,
         "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
         "source_git_head": resolve_source_state_head(ROOT),
         "head_semantics": "source_state",
         "source_state_fingerprint": resolve_source_worktree_fingerprint(ROOT),
         "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
-        "output_path": output_path.as_posix(),
+        "output_path": _logical_output_path(output_path),
         "observation_source": observation_source,
         "limit": limit,
         "claim": (
@@ -919,6 +1078,16 @@ def build_receipt(
         "proof_freshness": {
             "fresh_live_job_receipt_present": bool(candidates),
             "fresh_live_job_receipt_passed": live_pass,
+            "max_age_seconds": LIVE_PROOF_MAX_AGE_SECONDS,
+            "selected_job_receipt": _as_dict(_as_dict(selected.get("proof_freshness")).get("job_receipt"))
+            if selected
+            else {},
+            "selected_audio_publication_gate": _as_dict(
+                _as_dict(selected.get("proof_freshness")).get("audio_publication_gate")
+            ) if selected else {},
+            "selected_machine_playback": _as_dict(_as_dict(selected.get("proof_freshness")).get("machine_playback"))
+            if selected
+            else {},
             "historical_evidence_present": bool(historical.get("present")),
             "historical_live_path_proven": bool(historical.get("historical_live_path_proven")),
             "shadow_voice_selection_only": False,
@@ -927,6 +1096,14 @@ def build_receipt(
         "real_user_playback_acceptance_verified": real_user_accepted,
         "human_playback_acceptance_claim_allowed": bool(human_acceptance_evidence.get("claim_allowed")),
         "human_playback_acceptance_evidence": human_acceptance_evidence,
+        "canary_completion_claim_allowed": bool(
+            live_pass and selected.get("canary_completion_claim_allowed")
+        ) if selected else False,
+        "canary_completion_blocked_fields": list(
+            _as_dict(selected.get("human_listened_canary")).get("blocked_fields") or []
+        ) if selected else ["current_human_listened_canary_receipt"],
+        "human_listened_canary_contract": HUMAN_LISTENED_CANARY_CONTRACT_NAME,
+        "narration_plan_contract": NARRATION_PLAN_CONTRACT_NAME,
         "proof_semantics": {
             "machine_playable_delivery_evidence": "fresh_job_receipt_and_machine_playback_e2e" if live_pass else "not_proven",
             "human_acceptance_evidence": str(human_acceptance_evidence.get("status") or "not_human_verified"),
@@ -989,52 +1166,138 @@ def build_receipt(
     return receipt
 
 
+def _apply_load_errors(
+    receipt: dict[str, object],
+    errors: list[str] | tuple[str, ...],
+) -> dict[str, object]:
+    receipt["load_errors"] = _public_load_error_codes(errors)
+    if not receipt["load_errors"]:
+        return receipt
+    receipt["status"] = "blocked"
+    receipt["live_delivery_claim_allowed"] = False
+    receipt["live_delivery_claim_scope"] = "none"
+    receipt["fresh_live_job_receipt_proven"] = False
+    receipt["machine_playback_e2e_verified"] = False
+    receipt["real_user_playback_acceptance_verified"] = False
+    receipt["human_playback_acceptance_claim_allowed"] = False
+    receipt["canary_completion_claim_allowed"] = False
+    receipt["canary_completion_blocked_fields"] = ["job_receipt_load_errors"]
+    receipt["goal_completion_claim_allowed"] = False
+    proof_freshness = _as_dict(receipt.get("proof_freshness"))
+    proof_freshness["fresh_live_job_receipt_passed"] = False
+    receipt["proof_freshness"] = proof_freshness
+    human_evidence = _as_dict(receipt.get("human_playback_acceptance_evidence"))
+    human_evidence.update(
+        {
+            "status": "not_human_verified",
+            "accepted": False,
+            "rejected": False,
+            "rejected_claim_observed": False,
+            "operator_grade": False,
+            "claim_allowed": False,
+        }
+    )
+    receipt["human_playback_acceptance_evidence"] = human_evidence
+    proof_semantics = _as_dict(receipt.get("proof_semantics"))
+    proof_semantics.update(
+        {
+            "machine_playable_delivery_evidence": "not_proven",
+            "human_acceptance_evidence": "not_human_verified",
+            "live_delivery_claim_scope": "none",
+        }
+    )
+    receipt["proof_semantics"] = proof_semantics
+    receipt["failed_codes"] = list(
+        dict.fromkeys(
+            [
+                *_as_list(receipt.get("failed_codes")),
+                "job_receipt_load_errors",
+            ]
+        )
+    )
+    receipt["blocking_reason"] = ", ".join(
+        str(code) for code in _as_list(receipt.get("failed_codes"))
+    )
+    receipt["next_action"] = "inspect_failed_whatsapp_audiobook_delivery_candidates"
+    return receipt
+
+
 def _load_receipts_json(path: Path) -> tuple[list[dict[str, object]], list[str]]:
     try:
         parsed = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        return [], [f"{path.as_posix()}:{exc}"]
+    except Exception:
+        return [], ["job_receipts_json_load_failed"]
     if isinstance(parsed, dict):
-        rows = parsed.get("receipts") or parsed.get("job_receipts") or []
-    else:
+        if "receipts" in parsed:
+            rows = parsed.get("receipts")
+        elif "job_receipts" in parsed:
+            rows = parsed.get("job_receipts")
+        else:
+            return [], ["job_receipts_json_invalid_shape"]
+    elif isinstance(parsed, list):
         rows = parsed
-    receipts = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    else:
+        return [], ["job_receipts_json_invalid_shape"]
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        return [], ["job_receipts_json_invalid_shape"]
+    receipts = [dict(row) for row in rows]
     return receipts, []
 
 
 def _scan_job_receipts(limit: int) -> tuple[list[dict[str, object]], list[str]]:
     try:
         from app.services import audiobook_epub_pipeline
-    except Exception as exc:
-        return [], [f"audiobook_pipeline_import_failed:{exc}"]
-    root = audiobook_epub_pipeline.audiobook_jobs_root()
+    except Exception:
+        return [], ["audiobook_pipeline_import_failed"]
+    try:
+        root = audiobook_epub_pipeline.audiobook_jobs_root()
+        job_paths = sorted(
+            root.glob("**/job.json"),
+            key=_safe_mtime,
+            reverse=True,
+        )[:limit]
+    except Exception:
+        return [], ["job_manifest_discovery_failed"]
     receipts: list[dict[str, object]] = []
     errors: list[str] = []
     seen_job_dirs: set[Path] = set()
-    for job_path in sorted(root.glob("**/job.json"), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)[:limit]:
+    for job_path in job_paths:
+        job_dir = job_path.parent
+        seen_job_dirs.add(_job_dir_identity(job_dir))
         try:
-            receipts.append(audiobook_epub_pipeline.build_audiobook_job_receipt(job_dir=job_path.parent))
-            seen_job_dirs.add(job_path.parent.resolve())
-        except Exception as exc:
-            errors.append(f"{job_path.name}:{exc}")
+            receipts.append(
+                audiobook_epub_pipeline.build_audiobook_job_receipt(
+                    job_dir=job_dir
+                )
+            )
+        except Exception:
+            errors.append("job_receipt_build_failed")
     remaining = max(0, limit - len(receipts))
     if remaining <= 0:
         return receipts, errors
-    for receipt_path in sorted(root.glob("**/job_receipt.json"), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
+    try:
+        receipt_paths = sorted(
+            root.glob("**/job_receipt.json"),
+            key=_safe_mtime,
+            reverse=True,
+        )
+    except Exception:
+        errors.append("job_receipt_discovery_failed")
+        receipt_paths = []
+    for receipt_path in receipt_paths:
         if len(receipts) >= limit:
             break
-        try:
-            if receipt_path.parent.resolve() in seen_job_dirs:
-                continue
-        except Exception:
-            pass
+        if _job_dir_identity(receipt_path.parent) in seen_job_dirs:
+            continue
         try:
             parsed = json.loads(receipt_path.read_text(encoding="utf-8"))
             if isinstance(parsed, dict):
                 receipts.append(parsed)
-        except Exception as exc:
-            errors.append(f"{receipt_path.name}:{exc}")
-    return receipts, errors
+            else:
+                errors.append("stored_job_receipt_invalid_shape")
+        except Exception:
+            errors.append("stored_job_receipt_load_failed")
+    return receipts, _public_load_error_codes(errors)
 
 
 def main() -> int:
@@ -1067,9 +1330,11 @@ def main() -> int:
         historical_receipts=historical_receipts,
         readiness_receipt=readiness_receipt,
     )
-    if errors:
-        receipt["load_errors"] = errors
-        args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _apply_load_errors(receipt, errors)
+    args.output.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     print(json.dumps(receipt, indent=2 if args.pretty else None, sort_keys=True))
     if args.require_pass and receipt["status"] != "pass":
         return 1

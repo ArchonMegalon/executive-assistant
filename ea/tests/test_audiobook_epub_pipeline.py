@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import json
 import os
@@ -73,7 +74,9 @@ def _chapter_job(*, chapter_count: int = 1):
                     text_path=text_path,
                     audio_filename=f"{index:03d}-cinematic.wav",
                     char_count=len(chapter_text),
-                    sha256=f"dummy-sha-{index:03d}",
+                    sha256=audiobook_epub_pipeline._sha256_bytes(
+                        chapter_text.encode("utf-8")
+                    ),
                 )
             )
         metadata = audiobook_epub_pipeline.EpubMetadata(
@@ -88,14 +91,72 @@ def _chapter_job(*, chapter_count: int = 1):
 
 class AudiobookCinematicNarrationTests(unittest.TestCase):
     def _write_audio_file(self, **kwargs: object) -> Path:
-        target = kwargs["target_wav"]
+        target = Path(kwargs["target_wav"])
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(b"audio-blob")
-        return Path(target)
+        with wave.open(str(target), "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(44100)
+            wav_file.writeframes(struct.pack("<h", 1200) * 4410)
+        return target
 
     def _merge_master(self, segment_paths: tuple[Path, ...], target: Path) -> bool:
-        target.write_bytes(b"audio-blob")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        frames: list[bytes] = []
+        for segment_path in segment_paths:
+            with wave.open(str(segment_path), "rb") as wav_file:
+                frames.append(wav_file.readframes(wav_file.getnframes()))
+        with wave.open(str(target), "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(44100)
+            wav_file.writeframes(b"".join(frames))
         return True
+
+    def _audio_duration_ms(self, path: Path) -> int:
+        with wave.open(str(path), "rb") as wav_file:
+            return max(
+                int(wav_file.getnframes() * 1000 / wav_file.getframerate()),
+                1,
+            )
+
+    def _write_cinematic_master_fixture(
+        self,
+        *,
+        job_dir: Path,
+        chapters: tuple[audiobook_epub_pipeline.EpubChapter, ...],
+        render_signature: str,
+    ) -> Path:
+        audio_dir = job_dir / "audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        parts: list[tuple[int, Path]] = []
+        for chapter in chapters:
+            part = audio_dir / f"timeline-{chapter.index:03d}.wav"
+            self._write_audio_file(target_wav=part)
+            parts.append((chapter.index, part))
+        master = audio_dir / "_cinematic_master.wav"
+        self._merge_master(tuple(path for _, path in parts), master)
+        timeline = audiobook_epub_pipeline._build_cinematic_chapter_timeline(
+            master_path=master,
+            chapters=chapters,
+            timeline_parts=tuple(parts),
+            render_signature=render_signature,
+        )
+        audiobook_epub_pipeline._write_private_json(
+            audiobook_epub_pipeline._cinematic_chapter_timeline_path(audio_dir),
+            timeline,
+        )
+        audiobook_epub_pipeline._write_atomic_private_text(
+            audiobook_epub_pipeline._cinematic_master_audio_mode_path(audio_dir),
+            audiobook_epub_pipeline._CINEMATIC_MASTER_SEMANTIC_PASS_MODE
+            if len(chapters) > 1
+            else audiobook_epub_pipeline._CINEMATIC_MASTER_SINGLE_PASS_MODE,
+        )
+        audiobook_epub_pipeline._write_atomic_private_text(
+            audiobook_epub_pipeline._cinematic_master_audio_signature_path(audio_dir),
+            render_signature,
+        )
+        return master
 
     def _write_job_manifest(
         self,
@@ -153,6 +214,27 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
             cast_map_sha256=str(speaker_cast.get("cast_map_sha256") or ""),
         )
 
+    def _expected_exact_passage_texts(
+        self,
+        *,
+        job_dir: Path,
+        chapters: tuple[audiobook_epub_pipeline.EpubChapter, ...],
+        metadata: audiobook_epub_pipeline.EpubMetadata,
+    ) -> list[str]:
+        chapter_inputs = audiobook_epub_pipeline._collect_cinematic_track_input(
+            job_dir=job_dir,
+            chapters=chapters,
+        )
+        plan = audiobook_epub_pipeline._build_exact_narration_plan(
+            chapter_inputs=chapter_inputs,
+            render_language=audiobook_epub_pipeline._normalize_language(
+                metadata.language
+            ),
+            max_chars=audiobook_epub_pipeline._audiobook_cinematic_max_chars_per_request(),
+        )
+        self.assertEqual(plan["status"], "ready")
+        return [str(row["text"]) for row in plan["passages"]]
+
     @contextmanager
     def _base_context(self, chapter_count: int = 1):
         with _chapter_job(chapter_count=chapter_count) as job_context:
@@ -170,6 +252,10 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 audiobook_epub_pipeline,
                 "_normalize_rendered_audio_file",
                 side_effect=lambda path: path,
+            ), patch.object(
+                audiobook_epub_pipeline,
+                "_probe_audio_duration_ms",
+                side_effect=self._audio_duration_ms,
             ):
                 yield job_context
 
@@ -180,6 +266,345 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
             patch.object(audiobook_epub_pipeline, "select_unmixr_voice_for_book", return_value=_voice_selection()),
         ):
             yield
+
+    def test_provider_segment_pcm_canonicalization_revalidates_converter_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "provider-segment.wav"
+            with wave.open(str(source), "wb") as wav_file:
+                wav_file.setnchannels(2)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(22050)
+                wav_file.writeframes(struct.pack("<hh", 1200, -1200) * 2205)
+
+            commands: list[list[str]] = []
+
+            def fake_ffmpeg(command: list[str], **_kwargs: object):
+                commands.append(command)
+                self._write_audio_file(target_wav=Path(command[-1]))
+                return type(
+                    "Completed",
+                    (),
+                    {"returncode": 0, "stdout": "", "stderr": ""},
+                )()
+
+            with (
+                patch.object(
+                    audiobook_epub_pipeline.shutil,
+                    "which",
+                    return_value="/test/ffmpeg",
+                ),
+                patch.object(
+                    audiobook_epub_pipeline.subprocess,
+                    "run",
+                    side_effect=fake_ffmpeg,
+                ),
+            ):
+                result = audiobook_epub_pipeline._canonicalize_provider_segment_pcm(
+                    source
+                )
+
+            self.assertEqual(result, source)
+            self.assertEqual(len(commands), 1)
+            self.assertIn("-ac", commands[0])
+            self.assertEqual(commands[0][commands[0].index("-ac") + 1], "1")
+            self.assertEqual(commands[0][commands[0].index("-ar") + 1], "44100")
+            self.assertEqual(commands[0][commands[0].index("-c:a") + 1], "pcm_s16le")
+            with wave.open(str(source), "rb") as wav_file:
+                self.assertEqual(wav_file.getnchannels(), 1)
+                self.assertEqual(wav_file.getsampwidth(), 2)
+                self.assertEqual(wav_file.getframerate(), 44100)
+                self.assertGreater(wav_file.getnframes(), 0)
+
+    def test_provider_segment_pcm_canonicalization_rejects_invalid_success_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "provider-segment.wav"
+            with wave.open(str(source), "wb") as wav_file:
+                wav_file.setnchannels(2)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(22050)
+                wav_file.writeframes(struct.pack("<hh", 1200, -1200) * 2205)
+            original_bytes = source.read_bytes()
+
+            def fake_ffmpeg(command: list[str], **_kwargs: object):
+                Path(command[-1]).write_bytes(original_bytes)
+                return type(
+                    "Completed",
+                    (),
+                    {"returncode": 0, "stdout": "", "stderr": ""},
+                )()
+
+            with (
+                patch.object(
+                    audiobook_epub_pipeline.shutil,
+                    "which",
+                    return_value="/test/ffmpeg",
+                ),
+                patch.object(
+                    audiobook_epub_pipeline.subprocess,
+                    "run",
+                    side_effect=fake_ffmpeg,
+                ),
+                self.assertRaisesRegex(
+                    RuntimeError,
+                    "provider_segment_pcm_canonicalization_invalid_output",
+                ),
+            ):
+                audiobook_epub_pipeline._canonicalize_provider_segment_pcm(source)
+
+            self.assertEqual(source.read_bytes(), original_bytes)
+            self.assertFalse(
+                any(
+                    "canonical.wav" in candidate.name
+                    for candidate in source.parent.iterdir()
+                )
+            )
+
+    def test_chapter_master_quality_failure_preserves_prior_master_and_signature(self) -> None:
+        with self._base_context() as (job_dir, chapters, metadata):
+            audio_dir = job_dir / "audio"
+            target = audio_dir / chapters[0].audio_filename
+            self._write_audio_file(target_wav=target)
+            prior_master = target.read_bytes()
+            signature_path = target.with_suffix(
+                target.suffix + ".narration.signature"
+            )
+            audiobook_epub_pipeline._write_atomic_private_text(
+                signature_path,
+                "prior-chapter-signature",
+            )
+
+            def quality_for_path(path: Path) -> dict[str, object]:
+                if path.name.endswith(".mastering.wav"):
+                    return {"status": "failed", "reason": "fresh_master_qa_failed"}
+                return {"status": "pass"}
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {"EA_AUDIOBOOK_CINEMATIC_NARRATION": "0"},
+                ),
+                self._voice_context(),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_synthesize_unmixr_with_retries",
+                    return_value=(b"audio-blob", "audio/wav", []),
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_write_provider_audio_file",
+                    side_effect=self._write_audio_file,
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_merge_audio_segments_to_wav",
+                    side_effect=self._merge_master,
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_cached_wav_quality_report",
+                    side_effect=quality_for_path,
+                ),
+            ):
+                result = audiobook_epub_pipeline.render_unmixr_chapter_audio(
+                    job_dir=job_dir,
+                    chapters=chapters,
+                    metadata=metadata,
+                )
+
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(result["reason"], "chapter_master_audio_quality_failed")
+            self.assertEqual(target.read_bytes(), prior_master)
+            self.assertEqual(
+                signature_path.read_text(encoding="utf-8"),
+                "prior-chapter-signature",
+            )
+
+    def test_cinematic_master_quality_failure_preserves_prior_master_and_signature(self) -> None:
+        with self._base_context(chapter_count=2) as (job_dir, chapters, metadata):
+            audio_dir = job_dir / "audio"
+            cinematic_master = audiobook_epub_pipeline._cinematic_master_audio_path(
+                audio_dir
+            )
+            self._write_audio_file(target_wav=cinematic_master)
+            prior_master = cinematic_master.read_bytes()
+            signature_path = (
+                audiobook_epub_pipeline._cinematic_master_audio_signature_path(
+                    audio_dir
+                )
+            )
+            mode_path = audiobook_epub_pipeline._cinematic_master_audio_mode_path(
+                audio_dir
+            )
+            audiobook_epub_pipeline._write_atomic_private_text(
+                signature_path,
+                "prior-cinematic-signature",
+            )
+            audiobook_epub_pipeline._write_atomic_private_text(
+                mode_path,
+                audiobook_epub_pipeline._CINEMATIC_MASTER_SEMANTIC_PASS_MODE,
+            )
+
+            def quality_for_path(path: Path) -> dict[str, object]:
+                if path.name.endswith(".mastering.wav"):
+                    return {"status": "failed", "reason": "fresh_master_qa_failed"}
+                return {"status": "pass"}
+
+            with (
+                self._voice_context(),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_synthesize_unmixr_with_retries",
+                    return_value=(b"audio-blob", "audio/wav", []),
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_write_provider_audio_file",
+                    side_effect=self._write_audio_file,
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_merge_audio_segments_to_wav",
+                    side_effect=self._merge_master,
+                ),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_cached_wav_quality_report",
+                    side_effect=quality_for_path,
+                ),
+            ):
+                result = audiobook_epub_pipeline.render_unmixr_chapter_audio(
+                    job_dir=job_dir,
+                    chapters=chapters,
+                    metadata=metadata,
+                )
+
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(result["reason"], "cinematic_master_audio_quality_failed")
+            self.assertEqual(cinematic_master.read_bytes(), prior_master)
+            self.assertEqual(
+                signature_path.read_text(encoding="utf-8"),
+                "prior-cinematic-signature",
+            )
+            self.assertEqual(
+                mode_path.read_text(encoding="utf-8"),
+                audiobook_epub_pipeline._CINEMATIC_MASTER_SEMANTIC_PASS_MODE,
+            )
+
+    def test_two_chapter_cinematic_timeline_is_ordered_and_ends_at_master_duration(self) -> None:
+        with self._base_context(chapter_count=2) as (job_dir, chapters, metadata):
+            render_signature = "f" * 64
+            master = self._write_cinematic_master_fixture(
+                job_dir=job_dir,
+                chapters=chapters,
+                render_signature=render_signature,
+            )
+            timeline_path = audiobook_epub_pipeline._cinematic_chapter_timeline_path(
+                job_dir / "audio"
+            )
+            timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
+            rows = list(timeline["chapters"])
+
+            self.assertEqual(timeline["chapter_count"], 2)
+            self.assertEqual(
+                [row["chapter_index"] for row in rows],
+                [chapter.index for chapter in chapters],
+            )
+            self.assertEqual(
+                [row["title"] for row in rows],
+                [chapter.title for chapter in chapters],
+            )
+            self.assertEqual(rows[0]["start_ms"], 0)
+            self.assertEqual(rows[0]["end_ms"], rows[1]["start_ms"])
+            self.assertEqual(
+                rows[-1]["end_ms"],
+                timeline["master_duration_ms"],
+            )
+            self.assertEqual(
+                rows[-1]["end_ms"],
+                self._audio_duration_ms(master),
+            )
+            self.assertEqual(
+                sum(int(row["duration_ms"]) for row in rows),
+                timeline["master_duration_ms"],
+            )
+
+            ffmetadata_path = job_dir / "m4b" / "chapters.ffmetadata"
+            ffmetadata_path.parent.mkdir(parents=True)
+            audiobook_epub_pipeline._write_ffmetadata_file(
+                path=ffmetadata_path,
+                metadata=metadata,
+                chapters=chapters,
+                audio_paths=(master,),
+                cinematic_track=True,
+                cinematic_timeline=timeline,
+            )
+            ffmetadata = ffmetadata_path.read_text(encoding="utf-8")
+            self.assertEqual(ffmetadata.count("[CHAPTER]"), 2)
+            self.assertLess(
+                ffmetadata.index(f"title={chapters[0].title}"),
+                ffmetadata.index(f"title={chapters[1].title}"),
+            )
+            self.assertIn(f"END={timeline['master_duration_ms']}", ffmetadata)
+
+    def test_cinematic_merge_refuses_missing_and_semantically_tampered_timeline(self) -> None:
+        with self._base_context(chapter_count=2) as (job_dir, chapters, metadata):
+            render_signature = "e" * 64
+            master = self._write_cinematic_master_fixture(
+                job_dir=job_dir,
+                chapters=chapters,
+                render_signature=render_signature,
+            )
+            timeline_path = audiobook_epub_pipeline._cinematic_chapter_timeline_path(
+                job_dir / "audio"
+            )
+            original_timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
+            output_file = job_dir / "output" / "book.m4b"
+
+            with patch.object(
+                audiobook_epub_pipeline.subprocess,
+                "run",
+                side_effect=AssertionError(
+                    "ffmpeg must not run without a valid timeline"
+                ),
+            ):
+                timeline_path.unlink()
+                missing = audiobook_epub_pipeline._merge_m4b_with_ffmpeg(
+                    job_dir=job_dir,
+                    metadata=metadata,
+                    chapters=chapters,
+                    output_file=output_file,
+                    cinematic_track_path=master,
+                )
+
+                tampered_timeline = dict(original_timeline)
+                tampered_rows = [dict(row) for row in original_timeline["chapters"]]
+                tampered_rows[0]["title"] = "Tampered title"
+                tampered_timeline["chapters"] = tampered_rows
+                tampered_timeline["timeline_sha256"] = (
+                    audiobook_epub_pipeline._cinematic_timeline_sha256(
+                        tampered_timeline
+                    )
+                )
+                audiobook_epub_pipeline._write_private_json(
+                    timeline_path,
+                    tampered_timeline,
+                )
+                tampered = audiobook_epub_pipeline._merge_m4b_with_ffmpeg(
+                    job_dir=job_dir,
+                    metadata=metadata,
+                    chapters=chapters,
+                    output_file=output_file,
+                    cinematic_track_path=master,
+                )
+
+            for result in (missing, tampered):
+                self.assertEqual(result["status"], "m4b_merge_failed")
+                self.assertEqual(result["stage"], "cinematic_chapter_timeline")
+                self.assertEqual(
+                    result["reason"],
+                    "cinematic_chapter_timeline_missing_or_invalid",
+                )
+            self.assertFalse(output_file.exists())
 
     def test_render_unmixr_chapter_audio_prefers_single_cinematic_pass(self) -> None:
         with self._base_context() as (job_dir, chapters, metadata):
@@ -209,12 +634,14 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
         self.assertEqual(synthesize.call_count, 1)
         self.assertEqual(synthesize.call_args_list[0].kwargs["text"], source_text)
 
-    def test_render_unmixr_chapter_audio_prefers_cinematic_continuity(self) -> None:
+    def test_render_unmixr_chapter_audio_preserves_cinematic_passage_continuity(self) -> None:
         with self._base_context(chapter_count=3) as (job_dir, chapters, metadata):
-            combined_text = "\n\n\n".join(
-                (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
-                for chapter in chapters
+            expected_passages = self._expected_exact_passage_texts(
+                job_dir=job_dir,
+                chapters=chapters,
+                metadata=metadata,
             )
+            expected_syntheses = list(dict.fromkeys(expected_passages))
             with (
                 self._voice_context(),
                 patch.object(
@@ -235,15 +662,14 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 self.assertEqual(result["status"], "rendered")
                 self.assertEqual(len(result["chapters"]), 3)
                 self.assertTrue(all(chapter["status"] == "rendered" for chapter in result["chapters"]))
-                self.assertEqual(synthesize.call_count, 1)
-                self.assertEqual(synthesize.call_args_list[0].kwargs["text"], combined_text)
+                self.assertEqual(synthesize.call_count, len(expected_syntheses))
+                self.assertEqual(
+                    [call.kwargs["text"] for call in synthesize.call_args_list],
+                    expected_syntheses,
+                )
 
-    def test_render_unmixr_chapter_audio_continuous_single_pass_ignores_cinematic_split_cap(self) -> None:
+    def test_render_unmixr_multi_chapter_audio_respects_provider_split_cap(self) -> None:
         with self._base_context(chapter_count=3) as (job_dir, chapters, metadata):
-            combined_text = "\n\n\n".join(
-                (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
-                for chapter in chapters
-            )
             with (
                 patch.dict(os.environ, {"EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST": "10"}),
                 self._voice_context(),
@@ -260,6 +686,12 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 patch.object(audiobook_epub_pipeline, "_rendered_audio_quality_report", return_value={"status": "pass"}),
                 patch.object(audiobook_epub_pipeline, "_write_provider_audio_file", side_effect=self._write_audio_file),
             ):
+                expected_passages = self._expected_exact_passage_texts(
+                    job_dir=job_dir,
+                    chapters=chapters,
+                    metadata=metadata,
+                )
+                expected_syntheses = list(dict.fromkeys(expected_passages))
                 result = audiobook_epub_pipeline.render_unmixr_chapter_audio(
                     job_dir=job_dir,
                     chapters=chapters,
@@ -267,15 +699,14 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 )
 
         self.assertEqual(result["status"], "rendered")
-        self.assertEqual(synthesize.call_count, 1)
-        self.assertEqual(synthesize.call_args_list[0].kwargs["text"], combined_text)
+        self.assertEqual(synthesize.call_count, len(expected_syntheses))
+        self.assertEqual(
+            [call.kwargs["text"] for call in synthesize.call_args_list],
+            expected_syntheses,
+        )
 
     def test_render_unmixr_chapter_audio_uses_semantic_scene_passes_when_single_pass_disabled(self) -> None:
         with self._base_context(chapter_count=3) as (job_dir, chapters, metadata):
-            chapter_texts = [
-                (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
-                for chapter in chapters
-            ]
             with (
                 patch.dict(os.environ, {"EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS": "0"}),
                 self._voice_context(),
@@ -288,6 +719,12 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 patch.object(audiobook_epub_pipeline, "_write_provider_audio_file", side_effect=self._write_audio_file),
                 patch.object(audiobook_epub_pipeline, "_merge_audio_segments_to_wav", side_effect=self._merge_master),
             ):
+                expected_passages = self._expected_exact_passage_texts(
+                    job_dir=job_dir,
+                    chapters=chapters,
+                    metadata=metadata,
+                )
+                expected_syntheses = list(dict.fromkeys(expected_passages))
                 result = audiobook_epub_pipeline.render_unmixr_chapter_audio(
                     job_dir=job_dir,
                     chapters=chapters,
@@ -295,10 +732,10 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 )
 
         self.assertEqual(result["status"], "rendered")
-        self.assertEqual(synthesize.call_count, 3)
+        self.assertEqual(synthesize.call_count, len(expected_syntheses))
         self.assertEqual(
             [call.kwargs["text"] for call in synthesize.call_args_list],
-            chapter_texts,
+            expected_syntheses,
         )
         self.assertEqual(result["chapters"][0]["scene_pause_count"], 0)
         self.assertEqual(result["chapters"][0]["chapter_pause_count"], 2)
@@ -508,20 +945,15 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
         with self._base_context(chapter_count=4) as (job_dir, chapters, metadata):
             self._write_job_manifest(job_dir=job_dir, chapters=chapters, metadata=metadata)
             audio_dir = job_dir / "audio"
-            audio_dir.mkdir(parents=True, exist_ok=True)
-            cinematic_track = audio_dir / "_cinematic_master.wav"
-            cinematic_track.write_bytes(b"cinematic-track")
-            (audio_dir / "_cinematic_master.mode").write_text(
-                audiobook_epub_pipeline._CINEMATIC_MASTER_SINGLE_PASS_MODE,
-                encoding="utf-8",
+            signature = self._expected_cinematic_signature(
+                job_dir=job_dir,
+                chapters=chapters,
+                metadata=metadata,
             )
-            (audio_dir / "_cinematic_master.signature").write_text(
-                self._expected_cinematic_signature(
-                    job_dir=job_dir,
-                    chapters=chapters,
-                    metadata=metadata,
-                ),
-                encoding="utf-8",
+            cinematic_track = self._write_cinematic_master_fixture(
+                job_dir=job_dir,
+                chapters=chapters,
+                render_signature=signature,
             )
             for chapter in chapters:
                 (audio_dir / chapter.audio_filename).write_bytes(f"legacy-{chapter.index}".encode("utf-8"))
@@ -531,7 +963,10 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 "provider": "ffmpeg",
                 "output_file": str(output_file),
                 "command": ["ffmpeg", "-hide_banner"],
-                "chapter_count": 1,
+                "chapter_count": len(chapters),
+                "expected_chapter_count": len(chapters),
+                "actual_chapter_count": len(chapters),
+                "chapter_count_matches": True,
                 "cover_embedded": False,
                 "normalized_audio_count": 1,
             }
@@ -599,21 +1034,15 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
     def test_discover_or_build_cinematic_master_audio(self) -> None:
         with self._base_context(chapter_count=2) as (job_dir, chapters, metadata):
             self._write_job_manifest(job_dir=job_dir, chapters=chapters, metadata=metadata)
-            audio_dir = job_dir / "audio"
-            audio_dir.mkdir(parents=True, exist_ok=True)
-            cinematic_master = audio_dir / "_cinematic_master.wav"
-            cinematic_master.write_bytes(b"legacy-track")
-            (audio_dir / "_cinematic_master.mode").write_text(
-                audiobook_epub_pipeline._CINEMATIC_MASTER_SINGLE_PASS_MODE,
-                encoding="utf-8",
+            signature = self._expected_cinematic_signature(
+                job_dir=job_dir,
+                chapters=chapters,
+                metadata=metadata,
             )
-            (audio_dir / "_cinematic_master.signature").write_text(
-                self._expected_cinematic_signature(
-                    job_dir=job_dir,
-                    chapters=chapters,
-                    metadata=metadata,
-                ),
-                encoding="utf-8",
+            cinematic_master = self._write_cinematic_master_fixture(
+                job_dir=job_dir,
+                chapters=chapters,
+                render_signature=signature,
             )
 
             with self._voice_context():
@@ -631,6 +1060,15 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
             (job_dir / "chapters" / chapters[0].text_path).write_text(
                 dialogue_text,
                 encoding="utf-8",
+            )
+            chapters = (
+                replace(
+                    chapters[0],
+                    char_count=len(dialogue_text),
+                    sha256=audiobook_epub_pipeline._sha256_bytes(
+                        dialogue_text.encode("utf-8")
+                    ),
+                ),
             )
             self._write_job_manifest(job_dir=job_dir, chapters=chapters, metadata=metadata)
             voice_catalog = json.dumps(
@@ -2528,7 +2966,23 @@ def test_safe_v2_cast_and_narration_receipts_keep_evidence_without_raw_ids() -> 
         "speaker_count": 1,
         "boundary_policy": pipeline.BOUNDARY_POLICY_NAME,
         "boundary_counts": {"speaker": 2, "scene": 1},
+        "inserted_pause_seconds_by_kind": {"speaker": 0.42, "scene": 1.3},
         "total_inserted_pause_seconds": 1.72,
+        "total_internal_pause_intent_seconds": 0.35,
+        "passage_size_evidence": {
+            "minimum_chars": 12,
+            "maximum_chars": 800,
+            "total_chars": 1600,
+            "average_chars": 200.0,
+        },
+        "unsafe_or_very_short_passage_count": 2,
+        "unsafe_or_very_short_passage_runs": [
+            {
+                "start_passage_index": 2,
+                "end_passage_index": 3,
+                "passage_count": 2,
+            }
+        ],
         "speaker_cast": cast,
     }
 
@@ -2540,8 +2994,73 @@ def test_safe_v2_cast_and_narration_receipts_keep_evidence_without_raw_ids() -> 
     assert safe_cast["cast"][0]["voice_id_sha256"] == voice_hash
     assert safe_plan["attributed_dialogue_span_count"] == 1
     assert safe_plan["boundary_counts"] == {"scene": 1, "speaker": 2}
+    assert safe_plan["inserted_pause_seconds_by_kind"] == {
+        "scene": 1.3,
+        "speaker": 0.42,
+    }
+    assert safe_plan["passage_size_evidence"]["maximum_chars"] == 800
+    assert safe_plan["unsafe_or_very_short_passage_runs"] == [
+        {
+            "start_passage_index": 2,
+            "end_passage_index": 3,
+            "passage_count": 2,
+        }
+    ]
     assert raw_voice_id not in serialized
     assert trait_value not in serialized
+
+
+def test_speaker_cast_fingerprint_binds_catalog_and_source_provenance() -> None:
+    pipeline = audiobook_epub_pipeline
+    raw_voice_id = "private-dialogue-provider-id"
+    private_cast = {
+        "speaker_anna": {
+            "speaker_id": "speaker_anna",
+            "speaker_detection_evidence": {
+                "kind": "explicit_post_attribution",
+                "confidence": 0.99,
+            },
+            "traits": {},
+            "voice_id": raw_voice_id,
+            "voice_id_sha256": pipeline._sha256_bytes(
+                raw_voice_id.encode("utf-8")
+            ),
+            "voice_label": "Private catalog label",
+            "voice_catalog_source": "discovery:unmixr:audiobook-voices",
+            "voice_catalog_preset_key": "safe-digest-backed-key",
+            "voice_catalog_language": "en-US",
+            "voice_catalog_supported_languages": ["en-US"],
+            "voice_catalog_tags": ["dialogue", "neutral"],
+            "selection_source": "deterministic_evidence_ranked_catalog",
+        }
+    }
+
+    sealed = pipeline._speaker_cast_result_from_private_entries(
+        private_cast,
+        narrator_voice_id="private-narrator-id",
+        reused_private_snapshot=False,
+    )
+    safe = pipeline._safe_receipt_speaker_cast(sealed["public"])
+
+    assert sealed["catalog_provenance_sha256"]
+    assert sealed["source_provenance_sha256"]
+    assert safe["catalog_provenance_sha256"] == (
+        sealed["catalog_provenance_sha256"]
+    )
+    assert safe["source_provenance_sha256"] == (
+        sealed["source_provenance_sha256"]
+    )
+    assert raw_voice_id not in json.dumps(safe, sort_keys=True)
+
+    tampered = json.loads(json.dumps(sealed["private"]))
+    tampered["speaker_anna"]["voice_catalog_source"] = (
+        "discovery:unmixr:tampered-source"
+    )
+    assert pipeline._speaker_cast_result_from_private_entries(
+        tampered,
+        narrator_voice_id="private-narrator-id",
+        reused_private_snapshot=True,
+    ) == {}
 
 
 def test_continue_job_lock_timeout_returns_retryable_state_without_overwrite(

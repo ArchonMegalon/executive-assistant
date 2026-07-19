@@ -6,19 +6,25 @@ import json
 import os
 import re
 import shutil
+import fcntl
+import threading
 import time
 import urllib.request
 import uuid
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 from app.services import audiobook_epub_pipeline
 
 
-CONTRACT_NAME = "ea.audiobook_access_approval.v1"
+CONTRACT_NAME = "ea.audiobook_access_approval.v2"
+START_CONTRACT_NAME = "ea.audiobook_access_approval_start.v1"
 CALLBACK_PREFIX = "aa"
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._()\\[\\] -]+")
+_APPROVAL_THREAD_LOCKS: dict[str, threading.RLock] = {}
+_APPROVAL_THREAD_LOCKS_GUARD = threading.Lock()
 
 
 def _now() -> datetime:
@@ -31,6 +37,12 @@ def _now_iso() -> str:
 
 def _sha(value: object) -> str:
     return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+
+
+def _canonical_sha256(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -225,6 +237,53 @@ def _request_path(approval_id: str) -> Path:
     return approvals_root() / f"{safe}.json"
 
 
+def _approval_thread_lock(approval_id: str) -> threading.RLock:
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "", str(approval_id or "").strip())
+    if not safe:
+        raise RuntimeError("approval_id_missing")
+    with _APPROVAL_THREAD_LOCKS_GUARD:
+        return _APPROVAL_THREAD_LOCKS.setdefault(safe, threading.RLock())
+
+
+@contextmanager
+def _exclusive_approval_lock(approval_id: str) -> Iterator[None]:
+    """Serialize one approval across threads and worker processes.
+
+    The durable JSON state is always re-read after this lock is acquired.  The
+    thread lock is required in addition to ``flock`` because multiple request
+    handlers can race inside one process, while ``flock`` protects independent
+    webhook and WhatsApp worker processes.
+    """
+
+    thread_lock = _approval_thread_lock(approval_id)
+    with thread_lock:
+        request_path = _request_path(approval_id)
+        lock_path = request_path.with_suffix(".lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+b") as handle:
+            with suppress(OSError):
+                lock_path.chmod(0o600)
+            timeout_seconds = _env_int(
+                "EA_AUDIOBOOK_ACCESS_APPROVAL_LOCK_TIMEOUT_SECONDS",
+                30,
+                minimum=1,
+                maximum=600,
+            )
+            deadline = time.monotonic() + timeout_seconds
+            while True:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("approval_lock_timeout")
+                    time.sleep(0.02)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def load_request(approval_id: str) -> dict[str, object]:
     path = _request_path(approval_id)
     try:
@@ -361,24 +420,244 @@ def update_status(
     status: str,
     decided_by: str = "",
     reason: str = "",
+    diagnostic_sha256: str = "",
     job_id: str = "",
+    expected_statuses: tuple[str, ...] | None = None,
 ) -> dict[str, object]:
     normalized_status = str(status or "").strip().lower()
-    if normalized_status not in {"pending", "approved", "denied", "started", "completed", "failed"}:
+    if normalized_status not in {
+        "pending",
+        "approved",
+        "denied",
+        "starting",
+        "started",
+        "completed",
+        "failed",
+    }:
         raise RuntimeError("approval_status_invalid")
-    record = load_request(approval_id)
-    if not record:
-        raise RuntimeError("approval_request_not_found")
-    record["status"] = normalized_status
-    record["updated_at"] = _now_iso()
-    if normalized_status in {"approved", "denied"}:
-        record["decided_at"] = _now_iso()
-        record["decided_by"] = str(decided_by or "").strip()
-    if reason:
-        record["decision_reason"] = str(reason or "").strip()
-    if job_id:
-        record["job_id"] = str(job_id or "").strip()
-    return _write_request(record)
+    normalized_expected = {
+        str(item or "").strip().lower()
+        for item in tuple(expected_statuses or ())
+        if str(item or "").strip()
+    }
+    with _exclusive_approval_lock(approval_id):
+        record = load_request(approval_id)
+        if not record:
+            raise RuntimeError("approval_request_not_found")
+        current_status = str(record.get("status") or "").strip().lower()
+        if normalized_expected and current_status not in normalized_expected:
+            # Repeating the same terminal decision is harmless, but a competing
+            # decision or a decision after work started must fail closed.
+            if current_status == normalized_status:
+                return record
+            raise RuntimeError("approval_status_conflict")
+        record["contract_name"] = CONTRACT_NAME
+        record["status"] = normalized_status
+        record["updated_at"] = _now_iso()
+        if normalized_status in {"approved", "denied"}:
+            record["decided_at"] = str(record.get("decided_at") or "").strip() or _now_iso()
+            record["decided_by"] = str(record.get("decided_by") or decided_by or "").strip()
+        if reason:
+            record["decision_reason"] = str(reason or "").strip()
+        normalized_diagnostic = str(diagnostic_sha256 or "").strip().lower()
+        if normalized_diagnostic:
+            if len(normalized_diagnostic) != 64 or any(
+                char not in "0123456789abcdef" for char in normalized_diagnostic
+            ):
+                raise RuntimeError("approval_diagnostic_sha256_invalid")
+            record["decision_diagnostic_sha256"] = normalized_diagnostic
+        if job_id:
+            record["job_id"] = str(job_id or "").strip()
+        return _write_request(record)
+
+
+def _approval_start_identity(record: dict[str, object]) -> tuple[str, str]:
+    source = dict(record.get("source") or {})
+    identity = {
+        "contract_name": START_CONTRACT_NAME,
+        "approval_id": str(record.get("approval_id") or "").strip(),
+        "channel": str(record.get("channel") or "").strip().lower(),
+        "principal_id_sha256": _sha(str(record.get("principal_id") or "").strip()),
+        "source_filename_sha256": _sha(str(source.get("filename") or "").strip()),
+        "source_sha256": str(source.get("source_sha256") or "").strip().lower(),
+    }
+    digest = _canonical_sha256(identity)
+    return digest, f"approval-audiobook-{digest[:24]}"
+
+
+def _load_idempotent_start_job(
+    *,
+    job_id: str,
+    start_identity_sha256: str,
+    source_sha256: str,
+) -> dict[str, object]:
+    normalized_job_id = str(job_id or "").strip()
+    if not normalized_job_id or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", normalized_job_id):
+        raise RuntimeError("approval_start_job_id_invalid")
+    manifest_path = audiobook_epub_pipeline.audiobook_jobs_root() / normalized_job_id / "job.json"
+    if not manifest_path.is_file():
+        return {}
+    try:
+        loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError("approval_start_job_manifest_invalid") from exc
+    job = dict(loaded) if isinstance(loaded, dict) else {}
+    source = dict(job.get("source") or {})
+    if (
+        str(job.get("job_id") or "").strip() != normalized_job_id
+        or str(source.get("intake_idempotency_key_sha256") or "").strip().lower()
+        != start_identity_sha256
+        or str(source.get("source_sha256") or "").strip().lower()
+        != str(source_sha256 or "").strip().lower()
+    ):
+        raise RuntimeError("approval_start_job_binding_invalid")
+    return job
+
+
+def run_approved_start_once(
+    approval_id: str,
+    *,
+    starter: Callable[[dict[str, object], str, str], dict[str, object]],
+    decided_by: str = "",
+    approve_pending: bool = False,
+) -> dict[str, object]:
+    """Create or recover the one canonical job for an approved request.
+
+    ``starting`` plus the deterministic job and input identity are written
+    before ``starter`` may perform discovery, synthesis, or any other external
+    work.  The approval lock remains held through the start call.  A process
+    crash releases the OS lock but leaves enough durable state for the next
+    caller to recover the same job.  Completed replays load that exact manifest
+    and never call ``starter`` again.
+    """
+
+    with _exclusive_approval_lock(approval_id):
+        record = load_request(approval_id)
+        if not record:
+            raise RuntimeError("approval_request_not_found")
+        current_status = str(record.get("status") or "").strip().lower()
+        if current_status == "pending" and approve_pending:
+            record["contract_name"] = CONTRACT_NAME
+            record["status"] = "approved"
+            record["decided_at"] = str(record.get("decided_at") or "").strip() or _now_iso()
+            record["decided_by"] = str(record.get("decided_by") or decided_by or "").strip()
+            record["updated_at"] = _now_iso()
+            _write_request(record)
+            current_status = "approved"
+        start_identity_sha256, deterministic_job_id = _approval_start_identity(record)
+        approved_source_sha256 = str(
+            dict(record.get("source") or {}).get("source_sha256") or ""
+        ).strip().lower()
+        start = dict(record.get("start") or {})
+        persisted_identity = str(start.get("idempotency_key_sha256") or "").strip().lower()
+        persisted_job_id = str(record.get("job_id") or start.get("job_id") or "").strip()
+        if persisted_identity and persisted_identity != start_identity_sha256:
+            raise RuntimeError("approval_start_identity_conflict")
+        if persisted_job_id and persisted_job_id != deterministic_job_id:
+            raise RuntimeError("approval_start_job_id_conflict")
+        if current_status in {"started", "completed"}:
+            existing_job = _load_idempotent_start_job(
+                job_id=deterministic_job_id,
+                start_identity_sha256=start_identity_sha256,
+                source_sha256=approved_source_sha256,
+            )
+            if existing_job:
+                return {
+                    "record": record,
+                    "job": existing_job,
+                    "job_id": deterministic_job_id,
+                    "start_identity_sha256": start_identity_sha256,
+                    "started_now": False,
+                    "replayed": True,
+                }
+            if current_status == "completed":
+                raise RuntimeError("approval_completed_job_missing")
+            # A legacy/crash-written started record without its bound manifest
+            # is repaired through the same deterministic identity below.
+        elif current_status not in {"approved", "starting", "failed"}:
+            raise RuntimeError("approval_not_startable")
+        if current_status == "failed" and (
+            str(start.get("contract_name") or "").strip() != START_CONTRACT_NAME
+            or not persisted_job_id
+        ):
+            raise RuntimeError("approval_not_startable")
+
+        attempt_count = int(start.get("attempt_count") or 0) + 1
+        start.update(
+            {
+                "contract_name": START_CONTRACT_NAME,
+                "state": "starting",
+                "job_id": deterministic_job_id,
+                "idempotency_key_sha256": start_identity_sha256,
+                "attempt_count": attempt_count,
+                "started_at": str(start.get("started_at") or "").strip() or _now_iso(),
+                "last_attempt_at": _now_iso(),
+                "recovery_attempt": current_status in {"starting", "started", "failed"},
+                "raw_source_path_exposed": False,
+            }
+        )
+        record["contract_name"] = CONTRACT_NAME
+        record["status"] = "starting"
+        record["job_id"] = deterministic_job_id
+        record["start"] = start
+        record["updated_at"] = _now_iso()
+        _write_request(record)
+
+        try:
+            approved_source_path = source_path(record)
+            if (
+                not approved_source_sha256
+                or not approved_source_path.is_file()
+                or audiobook_epub_pipeline._sha256_file(approved_source_path)  # type: ignore[attr-defined]
+                != approved_source_sha256
+            ):
+                raise RuntimeError("approval_source_binding_mismatch")
+            job = dict(starter(dict(record), deterministic_job_id, start_identity_sha256))
+            if str(job.get("job_id") or "").strip() != deterministic_job_id:
+                raise RuntimeError("approval_start_result_job_id_mismatch")
+            job_source = dict(job.get("source") or {})
+            if (
+                str(job_source.get("intake_idempotency_key_sha256") or "").strip().lower()
+                != start_identity_sha256
+                or str(job_source.get("source_sha256") or "").strip().lower()
+                != approved_source_sha256
+            ):
+                raise RuntimeError("approval_start_result_identity_mismatch")
+        except Exception as exc:
+            start["state"] = "failed"
+            start["failed_at"] = _now_iso()
+            start["failure_reason"] = "approved_audiobook_start_failed"
+            start["failure_diagnostic_sha256"] = _sha(str(exc))
+            record["status"] = "failed"
+            record["decision_reason"] = "approved_audiobook_start_failed"
+            record["decision_diagnostic_sha256"] = start["failure_diagnostic_sha256"]
+            record["start"] = start
+            record["updated_at"] = _now_iso()
+            _write_request(record)
+            raise
+
+        start["state"] = "started"
+        start["completed_at"] = _now_iso()
+        start["job_manifest_sha256"] = _canonical_sha256(job)
+        start["job_status"] = str(job.get("status") or "").strip()
+        start.pop("failed_at", None)
+        start.pop("failure_reason", None)
+        start.pop("failure_diagnostic_sha256", None)
+        record["status"] = "started"
+        record["job_id"] = deterministic_job_id
+        record["start"] = start
+        record["updated_at"] = _now_iso()
+        record.pop("decision_reason", None)
+        record.pop("decision_diagnostic_sha256", None)
+        persisted = _write_request(record)
+        return {
+            "record": persisted,
+            "job": job,
+            "job_id": deterministic_job_id,
+            "start_identity_sha256": start_identity_sha256,
+            "started_now": True,
+            "replayed": current_status in {"starting", "started", "failed"},
+        }
 
 
 def _callback_secret(*, bot_token: str = "") -> str:
