@@ -397,6 +397,29 @@ def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def test_live_telegram_audiobook_delivery_receipt_guides_empty_intake_to_telegram(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "empty.generated.json",
+        job_receipts=[],
+        generated_at="2026-06-19T21:10:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["candidate_count"] == 0
+    assert receipt["failed_candidate_count"] == 0
+    assert receipt["live_delivery_claim_allowed"] is False
+    assert receipt["next_action"] == (
+        "send_epub_over_telegram_to_create_live_delivery_receipt"
+    )
+    assert receipt["next_action_href"] == "/integrations/telegram"
+    assert receipt["next_action_label"] == "Open Telegram"
+    assert receipt["next_action_method"] == "get"
+
+
 def test_live_telegram_audiobook_delivery_receipt_passes_with_redacted_job_receipt(tmp_path: Path) -> None:
     module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
 

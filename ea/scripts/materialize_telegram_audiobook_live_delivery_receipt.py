@@ -102,6 +102,11 @@ USER_SELECTED_VOICE_DELIVERY_BLOCKING_CODES = {
 }
 
 TELEGRAM_ACTION_SURFACES = {
+    "send_epub_over_telegram_to_create_live_delivery_receipt": (
+        TELEGRAM_INTEGRATION_PATH,
+        TELEGRAM_INTEGRATION_LABEL,
+        ACTION_METHOD,
+    ),
     "capture_real_user_playback_acceptance_or_close_operator_loop": (
         TELEGRAM_INTEGRATION_PATH,
         TELEGRAM_INTEGRATION_LABEL,
@@ -1841,7 +1846,14 @@ def build_receipt(
         else (
             "capture_real_user_playback_acceptance_or_close_operator_loop"
             if live_pass
-            else _next_action(failed_codes=selected_failed_codes, pending=pending)
+            else (
+                "send_epub_over_telegram_to_create_live_delivery_receipt"
+                if not candidates
+                else _next_action(
+                    failed_codes=selected_failed_codes,
+                    pending=pending,
+                )
+            )
         )
     )
     next_action_href, next_action_label, next_action_method = _next_action_surface(next_action)
