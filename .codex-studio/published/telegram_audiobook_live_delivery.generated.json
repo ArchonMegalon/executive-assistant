@@ -24,7 +24,7 @@
   "failed_codes": [
     "valid_live_audiobook_delivery_missing"
   ],
-  "generated_at": "2026-07-19T15:33:23.453744Z",
+  "generated_at": "2026-07-19T15:54:01.736784Z",
   "generated_by": "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -37,9 +37,9 @@
   "load_errors": [],
   "machine_playback_e2e_verified": false,
   "narration_plan_contract": "ea.audiobook_narration_plan.v5",
-  "next_action": "inspect_failed_audiobook_delivery_candidates",
-  "next_action_href": "/app/channel-loop",
-  "next_action_label": "Open channel loop",
+  "next_action": "send_epub_over_telegram_to_create_live_delivery_receipt",
+  "next_action_href": "/integrations/telegram",
+  "next_action_label": "Open Telegram",
   "next_action_method": "get",
   "observation_source": "job_discovery_roots",
   "operator_action_packet": {
@@ -75,8 +75,8 @@
   "real_user_playback_acceptance_verified": false,
   "selected_delivery": {},
   "source_filter": "telegram_epub_audiobook_sources",
-  "source_git_head": "1ae80871ee7a4240dcc35c60492af6035b02557b",
-  "source_state_fingerprint": "1893a91cf57d5713160cbbae40bd12153eac0e23cd6992b7cc7b2660133d9358",
+  "source_git_head": "d53ae4cd4fd53f8a50fa5994850db67f390a3043",
+  "source_state_fingerprint": "558daaec69d7d14925ebe3e6f23b978bb2d355ab6e9e7cd9147625e14fbf514d",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked"
 }
