@@ -40,8 +40,10 @@ Intent auto-detection, hybrid ranking, session memory, auto-expanding budget.
 - Treat vexp schema-v6 `qualification_phase=enforced_soak` as a hard live,
   candidate, merge, and promotion mutation hold.
 - Safe work during the hold is limited to read-only runtime/authority checks and
-  source-only edits, tests, workflow preparation, branches, and draft PRs in a
-  clean attached worktree that cannot create a candidate or mutate live EA.
+  source-only edits, tests, local proof preparation, branches, and draft PRs in a
+  clean attached worktree that cannot create a candidate or mutate live EA. The
+  repository's zero-hosted-Actions policy remains binding; this exception does not
+  authorize `.github/workflows`.
 - Do not stop, disable, delete, replace, or restart vexp sentinel, qualification,
   certificate, AppArmor, event-guard, or mutation-gate units/files during the hold;
   do not hand-edit their clocks, epochs, state, receipts, or checksums.
@@ -54,6 +56,8 @@ Intent auto-detection, hybrid ranking, session memory, auto-expanding budget.
 - A qualification timestamp or earliest-completion value before the exact seven-day
   floor is invalid. Await root-owned correction or a fresh terminal certificate;
   never repair the trusted state by hand.
+- Changing this file cannot shorten the qualification epoch, create release
+  authority, or convert missing root evidence into a pass.
 - After authority exists, deploy only from a clean attached worktree using the
   tracked governed entrypoint. An untracked, copied, generated, or locally shadowed
   deploy script is never release authority.
