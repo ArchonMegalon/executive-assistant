@@ -528,6 +528,8 @@ def _install_success_path(
     lane._require_deployment_input_seal = Mock()  # type: ignore[method-assign]
     lane._require_spatial_browser_binding = Mock()  # type: ignore[method-assign]
     lane._revalidate_ingress_input_seals = Mock()  # type: ignore[method-assign]
+    lane.bind_source_snapshot_sha256 = "5" * 64
+    lane._revalidate_bind_source_access = Mock()  # type: ignore[method-assign]
 
     @contextmanager
     def lease(boundary: str) -> Iterator[None]:
@@ -897,6 +899,9 @@ def test_happy_path_orders_api_local_proof_before_ingress_and_public_proof(
         "recreate_cloudflared",
     ]
     assert runner.commands == []
+    lane._revalidate_bind_source_access.assert_called_once_with(
+        boundary="before_recreate_api"
+    )
     lane._verify_non_memorial_controls.assert_called_once()
     lane._verify_deployed_surface.assert_called_once()
     assert receipt["joint_atomicity"] == materializer.JOINT_ATOMICITY
@@ -931,6 +936,30 @@ def test_happy_path_orders_api_local_proof_before_ingress_and_public_proof(
         "api_runtime_state": "changed_verified",
         "ingress_runtime_state": "changed_verified",
     }
+
+
+def test_bind_source_snapshot_drift_blocks_joint_api_and_ingress_mutation(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    _context_value, _actions = _install_success_path(lane, tmp_path)
+    lane._revalidate_bind_source_access = Mock(  # type: ignore[method-assign]
+        side_effect=api_deploy.DeployError(
+            "memorial_bind_source_access_denied:bind_source_snapshot_changed"
+        )
+    )
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="memorial_bind_source_access_denied:bind_source_snapshot_changed",
+    ):
+        lane.deploy()
+
+    lane._recreate_api.assert_not_called()
+    lane._recreate_cloudflared.assert_not_called()
+    preparation = dict(lane.receipt["preparation"])
+    assert preparation["api_mutation_started"] is False
+    assert preparation["ingress_mutation_started"] is False
 
 
 def test_redis_preparation_failure_records_possible_side_effects_truthfully(

@@ -3505,6 +3505,9 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             pending_action = "recreate_api"
             persist_preparation("api_authorization_pending")
             with self._vexp_mutation_lease("before_recreate_api"):
+                self._revalidate_bind_source_access(
+                    boundary="before_recreate_api"
+                )
                 pending_action = None
                 active_action = "recreate_api"
                 preparation_attempted.append("recreate_api")

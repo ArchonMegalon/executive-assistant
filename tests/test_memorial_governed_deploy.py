@@ -442,6 +442,9 @@ class FakeRunner:
         self.rendered_candidate_reference = self.candidate_reference
         self.rendered_pull_policy = "never"
         self.rendered_memorial_data_source = str(self.root / "memorial_data")
+        self.rendered_memorial_runtime_source = str(
+            self.root / ".runtime" / "candidate-data"
+        )
         self.rendered_memorial_data_read_only = True
         self.mounted_projection_sha256 = ""
         self.rollback_render_environment: dict[str, str] = {}
@@ -464,30 +467,55 @@ class FakeRunner:
 
     @staticmethod
     def _api_mounts(root: Path, *, memorial: bool) -> list[dict[str, object]]:
-        mounts: list[dict[str, object]] = [
-            {
-                "Type": "bind",
-                "Source": str(root / "ea" / "app"),
-                "Destination": "/app/app",
-                "RW": False,
-            },
-            {
-                "Type": "bind",
-                "Source": str(root / "scripts"),
-                "Destination": "/app/scripts",
-                "RW": False,
-            },
-        ]
-        if memorial:
-            mounts.append(
+        if not memorial:
+            return [
                 {
                     "Type": "bind",
-                    "Source": str(root / "memorial_data"),
-                    "Destination": "/data/memorial_data",
+                    "Source": str(root / "ea" / "app"),
+                    "Destination": "/app/app",
                     "RW": False,
+                },
+                {
+                    "Type": "bind",
+                    "Source": str(root / "scripts"),
+                    "Destination": "/app/scripts",
+                    "RW": False,
+                },
+            ]
+        runtime_root = root / ".runtime" / "candidate-data"
+        return [
+            {
+                "Type": "bind",
+                "Source": str(root / "memorial_data"),
+                "Destination": "/data/memorial_data",
+                "RW": False,
+            },
+            *[
+                {
+                    "Type": "bind",
+                    "Source": str(runtime_root / basename),
+                    "Destination": destination,
+                    "RW": True,
                 }
-            )
-        return mounts
+                for destination, basename in (
+                    (
+                        "/data/memorial-writable/public-contributions",
+                        "public-contributions",
+                    ),
+                    (
+                        "/data/memorial-writable/private-contributions",
+                        "private-contributions",
+                    ),
+                    ("/data/memorial-writable/state", "state"),
+                )
+            ],
+            {
+                "Type": "volume",
+                "Name": "ea_ea_artifacts",
+                "Destination": "/data/artifacts",
+                "RW": True,
+            },
+        ]
 
     def _materialize_private_output(self, argv: list[str]) -> None:
         self.materializer_seen = True
@@ -742,24 +770,46 @@ class FakeRunner:
                             "ea-api": {
                                 "image": self.rendered_candidate_reference,
                                 "pull_policy": self.rendered_pull_policy,
+                                "user": "10001:10001",
                                 "volumes": [
-                                    {
-                                        "type": "bind",
-                                        "source": str(self.root / "ea" / "app"),
-                                        "target": "/app/app",
-                                        "read_only": True,
-                                    },
-                                    {
-                                        "type": "bind",
-                                        "source": str(self.root / "scripts"),
-                                        "target": "/app/scripts",
-                                        "read_only": True,
-                                    },
                                     {
                                         "type": "bind",
                                         "source": self.rendered_memorial_data_source,
                                         "target": "/data/memorial_data",
                                         "read_only": self.rendered_memorial_data_read_only,
+                                    },
+                                    *[
+                                        {
+                                            "type": "bind",
+                                            "source": str(
+                                                Path(
+                                                    self.rendered_memorial_runtime_source
+                                                )
+                                                / basename
+                                            ),
+                                            "target": destination,
+                                            "read_only": False,
+                                        }
+                                        for destination, basename in (
+                                            (
+                                                "/data/memorial-writable/public-contributions",
+                                                "public-contributions",
+                                            ),
+                                            (
+                                                "/data/memorial-writable/private-contributions",
+                                                "private-contributions",
+                                            ),
+                                            (
+                                                "/data/memorial-writable/state",
+                                                "state",
+                                            ),
+                                        )
+                                    ],
+                                    {
+                                        "type": "volume",
+                                        "source": "ea_artifacts",
+                                        "target": "/data/artifacts",
+                                        "read_only": False,
                                     },
                                 ],
                             }
@@ -1314,6 +1364,32 @@ def release_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
+def _passing_bind_source_validator(
+    _rendered: Mapping[str, object],
+    **_kwargs: object,
+) -> dict[str, object]:
+    return {
+        "schema": "ea.memorial_bind_source_access.v1",
+        "status": "pass",
+        "service": "ea-api",
+        "user": "10001:10001",
+        "uid": 10001,
+        "primary_gid": 10001,
+        "supplemental_gids": [10001],
+        "bind_mount_count": 4,
+        "release_tree_mount_count": 1,
+        "root_inode_mount_count": 3,
+        "release_entries_scanned": 1,
+        "release_files_scanned": 1,
+        "release_directories_scanned": 1,
+        "release_bytes_accounted": 1,
+        "snapshot_sha256": "5" * 64,
+        "mounts": [],
+        "file_contents_read": False,
+        "secrets_included": False,
+    }
+
+
 def _lane(
     root: Path,
     runner: FakeRunner,
@@ -1324,6 +1400,9 @@ def _lane(
     receipt_dir: Path | None = None,
     global_lock_path: Path | None = None,
     control_tour_slug: str = deploy.REQUIRED_CONTROL_TOUR_SLUG,
+    bind_source_validator: Callable[..., dict[str, object]] = (
+        _passing_bind_source_validator
+    ),
 ) -> deploy.MemorialDeployLane:
     def safe_http(url: str, timeout: float) -> deploy.HttpResponse:
         if url.endswith("/openapi.json"):
@@ -2026,6 +2105,7 @@ def _lane(
         "EA_MEMORIAL_IMAGE": runner.candidate_reference,
         "EA_MEMORIAL_CANDIDATE_RECEIPT": str(candidate_receipt),
         "EA_MEMORIAL_DATA_HOST_PATH": str((root / "memorial_data").resolve()),
+        "EA_MEMORIAL_RUNTIME_HOST_PATH": str(runtime_root),
         "EA_MEMORIAL_PUBLIC_HOST_ALLOWLIST": "memorial.example.org",
     }
     if control_tour_slug:
@@ -2125,6 +2205,7 @@ def _lane(
         receipt_dir=receipt_dir or root / ".runtime" / "test-receipts",
         global_lock_path=global_lock_path or root / ".runtime" / "test-global.lock",
         durable_root_check=lambda _root: None,
+        bind_source_validator=bind_source_validator,
     )
     lane._vexp_mutation_authority = TestVexpMemorialMutationAuthority(
         state_path=vexp_state_path,
@@ -3157,7 +3238,13 @@ def test_happy_path_mutates_only_redis_and_api(
         if call[-3:] == ["config", "--format", "json"]
         and "docker-compose.memorial.yml" in " ".join(call)
     ]
-    assert len(rendered_config_calls) == 1
+    assert len(rendered_config_calls) == 2
+    assert receipt["bind_source_access"]["snapshot_sha256"] == "5" * 64
+    assert any(
+        check.get("name") == "memorial_bind_source_revalidation"
+        and check.get("boundary") == "before_recreate_api"
+        for check in receipt["checks"]
+    )
     assert any(
         call[:2] == ["docker", "inspect"] and call[-1] == "ea-redis"
         for call in runner.calls
@@ -5192,6 +5279,8 @@ def test_memorial_compose_override_is_api_only() -> None:
     assert raw.startswith("services:\n  ea-api:\n")
     assert "image: ${EA_MEMORIAL_IMAGE:?" in raw
     assert "pull_policy: never" in raw
+    assert 'user: "10001:10001"' in raw
+    assert "volumes: !override" in raw
     assert "EA_SOURCE_REVISION=${EA_SOURCE_REVISION:?" in raw
     assert "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER=0" in raw
     assert "EA_TRUST_PROXY_HEADERS=1" in raw
@@ -5211,6 +5300,88 @@ def test_memorial_compose_override_is_api_only() -> None:
         in raw
     )
     assert "EA_MEMORIAL_STATE_DIR=/data/memorial-writable/state" in raw
+    assert "EA_PUBLIC_TOUR_DIR=/data/memorial_data/public_property_tours" in raw
+    assert "/data/memorial_data:ro" in raw
+    assert "/data/artifacts" in raw
+    assert "/app/app" not in raw
+    assert "/app/scripts" not in raw
+    assert "/app/.codex" not in raw
+    assert "/app/config" not in raw
+    assert "/run/secrets" not in raw
     assert raw.count("${EA_MEMORIAL_RUNTIME_HOST_PATH:?") == 3
     assert "\n  ea-worker:" not in raw
     assert "\n  ea-scheduler:" not in raw
+
+
+def test_bind_source_denial_fails_preflight_before_any_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    def deny(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise deploy.BindSourceGuardError("bind_source_file_not_readable")
+
+    lane = _lane(
+        release_root,
+        runner,
+        bind_source_validator=deny,
+    )
+    with pytest.raises(
+        deploy.DeployError,
+        match=(
+            "memorial_bind_source_access_denied:"
+            "bind_source_file_not_readable"
+        ),
+    ):
+        lane.deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+    assert not any(call[:3] == ["docker", "image", "tag"] for call in runner.calls)
+
+
+def test_bind_source_snapshot_drift_stops_before_api_recreation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    def drift(
+        _rendered: Mapping[str, object],
+        *,
+        expected_snapshot_sha256: str = "",
+        **_kwargs: object,
+    ) -> dict[str, object]:
+        if expected_snapshot_sha256:
+            raise deploy.BindSourceGuardError("bind_source_snapshot_changed")
+        return _passing_bind_source_validator({})
+
+    lane = _lane(
+        release_root,
+        runner,
+        bind_source_validator=drift,
+    )
+    with pytest.raises(
+        deploy.DeployError,
+        match=(
+            "memorial_bind_source_access_denied:"
+            "bind_source_snapshot_changed"
+        ),
+    ):
+        lane.deploy()
+
+    assert not any(
+        "up" in call and call[-1] == "ea-api" for call in runner.calls
+    )
+    receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
+    assert receipt["preparation"]["api_mutation_started"] is False

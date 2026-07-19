@@ -66,26 +66,29 @@ fails before mutation when that exact baseline cannot be resolved.
 
 Deploy from a clean, durable release worktree on a branch with a configured
 upstream. Do not deploy from a detached `HEAD`, the dirty development tree, or
-an ephemeral `/tmp` directory. Compose bind mounts keep using the release root
-for the lifetime of the container. The lane enforces the attached branch,
-upstream, and non-temporary root; these are not advisory checks.
+an ephemeral `/tmp` directory. The lane enforces the attached branch, upstream,
+and non-temporary root; these are not advisory checks. Application code is
+owned by the immutable candidate image. The Memorial override deliberately
+replaces the base volume list, so checkout files never shadow `/app` in the
+non-root runtime.
 
 The release root must contain:
 
 - the committed memorial source and `memorial_data` candidate;
 - a mode-`0600` production `.env`;
-- any ignored production configuration files required under `config/`;
-- durable absolute host paths in `.env` for OneDrive, pocket audio, audiobook
-  jobs, audiobook imports, and other state that must not resolve inside the
-  release worktree;
+- the receipt-validated candidate release root exported as the absolute
+  `EA_MEMORIAL_DATA_HOST_PATH`;
+- the matching candidate runtime root exported as the absolute
+  `EA_MEMORIAL_RUNTIME_HOST_PATH`;
 - a writable private `.runtime` directory for deployment receipts.
 
-Copy ignored configuration without overwriting committed release files:
+Copy only the production environment without overwriting committed release
+files. Memorial does not bind host `config/`, source, scripts, Dockerfiles,
+requirements, or evidence directories into the API:
 
 ```bash
 install -m 600 /docker/EA/.env "$RELEASE_ROOT/.env"
 test ! -f /docker/EA/.env.local || install -m 600 /docker/EA/.env.local "$RELEASE_ROOT/.env.local"
-rsync -a --ignore-existing /docker/EA/config/ "$RELEASE_ROOT/config/"
 mkdir -p "$RELEASE_ROOT/.runtime"
 chmod 700 "$RELEASE_ROOT/.runtime"
 ```
@@ -161,6 +164,8 @@ chmod 700 "$candidate_root"
 candidate_env="$(jq -er '.env_file' "$candidate_root/prepare-output.v3.json")"
 export EA_MEMORIAL_DATA_HOST_PATH
 EA_MEMORIAL_DATA_HOST_PATH="$(jq -er '.release_root' "$candidate_root/prepare-output.v3.json")"
+export EA_MEMORIAL_RUNTIME_HOST_PATH
+EA_MEMORIAL_RUNTIME_HOST_PATH="$(jq -er '.runtime_root' "$candidate_root/prepare-output.v3.json")"
 export EA_MEMORIAL_CANDIDATE_RECEIPT="$candidate_root/candidate-runtime.v4.json"
 export EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT="$candidate_root/candidate-browser.v5.json"
 
@@ -188,6 +193,7 @@ export EA_DEPLOYMENT_ID="manfred-$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:12}"
 export EA_MEMORIAL_IMAGE="ea-runtime:manfred-$commit"
 test -n "${EA_MEMORIAL_CANDIDATE_RECEIPT:?run the isolated candidate first}"
 test -n "${EA_MEMORIAL_DATA_HOST_PATH:?bind the proved projection root}"
+test -n "${EA_MEMORIAL_RUNTIME_HOST_PATH:?bind the validated runtime root}"
 export EA_MEMORIAL_CONTROL_TOUR_SLUG="360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
 export EA_PUBLIC_APP_BASE_URL="${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}"
 docker image inspect "$EA_MEMORIAL_IMAGE" --format '{{.Id}}'
@@ -219,6 +225,12 @@ Preflight is fail-closed and performs no Docker mutation. It verifies:
 - a fresh preflight recomputation of the projection tree digest, file modes,
   file count, and byte count using the candidate producer's exact algorithm;
   receipt-only claims or a tree changed after candidate proof fail closed;
+- explicit runtime user `10001:10001`, no supplemental groups, an image-pure
+  `/app`, and exactly the sealed Memorial projection, three writable Memorial
+  runtime roots, and artifacts volume;
+- a no-follow bind-source access snapshot that models runtime UID/GID access,
+  recursively seals the read-only projection without reading contents, and is
+  revalidated inside the permit lease immediately before API recreation;
 - attached release branch, configured upstream, and durable release root;
 - a real configured public origin;
 - an exact committed source revision;
@@ -252,6 +264,7 @@ export EA_DEPLOYMENT_ID="${EA_DEPLOYMENT_ID:-manfred-$(date -u +%Y%m%dT%H%M%SZ)-
 export EA_MEMORIAL_IMAGE="ea-runtime:manfred-$commit"
 test -n "${EA_MEMORIAL_CANDIDATE_RECEIPT:?run the isolated candidate first}"
 test -n "${EA_MEMORIAL_DATA_HOST_PATH:?bind the proved projection root}"
+test -n "${EA_MEMORIAL_RUNTIME_HOST_PATH:?bind the validated runtime root}"
 export EA_MEMORIAL_CONTROL_TOUR_SLUG="360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
 export EA_PUBLIC_APP_BASE_URL="${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}"
 make deploy-ea-memorial-scoped
@@ -283,8 +296,9 @@ Success requires all of the following:
 - the running API recomputes the digest, file modes, file count, and byte count
   from its actual `/data/memorial_data` bind mount; any check/use swap or drift
   from the preflight projection triggers automatic rollback;
-- read-only `/app/app`, `/app/scripts`, and `/data/memorial_data` mounts resolve
-  to the clean release root;
+- `/app/app`, `/app/scripts`, and release evidence are image-owned and have no
+  host bind overlays; the read-only `/data/memorial_data` mount resolves to the
+  receipt-validated candidate release root;
 - local `/health` returns `200`;
 - local and public `/memorials/manfred` return the Manfred HTML surface;
 - local and public `/memorials/manfred.json` return slug `manfred`;

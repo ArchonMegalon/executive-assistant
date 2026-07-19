@@ -26,6 +26,26 @@ PROJECT = "ea-manfred-candidate-deployment-contract-a1b2c3d4"
 COMMIT = "a" * 40
 
 
+def test_production_memorial_compose_is_image_pure_and_numeric_nonroot() -> None:
+    raw = (ROOT / "docker-compose.memorial.yml").read_text(encoding="utf-8")
+
+    assert 'user: "10001:10001"' in raw
+    assert "volumes: !override" in raw
+    assert raw.count("${EA_MEMORIAL_DATA_HOST_PATH:?") == 1
+    assert raw.count("${EA_MEMORIAL_RUNTIME_HOST_PATH:?") == 3
+    assert "ea_artifacts:/data/artifacts" in raw
+    for forbidden in (
+        "/app/app",
+        "/app/scripts",
+        "/app/.codex",
+        "/app/config",
+        "/run/secrets",
+        "./ea/",
+        "./scripts/",
+    ):
+        assert forbidden not in raw
+
+
 def test_projection_digest_matches_the_in_container_verifier(tmp_path: Path) -> None:
     root = tmp_path / "projection"
     nested = root / "public_memorials" / "manfred"
