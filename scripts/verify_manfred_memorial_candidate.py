@@ -556,8 +556,18 @@ def audit_browser_surface(
             accessibility = page.evaluate(
                 """() => {
                   const visible = (element) => {
-                    const style = getComputedStyle(element);
-                    return !element.hidden && style.display !== "none" && style.visibility !== "hidden";
+                    if (!element || element.getClientRects().length === 0) return false;
+                    if (typeof element.checkVisibility === "function" &&
+                        !element.checkVisibility({visibilityProperty: true, contentVisibilityAuto: true})) return false;
+                    for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+                      const style = getComputedStyle(ancestor);
+                      if (ancestor.hidden || style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") return false;
+                      if (ancestor.tagName === "DETAILS" && !ancestor.open) {
+                        const summary = Array.from(ancestor.children).find((child) => child.tagName === "SUMMARY");
+                        if (!summary || !summary.contains(element)) return false;
+                      }
+                    }
+                    return true;
                   };
                   const controls = Array.from(document.querySelectorAll("input, textarea, button"))
                     .filter((element) => visible(element) && String(element.type || "") !== "hidden");
@@ -630,7 +640,15 @@ def audit_browser_surface(
                 or accessibility.get("conversation_after_story") is not True
                 or int(accessibility.get("conversation_overlap") or 0) > 1
             ):
-                raise RuntimeError("candidate_browser_accessibility_contract_failed")
+                raise RuntimeError(
+                    "candidate_browser_accessibility_contract_failed:"
+                    + json.dumps(
+                        accessibility,
+                        ensure_ascii=True,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                )
 
             navigation = page.evaluate(
                 """() => {
