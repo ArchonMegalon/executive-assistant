@@ -29,7 +29,7 @@
     "audiobook_runtime_not_ready"
   ],
   "fresh_live_job_receipt_proven": false,
-  "generated_at": "2026-07-19T15:33:23.815033Z",
+  "generated_at": "2026-07-19T16:25:29.876862Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -138,8 +138,8 @@
     "status": "blocked"
   },
   "selected_delivery": {},
-  "source_git_head": "1ae80871ee7a4240dcc35c60492af6035b02557b",
-  "source_state_fingerprint": "1893a91cf57d5713160cbbae40bd12153eac0e23cd6992b7cc7b2660133d9358",
+  "source_git_head": "1a58df06bc928dd37005d485aa132b0abc1fdc81",
+  "source_state_fingerprint": "ef07ed0de2ea99c462f8b32d36a301471cdeeae78deae7d5fff1b75a07f0baf9",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_summary": {
     "counts": {},
