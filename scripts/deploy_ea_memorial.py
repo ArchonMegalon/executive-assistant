@@ -35,6 +35,17 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from source_state_head import source_worktree_metadata
 
 try:
+    from scripts.memorial_bind_source_guard import (
+        BindSourceGuardError,
+        validate_memorial_bind_sources,
+    )
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from memorial_bind_source_guard import (  # type: ignore[no-redef]
+        BindSourceGuardError,
+        validate_memorial_bind_sources,
+    )
+
+try:
     from scripts.prepare_manfred_memorial_candidate import (
         PROPERTY_ARTIFACT_COMMIT,
         PROPERTY_AUTHORITY_SHA256,
@@ -1598,6 +1609,9 @@ class MemorialDeployLane:
         receipt_dir: Path | None = None,
         global_lock_path: Path | None = None,
         durable_root_check: Callable[[Path], None] = _require_durable_release_root,
+        bind_source_validator: Callable[..., dict[str, object]] = (
+            validate_memorial_bind_sources
+        ),
     ) -> None:
         self.root = root.resolve()
         self.env = dict(os.environ if env is None else env)
@@ -1611,6 +1625,7 @@ class MemorialDeployLane:
         self.request_timeout_seconds = max(float(request_timeout_seconds), 0.1)
         self.internal_openapi_snapshot = internal_openapi_snapshot
         self.durable_root_check = durable_root_check
+        self.bind_source_validator = bind_source_validator
         self.env_file_values = _parse_env_file(self.root / ".env")
         self.deployment_id = _safe_deployment_id(self.env)
         self.memorial_image_reference = str(
@@ -1668,6 +1683,7 @@ class MemorialDeployLane:
         self._global_lock_handle: Any | None = None
         self.compose_bin: tuple[str, ...] = ()
         self.target_compose_files: tuple[str, ...] = ()
+        self.bind_source_snapshot_sha256 = ""
         self.release_env = self._release_env()
         self.receipt: dict[str, Any] = {
             "contract_name": "ea.memorial_scoped_deploy_receipt.v1",
@@ -3528,6 +3544,43 @@ class MemorialDeployLane:
             raise final_seal_error
         return authority
 
+    def _bind_source_access(
+        self,
+        rendered: Mapping[str, object],
+        *,
+        expected_snapshot_sha256: str = "",
+    ) -> dict[str, object]:
+        try:
+            return self.bind_source_validator(
+                rendered,
+                service=API_SERVICE,
+                release_root=self._configured_memorial_data_root(),
+                expected_snapshot_sha256=expected_snapshot_sha256,
+            )
+        except BindSourceGuardError as exc:
+            raise DeployError(
+                f"memorial_bind_source_access_denied:{exc}"
+            ) from exc
+
+    def _revalidate_bind_source_access(self, *, boundary: str) -> None:
+        if not self.bind_source_snapshot_sha256:
+            raise DeployError("memorial_bind_source_snapshot_missing")
+        rendered = _json_object(
+            self._run(self._target_compose("config", "--format", "json")).stdout,
+            reason="memorial_compose_rendered_json_invalid",
+        )
+        evidence = self._bind_source_access(
+            rendered,
+            expected_snapshot_sha256=self.bind_source_snapshot_sha256,
+        )
+        self._record_check(
+            "memorial_bind_source_revalidation",
+            "pass",
+            boundary=boundary,
+            bind_mount_count=int(evidence["bind_mount_count"]),
+            snapshot_sha256=str(evidence["snapshot_sha256"]),
+        )
+
     def _validate_compose(
         self, *, candidate: Mapping[str, Any]
     ) -> list[dict[str, object]]:
@@ -3546,22 +3599,67 @@ class MemorialDeployLane:
             raise DeployError("memorial_compose_candidate_image_mismatch")
         if str(api_config.get("pull_policy") or "").lower() != "never":
             raise DeployError("memorial_compose_pull_policy_invalid")
+        if str(api_config.get("user") or "").strip() != "10001:10001":
+            raise DeployError("memorial_compose_runtime_user_invalid")
+        if api_config.get("group_add") not in (None, []):
+            raise DeployError("memorial_compose_supplemental_groups_forbidden")
         target_mounts = self._rendered_mount_identities(
             rendered, api_config, root=self.root
         )
-        memorial_mount = {
-            "type": "bind",
-            "source": str(self._configured_memorial_data_root()),
-            "destination": "/data/memorial_data",
-            "read_write": False,
+        data_root = self._configured_memorial_data_root()
+        runtime_root = self._configured_memorial_runtime_root()
+        expected_bind_mounts = {
+            "/data/memorial_data": {
+                "type": "bind",
+                "source": str(data_root),
+                "destination": "/data/memorial_data",
+                "read_write": False,
+            },
+            "/data/memorial-writable/public-contributions": {
+                "type": "bind",
+                "source": str(runtime_root / "public-contributions"),
+                "destination": "/data/memorial-writable/public-contributions",
+                "read_write": True,
+            },
+            "/data/memorial-writable/private-contributions": {
+                "type": "bind",
+                "source": str(runtime_root / "private-contributions"),
+                "destination": "/data/memorial-writable/private-contributions",
+                "read_write": True,
+            },
+            "/data/memorial-writable/state": {
+                "type": "bind",
+                "source": str(runtime_root / "state"),
+                "destination": "/data/memorial-writable/state",
+                "read_write": True,
+            },
         }
-        memorial_mounts = [
-            item
+        mounts_by_destination = {
+            str(item.get("destination") or ""): dict(item)
             for item in target_mounts
-            if item.get("destination") == "/data/memorial_data"
-        ]
-        if memorial_mounts != [memorial_mount]:
-            raise DeployError("memorial_compose_data_mount_mismatch")
+        }
+        if len(mounts_by_destination) != len(target_mounts):
+            raise DeployError("memorial_compose_mount_destination_duplicate")
+        if set(mounts_by_destination) != {
+            *expected_bind_mounts,
+            "/data/artifacts",
+        }:
+            raise DeployError("memorial_compose_mount_scope_invalid")
+        for destination, expected in expected_bind_mounts.items():
+            if mounts_by_destination.get(destination) != expected:
+                raise DeployError("memorial_compose_data_mount_mismatch")
+        artifacts_mount = mounts_by_destination["/data/artifacts"]
+        if (
+            artifacts_mount.get("type") != "volume"
+            or not str(artifacts_mount.get("source") or "")
+            or artifacts_mount.get("read_write") is not True
+        ):
+            raise DeployError("memorial_compose_artifacts_mount_invalid")
+        bind_source_access = self._bind_source_access(rendered)
+        self.bind_source_snapshot_sha256 = str(
+            bind_source_access["snapshot_sha256"]
+        )
+        self.receipt["bind_source_access"] = bind_source_access
         services = self._run(
             self._target_compose("config", "--services")
         ).stdout.splitlines()
@@ -3576,6 +3674,7 @@ class MemorialDeployLane:
             pull_policy="never",
             mount_identity_count=len(target_mounts),
             mount_identity_sha256=_identity_digest(target_mounts),
+            bind_source_snapshot_sha256=self.bind_source_snapshot_sha256,
         )
         return target_mounts
 
@@ -3899,12 +3998,25 @@ class MemorialDeployLane:
         configured_data_root = _first_nonempty(
             self.env.get("EA_MEMORIAL_DATA_HOST_PATH"),
             self.env_file_values.get("EA_MEMORIAL_DATA_HOST_PATH"),
-            "./memorial_data",
         )
+        if not configured_data_root:
+            raise DeployError("explicit_memorial_data_host_path_required")
         expected_data_root = Path(configured_data_root).expanduser()
         if not expected_data_root.is_absolute():
             expected_data_root = self.root / expected_data_root
         return expected_data_root.resolve()
+
+    def _configured_memorial_runtime_root(self) -> Path:
+        configured_runtime_root = _first_nonempty(
+            self.env.get("EA_MEMORIAL_RUNTIME_HOST_PATH"),
+            self.env_file_values.get("EA_MEMORIAL_RUNTIME_HOST_PATH"),
+        )
+        if not configured_runtime_root:
+            raise DeployError("explicit_memorial_runtime_host_path_required")
+        runtime_root = Path(configured_runtime_root).expanduser()
+        if not runtime_root.is_absolute():
+            runtime_root = self.root / runtime_root
+        return runtime_root.resolve()
 
     def _validate_candidate_promotion_receipt(
         self,
@@ -6770,6 +6882,9 @@ class MemorialDeployLane:
             pending_action = "recreate_api"
             persist_preparation("api_authorization_pending")
             with self._vexp_mutation_lease("before_recreate_api"):
+                self._revalidate_bind_source_access(
+                    boundary="before_recreate_api"
+                )
                 pending_action = None
                 persist_preparation(
                     "complete",

@@ -228,6 +228,8 @@ def _preflight_context(tmp_path: Path) -> dict[str, object]:
 def _install_preflight(lane: MemorialDeployLane, tmp_path: Path) -> None:
     lane.preflight = Mock(return_value=_preflight_context(tmp_path))  # type: ignore[method-assign]
     lane._require_deployment_input_seal = Mock()  # type: ignore[method-assign]
+    lane.bind_source_snapshot_sha256 = "5" * 64
+    lane._revalidate_bind_source_access = Mock()  # type: ignore[method-assign]
 
 
 def _install_postdeploy_success(lane: MemorialDeployLane) -> None:

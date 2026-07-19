@@ -77,6 +77,15 @@ rollback-renderability, candidate, and spatial checks without mutation. A
 preflight receipt is single-use evidence; select a new deployment ID for the
 actual promotion.
 
+The API half is image-pure: the Memorial Compose override replaces inherited
+base volumes and never overlays host source, scripts, configuration, or
+release-evidence paths onto `/app`. Preflight requires runtime user
+`10001:10001`, validates access to every remaining bind source, and seals a
+redacted filesystem-identity snapshot. The joint lane revalidates that exact
+snapshot inside `before_recreate_api` before it records API mutation possible;
+permission, inode, mode, ACL, symlink, or metadata drift therefore stops before
+either API or ingress recreation.
+
 ## Issue the exact joint permit
 
 Install only the reviewed manager blob as root following the pinned install
