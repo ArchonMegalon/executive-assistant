@@ -47,6 +47,7 @@ from app.services.memorial_openvoice import (
 from app.services.audiobook_narration_planner import (
     BOUNDARY_POLICY_NAME,
     PLANNER_CONTRACT_NAME,
+    RECEIPT_METRICS_CONTRACT_NAME,
     PlannerChapter,
     plan_narration,
 )
@@ -66,7 +67,45 @@ AUDIOBOOK_JOB_RECEIPT_CONTRACT_NAME = "ea.telegram_epub_audiobook_job_receipt.v1
 AUDIOBOOK_RUNTIME_PREFLIGHT_CONTRACT_NAME = "ea.telegram_epub_audiobook_runtime_preflight.v1"
 VOICE_AUDITION_CONTRACT_NAME = "ea.telegram_epub_audiobook_voice_audition.v1"
 PLAYBACK_ACCEPTANCE_CONTRACT_NAME = "ea.telegram_epub_audiobook_playback_acceptance.v1"
+HUMAN_LISTENED_CANARY_ACCEPTANCE_CONTRACT_NAME = (
+    "ea.audiobook_human_listened_canary_acceptance.v1"
+)
+AUDIOBOOK_PERCEPTUAL_ATTESTATION_CONTRACT_NAME = (
+    "ea.audiobook_perceptual_attestation.v1"
+)
+AUDIOBOOK_PLAYBACK_CALLBACK_CONTRACT_NAME = (
+    "ea.audiobook_playback_attestation_callback.v2"
+)
+AUDIOBOOK_PERCEPTUAL_ATTESTATION_VERSION = 1
+AUDIOBOOK_PERCEPTUAL_ATTESTATION_CHECKS = (
+    "no_clipped_starts_or_ends",
+    "no_abrupt_level_reset",
+    "natural_paragraph_and_scene_timing",
+    "distinct_dialogue_voice",
+    "stable_speaker_identity",
+    "correct_words",
+    "useful_chapter_navigation",
+)
+AUDIOBOOK_PERCEPTUAL_ATTESTATION_PROMPT = (
+    "After listening to the full canary, tap 'Attest all 7 checks pass' only if "
+    "starts and ends are not clipped, levels do not reset abruptly, paragraph "
+    "and scene timing sounds natural, dialogue voices are distinct, each "
+    "speaker stays stable, the words are correct, and chapter navigation is "
+    "useful. Tapping attests every check."
+)
+AUDIOBOOK_PUBLICATION_GATE_CONTRACT_NAME = (
+    "ea.audiobook_publication_audio_gate.v2"
+)
+_AUDIOBOOK_PUBLICATION_REQUIRED_NARRATION_PLAN_CONTRACT_NAME = (
+    "ea.audiobook_narration_plan.v5"
+)
 VOICE_FEEDBACK_CONTRACT_NAME = "ea.audiobook_voice_feedback.v1"
+AUTOMATIC_NARRATOR_SELECTION_CONTRACT_NAME = (
+    "ea.audiobook_automatic_narrator_selection.v1"
+)
+AUTOMATIC_NARRATOR_SELECTION_POLICY_NAME = (
+    "ea.audiobook_automatic_narrator_selection_policy.v1"
+)
 EA_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DURABLE_AUDIOBOOK_ROOT = Path(os.environ.get("EA_AUDIOBOOK_DURABLE_STORAGE_ROOT") or EA_ROOT / "data" / "audiobooks")
 DEFAULT_JOB_ROOT = DEFAULT_DURABLE_AUDIOBOOK_ROOT / "jobs"
@@ -317,6 +356,10 @@ class _AudiobookLockTimeout(TimeoutError):
     """Raised only when an audiobook transaction lock cannot be acquired."""
 
 
+class _AudiobookSourceAuthorityError(RuntimeError):
+    """Raised when extracted chapter bytes cannot be bound to their manifest."""
+
+
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
@@ -506,13 +549,25 @@ def _audiobook_cinematic_single_pass() -> bool:
     return _env_bool("EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS", False)
 
 
-def _audiobook_cinematic_max_chars_per_request() -> int:
+def _audiobook_unmixr_max_chars_per_request() -> int:
     return _env_int(
-        "EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST",
-        _env_int("EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST", 1800, minimum=1000, maximum=200000),
+        "EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST",
+        1800,
         minimum=1000,
         maximum=200000,
     )
+
+
+def _audiobook_cinematic_max_chars_per_request() -> int:
+    configured = _env_int(
+        "EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST",
+        _audiobook_unmixr_max_chars_per_request(),
+        minimum=1000,
+        maximum=200000,
+    )
+    # Cinematic planning still renders through Unmixr's short-TTS endpoint.
+    # A larger cinematic preference must never escape the provider request cap.
+    return min(configured, _audiobook_unmixr_max_chars_per_request())
 
 
 def _cinematic_master_audio_path(audio_dir: Path) -> Path:
@@ -527,16 +582,164 @@ def _cinematic_master_audio_signature_path(audio_dir: Path) -> Path:
     return audio_dir / "_cinematic_master.signature"
 
 
+_CINEMATIC_CHAPTER_TIMELINE_CONTRACT = "ea.audiobook_cinematic_chapter_timeline.v1"
+
+
+def _cinematic_chapter_timeline_path(audio_dir: Path) -> Path:
+    return audio_dir / "_cinematic_chapter_timeline.json"
+
+
+def _cinematic_timeline_sha256(payload: dict[str, object]) -> str:
+    normalized = dict(payload)
+    normalized.pop("timeline_sha256", None)
+    return _sha256_bytes(
+        json.dumps(
+            normalized,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    )
+
+
+def _load_validated_cinematic_chapter_timeline(
+    *,
+    timeline_path: Path,
+    master_path: Path,
+    chapters: tuple[EpubChapter, ...],
+    render_signature: str = "",
+) -> dict[str, object]:
+    try:
+        if not timeline_path.is_file() or timeline_path.stat().st_mode & 0o077:
+            return {}
+        payload = json.loads(timeline_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    if payload.get("contract_name") != _CINEMATIC_CHAPTER_TIMELINE_CONTRACT:
+        return {}
+    if str(payload.get("timeline_sha256") or "") != _cinematic_timeline_sha256(payload):
+        return {}
+    if not master_path.is_file() or str(payload.get("master_sha256") or "") != _sha256_file(master_path):
+        return {}
+    if render_signature and str(payload.get("render_signature") or "") != render_signature:
+        return {}
+    expected_chapters = [chapter for chapter in chapters if int(chapter.char_count) > 0]
+    rows = [dict(row) for row in list(payload.get("chapters") or []) if isinstance(row, dict)]
+    if len(rows) != len(expected_chapters) or not rows:
+        return {}
+    cursor = 0
+    for expected, row in zip(expected_chapters, rows, strict=True):
+        start_ms = int(row.get("start_ms") or 0)
+        end_ms = int(row.get("end_ms") or 0)
+        if (
+            int(row.get("chapter_index") or 0) != expected.index
+            or str(row.get("title") or "") != str(expected.title or "")
+            or start_ms != cursor
+            or end_ms <= start_ms
+        ):
+            return {}
+        cursor = end_ms
+    try:
+        master_duration_ms = _probe_audio_duration_ms(master_path)
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+        return {}
+    if abs(cursor - master_duration_ms) > max(100, int(master_duration_ms * 0.002)):
+        return {}
+    return payload
+
+
+def _build_cinematic_chapter_timeline(
+    *,
+    master_path: Path,
+    chapters: tuple[EpubChapter, ...],
+    timeline_parts: tuple[tuple[int, Path], ...],
+    render_signature: str,
+) -> dict[str, object]:
+    expected_chapters = [chapter for chapter in chapters if int(chapter.char_count) > 0]
+    if not expected_chapters or not timeline_parts:
+        raise RuntimeError("cinematic_chapter_timeline_inputs_missing")
+    expected_indexes = {chapter.index for chapter in expected_chapters}
+    durations_by_chapter = {chapter.index: 0 for chapter in expected_chapters}
+    for chapter_index, path in timeline_parts:
+        if chapter_index not in expected_indexes:
+            raise RuntimeError("cinematic_chapter_timeline_part_unbound")
+        durations_by_chapter[chapter_index] += _probe_audio_duration_ms(path)
+    if any(durations_by_chapter[chapter.index] <= 0 for chapter in expected_chapters):
+        raise RuntimeError("cinematic_chapter_timeline_chapter_missing")
+    master_duration_ms = _probe_audio_duration_ms(master_path)
+    rows: list[dict[str, object]] = []
+    cursor = 0
+    for position, chapter in enumerate(expected_chapters):
+        end_ms = cursor + durations_by_chapter[chapter.index]
+        if position == len(expected_chapters) - 1:
+            end_ms = master_duration_ms
+        if end_ms <= cursor:
+            raise RuntimeError("cinematic_chapter_timeline_duration_invalid")
+        rows.append(
+            {
+                "chapter_index": chapter.index,
+                "title": str(chapter.title or ""),
+                "start_ms": cursor,
+                "end_ms": end_ms,
+                "duration_ms": end_ms - cursor,
+            }
+        )
+        cursor = end_ms
+    if cursor != master_duration_ms:
+        raise RuntimeError("cinematic_chapter_timeline_master_duration_mismatch")
+    payload: dict[str, object] = {
+        "contract_name": _CINEMATIC_CHAPTER_TIMELINE_CONTRACT,
+        "generated_at": _now_iso(),
+        "render_signature": render_signature,
+        "master_sha256": _sha256_file(master_path),
+        "master_duration_ms": master_duration_ms,
+        "chapter_count": len(rows),
+        "chapters": rows,
+        "raw_paths_exposed": False,
+    }
+    payload["timeline_sha256"] = _cinematic_timeline_sha256(payload)
+    return payload
+
+
 def _collect_cinematic_track_input(*, job_dir: Path, chapters: tuple[EpubChapter, ...]) -> tuple[tuple[EpubChapter, str], ...]:
     if not chapters:
         return ()
+    chapter_root = (job_dir / "chapters").resolve()
     values: list[tuple[EpubChapter, str]] = []
+    seen_indexes: set[int] = set()
     for chapter in chapters:
-        source_text = (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
+        if chapter.index <= 0 or chapter.index in seen_indexes:
+            raise _AudiobookSourceAuthorityError(
+                f"chapter_index_invalid_or_duplicate:{chapter.index}"
+            )
+        seen_indexes.add(chapter.index)
         expected_hash = str(chapter.sha256 or "").strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+            raise _AudiobookSourceAuthorityError(
+                f"chapter_text_hash_missing_or_invalid:{chapter.index}"
+            )
+        text_path_name = str(chapter.text_path or "").strip()
+        if not text_path_name:
+            raise _AudiobookSourceAuthorityError(
+                f"chapter_text_path_missing:{chapter.index}"
+            )
+        try:
+            source_path = (chapter_root / text_path_name).resolve()
+            source_path.relative_to(chapter_root)
+        except (OSError, ValueError):
+            raise _AudiobookSourceAuthorityError(
+                f"chapter_text_path_invalid:{chapter.index}"
+            ) from None
+        try:
+            source_text = source_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            raise _AudiobookSourceAuthorityError(
+                f"chapter_text_unreadable:{chapter.index}"
+            ) from None
         if (
             source_text.endswith("\n")
-            and re.fullmatch(r"[0-9a-f]{64}", expected_hash)
             and _sha256_bytes(source_text.encode("utf-8")) != expected_hash
             and _sha256_bytes(source_text[:-1].encode("utf-8")) == expected_hash
         ):
@@ -544,6 +747,10 @@ def _collect_cinematic_track_input(*, job_dir: Path, chapters: tuple[EpubChapter
             # source text. Remove only that proven synthetic byte; never strip
             # authorial leading/trailing whitespace heuristically.
             source_text = source_text[:-1]
+        # Return readable, contained bytes even when their manifest hash/count
+        # disagrees so the exact planner can materialize a private blocked
+        # receipt with structure-provenance diagnostics. Synthesis still never
+        # sees a plan whose authority checks failed.
         values.append((chapter, source_text))
     return tuple(values)
 
@@ -553,17 +760,57 @@ def _build_exact_narration_plan(
     chapter_inputs: tuple[tuple[EpubChapter, str], ...],
     render_language: str,
     max_chars: int,
+    job_dir: Path | None = None,
 ) -> dict[str, object]:
+    source_integrity_issues: list[str] = []
+    for chapter, text in chapter_inputs:
+        expected_hash = str(chapter.sha256 or "").strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+            source_integrity_issues.append(
+                f"chapter_text_hash_missing_or_invalid:{chapter.index}"
+            )
+        elif _sha256_bytes(text.encode("utf-8")) != expected_hash:
+            source_integrity_issues.append(
+                f"chapter_text_hash_mismatch:{chapter.index}"
+            )
+        if int(chapter.char_count) != len(text):
+            source_integrity_issues.append(
+                f"chapter_char_count_mismatch:{chapter.index}"
+            )
+    if source_integrity_issues:
+        return {
+            "contract_name": NARRATION_PLAN_CONTRACT_NAME,
+            "receipt_metrics_contract": RECEIPT_METRICS_CONTRACT_NAME,
+            "status": "blocked_source_integrity_or_planning",
+            "source_coverage": "mismatch",
+            "coverage_complete": False,
+            "source_integrity_verified": False,
+            "source_integrity_issues": list(dict.fromkeys(source_integrity_issues)),
+            "passages": [],
+            "spans": [],
+            "speakers": [],
+            "dialogue_span_count": 0,
+            "unsafe_or_very_short_passage_count": 0,
+            "passage_size_evidence": {
+                "minimum_chars": 0,
+                "maximum_chars": 0,
+                "total_chars": 0,
+                "average_chars": 0.0,
+            },
+            "unsafe_or_very_short_passage_runs": [],
+            "boundary_counts": {},
+            "inserted_pause_seconds_by_kind": {},
+            "total_inserted_pause_seconds": 0.0,
+            "total_internal_pause_intent_seconds": 0.0,
+            "plan_sha256": "",
+            "source_aggregate_sha256": "",
+        }
     planner_chapters = tuple(
         PlannerChapter(
             index=chapter.index,
             source_href=chapter.source_href,
             text=text,
-            expected_sha256=(
-                str(chapter.sha256).strip().lower()
-                if re.fullmatch(r"[0-9a-f]{64}", str(chapter.sha256 or "").strip().lower())
-                else ""
-            ),
+            expected_sha256=str(chapter.sha256).strip().lower(),
         )
         for chapter, text in chapter_inputs
         if text
@@ -571,6 +818,7 @@ def _build_exact_narration_plan(
     if not planner_chapters:
         return {
             "contract_name": NARRATION_PLAN_CONTRACT_NAME,
+            "receipt_metrics_contract": RECEIPT_METRICS_CONTRACT_NAME,
             "status": "ready",
             "source_coverage": "complete",
             "coverage_complete": True,
@@ -579,44 +827,224 @@ def _build_exact_narration_plan(
             "passages": [],
             "speakers": [],
             "dialogue_span_count": 0,
+            "unsafe_or_very_short_passage_count": 0,
+            "passage_size_evidence": {
+                "minimum_chars": 0,
+                "maximum_chars": 0,
+                "total_chars": 0,
+                "average_chars": 0.0,
+            },
+            "unsafe_or_very_short_passage_runs": [],
+            "boundary_counts": {},
+            "inserted_pause_seconds_by_kind": {},
+            "total_inserted_pause_seconds": 0.0,
+            "total_internal_pause_intent_seconds": 0.0,
             "plan_sha256": _sha256_bytes(b"empty-audiobook-plan-v2"),
         }
-    return plan_narration(
+    pause_policy = {
+        "continuation": _env_float(
+            "EA_AUDIOBOOK_CONTINUATION_PAUSE_SECONDS",
+            0.12,
+            minimum=0.0,
+            maximum=1.0,
+        ),
+        "sentence": _env_float(
+            "EA_AUDIOBOOK_SENTENCE_PAUSE_SECONDS",
+            0.18,
+            minimum=0.0,
+            maximum=1.5,
+        ),
+        "paragraph": _audiobook_paragraph_pause_seconds(),
+        "speaker": _audiobook_speaker_pause_seconds(),
+        "scene": _audiobook_scene_pause_seconds(),
+        "chapter": _env_float(
+            "EA_AUDIOBOOK_CHAPTER_PAUSE_SECONDS",
+            1.5,
+            minimum=0.0,
+            maximum=8.0,
+        ),
+    }
+    batch_paragraphs = _audiobook_batch_paragraphs_with_natural_pauses()
+    cache_binding = {
+        "contract_name": NARRATION_PLAN_CONTRACT_NAME,
+        "language": render_language,
+        "max_chars": max_chars,
+        "batch_paragraphs_with_natural_pauses": batch_paragraphs,
+        "pause_policy": pause_policy,
+        "receipt_metrics_contract": RECEIPT_METRICS_CONTRACT_NAME,
+        "source_aggregate": [
+            {
+                "chapter_index": chapter.index,
+                "source_href": chapter.source_href,
+                "source_text_sha256": _sha256_bytes(chapter.text.encode("utf-8")),
+            }
+            for chapter in planner_chapters
+        ],
+    }
+    cache_key = _sha256_bytes(
+        json.dumps(
+            cache_binding,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    )
+    cache_path = (
+        job_dir
+        / "narration_plans"
+        / f"exact-{NARRATION_PLAN_CONTRACT_NAME.replace('.', '_')}-{cache_key}.json"
+        if job_dir is not None
+        else None
+    )
+    if cache_path is not None:
+        cached = _load_validated_exact_narration_plan_cache(
+            cache_path=cache_path,
+            planner_chapters=planner_chapters,
+            cache_binding_sha256=cache_key,
+            render_language=render_language,
+            max_chars=max_chars,
+            batch_paragraphs_with_natural_pauses=batch_paragraphs,
+            pause_policy=pause_policy,
+        )
+        if cached:
+            cached["planner_cache"] = {
+                "status": "reused",
+                "binding_sha256": cache_key,
+            }
+            return cached
+    plan = plan_narration(
         planner_chapters,
         language=render_language,
         max_chars=max_chars,
-        batch_paragraphs_with_natural_pauses=(
-            _audiobook_batch_paragraphs_with_natural_pauses()
-        ),
-        pause_policy={
-            "continuation": _env_float(
-                "EA_AUDIOBOOK_CONTINUATION_PAUSE_SECONDS",
-                0.12,
-                minimum=0.0,
-                maximum=1.0,
-            ),
-            "sentence": _env_float(
-                "EA_AUDIOBOOK_SENTENCE_PAUSE_SECONDS",
-                0.18,
-                minimum=0.0,
-                maximum=1.5,
-            ),
-            "paragraph": _audiobook_paragraph_pause_seconds(),
-            "speaker": _audiobook_speaker_pause_seconds(),
-            "scene": _audiobook_scene_pause_seconds(),
-            "chapter": _env_float(
-                "EA_AUDIOBOOK_CHAPTER_PAUSE_SECONDS",
-                1.5,
-                minimum=0.0,
-                maximum=8.0,
-            ),
-        },
+        batch_paragraphs_with_natural_pauses=batch_paragraphs,
+        pause_policy=pause_policy,
     )
+    plan["planner_cache"] = {
+        "status": "materialized" if cache_path is not None else "disabled",
+        "binding_sha256": cache_key,
+    }
+    if cache_path is not None:
+        try:
+            cached_payload = dict(plan)
+            cached_payload["cache_binding_sha256"] = cache_key
+            _write_private_json(cache_path, cached_payload, private_parent=True)
+        except (OSError, RuntimeError):
+            plan["planner_cache"] = {
+                "status": "write_failed",
+                "binding_sha256": cache_key,
+            }
+    return plan
+
+
+def _load_validated_exact_narration_plan_cache(
+    *,
+    cache_path: Path,
+    planner_chapters: tuple[PlannerChapter, ...],
+    cache_binding_sha256: str,
+    render_language: str,
+    max_chars: int,
+    batch_paragraphs_with_natural_pauses: bool,
+    pause_policy: dict[str, float],
+) -> dict[str, object]:
+    try:
+        if not cache_path.is_file() or cache_path.stat().st_mode & 0o077:
+            return {}
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    if payload.get("contract_name") != NARRATION_PLAN_CONTRACT_NAME:
+        return {}
+    if (
+        payload.get("receipt_metrics_contract")
+        != RECEIPT_METRICS_CONTRACT_NAME
+    ):
+        return {}
+    if str(payload.get("cache_binding_sha256") or "") != cache_binding_sha256:
+        return {}
+    if not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("plan_sha256") or "")):
+        return {}
+
+    # The filename binding proves only the source and planner inputs. Recompute
+    # the deterministic plan to prove that every cached structural field still
+    # belongs to those inputs, including passage text, passage fingerprints,
+    # span fingerprints, and the aggregate plan hash. A cache-local digest
+    # alone would let coherent or partial tampering be mistaken for authority.
+    try:
+        authoritative_plan = plan_narration(
+            planner_chapters,
+            language=render_language,
+            max_chars=max_chars,
+            batch_paragraphs_with_natural_pauses=(
+                batch_paragraphs_with_natural_pauses
+            ),
+            pause_policy=pause_policy,
+        )
+    except (TypeError, ValueError):
+        return {}
+    cached_plan = dict(payload)
+    cached_plan.pop("cache_binding_sha256", None)
+    cached_plan.pop("planner_cache", None)
+    if cached_plan != authoritative_plan:
+        return {}
+
+    spans = [dict(row) for row in list(payload.get("spans") or []) if isinstance(row, dict)]
+    chapters_by_index = {chapter.index: chapter for chapter in planner_chapters}
+    for chapter in planner_chapters:
+        chapter_spans = [
+            row
+            for row in spans
+            if int(row.get("source_chapter_index") or 0) == chapter.index
+        ]
+        chapter_spans.sort(key=lambda row: int(row.get("char_start") or 0))
+        cursor = 0
+        reconstructed: list[str] = []
+        for row in chapter_spans:
+            start = int(row.get("char_start") or 0)
+            end = int(row.get("char_end") or 0)
+            source_text = str(row.get("source_text") or "")
+            if start != cursor or end <= start or chapter.text[start:end] != source_text:
+                return {}
+            if str(row.get("source_text_sha256") or "") != _sha256_bytes(
+                source_text.encode("utf-8")
+            ):
+                return {}
+            reconstructed.append(source_text)
+            cursor = end
+        if cursor != len(chapter.text) or "".join(reconstructed) != chapter.text:
+            return {}
+    passages = list(payload.get("passages") or [])
+    if not all(isinstance(row, dict) for row in passages):
+        return {}
+    for row in passages:
+        chapter_index = int(row.get("source_chapter_index") or 0)
+        chapter = chapters_by_index.get(chapter_index)
+        start = int(row.get("char_start") or 0)
+        end = int(row.get("char_end") or 0)
+        text = row.get("text")
+        if (
+            chapter is None
+            or not isinstance(text, str)
+            or start < 0
+            or end <= start
+            or end > len(chapter.text)
+            or chapter.text[start:end] != text
+            or str(row.get("text_sha256") or "")
+            != _sha256_bytes(text.encode("utf-8"))
+            or int(row.get("char_count") or 0) != len(text)
+        ):
+            return {}
+    payload.pop("cache_binding_sha256", None)
+    return payload
 
 
 def _public_exact_narration_plan_summary(plan: dict[str, object]) -> dict[str, object]:
     return {
         "contract_name": str(plan.get("contract_name") or NARRATION_PLAN_CONTRACT_NAME),
+        "receipt_metrics_contract": str(
+            plan.get("receipt_metrics_contract") or ""
+        ),
         "status": str(plan.get("status") or "blocked"),
         "plan_sha256": str(plan.get("plan_sha256") or ""),
         "source_aggregate_sha256": str(plan.get("source_aggregate_sha256") or ""),
@@ -634,6 +1062,30 @@ def _public_exact_narration_plan_summary(plan: dict[str, object]) -> dict[str, o
         ),
         "speaker_count": int(plan.get("speaker_count") or 0),
         "boundary_counts": dict(plan.get("boundary_counts") or {}),
+        "inserted_pause_seconds_by_kind": dict(
+            plan.get("inserted_pause_seconds_by_kind") or {}
+        ),
+        "total_inserted_pause_seconds": float(
+            plan.get("total_inserted_pause_seconds") or 0.0
+        ),
+        "total_internal_pause_intent_seconds": float(
+            plan.get("total_internal_pause_intent_seconds") or 0.0
+        ),
+        "passage_size_evidence": dict(
+            plan.get("passage_size_evidence") or {}
+        ),
+        "unsafe_or_very_short_passage_count": int(
+            plan.get("unsafe_or_very_short_passage_count") or 0
+        ),
+        "unsafe_or_very_short_passage_runs": list(
+            plan.get("unsafe_or_very_short_passage_runs") or []
+        ),
+        "planner_cache": {
+            "status": str(dict(plan.get("planner_cache") or {}).get("status") or ""),
+            "binding_sha256": str(
+                dict(plan.get("planner_cache") or {}).get("binding_sha256") or ""
+            ),
+        },
         "raw_text_exposed": False,
         "raw_voice_ids_exposed": False,
     }
@@ -708,6 +1160,8 @@ def _cinematic_track_signature(
         "speaker_pause_seconds": _audiobook_speaker_pause_seconds(),
         "segmentation": "semantic_sentence_source_boundary_and_explicit_dialogue_v1",
         "narration_plan_contract": NARRATION_PLAN_CONTRACT_NAME,
+        "boundary_policy": BOUNDARY_POLICY_NAME,
+        "speaker_cast_policy": SPEAKER_CAST_POLICY_NAME,
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -729,6 +1183,7 @@ def _cinematic_master_mode_compatible(mode: str, *, dialogue_voice_enabled: bool
         return mode in {
             _CINEMATIC_MASTER_SINGLE_PASS_MODE,
             _CINEMATIC_MASTER_SEGMENTED_FALLBACK_MODE,
+            _CINEMATIC_MASTER_SEMANTIC_PASS_MODE,
         }
     return mode == _CINEMATIC_MASTER_SEMANTIC_PASS_MODE
 
@@ -747,7 +1202,13 @@ def _discover_or_build_cinematic_master_audio(
 
     cinematic_mode_path = _cinematic_master_audio_mode_path(audio_dir)
     cinematic_signature_path = _cinematic_master_audio_signature_path(audio_dir)
-    cinematic_track_input = _collect_cinematic_track_input(job_dir=job_dir, chapters=chapters)
+    try:
+        cinematic_track_input = _collect_cinematic_track_input(
+            job_dir=job_dir,
+            chapters=chapters,
+        )
+    except _AudiobookSourceAuthorityError:
+        return None
     if not cinematic_track_input:
         return None
     configured_dialogue_voice_selection = _configured_dialogue_voice_selection(job_dir)
@@ -778,6 +1239,7 @@ def _discover_or_build_cinematic_master_audio(
         chapter_inputs=tuple(cinematic_track_input),
         render_language=render_language,
         max_chars=_audiobook_cinematic_max_chars_per_request(),
+        job_dir=job_dir,
     )
     if exact_plan.get("status") != "ready":
         return None
@@ -829,6 +1291,23 @@ def _discover_or_build_cinematic_master_audio(
         or not cinematic_signature_cached
         or cinematic_signature_cached != cinematic_signature_expected
     ):
+        return None
+
+    cinematic_output_binding = _load_validated_audio_cache_output_binding(
+        audio_path=cinematic_master,
+        cache_kind="cinematic_master",
+        render_fingerprint=cinematic_signature_expected,
+    )
+    if not cinematic_output_binding:
+        return None
+
+    cinematic_timeline = _load_validated_cinematic_chapter_timeline(
+        timeline_path=_cinematic_chapter_timeline_path(audio_dir),
+        master_path=cinematic_master,
+        chapters=chapters,
+        render_signature=cinematic_signature_expected,
+    )
+    if not cinematic_timeline:
         return None
 
     return cinematic_master
@@ -2149,7 +2628,13 @@ def _voice_preset_from_unmixr_row(row: dict[str, object], *, use_case: str, inde
         return None
     label = str(row.get("character") or row.get("label") or row.get("name") or f"Audio Voice {index}").strip()
     base_key = _normalize_tag(label) or f"voice_{index:02d}"
-    preset_key = f"unmixr_{base_key}_{voice_id[:8].lower()}"
+    # Provider identifiers are private credentials/capability references.  A
+    # public preset key may be stable, but must never repeat a raw identifier
+    # prefix (the legacy form did exactly that with ``voice_id[:8]``).
+    provider_reference = _sha256_bytes(
+        f"unmixr|{voice_id}".encode("utf-8")
+    )[:16]
+    preset_key = f"unmixr_{base_key}_{provider_reference}"
     language = _normalize_language(
         row.get("language")
         or row.get("locale")
@@ -2170,6 +2655,59 @@ def _voice_preset_from_unmixr_row(row: dict[str, object], *, use_case: str, inde
         default=False,
         source=f"discovery:unmixr:{use_case}",
     )
+
+
+def _voice_preset_catalog_provenance(preset: VoicePreset) -> dict[str, object]:
+    """Return normalized, digest-only provenance for one private catalog row."""
+    source = " ".join(str(preset.source or "").split()).strip()
+    payload = {
+        "voice_id_sha256": _sha256_bytes(preset.voice_id.encode("utf-8")),
+        "preset_key_sha256": _sha256_bytes(preset.preset_key.encode("utf-8")),
+        "label_sha256": _sha256_bytes(preset.label.encode("utf-8")),
+        "language": _normalize_language(preset.language),
+        "supported_languages": sorted(
+            {
+                _normalize_language(value)
+                for value in preset.supported_languages
+                if _normalize_language(value)
+            }
+        ),
+        "tags": sorted({_normalize_tag(value) for value in preset.tags if _normalize_tag(value)}),
+        "default": bool(preset.default),
+        "source_sha256": _sha256_bytes(source.encode("utf-8")) if source else "",
+    }
+    return {
+        **payload,
+        "catalog_entry_sha256": _sha256_bytes(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ),
+    }
+
+
+def _voice_catalog_provenance(presets: tuple[VoicePreset, ...]) -> dict[str, str]:
+    entries = [_voice_preset_catalog_provenance(preset) for preset in presets]
+    entry_hashes = sorted(
+        str(entry.get("catalog_entry_sha256") or "")
+        for entry in entries
+        if str(entry.get("catalog_entry_sha256") or "")
+    )
+    source_hashes = sorted(
+        {
+            str(entry.get("source_sha256") or "")
+            for entry in entries
+            if str(entry.get("source_sha256") or "")
+        }
+    )
+    return {
+        "catalog_sha256": _sha256_bytes(
+            json.dumps(entry_hashes, separators=(",", ":")).encode("utf-8")
+        ),
+        "catalog_source_provenance_sha256": _sha256_bytes(
+            json.dumps(source_hashes, separators=(",", ":")).encode("utf-8")
+        ),
+    }
 
 
 def _discover_unmixr_voice_presets(*, target_count: int) -> tuple[VoicePreset, ...]:
@@ -2738,11 +3276,18 @@ def _voice_feedback_key(*, preset_key: object, voice_id_sha256: object, label: o
 
 def _load_audiobook_voice_feedback() -> dict[str, object]:
     path = audiobook_voice_feedback_path()
-    if not path.is_file():
-        return {"contract_name": VOICE_FEEDBACK_CONTRACT_NAME, "voices": {}, "books": {}}
     try:
+        if not path.is_file():
+            return {
+                "contract_name": VOICE_FEEDBACK_CONTRACT_NAME,
+                "voices": {},
+                "books": {},
+            }
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        # Feedback improves ranking but is never an authority input.  A
+        # protected/disconnected jobs mount must behave like absent feedback,
+        # not abort otherwise deterministic narrator selection.
         return {"contract_name": VOICE_FEEDBACK_CONTRACT_NAME, "voices": {}, "books": {}}
     if not isinstance(payload, dict):
         return {"contract_name": VOICE_FEEDBACK_CONTRACT_NAME, "voices": {}, "books": {}}
@@ -2754,10 +3299,13 @@ def _load_audiobook_voice_feedback() -> dict[str, object]:
 
 def _write_audiobook_voice_feedback(payload: dict[str, object]) -> None:
     path = audiobook_voice_feedback_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload["contract_name"] = VOICE_FEEDBACK_CONTRACT_NAME
-    payload["updated_at"] = _now_iso()
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    persisted = dict(payload)
+    persisted["contract_name"] = VOICE_FEEDBACK_CONTRACT_NAME
+    persisted["updated_at"] = _now_iso()
+    # Feedback contains stable private voice references.  Reuse the same
+    # atomic fsync/replace primitive as audition and cast snapshots; it creates
+    # the destination at 0600 and never leaves a partially written JSON file.
+    _write_private_json(path, persisted)
 
 
 def _source_feedback_key(job: dict[str, object] | None = None, metadata: EpubMetadata | None = None) -> str:
@@ -2858,7 +3406,17 @@ def record_audiobook_voice_feedback(
                 "raw_source_sha_exposed": False,
             }
             payload["books"] = books
-    _write_audiobook_voice_feedback(payload)
+    try:
+        _write_audiobook_voice_feedback(payload)
+    except OSError:
+        return {
+            "status": "not_recorded",
+            "reason": "voice_feedback_storage_unavailable",
+            "action": normalized_action,
+            "voice_feedback_key_sha256": _sha256_bytes(key.encode("utf-8")),
+            "raw_voice_id_exposed": False,
+            "raw_source_sha_exposed": False,
+        }
     return {
         "status": "recorded",
         "action": normalized_action,
@@ -2897,7 +3455,13 @@ def record_audiobook_completed_voice_feedback(job: dict[str, object]) -> None:
     )
     books[source_key] = book
     payload["books"] = books
-    _write_audiobook_voice_feedback(payload)
+    try:
+        _write_audiobook_voice_feedback(payload)
+    except OSError:
+        # Completion feedback is an optional ranking hint.  The completed
+        # audiobook and its authoritative receipts must remain intact when the
+        # private feedback store is unavailable.
+        return
 
 
 def _ranked_unmixr_voice_candidates(
@@ -2919,6 +3483,7 @@ def _ranked_unmixr_voice_candidates(
                 "strategy": "book_profile_voice_selection",
             },
         }
+    catalog_provenance = _voice_catalog_provenance(presets)
     profile = profile_book_for_voice(metadata=metadata, chapters=chapters, job_dir=job_dir)
     desired_tags = set(str(item) for item in profile.get("recommended_tags") or ())
     author_gender_signal = str(profile.get("author_gender_signal") or "").strip().lower()
@@ -2926,6 +3491,7 @@ def _ranked_unmixr_voice_candidates(
     source_key = _source_feedback_key(metadata=metadata)
     candidate_rows: list[dict[str, object]] = []
     for preset in presets:
+        preset_provenance = _voice_preset_catalog_provenance(preset)
         tags = set(preset.tags)
         tag_overlap = sorted(desired_tags.intersection(tags))
         language_score = _voice_language_score(str(profile.get("language") or ""), preset.language, preset.supported_languages)
@@ -2993,6 +3559,16 @@ def _ranked_unmixr_voice_candidates(
                 "voice_feedback_dismissed_count": int(feedback.get("voice_feedback_dismissed_count") or 0),
                 "same_book_voice_reuse": bool(feedback.get("same_book_voice_reuse")),
                 "same_book_voice_adjustment": int(feedback.get("same_book_voice_adjustment") or 0),
+                "catalog_entry_sha256": str(
+                    preset_provenance.get("catalog_entry_sha256") or ""
+                ),
+                "catalog_source_provenance_sha256": str(
+                    catalog_provenance.get("catalog_source_provenance_sha256")
+                    or ""
+                ),
+                "catalog_sha256": str(
+                    catalog_provenance.get("catalog_sha256") or ""
+                ),
                 "_voice_id": preset.voice_id,
             }
         )
@@ -3010,7 +3586,245 @@ def _ranked_unmixr_voice_candidates(
         "profile": profile,
         "candidate_rows": candidate_rows,
         "candidate_count": len(candidate_rows),
+        **catalog_provenance,
     }
+
+
+def _automatic_narrator_source_provenance_sha256(
+    metadata: EpubMetadata,
+) -> str:
+    source_sha256 = str(metadata.source_sha256 or "").strip().lower()
+    if re.fullmatch(r"[0-9a-f]{64}", source_sha256) is None:
+        source_sha256 = _sha256_bytes(
+            "|".join(
+                (
+                    str(metadata.title or "").strip().casefold(),
+                    str(metadata.author or "").strip().casefold(),
+                    str(metadata.source_filename or "").strip().casefold(),
+                )
+            ).encode("utf-8")
+        )
+    payload = {
+        "source_sha256": source_sha256,
+        "language": _normalize_language(metadata.language),
+    }
+    return _sha256_bytes(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    )
+
+
+def _automatic_narrator_binding_sha256(
+    *,
+    source_provenance_sha256: str,
+    render_language: str,
+    catalog_entry_sha256: str,
+) -> str:
+    payload = {
+        "contract_name": AUTOMATIC_NARRATOR_SELECTION_CONTRACT_NAME,
+        "selection_policy": AUTOMATIC_NARRATOR_SELECTION_POLICY_NAME,
+        "source_provenance_sha256": source_provenance_sha256,
+        "render_language": _normalize_language(render_language),
+        "catalog_entry_sha256": catalog_entry_sha256,
+    }
+    return _sha256_bytes(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    )
+
+
+def _explicit_private_narrator_selection(
+    *,
+    private_payload: dict[str, object],
+    metadata: EpubMetadata,
+) -> dict[str, object]:
+    token = str(private_payload.get("selected_callback_token") or "").strip()
+    candidate = dict(
+        dict(private_payload.get("candidates") or {}).get(token) or {}
+    ) if token else {}
+    voice_id = str(candidate.get("voice_id") or "").strip()
+    public_candidate = dict(candidate.get("public") or {})
+    recorded_hash = str(
+        candidate.get("voice_id_sha256")
+        or public_candidate.get("voice_id_sha256")
+        or ""
+    ).strip()
+    if (
+        not token
+        or not voice_id
+        or recorded_hash != _sha256_bytes(voice_id.encode("utf-8"))
+        or not _voice_language_matches(
+            metadata.language,
+            str(public_candidate.get("language") or ""),
+            _split_languages(
+                public_candidate.get("supported_languages")
+                or public_candidate.get("language")
+            ),
+        )
+    ):
+        return {}
+    selected = {
+        key: value
+        for key, value in public_candidate.items()
+        if key not in {"sample_file", "sample_sha256", "sample_audio_ready"}
+    }
+    return {
+        "status": "selected",
+        "voice_id": voice_id,
+        "public": {
+            "contract_name": VOICE_AUDITION_CONTRACT_NAME,
+            "status": "selected_by_user",
+            "strategy": "explicit_private_voice_audition",
+            "selected": selected,
+            "selected_candidate_key": str(
+                private_payload.get("selected_candidate_key")
+                or candidate.get("candidate_key")
+                or ""
+            ).strip(),
+            "selected_callback_token": token,
+            "explicit_operator_choice": True,
+            "raw_voice_ids_exposed": False,
+            "sample_text_exposed": False,
+        },
+    }
+
+
+def _reused_automatic_narrator_selection(
+    *,
+    private_payload: dict[str, object],
+    metadata: EpubMetadata,
+    candidate_rows: list[dict[str, object]],
+    profile: dict[str, object],
+    catalog_sha256: str,
+    catalog_source_provenance_sha256: str,
+) -> dict[str, object]:
+    record = dict(private_payload.get("automatic_narrator_selection") or {})
+    if (
+        record.get("contract_name")
+        != AUTOMATIC_NARRATOR_SELECTION_CONTRACT_NAME
+        or record.get("selection_policy")
+        != AUTOMATIC_NARRATOR_SELECTION_POLICY_NAME
+    ):
+        return {}
+    source_provenance_sha256 = _automatic_narrator_source_provenance_sha256(
+        metadata
+    )
+    if str(record.get("source_provenance_sha256") or "") != (
+        source_provenance_sha256
+    ):
+        return {}
+    if _normalize_language(record.get("render_language")) != _normalize_language(
+        metadata.language
+    ):
+        return {}
+    voice_id = str(record.get("voice_id") or "").strip()
+    voice_hash = _sha256_bytes(voice_id.encode("utf-8")) if voice_id else ""
+    if not voice_id or str(record.get("voice_id_sha256") or "") != voice_hash:
+        return {}
+    selected = next(
+        (
+            dict(row)
+            for row in candidate_rows
+            if str(row.get("voice_id_sha256") or "") == voice_hash
+        ),
+        {},
+    )
+    catalog_entry_sha256 = str(selected.get("catalog_entry_sha256") or "")
+    if (
+        not selected
+        or str(record.get("catalog_entry_sha256") or "")
+        != catalog_entry_sha256
+    ):
+        return {}
+    binding_sha256 = _automatic_narrator_binding_sha256(
+        source_provenance_sha256=source_provenance_sha256,
+        render_language=metadata.language,
+        catalog_entry_sha256=catalog_entry_sha256,
+    )
+    if str(record.get("binding_sha256") or "") != binding_sha256:
+        return {}
+    selected.pop("_voice_id", None)
+    selected["automatic_selection_reused"] = True
+    selected["catalog_changed_since_selection"] = bool(
+        str(record.get("catalog_sha256") or "") != catalog_sha256
+        or str(record.get("catalog_source_provenance_sha256") or "")
+        != catalog_source_provenance_sha256
+    )
+    return {
+        "status": "selected",
+        "voice_id": voice_id,
+        "public": {
+            "status": "selected_automatically",
+            "strategy": "stable_private_automatic_narrator_selection",
+            "selection_policy": AUTOMATIC_NARRATOR_SELECTION_POLICY_NAME,
+            "selected": selected,
+            "book_profile": _public_book_profile(profile),
+            "candidate_count": len(candidate_rows),
+            "candidate_scores": [
+                {key: value for key, value in row.items() if key != "_voice_id"}
+                for row in candidate_rows[:8]
+            ],
+            "automatic_selection_reused": True,
+            "catalog_changed_since_selection": bool(
+                selected.get("catalog_changed_since_selection")
+            ),
+            "source_provenance_sha256": source_provenance_sha256,
+            "catalog_entry_sha256": catalog_entry_sha256,
+            "catalog_sha256": catalog_sha256,
+            "catalog_source_provenance_sha256": (
+                catalog_source_provenance_sha256
+            ),
+            "raw_voice_ids_exposed": False,
+        },
+    }
+
+
+def _persist_automatic_narrator_selection(
+    *,
+    job_dir: Path,
+    private_payload: dict[str, object],
+    metadata: EpubMetadata,
+    voice_id: str,
+    selected: dict[str, object],
+    catalog_sha256: str,
+    catalog_source_provenance_sha256: str,
+) -> None:
+    source_provenance_sha256 = _automatic_narrator_source_provenance_sha256(
+        metadata
+    )
+    catalog_entry_sha256 = str(selected.get("catalog_entry_sha256") or "")
+    voice_id_sha256 = _sha256_bytes(voice_id.encode("utf-8"))
+    record = {
+        "contract_name": AUTOMATIC_NARRATOR_SELECTION_CONTRACT_NAME,
+        "selection_policy": AUTOMATIC_NARRATOR_SELECTION_POLICY_NAME,
+        "source_provenance_sha256": source_provenance_sha256,
+        "render_language": _normalize_language(metadata.language),
+        "voice_id": voice_id,
+        "voice_id_sha256": voice_id_sha256,
+        "preset_key": str(selected.get("preset_key") or ""),
+        "preset_key_sha256": _sha256_bytes(
+            str(selected.get("preset_key") or "").encode("utf-8")
+        ) if str(selected.get("preset_key") or "") else "",
+        "catalog_entry_sha256": catalog_entry_sha256,
+        "catalog_sha256": catalog_sha256,
+        "catalog_source_provenance_sha256": (
+            catalog_source_provenance_sha256
+        ),
+        "binding_sha256": _automatic_narrator_binding_sha256(
+            source_provenance_sha256=source_provenance_sha256,
+            render_language=metadata.language,
+            catalog_entry_sha256=catalog_entry_sha256,
+        ),
+        "selected_at": _now_iso(),
+        "raw_voice_id_embedded": True,
+        "private_payload": True,
+    }
+    persisted = dict(private_payload)
+    persisted["automatic_narrator_selection"] = record
+    persisted["updated_at"] = _now_iso()
+    _write_voice_audition_private(job_dir, persisted)
 
 
 def select_unmixr_voice_for_book(
@@ -3019,6 +3833,13 @@ def select_unmixr_voice_for_book(
     chapters: tuple[EpubChapter, ...],
     job_dir: Path,
 ) -> dict[str, object]:
+    private_payload = _load_voice_audition_private(job_dir)
+    explicit_selection = _explicit_private_narrator_selection(
+        private_payload=private_payload,
+        metadata=metadata,
+    )
+    if explicit_selection:
+        return explicit_selection
     ranking = _ranked_unmixr_voice_candidates(metadata=metadata, chapters=chapters, job_dir=job_dir)
     if str(ranking.get("status") or "") == "blocked":
         return ranking
@@ -3035,6 +3856,22 @@ def select_unmixr_voice_for_book(
             },
         }
     profile = dict(ranking.get("profile") or {})
+    catalog_sha256 = str(ranking.get("catalog_sha256") or "")
+    catalog_source_provenance_sha256 = str(
+        ranking.get("catalog_source_provenance_sha256") or ""
+    )
+    reused_selection = _reused_automatic_narrator_selection(
+        private_payload=private_payload,
+        metadata=metadata,
+        candidate_rows=candidate_rows,
+        profile=profile,
+        catalog_sha256=catalog_sha256,
+        catalog_source_provenance_sha256=(
+            catalog_source_provenance_sha256
+        ),
+    )
+    if reused_selection:
+        return reused_selection
     selected, author_gender_preference_used = _select_author_gender_preferred_candidate(
         candidate_rows,
         author_gender_signal=str(profile.get("author_gender_signal") or ""),
@@ -3065,14 +3902,59 @@ def select_unmixr_voice_for_book(
     voice_id = str(selected.pop("_voice_id") or "")
     for row in candidate_rows:
         row.pop("_voice_id", None)
+    try:
+        _persist_automatic_narrator_selection(
+            job_dir=job_dir,
+            private_payload=private_payload,
+            metadata=metadata,
+            voice_id=voice_id,
+            selected=selected,
+            catalog_sha256=catalog_sha256,
+            catalog_source_provenance_sha256=(
+                catalog_source_provenance_sha256
+            ),
+        )
+    except (OSError, RuntimeError, ValueError):
+        return {
+            "status": "blocked",
+            "reason": "automatic_narrator_selection_snapshot_write_failed",
+            "voice_id": "",
+            "public": {
+                "status": "blocked",
+                "reason": "automatic_narrator_selection_snapshot_write_failed",
+                "strategy": "stable_private_automatic_narrator_selection",
+                "selection_policy": AUTOMATIC_NARRATOR_SELECTION_POLICY_NAME,
+                "source_provenance_sha256": (
+                    _automatic_narrator_source_provenance_sha256(metadata)
+                ),
+                "catalog_entry_sha256": str(
+                    selected.get("catalog_entry_sha256") or ""
+                ),
+                "raw_voice_ids_exposed": False,
+            },
+        }
     public = {
         "status": "selected" if len(candidate_rows) > 1 else "single_configured_voice",
-        "strategy": "book_profile_voice_selection",
+        "strategy": "stable_private_automatic_narrator_selection",
+        "selection_policy": AUTOMATIC_NARRATOR_SELECTION_POLICY_NAME,
         "author_gender_preference_used": author_gender_preference_used,
         "selected": selected,
         "book_profile": _public_book_profile(profile),
         "candidate_count": len(candidate_rows),
         "candidate_scores": candidate_rows[:8],
+        "automatic_selection_reused": False,
+        "catalog_changed_since_selection": False,
+        "source_provenance_sha256": (
+            _automatic_narrator_source_provenance_sha256(metadata)
+        ),
+        "catalog_entry_sha256": str(
+            selected.get("catalog_entry_sha256") or ""
+        ),
+        "catalog_sha256": catalog_sha256,
+        "catalog_source_provenance_sha256": (
+            catalog_source_provenance_sha256
+        ),
+        "raw_voice_ids_exposed": False,
     }
     return {"status": "selected", "voice_id": voice_id, "public": public}
 
@@ -3087,11 +3969,14 @@ def _voice_audition_private_path(job_dir: Path) -> Path:
 
 def _load_voice_audition_private(job_dir: Path) -> dict[str, object]:
     path = _voice_audition_private_path(job_dir)
-    if not path.is_file():
-        return {"contract_name": VOICE_AUDITION_CONTRACT_NAME, "candidates": {}}
     try:
+        if not path.is_file():
+            return {
+                "contract_name": VOICE_AUDITION_CONTRACT_NAME,
+                "candidates": {},
+            }
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return {"contract_name": VOICE_AUDITION_CONTRACT_NAME, "candidates": {}}
     if not isinstance(payload, dict):
         return {"contract_name": VOICE_AUDITION_CONTRACT_NAME, "candidates": {}}
@@ -3148,6 +4033,44 @@ def _write_private_json(path: Path, payload: dict[str, object], *, private_paren
     finally:
         if temp_path is not None and temp_path.is_file():
             temp_path.unlink(missing_ok=True)
+
+
+def _write_atomic_private_text(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp_name = tempfile.mkstemp(
+        prefix=f".{path.stem}-",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    temp_path: Path | None = Path(temp_name)
+    descriptor_owned = True
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor_owned = False
+            handle.write(value)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+        temp_path = None
+        path.chmod(0o600)
+        if path.stat().st_mode & 0o777 != 0o600:
+            raise OSError("private_file_mode_not_enforced")
+        directory_descriptor = os.open(
+            path.parent,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        if descriptor_owned:
+            with contextlib.suppress(OSError):
+                os.close(descriptor)
+        if temp_path is not None:
+            with contextlib.suppress(OSError):
+                temp_path.unlink(missing_ok=True)
 
 
 def _write_voice_audition_private(job_dir: Path, payload: dict[str, object]) -> None:
@@ -5364,9 +6287,44 @@ def _apply_audiobook_voice_audition_action_locked(
     action: str,
 ) -> dict[str, object]:
     normalized_action = _normalize_tag(action)
+    use_automatic_cast = normalized_action in {
+        "automatic",
+        "skip_preview",
+        "use_automatic",
+        "use_automatic_cast",
+    }
+    if use_automatic_cast:
+        normalized_action = "use"
     job = _load_job(job_dir)
     provider_payload = dict(job.get("provider") or {})
     voice_selection = dict(provider_payload.get("voice_selection") or {})
+    if use_automatic_cast:
+        # The signed control may be repeated under every preview so a failed
+        # first delivery cannot hide it. Its carrier never changes the
+        # decision: automatic cast always selects the first (highest-ranked)
+        # pending candidate from the locked current job.
+        ranked_pending = [
+            dict(row)
+            for row in list(voice_selection.get("pending_batch") or [])
+            if isinstance(row, dict)
+        ]
+        ranked = ranked_pending[0] if ranked_pending else {}
+        ranked_token = str(ranked.get("callback_token") or "").strip()
+        ranked_key = str(ranked.get("preset_key") or "").strip()
+        ranked_candidate = dict(
+            dict(private_payload.get("candidates") or {}).get(ranked_token)
+            or {}
+        )
+        if (
+            not ranked_token
+            or not ranked_key
+            or not ranked_candidate
+            or str(ranked_candidate.get("candidate_key") or "").strip()
+            != ranked_key
+        ):
+            raise RuntimeError("automatic_cast_ranked_candidate_missing")
+        callback_token = ranked_token
+        candidate = ranked_candidate
     candidate_key = str(candidate.get("candidate_key") or "").strip()
     public_candidate = dict(candidate.get("public") or {})
     active_for_use = _voice_audition_candidate_active_for_use(
@@ -5446,10 +6404,14 @@ def _apply_audiobook_voice_audition_action_locked(
                 "pending_batch": [],
                 "voice_language_override_by_user": explicit_language_override,
                 "voice_author_gender_override_by_user": explicit_author_gender_override,
+                "automatic_cast_approved_by_user": use_automatic_cast,
+                "optional_preview_skipped": use_automatic_cast,
                 "raw_voice_ids_exposed": False,
                 "sample_text_exposed": False,
                 "last_action": {
-                    "action": "use",
+                    "action": (
+                        "use_automatic_cast" if use_automatic_cast else "use"
+                    ),
                     "candidate_key": candidate_key,
                     "batch_advanced": False,
                     "remaining_in_batch": 0,
@@ -5486,6 +6448,11 @@ def _apply_audiobook_voice_audition_action_locked(
         job["status"] = "voice_selected"
         job["next_action"] = "render_chapter_audio"
         job["updated_at"] = _now_iso()
+        # An explicit audition action outranks and retires any earlier
+        # automatic narrator snapshot.  The callback-backed private choice is
+        # now the sole resumable authority, so a later mismatch reopening
+        # cannot resurrect a voice the user replaced.
+        private_payload.pop("automatic_narrator_selection", None)
         private_payload["selected_callback_token"] = str(callback_token or "").strip()
         private_payload["selected_candidate_key"] = candidate_key
         private_payload["updated_at"] = _now_iso()
@@ -5532,6 +6499,21 @@ def _apply_audiobook_voice_audition_action_locked(
         if candidate_key:
             dismissed.add(candidate_key)
         dismissed_identity_keys.update(_voice_candidate_identity_keys({**public_candidate, "candidate_key": candidate_key}))
+        automatic_selection = dict(
+            private_payload.get("automatic_narrator_selection") or {}
+        )
+        automatic_voice_hash = str(
+            automatic_selection.get("voice_id_sha256") or ""
+        ).strip()
+        candidate_voice_hash = str(
+            candidate.get("voice_id_sha256")
+            or public_candidate.get("voice_id_sha256")
+            or ""
+        ).strip()
+        if automatic_voice_hash and automatic_voice_hash == candidate_voice_hash:
+            private_payload.pop("automatic_narrator_selection", None)
+            private_payload["updated_at"] = _now_iso()
+            _write_voice_audition_private(job_dir, private_payload)
         feedback = record_audiobook_voice_feedback(job=job, candidate=candidate, action="dismiss")
         pending_keys = [
             str(item or "").strip()
@@ -5669,6 +6651,40 @@ def _audio_inputs_ready(
         if expected is not None:
             continue
         return False
+    return True
+
+
+def _signed_chapter_master_output_bindings_ready(
+    *,
+    job_dir: Path,
+    chapters: tuple[EpubChapter, ...],
+) -> bool:
+    audio_dir = job_dir / "audio"
+    for chapter in chapters:
+        audio_path = _chapter_audio_path(audio_dir, chapter)
+        if audio_path is None:
+            return False
+        expected_path = audio_dir / chapter.audio_filename
+        signature_path = expected_path.with_suffix(
+            expected_path.suffix + ".narration.signature"
+        )
+        if not signature_path.is_file():
+            # Unsigned operator-supplied chapter audio remains the bounded
+            # external-audio lane; a renderer-published signature opts the
+            # track into exact output provenance and may never be downgraded.
+            continue
+        try:
+            render_fingerprint = signature_path.read_text(
+                encoding="utf-8"
+            ).strip()
+        except OSError:
+            return False
+        if not _load_validated_audio_cache_output_binding(
+            audio_path=audio_path,
+            cache_kind="chapter_master",
+            render_fingerprint=render_fingerprint,
+        ):
+            return False
     return True
 
 
@@ -5931,6 +6947,153 @@ def _rendered_audio_quality_report(path: Path) -> dict[str, object]:
     }
 
 
+_STRUCTURAL_CACHED_WAV_FAILURE_REASONS = {
+    "audio_file_missing",
+    "audio_wav_metadata_invalid",
+    "audio_wav_read_failed",
+}
+
+_AUDIO_CACHE_OUTPUT_BINDING_CONTRACT = (
+    "ea.audiobook_audio_cache_output_binding.v1"
+)
+
+
+def _audio_cache_output_binding_path(audio_path: Path) -> Path:
+    return audio_path.with_suffix(audio_path.suffix + ".render-output.json")
+
+
+def _audio_cache_output_binding_sha256(payload: dict[str, object]) -> str:
+    normalized = dict(payload)
+    normalized.pop("record_sha256", None)
+    return _sha256_bytes(
+        json.dumps(
+            normalized,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    )
+
+
+def _write_audio_cache_output_binding(
+    *,
+    audio_path: Path,
+    cache_kind: str,
+    render_fingerprint: str,
+) -> dict[str, object]:
+    fingerprint = str(render_fingerprint or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+        raise ValueError("audio_cache_render_fingerprint_invalid")
+    normalized_kind = str(cache_kind or "").strip()
+    if not normalized_kind or not audio_path.is_file():
+        raise ValueError("audio_cache_output_binding_inputs_invalid")
+    audio_size_bytes = int(audio_path.stat().st_size)
+    if audio_size_bytes <= 0:
+        raise ValueError("audio_cache_output_empty")
+    payload: dict[str, object] = {
+        "contract_name": _AUDIO_CACHE_OUTPUT_BINDING_CONTRACT,
+        "cache_kind": normalized_kind,
+        "render_fingerprint": fingerprint,
+        "audio_sha256": _sha256_file(audio_path),
+        "audio_size_bytes": audio_size_bytes,
+    }
+    payload["record_sha256"] = _audio_cache_output_binding_sha256(payload)
+    _write_private_json(_audio_cache_output_binding_path(audio_path), payload)
+    return payload
+
+
+def _load_validated_audio_cache_output_binding(
+    *,
+    audio_path: Path,
+    cache_kind: str,
+    render_fingerprint: str,
+) -> dict[str, object]:
+    binding_path = _audio_cache_output_binding_path(audio_path)
+    expected_fingerprint = str(render_fingerprint or "").strip().lower()
+    expected_kind = str(cache_kind or "").strip()
+    try:
+        if (
+            not audio_path.is_file()
+            or not binding_path.is_file()
+            or binding_path.stat().st_mode & 0o777 != 0o600
+        ):
+            return {}
+        payload = json.loads(binding_path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    audio_sha256 = payload.get("audio_sha256")
+    record_sha256 = payload.get("record_sha256")
+    audio_size_bytes = payload.get("audio_size_bytes")
+    if (
+        payload.get("contract_name") != _AUDIO_CACHE_OUTPUT_BINDING_CONTRACT
+        or not expected_kind
+        or payload.get("cache_kind") != expected_kind
+        or not re.fullmatch(r"[0-9a-f]{64}", expected_fingerprint)
+        or payload.get("render_fingerprint") != expected_fingerprint
+        or not isinstance(audio_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", audio_sha256)
+        or not isinstance(record_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", record_sha256)
+        or isinstance(audio_size_bytes, bool)
+        or not isinstance(audio_size_bytes, int)
+        or audio_size_bytes <= 0
+        or record_sha256 != _audio_cache_output_binding_sha256(payload)
+    ):
+        return {}
+    try:
+        if (
+            audio_path.stat().st_size != audio_size_bytes
+            or _sha256_file(audio_path) != audio_sha256
+        ):
+            return {}
+    except OSError:
+        return {}
+    return payload
+
+
+def _cached_wav_quality_report(path: Path) -> dict[str, object]:
+    """Always validate cached WAV structure, even when quality reporting is off."""
+    report = _rendered_audio_quality_report(path)
+    if str(report.get("reason") or "") != "audio_quality_report_disabled":
+        return report
+    if not path.is_file():
+        return {"status": "failed", "reason": "audio_file_missing"}
+    if path.suffix.lower() != ".wav":
+        return report
+    try:
+        with wave.open(str(path), "rb") as wav_file:
+            channels = int(wav_file.getnchannels() or 0)
+            sample_width = int(wav_file.getsampwidth() or 0)
+            frame_rate = int(wav_file.getframerate() or 0)
+            frame_count = int(wav_file.getnframes() or 0)
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "reason": "audio_wav_read_failed",
+            "error_type": type(exc).__name__,
+        }
+    if channels <= 0 or sample_width <= 0 or frame_rate <= 0 or frame_count <= 0:
+        return {"status": "failed", "reason": "audio_wav_metadata_invalid"}
+    return report
+
+
+def _cached_wav_structurally_invalid(report: dict[str, object]) -> bool:
+    return (
+        str(report.get("status") or "").strip().lower() == "failed"
+        and str(report.get("reason") or "").strip().lower()
+        in _STRUCTURAL_CACHED_WAV_FAILURE_REASONS
+    )
+
+
+def _cached_wav_heuristic_quality_failed(report: dict[str, object]) -> bool:
+    return (
+        str(report.get("status") or "").strip().lower() == "failed"
+        and not _cached_wav_structurally_invalid(report)
+    )
+
+
 def audiobook_voice_sample_audio_quality_gate(path: Path) -> dict[str, object]:
     if not audiobook_voice_sample_audio_quality_gate_enabled():
         return {"ok": True, "status": "skipped", "reason": "voice_sample_audio_quality_gate_disabled"}
@@ -6108,7 +7271,134 @@ def _write_provider_audio_segment_file(
         target_wav=target_wav,
         normalize=False,
     )
-    return _trim_provider_wav_edge_silence(rendered)
+    canonical = _canonicalize_provider_segment_pcm(rendered)
+    return _trim_provider_wav_edge_silence(canonical)
+
+
+def _provider_segment_pcm_contract() -> str:
+    payload = {
+        "contract_name": "ea.audiobook_provider_segment_pcm.v1",
+        "codec": "pcm_s16le",
+        "channels": 1,
+        "sample_width_bytes": 2,
+        "sample_rate": 44100,
+        "loudness_mastering": False,
+    }
+    return _sha256_bytes(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+
+
+def _canonicalize_provider_segment_pcm(path: Path) -> Path:
+    if path.suffix.lower() != ".wav":
+        raise RuntimeError("provider_segment_pcm_wav_required")
+    try:
+        with wave.open(str(path), "rb") as wav_file:
+            canonical = (
+                int(wav_file.getnchannels() or 0) == 1
+                and int(wav_file.getsampwidth() or 0) == 2
+                and int(wav_file.getframerate() or 0) == 44100
+                and int(wav_file.getnframes() or 0) > 0
+            )
+    except Exception as exc:
+        raise RuntimeError("provider_segment_pcm_invalid_wav") from exc
+    if canonical:
+        return path
+    ffmpeg = shutil.which(
+        str(os.getenv("EA_FFMPEG_BIN") or "ffmpeg").strip() or "ffmpeg"
+    )
+    if not ffmpeg:
+        raise RuntimeError("provider_segment_pcm_canonicalization_ffmpeg_missing")
+    staged = path.with_name(f".{path.stem}.{uuid.uuid4().hex}.canonical.wav")
+    completed = subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-i",
+            str(path),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "44100",
+            "-c:a",
+            "pcm_s16le",
+            str(staged),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=_env_int(
+            "EA_AUDIOBOOK_AUDIO_CONVERT_TIMEOUT_SECONDS",
+            600,
+            minimum=10,
+        ),
+    )
+    if completed.returncode != 0 or not staged.is_file() or staged.stat().st_size <= 0:
+        staged.unlink(missing_ok=True)
+        raise RuntimeError("provider_segment_pcm_canonicalization_failed")
+    try:
+        with wave.open(str(staged), "rb") as wav_file:
+            staged_is_canonical = (
+                int(wav_file.getnchannels() or 0) == 1
+                and int(wav_file.getsampwidth() or 0) == 2
+                and int(wav_file.getframerate() or 0) == 44100
+                and int(wav_file.getnframes() or 0) > 0
+            )
+    except Exception:
+        staged_is_canonical = False
+    if not staged_is_canonical:
+        staged.unlink(missing_ok=True)
+        raise RuntimeError("provider_segment_pcm_canonicalization_invalid_output")
+    staged.replace(path)
+    return path
+
+
+def _write_validated_provider_audio_segment_file(
+    *,
+    audio_bytes: bytes,
+    content_type: str,
+    target_wav: Path,
+) -> tuple[Path | None, dict[str, object]]:
+    """Stage and structurally validate provider audio before replacing a cache entry."""
+    staged_wav = target_wav.with_name(
+        f".{target_wav.stem}.{uuid.uuid4().hex}.repair.wav"
+    )
+    staged_extension = (
+        _AUDIO_EXTENSION_BY_TYPE.get(str(content_type or "").split(";", 1)[0].lower())
+        or mimetypes.guess_extension(content_type or "")
+        or ".bin"
+    )
+    staged_provider = staged_wav.with_suffix(staged_extension)
+    rendered: Path | None = None
+    try:
+        rendered = _write_provider_audio_segment_file(
+            audio_bytes=audio_bytes,
+            content_type=content_type,
+            target_wav=staged_wav,
+        )
+        if rendered.suffix.lower() != ".wav":
+            return None, {
+                "status": "failed",
+                "reason": "provider_audio_wav_conversion_failed",
+            }
+        report = _cached_wav_quality_report(rendered)
+        if str(report.get("status") or "").strip().lower() == "failed":
+            return None, report
+        target_wav.parent.mkdir(parents=True, exist_ok=True)
+        rendered.replace(target_wav)
+        rendered = target_wav
+        return target_wav, report
+    except Exception as exc:
+        return None, {
+            "status": "failed",
+            "reason": "provider_audio_atomic_repair_failed",
+            "error_type": type(exc).__name__,
+        }
+    finally:
+        for candidate in (rendered, staged_wav, staged_provider):
+            if candidate is not None and candidate != target_wav:
+                candidate.unlink(missing_ok=True)
 
 
 def _merge_audio_segments_to_wav(*, segment_paths: tuple[Path, ...], target: Path) -> bool:
@@ -6584,6 +7874,7 @@ def _segment_render_fingerprint(
             str(os.getenv("EA_AUDIOBOOK_UNMIXR_PRONUNCIATION_DICT_JSON") or "").encode("utf-8")
         ),
         "provider_segment_edge_trim_contract": _audiobook_segment_edge_trim_contract(),
+        "provider_segment_pcm_contract": _provider_segment_pcm_contract(),
         "narration_plan_contract": NARRATION_PLAN_CONTRACT_NAME,
     }
     return _sha256_bytes(
@@ -6601,6 +7892,10 @@ def _chapter_master_render_signature(
 ) -> str:
     payload = {
         "contract_name": "ea.audiobook_chapter_master_signature.v1",
+        "narration_plan_contract": NARRATION_PLAN_CONTRACT_NAME,
+        "boundary_policy": BOUNDARY_POLICY_NAME,
+        "speaker_cast_policy": SPEAKER_CAST_POLICY_NAME,
+        "cast_map_sha256": str(speaker_cast.get("cast_map_sha256") or ""),
         "chapter_index": chapter.index,
         "source_href": chapter.source_href,
         "source_text_sha256": str(chapter.sha256 or ""),
@@ -8273,6 +9568,26 @@ def _resolve_audiobook_speaker_cast(
                 if selected_preset is not None
                 else str(approved.get("source") or selection_source)
             ),
+            "voice_catalog_preset_key": (
+                selected_preset.preset_key
+                if selected_preset is not None
+                else ""
+            ),
+            "voice_catalog_language": (
+                selected_preset.language
+                if selected_preset is not None
+                else str(approved.get("language") or "")
+            ),
+            "voice_catalog_supported_languages": (
+                list(selected_preset.supported_languages)
+                if selected_preset is not None
+                else list(approved.get("supported_languages") or [])
+            ),
+            "voice_catalog_tags": (
+                list(selected_preset.tags)
+                if selected_preset is not None
+                else []
+            ),
             "render_language_compatible": True,
             "selection_source": selection_source,
             "matched_trait_kinds": matched_traits,
@@ -8553,6 +9868,90 @@ def _safe_public_voice_label(label: object, *private_voice_ids: str) -> str:
     return "Dialogue voice"
 
 
+def _speaker_cast_entry_provenance(
+    entry: dict[str, object],
+) -> tuple[str, str]:
+    voice_id_sha256 = str(entry.get("voice_id_sha256") or "").strip()
+    catalog_source = " ".join(
+        str(entry.get("voice_catalog_source") or "").split()
+    ).strip()
+    catalog_payload = {
+        "voice_id_sha256": voice_id_sha256,
+        "preset_key_sha256": _sha256_bytes(
+            str(entry.get("voice_catalog_preset_key") or "").encode("utf-8")
+        ) if str(entry.get("voice_catalog_preset_key") or "") else "",
+        "voice_label_sha256": _sha256_bytes(
+            str(entry.get("voice_label") or "").encode("utf-8")
+        ) if str(entry.get("voice_label") or "") else "",
+        "language": _normalize_language(
+            entry.get("voice_catalog_language") or ""
+        ),
+        "supported_languages": sorted(
+            {
+                _normalize_language(value)
+                for value in list(
+                    entry.get("voice_catalog_supported_languages") or []
+                )
+                if _normalize_language(value)
+            }
+        ),
+        "tags": sorted(
+            {
+                _normalize_tag(value)
+                for value in list(entry.get("voice_catalog_tags") or [])
+                if _normalize_tag(value)
+            }
+        ),
+        "catalog_source_sha256": _sha256_bytes(
+            catalog_source.encode("utf-8")
+        ) if catalog_source else "",
+    }
+    source_payload = {
+        "speaker_id": str(entry.get("speaker_id") or ""),
+        "selection_source": str(entry.get("selection_source") or ""),
+        "speaker_detection_evidence": dict(
+            entry.get("speaker_detection_evidence") or {}
+        ),
+        "traits_sha256": _speaker_casting_stable_sha256(
+            dict(entry.get("traits") or {})
+        ),
+    }
+    return (
+        _sha256_bytes(
+            json.dumps(
+                catalog_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ),
+        _sha256_bytes(
+            json.dumps(
+                source_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ),
+    )
+
+
+def _legacy_speaker_cast_map_sha256(
+    private_cast: dict[str, dict[str, object]],
+) -> str:
+    rows = [
+        {
+            "speaker_id": speaker_id,
+            "voice_id_sha256": str(entry.get("voice_id_sha256") or ""),
+            "selection_source": str(entry.get("selection_source") or ""),
+        }
+        for speaker_id, entry in sorted(private_cast.items())
+    ]
+    return _sha256_bytes(
+        json.dumps(rows, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    )
+
+
 def _speaker_cast_result_from_private_entries(
     private_cast: dict[str, dict[str, object]],
     *,
@@ -8578,6 +9977,26 @@ def _speaker_cast_result_from_private_entries(
         if recorded_hash and recorded_hash != voice_hash:
             return {}
         entry["voice_id_sha256"] = voice_hash
+        (
+            catalog_provenance_sha256,
+            source_provenance_sha256,
+        ) = _speaker_cast_entry_provenance(entry)
+        recorded_catalog_provenance = str(
+            entry.get("catalog_provenance_sha256") or ""
+        ).strip()
+        recorded_source_provenance = str(
+            entry.get("source_provenance_sha256") or ""
+        ).strip()
+        if (
+            recorded_catalog_provenance
+            and recorded_catalog_provenance != catalog_provenance_sha256
+        ) or (
+            recorded_source_provenance
+            and recorded_source_provenance != source_provenance_sha256
+        ):
+            return {}
+        entry["catalog_provenance_sha256"] = catalog_provenance_sha256
+        entry["source_provenance_sha256"] = source_provenance_sha256
         used_voice_ids.add(voice_id)
         public_cast.append(
             {
@@ -8610,6 +10029,12 @@ def _speaker_cast_result_from_private_entries(
             "speaker_id": speaker_id,
             "voice_id_sha256": str(entry.get("voice_id_sha256") or ""),
             "selection_source": str(entry.get("selection_source") or ""),
+            "catalog_provenance_sha256": str(
+                entry.get("catalog_provenance_sha256") or ""
+            ),
+            "source_provenance_sha256": str(
+                entry.get("source_provenance_sha256") or ""
+            ),
         }
         for speaker_id, entry in sorted(private_cast.items())
     ]
@@ -8617,6 +10042,24 @@ def _speaker_cast_result_from_private_entries(
         json.dumps(fingerprint_rows, sort_keys=True, separators=(",", ":")).encode(
             "utf-8"
         )
+    )
+    catalog_provenance_sha256 = _sha256_bytes(
+        json.dumps(
+            sorted(
+                str(entry.get("catalog_provenance_sha256") or "")
+                for entry in private_cast.values()
+            ),
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    source_provenance_sha256 = _sha256_bytes(
+        json.dumps(
+            sorted(
+                str(entry.get("source_provenance_sha256") or "")
+                for entry in private_cast.values()
+            ),
+            separators=(",", ":"),
+        ).encode("utf-8")
     )
     automatic_entries = [
         entry
@@ -8644,6 +10087,8 @@ def _speaker_cast_result_from_private_entries(
         "distinct_dialogue_voice_count": len(used_voice_ids),
         "narrator_voice_excluded": narrator_voice_id not in used_voice_ids,
         "cast_map_sha256": cast_map_sha256,
+        "catalog_provenance_sha256": catalog_provenance_sha256,
+        "source_provenance_sha256": source_provenance_sha256,
         "cast": public_cast,
         "raw_voice_ids_exposed": False,
         "trait_values_exposed": False,
@@ -8669,6 +10114,8 @@ def _speaker_cast_result_from_private_entries(
         "private": private_cast,
         "public": public,
         "cast_map_sha256": cast_map_sha256,
+        "catalog_provenance_sha256": catalog_provenance_sha256,
+        "source_provenance_sha256": source_provenance_sha256,
     }
 
 
@@ -8777,9 +10224,47 @@ def _load_private_speaker_cast_snapshot(
         narrator_voice_id=narrator_voice_id,
         reused_private_snapshot=True,
     )
-    if not rebuilt or str(payload.get("cast_map_sha256") or "") != str(
-        rebuilt.get("cast_map_sha256") or ""
+    if not rebuilt:
+        return _invalid()
+    recorded_cast_map_sha256 = str(payload.get("cast_map_sha256") or "")
+    rebuilt_cast_map_sha256 = str(rebuilt.get("cast_map_sha256") or "")
+    provenance_fields_present = bool(
+        payload.get("catalog_provenance_sha256")
+        or payload.get("source_provenance_sha256")
+        or any(
+            str(entry.get("catalog_provenance_sha256") or "")
+            or str(entry.get("source_provenance_sha256") or "")
+            for entry in raw_entries.values()
+            if isinstance(entry, dict)
+        )
+    )
+    if provenance_fields_present:
+        if (
+            recorded_cast_map_sha256 != rebuilt_cast_map_sha256
+            or str(payload.get("catalog_provenance_sha256") or "")
+            != str(rebuilt.get("catalog_provenance_sha256") or "")
+            or str(payload.get("source_provenance_sha256") or "")
+            != str(rebuilt.get("source_provenance_sha256") or "")
+        ):
+            return _invalid()
+    elif recorded_cast_map_sha256 == _legacy_speaker_cast_map_sha256(
+        private_cast
     ):
+        # One-way, private migration: legacy snapshots remain resumable, but
+        # are atomically resealed with provenance-bearing fingerprints before
+        # being trusted again.
+        try:
+            _write_private_speaker_cast_snapshot(
+                job_dir=job_dir,
+                narration_plan=narration_plan,
+                narrator_voice_id=narrator_voice_id,
+                render_language=render_language,
+                speaker_cast=rebuilt,
+                default_dialogue_selection=default_dialogue_selection,
+            )
+        except (OSError, RuntimeError, ValueError):
+            return _invalid()
+    else:
         return _invalid()
     return rebuilt
 
@@ -8814,6 +10299,12 @@ def _write_private_speaker_cast_snapshot(
         ),
         "render_language": _normalize_language(render_language),
         "cast_map_sha256": str(speaker_cast.get("cast_map_sha256") or ""),
+        "catalog_provenance_sha256": str(
+            speaker_cast.get("catalog_provenance_sha256") or ""
+        ),
+        "source_provenance_sha256": str(
+            speaker_cast.get("source_provenance_sha256") or ""
+        ),
         "automatic_voice_cap": _audiobook_max_automatic_speaker_voices(),
         "sharing_policy": "bounded_neutral_sharing_v1",
         "effective_cast_inputs_sha256": _speaker_cast_effective_inputs_sha256(
@@ -8965,8 +10456,14 @@ def _write_private_narration_plan(
         actual_text_hash = _sha256_bytes(text.encode("utf-8"))
         actual_text_hashes[chapter.index] = actual_text_hash
         expected_text_hash = str(chapter.sha256 or "").strip().lower()
-        if re.fullmatch(r"[0-9a-f]{64}", expected_text_hash) and expected_text_hash != actual_text_hash:
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_text_hash):
+            source_integrity_issues.append(
+                f"chapter_text_hash_missing_or_invalid:{chapter.index}"
+            )
+        elif expected_text_hash != actual_text_hash:
             source_integrity_issues.append(f"chapter_text_hash_mismatch:{chapter.index}")
+        if int(chapter.char_count) != len(text):
+            source_integrity_issues.append(f"chapter_char_count_mismatch:{chapter.index}")
         structure_name = str(chapter.structure_path or "").strip()
         if not structure_name:
             source_provenance[chapter.index] = {"status": "legacy_structure_unverified"}
@@ -9178,6 +10675,7 @@ def _write_private_narration_plan(
     )
     plan = {
         "contract_name": NARRATION_PLAN_CONTRACT_NAME,
+        "receipt_metrics_contract": RECEIPT_METRICS_CONTRACT_NAME,
         "generated_at": _now_iso(),
         "render_mode": render_mode,
         "render_language": _normalize_language(render_language),
@@ -9200,6 +10698,7 @@ def _write_private_narration_plan(
             }
             for chapter, _ in chapter_inputs
         ],
+        "chapter_count": len(chapter_inputs),
         "passage_count": len(passages),
         "dialogue_passage_count": sum(1 for row in passages if row["speaker_role"] == "dialogue"),
         "source_canonical_sha256": source_canonical_sha256,
@@ -9213,8 +10712,14 @@ def _write_private_narration_plan(
         "source_aggregate_sha256": str(exact_plan.get("source_aggregate_sha256") or ""),
         "boundary_policy": str(exact_plan.get("boundary_policy") or BOUNDARY_POLICY_NAME),
         "boundary_counts": dict(exact_plan.get("boundary_counts") or {}),
+        "inserted_pause_seconds_by_kind": dict(
+            exact_plan.get("inserted_pause_seconds_by_kind") or {}
+        ),
         "total_inserted_pause_seconds": float(
             exact_plan.get("total_inserted_pause_seconds") or 0.0
+        ),
+        "total_internal_pause_intent_seconds": float(
+            exact_plan.get("total_internal_pause_intent_seconds") or 0.0
         ),
         "span_count": int(exact_plan.get("span_count") or 0),
         "dialogue_span_count": int(exact_plan.get("dialogue_span_count") or 0),
@@ -9227,6 +10732,12 @@ def _write_private_narration_plan(
         "speaker_count": int(exact_plan.get("speaker_count") or 0),
         "unsafe_or_very_short_passage_count": int(
             exact_plan.get("unsafe_or_very_short_passage_count") or 0
+        ),
+        "passage_size_evidence": dict(
+            exact_plan.get("passage_size_evidence") or {}
+        ),
+        "unsafe_or_very_short_passage_runs": list(
+            exact_plan.get("unsafe_or_very_short_passage_runs") or []
         ),
         "speakers": list(exact_plan.get("speakers") or []),
         "source_spans": list(exact_plan.get("spans") or []),
@@ -9272,6 +10783,7 @@ def _write_private_narration_plan(
             "status": "blocked_private_plan_write",
             "contract_name": NARRATION_PLAN_CONTRACT_NAME,
             "path": path.name,
+            "chapter_count": len(chapter_inputs),
             "passage_count": len(passages),
             "dialogue_passage_count": sum(1 for row in passages if row["speaker_role"] == "dialogue"),
             "source_coverage": plan["source_coverage"],
@@ -9283,7 +10795,9 @@ def _write_private_narration_plan(
     return {
         "status": plan["status"],
         "contract_name": NARRATION_PLAN_CONTRACT_NAME,
+        "receipt_metrics_contract": RECEIPT_METRICS_CONTRACT_NAME,
         "path": path.name,
+        "chapter_count": int(plan["chapter_count"]),
         "passage_count": plan["passage_count"],
         "dialogue_passage_count": plan["dialogue_passage_count"],
         "speaker_cast": dict(normalized_speaker_cast.get("public") or {}),
@@ -9294,6 +10808,24 @@ def _write_private_narration_plan(
         "plan_sha256": str(exact_plan.get("plan_sha256") or ""),
         "source_aggregate_sha256": str(exact_plan.get("source_aggregate_sha256") or ""),
         "boundary_counts": dict(exact_plan.get("boundary_counts") or {}),
+        "inserted_pause_seconds_by_kind": dict(
+            exact_plan.get("inserted_pause_seconds_by_kind") or {}
+        ),
+        "total_inserted_pause_seconds": float(
+            exact_plan.get("total_inserted_pause_seconds") or 0.0
+        ),
+        "total_internal_pause_intent_seconds": float(
+            exact_plan.get("total_internal_pause_intent_seconds") or 0.0
+        ),
+        "passage_size_evidence": dict(
+            exact_plan.get("passage_size_evidence") or {}
+        ),
+        "unsafe_or_very_short_passage_count": int(
+            exact_plan.get("unsafe_or_very_short_passage_count") or 0
+        ),
+        "unsafe_or_very_short_passage_runs": list(
+            exact_plan.get("unsafe_or_very_short_passage_runs") or []
+        ),
         "speaker_count": int(exact_plan.get("speaker_count") or 0),
         "attributed_dialogue_span_count": int(
             exact_plan.get("attributed_dialogue_span_count") or 0
@@ -9385,6 +10917,22 @@ def render_unmixr_chapter_audio(
             "reason": "audiobook_render_lock_timeout",
             "retryable": True,
         }
+    except _AudiobookSourceAuthorityError as exc:
+        reason = str(exc or "chapter_source_authority_invalid").strip()
+        return {
+            "status": "blocked",
+            "reason": reason,
+            "narration_plan": {
+                "contract_name": NARRATION_PLAN_CONTRACT_NAME,
+                "status": "blocked_source_integrity_or_planning",
+                "source_coverage": "mismatch",
+                "coverage_complete": False,
+                "source_integrity_verified": False,
+                "source_integrity_issues": [reason],
+                "raw_text_exposed": False,
+                "raw_voice_ids_exposed": False,
+            },
+        }
 
 
 def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubChapter, ...], metadata: EpubMetadata) -> dict[str, object]:
@@ -9457,6 +11005,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
             chapter_inputs=cinematic_track_input,
             render_language=render_language,
             max_chars=_audiobook_cinematic_max_chars_per_request(),
+            job_dir=job_dir,
         )
         if cinematic_track_input
         else {}
@@ -9526,6 +11075,8 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
         cinematic_master = _cinematic_master_audio_path(audio_dir)
         cinematic_mode_path = _cinematic_master_audio_mode_path(audio_dir)
         cinematic_signature_path = _cinematic_master_audio_signature_path(audio_dir)
+        cinematic_master_rebuild_required = cinematic_master.is_file()
+        continue_cached_cinematic_master = False
         cinematic_mode = ""
         if cinematic_mode_path.is_file():
             try:
@@ -9584,43 +11135,112 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     ),
                     "speaker_cast": dict(cinematic_speaker_cast.get("public") or {}),
                 }
-            if cinematic_master.is_file() and cinematic_master.stat().st_size > 0:
-                rendered = []
-                for chapter in chapters:
-                    source_text = (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
-                    normalized_source_text = str(source_text or "").strip()
-                    if not normalized_source_text:
-                        rendered.append({"chapter": chapter.index, "status": "skipped_empty"})
-                        continue
-                    rendered.append(
-                        {
-                            "chapter": chapter.index,
-                            "status": "already_present",
-                            "path": cinematic_master.name,
-                            "segment_count": 1,
-                            "audio_quality": _rendered_audio_quality_report(cinematic_master),
-                        }
+            if cinematic_master.is_file():
+                cached_master_output_binding = (
+                    _load_validated_audio_cache_output_binding(
+                        audio_path=cinematic_master,
+                        cache_kind="cinematic_master",
+                        render_fingerprint=cinematic_track_signature,
                     )
-                return {
-                    "status": "already_rendered",
-                    "reason": "cinematic_master_present",
-                    "chapters": rendered,
-                    "voice_selection": dict(resolved_voice_selection.get("public") or {}),
-                    "dialogue_voice_selection": _public_dialogue_voice_selection_from_cast(
-                        cinematic_speaker_cast
-                    ),
-                    "speaker_cast": dict(cinematic_speaker_cast.get("public") or {}),
-                    "narration_plan": cached_narration_plan,
-                    "cinematic_master_audio": str(cinematic_master),
-                }
-
-        if cinematic_master.is_file() and cinematic_master.stat().st_size > 0:
-            try:
-                cinematic_master.unlink()
-                cinematic_mode_path.unlink()
-                cinematic_signature_path.unlink()
-            except OSError:
-                pass
+                )
+                if not cached_master_output_binding:
+                    cinematic_master_rebuild_required = True
+                else:
+                    cached_master_quality = _cached_wav_quality_report(
+                        cinematic_master
+                    )
+                    if _cached_wav_heuristic_quality_failed(cached_master_quality):
+                        return {
+                            "status": "blocked",
+                            "reason": "cached_cinematic_master_audio_quality_failed",
+                            "audio_quality": cached_master_quality,
+                            "narration_plan": cached_narration_plan,
+                            "voice_selection": dict(resolved_voice_selection.get("public") or {}),
+                            "dialogue_voice_selection": _public_dialogue_voice_selection_from_cast(
+                                cinematic_speaker_cast
+                            ),
+                            "speaker_cast": dict(cinematic_speaker_cast.get("public") or {}),
+                        }
+                    if _cached_wav_structurally_invalid(cached_master_quality):
+                        cinematic_master_rebuild_required = True
+                    else:
+                        cached_timeline = _load_validated_cinematic_chapter_timeline(
+                            timeline_path=_cinematic_chapter_timeline_path(audio_dir),
+                            master_path=cinematic_master,
+                            chapters=chapters,
+                            render_signature=cinematic_track_signature,
+                        )
+                        if not cached_timeline:
+                            cinematic_master_rebuild_required = True
+                            cached_master_quality = {}
+                        else:
+                            cinematic_master_rebuild_required = False
+                            continue_cached_cinematic_master = True
+                if not cinematic_master_rebuild_required and continue_cached_cinematic_master:
+                    rendered = []
+                    for chapter in chapters:
+                        source_text = (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
+                        normalized_source_text = str(source_text or "").strip()
+                        if not normalized_source_text:
+                            rendered.append({"chapter": chapter.index, "status": "skipped_empty"})
+                            continue
+                        rendered.append(
+                            {
+                                "chapter": chapter.index,
+                                "status": "already_present",
+                                "path": cinematic_master.name,
+                                "segment_count": 1,
+                                "audio_quality": cached_master_quality,
+                            }
+                        )
+                    return {
+                        "status": "already_rendered",
+                        "reason": "cinematic_master_present",
+                        "chapters": rendered,
+                        "voice_selection": dict(resolved_voice_selection.get("public") or {}),
+                        "dialogue_voice_selection": _public_dialogue_voice_selection_from_cast(
+                            cinematic_speaker_cast
+                        ),
+                        "speaker_cast": dict(cinematic_speaker_cast.get("public") or {}),
+                        "narration_plan": cached_narration_plan,
+                        "cinematic_master_audio": str(cinematic_master),
+                        "chapter_timeline": {
+                            "status": "verified",
+                            "contract_name": _CINEMATIC_CHAPTER_TIMELINE_CONTRACT,
+                            "timeline_sha256": str(cached_timeline.get("timeline_sha256") or ""),
+                            "chapter_count": len(list(cached_timeline.get("chapters") or [])),
+                            "master_sha256": str(cached_timeline.get("master_sha256") or ""),
+                        },
+                        "mastering": {
+                            "status": "mastered",
+                            "final_track_mode": "cinematic_master",
+                            "contract_sha256": _audiobook_mastering_contract(),
+                            "expected_final_track_count": 1,
+                            "final_track_ready_count": 1,
+                            "final_track_mastered_this_run_count": 0,
+                            "signature_published_or_verified_count": 1,
+                            "signature_set_sha256": _sha256_bytes(
+                                json.dumps(
+                                    [
+                                        {
+                                            "track": "cinematic_master",
+                                            "signature": cinematic_track_signature,
+                                            "audio_sha256": str(
+                                                cached_master_output_binding.get(
+                                                    "audio_sha256"
+                                                )
+                                                or ""
+                                            ),
+                                        }
+                                    ],
+                                    sort_keys=True,
+                                    separators=(",", ":"),
+                                ).encode("utf-8")
+                            ),
+                            "segment_mastering": False,
+                            "final_audio_quality": cached_master_quality,
+                        },
+                    }
     voice_selection = resolved_voice_selection
     if not unmixr_auto_render_enabled():
         if _audio_inputs_ready(job_dir, chapters) and not configured_dialogue_voice_id:
@@ -9691,13 +11311,37 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
     )
     # This path uses Unmixr's short TTS endpoint. Keep segments conservative; long-form
     # Studio/Narration imports are a separate provider workflow.
-    max_chars = _env_int("EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST", 1800, minimum=1000, maximum=200000)
+    max_chars = _audiobook_unmixr_max_chars_per_request()
     pacing_policy = _unmixr_bulk_pacing_policy(job_dir=job_dir, chapters=chapters)
     segments_rendered_this_run = 0
     rendered: list[dict[str, object]] = []
+    total_reused_passage_count = 0
+    total_regenerated_passage_count = 0
+    total_invalid_cached_passage_count = 0
+    final_track_ready_count = 0
+    final_track_mastered_this_run_count = 0
+    final_track_signature_count = 0
+    final_track_quality: list[dict[str, object]] = []
+    final_track_signatures: list[dict[str, object]] = []
+
+    def _cache_summary() -> dict[str, int]:
+        return {
+            "reused_passage_count": total_reused_passage_count,
+            "regenerated_passage_count": total_regenerated_passage_count,
+            "invalid_cached_passage_count": total_invalid_cached_passage_count,
+        }
+
     if _audiobook_cinematic_narration():
         cinematic_master = _cinematic_master_audio_path(audio_dir)
         cinematic_track_chapters: list[tuple[EpubChapter, str]] = [item for item in cinematic_track_input if item[1]]
+        cinematic_chapter_cache_counts = {
+            chapter.index: {
+                "reused_passage_count": 0,
+                "regenerated_passage_count": 0,
+                "invalid_cached_passage_count": 0,
+            }
+            for chapter, _ in cinematic_track_chapters
+        }
         for chapter, text in cinematic_track_input:
             if not text:
                 rendered.append({"chapter": chapter.index, "status": "skipped_empty"})
@@ -9710,13 +11354,14 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
         cinematic_text = "\n\n\n".join(source_text for _, source_text in cinematic_track_chapters)
         if (
             _audiobook_cinematic_single_pass()
+            and len(cinematic_track_chapters) == 1
             and int(cinematic_exact_plan.get("dialogue_span_count") or 0) == 0
         ):
             segment_rows = (
                 {
                     "text": cinematic_text,
                     "speaker_role": "narrator",
-                    "source_chapter_index": 0,
+                    "source_chapter_index": cinematic_track_chapters[0][0].index,
                     "source_chapter_indexes": [
                         chapter.index for chapter, _ in cinematic_track_chapters
                     ],
@@ -9764,6 +11409,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
             part_dir = audio_dir / "_cinematic-parts"
             segment_paths: list[Path] = []
             merge_paths: list[Path] = []
+            cinematic_timeline_parts: list[tuple[int, Path]] = []
             content_types: list[str] = []
             retry_errors: list[str] = []
             segment_audio_quality: list[dict[str, object]] = []
@@ -9778,10 +11424,18 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
             regenerated_segment_count = 0
             retry_with_segmented_fallback = False
 
+            invalid_cached_passage_count = 0
+
             for segment_index, segment_row in enumerate(segment_rows, start=1):
-                segment = str(segment_row.get("text") or "").strip()
-                if not segment:
+                segment = str(segment_row.get("text") or "")
+                if not segment.strip():
                     continue
+                source_chapter_index = int(
+                    segment_row.get("source_chapter_index") or 0
+                )
+                source_chapter_cache = cinematic_chapter_cache_counts.get(
+                    source_chapter_index
+                )
                 speaker_role = str(segment_row.get("speaker_role") or "narrator")
                 segment_voice_id = _speaker_voice_id(
                     segment_row,
@@ -9796,46 +11450,92 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     speaker_role=speaker_role,
                     speaker_id=str(segment_row.get("speaker_id") or ""),
                     render_language=render_language,
-                )[:16]
-                segment_target = (
-                    cinematic_master
-                    if cinematic_render_mode == _CINEMATIC_MASTER_SINGLE_PASS_MODE
-                    else part_dir
-                    / f"passage-{segment_render_hash}.wav"
                 )
-                if segment_target.is_file() and segment_target.stat().st_size > 0:
-                    reused_segment_count += 1
-                    segment_paths.append(segment_target)
-                    merge_paths.append(segment_target)
-                    content_types.append("existing")
-                    segment_audio_quality.append(_rendered_audio_quality_report(segment_target))
-                    if bool(segment_row.get("paragraph_break_after")) and len(segment_rows) > 1:
-                        pause_kind = str(segment_row.get("pause_kind") or "paragraph")
-                        pause_seconds_after = float(
-                            segment_row.get("pause_seconds_after")
-                            or (
-                                _audiobook_scene_pause_seconds()
-                                if pause_kind == "scene"
-                                else _audiobook_paragraph_pause_seconds()
-                            )
+                single_pass_render = (
+                    cinematic_render_mode == _CINEMATIC_MASTER_SINGLE_PASS_MODE
+                )
+                segment_target = (
+                    cinematic_master.with_name(
+                        f".{cinematic_master.stem}.{uuid.uuid4().hex}.rendering.wav"
+                    )
+                    if single_pass_render
+                    else part_dir / f"passage-{segment_render_hash}.wav"
+                )
+                if segment_target.is_file():
+                    cached_output_binding = (
+                        _load_validated_audio_cache_output_binding(
+                            audio_path=segment_target,
+                            cache_kind="passage",
+                            render_fingerprint=segment_render_hash,
                         )
-                        total_pause_count += 1
-                        total_pause_seconds += pause_seconds_after
-                        if pause_kind == "chapter":
-                            chapter_pause_count += 1
-                        elif pause_kind == "scene":
-                            scene_pause_count += 1
-                        elif pause_kind == "speaker":
-                            speaker_pause_count += 1
-                        else:
-                            paragraph_pause_count += 1
-                        merge_paths.append(
-                            _write_silence_wav(
-                                part_dir / f"_cinematic-{segment_index:03d}-{pause_kind}-pause.wav",
+                    )
+                    cached_audio_quality = (
+                        _cached_wav_quality_report(segment_target)
+                        if cached_output_binding
+                        else {}
+                    )
+                    if not cached_output_binding or _cached_wav_structurally_invalid(
+                        cached_audio_quality
+                    ):
+                        invalid_cached_passage_count += 1
+                        total_invalid_cached_passage_count += 1
+                        if source_chapter_cache is not None:
+                            source_chapter_cache["invalid_cached_passage_count"] += 1
+                    elif _cached_wav_heuristic_quality_failed(cached_audio_quality):
+                        return {
+                            "status": "blocked",
+                            "reason": "cached_passage_audio_quality_failed",
+                            "provider": "unmixr",
+                            "chapter_index": source_chapter_index
+                            or cinematic_track_chapters[0][0].index,
+                            "segment_index": segment_index,
+                            "segment_count": len(segment_rows),
+                            "audio_quality": cached_audio_quality,
+                            "cache": _cache_summary(),
+                            "voice_selection": dict(voice_selection.get("public") or {}),
+                        }
+                    else:
+                        reused_segment_count += 1
+                        total_reused_passage_count += 1
+                        if source_chapter_cache is not None:
+                            source_chapter_cache["reused_passage_count"] += 1
+                        segment_paths.append(segment_target)
+                        merge_paths.append(segment_target)
+                        cinematic_timeline_parts.append(
+                            (source_chapter_index, segment_target)
+                        )
+                        content_types.append("existing")
+                        segment_audio_quality.append(cached_audio_quality)
+                        if bool(segment_row.get("paragraph_break_after")) and len(segment_rows) > 1:
+                            pause_kind = str(segment_row.get("pause_kind") or "paragraph")
+                            pause_seconds_after = float(
+                                segment_row.get("pause_seconds_after")
+                                or (
+                                    _audiobook_scene_pause_seconds()
+                                    if pause_kind == "scene"
+                                    else _audiobook_paragraph_pause_seconds()
+                                )
+                            )
+                            total_pause_count += 1
+                            total_pause_seconds += pause_seconds_after
+                            if pause_kind == "chapter":
+                                chapter_pause_count += 1
+                            elif pause_kind == "scene":
+                                scene_pause_count += 1
+                            elif pause_kind == "speaker":
+                                speaker_pause_count += 1
+                            else:
+                                paragraph_pause_count += 1
+                            pause_path = _write_silence_wav(
+                                part_dir
+                                / f"_cinematic-{segment_index:03d}-{pause_kind}-pause.wav",
                                 seconds=pause_seconds_after,
                             )
-                        )
-                    continue
+                            merge_paths.append(pause_path)
+                            cinematic_timeline_parts.append(
+                                (source_chapter_index, pause_path)
+                            )
+                        continue
                 if bool(pacing_policy.get("enabled")) and segments_rendered_this_run >= int(pacing_policy.get("max_segments_per_run") or 0):
                     wait_seconds = int(pacing_policy.get("wait_seconds") or 0)
                     return {
@@ -9849,6 +11549,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                         "segment_count": len(segment_rows),
                         "segments_rendered_this_run": segments_rendered_this_run,
                         "pacing": pacing_policy,
+                        "cache": _cache_summary(),
                         "voice_selection": dict(voice_selection.get("public") or {}),
                     }
                 try:
@@ -9872,6 +11573,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                             chapter_inputs=tuple(cinematic_track_chapters),
                             render_language=render_language,
                             max_chars=max_chars,
+                            job_dir=job_dir,
                         )
                         fallback_rows = tuple(
                             dict(row)
@@ -9899,6 +11601,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                                     "narration_plan": narration_plan,
                                     "voice_selection": dict(voice_selection.get("public") or {}),
                                     "dialogue_voice_selection": public_dialogue_voice_selection,
+                                    "cache": _cache_summary(),
                                 }
                             retry_with_segmented_fallback = True
                             break
@@ -9913,6 +11616,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                             "chapter_index": cinematic_track_chapters[0][0].index,
                             "segment_index": segment_index,
                             "segment_count": len(segment_rows),
+                            "cache": _cache_summary(),
                             "voice_selection": dict(voice_selection.get("public") or {}),
                         }
                     if _provider_balance_blocker(detail):
@@ -9923,6 +11627,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                             "chapter_index": cinematic_track_chapters[0][0].index,
                             "segment_index": segment_index,
                             "segment_count": len(segment_rows),
+                            "cache": _cache_summary(),
                             "voice_selection": dict(voice_selection.get("public") or {}),
                             "replacement_voice_required": True,
                         }
@@ -9933,6 +11638,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                         "chapter_index": cinematic_track_chapters[0][0].index,
                         "segment_index": segment_index,
                         "segment_count": len(segment_rows),
+                        "cache": _cache_summary(),
                         "voice_selection": dict(voice_selection.get("public") or {}),
                         "replacement_voice_required": False,
                     }
@@ -9940,17 +11646,60 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     _redact_render_sensitive_detail(error, voice_id, dialogue_voice_id)
                     for error in segment_retry_errors
                 )
-                rendered_segment = _write_provider_audio_segment_file(
-                    audio_bytes=audio_bytes,
-                    content_type=content_type,
-                    target_wav=segment_target,
+                rendered_segment, rendered_segment_quality = (
+                    _write_validated_provider_audio_segment_file(
+                        audio_bytes=audio_bytes,
+                        content_type=content_type,
+                        target_wav=segment_target,
+                    )
                 )
+                if rendered_segment is None:
+                    return {
+                        "status": "blocked",
+                        "reason": "provider_segment_audio_invalid",
+                        "provider": "unmixr",
+                        "chapter_index": source_chapter_index
+                        or cinematic_track_chapters[0][0].index,
+                        "segment_index": segment_index,
+                        "segment_count": len(segment_rows),
+                        "audio_quality": rendered_segment_quality,
+                        "cache": _cache_summary(),
+                        "voice_selection": dict(voice_selection.get("public") or {}),
+                    }
+                if not single_pass_render:
+                    try:
+                        _write_audio_cache_output_binding(
+                            audio_path=rendered_segment,
+                            cache_kind="passage",
+                            render_fingerprint=segment_render_hash,
+                        )
+                    except (OSError, RuntimeError, ValueError) as exc:
+                        return {
+                            "status": "blocked",
+                            "reason": "passage_audio_cache_binding_failed",
+                            "provider": "unmixr",
+                            "chapter_index": source_chapter_index
+                            or cinematic_track_chapters[0][0].index,
+                            "segment_index": segment_index,
+                            "segment_count": len(segment_rows),
+                            "error_type": type(exc).__name__,
+                            "cache": _cache_summary(),
+                            "voice_selection": dict(
+                                voice_selection.get("public") or {}
+                            ),
+                        }
                 segments_rendered_this_run += 1
                 regenerated_segment_count += 1
+                total_regenerated_passage_count += 1
+                if source_chapter_cache is not None:
+                    source_chapter_cache["regenerated_passage_count"] += 1
                 segment_paths.append(rendered_segment)
                 merge_paths.append(rendered_segment)
+                cinematic_timeline_parts.append(
+                    (source_chapter_index, rendered_segment)
+                )
                 content_types.append(content_type)
-                segment_audio_quality.append(_rendered_audio_quality_report(rendered_segment))
+                segment_audio_quality.append(rendered_segment_quality)
                 if bool(segment_row.get("paragraph_break_after")) and len(segment_rows) > 1:
                     pause_kind = str(segment_row.get("pause_kind") or "paragraph")
                     pause_seconds_after = float(
@@ -9971,28 +11720,101 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                         speaker_pause_count += 1
                     else:
                         paragraph_pause_count += 1
-                    merge_paths.append(
-                        _write_silence_wav(
-                            part_dir / f"_cinematic-{segment_index:03d}-{pause_kind}-pause.wav",
-                            seconds=pause_seconds_after,
-                        )
+                    pause_path = _write_silence_wav(
+                        part_dir
+                        / f"_cinematic-{segment_index:03d}-{pause_kind}-pause.wav",
+                        seconds=pause_seconds_after,
+                    )
+                    merge_paths.append(pause_path)
+                    cinematic_timeline_parts.append(
+                        (source_chapter_index, pause_path)
                     )
             if retry_with_segmented_fallback:
                 continue
             break
+        staged_cinematic_master = cinematic_master.with_name(
+            f".{cinematic_master.stem}.{uuid.uuid4().hex}.mastering.wav"
+        )
+        if cinematic_render_mode == _CINEMATIC_MASTER_SINGLE_PASS_MODE:
+            if len(segment_paths) != 1:
+                return {
+                    "status": "blocked",
+                    "reason": "cinematic_single_pass_render_missing",
+                    "segment_count": len(segment_paths),
+                    "cache": _cache_summary(),
+                }
+            shutil.copy2(segment_paths[0], staged_cinematic_master)
         if (
             cinematic_render_mode != _CINEMATIC_MASTER_SINGLE_PASS_MODE
-            and not _merge_audio_segments_to_wav(segment_paths=tuple(merge_paths), target=cinematic_master)
+            and not _merge_audio_segments_to_wav(
+                segment_paths=tuple(merge_paths),
+                target=staged_cinematic_master,
+            )
         ):
+            staged_cinematic_master.unlink(missing_ok=True)
             return {
                 "status": "blocked",
                 "reason": "cinematic_master_merge_failed",
                 "segment_count": len(segment_paths),
                 "segment_merge_input_count": len(merge_paths),
+                "cache": _cache_summary(),
             }
         try:
-            cinematic_master = _normalize_rendered_audio_file(cinematic_master)
+            normalized_cinematic_master = _normalize_rendered_audio_file(
+                staged_cinematic_master
+            )
+            cinematic_audio_quality = _cached_wav_quality_report(
+                normalized_cinematic_master
+            )
+            if str(cinematic_audio_quality.get("status") or "").strip().lower() == "failed":
+                normalized_cinematic_master.unlink(missing_ok=True)
+                return {
+                    "status": "blocked",
+                    "reason": "cinematic_master_audio_quality_failed",
+                    "audio_quality": cinematic_audio_quality,
+                    "mastering": {
+                        "status": "blocked_quality",
+                        "contract_sha256": _audiobook_mastering_contract(),
+                        "segment_mastering": False,
+                        "signature_published": False,
+                    },
+                    "cache": _cache_summary(),
+                }
+            try:
+                cinematic_chapter_timeline = _build_cinematic_chapter_timeline(
+                    master_path=normalized_cinematic_master,
+                    chapters=tuple(chapter for chapter, _ in cinematic_track_chapters),
+                    timeline_parts=tuple(cinematic_timeline_parts),
+                    render_signature=cinematic_track_signature,
+                )
+                _write_private_json(
+                    _cinematic_chapter_timeline_path(audio_dir),
+                    cinematic_chapter_timeline,
+                )
+            except (OSError, RuntimeError) as exc:
+                normalized_cinematic_master.unlink(missing_ok=True)
+                return {
+                    "status": "blocked",
+                    "reason": "cinematic_chapter_timeline_failed",
+                    "chapter_timeline": {
+                        "status": "blocked",
+                        "error_type": type(exc).__name__,
+                        "contract_name": _CINEMATIC_CHAPTER_TIMELINE_CONTRACT,
+                        "raw_paths_exposed": False,
+                    },
+                    "mastering": {
+                        "status": "blocked_timeline",
+                        "contract_sha256": _audiobook_mastering_contract(),
+                        "segment_mastering": False,
+                        "signature_published": False,
+                    },
+                    "cache": _cache_summary(),
+                }
+            normalized_cinematic_master.replace(cinematic_master)
         except Exception as exc:
+            staged_cinematic_master.unlink(missing_ok=True)
+            if "normalized_cinematic_master" in locals():
+                normalized_cinematic_master.unlink(missing_ok=True)
             return {
                 "status": "blocked",
                 "reason": "audiobook_final_mastering_failed",
@@ -10005,20 +11827,63 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     "segment_mastering": False,
                     "signature_published": False,
                 },
+                "cache": _cache_summary(),
             }
-        cinematic_audio_quality = _rendered_audio_quality_report(cinematic_master)
         try:
-            cinematic_mode_path.write_text(cinematic_render_mode, encoding="utf-8")
+            cinematic_master_output_binding = _write_audio_cache_output_binding(
+                audio_path=cinematic_master,
+                cache_kind="cinematic_master",
+                render_fingerprint=cinematic_track_signature,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            return {
+                "status": "blocked",
+                "reason": "cinematic_master_output_binding_publication_failed",
+                "error_type": type(exc).__name__,
+                "mastering": {
+                    "status": "blocked_output_binding",
+                    "contract_sha256": _audiobook_mastering_contract(),
+                    "segment_mastering": False,
+                    "signature_published": False,
+                },
+                "audio_quality": cinematic_audio_quality,
+                "cache": _cache_summary(),
+            }
+        try:
+            _write_atomic_private_text(cinematic_mode_path, cinematic_render_mode)
             cinematic_signature_path = _cinematic_master_audio_signature_path(audio_dir)
-            cinematic_signature_path.write_text(cinematic_track_signature, encoding="utf-8")
-        except OSError:
-            pass
+            _write_atomic_private_text(
+                cinematic_signature_path,
+                cinematic_track_signature,
+            )
+        except OSError as exc:
+            return {
+                "status": "blocked",
+                "reason": "cinematic_master_signature_publication_failed",
+                "mastering": {
+                    "status": "blocked_signature",
+                    "error_type": type(exc).__name__,
+                    "contract_sha256": _audiobook_mastering_contract(),
+                    "segment_mastering": False,
+                    "signature_published": False,
+                },
+                "audio_quality": cinematic_audio_quality,
+                "cache": _cache_summary(),
+            }
         rendered = []
         for chapter in chapters:
             source_text = (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
             if not str(source_text or "").strip():
                 rendered.append({"chapter": chapter.index, "status": "skipped_empty"})
                 continue
+            chapter_cache = cinematic_chapter_cache_counts.get(
+                chapter.index,
+                {
+                    "reused_passage_count": 0,
+                    "regenerated_passage_count": 0,
+                    "invalid_cached_passage_count": 0,
+                },
+            )
             rendered.append(
                 {
                     "chapter": chapter.index,
@@ -10056,8 +11921,16 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                         else 0.0
                     ),
                     "dialogue_passage_count": dialogue_passage_count,
-                    "reused_passage_count": reused_segment_count,
-                    "regenerated_passage_count": regenerated_segment_count,
+                    "reused_passage_count": int(
+                        chapter_cache["reused_passage_count"]
+                    ),
+                    "regenerated_passage_count": int(
+                        chapter_cache["regenerated_passage_count"]
+                    ),
+                    "invalid_cached_passage_count": int(
+                        chapter_cache["invalid_cached_passage_count"]
+                    ),
+                    "stale_master_rebuilt": cinematic_master_rebuild_required,
                     "total_pause_count": total_pause_count,
                     "total_pause_seconds": round(total_pause_seconds, 3),
                     "content_types": content_types,
@@ -10074,6 +11947,49 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
             "speaker_cast": dict(speaker_cast.get("public") or {}),
             "narration_plan": narration_plan,
             "cinematic_master_audio": str(cinematic_master),
+            "chapter_timeline": {
+                "status": "verified",
+                "contract_name": _CINEMATIC_CHAPTER_TIMELINE_CONTRACT,
+                "timeline_sha256": str(
+                    cinematic_chapter_timeline.get("timeline_sha256") or ""
+                ),
+                "chapter_count": int(
+                    cinematic_chapter_timeline.get("chapter_count") or 0
+                ),
+                "master_sha256": str(
+                    cinematic_chapter_timeline.get("master_sha256") or ""
+                ),
+            },
+            "mastering": {
+                "status": "mastered",
+                "final_track_mode": "cinematic_master",
+                "contract_sha256": _audiobook_mastering_contract(),
+                "expected_final_track_count": 1,
+                "final_track_ready_count": 1,
+                "final_track_mastered_this_run_count": 1,
+                "signature_published_or_verified_count": 1,
+                "signature_set_sha256": _sha256_bytes(
+                    json.dumps(
+                        [
+                            {
+                                "track": "cinematic_master",
+                                "signature": cinematic_track_signature,
+                                "audio_sha256": str(
+                                    cinematic_master_output_binding.get(
+                                        "audio_sha256"
+                                    )
+                                    or ""
+                                ),
+                            }
+                        ],
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ),
+                "segment_mastering": False,
+                "final_audio_quality": cinematic_audio_quality,
+            },
+            "cache": _cache_summary(),
         }
 
     chapter_inputs = _collect_cinematic_track_input(job_dir=job_dir, chapters=chapters)
@@ -10081,6 +11997,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
         chapter_inputs=chapter_inputs,
         render_language=render_language,
         max_chars=max_chars,
+        job_dir=job_dir,
     )
     if exact_plan.get("status") != "ready":
         blocked_private_plan = _write_private_narration_plan(
@@ -10169,7 +12086,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
             render_language=render_language,
         )
         existing_master_stale = False
-        if target.is_file() and target.stat().st_size > 0:
+        if target.is_file():
             try:
                 existing_signature = target_signature_path.read_text(encoding="utf-8").strip()
             except OSError:
@@ -10177,16 +12094,60 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
             if existing_signature != chapter_master_signature:
                 existing_master_stale = True
             else:
-                rendered.append(
-                    {
-                        "chapter": chapter.index,
-                        "status": "already_present",
-                        "path": target.name,
-                        "audio_quality": _rendered_audio_quality_report(target),
-                        "cache_reused": True,
-                    }
+                cached_master_output_binding = (
+                    _load_validated_audio_cache_output_binding(
+                        audio_path=target,
+                        cache_kind="chapter_master",
+                        render_fingerprint=chapter_master_signature,
+                    )
                 )
-                continue
+                if not cached_master_output_binding:
+                    existing_master_stale = True
+                else:
+                    cached_master_quality = _cached_wav_quality_report(target)
+                    if _cached_wav_structurally_invalid(cached_master_quality):
+                        existing_master_stale = True
+                    elif _cached_wav_heuristic_quality_failed(cached_master_quality):
+                        return {
+                            "status": "blocked",
+                            "reason": "cached_chapter_master_audio_quality_failed",
+                            "provider": "unmixr",
+                            "chapter_index": chapter.index,
+                            "audio_quality": cached_master_quality,
+                            "cache": _cache_summary(),
+                            "voice_selection": dict(voice_selection.get("public") or {}),
+                        }
+                    else:
+                        final_track_ready_count += 1
+                        final_track_signature_count += 1
+                        final_track_signatures.append(
+                            {
+                                "chapter_index": chapter.index,
+                                "signature": chapter_master_signature,
+                                "audio_sha256": str(
+                                    cached_master_output_binding.get(
+                                        "audio_sha256"
+                                    )
+                                    or ""
+                                ),
+                            }
+                        )
+                        final_track_quality.append(
+                            {
+                                "chapter_index": chapter.index,
+                                **cached_master_quality,
+                            }
+                        )
+                        rendered.append(
+                            {
+                                "chapter": chapter.index,
+                                "status": "already_present",
+                                "path": target.name,
+                                "audio_quality": cached_master_quality,
+                                "cache_reused": True,
+                            }
+                        )
+                        continue
         source_text = (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
         normalized_source_text = str(source_text or "").strip()
         if not normalized_source_text:
@@ -10211,6 +12172,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
         dialogue_passage_count = 0
         reused_segment_count = 0
         regenerated_segment_count = 0
+        invalid_cached_passage_count = 0
         paragraph_pause_seconds = _audiobook_paragraph_pause_seconds() if _audiobook_paragraph_pauses_enabled() else 0.0
         scene_pause_seconds = _audiobook_scene_pause_seconds() if _audiobook_paragraph_pauses_enabled() else 0.0
         part_dir = audio_dir / f"{chapter.index:03d}-parts"
@@ -10230,7 +12192,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                 speaker_role=speaker_role,
                 speaker_id=str(segment_row.get("speaker_id") or ""),
                 render_language=render_language,
-            )[:16]
+            )
             segment_target = part_dir / f"passage-{segment_render_hash}.wav"
             existing_segment = _chapter_audio_path(
                 segment_target.parent,
@@ -10244,34 +12206,65 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     sha256=_sha256_bytes(segment.encode("utf-8")),
                 ),
             )
+            if existing_segment is None and segment_target.is_file():
+                existing_segment = segment_target
             if existing_segment is not None:
-                reused_segment_count += 1
-                segment_paths.append(existing_segment)
-                merge_paths.append(existing_segment)
-                if bool(segment_row.get("paragraph_break_after")) and len(segment_rows) > 1:
-                    pause_kind = str(segment_row.get("pause_kind") or "paragraph")
-                    pause_seconds_after = float(
-                        segment_row.get("pause_seconds_after") or paragraph_pause_seconds
-                    )
-                    total_pause_count += 1
-                    total_pause_seconds += pause_seconds_after
-                    if pause_kind == "chapter":
-                        chapter_pause_count += 1
-                    elif pause_kind == "scene":
-                        scene_pause_count += 1
-                    elif pause_kind == "speaker":
-                        speaker_pause_count += 1
-                    else:
-                        paragraph_pause_count += 1
-                    merge_paths.append(
-                        _write_silence_wav(
-                            part_dir / f"{chapter.index:03d}-{segment_index:02d}-paragraph-pause.wav",
-                            seconds=pause_seconds_after,
+                cached_output_binding = _load_validated_audio_cache_output_binding(
+                    audio_path=existing_segment,
+                    cache_kind="passage",
+                    render_fingerprint=segment_render_hash,
+                )
+                cached_audio_quality = (
+                    _cached_wav_quality_report(existing_segment)
+                    if cached_output_binding
+                    else {}
+                )
+                if not cached_output_binding or _cached_wav_structurally_invalid(
+                    cached_audio_quality
+                ):
+                    invalid_cached_passage_count += 1
+                    total_invalid_cached_passage_count += 1
+                elif _cached_wav_heuristic_quality_failed(cached_audio_quality):
+                    return {
+                        "status": "blocked",
+                        "reason": "cached_passage_audio_quality_failed",
+                        "provider": "unmixr",
+                        "chapter_index": chapter.index,
+                        "segment_index": segment_index,
+                        "segment_count": len(segment_rows),
+                        "audio_quality": cached_audio_quality,
+                        "cache": _cache_summary(),
+                        "voice_selection": dict(voice_selection.get("public") or {}),
+                    }
+                else:
+                    reused_segment_count += 1
+                    total_reused_passage_count += 1
+                    segment_paths.append(existing_segment)
+                    merge_paths.append(existing_segment)
+                    if bool(segment_row.get("paragraph_break_after")) and len(segment_rows) > 1:
+                        pause_kind = str(segment_row.get("pause_kind") or "paragraph")
+                        pause_seconds_after = float(
+                            segment_row.get("pause_seconds_after") or paragraph_pause_seconds
                         )
-                    )
-                content_types.append("existing")
-                segment_audio_quality.append(_rendered_audio_quality_report(existing_segment))
-                continue
+                        total_pause_count += 1
+                        total_pause_seconds += pause_seconds_after
+                        if pause_kind == "chapter":
+                            chapter_pause_count += 1
+                        elif pause_kind == "scene":
+                            scene_pause_count += 1
+                        elif pause_kind == "speaker":
+                            speaker_pause_count += 1
+                        else:
+                            paragraph_pause_count += 1
+                        merge_paths.append(
+                            _write_silence_wav(
+                                part_dir / f"{chapter.index:03d}-{segment_index:02d}-paragraph-pause.wav",
+                                seconds=pause_seconds_after,
+                            )
+                        )
+                    content_types.append("existing")
+                    segment_audio_quality.append(cached_audio_quality)
+                    continue
             if bool(pacing_policy.get("enabled")) and segments_rendered_this_run >= int(
                 pacing_policy.get("max_segments_per_run") or 0
             ):
@@ -10289,6 +12282,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     "segment_count": len(segment_rows),
                     "segments_rendered_this_run": segments_rendered_this_run,
                     "pacing": pacing_policy,
+                    "cache": _cache_summary(),
                     "voice_selection": dict(voice_selection.get("public") or {}),
                 }
             try:
@@ -10315,6 +12309,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                         "chapter_index": chapter.index,
                         "segment_index": segment_index,
                         "segment_count": 1,
+                        "cache": _cache_summary(),
                         "voice_selection": dict(voice_selection.get("public") or {}),
                     }
                 if _provider_balance_blocker(detail):
@@ -10325,6 +12320,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                         "chapter_index": chapter.index,
                         "segment_index": segment_index,
                         "segment_count": len(segment_rows),
+                        "cache": _cache_summary(),
                         "voice_selection": dict(voice_selection.get("public") or {}),
                         "replacement_voice_required": True,
                     }
@@ -10335,19 +12331,53 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     "chapter_index": chapter.index,
                     "segment_index": segment_index,
                     "segment_count": len(segment_rows),
+                    "cache": _cache_summary(),
                     "voice_selection": dict(voice_selection.get("public") or {}),
                 }
             retry_errors.extend(
                 _redact_render_sensitive_detail(error, voice_id, dialogue_voice_id)
                 for error in segment_retry_errors
             )
-            rendered_segment = _write_provider_audio_segment_file(
-                audio_bytes=audio_bytes,
-                content_type=content_type,
-                target_wav=segment_target,
+            rendered_segment, rendered_segment_quality = (
+                _write_validated_provider_audio_segment_file(
+                    audio_bytes=audio_bytes,
+                    content_type=content_type,
+                    target_wav=segment_target,
+                )
             )
+            if rendered_segment is None:
+                return {
+                    "status": "blocked",
+                    "reason": "provider_segment_audio_invalid",
+                    "provider": "unmixr",
+                    "chapter_index": chapter.index,
+                    "segment_index": segment_index,
+                    "segment_count": len(segment_rows),
+                    "audio_quality": rendered_segment_quality,
+                    "cache": _cache_summary(),
+                    "voice_selection": dict(voice_selection.get("public") or {}),
+                }
+            try:
+                _write_audio_cache_output_binding(
+                    audio_path=rendered_segment,
+                    cache_kind="passage",
+                    render_fingerprint=segment_render_hash,
+                )
+            except (OSError, RuntimeError, ValueError) as exc:
+                return {
+                    "status": "blocked",
+                    "reason": "passage_audio_cache_binding_failed",
+                    "provider": "unmixr",
+                    "chapter_index": chapter.index,
+                    "segment_index": segment_index,
+                    "segment_count": len(segment_rows),
+                    "error_type": type(exc).__name__,
+                    "cache": _cache_summary(),
+                    "voice_selection": dict(voice_selection.get("public") or {}),
+                }
             segments_rendered_this_run += 1
             regenerated_segment_count += 1
+            total_regenerated_passage_count += 1
             segment_paths.append(rendered_segment)
             merge_paths.append(rendered_segment)
             if bool(segment_row.get("paragraph_break_after")) and len(segment_rows) > 1:
@@ -10372,25 +12402,51 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     )
                 )
             content_types.append(content_type)
-            segment_audio_quality.append(_rendered_audio_quality_report(rendered_segment))
+            segment_audio_quality.append(rendered_segment_quality)
+        staged_master = target.with_name(
+            f".{target.stem}.{uuid.uuid4().hex}.mastering.wav"
+        )
         if len(merge_paths) > 1:
-            if _merge_audio_segments_to_wav(segment_paths=tuple(merge_paths), target=target):
-                rendered_path = target
-            else:
+            if not _merge_audio_segments_to_wav(
+                segment_paths=tuple(merge_paths),
+                target=staged_master,
+            ):
+                staged_master.unlink(missing_ok=True)
                 return {
                     "status": "blocked",
                     "reason": "chapter_segment_merge_failed",
                     "chapter_index": chapter.index,
                     "segment_count": len(segment_paths),
                     "merge_input_count": len(merge_paths),
+                    "cache": _cache_summary(),
                 }
         else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(merge_paths[0], target)
-            rendered_path = target
+            staged_master.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(merge_paths[0], staged_master)
         try:
-            rendered_path = _normalize_rendered_audio_file(rendered_path)
+            normalized_master = _normalize_rendered_audio_file(staged_master)
+            chapter_audio_quality = _cached_wav_quality_report(normalized_master)
+            if str(chapter_audio_quality.get("status") or "").strip().lower() == "failed":
+                normalized_master.unlink(missing_ok=True)
+                return {
+                    "status": "blocked",
+                    "reason": "chapter_master_audio_quality_failed",
+                    "chapter_index": chapter.index,
+                    "audio_quality": chapter_audio_quality,
+                    "mastering": {
+                        "status": "blocked_quality",
+                        "contract_sha256": _audiobook_mastering_contract(),
+                        "segment_mastering": False,
+                        "signature_published": False,
+                    },
+                    "cache": _cache_summary(),
+                }
+            normalized_master.replace(target)
+            rendered_path = target
         except Exception as exc:
+            staged_master.unlink(missing_ok=True)
+            if "normalized_master" in locals():
+                normalized_master.unlink(missing_ok=True)
             return {
                 "status": "blocked",
                 "reason": "audiobook_final_mastering_failed",
@@ -10404,15 +12460,67 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     "segment_mastering": False,
                     "signature_published": False,
                 },
+                "cache": _cache_summary(),
             }
-        chapter_audio_quality = _rendered_audio_quality_report(rendered_path)
         try:
-            target_signature_path.write_text(
-                chapter_master_signature,
-                encoding="utf-8",
+            chapter_master_output_binding = _write_audio_cache_output_binding(
+                audio_path=target,
+                cache_kind="chapter_master",
+                render_fingerprint=chapter_master_signature,
             )
-        except OSError:
-            pass
+        except (OSError, RuntimeError, ValueError) as exc:
+            return {
+                "status": "blocked",
+                "reason": "chapter_master_output_binding_publication_failed",
+                "chapter_index": chapter.index,
+                "error_type": type(exc).__name__,
+                "audio_quality": chapter_audio_quality,
+                "mastering": {
+                    "status": "blocked_output_binding",
+                    "contract_sha256": _audiobook_mastering_contract(),
+                    "segment_mastering": False,
+                    "signature_published": False,
+                },
+                "cache": _cache_summary(),
+            }
+        try:
+            _write_atomic_private_text(
+                target_signature_path,
+                chapter_master_signature,
+            )
+        except OSError as exc:
+            return {
+                "status": "blocked",
+                "reason": "chapter_master_signature_publication_failed",
+                "chapter_index": chapter.index,
+                "audio_quality": chapter_audio_quality,
+                "mastering": {
+                    "status": "blocked_signature",
+                    "error_type": type(exc).__name__,
+                    "contract_sha256": _audiobook_mastering_contract(),
+                    "segment_mastering": False,
+                    "signature_published": False,
+                },
+                "cache": _cache_summary(),
+            }
+        final_track_ready_count += 1
+        final_track_mastered_this_run_count += 1
+        final_track_signature_count += 1
+        final_track_signatures.append(
+            {
+                "chapter_index": chapter.index,
+                "signature": chapter_master_signature,
+                "audio_sha256": str(
+                    chapter_master_output_binding.get("audio_sha256") or ""
+                ),
+            }
+        )
+        final_track_quality.append(
+            {
+                "chapter_index": chapter.index,
+                **chapter_audio_quality,
+            }
+        )
         rendered.append(
             {
                 "chapter": chapter.index,
@@ -10446,6 +12554,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                 "dialogue_passage_count": dialogue_passage_count,
                 "reused_passage_count": reused_segment_count,
                 "regenerated_passage_count": regenerated_segment_count,
+                "invalid_cached_passage_count": invalid_cached_passage_count,
                 "stale_master_rebuilt": existing_master_stale,
                 "total_pause_count": total_pause_count,
                 "total_pause_seconds": round(total_pause_seconds, 3),
@@ -10462,6 +12571,35 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
         "dialogue_voice_selection": public_dialogue_voice_selection,
         "speaker_cast": dict(speaker_cast.get("public") or {}),
         "narration_plan": narration_plan,
+        "mastering": {
+            "status": (
+                "mastered"
+                if final_track_ready_count == len(
+                    [chapter for chapter in chapters if chapter_segment_rows.get(chapter.index)]
+                )
+                else "incomplete"
+            ),
+            "final_track_mode": "chapter_masters",
+            "contract_sha256": _audiobook_mastering_contract(),
+            "expected_final_track_count": len(
+                [chapter for chapter in chapters if chapter_segment_rows.get(chapter.index)]
+            ),
+            "final_track_ready_count": final_track_ready_count,
+            "final_track_mastered_this_run_count": final_track_mastered_this_run_count,
+            "signature_published_or_verified_count": final_track_signature_count,
+            "signature_set_sha256": _sha256_bytes(
+                json.dumps(
+                    final_track_signatures,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+            if final_track_signatures
+            else "",
+            "segment_mastering": False,
+            "final_audio_quality": final_track_quality,
+        },
+        "cache": _cache_summary(),
     }
 
 
@@ -10595,45 +12733,94 @@ def _audio_quality_reports_from_render_result(render_result: dict[str, object]) 
     for item in list(render_result.get("chapters") or []):
         if not isinstance(item, dict):
             continue
-        audio_quality = item.get("audio_quality")
-        if isinstance(audio_quality, dict):
-            reports.append(audio_quality)
-        for segment_quality in list(item.get("segment_audio_quality") or []):
-            if isinstance(segment_quality, dict):
-                reports.append(segment_quality)
+        if "audio_quality" in item:
+            audio_quality = item.get("audio_quality")
+            reports.append(
+                audio_quality
+                if isinstance(audio_quality, dict)
+                else {"status": "invalid_report_shape"}
+            )
+        if "segment_audio_quality" not in item:
+            continue
+        segment_audio_quality = item.get("segment_audio_quality")
+        if not isinstance(segment_audio_quality, (list, tuple)):
+            reports.append({"status": "invalid_report_shape"})
+            continue
+        for segment_quality in segment_audio_quality:
+            reports.append(
+                segment_quality
+                if isinstance(segment_quality, dict)
+                else {"status": "invalid_report_shape"}
+            )
     return reports
+
+
+_PUBLIC_AUDIO_QUALITY_CODES = frozenset(
+    {
+        "audio_file_missing",
+        "audio_quality_report_disabled",
+        "audio_quality_report_wav_only",
+        "audio_wav_metadata_invalid",
+        "audio_wav_read_failed",
+        "channel_count_unsupported",
+        "clipping",
+        "quiet_tail",
+        "sample_rate_out_of_range",
+        "sample_width_unsupported",
+        "speech_energy_missing",
+        "too_short",
+        "trailing_silence",
+    }
+)
+
+
+def _safe_public_audio_quality_code(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in _PUBLIC_AUDIO_QUALITY_CODES else ""
 
 
 def _audio_quality_receipt_summary(render_result: dict[str, object]) -> dict[str, object]:
     reports = _audio_quality_reports_from_render_result(render_result)
-    checked_reports = [
-        report
-        for report in reports
-        if str(report.get("status") or "").strip().lower() not in {"", "skipped"}
-    ]
     issue_counts: dict[str, int] = {}
-    status_counts: dict[str, int] = {}
-    for report in checked_reports:
-        status = str(report.get("status") or "unknown").strip().lower() or "unknown"
-        status_counts[status] = status_counts.get(status, 0) + 1
-        for issue in list(report.get("issues") or []):
-            key = str(issue or "").strip().lower()
+    status_counts = {status: 0 for status in ("pass", "warn", "failed", "skipped")}
+    invalid_status_files = 0
+    for report in reports:
+        raw_status = report.get("status")
+        status = (
+            raw_status.strip().lower()
+            if isinstance(raw_status, str)
+            else ""
+        )
+        if status not in status_counts:
+            invalid_status_files += 1
+        else:
+            status_counts[status] += 1
+        raw_issues = report.get("issues")
+        issues = raw_issues if isinstance(raw_issues, (list, tuple)) else ()
+        for issue in issues:
+            key = _safe_public_audio_quality_code(issue)
             if key:
                 issue_counts[key] = issue_counts.get(key, 0) + 1
-    if not checked_reports:
-        status = "not_checked"
-    elif status_counts.get("failed", 0):
+    checked_files = len(reports) - status_counts["skipped"]
+    failed_files = status_counts["failed"] + invalid_status_files
+    if failed_files:
         status = "failed"
-    elif status_counts.get("warn", 0):
+    elif status_counts["skipped"] or not reports:
+        status = "not_checked"
+    elif status_counts["warn"]:
         status = "warn"
-    else:
+    elif status_counts["pass"] == len(reports):
         status = "pass"
+    else:
+        status = "failed"
     return {
         "status": status,
-        "checked_files": len(checked_reports),
-        "passed_files": status_counts.get("pass", 0),
-        "warned_files": status_counts.get("warn", 0),
-        "failed_files": status_counts.get("failed", 0),
+        "checked_files": checked_files,
+        "passed_files": status_counts["pass"],
+        "warned_files": status_counts["warn"],
+        "failed_files": failed_files,
+        "skipped_files": status_counts["skipped"],
+        "invalid_status_files": invalid_status_files,
         "quiet_tail_count": issue_counts.get("quiet_tail", 0),
         "trailing_silence_count": issue_counts.get("trailing_silence", 0),
         "speech_energy_missing_count": issue_counts.get("speech_energy_missing", 0),
@@ -10688,6 +12875,151 @@ def _receipt_sha256(value: object) -> str:
     if len(normalized) != 64 or any(char not in "0123456789abcdef" for char in normalized):
         return ""
     return normalized
+
+
+def _receipt_nonnegative_int(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return max(value, 0)
+
+
+def audiobook_perceptual_attestation_feedback(channel: str) -> str:
+    normalized_channel = str(channel or "").strip().lower()
+    if normalized_channel not in {"telegram", "whatsapp"}:
+        return ""
+    return (
+        f"{normalized_channel}_button_perceptual_attestation_v1_"
+        "all_checks_passed"
+    )
+
+
+def _audiobook_perceptual_attestation_sha256(
+    payload: dict[str, object],
+) -> str:
+    return _sha256_bytes(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+
+
+def build_audiobook_perceptual_attestation(
+    *,
+    channel: str,
+) -> dict[str, object]:
+    normalized_channel = str(channel or "").strip().lower()
+    if normalized_channel not in {"telegram", "whatsapp"}:
+        return {}
+    payload: dict[str, object] = {
+        "contract_name": AUDIOBOOK_PERCEPTUAL_ATTESTATION_CONTRACT_NAME,
+        "version": AUDIOBOOK_PERCEPTUAL_ATTESTATION_VERSION,
+        "channel": normalized_channel,
+        "checks": {
+            key: True for key in AUDIOBOOK_PERCEPTUAL_ATTESTATION_CHECKS
+        },
+        "all_checks_attested": True,
+    }
+    payload["attestation_sha256"] = (
+        _audiobook_perceptual_attestation_sha256(payload)
+    )
+    return payload
+
+
+def _safe_audiobook_perceptual_attestation(
+    *,
+    value: object,
+    channel: str,
+    feedback: str,
+) -> tuple[dict[str, object], bool, bool]:
+    row = dict(value) if isinstance(value, dict) else {}
+    raw_checks = (
+        dict(row.get("checks") or {})
+        if isinstance(row.get("checks"), dict)
+        else {}
+    )
+    safe_checks = {
+        key: raw_checks.get(key) is True
+        for key in AUDIOBOOK_PERCEPTUAL_ATTESTATION_CHECKS
+    }
+    normalized_channel = str(channel or "").strip().lower()
+    canonical: dict[str, object] = {
+        "contract_name": AUDIOBOOK_PERCEPTUAL_ATTESTATION_CONTRACT_NAME,
+        "version": AUDIOBOOK_PERCEPTUAL_ATTESTATION_VERSION,
+        "channel": normalized_channel,
+        "checks": safe_checks,
+        "all_checks_attested": row.get("all_checks_attested") is True,
+    }
+    canonical_sha256 = _audiobook_perceptual_attestation_sha256(canonical)
+    supplied_sha256 = _receipt_sha256(row.get("attestation_sha256"))
+    structure_valid = bool(
+        normalized_channel in {"telegram", "whatsapp"}
+        and row.get("contract_name")
+        == AUDIOBOOK_PERCEPTUAL_ATTESTATION_CONTRACT_NAME
+        and isinstance(row.get("version"), int)
+        and not isinstance(row.get("version"), bool)
+        and row.get("version") == AUDIOBOOK_PERCEPTUAL_ATTESTATION_VERSION
+        and str(row.get("channel") or "").strip().lower()
+        == normalized_channel
+        and set(raw_checks) == set(AUDIOBOOK_PERCEPTUAL_ATTESTATION_CHECKS)
+        and all(safe_checks.values())
+        and row.get("all_checks_attested") is True
+        and supplied_sha256 == canonical_sha256
+    )
+    feedback_valid = hmac.compare_digest(
+        str(feedback or "").strip(),
+        audiobook_perceptual_attestation_feedback(normalized_channel),
+    )
+    safe = {
+        "contract_name": AUDIOBOOK_PERCEPTUAL_ATTESTATION_CONTRACT_NAME,
+        "version": AUDIOBOOK_PERCEPTUAL_ATTESTATION_VERSION,
+        "checks": safe_checks,
+        "all_checks_attested": structure_valid,
+        "channel_feedback_bound": feedback_valid,
+        "attestation_sha256": canonical_sha256 if structure_valid else "",
+        "raw_values_exposed": False,
+    }
+    return safe, structure_valid, feedback_valid
+
+
+def _audiobook_canary_receipt_hmac_key(channel: str) -> str:
+    dedicated = str(
+        os.getenv("EA_AUDIOBOOK_CANARY_RECEIPT_HMAC_KEY") or ""
+    ).strip()
+    if dedicated:
+        return dedicated
+    if channel == "telegram":
+        return (
+            str(os.getenv("EA_TELEGRAM_CALLBACK_SECRET") or "").strip()
+            or str(os.getenv("EA_TELEGRAM_BOT_TOKEN") or "").strip()
+        )
+    if channel != "whatsapp":
+        return ""
+    configured = (
+        str(os.getenv("EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET") or "").strip()
+        or str(os.getenv("EA_WHATSAPP_CALLBACK_SECRET") or "").strip()
+        or str(os.getenv("EA_WHATSAPP_WEB_SESSION_API_TOKEN") or "").strip()
+    )
+    if configured:
+        return configured
+    for raw_path in (
+        str(
+            os.getenv("EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE") or ""
+        ).strip(),
+        "/run/secrets/whatsapp_audiobook_callback_secret",
+        "/config/whatsapp_audiobook_callback_secret",
+        "/app/config/whatsapp_audiobook_callback_secret",
+    ):
+        if not raw_path:
+            continue
+        try:
+            secret = Path(raw_path).read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if secret:
+            return secret
+    return ""
 
 
 def _safe_receipt_public_string(value: object, *, max_length: int = 240) -> str:
@@ -10752,7 +13084,6 @@ def _safe_receipt_voice_candidate(value: object) -> dict[str, object]:
     candidate = dict(value or {}) if isinstance(value, dict) else {}
     public: dict[str, object] = {}
     for key in (
-        "preset_key",
         "label",
         "provider",
         "language",
@@ -10763,6 +13094,12 @@ def _safe_receipt_voice_candidate(value: object) -> dict[str, object]:
         normalized = _safe_receipt_public_string(candidate.get(key))
         if normalized:
             public[key] = normalized
+    preset_key = str(candidate.get("preset_key") or "").strip()
+    preset_key_sha256 = _receipt_sha256(candidate.get("preset_key_sha256"))
+    if not preset_key_sha256 and preset_key:
+        preset_key_sha256 = _sha256_bytes(preset_key.encode("utf-8"))
+    if preset_key_sha256:
+        public["preset_key_sha256"] = preset_key_sha256
     for key in ("supported_languages", "tags", "matched_tags", "matched_use_cases"):
         values = _safe_receipt_string_list(candidate.get(key))
         if values:
@@ -10782,6 +13119,14 @@ def _safe_receipt_voice_candidate(value: object) -> dict[str, object]:
     voice_hash = _receipt_sha256(candidate.get("voice_id_sha256"))
     if voice_hash:
         public["voice_id_sha256"] = voice_hash
+    for key in (
+        "catalog_entry_sha256",
+        "catalog_sha256",
+        "catalog_source_provenance_sha256",
+    ):
+        digest = _receipt_sha256(candidate.get(key))
+        if digest:
+            public[key] = digest
     return public
 
 
@@ -10790,19 +13135,30 @@ def _safe_receipt_voice_selection(value: object) -> dict[str, object]:
     public: dict[str, object] = {}
     for key in (
         "contract_name",
+        "receipt_metrics_contract",
         "status",
         "source",
         "mode",
         "strategy",
+        "selection_policy",
         "language",
         "requested_language",
         "selection_basis",
-        "selected_preset_key",
         "selected_label",
     ):
         normalized = _safe_receipt_public_string(selection.get(key))
         if normalized:
             public[key] = normalized
+    selected_preset_key = str(selection.get("selected_preset_key") or "").strip()
+    selected_preset_key_sha256 = _receipt_sha256(
+        selection.get("selected_preset_key_sha256")
+    )
+    if not selected_preset_key_sha256 and selected_preset_key:
+        selected_preset_key_sha256 = _sha256_bytes(
+            selected_preset_key.encode("utf-8")
+        )
+    if selected_preset_key_sha256:
+        public["selected_preset_key_sha256"] = selected_preset_key_sha256
     for key in (
         "approved_by_user",
         "selected_by_user",
@@ -10820,7 +13176,15 @@ def _safe_receipt_voice_selection(value: object) -> dict[str, object]:
         values = _safe_receipt_string_list(selection.get(key))
         if values:
             public[key] = values
-    for key in ("voice_id_sha256", "selected_voice_id_sha256", "selection_sha256"):
+    for key in (
+        "voice_id_sha256",
+        "selected_voice_id_sha256",
+        "selection_sha256",
+        "source_provenance_sha256",
+        "catalog_entry_sha256",
+        "catalog_sha256",
+        "catalog_source_provenance_sha256",
+    ):
         digest = _receipt_sha256(selection.get(key))
         if digest:
             public[key] = digest
@@ -10904,6 +13268,10 @@ def _safe_receipt_speaker_cast(value: object) -> dict[str, object]:
     cast_hash = _receipt_sha256(speaker_cast.get("cast_map_sha256"))
     if cast_hash:
         public["cast_map_sha256"] = cast_hash
+    for key in ("catalog_provenance_sha256", "source_provenance_sha256"):
+        digest = _receipt_sha256(speaker_cast.get(key))
+        if digest:
+            public[key] = digest
     cast_rows: list[dict[str, object]] = []
     for raw_row in list(speaker_cast.get("cast") or [])[:32]:
         if not isinstance(raw_row, dict):
@@ -11002,9 +13370,67 @@ def _safe_receipt_narration_plan(value: object) -> dict[str, object]:
             and isinstance(value, int)
             and not isinstance(value, bool)
         }
-    pause_seconds = plan.get("total_inserted_pause_seconds")
-    if isinstance(pause_seconds, (int, float)) and not isinstance(pause_seconds, bool):
-        public["total_inserted_pause_seconds"] = max(float(pause_seconds), 0.0)
+    pause_seconds_by_kind = plan.get("inserted_pause_seconds_by_kind")
+    if isinstance(pause_seconds_by_kind, dict):
+        public["inserted_pause_seconds_by_kind"] = {
+            _normalize_tag(key): max(float(value), 0.0)
+            for key, value in pause_seconds_by_kind.items()
+            if _normalize_tag(key)
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+        }
+    for key in (
+        "total_inserted_pause_seconds",
+        "total_internal_pause_intent_seconds",
+    ):
+        pause_seconds = plan.get(key)
+        if (
+            isinstance(pause_seconds, (int, float))
+            and not isinstance(pause_seconds, bool)
+            and math.isfinite(float(pause_seconds))
+        ):
+            public[key] = max(float(pause_seconds), 0.0)
+    passage_size_evidence = plan.get("passage_size_evidence")
+    if isinstance(passage_size_evidence, dict):
+        safe_size_evidence: dict[str, int | float] = {}
+        for key in ("minimum_chars", "maximum_chars", "total_chars"):
+            raw_value = passage_size_evidence.get(key)
+            if isinstance(raw_value, int) and not isinstance(raw_value, bool):
+                safe_size_evidence[key] = max(raw_value, 0)
+        average_chars = passage_size_evidence.get("average_chars")
+        if (
+            isinstance(average_chars, (int, float))
+            and not isinstance(average_chars, bool)
+            and math.isfinite(float(average_chars))
+        ):
+            safe_size_evidence["average_chars"] = max(
+                float(average_chars),
+                0.0,
+            )
+        if safe_size_evidence:
+            public["passage_size_evidence"] = safe_size_evidence
+    unsafe_runs: list[dict[str, int]] = []
+    raw_unsafe_runs = plan.get("unsafe_or_very_short_passage_runs")
+    if isinstance(raw_unsafe_runs, list):
+        for raw_run in raw_unsafe_runs[:1000]:
+            if not isinstance(raw_run, dict):
+                continue
+            start = _receipt_nonnegative_int(
+                raw_run.get("start_passage_index")
+            )
+            end = _receipt_nonnegative_int(raw_run.get("end_passage_index"))
+            count = _receipt_nonnegative_int(raw_run.get("passage_count"))
+            if start > 0 and end >= start and count == end - start + 1:
+                unsafe_runs.append(
+                    {
+                        "start_passage_index": start,
+                        "end_passage_index": end,
+                        "passage_count": count,
+                    }
+                )
+    if unsafe_runs:
+        public["unsafe_or_very_short_passage_runs"] = unsafe_runs
     speaker_cast = _safe_receipt_speaker_cast(plan.get("speaker_cast"))
     if speaker_cast:
         public["speaker_cast"] = speaker_cast
@@ -11044,6 +13470,135 @@ def _safe_receipt_pacing(value: object) -> dict[str, object]:
             if math.isfinite(numeric_value):
                 public[key] = raw_value
     return public
+
+
+_PUBLIC_MASTERING_STATUSES = frozenset(
+    {
+        "blocked",
+        "blocked_quality",
+        "blocked_signature",
+        "blocked_timeline",
+        "incomplete",
+        "mastered",
+    }
+)
+_PUBLIC_FINAL_AUDIO_QUALITY_STATUSES = frozenset(
+    {"failed", "pass", "skipped", "warn"}
+)
+
+
+def _safe_receipt_mastering(value: object) -> dict[str, object]:
+    mastering = dict(value or {}) if isinstance(value, dict) else {}
+    public: dict[str, object] = {
+        "contract_sha256": _receipt_sha256(mastering.get("contract_sha256")),
+        "signature_set_sha256": _receipt_sha256(
+            mastering.get("signature_set_sha256")
+        ),
+    }
+    raw_mastering_status = mastering.get("status")
+    mastering_status = (
+        raw_mastering_status.strip().lower()
+        if isinstance(raw_mastering_status, str)
+        else ""
+    )
+    if mastering_status in _PUBLIC_MASTERING_STATUSES:
+        public["status"] = mastering_status
+    elif raw_mastering_status not in (None, ""):
+        public["status"] = "invalid"
+    final_track_mode = str(mastering.get("final_track_mode") or "").strip()
+    if final_track_mode in {"chapter_masters", "cinematic_master"}:
+        public["final_track_mode"] = final_track_mode
+    if isinstance(mastering.get("segment_mastering"), bool):
+        public["segment_mastering"] = bool(mastering.get("segment_mastering"))
+    for key in (
+        "expected_final_track_count",
+        "final_track_ready_count",
+        "final_track_mastered_this_run_count",
+        "signature_published_or_verified_count",
+    ):
+        raw = mastering.get(key)
+        if isinstance(raw, int) and not isinstance(raw, bool):
+            public[key] = max(raw, 0)
+    final_quality = mastering.get("final_audio_quality")
+    quality_rows = final_quality if isinstance(final_quality, list) else [final_quality]
+    public_quality_rows: list[dict[str, object]] = []
+    for raw_row in quality_rows:
+        if not isinstance(raw_row, dict):
+            continue
+        public_row: dict[str, object] = {}
+        raw_quality_status = raw_row.get("status")
+        quality_status = (
+            raw_quality_status.strip().lower()
+            if isinstance(raw_quality_status, str)
+            else ""
+        )
+        public_row["status"] = (
+            quality_status
+            if quality_status in _PUBLIC_FINAL_AUDIO_QUALITY_STATUSES
+            else "invalid"
+        )
+        chapter_index = raw_row.get("chapter_index")
+        if (
+            isinstance(chapter_index, int)
+            and not isinstance(chapter_index, bool)
+            and chapter_index >= 0
+        ):
+            public_row["chapter_index"] = chapter_index
+        for key in ("channels", "sample_rate", "sample_width_bytes"):
+            raw_number = raw_row.get(key)
+            if (
+                isinstance(raw_number, int)
+                and not isinstance(raw_number, bool)
+                and raw_number >= 0
+            ):
+                public_row[key] = raw_number
+        for key in ("duration_seconds", "peak", "trailing_silence_seconds"):
+            raw_number = raw_row.get(key)
+            if isinstance(raw_number, (int, float)) and not isinstance(
+                raw_number, bool
+            ):
+                numeric_value = float(raw_number)
+                if math.isfinite(numeric_value) and numeric_value >= 0:
+                    public_row[key] = raw_number
+        for key in (
+            "speech_energy_present",
+            "quiet_tail",
+            "excessive_trailing_silence",
+        ):
+            raw_flag = raw_row.get(key)
+            if isinstance(raw_flag, bool):
+                public_row[key] = raw_flag
+        safe_reason = _safe_public_audio_quality_code(raw_row.get("reason"))
+        if safe_reason:
+            public_row["reason"] = safe_reason
+        raw_issues = raw_row.get("issues")
+        issue_values = (
+            list(raw_issues)
+            if isinstance(raw_issues, (list, tuple))
+            else []
+        )
+        safe_issues = [
+            code
+            for code in (
+                _safe_public_audio_quality_code(issue)
+                for issue in issue_values
+            )
+            if code
+        ]
+        if safe_issues:
+            public_row["issues"] = sorted(set(safe_issues))
+        redacted_issue_count = len(issue_values) - len(safe_issues)
+        if raw_issues is not None and not isinstance(raw_issues, (list, tuple)):
+            redacted_issue_count += 1
+        if redacted_issue_count:
+            public_row["redacted_issue_count"] = redacted_issue_count
+        public_quality_rows.append(public_row)
+    public["final_audio_quality"] = public_quality_rows
+    return {
+        key: value
+        for key, value in public.items()
+        if value is not None and value != ""
+    }
 
 
 def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None = None) -> dict[str, object]:
@@ -11102,7 +13657,31 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
         whatsapp_public_share_message_hash = _sha256_bytes(raw_whatsapp_public_share_message_id.encode("utf-8"))
     public_share_playback_e2e = dict(public_share.get("playback_e2e") or {})
     playback_acceptance = dict(job.get("playback_acceptance") or {})
+    perceptual_attestation = (
+        dict(playback_acceptance.get("perceptual_attestation") or {})
+        if isinstance(playback_acceptance.get("perceptual_attestation"), dict)
+        else {}
+    )
+    perceptual_attestation_checks = (
+        dict(perceptual_attestation.get("checks") or {})
+        if isinstance(perceptual_attestation.get("checks"), dict)
+        else {}
+    )
     audio_publication_gate = _audiobook_publication_gate(job)
+    audio_publication_gate_sha256 = (
+        _sha256_bytes(
+            json.dumps(
+                audio_publication_gate,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        if audio_publication_gate
+        else ""
+    )
+    audio_publication_loudness = dict(
+        audio_publication_gate.get("loudness") or {}
+    )
     voice_sample_delivery = dict(telegram.get("voice_sample_delivery") or {})
     retry_after = str(render_result.get("provider_retry_after") or "").strip()
     external_tts_blocker_reason = str(render_result.get("reason") or job.get("next_action") or "").strip()
@@ -11127,6 +13706,44 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
         for row in list(render_result.get("chapters") or [])
         if isinstance(row, dict)
     ]
+    render_cache = dict(render_result.get("cache") or {})
+    mastering_receipt = _safe_receipt_mastering(render_result.get("mastering"))
+    expected_chapter_count = (
+        max(int(merge_result.get("expected_chapter_count") or 0), 0)
+        if isinstance(merge_result.get("expected_chapter_count"), int)
+        and not isinstance(merge_result.get("expected_chapter_count"), bool)
+        else 0
+    )
+    actual_chapter_count = (
+        max(int(merge_result.get("actual_chapter_count") or 0), 0)
+        if isinstance(merge_result.get("actual_chapter_count"), int)
+        and not isinstance(merge_result.get("actual_chapter_count"), bool)
+        else 0
+    )
+    chapter_count_matches = (
+        merge_result.get("chapter_count_matches") is True
+        and expected_chapter_count > 0
+        and actual_chapter_count == expected_chapter_count
+    )
+    cinematic_timeline_sha256 = _receipt_sha256(
+        merge_result.get("cinematic_timeline_sha256")
+    )
+
+    def _render_cache_count(key: str) -> int:
+        if key in render_cache:
+            return max(int(render_cache.get(key) or 0), 0)
+        return sum(max(int(row.get(key) or 0), 0) for row in render_chapter_rows)
+
+    def _rebuilt_master_count() -> int:
+        if "stale_master_rebuilt_count" in render_cache:
+            return max(int(render_cache.get("stale_master_rebuilt_count") or 0), 0)
+        rebuilt_master_ids = {
+            str(row.get("path") or f"chapter:{int(row.get('chapter') or 0)}")
+            for row in render_chapter_rows
+            if row.get("stale_master_rebuilt") is True
+        }
+        return len(rebuilt_master_ids)
+
     privacy = {
         "raw_book_text_in_receipt": False,
         "source_epub_path_exposed": False,
@@ -11202,32 +13819,19 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
             "narration_plan": _safe_receipt_narration_plan(render_result.get("narration_plan"))
             or _safe_receipt_narration_plan(job.get("narration_plan")),
             "cache": {
-                "reused_passage_count": sum(
-                    int(row.get("reused_passage_count") or 0)
-                    for row in render_chapter_rows
+                "reused_passage_count": _render_cache_count(
+                    "reused_passage_count"
                 ),
-                "regenerated_passage_count": sum(
-                    int(row.get("regenerated_passage_count") or 0)
-                    for row in render_chapter_rows
+                "regenerated_passage_count": _render_cache_count(
+                    "regenerated_passage_count"
                 ),
-                "stale_master_rebuilt_count": sum(
-                    1
-                    for row in render_chapter_rows
-                    if row.get("stale_master_rebuilt") is True
+                "invalid_cached_passage_count": _render_cache_count(
+                    "invalid_cached_passage_count"
                 ),
+                "stale_master_rebuilt_count": _rebuilt_master_count(),
                 "content_addressed_passage_cache": True,
             },
-            "mastering": {
-                "contract_sha256": _audiobook_mastering_contract(),
-                "normalization_enabled": _audio_normalization_enabled(),
-                "scope": "assembled_chapter_or_cinematic_master_only",
-                "segment_mastering": False,
-                "final_track_count": sum(
-                    1
-                    for row in render_chapter_rows
-                    if str(row.get("status") or "") in {"rendered", "already_present"}
-                ),
-            },
+            "mastering": mastering_receipt,
             "audio_quality": _audio_quality_receipt_summary(render_result),
         },
         "assembly": {
@@ -11237,8 +13841,12 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
             "output_file_sha256": _sha256_file(output_file) if output_file and output_file.is_file() else "",
             "output_files": output_files["count"],
             "output_bytes": output_files["bytes"],
+            "expected_chapter_count": expected_chapter_count,
+            "actual_chapter_count": actual_chapter_count,
+            "chapter_count_matches": chapter_count_matches,
+            "cinematic_timeline_sha256": cinematic_timeline_sha256,
             "chapter_metadata_embedded": str(merge_result.get("status") or "").strip() == "m4b_ready"
-            and int(merge_result.get("chapter_count") or len(list(job.get("chapters") or []))) > 0,
+            and chapter_count_matches,
             "cover_embedded": bool(merge_result.get("cover_embedded")),
             "cover_filename": Path(str(merge_result.get("cover_filename") or "")).name,
         },
@@ -11305,6 +13913,9 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
             "public_share_playback_e2e_media_error_code": int(public_share_playback_e2e.get("media_error_code") or 0),
         },
         "audio_publication_gate": {
+            "contract_name": str(audio_publication_gate.get("contract_name") or "").strip(),
+            "checked_at": str(audio_publication_gate.get("checked_at") or "").strip(),
+            "gate_sha256": audio_publication_gate_sha256,
             "status": str(audio_publication_gate.get("status") or "").strip(),
             "issues": list(audio_publication_gate.get("issues") or [])
             if isinstance(audio_publication_gate.get("issues"), list)
@@ -11313,9 +13924,64 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
             "cover_streams": int(audio_publication_gate.get("cover_streams") or 0),
             "chapters": int(audio_publication_gate.get("chapters") or 0),
             "duration_seconds": float(audio_publication_gate.get("duration_seconds") or 0.0),
-            "target_file_sha256": str(audio_publication_gate.get("target_file_sha256") or "").strip(),
+            "target_file_sha256": _receipt_sha256(
+                audio_publication_gate.get("target_file_sha256")
+            ),
             "target_file_size": int(audio_publication_gate.get("target_file_size") or 0),
+            "narration_plan_sha256": _receipt_sha256(
+                audio_publication_gate.get("narration_plan_sha256")
+            ),
+            "source_sha256": _receipt_sha256(
+                audio_publication_gate.get("source_sha256")
+            ),
+            "source_aggregate_sha256": _receipt_sha256(
+                audio_publication_gate.get("source_aggregate_sha256")
+            ),
+            "render_signature_sha256": _receipt_sha256(
+                audio_publication_gate.get("render_signature_sha256")
+            ),
+            "cast_map_sha256": _receipt_sha256(
+                audio_publication_gate.get("cast_map_sha256")
+            ),
+            "mastering_signature_set_sha256": _receipt_sha256(
+                audio_publication_gate.get("mastering_signature_set_sha256")
+            ),
+            "expected_chapter_count": max(
+                int(audio_publication_gate.get("expected_chapter_count") or 0),
+                0,
+            ),
+            "actual_chapter_count": max(
+                int(audio_publication_gate.get("actual_chapter_count") or 0),
+                0,
+            ),
+            "chapter_count_matches": audio_publication_gate.get(
+                "chapter_count_matches"
+            )
+            is True,
+            "cinematic_timeline_sha256": _receipt_sha256(
+                audio_publication_gate.get("cinematic_timeline_sha256")
+            ),
             "volume": dict(audio_publication_gate.get("volume") or {}),
+            "loudness": {
+                key: value
+                for key, value in audio_publication_loudness.items()
+                if key
+                in {
+                    "status",
+                    "reason",
+                    "analysis_scope",
+                    "integrated_lufs",
+                    "true_peak_dbtp",
+                    "loudness_range_lu",
+                    "threshold_lufs",
+                    "min_integrated_lufs",
+                    "max_integrated_lufs",
+                    "max_true_peak_dbtp",
+                    "returncode",
+                    "raw_output_exposed",
+                }
+                and isinstance(value, (str, int, float, bool))
+            },
             "stt": _audio_publication_stt_receipt_summary(audio_publication_gate),
             "raw_paths_exposed": False,
         },
@@ -11338,6 +14004,11 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
         },
         "telegram": {
             "chat_bound": bool(str(telegram.get("chat_id") or "").strip()),
+            "listener_reference_sha256": _sha256_bytes(
+                str(telegram.get("chat_id") or "").strip().encode("utf-8")
+            )
+            if str(telegram.get("chat_id") or "").strip()
+            else "",
             "message_bound": bool(str(telegram.get("message_id") or "").strip()),
             "caption_present": bool(str(telegram.get("caption") or "").strip()),
             "caption_sha256": _sha256_bytes(str(telegram.get("caption") or "").encode("utf-8"))
@@ -11354,6 +14025,21 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
         },
         "whatsapp": {
             "sender_bound": bool(str(whatsapp.get("sender_ref") or "").strip()),
+            "listener_reference_sha256": _sha256_bytes(
+                str(
+                    whatsapp.get("sender_ref")
+                    or whatsapp.get("session_ref")
+                    or ""
+                )
+                .strip()
+                .encode("utf-8")
+            )
+            if str(
+                whatsapp.get("sender_ref")
+                or whatsapp.get("session_ref")
+                or ""
+            ).strip()
+            else "",
             "session_bound": bool(str(whatsapp.get("session_ref") or "").strip()),
             "session_ref_sha256": _sha256_bytes(str(whatsapp.get("session_ref") or "").encode("utf-8"))
             if str(whatsapp.get("session_ref") or "").strip()
@@ -11396,26 +14082,120 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
             ).strip(),
             "status": str(playback_acceptance.get("status") or "not_recorded").strip(),
             "accepted": playback_acceptance.get("accepted") is True,
+            "listened": playback_acceptance.get("listened") is True,
+            "canary_binding_status": str(
+                playback_acceptance.get("canary_binding_status") or "incomplete"
+            ).strip(),
+            "binding_issues": _safe_receipt_string_list(
+                playback_acceptance.get("binding_issues")
+            ),
+            "channel": str(playback_acceptance.get("channel") or "").strip(),
             "source": str(playback_acceptance.get("source") or "").strip(),
             "recorded_at": str(playback_acceptance.get("recorded_at") or "").strip(),
-            "feedback_sha256": str(playback_acceptance.get("feedback_sha256") or "").strip(),
-            "message_id_sha256": str(playback_acceptance.get("message_id_sha256") or "").strip(),
-            "public_share_url_sha256": str(playback_acceptance.get("public_share_url_sha256") or "").strip(),
-            "audiobookshelf_target_file_sha256": str(
+            "feedback_sha256": _receipt_sha256(playback_acceptance.get("feedback_sha256")),
+            "perceptual_attestation": {
+                "contract_name": (
+                    AUDIOBOOK_PERCEPTUAL_ATTESTATION_CONTRACT_NAME
+                    if perceptual_attestation.get("contract_name")
+                    == AUDIOBOOK_PERCEPTUAL_ATTESTATION_CONTRACT_NAME
+                    else ""
+                ),
+                "version": (
+                    AUDIOBOOK_PERCEPTUAL_ATTESTATION_VERSION
+                    if perceptual_attestation.get("version")
+                    == AUDIOBOOK_PERCEPTUAL_ATTESTATION_VERSION
+                    and not isinstance(
+                        perceptual_attestation.get("version"), bool
+                    )
+                    else 0
+                ),
+                "checks": {
+                    key: perceptual_attestation_checks.get(key) is True
+                    for key in AUDIOBOOK_PERCEPTUAL_ATTESTATION_CHECKS
+                },
+                "all_checks_attested": (
+                    perceptual_attestation.get("all_checks_attested") is True
+                ),
+                "channel_feedback_bound": (
+                    perceptual_attestation.get("channel_feedback_bound") is True
+                ),
+                "attestation_sha256": _receipt_sha256(
+                    perceptual_attestation.get("attestation_sha256")
+                ),
+                "raw_values_exposed": False,
+            },
+            "message_id_sha256": _receipt_sha256(playback_acceptance.get("message_id_sha256")),
+            "public_share_url_sha256": _receipt_sha256(
+                playback_acceptance.get("public_share_url_sha256")
+            ),
+            "artifact_sha256": _receipt_sha256(
+                playback_acceptance.get("artifact_sha256")
+            ),
+            "source_sha256": _receipt_sha256(
+                playback_acceptance.get("source_sha256")
+            ),
+            "source_aggregate_sha256": _receipt_sha256(
+                playback_acceptance.get("source_aggregate_sha256")
+            ),
+            "narration_plan_sha256": _receipt_sha256(
+                playback_acceptance.get("narration_plan_sha256")
+            ),
+            "render_signature_sha256": _receipt_sha256(
+                playback_acceptance.get("render_signature_sha256")
+            ),
+            "cast_map_sha256": _receipt_sha256(
+                playback_acceptance.get("cast_map_sha256")
+            ),
+            "mastering_signature_set_sha256": _receipt_sha256(
+                playback_acceptance.get("mastering_signature_set_sha256")
+            ),
+            "cinematic_timeline_sha256": _receipt_sha256(
+                playback_acceptance.get("cinematic_timeline_sha256")
+            ),
+            "publication_gate_sha256": _receipt_sha256(
+                playback_acceptance.get("publication_gate_sha256")
+            ),
+            "channel_public_share_message_id_sha256": _receipt_sha256(
+                playback_acceptance.get("channel_public_share_message_id_sha256")
+            ),
+            "listener_reference_sha256": _receipt_sha256(
+                playback_acceptance.get("listener_reference_sha256")
+            ),
+            "receipt_sha256": _receipt_sha256(
+                playback_acceptance.get("receipt_sha256")
+            ),
+            "receipt_hmac_sha256": _receipt_sha256(
+                playback_acceptance.get("receipt_hmac_sha256")
+            ),
+            "language": str(playback_acceptance.get("language") or "").strip(),
+            "dialogue_turn_count": _receipt_nonnegative_int(
+                playback_acceptance.get("dialogue_turn_count")
+            ),
+            "expected_chapter_count": _receipt_nonnegative_int(
+                playback_acceptance.get("expected_chapter_count")
+            ),
+            "actual_chapter_count": _receipt_nonnegative_int(
+                playback_acceptance.get("actual_chapter_count")
+            ),
+            "audiobookshelf_target_file_sha256": _receipt_sha256(
                 playback_acceptance.get("audiobookshelf_target_file_sha256") or ""
-            ).strip(),
-            "telegram_public_share_message_id_sha256": str(
+            ),
+            "telegram_public_share_message_id_sha256": _receipt_sha256(
                 playback_acceptance.get("telegram_public_share_message_id_sha256") or ""
-            ).strip(),
-            "whatsapp_public_share_message_id_sha256": str(
+            ),
+            "whatsapp_public_share_message_id_sha256": _receipt_sha256(
                 playback_acceptance.get("whatsapp_public_share_message_id_sha256") or ""
-            ).strip(),
+            ),
             "raw_feedback_exposed": bool(playback_acceptance.get("raw_feedback_exposed")),
             "raw_message_id_exposed": bool(playback_acceptance.get("raw_message_id_exposed")),
+            "raw_listener_reference_exposed": bool(
+                playback_acceptance.get("raw_listener_reference_exposed")
+            ),
             "callback_ready": bool(
                 str(dict(public_share.get("playback_acceptance_callback") or {}).get("token") or "").strip()
             ),
             "callback_token_exposed": False,
+            "receipt_hmac_key_exposed": False,
         },
         "privacy": privacy,
     }
@@ -11441,6 +14221,501 @@ def _write_current_job_receipt_best_effort(job_dir: Path) -> dict[str, object]:
     }
 
 
+def _human_listened_canary_acceptance(
+    *,
+    job: dict[str, object],
+    accepted: bool,
+    source: str,
+    message_id: str,
+    feedback: str,
+    recorded_at: str,
+    callback_token_verified: bool,
+    perceptual_attestation: object = None,
+) -> dict[str, object]:
+    normalized_source = _normalize_tag(source) or "operator"
+    channel = (
+        "whatsapp"
+        if "whatsapp" in normalized_source
+        else "telegram"
+        if "telegram" in normalized_source
+        else "operator"
+    )
+    (
+        safe_perceptual_attestation,
+        perceptual_attestation_valid,
+        perceptual_feedback_valid,
+    ) = _safe_audiobook_perceptual_attestation(
+        value=perceptual_attestation,
+        channel=channel,
+        feedback=feedback,
+    )
+    import_result = dict(job.get("audiobookshelf_import") or {})
+    public_share = dict(import_result.get("public_share") or {})
+    telegram_delivery = dict(public_share.get("telegram_delivery") or {})
+    whatsapp_delivery = dict(public_share.get("whatsapp_delivery") or {})
+    if not whatsapp_delivery:
+        whatsapp_delivery = dict(
+            dict(job.get("whatsapp") or {}).get("public_share_delivery") or {}
+        )
+    target_path = Path(str(import_result.get("target_path") or ""))
+    artifact_sha256 = _sha256_file(target_path) if target_path.is_file() else ""
+    source_row = dict(job.get("source") or {})
+    metadata = dict(job.get("metadata") or {})
+    source_sha256 = _receipt_sha256(
+        source_row.get("source_sha256") or metadata.get("source_sha256")
+    )
+    if not source_sha256:
+        source_path = Path(
+            str(
+                source_row.get("source_epub")
+                or dict(job.get("storage") or {}).get("source_epub")
+                or ""
+            )
+        )
+        if source_path.is_file():
+            source_sha256 = _sha256_file(source_path)
+    render_result = dict(job.get("render_result") or {})
+    narration_plan = dict(
+        render_result.get("narration_plan") or job.get("narration_plan") or {}
+    )
+    plan_sha256 = _receipt_sha256(narration_plan.get("plan_sha256"))
+    render_signature_sha256 = _receipt_sha256(
+        narration_plan.get("render_signature")
+    )
+    source_aggregate_sha256 = _receipt_sha256(
+        narration_plan.get("source_aggregate_sha256")
+    )
+    dialogue_turn_count = _receipt_nonnegative_int(
+        narration_plan.get("dialogue_passage_count")
+        if narration_plan.get("dialogue_passage_count") is not None
+        else narration_plan.get("dialogue_span_count")
+    )
+    speaker_cast = dict(
+        render_result.get("speaker_cast")
+        or narration_plan.get("speaker_cast")
+        or {}
+    )
+    cast_map_sha256 = _receipt_sha256(
+        narration_plan.get("cast_map_sha256")
+        or speaker_cast.get("cast_map_sha256")
+    )
+    mastering = _safe_receipt_mastering(render_result.get("mastering"))
+    mastering_signature_set_sha256 = _receipt_sha256(
+        mastering.get("signature_set_sha256")
+    )
+    final_track_mode = str(mastering.get("final_track_mode") or "").strip()
+    expected_tracks = _receipt_nonnegative_int(
+        mastering.get("expected_final_track_count")
+    )
+    ready_tracks = _receipt_nonnegative_int(
+        mastering.get("final_track_ready_count")
+    )
+    signed_tracks = _receipt_nonnegative_int(
+        mastering.get("signature_published_or_verified_count")
+    )
+    final_quality = [
+        dict(row)
+        for row in list(mastering.get("final_audio_quality") or [])
+        if isinstance(row, dict)
+    ]
+    merge_result = dict(job.get("merge_result") or {})
+    expected_chapters = _receipt_nonnegative_int(
+        merge_result.get("expected_chapter_count")
+    )
+    actual_chapters = _receipt_nonnegative_int(
+        merge_result.get("actual_chapter_count")
+    )
+    chapter_count_matches = (
+        merge_result.get("chapter_count_matches") is True
+        and expected_chapters > 0
+        and expected_chapters == actual_chapters
+    )
+    cinematic_timeline_sha256 = _receipt_sha256(
+        merge_result.get("cinematic_timeline_sha256")
+    )
+    cinematic_render = bool(str(render_result.get("cinematic_master_audio") or "").strip())
+    render_timeline = dict(render_result.get("chapter_timeline") or {})
+    render_timeline_sha256 = _receipt_sha256(
+        render_timeline.get("timeline_sha256")
+    )
+    gate = _audiobook_publication_gate(job)
+    gate_stt = dict(gate.get("stt") or {})
+    gate_loudness = dict(gate.get("loudness") or {})
+    gate_mastering = dict(gate.get("mastering") or {})
+    try:
+        gate_integrated_lufs = float(gate_loudness["integrated_lufs"])
+        gate_true_peak_dbtp = float(gate_loudness["true_peak_dbtp"])
+        gate_min_lufs = float(gate_loudness["min_integrated_lufs"])
+        gate_max_lufs = float(gate_loudness["max_integrated_lufs"])
+        gate_max_true_peak = float(gate_loudness["max_true_peak_dbtp"])
+    except (KeyError, TypeError, ValueError):
+        gate_loudness_valid = False
+    else:
+        gate_loudness_valid = bool(
+            all(
+                math.isfinite(value)
+                for value in (
+                    gate_integrated_lufs,
+                    gate_true_peak_dbtp,
+                    gate_min_lufs,
+                    gate_max_lufs,
+                    gate_max_true_peak,
+                )
+            )
+            and gate_min_lufs <= gate_integrated_lufs <= gate_max_lufs
+            and gate_true_peak_dbtp <= gate_max_true_peak
+        )
+    gate_target_sha256 = _receipt_sha256(gate.get("target_file_sha256"))
+    gate_sha256 = (
+        _sha256_bytes(
+            json.dumps(gate, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
+        if gate
+        else ""
+    )
+    public_share_url = str(public_share.get("absolute_url") or "").strip()
+    feedback_sha256 = (
+        _sha256_bytes(str(feedback or "").encode("utf-8"))
+        if str(feedback or "").strip()
+        else ""
+    )
+    normalized_language = _normalize_language(
+        str(metadata.get("language") or "")
+    ).split("-", 1)[0]
+    raw_telegram_message_id = str(telegram_delivery.get("message_id") or "").strip()
+    telegram_message_sha256 = (
+        _sha256_bytes(raw_telegram_message_id.encode("utf-8"))
+        if raw_telegram_message_id
+        else ""
+    )
+    whatsapp_message_sha256 = _receipt_sha256(
+        whatsapp_delivery.get("message_id_sha256")
+    )
+    if not whatsapp_message_sha256:
+        raw_whatsapp_message_id = str(whatsapp_delivery.get("message_id") or "").strip()
+        if raw_whatsapp_message_id:
+            whatsapp_message_sha256 = _sha256_bytes(
+                raw_whatsapp_message_id.encode("utf-8")
+            )
+    channel_message_sha256 = (
+        whatsapp_message_sha256 if channel == "whatsapp" else telegram_message_sha256
+    )
+    telegram = dict(job.get("telegram") or {})
+    whatsapp = dict(job.get("whatsapp") or {})
+    listener_reference = (
+        str(
+            whatsapp.get("sender_ref")
+            or whatsapp.get("session_ref")
+            or ""
+        ).strip()
+        if channel == "whatsapp"
+        else str(telegram.get("chat_id") or "").strip()
+        if channel == "telegram"
+        else ""
+    )
+    listener_reference_sha256 = (
+        _sha256_bytes(listener_reference.encode("utf-8"))
+        if listener_reference
+        else ""
+    )
+    canary_hmac_key = _audiobook_canary_receipt_hmac_key(channel)
+    issues: list[str] = []
+    if not accepted:
+        issues.append("listener_rejected")
+    if channel not in {"telegram", "whatsapp"}:
+        issues.append("human_channel_unbound")
+    if normalized_source not in {"telegram_button", "whatsapp_button"}:
+        issues.append("human_action_source_unbound")
+    if not callback_token_verified:
+        issues.append("human_action_callback_unverified")
+    if not canary_hmac_key:
+        issues.append("canary_receipt_hmac_key_unavailable")
+    if not listener_reference_sha256:
+        issues.append("listener_reference_unbound")
+    if not channel_message_sha256:
+        issues.append("public_share_message_unbound")
+    if not feedback_sha256:
+        issues.append("human_feedback_unbound")
+    if not perceptual_attestation_valid:
+        issues.append("perceptual_attestation_unbound")
+    if not perceptual_feedback_valid:
+        issues.append("perceptual_attestation_feedback_unbound")
+    if not str(message_id or "").strip():
+        issues.append("human_action_message_unbound")
+    if (
+        str(public_share.get("status") or "").strip() != "public_share_ready"
+        or not public_share_url
+    ):
+        issues.append("public_share_not_ready")
+    if not artifact_sha256:
+        issues.append("artifact_unavailable")
+    if not source_sha256:
+        issues.append("source_digest_unbound")
+    if (
+        str(narration_plan.get("contract_name") or "")
+        != NARRATION_PLAN_CONTRACT_NAME
+        or str(narration_plan.get("status") or "") != "ready"
+        or narration_plan.get("coverage_complete") is not True
+        or narration_plan.get("source_integrity_verified") is not True
+        or not plan_sha256
+        or not source_aggregate_sha256
+        or not render_signature_sha256
+    ):
+        issues.append("exact_narration_plan_unbound")
+    if dialogue_turn_count > 0 and (
+        str(speaker_cast.get("status") or "") != "ready"
+        or speaker_cast.get("narrator_voice_excluded") is not True
+        or not cast_map_sha256
+    ):
+        issues.append("dialogue_cast_unbound")
+    if dialogue_turn_count < 2:
+        issues.append("dialogue_continuity_canary_unexercised")
+    if normalized_language not in {"de", "en"}:
+        issues.append("canary_language_unsupported")
+    if (
+        str(mastering.get("status") or "") != "mastered"
+        or expected_tracks <= 0
+        or ready_tracks != expected_tracks
+        or signed_tracks != expected_tracks
+        or not mastering_signature_set_sha256
+        or mastering.get("segment_mastering") is not False
+        or (
+            cinematic_render
+            and (final_track_mode != "cinematic_master" or expected_tracks != 1)
+        )
+        or (
+            not cinematic_render
+            and (
+                final_track_mode != "chapter_masters"
+                or expected_tracks != expected_chapters
+            )
+        )
+        or not final_quality
+        or any(
+            str(row.get("status") or "") not in {"pass", "warn"}
+            for row in final_quality
+        )
+    ):
+        issues.append("mastering_proof_unbound")
+    if (
+        str(merge_result.get("status") or "") != "m4b_ready"
+        or not chapter_count_matches
+    ):
+        issues.append("chapter_metadata_unbound")
+    if cinematic_render and (
+        not cinematic_timeline_sha256
+        or not render_timeline_sha256
+        or cinematic_timeline_sha256 != render_timeline_sha256
+    ):
+        issues.append("cinematic_timeline_unbound")
+    if (
+        str(gate.get("contract_name") or "")
+        != AUDIOBOOK_PUBLICATION_GATE_CONTRACT_NAME
+        or str(gate.get("status") or "") != "pass"
+        or list(gate.get("issues") or [])
+        or not gate_sha256
+        or gate_target_sha256 != artifact_sha256
+        or _receipt_sha256(gate.get("source_sha256")) != source_sha256
+        or _receipt_sha256(gate.get("source_aggregate_sha256"))
+        != source_aggregate_sha256
+        or _receipt_sha256(gate.get("narration_plan_sha256")) != plan_sha256
+        or _receipt_sha256(gate.get("render_signature_sha256"))
+        != render_signature_sha256
+        or _receipt_sha256(gate.get("mastering_signature_set_sha256"))
+        != mastering_signature_set_sha256
+        or str(gate_mastering.get("final_track_mode") or "")
+        != final_track_mode
+        or (
+            dialogue_turn_count > 0
+            and _receipt_sha256(gate.get("cast_map_sha256"))
+            != cast_map_sha256
+        )
+        or _receipt_nonnegative_int(gate.get("expected_chapter_count"))
+        != expected_chapters
+        or _receipt_nonnegative_int(gate.get("actual_chapter_count"))
+        != actual_chapters
+        or gate.get("chapter_count_matches") is not True
+        or str(gate_stt.get("status") or "") != "pass"
+        or gate_stt.get("required") is not True
+        or gate_stt.get("enabled") is not True
+        or _receipt_nonnegative_int(gate_stt.get("sample_count")) <= 0
+        or _receipt_nonnegative_int(gate_stt.get("passed_samples"))
+        != _receipt_nonnegative_int(gate_stt.get("sample_count"))
+        or _receipt_nonnegative_int(gate_stt.get("failed_samples")) != 0
+        or str(gate_loudness.get("status") or "") != "checked"
+        or str(gate_loudness.get("analysis_scope") or "") != "full_file"
+        or not gate_loudness_valid
+        or (
+            cinematic_render
+            and _receipt_sha256(gate.get("cinematic_timeline_sha256"))
+            != cinematic_timeline_sha256
+        )
+    ):
+        issues.append("publication_gate_unbound")
+
+    complete = not issues
+    payload: dict[str, object] = {
+        "contract_name": (
+            HUMAN_LISTENED_CANARY_ACCEPTANCE_CONTRACT_NAME
+            if complete
+            else PLAYBACK_ACCEPTANCE_CONTRACT_NAME
+        ),
+        "status": (
+            "listened_canary_accepted"
+            if complete
+            else "accepted"
+            if accepted
+            else "rejected"
+        ),
+        "accepted": bool(accepted),
+        "listened": complete,
+        "canary_binding_status": "complete" if complete else "incomplete",
+        "binding_issues": sorted(set(issues)),
+        "channel": channel,
+        "source": normalized_source,
+        "recorded_at": recorded_at,
+        "artifact_sha256": artifact_sha256,
+        "source_sha256": source_sha256,
+        "source_aggregate_sha256": source_aggregate_sha256,
+        "narration_plan_sha256": plan_sha256,
+        "render_signature_sha256": render_signature_sha256,
+        "cast_map_sha256": cast_map_sha256,
+        "mastering_signature_set_sha256": mastering_signature_set_sha256,
+        "cinematic_timeline_sha256": cinematic_timeline_sha256,
+        "publication_gate_sha256": gate_sha256,
+        "channel_public_share_message_id_sha256": channel_message_sha256,
+        "public_share_url_sha256": (
+            _sha256_bytes(public_share_url.encode("utf-8"))
+            if public_share_url
+            else ""
+        ),
+        "message_id_sha256": (
+            _sha256_bytes(str(message_id or "").strip().encode("utf-8"))
+            if str(message_id or "").strip()
+            else ""
+        ),
+        "feedback_sha256": feedback_sha256,
+        "perceptual_attestation": safe_perceptual_attestation,
+        "listener_reference_sha256": listener_reference_sha256,
+        "language": normalized_language,
+        "dialogue_turn_count": dialogue_turn_count,
+        "expected_chapter_count": expected_chapters,
+        "actual_chapter_count": actual_chapters,
+        "raw_feedback_exposed": False,
+        "raw_message_id_exposed": False,
+        "raw_listener_reference_exposed": False,
+    }
+    payload["receipt_sha256"] = _sha256_bytes(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+    payload["receipt_hmac_sha256"] = (
+        hmac.new(
+            canary_hmac_key.encode("utf-8"),
+            str(payload["receipt_sha256"]).encode("ascii"),
+            hashlib.sha256,
+        ).hexdigest()
+        if canary_hmac_key
+        else ""
+    )
+    return payload
+
+
+def _record_audiobook_playback_acceptance_locked(
+    *,
+    job_dir: Path,
+    accepted: bool = True,
+    source: str = "telegram",
+    message_id: str = "",
+    feedback: str = "",
+    perceptual_attestation: object = None,
+    _verified_callback_token: str = "",
+) -> dict[str, object]:
+    job = _load_job(job_dir)
+    verified_callback_token = str(_verified_callback_token or "").strip()
+    import_result = dict(job.get("audiobookshelf_import") or {})
+    public_share = dict(import_result.get("public_share") or {})
+    callback = dict(public_share.get("playback_acceptance_callback") or {})
+    expected_binding = _audiobook_playback_acceptance_callback_binding_sha256(
+        job
+    )
+    expected_token = expected_binding[:32] if expected_binding else ""
+    callback_token_verified = bool(
+        verified_callback_token
+        and expected_token
+        and _audiobook_playback_callback_contract_valid(callback)
+        and str(callback.get("status") or "").strip() == "ready"
+        and _receipt_sha256(callback.get("binding_sha256")) == expected_binding
+        and hmac.compare_digest(
+            str(callback.get("token") or "").strip(), expected_token
+        )
+        and hmac.compare_digest(verified_callback_token, expected_token)
+    )
+    playback_acceptance = _human_listened_canary_acceptance(
+        job=job,
+        accepted=accepted,
+        source=source,
+        message_id=message_id,
+        feedback=feedback,
+        recorded_at=_now_iso(),
+        callback_token_verified=callback_token_verified,
+        perceptual_attestation=perceptual_attestation,
+    )
+    # Keep the legacy target digest alias for existing private consumers while
+    # the contract remains unqualified. The value is still hash-only.
+    playback_acceptance["audiobookshelf_target_file_sha256"] = str(
+        playback_acceptance.get("artifact_sha256") or ""
+    )
+    playback_acceptance["telegram_public_share_message_id_sha256"] = (
+        str(playback_acceptance.get("channel_public_share_message_id_sha256") or "")
+        if str(playback_acceptance.get("channel") or "") == "telegram"
+        else ""
+    )
+    playback_acceptance["whatsapp_public_share_message_id_sha256"] = (
+        str(playback_acceptance.get("channel_public_share_message_id_sha256") or "")
+        if str(playback_acceptance.get("channel") or "") == "whatsapp"
+        else ""
+    )
+    callback_consumed = bool(
+        callback_token_verified
+        and (
+            playback_acceptance.get("listened") is True
+            or not accepted
+        )
+    )
+    if callback_consumed:
+        public_share["playback_acceptance_callback"] = {
+            "contract_name": AUDIOBOOK_PLAYBACK_CALLBACK_CONTRACT_NAME,
+            "perceptual_attestation_contract_name": (
+                AUDIOBOOK_PERCEPTUAL_ATTESTATION_CONTRACT_NAME
+            ),
+            "perceptual_attestation_version": (
+                AUDIOBOOK_PERCEPTUAL_ATTESTATION_VERSION
+            ),
+            "status": "consumed",
+            "binding_sha256": expected_binding,
+            "created_at": str(callback.get("created_at") or "").strip(),
+            "consumed_at": str(playback_acceptance.get("recorded_at") or ""),
+            "raw_token_exposed": False,
+        }
+        import_result["public_share"] = public_share
+        job["audiobookshelf_import"] = import_result
+    job["playback_acceptance"] = playback_acceptance
+    job["updated_at"] = _now_iso()
+    if playback_acceptance.get("listened") is True:
+        job["next_action"] = "playback_listened_canary_accepted"
+    elif accepted:
+        job["next_action"] = (
+            "complete_playback_perceptual_attestation"
+            if callback_token_verified
+            else "playback_accepted"
+        )
+    else:
+        job["next_action"] = "review_audiobook_playback_problem"
+    _write_job(job_dir, job)
+    _write_current_job_receipt_best_effort(job_dir)
+    return job
+
+
 def record_audiobook_playback_acceptance(
     *,
     job_dir: Path,
@@ -11448,51 +14723,20 @@ def record_audiobook_playback_acceptance(
     source: str = "telegram",
     message_id: str = "",
     feedback: str = "",
+    perceptual_attestation: object = None,
+    _verified_callback_token: str = "",
 ) -> dict[str, object]:
-    job = _load_job(job_dir)
-    import_result = dict(job.get("audiobookshelf_import") or {})
-    public_share = dict(import_result.get("public_share") or {})
-    public_share_delivery = dict(public_share.get("telegram_delivery") or {})
-    whatsapp_public_share_delivery = dict(public_share.get("whatsapp_delivery") or {})
-    if not whatsapp_public_share_delivery:
-        whatsapp_public_share_delivery = dict(dict(job.get("whatsapp") or {}).get("public_share_delivery") or {})
-    target_path = Path(str(import_result.get("target_path") or ""))
-    public_share_url = str(public_share.get("absolute_url") or "").strip()
-    normalized_message_id = str(message_id or "").strip()
-    if not normalized_message_id:
-        normalized_message_id = str(public_share_delivery.get("message_id") or "").strip()
-    whatsapp_public_share_message_hash = str(whatsapp_public_share_delivery.get("message_id_sha256") or "").strip()
-    raw_whatsapp_public_share_message_id = str(whatsapp_public_share_delivery.get("message_id") or "").strip()
-    if not whatsapp_public_share_message_hash and raw_whatsapp_public_share_message_id:
-        whatsapp_public_share_message_hash = _sha256_bytes(raw_whatsapp_public_share_message_id.encode("utf-8"))
-    playback_acceptance = {
-        "contract_name": PLAYBACK_ACCEPTANCE_CONTRACT_NAME,
-        "status": "accepted" if accepted else "rejected",
-        "accepted": bool(accepted),
-        "source": _normalize_tag(source) or "operator",
-        "recorded_at": _now_iso(),
-        "feedback_sha256": _sha256_bytes(str(feedback or "").encode("utf-8")) if str(feedback or "").strip() else "",
-        "message_id_sha256": _sha256_bytes(normalized_message_id.encode("utf-8")) if normalized_message_id else "",
-        "public_share_url_sha256": _sha256_bytes(public_share_url.encode("utf-8")) if public_share_url else "",
-        "audiobookshelf_target_file_sha256": _sha256_file(target_path) if target_path.is_file() else "",
-        "telegram_public_share_message_id_sha256": _sha256_bytes(
-            str(public_share_delivery.get("message_id") or "").encode("utf-8")
+    """Record playback state as one canonical job transaction."""
+    with _exclusive_audiobook_job_lock(job_dir):
+        return _record_audiobook_playback_acceptance_locked(
+            job_dir=job_dir,
+            accepted=accepted,
+            source=source,
+            message_id=message_id,
+            feedback=feedback,
+            perceptual_attestation=perceptual_attestation,
+            _verified_callback_token=_verified_callback_token,
         )
-        if str(public_share_delivery.get("message_id") or "").strip()
-        else "",
-        "whatsapp_public_share_message_id_sha256": whatsapp_public_share_message_hash,
-        "raw_feedback_exposed": False,
-        "raw_message_id_exposed": False,
-    }
-    job["playback_acceptance"] = playback_acceptance
-    job["updated_at"] = _now_iso()
-    if accepted:
-        job["next_action"] = "playback_accepted"
-    else:
-        job["next_action"] = "review_audiobook_playback_problem"
-    _write_job(job_dir, job)
-    _write_current_job_receipt_best_effort(job_dir)
-    return job
 
 
 def _audiobook_public_share_for_job(job: dict[str, object]) -> dict[str, object]:
@@ -11539,62 +14783,259 @@ def _audiobook_public_share_is_ready(job: dict[str, object]) -> bool:
     )
 
 
-def _audiobook_public_share_acceptance_callback_ready(job: dict[str, object]) -> bool:
+def _audiobook_public_share_acceptance_callback_block_reason(
+    job: dict[str, object],
+) -> str:
     public_share = _audiobook_public_share_for_job(job)
     if str(public_share.get("status") or "").strip() != "public_share_ready":
-        return False
+        return "public_share_not_ready"
     if not str(public_share.get("absolute_url") or "").strip():
-        return False
+        return "public_share_url_missing"
     gate_reason = _audiobook_publication_gate_reason(job)
-    return gate_reason in {"", "audio_publication_gate_missing"}
+    if gate_reason:
+        return gate_reason
+    if str(dict(job.get("whatsapp") or {}).get("sender_ref") or "").strip():
+        channel = "whatsapp"
+    elif str(dict(job.get("telegram") or {}).get("chat_id") or "").strip():
+        channel = "telegram"
+    else:
+        return "human_channel_unbound"
+    if not _audiobook_canary_receipt_hmac_key(channel):
+        return "canary_receipt_hmac_key_unavailable"
+    return ""
+
+
+def _audiobook_public_share_acceptance_callback_ready(job: dict[str, object]) -> bool:
+    return not _audiobook_public_share_acceptance_callback_block_reason(job)
 
 
 def _audiobook_playback_acceptance_callback_token(job: dict[str, object]) -> str:
+    binding_sha256 = _audiobook_playback_acceptance_callback_binding_sha256(job)
+    return binding_sha256[:32] if binding_sha256 else ""
+
+
+def _audiobook_playback_callback_contract_valid(
+    callback: dict[str, object],
+) -> bool:
+    return bool(
+        callback.get("contract_name")
+        == AUDIOBOOK_PLAYBACK_CALLBACK_CONTRACT_NAME
+        and callback.get("perceptual_attestation_contract_name")
+        == AUDIOBOOK_PERCEPTUAL_ATTESTATION_CONTRACT_NAME
+        and isinstance(callback.get("perceptual_attestation_version"), int)
+        and not isinstance(
+            callback.get("perceptual_attestation_version"), bool
+        )
+        and callback.get("perceptual_attestation_version")
+        == AUDIOBOOK_PERCEPTUAL_ATTESTATION_VERSION
+    )
+
+
+def _audiobook_playback_acceptance_callback_binding_sha256(
+    job: dict[str, object],
+) -> str:
     import_result = dict(job.get("audiobookshelf_import") or {})
     public_share = dict(import_result.get("public_share") or {})
-    seed = "|".join(
-        (
-            str(job.get("job_id") or "").strip(),
-            str(public_share.get("absolute_url") or "").strip(),
-            str(import_result.get("target_path") or "").strip(),
-            str(dict(job.get("telegram") or {}).get("chat_id") or "").strip(),
-        )
+    target_path = Path(str(import_result.get("target_path") or ""))
+    target_sha256 = _receipt_sha256(
+        dict(job.get("audio_publication_gate") or {}).get("target_file_sha256")
     )
-    return _sha256_bytes(seed.encode("utf-8"))[:14] if seed.strip("|") else ""
+    if not target_sha256 and target_path.is_file():
+        target_sha256 = _sha256_file(target_path)
+    render_result = dict(job.get("render_result") or {})
+    narration_plan = dict(
+        render_result.get("narration_plan") or job.get("narration_plan") or {}
+    )
+    mastering = dict(render_result.get("mastering") or {})
+    gate = dict(job.get("audio_publication_gate") or {})
+    gate_sha256 = (
+        _sha256_bytes(
+            json.dumps(gate, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
+        if gate
+        else ""
+    )
+    binding = {
+        "callback_contract_name": AUDIOBOOK_PLAYBACK_CALLBACK_CONTRACT_NAME,
+        "perceptual_attestation_contract_name": (
+            AUDIOBOOK_PERCEPTUAL_ATTESTATION_CONTRACT_NAME
+        ),
+        "perceptual_attestation_version": (
+            AUDIOBOOK_PERCEPTUAL_ATTESTATION_VERSION
+        ),
+        "perceptual_checklist_sha256": _sha256_bytes(
+            json.dumps(
+                AUDIOBOOK_PERCEPTUAL_ATTESTATION_CHECKS,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ),
+        "job_id": str(job.get("job_id") or "").strip(),
+        "public_share_url_sha256": (
+            _sha256_bytes(
+                str(public_share.get("absolute_url") or "").strip().encode("utf-8")
+            )
+            if str(public_share.get("absolute_url") or "").strip()
+            else ""
+        ),
+        "target_sha256": target_sha256,
+        "source_sha256": _receipt_sha256(
+            dict(job.get("source") or {}).get("source_sha256")
+            or dict(job.get("metadata") or {}).get("source_sha256")
+        ),
+        "narration_plan_sha256": _receipt_sha256(
+            narration_plan.get("plan_sha256")
+        ),
+        "render_signature_sha256": _receipt_sha256(
+            narration_plan.get("render_signature")
+        ),
+        "mastering_signature_set_sha256": _receipt_sha256(
+            mastering.get("signature_set_sha256")
+        ),
+        "publication_gate_sha256": gate_sha256,
+        "telegram_listener_sha256": (
+            _sha256_bytes(
+                str(dict(job.get("telegram") or {}).get("chat_id") or "")
+                .strip()
+                .encode("utf-8")
+            )
+            if str(dict(job.get("telegram") or {}).get("chat_id") or "").strip()
+            else ""
+        ),
+        "whatsapp_listener_sha256": (
+            _sha256_bytes(
+                str(
+                    dict(job.get("whatsapp") or {}).get("sender_ref")
+                    or dict(job.get("whatsapp") or {}).get("session_ref")
+                    or ""
+                )
+                .strip()
+                .encode("utf-8")
+            )
+            if str(
+                dict(job.get("whatsapp") or {}).get("sender_ref")
+                or dict(job.get("whatsapp") or {}).get("session_ref")
+                or ""
+            ).strip()
+            else ""
+        ),
+    }
+    if not binding["job_id"] or not binding["public_share_url_sha256"]:
+        return ""
+    return _sha256_bytes(
+        json.dumps(binding, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
 
 
-def ensure_audiobook_playback_acceptance_callback(job: dict[str, object]) -> dict[str, object]:
-    if not _audiobook_public_share_acceptance_callback_ready(job):
-        return job
-    job_dir_raw = str(dict(job.get("storage") or {}).get("job_dir") or "").strip()
-    job_dir = Path(job_dir_raw) if job_dir_raw else Path()
-    current_job = dict(job)
-    if job_dir_raw and job_dir.is_dir():
-        try:
-            current_job = _load_job(job_dir)
-        except Exception:
-            current_job = dict(job)
+def _ensure_audiobook_playback_acceptance_callback_state(
+    current_job: dict[str, object],
+    *,
+    job_dir: Path | None,
+) -> dict[str, object]:
+    if not _audiobook_public_share_acceptance_callback_ready(current_job):
+        import_result = dict(current_job.get("audiobookshelf_import") or {})
+        public_share = dict(import_result.get("public_share") or {})
+        callback = dict(
+            public_share.get("playback_acceptance_callback") or {}
+        )
+        if (
+            str(callback.get("status") or "").strip() == "ready"
+            or bool(str(callback.get("token") or "").strip())
+        ):
+            public_share["playback_acceptance_callback"] = {
+                "contract_name": AUDIOBOOK_PLAYBACK_CALLBACK_CONTRACT_NAME,
+                "perceptual_attestation_contract_name": (
+                    AUDIOBOOK_PERCEPTUAL_ATTESTATION_CONTRACT_NAME
+                ),
+                "perceptual_attestation_version": (
+                    AUDIOBOOK_PERCEPTUAL_ATTESTATION_VERSION
+                ),
+                "status": "blocked",
+                "reason": (
+                    _audiobook_public_share_acceptance_callback_block_reason(
+                        current_job
+                    )
+                ),
+                "raw_token_exposed": False,
+            }
+            import_result["public_share"] = public_share
+            current_job["audiobookshelf_import"] = import_result
+            current_job["updated_at"] = _now_iso()
+            if job_dir is not None:
+                _write_job(job_dir, current_job)
+                _write_current_job_receipt_best_effort(job_dir)
+        return current_job
     import_result = dict(current_job.get("audiobookshelf_import") or {})
     public_share = dict(import_result.get("public_share") or {})
     if str(public_share.get("status") or "").strip() != "public_share_ready":
         return current_job
     callback = dict(public_share.get("playback_acceptance_callback") or {})
-    token = str(callback.get("token") or "").strip() or _audiobook_playback_acceptance_callback_token(current_job)
+    binding_sha256 = _audiobook_playback_acceptance_callback_binding_sha256(
+        current_job
+    )
+    token = binding_sha256[:32] if binding_sha256 else ""
     if not token:
         return current_job
+    previous_binding = _receipt_sha256(callback.get("binding_sha256"))
+    if (
+        str(callback.get("status") or "").strip() == "consumed"
+        and previous_binding == binding_sha256
+        and _audiobook_playback_callback_contract_valid(callback)
+    ):
+        return current_job
+    callback_unchanged = (
+        str(callback.get("status") or "").strip() == "ready"
+        and _audiobook_playback_callback_contract_valid(callback)
+        and hmac.compare_digest(str(callback.get("token") or "").strip(), token)
+        and previous_binding == binding_sha256
+    )
     public_share["playback_acceptance_callback"] = {
+        "contract_name": AUDIOBOOK_PLAYBACK_CALLBACK_CONTRACT_NAME,
+        "perceptual_attestation_contract_name": (
+            AUDIOBOOK_PERCEPTUAL_ATTESTATION_CONTRACT_NAME
+        ),
+        "perceptual_attestation_version": (
+            AUDIOBOOK_PERCEPTUAL_ATTESTATION_VERSION
+        ),
         "status": "ready",
         "token": token,
-        "created_at": str(callback.get("created_at") or _now_iso()).strip(),
+        "binding_sha256": binding_sha256,
+        "created_at": (
+            str(callback.get("created_at") or _now_iso()).strip()
+            if callback_unchanged
+            else _now_iso()
+        ),
+        "rotated_for_current_artifact": bool(callback) and not callback_unchanged,
         "raw_token_exposed": False,
     }
     import_result["public_share"] = public_share
     current_job["audiobookshelf_import"] = import_result
     current_job["updated_at"] = _now_iso()
-    if job_dir_raw and job_dir.is_dir():
+    if job_dir is not None:
         _write_job(job_dir, current_job)
         _write_current_job_receipt_best_effort(job_dir)
     return current_job
+
+
+def ensure_audiobook_playback_acceptance_callback(
+    job: dict[str, object],
+) -> dict[str, object]:
+    job_dir_raw = str(
+        dict(job.get("storage") or {}).get("job_dir") or ""
+    ).strip()
+    if not job_dir_raw:
+        return _ensure_audiobook_playback_acceptance_callback_state(
+            dict(job),
+            job_dir=None,
+        )
+    job_dir = Path(job_dir_raw)
+    if not job_dir.is_dir():
+        return dict(job)
+    with _exclusive_audiobook_job_lock(job_dir):
+        current_job = _load_job(job_dir)
+        return _ensure_audiobook_playback_acceptance_callback_state(
+            current_job,
+            job_dir=job_dir,
+        )
 
 
 def record_audiobook_playback_acceptance_by_callback_token(
@@ -11604,6 +15045,7 @@ def record_audiobook_playback_acceptance_by_callback_token(
     source: str = "telegram_button",
     message_id: str = "",
     feedback: str = "",
+    perceptual_attestation: object = None,
 ) -> dict[str, object]:
     normalized = str(callback_token or "").strip()
     if not normalized:
@@ -11615,15 +15057,71 @@ def record_audiobook_playback_acceptance_by_callback_token(
             continue
         public_share = _audiobook_public_share_for_job(job)
         callback = dict(public_share.get("playback_acceptance_callback") or {})
-        candidate = str(callback.get("token") or "").strip() or _audiobook_playback_acceptance_callback_token(job)
-        if candidate and hmac.compare_digest(candidate, normalized):
-            return record_audiobook_playback_acceptance(
-                job_dir=manifest_path.parent,
-                accepted=accepted,
-                source=source,
-                message_id=message_id,
-                feedback=feedback,
-            )
+        expected_binding = _audiobook_playback_acceptance_callback_binding_sha256(
+            job
+        )
+        expected_token = expected_binding[:32] if expected_binding else ""
+        candidate = str(callback.get("token") or "").strip()
+        if (
+            _audiobook_playback_callback_contract_valid(callback)
+            and str(callback.get("status") or "").strip() == "ready"
+            and _receipt_sha256(callback.get("binding_sha256")) == expected_binding
+            and candidate
+            and expected_token
+            and hmac.compare_digest(candidate, expected_token)
+            and hmac.compare_digest(candidate, normalized)
+        ):
+            with _exclusive_audiobook_job_lock(manifest_path.parent):
+                current_job = _load_job(manifest_path.parent)
+                current_public_share = _audiobook_public_share_for_job(
+                    current_job
+                )
+                current_callback = dict(
+                    current_public_share.get(
+                        "playback_acceptance_callback"
+                    )
+                    or {}
+                )
+                current_binding = (
+                    _audiobook_playback_acceptance_callback_binding_sha256(
+                        current_job
+                    )
+                )
+                current_expected_token = (
+                    current_binding[:32] if current_binding else ""
+                )
+                current_candidate = str(
+                    current_callback.get("token") or ""
+                ).strip()
+                if not (
+                    _audiobook_playback_callback_contract_valid(
+                        current_callback
+                    )
+                    and str(current_callback.get("status") or "").strip()
+                    == "ready"
+                    and _receipt_sha256(
+                        current_callback.get("binding_sha256")
+                    )
+                    == current_binding
+                    and current_candidate
+                    and current_expected_token
+                    and hmac.compare_digest(
+                        current_candidate, current_expected_token
+                    )
+                    and hmac.compare_digest(current_candidate, normalized)
+                ):
+                    raise RuntimeError(
+                        "audiobook_playback_acceptance_token_not_found"
+                    )
+                return _record_audiobook_playback_acceptance_locked(
+                    job_dir=manifest_path.parent,
+                    accepted=accepted,
+                    source=source,
+                    message_id=message_id,
+                    feedback=feedback,
+                    perceptual_attestation=perceptual_attestation,
+                    _verified_callback_token=normalized,
+                )
     raise RuntimeError("audiobook_playback_acceptance_token_not_found")
 
 
@@ -11672,10 +15170,14 @@ def _telegram_audiobook_playback_callback_signature(
     token: str,
     chat_id: str,
     expires_at: int,
+    callback_prefix: str = "ap2",
 ) -> str:
+    normalized_prefix = str(callback_prefix or "").strip().lower()
+    if normalized_prefix not in {"ap", "ap2"}:
+        normalized_prefix = "ap2"
     payload = "|".join(
         (
-            "ap",
+            normalized_prefix,
             str(action or "").strip().lower(),
             str(token or "").strip(),
             str(chat_id or "").strip(),
@@ -11726,7 +15228,7 @@ def _telegram_encode_audiobook_playback_callback(
         chat_id=normalized_chat_id,
         expires_at=expires_at,
     )
-    return f"ap|{normalized_action}|{normalized_token}|{expires_at}|{signature}"
+    return f"ap2|{normalized_action}|{normalized_token}|{expires_at}|{signature}"
 
 
 def _telegram_encode_audiobook_voice_callback(
@@ -11740,7 +15242,7 @@ def _telegram_encode_audiobook_voice_callback(
     normalized_token = str(token or "").strip()
     normalized_chat_id = str(chat_id or "").strip()
     secret = _telegram_voice_callback_secret(bot_token=bot_token)
-    if normalized_action not in {"u", "d"} or not normalized_token or not normalized_chat_id or not secret:
+    if normalized_action not in {"u", "d", "a"} or not normalized_token or not normalized_chat_id or not secret:
         return ""
     expires_at = int(time.time()) + _env_int(
         "EA_TELEGRAM_AUDIOBOOK_VOICE_CALLBACK_TTL_SECONDS",
@@ -11768,6 +15270,11 @@ def _telegram_audiobook_playback_acceptance_buttons(
         return []
     public_share = _audiobook_public_share_for_job(job)
     callback = dict(public_share.get("playback_acceptance_callback") or {})
+    if (
+        str(callback.get("status") or "").strip() != "ready"
+        or not _audiobook_playback_callback_contract_valid(callback)
+    ):
+        return []
     token = str(callback.get("token") or "").strip() or _audiobook_playback_acceptance_callback_token(job)
     accepted_callback = _telegram_encode_audiobook_playback_callback(
         bot_token=bot_token,
@@ -11783,7 +15290,7 @@ def _telegram_audiobook_playback_acceptance_buttons(
     )
     if not accepted_callback or not rejected_callback:
         return []
-    return [[("Playback works", accepted_callback), ("Problem", rejected_callback)]]
+    return [[("Attest all 7 checks pass", accepted_callback), ("Problem", rejected_callback)]]
 
 
 def _telegram_send_audio(
@@ -11856,6 +15363,11 @@ def _send_telegram_audiobook_voice_samples(
         )
         if isinstance(item, dict)
     ]
+    automatic_token = (
+        str(sample_messages[0].get("token") or "").strip()
+        if sample_messages
+        else ""
+    )
     for sample in sample_messages:
         token = str(sample.get("token") or "").strip()
         use_callback = _telegram_encode_audiobook_voice_callback(
@@ -11870,22 +15382,40 @@ def _send_telegram_audiobook_voice_samples(
             token=token,
             chat_id=chat_id,
         )
+        automatic_callback = _telegram_encode_audiobook_voice_callback(
+            bot_token=bot_token,
+            action="a",
+            token=automatic_token,
+            chat_id=chat_id,
+        )
         caption = str(sample.get("label") or "Voice sample").strip()
         matched_tags = [str(item).strip() for item in list(sample.get("matched_tags") or []) if str(item).strip()]
         if matched_tags:
             caption = f"{caption} · {', '.join(matched_tags[:4])}"
+        button_rows = [[("Use this", use_callback), ("Dismiss", dismiss_callback)]]
+        if automatic_callback:
+            caption = (
+                f"{caption}\nPreview is optional: use automatic cast to let EA choose "
+                "the narrator and dialogue voices."
+            )
+            button_rows.append([("Use automatic cast", automatic_callback)])
         receipt = _telegram_send_audio(
             bot_token=bot_token,
             chat_id=chat_id,
             audio_path=str(sample.get("audio_path") or ""),
             caption=caption,
-            inline_buttons=[[("Use this", use_callback), ("Dismiss", dismiss_callback)]],
+            inline_buttons=button_rows,
         )
         sent = bool(receipt) and bool(dict(receipt).get("ok", True))
         reason = str(dict(receipt).get("description") or "").strip() if receipt else "telegram_audio_send_skipped"
         result = dict(dict(receipt).get("result") or {}) if isinstance(receipt, dict) else {}
         media_message_id = str(result.get("message_id") or "").strip()
         controls_ready = bool(use_callback and dismiss_callback)
+        button_count = (
+            sum(1 for row in button_rows for _label, callback in row if callback)
+            if controls_ready
+            else 0
+        )
         receipts.append(
             {
                 "token": token,
@@ -11894,7 +15424,7 @@ def _send_telegram_audiobook_voice_samples(
                 "media_message_id_sha256": hashlib.sha256(media_message_id.encode("utf-8")).hexdigest()
                 if media_message_id
                 else "",
-                "button_count": 2 if controls_ready else 0,
+                "button_count": button_count,
                 "buttons_fallback": False,
                 "control_kind": "inline_keyboard" if controls_ready else "",
             }
@@ -11997,6 +15527,8 @@ def _send_telegram_audiobook_status(*, job: dict[str, object], text: str) -> dic
     params = {"chat_id": chat_id, "text": text}
     inline_buttons = _telegram_audiobook_playback_acceptance_buttons(job=current_job, chat_id=chat_id, bot_token=token)
     if inline_buttons:
+        text = f"{text}\n\n{AUDIOBOOK_PERCEPTUAL_ATTESTATION_PROMPT}".strip()
+        params["text"] = text
         params["reply_markup"] = json.dumps(
             {
                 "inline_keyboard": [
@@ -12843,6 +16375,7 @@ def _write_ffmetadata_file(
     chapters: tuple[EpubChapter, ...],
     audio_paths: tuple[Path, ...],
     cinematic_track: bool = False,
+    cinematic_timeline: dict[str, object] | None = None,
 ) -> None:
     lines = [
         ";FFMETADATA1",
@@ -12851,16 +16384,27 @@ def _write_ffmetadata_file(
         f"album_artist={_ffmetadata_escape(metadata.author or 'EA Narration')}",
     ]
     if cinematic_track and audio_paths:
-        duration_ms = _probe_audio_duration_ms(audio_paths[0])
-        lines.extend(
-            [
-                "[CHAPTER]",
-                "TIMEBASE=1/1000",
-                "START=0",
-                f"END={max(duration_ms, 0)}",
-                f"title={_ffmetadata_escape(metadata.title)}",
-            ]
-        )
+        timeline_rows = [
+            dict(row)
+            for row in list(dict(cinematic_timeline or {}).get("chapters") or [])
+            if isinstance(row, dict)
+        ]
+        if not timeline_rows:
+            raise RuntimeError("cinematic_chapter_timeline_missing")
+        for row in timeline_rows:
+            start_ms = int(row.get("start_ms") or 0)
+            end_ms = int(row.get("end_ms") or 0)
+            if end_ms <= start_ms:
+                raise RuntimeError("cinematic_chapter_timeline_invalid")
+            lines.extend(
+                [
+                    "[CHAPTER]",
+                    "TIMEBASE=1/1000",
+                    f"START={start_ms}",
+                    f"END={end_ms}",
+                    f"title={_ffmetadata_escape(row.get('title') or '')}",
+                ]
+            )
     else:
         cursor = 0
         for chapter, audio_path in zip(chapters, audio_paths, strict=False):
@@ -12965,10 +16509,58 @@ def _merge_m4b_with_ffmpeg(
 ) -> dict[str, object]:
     audio_paths: list[Path] = []
     cinematic_merge = cinematic_track_path is not None and cinematic_track_path.is_file() and cinematic_track_path.stat().st_size > 0
+    cinematic_timeline: dict[str, object] = {}
     if cinematic_merge:
         audio_paths = [cinematic_track_path]
+        signature_path = _cinematic_master_audio_signature_path(
+            cinematic_track_path.parent
+        )
+        try:
+            render_signature = signature_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            render_signature = ""
+        cinematic_output_binding = _load_validated_audio_cache_output_binding(
+            audio_path=cinematic_track_path,
+            cache_kind="cinematic_master",
+            render_fingerprint=render_signature,
+        )
+        if not cinematic_output_binding:
+            return {
+                "status": "m4b_merge_failed",
+                "provider": "ffmpeg",
+                "stage": "cinematic_output_provenance",
+                "reason": "cinematic_master_output_binding_missing_or_invalid",
+                "raw_paths_exposed": False,
+            }
+        cinematic_timeline = _load_validated_cinematic_chapter_timeline(
+            timeline_path=_cinematic_chapter_timeline_path(
+                cinematic_track_path.parent
+            ),
+            master_path=cinematic_track_path,
+            chapters=chapters,
+            render_signature=render_signature,
+        )
+        if not cinematic_timeline or not render_signature:
+            return {
+                "status": "m4b_merge_failed",
+                "provider": "ffmpeg",
+                "stage": "cinematic_chapter_timeline",
+                "reason": "cinematic_chapter_timeline_missing_or_invalid",
+                "raw_paths_exposed": False,
+            }
     else:
         audio_dir = job_dir / "audio"
+        if not _signed_chapter_master_output_bindings_ready(
+            job_dir=job_dir,
+            chapters=chapters,
+        ):
+            return {
+                "status": "m4b_merge_failed",
+                "provider": "ffmpeg",
+                "stage": "chapter_output_provenance",
+                "reason": "chapter_master_output_binding_missing_or_invalid",
+                "raw_paths_exposed": False,
+            }
         for chapter in chapters:
             audio_path = _chapter_audio_path(audio_dir, chapter)
             if audio_path is None:
@@ -12992,13 +16584,23 @@ def _merge_m4b_with_ffmpeg(
         }
     concat_audio_paths = tuple(path for path in normalized.get("audio_paths") or [] if isinstance(path, Path))
     _write_ffmpeg_concat_file(concat_file, concat_audio_paths)
-    _write_ffmetadata_file(
-        path=metadata_file,
-        metadata=metadata,
-        chapters=chapters,
-        audio_paths=concat_audio_paths,
-        cinematic_track=cinematic_merge,
-    )
+    try:
+        _write_ffmetadata_file(
+            path=metadata_file,
+            metadata=metadata,
+            chapters=chapters,
+            audio_paths=concat_audio_paths,
+            cinematic_track=cinematic_merge,
+            cinematic_timeline=cinematic_timeline,
+        )
+    except RuntimeError as exc:
+        return {
+            "status": "m4b_merge_failed",
+            "provider": "ffmpeg",
+            "stage": "chapter_metadata",
+            "reason": str(exc),
+            "raw_paths_exposed": False,
+        }
     command = [
         _ffmpeg_bin(),
         "-y",
@@ -13066,12 +16668,41 @@ def _merge_m4b_with_ffmpeg(
             "returncode": completed.returncode,
             "stderr_tail": str(completed.stderr or "")[-1200:],
         }
+    output_probe = _probe_audio_publication_file(output_file)
+    output_chapters = (
+        list(output_probe.get("chapters") or [])
+        if isinstance(output_probe.get("chapters"), list)
+        else []
+    )
+    expected_chapter_count = (
+        int(cinematic_timeline.get("chapter_count") or 0)
+        if cinematic_merge
+        else len([chapter for chapter in chapters if int(chapter.char_count) > 0])
+    )
+    actual_chapter_count = len(output_chapters)
+    if actual_chapter_count != expected_chapter_count:
+        output_file.unlink(missing_ok=True)
+        return {
+            "status": "m4b_merge_failed",
+            "provider": "ffmpeg",
+            "stage": "chapter_metadata_verification",
+            "reason": "m4b_chapter_count_mismatch",
+            "expected_chapter_count": expected_chapter_count,
+            "actual_chapter_count": actual_chapter_count,
+            "raw_paths_exposed": False,
+        }
     return {
         "status": "m4b_ready",
         "provider": "ffmpeg",
         "output_file": str(output_file),
         "command": command,
-        "chapter_count": 1 if cinematic_merge else len(chapters),
+        "chapter_count": actual_chapter_count,
+        "expected_chapter_count": expected_chapter_count,
+        "actual_chapter_count": actual_chapter_count,
+        "chapter_count_matches": actual_chapter_count == expected_chapter_count,
+        "cinematic_timeline_sha256": str(
+            cinematic_timeline.get("timeline_sha256") or ""
+        ),
         "cover_embedded": cover_path is not None,
         "cover_filename": cover_path.name if cover_path is not None else "",
         "normalized_audio": True,
@@ -13148,6 +16779,19 @@ def _merge_m4b_if_ready(
         cinematic_track_path=cinematic_track_path,
     ):
         return {"status": "waiting_for_unmixr_export", "command": command, "output_file": str(output_file)}
+    if (
+        cinematic_track_path is None
+        and not _signed_chapter_master_output_bindings_ready(
+            job_dir=job_dir,
+            chapters=chapters,
+        )
+    ):
+        return {
+            "status": "waiting_for_unmixr_export",
+            "command": command,
+            "output_file": str(output_file),
+            "reason": "chapter_master_output_binding_missing_or_invalid",
+        }
     if not m4b_auto_merge_enabled():
         return {"status": "waiting_for_operator_merge", "command": command, "output_file": str(output_file)}
     if cinematic_track_path is not None and cinematic_track_path.is_file() and cinematic_track_path.stat().st_size > 0:
@@ -13181,11 +16825,46 @@ def _merge_m4b_if_ready(
             "returncode": completed.returncode,
             "stderr_tail": str(completed.stderr or "")[-1200:],
         }
+    output_probe = _probe_audio_publication_file(output_file)
+    output_chapters = (
+        list(output_probe.get("chapters") or [])
+        if isinstance(output_probe.get("chapters"), list)
+        else []
+    )
+    expected_chapter_count = len(
+        [chapter for chapter in chapters if int(chapter.char_count) > 0]
+    )
+    actual_chapter_count = len(output_chapters)
+    output_file_sha256 = _sha256_file(output_file)
+    if (
+        expected_chapter_count <= 0
+        or actual_chapter_count != expected_chapter_count
+    ):
+        output_file.unlink(missing_ok=True)
+        return {
+            "status": "m4b_merge_failed",
+            "provider": "m4b-tool",
+            "stage": "chapter_metadata_verification",
+            "reason": "m4b_chapter_count_mismatch",
+            "expected_chapter_count": expected_chapter_count,
+            "actual_chapter_count": actual_chapter_count,
+            "output_file_sha256": output_file_sha256,
+            "raw_paths_exposed": False,
+        }
     cover_path = _m4b_cover_image_path(job_dir, metadata)
     return {
         "status": "m4b_ready",
+        "provider": "m4b-tool",
         "output_file": str(output_file),
+        "output_file_sha256": output_file_sha256,
+        "output_file_size": int(output_file.stat().st_size),
         "command": command,
+        "chapter_count": actual_chapter_count,
+        "expected_chapter_count": expected_chapter_count,
+        "actual_chapter_count": actual_chapter_count,
+        "chapter_count_matches": (
+            actual_chapter_count == expected_chapter_count
+        ),
         "cover_embedded": cover_path is not None,
         "cover_filename": cover_path.name if cover_path is not None else "",
     }
@@ -13289,6 +16968,105 @@ def _audio_publication_volume(path: Path, *, position: str = "head") -> dict[str
         "mean_volume_db": mean_volume,
         "max_volume_db": max_volume,
         "returncode": completed.returncode,
+    }
+
+
+def _audio_publication_loudness(path: Path) -> dict[str, object]:
+    """Measure the complete publication file without retaining ffmpeg output."""
+
+    command = [
+        _ffmpeg_bin(),
+        "-hide_banner",
+        "-nostats",
+        "-i",
+        str(path),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-af",
+        "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=_env_int(
+                "EA_AUDIOBOOK_PUBLICATION_LOUDNESS_TIMEOUT_SECONDS",
+                1800,
+                minimum=30,
+                maximum=14400,
+            ),
+        )
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "reason": type(exc).__name__,
+            "analysis_scope": "full_file",
+            "raw_output_exposed": False,
+        }
+
+    stderr = str(completed.stderr or "")
+    match = re.search(r'\{\s*"input_i"\s*:[\s\S]*?\}', stderr)
+    if match is None:
+        return {
+            "status": "failed",
+            "reason": "loudnorm_json_missing",
+            "analysis_scope": "full_file",
+            "returncode": int(completed.returncode),
+            "raw_output_exposed": False,
+        }
+    try:
+        measured = json.loads(match.group(0))
+        integrated_lufs = float(measured["input_i"])
+        true_peak_dbtp = float(measured["input_tp"])
+        loudness_range_lu = float(measured["input_lra"])
+        threshold_lufs = float(measured["input_thresh"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return {
+            "status": "failed",
+            "reason": "loudnorm_json_invalid",
+            "analysis_scope": "full_file",
+            "returncode": int(completed.returncode),
+            "raw_output_exposed": False,
+        }
+    if not all(
+        math.isfinite(value)
+        for value in (
+            integrated_lufs,
+            true_peak_dbtp,
+            loudness_range_lu,
+            threshold_lufs,
+        )
+    ):
+        return {
+            "status": "failed",
+            "reason": "loudnorm_measurement_non_finite",
+            "analysis_scope": "full_file",
+            "returncode": int(completed.returncode),
+            "raw_output_exposed": False,
+        }
+    if completed.returncode != 0:
+        return {
+            "status": "failed",
+            "reason": "loudnorm_probe_failed",
+            "analysis_scope": "full_file",
+            "returncode": int(completed.returncode),
+            "raw_output_exposed": False,
+        }
+    return {
+        "status": "checked",
+        "analysis_scope": "full_file",
+        "integrated_lufs": round(integrated_lufs, 3),
+        "true_peak_dbtp": round(true_peak_dbtp, 3),
+        "loudness_range_lu": round(loudness_range_lu, 3),
+        "threshold_lufs": round(threshold_lufs, 3),
+        "returncode": int(completed.returncode),
+        "raw_output_exposed": False,
     }
 
 
@@ -13826,16 +17604,301 @@ def _build_audiobook_publication_stt_gate(
     }
 
 
+def _audiobook_publication_sha256(value: object) -> str:
+    digest = str(value or "").strip().lower()
+    return digest if re.fullmatch(r"[0-9a-f]{64}", digest) else ""
+
+
+def _audiobook_publication_exact_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _audiobook_publication_narration_evidence(
+    render_result: dict[str, object],
+) -> tuple[dict[str, object], list[str]]:
+    issues: list[str] = []
+    plan = dict(render_result.get("narration_plan") or {})
+    contract_name = str(plan.get("contract_name") or "").strip()
+    if contract_name != _AUDIOBOOK_PUBLICATION_REQUIRED_NARRATION_PLAN_CONTRACT_NAME:
+        issues.append("narration_plan_contract_not_v5")
+    if str(plan.get("status") or "").strip() != "ready":
+        issues.append("narration_plan_not_ready")
+    if plan.get("coverage_complete") is not True or str(
+        plan.get("source_coverage") or ""
+    ).strip() != "complete":
+        issues.append("narration_plan_coverage_incomplete")
+    if plan.get("source_integrity_verified") is not True:
+        issues.append("narration_plan_source_integrity_unverified")
+
+    plan_sha256 = _audiobook_publication_sha256(plan.get("plan_sha256"))
+    source_sha256 = _audiobook_publication_sha256(
+        plan.get("source_aggregate_sha256")
+    )
+    render_signature_sha256 = _audiobook_publication_sha256(
+        plan.get("render_signature")
+    )
+    if not plan_sha256:
+        issues.append("narration_plan_sha256_invalid")
+    if not source_sha256:
+        issues.append("narration_source_aggregate_sha256_invalid")
+    if not render_signature_sha256:
+        issues.append("narration_render_signature_sha256_invalid")
+
+    dialogue_passage_count = _audiobook_publication_exact_int(
+        plan.get("dialogue_passage_count")
+    )
+    raw_dialogue_span_count = plan.get("dialogue_span_count")
+    dialogue_span_count = (
+        _audiobook_publication_exact_int(raw_dialogue_span_count)
+        if raw_dialogue_span_count is not None
+        else 0
+    )
+    if dialogue_passage_count is None or dialogue_span_count is None:
+        issues.append("narration_dialogue_count_invalid")
+    dialogue_count = max(dialogue_passage_count or 0, dialogue_span_count or 0)
+
+    speaker_cast = dict(render_result.get("speaker_cast") or {})
+    if not speaker_cast:
+        speaker_cast = dict(plan.get("speaker_cast") or {})
+    plan_cast_sha256 = _audiobook_publication_sha256(
+        plan.get("cast_map_sha256")
+    )
+    cast_map_sha256 = _audiobook_publication_sha256(
+        speaker_cast.get("cast_map_sha256")
+    )
+    cast_distinct = bool(
+        speaker_cast.get("distinct_from_narrator") is True
+        or speaker_cast.get("narrator_voice_excluded") is True
+    )
+    if dialogue_count:
+        if str(speaker_cast.get("status") or "").strip() != "ready":
+            issues.append("dialogue_speaker_cast_not_ready")
+        if not cast_distinct:
+            issues.append("dialogue_speaker_cast_not_distinct_from_narrator")
+        if not cast_map_sha256 or not plan_cast_sha256:
+            issues.append("dialogue_speaker_cast_sha256_invalid")
+        elif cast_map_sha256 != plan_cast_sha256:
+            issues.append("dialogue_speaker_cast_sha256_mismatch")
+
+    return (
+        {
+            "contract_name": contract_name,
+            "status": str(plan.get("status") or "").strip(),
+            "coverage_complete": plan.get("coverage_complete") is True,
+            "source_integrity_verified": plan.get("source_integrity_verified")
+            is True,
+            "plan_sha256": plan_sha256,
+            "source_aggregate_sha256": source_sha256,
+            "render_signature_sha256": render_signature_sha256,
+            "dialogue_passage_count": dialogue_passage_count or 0,
+            "dialogue_span_count": dialogue_span_count or 0,
+            "speaker_cast": {
+                "required": dialogue_count > 0,
+                "status": str(speaker_cast.get("status") or "").strip(),
+                "distinct_from_narrator": cast_distinct,
+                "cast_map_sha256": cast_map_sha256,
+            },
+            "raw_text_exposed": False,
+            "raw_voice_ids_exposed": False,
+        },
+        issues,
+    )
+
+
+def _audiobook_publication_mastering_evidence(
+    render_result: dict[str, object],
+) -> tuple[dict[str, object], list[str]]:
+    issues: list[str] = []
+    mastering = dict(render_result.get("mastering") or {})
+    status = str(mastering.get("status") or "").strip()
+    final_track_mode = str(mastering.get("final_track_mode") or "").strip()
+    if status != "mastered":
+        issues.append("final_mastering_not_complete")
+    if final_track_mode not in {"chapter_masters", "cinematic_master"}:
+        issues.append("final_mastering_track_mode_invalid")
+    contract_sha256 = _audiobook_publication_sha256(
+        mastering.get("contract_sha256")
+    )
+    signature_set_sha256 = _audiobook_publication_sha256(
+        mastering.get("signature_set_sha256")
+    )
+    if not contract_sha256:
+        issues.append("mastering_contract_sha256_invalid")
+    if not signature_set_sha256:
+        issues.append("mastering_signature_set_sha256_invalid")
+
+    expected_count = _audiobook_publication_exact_int(
+        mastering.get("expected_final_track_count")
+    )
+    ready_count = _audiobook_publication_exact_int(
+        mastering.get("final_track_ready_count")
+    )
+    mastered_this_run_count = _audiobook_publication_exact_int(
+        mastering.get("final_track_mastered_this_run_count")
+    )
+    signature_count = _audiobook_publication_exact_int(
+        mastering.get("signature_published_or_verified_count")
+    )
+    if expected_count is None or expected_count <= 0:
+        issues.append("mastering_expected_final_track_count_invalid")
+    if ready_count is None:
+        issues.append("mastering_final_track_ready_count_invalid")
+    if mastered_this_run_count is None:
+        issues.append("mastering_run_counter_invalid")
+    if signature_count is None:
+        issues.append("mastering_signature_count_invalid")
+    if expected_count is not None and expected_count > 0:
+        if ready_count != expected_count:
+            issues.append("mastering_final_track_count_mismatch")
+        if signature_count != expected_count:
+            issues.append("mastering_signature_count_mismatch")
+        if (
+            mastered_this_run_count is not None
+            and mastered_this_run_count > expected_count
+        ):
+            issues.append("mastering_run_counter_exceeds_expected")
+    if mastering.get("segment_mastering") is not False:
+        issues.append("segment_mastering_not_prohibited")
+
+    raw_quality = mastering.get("final_audio_quality")
+    quality_rows = raw_quality if isinstance(raw_quality, list) else [raw_quality]
+    quality_statuses = [
+        str(row.get("status") or "").strip().lower()
+        for row in quality_rows
+        if isinstance(row, dict)
+    ]
+    if (
+        expected_count is None
+        or expected_count <= 0
+        or len(quality_statuses) != expected_count
+    ):
+        issues.append("final_master_quality_count_mismatch")
+    if not quality_statuses or any(
+        status_value not in {"pass", "warn"}
+        for status_value in quality_statuses
+    ):
+        issues.append("final_master_quality_not_acceptable")
+
+    return (
+        {
+            "status": status,
+            "final_track_mode": final_track_mode,
+            "contract_sha256": contract_sha256,
+            "expected_final_track_count": expected_count or 0,
+            "final_track_ready_count": ready_count or 0,
+            "final_track_mastered_this_run_count": mastered_this_run_count or 0,
+            "signature_published_or_verified_count": signature_count or 0,
+            "signature_set_sha256": signature_set_sha256,
+            "segment_mastering": mastering.get("segment_mastering"),
+            "final_audio_quality_statuses": quality_statuses,
+        },
+        issues,
+    )
+
+
+def _audiobook_publication_assembly_evidence(
+    *,
+    job: dict[str, object],
+    render_result: dict[str, object],
+    actual_probe_chapter_count: int,
+) -> tuple[dict[str, object], list[str]]:
+    issues: list[str] = []
+    merge_result = dict(job.get("merge_result") or {})
+    if str(merge_result.get("status") or "").strip() != "m4b_ready":
+        issues.append("m4b_assembly_not_ready")
+
+    source_chapters = [
+        row
+        for row in list(job.get("chapters") or [])
+        if isinstance(row, dict)
+        and _audiobook_publication_exact_int(row.get("char_count")) is not None
+        and int(row.get("char_count") or 0) > 0
+    ]
+    source_chapter_count = len(source_chapters)
+    expected_count = _audiobook_publication_exact_int(
+        merge_result.get("expected_chapter_count")
+    )
+    declared_actual_count = _audiobook_publication_exact_int(
+        merge_result.get("actual_chapter_count")
+    )
+    if source_chapter_count <= 0:
+        issues.append("source_chapter_manifest_missing_or_empty")
+    if expected_count is None or expected_count <= 0:
+        issues.append("m4b_expected_chapter_count_invalid")
+    elif expected_count != source_chapter_count:
+        issues.append("m4b_expected_chapter_count_source_mismatch")
+    if declared_actual_count is None:
+        issues.append("m4b_actual_chapter_count_invalid")
+    elif declared_actual_count != actual_probe_chapter_count:
+        issues.append("m4b_actual_chapter_count_probe_mismatch")
+    chapter_count_matches = bool(
+        merge_result.get("chapter_count_matches") is True
+        and expected_count is not None
+        and declared_actual_count is not None
+        and expected_count == declared_actual_count == actual_probe_chapter_count
+        and expected_count == source_chapter_count
+    )
+    if not chapter_count_matches:
+        issues.append("m4b_chapter_count_mismatch")
+
+    render_timeline = dict(render_result.get("chapter_timeline") or {})
+    merge_timeline_sha256 = _audiobook_publication_sha256(
+        merge_result.get("cinematic_timeline_sha256")
+    )
+    render_timeline_sha256 = _audiobook_publication_sha256(
+        render_timeline.get("timeline_sha256")
+    )
+    cinematic = bool(
+        str(render_result.get("cinematic_master_audio") or "").strip()
+        or render_timeline
+        or merge_timeline_sha256
+    )
+    if cinematic:
+        if (
+            str(render_timeline.get("status") or "").strip() != "verified"
+            or str(render_timeline.get("contract_name") or "").strip()
+            != _CINEMATIC_CHAPTER_TIMELINE_CONTRACT
+        ):
+            issues.append("cinematic_chapter_timeline_not_verified")
+        if not render_timeline_sha256 or not merge_timeline_sha256:
+            issues.append("cinematic_chapter_timeline_sha256_invalid")
+        elif render_timeline_sha256 != merge_timeline_sha256:
+            issues.append("cinematic_chapter_timeline_sha256_mismatch")
+        timeline_chapter_count = _audiobook_publication_exact_int(
+            render_timeline.get("chapter_count")
+        )
+        if timeline_chapter_count != expected_count:
+            issues.append("cinematic_chapter_timeline_count_mismatch")
+
+    return (
+        {
+            "status": str(merge_result.get("status") or "").strip(),
+            "expected_chapter_count": expected_count or 0,
+            "actual_chapter_count": declared_actual_count or 0,
+            "probed_chapter_count": actual_probe_chapter_count,
+            "chapter_count_matches": chapter_count_matches,
+            "cinematic": cinematic,
+            "cinematic_timeline_sha256": (
+                render_timeline_sha256 if cinematic else ""
+            ),
+        },
+        issues,
+    )
+
+
 def _build_audiobook_publication_gate(*, job: dict[str, object], target_path: Path) -> dict[str, object]:
     issues: list[str] = []
-    if not target_path.is_file():
+    target_ready = target_path.is_file()
+    if not target_ready:
         issues.append("target_file_missing")
     import_root = audiobookshelf_import_root().expanduser().resolve()
-    if target_path.is_file():
+    if target_ready:
         resolved = target_path.resolve()
         if resolved != import_root and import_root not in resolved.parents:
             issues.append("target_file_outside_import_root")
-    if str(job.get("status") or "").strip() in {"waiting_voice_selection", "blocked_audio_quality"}:
+    if str(job.get("status") or "").strip() != "audiobookshelf_imported":
         issues.append("job_not_publication_ready")
     public_share = _audiobook_public_share_for_job(job)
     if str(public_share.get("status") or "").strip() == "revoked_wrong_voice":
@@ -13845,22 +17908,75 @@ def _build_audiobook_publication_gate(*, job: dict[str, object], target_path: Pa
     if str(local_fallback.get("status") or "").strip() == "revoked_wrong_voice":
         issues.append("audiobook_voice_revoked_wrong_voice")
 
-    probe = _probe_audio_publication_file(target_path) if target_path.is_file() else {}
+    render_result = dict(job.get("render_result") or {})
+    source_payload = dict(job.get("source") or {})
+    metadata_payload = dict(job.get("metadata") or {})
+    source_payload_sha256 = _audiobook_publication_sha256(
+        source_payload.get("source_sha256")
+    )
+    metadata_source_sha256 = _audiobook_publication_sha256(
+        metadata_payload.get("source_sha256")
+    )
+    source_artifact_sha256 = source_payload_sha256 or metadata_source_sha256
+    if not source_artifact_sha256:
+        issues.append("source_artifact_sha256_invalid")
+    if (
+        source_payload_sha256
+        and metadata_source_sha256
+        and source_payload_sha256 != metadata_source_sha256
+    ):
+        issues.append("source_artifact_sha256_mismatch")
+    narration_evidence, narration_issues = (
+        _audiobook_publication_narration_evidence(render_result)
+    )
+    mastering_evidence, mastering_issues = (
+        _audiobook_publication_mastering_evidence(render_result)
+    )
+    issues.extend(narration_issues)
+    issues.extend(mastering_issues)
+
+    probe = _probe_audio_publication_file(target_path) if target_ready else {}
     streams = probe.get("streams") if isinstance(probe.get("streams"), list) else []
     chapters = probe.get("chapters") if isinstance(probe.get("chapters"), list) else []
     audio_streams = [stream for stream in streams if isinstance(stream, dict) and stream.get("codec_type") == "audio"]
     cover_streams = [stream for stream in streams if isinstance(stream, dict) and stream.get("codec_type") == "video"]
-    if target_path.is_file() and probe.get("probe_error"):
+    if target_ready and probe.get("probe_error"):
         issues.append("ffprobe_failed")
-    if target_path.is_file() and len(audio_streams) != 1:
+    if target_ready and len(audio_streams) != 1:
         issues.append("audio_stream_count_invalid")
-    if target_path.is_file() and len(chapters) < 1:
+    if target_ready and len(chapters) < 1:
         issues.append("chapter_metadata_missing")
-    if target_path.is_file() and len(cover_streams) < 1:
+    if target_ready and len(cover_streams) < 1:
         issues.append("cover_art_missing")
 
-    head_volume = _audio_publication_volume(target_path, position="head") if target_path.is_file() else {}
-    tail_volume = _audio_publication_volume(target_path, position="tail") if target_path.is_file() else {}
+    assembly_evidence, assembly_issues = _audiobook_publication_assembly_evidence(
+        job=job,
+        render_result=render_result,
+        actual_probe_chapter_count=len(chapters),
+    )
+    issues.extend(assembly_issues)
+    mastering_track_mode = str(
+        mastering_evidence.get("final_track_mode") or ""
+    )
+    mastering_expected_tracks = int(
+        mastering_evidence.get("expected_final_track_count") or 0
+    )
+    assembly_expected_chapters = int(
+        assembly_evidence.get("expected_chapter_count") or 0
+    )
+    if mastering_track_mode == "cinematic_master":
+        if mastering_expected_tracks != 1 or assembly_evidence.get("cinematic") is not True:
+            issues.append("cinematic_mastering_track_count_or_timeline_mismatch")
+    elif mastering_track_mode == "chapter_masters":
+        if (
+            mastering_expected_tracks <= 0
+            or mastering_expected_tracks != assembly_expected_chapters
+            or assembly_evidence.get("cinematic") is True
+        ):
+            issues.append("chapter_mastering_track_count_mismatch")
+
+    head_volume = _audio_publication_volume(target_path, position="head") if target_ready else {}
+    tail_volume = _audio_publication_volume(target_path, position="tail") if target_ready else {}
     volume = {
         **head_volume,
         "head": head_volume,
@@ -13868,35 +17984,129 @@ def _build_audiobook_publication_gate(*, job: dict[str, object], target_path: Pa
     }
     min_mean_db = _env_float("EA_AUDIOBOOK_PUBLICATION_MIN_MEAN_VOLUME_DB", -30.0, minimum=-60.0, maximum=-10.0)
     min_tail_mean_db = _env_float("EA_AUDIOBOOK_PUBLICATION_TAIL_MIN_MEAN_VOLUME_DB", -35.0, minimum=-60.0, maximum=-10.0)
+    if not math.isfinite(min_mean_db) or not math.isfinite(min_tail_mean_db):
+        issues.append("volume_threshold_configuration_invalid")
     mean_volume_raw = str(head_volume.get("mean_volume_db") or "").strip()
     tail_mean_volume_raw = str(tail_volume.get("mean_volume_db") or "").strip()
-    if target_path.is_file() and str(head_volume.get("status") or "") != "checked":
+    if target_ready and str(head_volume.get("status") or "") != "checked":
         issues.append("volume_probe_failed")
     elif mean_volume_raw:
         try:
-            if float(mean_volume_raw) < min_mean_db:
+            mean_volume_db = float(mean_volume_raw)
+            if not math.isfinite(mean_volume_db):
+                issues.append("volume_probe_invalid")
+            elif mean_volume_db < min_mean_db:
                 issues.append("audio_too_quiet")
         except ValueError:
             issues.append("volume_probe_invalid")
-    if target_path.is_file() and str(tail_volume.get("status") or "") != "checked":
+    if target_ready and str(tail_volume.get("status") or "") != "checked":
         issues.append("tail_volume_probe_failed")
     elif tail_mean_volume_raw:
         try:
-            if float(tail_mean_volume_raw) < min_tail_mean_db:
+            tail_mean_volume_db = float(tail_mean_volume_raw)
+            if not math.isfinite(tail_mean_volume_db):
+                issues.append("tail_volume_probe_invalid")
+            elif tail_mean_volume_db < min_tail_mean_db:
                 issues.append("audio_tail_too_quiet")
         except ValueError:
             issues.append("tail_volume_probe_invalid")
 
-    duration_seconds = float(dict(probe.get("format") or {}).get("duration") or 0.0) if isinstance(probe.get("format"), dict) else 0.0
+    min_integrated_lufs = _env_float(
+        "EA_AUDIOBOOK_PUBLICATION_MIN_INTEGRATED_LUFS",
+        -20.0,
+        minimum=-40.0,
+        maximum=-10.0,
+    )
+    max_integrated_lufs = _env_float(
+        "EA_AUDIOBOOK_PUBLICATION_MAX_INTEGRATED_LUFS",
+        -14.0,
+        minimum=-30.0,
+        maximum=-5.0,
+    )
+    max_true_peak_dbtp = _env_float(
+        "EA_AUDIOBOOK_PUBLICATION_MAX_TRUE_PEAK_DBTP",
+        -1.0,
+        minimum=-12.0,
+        maximum=0.0,
+    )
+    loudness = _audio_publication_loudness(target_path) if target_ready else {}
+    loudness.update(
+        {
+            "min_integrated_lufs": min_integrated_lufs,
+            "max_integrated_lufs": max_integrated_lufs,
+            "max_true_peak_dbtp": max_true_peak_dbtp,
+        }
+    )
+    loudness_thresholds_valid = all(
+        math.isfinite(value)
+        for value in (
+            min_integrated_lufs,
+            max_integrated_lufs,
+            max_true_peak_dbtp,
+        )
+    ) and min_integrated_lufs <= max_integrated_lufs
+    if not loudness_thresholds_valid:
+        issues.append("loudness_threshold_configuration_invalid")
+    if target_ready and str(loudness.get("status") or "") != "checked":
+        issues.append("full_file_loudness_probe_failed")
+    elif target_ready:
+        try:
+            integrated_lufs = float(loudness["integrated_lufs"])
+            true_peak_dbtp = float(loudness["true_peak_dbtp"])
+        except (KeyError, TypeError, ValueError):
+            issues.append("full_file_loudness_measurement_invalid")
+        else:
+            if not math.isfinite(integrated_lufs) or not math.isfinite(true_peak_dbtp):
+                issues.append("full_file_loudness_measurement_invalid")
+            elif loudness_thresholds_valid:
+                if integrated_lufs < min_integrated_lufs:
+                    issues.append("integrated_lufs_below_minimum")
+                if integrated_lufs > max_integrated_lufs:
+                    issues.append("integrated_lufs_above_maximum")
+                if true_peak_dbtp > max_true_peak_dbtp:
+                    issues.append("true_peak_above_maximum")
+
+    try:
+        duration_seconds = (
+            float(dict(probe.get("format") or {}).get("duration") or 0.0)
+            if isinstance(probe.get("format"), dict)
+            else 0.0
+        )
+    except (TypeError, ValueError):
+        duration_seconds = 0.0
+    if target_ready and (
+        not math.isfinite(duration_seconds) or duration_seconds <= 0.0
+    ):
+        duration_seconds = 0.0
+        issues.append("audio_duration_invalid")
     stt_gate = (
         _build_audiobook_publication_stt_gate(
             job=job,
             target_path=target_path,
             duration_seconds=duration_seconds,
         )
-        if target_path.is_file()
+        if target_ready
         else {"status": "skipped", "required": _audiobook_publication_stt_required(), "enabled": False, "raw_text_exposed": False}
     )
+    stt_sample_count = _audiobook_publication_exact_int(
+        stt_gate.get("sample_count")
+    )
+    stt_passed_samples = _audiobook_publication_exact_int(
+        stt_gate.get("passed_samples")
+    )
+    stt_failed_samples = _audiobook_publication_exact_int(
+        stt_gate.get("failed_samples")
+    )
+    if target_ready and not (
+        stt_gate.get("required") is True
+        and stt_gate.get("enabled") is True
+        and str(stt_gate.get("status") or "") == "pass"
+        and stt_sample_count is not None
+        and stt_sample_count > 0
+        and stt_passed_samples == stt_sample_count
+        and stt_failed_samples == 0
+    ):
+        issues.append("stt_gate_not_passed")
     if str(stt_gate.get("status") or "") == "fail":
         for issue in list(stt_gate.get("issues") or []):
             normalized_issue = str(issue or "").strip()
@@ -13906,18 +18116,58 @@ def _build_audiobook_publication_gate(*, job: dict[str, object], target_path: Pa
         if issue:
             issues.append(issue)
 
+    target_sha256 = _sha256_file(target_path) if target_ready else ""
+    narration_plan_sha256 = str(narration_evidence.get("plan_sha256") or "")
+    source_aggregate_sha256 = str(
+        narration_evidence.get("source_aggregate_sha256") or ""
+    )
+    render_signature_sha256 = str(
+        narration_evidence.get("render_signature_sha256") or ""
+    )
+    cast_map_sha256 = str(
+        dict(narration_evidence.get("speaker_cast") or {}).get(
+            "cast_map_sha256"
+        )
+        or ""
+    )
+    mastering_signature_set_sha256 = str(
+        mastering_evidence.get("signature_set_sha256") or ""
+    )
+    cinematic_timeline_sha256 = str(
+        assembly_evidence.get("cinematic_timeline_sha256") or ""
+    )
     return {
-        "contract_name": "ea.audiobook_publication_audio_gate.v1",
+        "contract_name": AUDIOBOOK_PUBLICATION_GATE_CONTRACT_NAME,
         "checked_at": _now_iso(),
         "status": "fail" if issues else "pass",
         "issues": sorted(set(issues)),
-        "target_file_sha256": _sha256_file(target_path) if target_path.is_file() else "",
-        "target_file_size": int(target_path.stat().st_size) if target_path.is_file() else 0,
+        "target_file_sha256": target_sha256,
+        "target_file_size": int(target_path.stat().st_size) if target_ready else 0,
+        "narration_plan_sha256": narration_plan_sha256,
+        "source_sha256": source_artifact_sha256,
+        "source_aggregate_sha256": source_aggregate_sha256,
+        "render_signature_sha256": render_signature_sha256,
+        "cast_map_sha256": cast_map_sha256,
+        "mastering_signature_set_sha256": mastering_signature_set_sha256,
+        "expected_chapter_count": int(
+            assembly_evidence.get("expected_chapter_count") or 0
+        ),
+        "actual_chapter_count": int(
+            assembly_evidence.get("actual_chapter_count") or 0
+        ),
+        "chapter_count_matches": bool(
+            assembly_evidence.get("chapter_count_matches")
+        ),
+        "cinematic_timeline_sha256": cinematic_timeline_sha256,
         "audio_streams": len(audio_streams),
         "cover_streams": len(cover_streams),
         "chapters": len(chapters),
         "duration_seconds": duration_seconds,
+        "narration_plan": narration_evidence,
+        "mastering": mastering_evidence,
+        "assembly": assembly_evidence,
         "volume": volume,
+        "loudness": loudness,
         "stt": stt_gate,
         "min_mean_volume_db": min_mean_db,
         "min_tail_mean_volume_db": min_tail_mean_db,
@@ -14650,13 +18900,40 @@ def create_job_from_epub(
     message_id: str = "",
     caption: str = "",
     source_url: str = "",
+    deterministic_job_id: str = "",
+    intake_idempotency_key_sha256: str = "",
 ) -> dict[str, object]:
     root = audiobook_jobs_root()
     _require_audiobook_storage_root(root)
     source_is_kindle = _is_kindle_source_document(original_filename or epub_path.name)
     source_kind = Path(str(original_filename or epub_path.name)).suffix.lower().lstrip(".") if source_is_kindle else "epub"
-    job_id = f"{source_kind}-audiobook-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+    requested_job_id = str(deterministic_job_id or "").strip()
+    requested_idempotency_key = str(intake_idempotency_key_sha256 or "").strip().lower()
+    if bool(requested_job_id) != bool(requested_idempotency_key):
+        raise RuntimeError("audiobook_intake_idempotency_binding_incomplete")
+    if requested_job_id and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", requested_job_id):
+        raise RuntimeError("audiobook_deterministic_job_id_invalid")
+    if requested_idempotency_key and (
+        len(requested_idempotency_key) != 64
+        or any(char not in "0123456789abcdef" for char in requested_idempotency_key)
+    ):
+        raise RuntimeError("audiobook_intake_idempotency_key_invalid")
+    job_id = requested_job_id or f"{source_kind}-audiobook-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
     job_dir = root / job_id
+    if requested_job_id and (job_dir / "job.json").is_file():
+        existing = _load_job(job_dir)
+        existing_source = dict(existing.get("source") or {})
+        if (
+            str(existing.get("job_id") or "").strip() != requested_job_id
+            or str(existing_source.get("intake_idempotency_key_sha256") or "").strip().lower()
+            != requested_idempotency_key
+            or str(existing_source.get("source_sha256") or "").strip().lower()
+            != _sha256_file(epub_path)
+            or str(existing.get("principal_id") or "").strip()
+            != str(principal_id or "").strip()
+        ):
+            raise RuntimeError("audiobook_idempotent_intake_binding_mismatch")
+        return existing
     source_dir = job_dir / "source"
     source_dir.mkdir(parents=True, exist_ok=True)
     source_suffix = Path(str(original_filename or epub_path.name)).suffix
@@ -14700,6 +18977,7 @@ def create_job_from_epub(
             "kind": source_kind,
             "source_filename": original_filename,
             "source_sha256": metadata.source_sha256,
+            "intake_idempotency_key_sha256": requested_idempotency_key,
             "source_epub": str(extraction_epub),
             "source_original": str(stored_source),
             "source_kindle": str(stored_source) if source_is_kindle else "",
@@ -14928,7 +19206,7 @@ def _continue_job_locked(job_dir: Path) -> dict[str, object]:
                     "public_share": _blocked_audiobookshelf_public_share(reason="waiting_for_recovered_voice_render"),
                 }
                 payload["audio_publication_gate"] = {
-                    "contract_name": "ea.audiobook_publication_audio_gate.v1",
+                    "contract_name": AUDIOBOOK_PUBLICATION_GATE_CONTRACT_NAME,
                     "checked_at": _now_iso(),
                     "status": "pending",
                     "issues": ["waiting_for_recovered_voice_render"],
@@ -14967,7 +19245,7 @@ def _continue_job_locked(job_dir: Path) -> dict[str, object]:
                 )
                 payload["audiobookshelf_import"] = import_payload
                 payload["audio_publication_gate"] = {
-                    "contract_name": "ea.audiobook_publication_audio_gate.v1",
+                    "contract_name": AUDIOBOOK_PUBLICATION_GATE_CONTRACT_NAME,
                     "status": "blocked",
                     "issues": ["waiting_voice_selection", "stale_wrong_voice_m4b_blocked"],
                     "raw_paths_exposed": False,
@@ -15053,7 +19331,13 @@ def _continue_job_locked(job_dir: Path) -> dict[str, object]:
         import_result = _import_to_audiobookshelf_if_ready(m4b_path=m4b_path, metadata=metadata)
         if str(import_result.get("status") or "") == "imported":
             target_path = Path(str(import_result.get("target_path") or ""))
-            gate_job = {**payload, "status": "audiobookshelf_imported", "audiobookshelf_import": import_result}
+            gate_job = {
+                **payload,
+                "status": "audiobookshelf_imported",
+                "render_result": render_result,
+                "merge_result": merge_result,
+                "audiobookshelf_import": import_result,
+            }
             publication_gate = _build_audiobook_publication_gate(job=gate_job, target_path=target_path)
             payload["audio_publication_gate"] = publication_gate
             access_reference = create_player_scoped_audiobook_reference(
@@ -15187,6 +19471,11 @@ def telegram_epub_reply_text(job: dict[str, object]) -> str:
         if selected_voice.get("label")
         else ""
     )
+    if bool(voice_selection.get("automatic_cast_approved_by_user")):
+        voice_line = (
+            f"{voice_line} EA selected the narrator and dialogue cast automatically "
+            "at your request; listening to the previews was optional."
+        )
     last_action = dict(voice_selection.get("last_action") or {})
     if str(last_action.get("status") or "").strip() == "stale_candidate_ignored":
         pending = list(voice_selection.get("pending_batch") or [])
@@ -15218,7 +19507,8 @@ def telegram_epub_reply_text(job: dict[str, object]) -> str:
             return (
                 f"The selected voice for {title} is blocked by provider credits/balance. "
                 "I stopped before publishing the book with a different voice. "
-                f"{sample_line} Use it only if you want that replacement voice; otherwise restore the provider and I will render the selected voice.{voice_line}"
+                f"{sample_line} Use it only if you want that replacement voice, choose 'Use automatic cast' to let EA decide, "
+                f"or restore the provider and I will render the selected voice.{voice_line}"
             )
         if str(voice_selection.get("reason") or "").strip() == "selected_voice_author_gender_mismatch":
             pending = list(voice_selection.get("pending_batch") or [])
@@ -15253,7 +19543,7 @@ def telegram_epub_reply_text(job: dict[str, object]) -> str:
             )
             return (
                 f"{mismatch_line} for {title}, so I stopped before finishing the book with the stale voice choice."
-                f"{suggestion_line}{keep_line} Choose 'Use this' on the one you want."
+                f"{suggestion_line}{keep_line} Choose 'Use this' on the one you want, or 'Use automatic cast' to let EA decide."
             )
         profile = dict(voice_selection.get("book_profile") or {})
         topic = str(profile.get("topic") or "").strip()
@@ -15338,7 +19628,8 @@ def telegram_epub_reply_text(job: dict[str, object]) -> str:
             f"I accepted the source ebook and extracted {chapter_count} chapters for {title}. "
             f"I detected language {language or 'unknown'}"
             f"{f' and topic {topic}' if topic else ''}. "
-            f"{sample_line} Choose 'Use this' under the one that fits; dismiss any sample to replace it."
+            f"{sample_line} Preview listening is optional: choose 'Use this' under the one that fits, "
+            "dismiss any sample to replace it, or choose 'Use automatic cast' to let EA select the narrator and dialogue cast."
         )
     if status == "blocked_voice_catalog":
         profile = dict(voice_selection.get("book_profile") or {})
@@ -15589,7 +19880,10 @@ def _audiobook_completed_terminal_reason(job: dict[str, object]) -> str:
         return ""
     playback_acceptance = dict(job.get("playback_acceptance") or {})
     playback_status = str(playback_acceptance.get("status") or "").strip()
-    if playback_status == "accepted":
+    if (
+        playback_acceptance.get("listened") is True
+        or playback_status == "listened_canary_accepted"
+    ):
         return "playback_accepted"
     return ""
 

@@ -49,6 +49,101 @@ def test_handle_whatsapp_audiobook_voice_callback_applies_selection(monkeypatch)
     assert calls == {"callback_token": "voice-token-1", "action": "use"}
 
 
+def test_handle_whatsapp_audiobook_voice_callback_uses_automatic_cast(
+    monkeypatch,
+) -> None:
+    calls: dict[str, object] = {}
+
+    def _fake_apply_audition_action(
+        *, callback_token: str, action: str
+    ) -> dict[str, object]:
+        calls.update(callback_token=callback_token, action=action)
+        return {
+            "job_id": "job-auto-cast",
+            "status": "voice_selected",
+            "provider": {
+                "voice_selection": {
+                    "status": "selected_by_user",
+                    "automatic_cast_approved_by_user": True,
+                    "optional_preview_skipped": True,
+                }
+            },
+        }
+
+    monkeypatch.setenv("EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET", "voice-secret")
+    monkeypatch.setattr(
+        whatsapp_inbound_actions.audiobook_epub_pipeline,
+        "apply_audiobook_voice_audition_action",
+        _fake_apply_audition_action,
+    )
+    monkeypatch.setattr(
+        whatsapp_inbound_actions.audiobook_epub_pipeline,
+        "telegram_epub_reply_text",
+        lambda _job: "Automatic narrator and dialogue cast selected.",
+    )
+
+    callback_data = whatsapp_inbound_actions.encode_whatsapp_audiobook_voice_callback(
+        action="a",
+        token="voice-token-auto",
+        sender_ref="4368120864006",
+        expires_at=FUTURE_EXPIRY,
+    )
+    result = whatsapp_inbound_actions.handle_whatsapp_inbound_callback(
+        callback_data=callback_data,
+        sender_ref="4368120864006",
+        message_id="wamid.voice.auto",
+    )
+
+    assert callback_data.startswith("ab|a|voice-token-auto|")
+    assert result["status"] == "applied"
+    assert result["kind"] == "audiobook_voice"
+    assert result["action"] == "use_automatic_cast"
+    assert result["reply_text"] == "Automatic narrator and dialogue cast selected."
+    assert calls == {
+        "callback_token": "voice-token-auto",
+        "action": "use_automatic_cast",
+    }
+
+
+def test_handle_whatsapp_audiobook_voice_callback_sanitizes_apply_error(
+    monkeypatch,
+) -> None:
+    def _fail_apply(**_: object) -> None:
+        raise RuntimeError(
+            "permission_denied /private/books/Secret.epub voice_id=private-voice"
+        )
+
+    monkeypatch.setenv("EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET", "voice-secret")
+    monkeypatch.setattr(
+        whatsapp_inbound_actions.audiobook_epub_pipeline,
+        "apply_audiobook_voice_audition_action",
+        _fail_apply,
+    )
+    callback_data = whatsapp_inbound_actions.encode_whatsapp_audiobook_voice_callback(
+        action="u",
+        token="voice-token-secret-error",
+        sender_ref="4368120864006",
+        expires_at=FUTURE_EXPIRY,
+    )
+
+    result = whatsapp_inbound_actions.handle_whatsapp_inbound_callback(
+        callback_data=callback_data,
+        sender_ref="4368120864006",
+        message_id="wamid.voice.error",
+    )
+
+    assert result == {
+        "status": "failed",
+        "kind": "audiobook_voice",
+        "reason": "audiobook_voice_choice_failed",
+        "reply_text": "I could not apply that audiobook voice choice yet.",
+    }
+    rendered = json.dumps(result, sort_keys=True)
+    assert "/private/books/Secret.epub" not in rendered
+    assert "private-voice" not in rendered
+    assert "permission_denied" not in rendered
+
+
 def test_whatsapp_voice_reply_uses_whatsapp_delivery_state(monkeypatch) -> None:
     def _fake_apply_audition_action(*, callback_token: str, action: str) -> dict[str, object]:
         return {
@@ -107,8 +202,9 @@ def test_whatsapp_voice_reply_uses_whatsapp_delivery_state(monkeypatch) -> None:
 def test_handle_whatsapp_audiobook_playback_callback_records_acceptance(monkeypatch) -> None:
     calls: dict[str, object] = {}
 
-    def _fake_record_acceptance(**kwargs: object) -> None:
+    def _fake_record_acceptance(**kwargs: object) -> dict[str, object]:
         calls.update(kwargs)
+        return {"playback_acceptance": {"listened": True}}
 
     monkeypatch.setenv("EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET", "playback-secret")
     monkeypatch.setattr(
@@ -123,6 +219,7 @@ def test_handle_whatsapp_audiobook_playback_callback_records_acceptance(monkeypa
         sender_ref="4368120864006",
         expires_at=FUTURE_EXPIRY,
     )
+    assert callback_data.startswith("ap2|a|playback-token-1|")
 
     result = whatsapp_inbound_actions.handle_whatsapp_inbound_callback(
         callback_data=callback_data,
@@ -133,17 +230,64 @@ def test_handle_whatsapp_audiobook_playback_callback_records_acceptance(monkeypa
     assert result["status"] == "applied"
     assert result["kind"] == "audiobook_playback"
     assert result["action"] == "accepted"
-    assert result["reply_text"] == "Marked the audiobook playback as working."
+    assert result["reply_text"] == "Recorded your all-7 perceptual playback attestation."
+    assert calls["callback_token"] == "playback-token-1"
+    assert calls["accepted"] is True
+    assert calls["source"] == "whatsapp_button"
+    assert calls["message_id"] == "wamid.playback.1"
+    assert calls["feedback"] == (
+        "whatsapp_button_perceptual_attestation_v1_all_checks_passed"
+    )
+    attestation = calls["perceptual_attestation"]
+    assert isinstance(attestation, dict)
+    assert attestation["contract_name"] == (
+        "ea.audiobook_perceptual_attestation.v1"
+    )
+    assert attestation["version"] == 1
+    assert attestation["all_checks_attested"] is True
+    assert all(attestation["checks"].values())
+    assert attestation["attestation_sha256"]
+
+
+def test_legacy_whatsapp_playback_acknowledgement_is_not_structured_attestation(
+    monkeypatch,
+) -> None:
+    calls: dict[str, object] = {}
+    monkeypatch.setenv("EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET", "playback-secret")
+    monkeypatch.setattr(
+        whatsapp_inbound_actions.audiobook_epub_pipeline,
+        "record_audiobook_playback_acceptance_by_callback_token",
+        lambda **kwargs: calls.update(kwargs),
+    )
+    signature = whatsapp_inbound_actions._playback_signature(
+        secret="playback-secret",
+        action="a",
+        token="legacy-token",
+        sender_ref="4368120864006",
+        expires_at=FUTURE_EXPIRY,
+        callback_prefix="ap",
+    )
+    callback_data = f"ap|a|legacy-token|{FUTURE_EXPIRY}|{signature}"
+
+    result = whatsapp_inbound_actions.handle_whatsapp_inbound_callback(
+        callback_data=callback_data,
+        sender_ref="4368120864006",
+        message_id="wamid.playback.legacy",
+    )
+
+    assert result["status"] == "applied"
+    assert "does not complete the listened-canary checklist" in result["reply_text"]
     assert calls == {
-        "callback_token": "playback-token-1",
+        "callback_token": "legacy-token",
         "accepted": True,
         "source": "whatsapp_button",
-        "message_id": "wamid.playback.1",
+        "message_id": "wamid.playback.legacy",
         "feedback": "whatsapp_button_playback_accepted",
+        "perceptual_attestation": None,
     }
 
 
-def test_handle_whatsapp_audiobook_playback_callback_recovers_latest_sender_job(monkeypatch, tmp_path) -> None:
+def test_handle_whatsapp_audiobook_playback_callback_does_not_recover_stale_token_to_latest_sender_job(monkeypatch, tmp_path) -> None:
     jobs_root = tmp_path / "jobs"
     job_dir = jobs_root / "job-1"
     job_dir.mkdir(parents=True)
@@ -187,18 +331,13 @@ def test_handle_whatsapp_audiobook_playback_callback_recovers_latest_sender_job(
         message_id="wamid.playback.recovered",
     )
 
-    assert result["status"] == "applied"
-    assert result["recovered"] is True
-    assert result["reply_text"] == "Marked the audiobook playback as working."
+    assert result["status"] == "stale"
+    assert "fresh buttons" in str(result["reply_text"])
     updated = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
-    playback = updated["playback_acceptance"]
-    assert playback["status"] == "accepted"
-    assert playback["source"] == "whatsapp_button_recovered"
-    assert playback["message_id_sha256"]
-    assert playback["whatsapp_public_share_message_id_sha256"] == "a" * 64
+    assert "playback_acceptance" not in updated
 
 
-def test_handle_whatsapp_audiobook_playback_callback_recovers_latest_sender_job_after_delivery_progress(monkeypatch, tmp_path) -> None:
+def test_handle_whatsapp_audiobook_playback_callback_does_not_recover_stale_token_after_delivery_progress(monkeypatch, tmp_path) -> None:
     jobs_root = tmp_path / "jobs"
     job_dir = jobs_root / "job-1"
     job_dir.mkdir(parents=True)
@@ -242,14 +381,12 @@ def test_handle_whatsapp_audiobook_playback_callback_recovers_latest_sender_job_
         message_id="wamid.playback.delivered",
     )
 
-    assert result["status"] == "applied"
-    assert result["recovered"] is True
+    assert result["status"] == "stale"
     updated = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
-    assert updated["playback_acceptance"]["status"] == "accepted"
-    assert updated["playback_acceptance"]["whatsapp_public_share_message_id_sha256"] == "d" * 64
+    assert "playback_acceptance" not in updated
 
 
-def test_handle_expired_whatsapp_audiobook_playback_callback_recovers_latest_sender_job(monkeypatch, tmp_path) -> None:
+def test_handle_expired_whatsapp_audiobook_playback_callback_requires_fresh_button(monkeypatch, tmp_path) -> None:
     jobs_root = tmp_path / "jobs"
     job_dir = jobs_root / "job-1"
     job_dir.mkdir(parents=True)
@@ -293,11 +430,10 @@ def test_handle_expired_whatsapp_audiobook_playback_callback_recovers_latest_sen
         message_id="wamid.playback.expired",
     )
 
-    assert result["status"] == "applied"
-    assert result["recovered"] is True
+    assert result["status"] == "stale"
+    assert result["reason"] == "expired"
     updated = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
-    assert updated["playback_acceptance"]["status"] == "accepted"
-    assert updated["playback_acceptance"]["source"] == "whatsapp_button_recovered"
+    assert "playback_acceptance" not in updated
 
 
 def test_handle_whatsapp_audiobook_playback_callback_reports_stale_without_sender_job(monkeypatch, tmp_path) -> None:
@@ -344,7 +480,7 @@ def test_handle_whatsapp_audiobook_playback_callback_reports_stale_for_tampered_
     assert "fresh buttons" in str(result["reply_text"])
 
 
-def test_handle_whatsapp_audiobook_playback_callback_recovers_from_invalid_signature(monkeypatch, tmp_path) -> None:
+def test_handle_whatsapp_audiobook_playback_callback_never_recovers_invalid_signature(monkeypatch, tmp_path) -> None:
     jobs_root = tmp_path / "jobs"
     job_dir = jobs_root / "job-1"
     job_dir.mkdir(parents=True)
@@ -391,16 +527,13 @@ def test_handle_whatsapp_audiobook_playback_callback_recovers_from_invalid_signa
         message_id="wamid.playback.invalidsig",
     )
 
-    assert result["status"] == "applied"
-    assert result["recovered"] is True
-    assert result["reply_text"] == "Marked the audiobook playback as working."
+    assert result["status"] == "stale"
+    assert result["reason"] == "invalid_signature"
     updated = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
-    assert updated["playback_acceptance"]["status"] == "accepted"
-    assert updated["playback_acceptance"]["source"] == "whatsapp_button_recovered"
-    assert updated["playback_acceptance"]["whatsapp_public_share_message_id_sha256"] == "b" * 64
+    assert "playback_acceptance" not in updated
 
 
-def test_handle_whatsapp_audiobook_playback_callback_recovers_when_token_recording_fails(monkeypatch, tmp_path) -> None:
+def test_handle_whatsapp_audiobook_playback_callback_fails_closed_when_token_recording_fails(monkeypatch, tmp_path) -> None:
     jobs_root = tmp_path / "jobs"
     job_dir = jobs_root / "job-1"
     job_dir.mkdir(parents=True)
@@ -430,7 +563,7 @@ def test_handle_whatsapp_audiobook_playback_callback_recovers_when_token_recordi
     (job_dir / "job.json").write_text(json.dumps(job, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     def _fail_record(**_: object) -> None:
-        raise RuntimeError("permission_denied")
+        raise RuntimeError("permission_denied /private/books/Secret.epub voice_id=private-voice")
 
     monkeypatch.setenv("EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET", "playback-secret")
     monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
@@ -452,11 +585,14 @@ def test_handle_whatsapp_audiobook_playback_callback_recovers_when_token_recordi
         message_id="wamid.playback.recovery-fallback",
     )
 
-    assert result["status"] == "applied"
-    assert result["recovered"] is True
+    assert result["status"] == "failed"
+    assert result["reason"] == "audiobook_playback_acceptance_failed"
+    rendered = json.dumps(result, sort_keys=True)
+    assert "/private/books/Secret.epub" not in rendered
+    assert "private-voice" not in rendered
+    assert "permission_denied" not in rendered
     updated = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
-    assert updated["playback_acceptance"]["status"] == "accepted"
-    assert updated["playback_acceptance"]["source"] == "whatsapp_button_recovered"
+    assert "playback_acceptance" not in updated
 
 
 def test_whatsapp_playback_callback_default_ttl_is_long_lived(monkeypatch) -> None:

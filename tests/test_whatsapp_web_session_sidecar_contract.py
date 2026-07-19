@@ -686,7 +686,9 @@ def test_channels_wire_audiobook_voice_buttons_to_whatsapp_router() -> None:
     assert "audiobook_voice_audition_sample_messages(job)" in channels_source
     assert "_telegram_encode_audiobook_voice_callback(" in channels_source
     assert "whatsapp_delivery_router.send_whatsapp_delivery_text(" in channels_source
-    assert 'buttons=[[("Use this", use_callback), ("Dismiss", dismiss_callback)]]' in channels_source
+    assert 'button_rows = [[("Use this", use_callback), ("Dismiss", dismiss_callback)]]' in channels_source
+    assert 'button_rows[0].append(("Use automatic cast", automatic_callback))' in channels_source
+    assert 'action="a"' in channels_source
     assert "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET" in channels_source
     assert "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE" in channels_source
     assert "/run/secrets/whatsapp_audiobook_callback_secret" in channels_source

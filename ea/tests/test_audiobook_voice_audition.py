@@ -1773,3 +1773,335 @@ def test_load_voice_presets_from_value_uses_explicit_gender_without_name_inferen
 
     assert len(presets) == 1
     assert "male" in presets[0].tags
+
+
+def test_voice_feedback_is_permission_safe_and_written_atomically_at_0600(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    feedback_path = tmp_path / "private" / "voice-feedback.json"
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_FEEDBACK_PATH", str(feedback_path))
+    original_is_file = Path.is_file
+
+    def permission_guard(path: Path) -> bool:
+        if path == feedback_path:
+            raise PermissionError("protected feedback mount")
+        return original_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", permission_guard)
+    absent = audiobook_epub_pipeline._load_audiobook_voice_feedback()  # noqa: SLF001
+    assert absent == {
+        "contract_name": audiobook_epub_pipeline.VOICE_FEEDBACK_CONTRACT_NAME,
+        "voices": {},
+        "books": {},
+    }
+
+    monkeypatch.setattr(Path, "is_file", original_is_file)
+    audiobook_epub_pipeline._write_audiobook_voice_feedback(  # noqa: SLF001
+        {"voices": {"voice:hash": {"selected_count": 1}}, "books": {}}
+    )
+
+    stored = json.loads(feedback_path.read_text(encoding="utf-8"))
+    assert stored["contract_name"] == (
+        audiobook_epub_pipeline.VOICE_FEEDBACK_CONTRACT_NAME
+    )
+    assert stored["voices"]["voice:hash"]["selected_count"] == 1
+    assert feedback_path.stat().st_mode & 0o777 == 0o600
+    assert not list(feedback_path.parent.glob(".voice-feedback-*.tmp"))
+
+    def unavailable_feedback_store(_payload: dict[str, object]) -> None:
+        raise PermissionError("protected feedback store")
+
+    monkeypatch.setattr(
+        audiobook_epub_pipeline,
+        "_write_audiobook_voice_feedback",
+        unavailable_feedback_store,
+    )
+    result = audiobook_epub_pipeline.record_audiobook_voice_feedback(
+        job={"status": "chapters_extracted"},
+        candidate={
+            "preset_key": "safe-key",
+            "voice_id_sha256": "a" * 64,
+        },
+        action="selected",
+    )
+    assert result["status"] == "not_recorded"
+    assert result["reason"] == "voice_feedback_storage_unavailable"
+
+
+def test_discovered_preset_key_hashes_provider_id_instead_of_repeating_prefix() -> None:
+    raw_voice_id = "12345678-private-provider-reference"
+    first = audiobook_epub_pipeline._voice_preset_from_unmixr_row(  # noqa: SLF001
+        {
+            "uuid": raw_voice_id,
+            "character": "Narrator",
+            "language": "en-US",
+        },
+        use_case="audiobook-voices",
+        index=1,
+    )
+    second = audiobook_epub_pipeline._voice_preset_from_unmixr_row(  # noqa: SLF001
+        {
+            "uuid": raw_voice_id,
+            "character": "Narrator",
+            "language": "en-US",
+        },
+        use_case="audiobook-voices",
+        index=1,
+    )
+
+    assert first is not None
+    assert second is not None
+    assert first.preset_key == second.preset_key
+    assert raw_voice_id[:8].lower() not in first.preset_key
+    assert hashlib.sha256(f"unmixr|{raw_voice_id}".encode("utf-8")).hexdigest()[:16] in (
+        first.preset_key
+    )
+
+
+def test_automatic_narrator_selection_reuses_private_choice_across_ranking_churn(
+    tmp_path: Path,
+) -> None:
+    job_dir = tmp_path / "stable-narrator"
+    job_dir.mkdir()
+    metadata = audiobook_epub_pipeline.EpubMetadata(
+        title="Stable Book",
+        author="Author",
+        language="en-US",
+        source_filename="stable.epub",
+        source_sha256="a" * 64,
+    )
+    voice_a = {
+        **_candidate(
+            preset_key="safe-a",
+            label="Voice A",
+            gender="neutral",
+            score=100,
+        ),
+        "language": "en-US",
+        "supported_languages": ["en-US"],
+        "catalog_entry_sha256": "1" * 64,
+        "catalog_sha256": "2" * 64,
+        "catalog_source_provenance_sha256": "3" * 64,
+    }
+    voice_b = {
+        **_candidate(
+            preset_key="safe-b",
+            label="Voice B",
+            gender="neutral",
+            score=90,
+        ),
+        "language": "en-US",
+        "supported_languages": ["en-US"],
+        "catalog_entry_sha256": "4" * 64,
+        "catalog_sha256": "2" * 64,
+        "catalog_source_provenance_sha256": "3" * 64,
+    }
+    first_ranking = {
+        "status": "ranked",
+        "profile": {"language": "en-US"},
+        "candidate_rows": [voice_a, voice_b],
+        "candidate_count": 2,
+        "catalog_sha256": "2" * 64,
+        "catalog_source_provenance_sha256": "3" * 64,
+    }
+    churned_voice_a = {**voice_a, "score": -200, "catalog_sha256": "5" * 64}
+    churned_voice_b = {**voice_b, "score": 500, "catalog_sha256": "5" * 64}
+    churned_ranking = {
+        **first_ranking,
+        "candidate_rows": [churned_voice_b, churned_voice_a],
+        "catalog_sha256": "5" * 64,
+        "catalog_source_provenance_sha256": "6" * 64,
+    }
+
+    with patch.object(
+        audiobook_epub_pipeline,
+        "_ranked_unmixr_voice_candidates",
+        return_value=first_ranking,
+    ):
+        first = audiobook_epub_pipeline.select_unmixr_voice_for_book(
+            metadata=metadata,
+            chapters=(),
+            job_dir=job_dir,
+        )
+    with patch.object(
+        audiobook_epub_pipeline,
+        "_ranked_unmixr_voice_candidates",
+        return_value=churned_ranking,
+    ):
+        resumed = audiobook_epub_pipeline.select_unmixr_voice_for_book(
+            metadata=metadata,
+            chapters=(),
+            job_dir=job_dir,
+        )
+
+    assert first["voice_id"] == voice_a["_voice_id"]
+    assert resumed["voice_id"] == voice_a["_voice_id"]
+    assert resumed["public"]["automatic_selection_reused"] is True
+    assert resumed["public"]["catalog_changed_since_selection"] is True
+    private_path = job_dir / "voice_audition" / "private.json"
+    private = json.loads(private_path.read_text(encoding="utf-8"))
+    persisted = private["automatic_narrator_selection"]
+    assert persisted["source_provenance_sha256"]
+    assert persisted["catalog_entry_sha256"] == "1" * 64
+    assert persisted["binding_sha256"]
+    assert persisted["voice_id"] == voice_a["_voice_id"]
+    assert private_path.stat().st_mode & 0o777 == 0o600
+    assert voice_a["_voice_id"] not in json.dumps(resumed["public"], sort_keys=True)
+
+
+def test_safe_voice_receipts_hash_legacy_preset_keys() -> None:
+    legacy_key = "unmixr_narrator_12345678"
+    candidate = audiobook_epub_pipeline._safe_receipt_voice_candidate(  # noqa: SLF001
+        {
+            "preset_key": legacy_key,
+            "label": "Narrator",
+            "voice_id_sha256": "a" * 64,
+        }
+    )
+    selection = audiobook_epub_pipeline._safe_receipt_voice_selection(  # noqa: SLF001
+        {"selected_preset_key": legacy_key}
+    )
+    serialized = json.dumps(
+        {"candidate": candidate, "selection": selection},
+        sort_keys=True,
+    )
+
+    assert legacy_key not in serialized
+    assert candidate["preset_key_sha256"] == hashlib.sha256(
+        legacy_key.encode("utf-8")
+    ).hexdigest()
+    assert selection["selected_preset_key_sha256"] == hashlib.sha256(
+        legacy_key.encode("utf-8")
+    ).hexdigest()
+
+
+def test_explicit_use_automatic_cast_action_skips_optional_preview_without_new_wire_token() -> None:
+    token = "automatic-candidate-token"
+    row = _candidate(
+        preset_key="automatic-safe-key",
+        label="Automatic candidate",
+        gender="neutral",
+        score=100,
+    )
+    current_selection = {
+        "contract_name": audiobook_epub_pipeline.VOICE_AUDITION_CONTRACT_NAME,
+        "status": "waiting_user_choice",
+        "pending_candidate_keys": [row["preset_key"]],
+        "pending_batch": [
+            {
+                **{key: value for key, value in row.items() if key != "_voice_id"},
+                "callback_token": token,
+            }
+        ],
+    }
+    job_dir = _create_job_dir(current_voice_selection=current_selection)
+    candidate = _private_voice_candidate(job_dir, token=token, row=row)
+    private_payload = {
+        "contract_name": audiobook_epub_pipeline.VOICE_AUDITION_CONTRACT_NAME,
+        "automatic_narrator_selection": {
+            "contract_name": (
+                audiobook_epub_pipeline.AUTOMATIC_NARRATOR_SELECTION_CONTRACT_NAME
+            ),
+            "voice_id": row["_voice_id"],
+            "voice_id_sha256": row["voice_id_sha256"],
+        },
+        "candidates": {token: candidate},
+    }
+    audiobook_epub_pipeline._write_voice_audition_private(  # noqa: SLF001
+        job_dir,
+        private_payload,
+    )
+
+    with (
+        patch.object(
+            audiobook_epub_pipeline,
+            "_find_voice_audition_job_by_token",
+            return_value=(job_dir, private_payload, candidate),
+        ),
+        patch.object(
+            audiobook_epub_pipeline,
+            "unmixr_auto_render_enabled",
+            return_value=False,
+        ),
+        patch.object(
+            audiobook_epub_pipeline,
+            "record_audiobook_voice_feedback",
+            return_value={},
+        ),
+    ):
+        selected = audiobook_epub_pipeline.apply_audiobook_voice_audition_action(
+            callback_token=token,
+            action="use_automatic_cast",
+        )
+
+    voice_selection = dict(
+        dict(selected.get("provider") or {}).get("voice_selection") or {}
+    )
+    assert voice_selection["status"] == "selected_by_user"
+    assert voice_selection["automatic_cast_approved_by_user"] is True
+    assert voice_selection["optional_preview_skipped"] is True
+    assert voice_selection["last_action"]["action"] == "use_automatic_cast"
+    assert voice_selection["selected_callback_token"] == token
+    private_after = audiobook_epub_pipeline._load_voice_audition_private(  # noqa: SLF001
+        job_dir
+    )
+    assert "automatic_narrator_selection" not in private_after
+
+
+def test_explicit_private_audition_choice_precedes_automatic_narrator_ranking(
+    tmp_path: Path,
+) -> None:
+    job_dir = tmp_path / "explicit-over-automatic"
+    job_dir.mkdir()
+    metadata = audiobook_epub_pipeline.EpubMetadata(
+        title="Explicit Choice",
+        author="Author",
+        language="en-US",
+        source_filename="explicit.epub",
+        source_sha256="e" * 64,
+    )
+    token = "explicit-token"
+    voice_id = "private-explicit-provider-id"
+    audiobook_epub_pipeline._write_voice_audition_private(  # noqa: SLF001
+        job_dir,
+        {
+            "contract_name": audiobook_epub_pipeline.VOICE_AUDITION_CONTRACT_NAME,
+            "selected_callback_token": token,
+            "selected_candidate_key": "safe-explicit-key",
+            "candidates": {
+                token: {
+                    "candidate_key": "safe-explicit-key",
+                    "voice_id": voice_id,
+                    "voice_id_sha256": hashlib.sha256(
+                        voice_id.encode("utf-8")
+                    ).hexdigest(),
+                    "public": {
+                        "preset_key": "safe-explicit-key",
+                        "label": "Explicit voice",
+                        "language": "en-US",
+                        "supported_languages": ["en-US"],
+                        "voice_id_sha256": hashlib.sha256(
+                            voice_id.encode("utf-8")
+                        ).hexdigest(),
+                    },
+                }
+            },
+        },
+    )
+
+    with patch.object(
+        audiobook_epub_pipeline,
+        "_ranked_unmixr_voice_candidates",
+        side_effect=AssertionError("automatic ranking must not override explicit choice"),
+    ):
+        selected = audiobook_epub_pipeline.select_unmixr_voice_for_book(
+            metadata=metadata,
+            chapters=(),
+            job_dir=job_dir,
+        )
+
+    assert selected["voice_id"] == voice_id
+    assert selected["public"]["status"] == "selected_by_user"
+    assert selected["public"]["strategy"] == "explicit_private_voice_audition"
+    assert selected["public"]["explicit_operator_choice"] is True

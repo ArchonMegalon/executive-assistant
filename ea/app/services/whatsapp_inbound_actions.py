@@ -64,8 +64,19 @@ def _voice_signature(*, secret: str, action: str, token: str, sender_ref: str, e
     return hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()[:10]
 
 
-def _playback_signature(*, secret: str, action: str, token: str, sender_ref: str, expires_at: int) -> str:
-    payload = "|".join(("ap", action.strip().lower(), token.strip(), sender_ref.strip(), str(int(expires_at))))
+def _playback_signature(
+    *,
+    secret: str,
+    action: str,
+    token: str,
+    sender_ref: str,
+    expires_at: int,
+    callback_prefix: str = "ap2",
+) -> str:
+    normalized_prefix = str(callback_prefix or "").strip().lower()
+    if normalized_prefix not in {"ap", "ap2"}:
+        normalized_prefix = "ap2"
+    payload = "|".join((normalized_prefix, action.strip().lower(), token.strip(), sender_ref.strip(), str(int(expires_at))))
     return hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()[:10]
 
 
@@ -79,7 +90,7 @@ def encode_whatsapp_audiobook_voice_callback(*, action: str, token: str, sender_
     normalized_token = str(token or "").strip()
     normalized_sender = str(sender_ref or "").strip()
     secret = _callback_secret()
-    if normalized_action not in {"u", "d"} or not normalized_token or not normalized_sender or not secret:
+    if normalized_action not in {"u", "d", "a"} or not normalized_token or not normalized_sender or not secret:
         return ""
     expiry = int(expires_at or (time.time() + 604800))
     signature = _voice_signature(
@@ -119,7 +130,7 @@ def encode_whatsapp_audiobook_playback_callback(*, action: str, token: str, send
         sender_ref=normalized_sender,
         expires_at=expiry,
     )
-    return f"ap|{normalized_action}|{normalized_token}|{expiry}|{signature}"
+    return f"ap2|{normalized_action}|{normalized_token}|{expiry}|{signature}"
 
 
 def encode_whatsapp_audiobook_management_callback(*, action: str, token: str, sender_ref: str, expires_at: int | None = None) -> str:
@@ -146,7 +157,7 @@ def _decode_voice_callback(*, callback_data: str, sender_ref: str) -> dict[str, 
         return {"ok": False, "reason": "invalid_format"}
     _prefix, action, token, expires_raw, signature = parts
     normalized_action = str(action or "").strip().lower()
-    if normalized_action not in {"u", "d"}:
+    if normalized_action not in {"u", "d", "a"}:
         return {"ok": False, "reason": "invalid_action"}
     try:
         expires_at = _base36_decode(expires_raw)
@@ -169,7 +180,11 @@ def _decode_voice_callback(*, callback_data: str, sender_ref: str) -> dict[str, 
     return {
         "ok": True,
         "kind": "audiobook_voice",
-        "action": "use" if normalized_action == "u" else "dismiss",
+        "action": {
+            "u": "use",
+            "d": "dismiss",
+            "a": "use_automatic_cast",
+        }[normalized_action],
         "token": str(token or "").strip(),
         "expires_at": expires_at,
     }
@@ -177,9 +192,9 @@ def _decode_voice_callback(*, callback_data: str, sender_ref: str) -> dict[str, 
 
 def _decode_playback_callback(*, callback_data: str, sender_ref: str) -> dict[str, object]:
     parts = str(callback_data or "").strip().split("|")
-    if len(parts) != 5 or parts[0] != "ap":
+    if len(parts) != 5 or parts[0] not in {"ap", "ap2"}:
         return {"ok": False, "reason": "invalid_format"}
-    _prefix, action, token, expires_raw, signature = parts
+    callback_prefix, action, token, expires_raw, signature = parts
     normalized_action = str(action or "").strip().lower()
     if normalized_action not in {"a", "r"}:
         return {"ok": False, "reason": "invalid_action"}
@@ -205,6 +220,7 @@ def _decode_playback_callback(*, callback_data: str, sender_ref: str) -> dict[st
         token=str(token or "").strip(),
         sender_ref=str(sender_ref or "").strip(),
         expires_at=expires_at,
+        callback_prefix=callback_prefix,
     )
     if not hmac.compare_digest(str(signature or "").strip(), expected):
         return {"ok": False, "reason": "invalid_signature"}
@@ -214,6 +230,9 @@ def _decode_playback_callback(*, callback_data: str, sender_ref: str) -> dict[st
         "action": "accepted" if normalized_action == "a" else "problem",
         "token": str(token or "").strip(),
         "expires_at": expires_at,
+        "perceptual_attestation_version": (
+            1 if callback_prefix == "ap2" else 0
+        ),
     }
 
 
@@ -261,7 +280,7 @@ def decode_whatsapp_inbound_callback(*, callback_data: str, sender_ref: str) -> 
     normalized = str(callback_data or "").strip()
     if normalized.startswith("ab|"):
         return _decode_voice_callback(callback_data=normalized, sender_ref=sender_ref)
-    if normalized.startswith("ap|"):
+    if normalized.startswith(("ap|", "ap2|")):
         return _decode_playback_callback(callback_data=normalized, sender_ref=sender_ref)
     if normalized.startswith("am|"):
         return _decode_management_callback(callback_data=normalized, sender_ref=sender_ref)
@@ -280,89 +299,6 @@ def _whatsapp_audiobook_reply_text(job: dict[str, object]) -> str:
     return text.replace("Telegram", "WhatsApp").replace("telegram", "WhatsApp")
 
 
-def _sender_digits(value: object) -> str:
-    return "".join(ch for ch in str(value or "") if ch.isdigit())
-
-
-def _job_public_share(job: dict[str, object]) -> dict[str, object]:
-    import_result = dict(job.get("audiobookshelf_import") or {})
-    return dict(import_result.get("public_share") or {})
-
-
-def _job_whatsapp_public_share_delivery(job: dict[str, object]) -> dict[str, object]:
-    public_share = _job_public_share(job)
-    delivery = dict(public_share.get("whatsapp_delivery") or {})
-    if delivery:
-        return delivery
-    whatsapp = dict(job.get("whatsapp") or {})
-    return dict(whatsapp.get("public_share_delivery") or {})
-
-
-def _whatsapp_public_share_delivery_recoverable(delivery: dict[str, object]) -> bool:
-    status = str(delivery.get("status") or "").strip().lower()
-    return status in {"sent", "delivered", "read", "ok", "success"}
-
-
-def _best_effort_playback_action(callback_data: str) -> str:
-    parts = str(callback_data or "").strip().split("|")
-    if len(parts) < 2 or parts[0] != "ap":
-        return ""
-    action = str(parts[1] or "").strip().lower()[:1]
-    if action == "a":
-        return "accepted"
-    if action == "r":
-        return "rejected"
-    return ""
-
-
-def _recover_whatsapp_playback_acceptance_for_sender(
-    *,
-    sender_ref: str,
-    accepted: bool,
-    message_id: str,
-    feedback: str,
-) -> dict[str, object]:
-    normalized_sender = _sender_digits(sender_ref)
-    if not normalized_sender:
-        raise RuntimeError("audiobook_playback_acceptance_sender_missing")
-
-    candidates: list[tuple[float, object]] = []
-    for manifest_path in audiobook_epub_pipeline.iter_audiobook_job_manifests(newest_first=True):
-        try:
-            job = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        if not isinstance(job, dict):
-            continue
-        if _sender_digits(dict(job.get("whatsapp") or {}).get("sender_ref")) != normalized_sender:
-            continue
-        public_share = _job_public_share(job)
-        whatsapp_delivery = _job_whatsapp_public_share_delivery(job)
-        playback = dict(job.get("playback_acceptance") or {})
-        if not _whatsapp_public_share_delivery_recoverable(whatsapp_delivery):
-            continue
-        if (
-            str(public_share.get("status") or "").strip() != "public_share_ready"
-            and not str(public_share.get("absolute_url") or "").strip()
-        ):
-            continue
-        if str(playback.get("status") or "").strip() in {"accepted", "rejected"}:
-            continue
-        candidates.append((manifest_path.stat().st_mtime, manifest_path.parent))
-
-    if not candidates:
-        raise RuntimeError("audiobook_playback_acceptance_recovery_job_not_found")
-
-    _, job_dir = sorted(candidates, key=lambda item: item[0], reverse=True)[0]
-    return audiobook_epub_pipeline.record_audiobook_playback_acceptance(
-        job_dir=job_dir,
-        accepted=accepted,
-        source="whatsapp_button_recovered",
-        message_id=message_id,
-        feedback=feedback,
-    )
-
-
 def handle_whatsapp_inbound_callback(
     *,
     callback_data: str,
@@ -370,52 +306,14 @@ def handle_whatsapp_inbound_callback(
     message_id: str = "",
 ) -> dict[str, object]:
     decoded = decode_whatsapp_inbound_callback(callback_data=callback_data, sender_ref=sender_ref)
-    playback_callback = str(callback_data or "").strip().startswith("ap|")
+    playback_callback = str(callback_data or "").strip().startswith(("ap|", "ap2|"))
     if not bool(decoded.get("ok")):
-        fallback_action = _best_effort_playback_action(callback_data)
-        if fallback_action:
-            accepted = fallback_action == "accepted"
-            feedback = "whatsapp_button_playback_accepted" if accepted else "whatsapp_button_playback_problem"
-            try:
-                _recover_whatsapp_playback_acceptance_for_sender(
-                    sender_ref=sender_ref,
-                    accepted=accepted,
-                    message_id=message_id,
-                    feedback=feedback,
-                )
-            except Exception:
-                pass
-            else:
-                return {
-                    "status": "applied",
-                    "kind": "audiobook_playback",
-                    "action": fallback_action,
-                    "recovered": True,
-                    "reply_text": "Marked the audiobook playback as working." if accepted else "Noted. I marked this audiobook for playback review.",
-                }
         if str(decoded.get("kind") or "").strip() == "audiobook_playback" and str(decoded.get("reason") or "").strip() == "expired":
-            accepted = str(decoded.get("action") or "").strip() == "accepted"
-            feedback = "whatsapp_button_playback_accepted" if accepted else "whatsapp_button_playback_problem"
-            try:
-                _recover_whatsapp_playback_acceptance_for_sender(
-                    sender_ref=sender_ref,
-                    accepted=accepted,
-                    message_id=message_id,
-                    feedback=feedback,
-                )
-            except Exception:
-                return {
-                    "status": "stale",
-                    "kind": "audiobook_playback",
-                    "reason": "expired",
-                    "reply_text": "That audiobook playback button expired. Send 'audiobook playback' and I will send fresh buttons for the latest audiobook.",
-                }
             return {
-                "status": "applied",
+                "status": "stale",
                 "kind": "audiobook_playback",
-                "action": str(decoded.get("action") or "").strip(),
-                "recovered": True,
-                "reply_text": "Marked the audiobook playback as working." if accepted else "Noted. I marked this audiobook for playback review.",
+                "reason": "expired",
+                "reply_text": "That audiobook playback button expired. Send 'audiobook playback' and I will send fresh buttons for the latest audiobook.",
             }
         if playback_callback:
             return {
@@ -447,7 +345,7 @@ def handle_whatsapp_inbound_callback(
             return {
                 "status": "failed",
                 "kind": "audiobook_voice",
-                "reason": reason or type(exc).__name__,
+                "reason": "audiobook_voice_choice_failed",
                 "reply_text": "I could not apply that audiobook voice choice yet.",
             }
         return {
@@ -466,49 +364,77 @@ def handle_whatsapp_inbound_callback(
             "reply_text": "",
         }
     accepted = str(decoded.get("action") or "").strip() == "accepted"
+    perceptual_attestation_version = int(
+        decoded.get("perceptual_attestation_version") or 0
+    )
+    structured_attestation = (
+        audiobook_epub_pipeline.build_audiobook_perceptual_attestation(
+            channel="whatsapp"
+        )
+        if accepted and perceptual_attestation_version == 1
+        else None
+    )
+    feedback = (
+        audiobook_epub_pipeline.audiobook_perceptual_attestation_feedback(
+            "whatsapp"
+        )
+        if structured_attestation
+        else "whatsapp_button_playback_accepted"
+        if accepted
+        else "whatsapp_button_playback_problem"
+    )
     try:
-        audiobook_epub_pipeline.record_audiobook_playback_acceptance_by_callback_token(
+        updated_job = audiobook_epub_pipeline.record_audiobook_playback_acceptance_by_callback_token(
             callback_token=str(decoded.get("token") or "").strip(),
             accepted=accepted,
             source="whatsapp_button",
             message_id=message_id,
-            feedback="whatsapp_button_playback_accepted" if accepted else "whatsapp_button_playback_problem",
+            feedback=feedback,
+            perceptual_attestation=structured_attestation,
         )
     except Exception as exc:
-        reason = str(exc).strip() or type(exc).__name__
-        feedback = "whatsapp_button_playback_accepted" if accepted else "whatsapp_button_playback_problem"
-        try:
-            _recover_whatsapp_playback_acceptance_for_sender(
-                sender_ref=sender_ref,
-                accepted=accepted,
-                message_id=message_id,
-                feedback=feedback,
-            )
-        except Exception as recovery_exc:
-            if reason == "audiobook_playback_acceptance_token_not_found":
-                return {
-                    "status": "stale",
-                    "kind": "audiobook_playback",
-                    "reason": str(recovery_exc).strip() or type(recovery_exc).__name__,
-                    "reply_text": "That audiobook playback button is stale. Send 'audiobook playback' and I will send fresh buttons for the latest audiobook.",
-                }
+        reason = str(exc).strip()
+        if reason in {
+            "audiobook_playback_acceptance_token_missing",
+            "audiobook_playback_acceptance_token_not_found",
+        }:
             return {
-                "status": "failed",
+                "status": "stale",
                 "kind": "audiobook_playback",
-                "reason": reason,
-                "reply_text": f"I could not record that audiobook playback result. Current blocker: {reason}.",
+                "reason": "audiobook_playback_acceptance_stale",
+                "reply_text": "That audiobook playback button is stale. Send 'audiobook playback' and I will send fresh buttons for the latest audiobook.",
             }
-        else:
-            return {
-                "status": "applied",
-                "kind": "audiobook_playback",
-                "action": str(decoded.get("action") or "").strip(),
-                "recovered": True,
-                "reply_text": "Marked the audiobook playback as working." if accepted else "Noted. I marked this audiobook for playback review.",
-            }
+        return {
+            "status": "failed",
+            "kind": "audiobook_playback",
+            "reason": "audiobook_playback_acceptance_failed",
+            "reply_text": "I could not record that audiobook playback result. Please try again with the latest playback buttons.",
+        }
     return {
         "status": "applied",
         "kind": "audiobook_playback",
         "action": str(decoded.get("action") or "").strip(),
-        "reply_text": "Marked the audiobook playback as working." if accepted else "Noted. I marked this audiobook for playback review.",
+        "reply_text": (
+            (
+                "Recorded your all-7 perceptual playback attestation."
+                if dict(
+                    dict(updated_job or {}).get("playback_acceptance") or {}
+                ).get(
+                    "listened"
+                )
+                is True
+                else (
+                    "Recorded the seven-check response, but the listened-canary "
+                    "proof is still incomplete. Send 'audiobook playback' to "
+                    "retry after the release evidence is ready."
+                )
+            )
+            if structured_attestation
+            else (
+                "Recorded the legacy playback acknowledgement. It does "
+                "not complete the listened-canary checklist."
+            )
+            if accepted
+            else "Noted. I marked this audiobook for playback review."
+        ),
     }

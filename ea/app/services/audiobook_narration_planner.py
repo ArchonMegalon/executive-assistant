@@ -8,9 +8,10 @@ import unicodedata
 from collections.abc import Mapping, Sequence
 
 
-PLANNER_CONTRACT_NAME = "ea.audiobook_narration_plan.v4"
-BOUNDARY_POLICY_NAME = "ea.audiobook_boundary_policy.v2"
+PLANNER_CONTRACT_NAME = "ea.audiobook_narration_plan.v5"
+BOUNDARY_POLICY_NAME = "ea.audiobook_boundary_policy.v3"
 CASTING_TRAIT_POLICY_NAME = "ea.audiobook_casting_trait_evidence_policy.v1"
+RECEIPT_METRICS_CONTRACT_NAME = "ea.audiobook_narration_receipt_metrics.v1"
 
 _QUOTE_PAIRS = {
     '"': '"',
@@ -21,7 +22,7 @@ _QUOTE_PAIRS = {
     "‹": "›",
     "›": "‹",
 }
-_DIALOGUE_DASH_RE = re.compile(r"^(?P<leading>\s*[—–]\s+)(?P<body>.+)$", re.DOTALL)
+_DIALOGUE_DASH_MARKER_RE = re.compile(r"(?m)^[ \t]*[—–][ \t]+")
 _SPEECH_VERBS = (
     "said|asked|replied|answered|whispered|shouted|called|cried|murmured|added|"
     "sagte|fragte|antwortete|flüsterte|rief|murmelte|erwiderte|fügte"
@@ -534,8 +535,9 @@ def _resolved_speaker(
 
     if pronoun:
         gender = _PRONOUN_GENDER.get(pronoun, "")
+        recent_unique = list(dict.fromkeys(scene_state.recent_speakers[-4:]))
         matching_recent = []
-        for speaker_id in reversed(scene_state.recent_speakers):
+        for speaker_id in reversed(recent_unique):
             profile = speakers.get(speaker_id) or {}
             trait_value = str(dict(profile.get("traits") or {}).get("gender_presentation", {}).get("value") or "")
             if gender and trait_value == gender:
@@ -548,9 +550,30 @@ def _resolved_speaker(
                 speaker_id,
                 str(profile.get("speaker_label") or "Unknown speaker"),
                 traits,
-                f"{provenance}_resolved_from_scene_context",
-                min(confidence, 0.72),
+                f"{provenance}_resolved_from_gendered_scene_context_uncertain",
+                min(confidence, 0.68),
             )
+        if len(recent_unique) == 1:
+            speaker_id = recent_unique[0]
+            profile = speakers.get(speaker_id) or {}
+            trait_value = str(
+                dict(profile.get("traits") or {})
+                .get("gender_presentation", {})
+                .get("value")
+                or ""
+            )
+            if not trait_value or trait_value in {"unknown", gender}:
+                traits = _merge_traits(
+                    dict(profile.get("traits") or {}),
+                    evidence_traits,
+                )
+                return (
+                    speaker_id,
+                    str(profile.get("speaker_label") or "Unknown speaker"),
+                    traits,
+                    f"{provenance}_resolved_from_unique_recent_speaker_uncertain",
+                    min(confidence, 0.65),
+                )
         speaker_id = _unknown_speaker_id(
             chapter_index=chapter_index,
             scene_index=scene_index,
@@ -577,6 +600,50 @@ def _resolved_speaker(
         token=token,
     )
     return speaker_id, "Unknown speaker", {}, "alternating_scene_fallback", 0.35
+
+
+def _dialogue_dash_regions(
+    paragraph: str,
+) -> list[tuple[int, int, int, dict[str, object]]]:
+    """Return sequential dash-turn layout/body ranges within one paragraph."""
+    markers = list(_DIALOGUE_DASH_MARKER_RE.finditer(paragraph))
+    if not markers:
+        return []
+
+    layout_starts: list[int] = []
+    for marker in markers:
+        layout_start = marker.start()
+        if layout_start >= 2 and paragraph[layout_start - 2 : layout_start] == "\r\n":
+            layout_start -= 2
+        elif layout_start >= 1 and paragraph[layout_start - 1] in "\r\n":
+            layout_start -= 1
+        layout_starts.append(layout_start)
+
+    regions: list[tuple[int, int, int, dict[str, object]]] = []
+    for index, marker in enumerate(markers):
+        body_start = marker.end()
+        turn_end = (
+            layout_starts[index + 1]
+            if index + 1 < len(layout_starts)
+            else len(paragraph)
+        )
+        if body_start >= turn_end:
+            continue
+        trailing_tag = _DASH_POST_ATTRIBUTION_RE.search(
+            paragraph,
+            body_start,
+            turn_end,
+        )
+        dialogue_end = (
+            trailing_tag.start("tag")
+            if trailing_tag is not None and trailing_tag.start("tag") > body_start
+            else turn_end
+        )
+        attribution = _attribution(paragraph, body_start, dialogue_end)
+        regions.append(
+            (layout_starts[index], body_start, dialogue_end, attribution)
+        )
+    return regions
 
 
 def _append_span(
@@ -635,43 +702,22 @@ def _parse_paragraph(
     spans: list[dict[str, object]],
 ) -> None:
     paragraph = chapter.text[paragraph_start:paragraph_end]
-    dash_match = _DIALOGUE_DASH_RE.match(paragraph)
-    regions: list[tuple[int, int, dict[str, object]]] = []
+    regions: list[tuple[int, int, str, dict[str, object] | None]] = []
     cursor = 0
-    if dash_match:
-        body_start = dash_match.start("body")
-        _append_span(
-            spans,
-            chapter=chapter,
-            scene_index=scene_index,
-            paragraph_index=paragraph_index,
-            start=paragraph_start,
-            end=paragraph_start + body_start,
-            kind="layout",
-            speaker_id="",
-            speaker_label="",
-            attribution_provenance="source_layout",
-            attribution_confidence=1.0,
-            layout_kind="dialogue_marker",
-        )
-        cursor = body_start
-        trailing_tag = _DASH_POST_ATTRIBUTION_RE.search(paragraph, body_start)
-        dialogue_end = (
-            trailing_tag.start("tag")
-            if trailing_tag is not None and trailing_tag.start("tag") > body_start
-            else len(paragraph)
-        )
-        attribution = _attribution(paragraph, body_start, dialogue_end)
-        regions.append((body_start, dialogue_end, attribution))
+    dash_regions = _dialogue_dash_regions(paragraph)
+    if dash_regions:
+        for layout_start, body_start, dialogue_end, attribution in dash_regions:
+            regions.append((layout_start, body_start, "layout", None))
+            regions.append((body_start, dialogue_end, "dialogue", attribution))
     else:
         quote_regions = _quote_regions(paragraph)
         if quote_regions is not None:
             for start, end in quote_regions:
                 attribution = _attribution(paragraph, start, end)
                 if _confirmed_quote_dialogue(paragraph, start, end, attribution):
-                    regions.append((start, end, attribution))
+                    regions.append((start, end, "dialogue", attribution))
 
-    for local_start, local_end, attribution in regions:
+    for local_start, local_end, region_kind, attribution in regions:
         if local_start > cursor:
             _append_span(
                 spans,
@@ -686,6 +732,25 @@ def _parse_paragraph(
                 attribution_provenance="narrator_source",
                 attribution_confidence=1.0,
             )
+        if region_kind == "layout":
+            _append_span(
+                spans,
+                chapter=chapter,
+                scene_index=scene_index,
+                paragraph_index=paragraph_index,
+                start=paragraph_start + local_start,
+                end=paragraph_start + local_end,
+                kind="layout",
+                speaker_id="",
+                speaker_label="",
+                attribution_provenance="source_layout",
+                attribution_confidence=1.0,
+                layout_kind="dialogue_marker",
+            )
+            cursor = local_end
+            continue
+        if attribution is None:
+            raise AssertionError("dialogue_region_requires_attribution")
         speaker_id, speaker_label, traits, provenance, confidence = _resolved_speaker(
             attribution=attribution,
             chapter_index=chapter.index,
@@ -840,10 +905,22 @@ def _scene_spans(
 
 
 def _split_exact_narration(text: str, max_chars: int) -> list[tuple[int, int]]:
+    """Split exactly at natural, word-safe boundaries outside quote pairs."""
     if len(text) <= max_chars:
         return [(0, len(text))]
     ranges: list[tuple[int, int]] = []
     cursor = 0
+    quote_regions = _quote_regions(text)
+    if quote_regions is None:
+        unmatched_quote = next(
+            (index for index, char in enumerate(text) if char in _QUOTE_PAIRS),
+            len(text),
+        )
+        quote_regions = [(unmatched_quote, len(text))]
+
+    def boundary_is_quote_safe(boundary: int) -> bool:
+        return not any(start < boundary < end for start, end in quote_regions or ())
+
     sentence = re.compile(r"[.!?…]+(?:[\"'”’»›)\]]+)?\s+")
     clause = re.compile(r"[;:,](?:[\"'”’»›)\]]+)?\s+")
     while len(text) - cursor > max_chars:
@@ -854,12 +931,20 @@ def _split_exact_narration(text: str, max_chars: int) -> list[tuple[int, int]]:
         for pattern in (sentence, clause):
             for match in pattern.finditer(window):
                 absolute = cursor + match.end()
-                if minimum <= absolute <= window_end:
+                if (
+                    minimum <= absolute <= window_end
+                    and boundary_is_quote_safe(absolute)
+                ):
                     split_at = absolute
             if split_at:
                 break
         if not split_at:
-            whitespace = [match.end() for match in re.finditer(r"\s+", window) if minimum <= cursor + match.end() <= window_end]
+            whitespace = [
+                match.end()
+                for match in re.finditer(r"\s+", window)
+                if cursor < cursor + match.end() <= window_end
+                and boundary_is_quote_safe(cursor + match.end())
+            ]
             if whitespace:
                 split_at = cursor + whitespace[-1]
         if not split_at:
@@ -912,13 +997,14 @@ def _passages_from_spans(
                 pending_layout_kind = str(span.get("layout_kind") or "")
             continue
         text = str(span.get("source_text") or "")
-        if str(span.get("kind")) == "dialogue" and len(text) > max_chars:
-            split_ranges = [(0, len(text))]
-            unsafe.append(f"dialogue_span_exceeds_provider_limit:{span['span_index']}")
-        else:
-            split_ranges = _split_exact_narration(text, max_chars)
-            if len(split_ranges) == 1 and len(text) > max_chars:
-                unsafe.append(f"unsplittable_span_exceeds_provider_limit:{span['span_index']}")
+        split_ranges = _split_exact_narration(text, max_chars)
+        if any(end - start > max_chars for start, end in split_ranges):
+            issue_kind = (
+                "dialogue_span_exceeds_provider_limit"
+                if str(span.get("kind") or "") == "dialogue"
+                else "unsplittable_span_exceeds_provider_limit"
+            )
+            unsafe.append(f"{issue_kind}:{span['span_index']}")
         for split_index, (start, end) in enumerate(split_ranges):
             piece = text[start:end]
             units.append(
@@ -941,6 +1027,7 @@ def _passages_from_spans(
                     "leading_layout": pending_layout if split_index == 0 else "",
                     "leading_layout_kind": pending_layout_kind if split_index == 0 else "",
                     "continuation_from_previous": split_index > 0,
+                    "internal_boundaries": [],
                 }
             )
             pending_layout = ""
@@ -961,7 +1048,22 @@ def _passages_from_spans(
             and len(str(passages[-1]["text"])) + len(separator) + len(str(unit["text"])) <= max_chars
         )
         if can_merge:
-            passages[-1]["text"] = f"{passages[-1]['text']}{separator}{unit['text']}"
+            previous_text = str(passages[-1]["text"])
+            if layout_kind:
+                passages[-1]["internal_boundaries"].append(
+                    {
+                        "kind": layout_kind,
+                        "char_offset": len(previous_text),
+                        "layout_char_count": len(separator),
+                        "pause_intent_seconds": _pause_for_boundary(
+                            layout_kind,
+                            previous_text,
+                            pause_policy,
+                        ),
+                        "application": "natural_layout_hint_not_mastered_silence",
+                    }
+                )
+            passages[-1]["text"] = f"{previous_text}{separator}{unit['text']}"
             passages[-1]["char_end"] = unit["char_end"]
             passages[-1]["source_paragraph_end"] = unit["source_paragraph_end"]
             passages[-1]["source_span_indexes"].extend(unit["source_span_indexes"])
@@ -982,6 +1084,13 @@ def _passages_from_spans(
         passage["boundary_kind_after"] = boundary
         passage["pause_kind"] = boundary
         passage["pause_seconds_after"] = _pause_for_boundary(boundary, text, pause_policy)
+        passage["internal_pause_intent_seconds"] = round(
+            sum(
+                float(item.get("pause_intent_seconds") or 0.0)
+                for item in passage["internal_boundaries"]
+            ),
+            3,
+        )
         passage["paragraph_break_after"] = passage["pause_seconds_after"] > 0
         passage["passage_fingerprint"] = _stable_json_sha256(
             {
@@ -991,6 +1100,7 @@ def _passages_from_spans(
                 "speaker_id": passage["speaker_id"],
                 "boundary_kind_after": boundary,
                 "pause_seconds_after": passage["pause_seconds_after"],
+                "internal_boundaries": passage["internal_boundaries"],
             }
         )
         passage.pop("leading_boundary_hint", None)
@@ -1098,9 +1208,64 @@ def plan_narration(
     )
     issues = [*coverage_issues, *unsafe_issues]
     boundary_counts = {
-        kind: sum(1 for passage in passages if passage["boundary_kind_after"] == kind)
+        kind: sum(
+            1
+            for passage in passages
+            if passage["boundary_kind_after"] == kind
+        )
+        + sum(
+            1
+            for passage in passages
+            for boundary in passage["internal_boundaries"]
+            if boundary["kind"] == kind
+        )
         for kind in _DEFAULT_PAUSE_POLICY
     }
+    inserted_pause_seconds_by_kind = {
+        kind: round(
+            sum(
+                float(passage["pause_seconds_after"])
+                for passage in passages
+                if passage["boundary_kind_after"] == kind
+            ),
+            3,
+        )
+        for kind in _DEFAULT_PAUSE_POLICY
+    }
+    passage_char_counts = [int(passage["char_count"]) for passage in passages]
+    passage_size_evidence = {
+        "minimum_chars": min(passage_char_counts, default=0),
+        "maximum_chars": max(passage_char_counts, default=0),
+        "total_chars": sum(passage_char_counts),
+        "average_chars": round(
+            sum(passage_char_counts) / len(passage_char_counts),
+            3,
+        )
+        if passage_char_counts
+        else 0.0,
+    }
+    unsafe_passage_runs: list[dict[str, int]] = []
+    unsafe_run_start = 0
+    for passage_position, passage in enumerate(passages, start=1):
+        if passage["unsafe_or_very_short"] and not unsafe_run_start:
+            unsafe_run_start = passage_position
+        if unsafe_run_start and (
+            not passage["unsafe_or_very_short"]
+            or passage_position == len(passages)
+        ):
+            unsafe_run_end = (
+                passage_position
+                if passage["unsafe_or_very_short"]
+                else passage_position - 1
+            )
+            unsafe_passage_runs.append(
+                {
+                    "start_passage_index": unsafe_run_start,
+                    "end_passage_index": unsafe_run_end,
+                    "passage_count": unsafe_run_end - unsafe_run_start + 1,
+                }
+            )
+            unsafe_run_start = 0
     dialogue_spans = [span for span in spans if span["kind"] == "dialogue"]
     attributed = [
         span
@@ -1181,7 +1346,8 @@ def plan_narration(
     plan_sha256 = _stable_json_sha256(structural_payload)
     return {
         "contract_name": PLANNER_CONTRACT_NAME,
-        "version": 4,
+        "receipt_metrics_contract": RECEIPT_METRICS_CONTRACT_NAME,
+        "version": 5,
         "status": "ready" if not issues else "blocked_source_integrity_or_planning",
         "language": language,
         "max_chars": max_chars,
@@ -1219,9 +1385,19 @@ def plan_narration(
         "unsafe_or_very_short_passage_count": sum(
             1 for passage in passages if passage["unsafe_or_very_short"]
         ),
+        "passage_size_evidence": passage_size_evidence,
+        "unsafe_or_very_short_passage_runs": unsafe_passage_runs,
         "boundary_counts": boundary_counts,
+        "inserted_pause_seconds_by_kind": inserted_pause_seconds_by_kind,
         "total_inserted_pause_seconds": round(
             sum(float(passage["pause_seconds_after"]) for passage in passages),
+            3,
+        ),
+        "total_internal_pause_intent_seconds": round(
+            sum(
+                float(passage["internal_pause_intent_seconds"])
+                for passage in passages
+            ),
             3,
         ),
         "speakers": [speakers[key] for key in sorted(speakers)],

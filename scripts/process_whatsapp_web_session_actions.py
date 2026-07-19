@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import base64
 import errno
+import fcntl
 import hashlib
 import importlib
 import json
@@ -11,16 +12,19 @@ import mimetypes
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +56,16 @@ DEFAULT_FREEFORM_EXECUTIVE_ASSISTANT_REPLY = ""
 DEFAULT_FREEFORM_CONVERSATION_FALLBACK_MAX_AGE_SECONDS = 21_600
 DEFAULT_FREEFORM_STATE_STALE_SECONDS = 900
 DEFAULT_FREEFORM_STATE_MAX_ENTRIES = 256
+DEFAULT_STATE_RUN_LOCK_TIMEOUT_SECONDS = 30.0
+STATE_RUN_LOCK_POLL_SECONDS = 0.05
+
+
+class StateRunLockTimeout(TimeoutError):
+    """Raised before doing work when another processor owns the state transaction."""
+
+
+_STATE_RUN_LOCKS_GUARD = threading.Lock()
+_STATE_RUN_LOCKS: dict[str, threading.Lock] = {}
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -77,7 +91,7 @@ def _env_float(name: str, default: float, *, minimum: float = 0.0, maximum: floa
     except Exception:
         value = float(default)
     return max(min(value, maximum), minimum)
-SUPPORTED_CALLBACK_PREFIXES = ("ab|", "ap|", "am|")
+SUPPORTED_CALLBACK_PREFIXES = ("ab|", "ap|", "ap2|", "am|")
 SUPPORTED_BUTTON_KINDS = {"audiobook_voice", "audiobook_playback", "audiobook_voice_management"}
 SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._()\\[\\] -]+")
 AUDIOBOOK_STATUS_DONE_STATUSES = {"audiobookshelf_imported", "failed_m4b_merge"}
@@ -601,6 +615,79 @@ def _save_state(path: Path, state: dict[str, Any]) -> None:
             pass
 
 
+def _state_run_lock_timeout_seconds(args: argparse.Namespace) -> float:
+    configured = getattr(args, "state_lock_timeout_seconds", None)
+    if configured is None:
+        return _env_float(
+            "EA_WHATSAPP_WEB_ACTION_STATE_LOCK_TIMEOUT_SECONDS",
+            DEFAULT_STATE_RUN_LOCK_TIMEOUT_SECONDS,
+            minimum=0.05,
+            maximum=300.0,
+        )
+    try:
+        parsed = float(configured)
+    except (TypeError, ValueError):
+        parsed = DEFAULT_STATE_RUN_LOCK_TIMEOUT_SECONDS
+    return max(0.05, min(parsed, 300.0))
+
+
+def _state_run_lock_path(state_path: Path) -> Path:
+    return state_path.parent / f".{state_path.name}.run.lock"
+
+
+@contextmanager
+def _state_run_lock(state_path: Path, *, timeout_seconds: float) -> Iterator[None]:
+    """Serialize one complete state-backed processor run across threads and processes."""
+
+    lock_path = _state_run_lock_path(state_path)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_key = str(lock_path.resolve(strict=False))
+    with _STATE_RUN_LOCKS_GUARD:
+        thread_lock = _STATE_RUN_LOCKS.setdefault(lock_key, threading.Lock())
+
+    timeout = max(0.05, min(float(timeout_seconds), 300.0))
+    deadline = time.monotonic() + timeout
+    if not thread_lock.acquire(timeout=timeout):
+        raise StateRunLockTimeout("whatsapp_state_run_lock_timeout")
+
+    lock_fd: int | None = None
+    file_lock_acquired = False
+    try:
+        flags = os.O_RDWR | os.O_CREAT
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        lock_fd = os.open(str(lock_path), flags, 0o600)
+        if not stat.S_ISREG(os.fstat(lock_fd).st_mode):
+            raise RuntimeError("whatsapp_state_run_lock_not_regular_file")
+        os.fchmod(lock_fd, 0o600)
+
+        while True:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                file_lock_acquired = True
+                break
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise StateRunLockTimeout("whatsapp_state_run_lock_timeout") from exc
+                time.sleep(min(STATE_RUN_LOCK_POLL_SECONDS, remaining))
+
+        yield
+    finally:
+        try:
+            if lock_fd is not None:
+                if file_lock_acquired:
+                    try:
+                        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+                os.close(lock_fd)
+        finally:
+            thread_lock.release()
+
+
 def _message_callback_data(message: dict[str, Any]) -> str:
     direct = str(
         message.get("selected_button_id")
@@ -645,6 +732,25 @@ def _fallback_callback_from_selected_button_label(message: dict[str, Any]) -> st
     pending_batch = [row for row in list(voice_selection.get("pending_batch") or []) if isinstance(row, dict)]
     generic_use_labels = {"use this", "use", "use this voice"}
     generic_dismiss_labels = {"dismiss", "dismiss this", "dismiss voice", "dismiss this voice"}
+    automatic_cast_labels = {
+        "use automatic cast",
+        "automatic cast",
+        "use automatic",
+    }
+    if normalized_label in automatic_cast_labels and pending_batch:
+        # The carrier token is only a signed route back to the job. The locked
+        # pipeline re-resolves the highest-ranked current candidate before it
+        # applies the automatic cast, so never infer a choice from the label.
+        automatic_token = str(
+            dict(pending_batch[0]).get("callback_token") or ""
+        ).strip()
+        if automatic_token:
+            return whatsapp_inbound_actions.encode_whatsapp_audiobook_voice_callback(
+                action="a",
+                token=automatic_token,
+                sender_ref=sender_digits,
+                expires_at=_fallback_callback_expiry_for_message(message),
+            )
     if normalized_label in generic_use_labels | generic_dismiss_labels:
         token = _voice_sample_token_for_selected_button_message(message=message, job=job)
         if token:
@@ -1850,6 +1956,15 @@ def _whatsapp_voice_text_action(text: str) -> str:
     normalized = " ".join(_normalize_voice_command_text(text).split())
     if not normalized:
         return ""
+    if normalized in {
+        "use automatic cast",
+        "automatic cast",
+        "choose automatic cast",
+        "let ea choose",
+        "skip preview",
+        "skip the preview",
+    }:
+        return "use_automatic_cast"
     dismiss_all_phrases = {
         "dismiss all",
         "dismiss all voices",
@@ -2605,6 +2720,33 @@ def _send_media(
     )
 
 
+def _whatsapp_transport_effect(receipt: object) -> tuple[str, str]:
+    """Classify one sidecar send receipt without truthy/default-ok shortcuts."""
+
+    if not isinstance(receipt, dict):
+        return "ambiguous", ""
+    raw_message_id = receipt.get("message_id") or receipt.get("id")
+    if isinstance(raw_message_id, bool) or not isinstance(
+        raw_message_id, (str, int)
+    ):
+        message_id = ""
+    elif isinstance(raw_message_id, int):
+        message_id = str(raw_message_id) if raw_message_id > 0 else ""
+    else:
+        message_id = raw_message_id.strip()
+        if (
+            not message_id
+            or len(message_id) > 512
+            or any(char.isspace() for char in message_id)
+        ):
+            message_id = ""
+    if receipt.get("ok") is True and message_id:
+        return "confirmed", message_id
+    if receipt.get("ok") is False:
+        return "known_none", ""
+    return "ambiguous", ""
+
+
 def _sample_caption(sample: dict[str, object]) -> str:
     caption = str(sample.get("label") or "Voice sample").strip()
     matched_tags = [str(item).strip() for item in list(sample.get("matched_tags") or []) if str(item).strip()]
@@ -2763,11 +2905,27 @@ def _send_whatsapp_voice_samples(
 ) -> list[dict[str, object]]:
     receipts: list[dict[str, object]] = []
     chat_ref = _whatsapp_chat_ref(job)
-    for sample in audiobook_epub_pipeline.audiobook_voice_audition_sample_messages(job):
+    sample_messages = audiobook_epub_pipeline.audiobook_voice_audition_sample_messages(job)
+    automatic_token = (
+        str(sample_messages[0].get("token") or "").strip()
+        if sample_messages
+        else ""
+    )
+    for sample in sample_messages:
         token = str(sample.get("token") or "").strip()
         sample_path = Path(str(sample.get("audio_path") or ""))
         if not token or not sample_path.is_file():
-            receipts.append({"token": token, "status": "failed", "reason": "sample_audio_missing"})
+            receipts.append(
+                {
+                    "token": token,
+                    "status": "failed",
+                    "reason": "sample_audio_missing",
+                    "expected_effect_count": 2,
+                    "confirmed_effect_count": 0,
+                    "known_no_effect_count": 2,
+                    "ambiguous_effect_count": 0,
+                }
+            )
             continue
         quality_gate = audiobook_epub_pipeline.audiobook_voice_sample_audio_quality_gate(sample_path)
         if not bool(quality_gate.get("ok")):
@@ -2778,13 +2936,27 @@ def _send_whatsapp_voice_samples(
                     "reason": str(quality_gate.get("reason") or "voice_sample_audio_quality_failed"),
                     "audio_quality_status": str(quality_gate.get("status") or "").strip(),
                     "audio_quality_issues": list(dict(quality_gate.get("audio_quality") or {}).get("issues") or [])[:5],
+                    "expected_effect_count": 2,
+                    "confirmed_effect_count": 0,
+                    "known_no_effect_count": 2,
+                    "ambiguous_effect_count": 0,
                 }
             )
             continue
         try:
             media_path = _whatsapp_voice_sample_media_path(sample_path)
         except Exception as exc:
-            receipts.append({"token": token, "status": "failed", "reason": str(exc) or type(exc).__name__})
+            receipts.append(
+                {
+                    "token": token,
+                    "status": "failed",
+                    "reason": str(exc) or type(exc).__name__,
+                    "expected_effect_count": 2,
+                    "confirmed_effect_count": 0,
+                    "known_no_effect_count": 2,
+                    "ambiguous_effect_count": 0,
+                }
+            )
             continue
         use_callback = whatsapp_inbound_actions.encode_whatsapp_audiobook_voice_callback(
             action="u",
@@ -2796,9 +2968,30 @@ def _send_whatsapp_voice_samples(
             token=token,
             sender_ref=recipient_digits,
         )
-        if not use_callback or not dismiss_callback:
-            receipts.append({"token": token, "status": "failed", "reason": "callback_encoding_failed"})
+        automatic_callback = whatsapp_inbound_actions.encode_whatsapp_audiobook_voice_callback(
+            action="a",
+            token=automatic_token,
+            sender_ref=recipient_digits,
+        )
+        if not use_callback or not dismiss_callback or not automatic_callback:
+            receipts.append(
+                {
+                    "token": token,
+                    "status": "failed",
+                    "reason": "callback_encoding_failed",
+                    "expected_effect_count": 2,
+                    "confirmed_effect_count": 0,
+                    "known_no_effect_count": 2,
+                    "ambiguous_effect_count": 0,
+                }
+            )
             continue
+        media_result: dict[str, Any] = {}
+        button_result: dict[str, Any] = {}
+        button_message_id = ""
+        confirmed_effect_count = 0
+        known_no_effect_count = 0
+        ambiguous_effect_count = 0
         try:
             use_label, dismiss_label = _voice_action_button_labels(sample)
             media_result = _send_media(
@@ -2809,29 +3002,85 @@ def _send_whatsapp_voice_samples(
                 text=_sample_caption(sample),
                 chat_ref=chat_ref,
             )
+        except Exception as exc:
+            ambiguous_effect_count += 1
+            known_no_effect_count += 1
+            receipts.append(
+                {
+                    "token": token,
+                    "status": "failed",
+                    "reason": type(exc).__name__,
+                    "expected_effect_count": 2,
+                    "confirmed_effect_count": 0,
+                    "known_no_effect_count": known_no_effect_count,
+                    "ambiguous_effect_count": ambiguous_effect_count,
+                }
+            )
+            continue
+        media_effect_state, media_message_id = _whatsapp_transport_effect(
+            media_result
+        )
+        if media_effect_state == "confirmed":
+            confirmed_effect_count += 1
+        elif media_effect_state == "known_none":
+            known_no_effect_count += 1
+        else:
+            ambiguous_effect_count += 1
+        try:
             button_result = _send_reply(
                 request_json=request_json,
                 args=args,
                 recipient_digits=recipient_digits,
-                text=f"Choose this voice sample. If the buttons do not work, reply 'use {str(sample.get('label') or 'this voice').strip()}' or 'dismiss all'.",
-                buttons=[[(use_label, use_callback), (dismiss_label, dismiss_callback)]],
+                text=(
+                    "This preview is optional. Choose this voice sample, or let EA choose "
+                    "the narrator and dialogue cast. If the buttons do not work, reply "
+                    f"'use {str(sample.get('label') or 'this voice').strip()}', "
+                    "'use automatic cast', or 'dismiss all'."
+                ),
+                buttons=[
+                    [
+                        (use_label, use_callback),
+                        (dismiss_label, dismiss_callback),
+                        ("Use automatic cast", automatic_callback),
+                    ]
+                ],
                 chat_ref=chat_ref,
             )
         except Exception as exc:
-            receipts.append({"token": token, "status": "failed", "reason": type(exc).__name__})
-            continue
-        sent = bool(media_result.get("ok", True)) and bool(button_result.get("ok", True))
+            ambiguous_effect_count += 1
+            button_result = {}
+            button_reason = type(exc).__name__
+        else:
+            button_reason = ""
+            button_effect_state, button_message_id = _whatsapp_transport_effect(
+                button_result
+            )
+            if button_effect_state == "confirmed":
+                confirmed_effect_count += 1
+            elif button_effect_state == "known_none":
+                known_no_effect_count += 1
+            else:
+                ambiguous_effect_count += 1
+        sent = confirmed_effect_count == 2
         receipts.append(
             {
                 "token": token,
                 "status": "sent" if sent else "skipped",
-                "reason": "" if sent else "whatsapp_voice_sample_send_skipped",
+                "reason": "" if sent else button_reason or "whatsapp_voice_sample_send_skipped",
                 "transport": "whatsapp_web_session",
-                "media_message_id_sha256": _sha(media_result.get("message_id") or media_result.get("id") or ""),
-                "button_message_id_sha256": _sha(button_result.get("message_id") or button_result.get("id") or ""),
+                "media_message_id_sha256": _sha(media_message_id)
+                if media_message_id
+                else "",
+                "button_message_id_sha256": _sha(button_message_id)
+                if button_message_id
+                else "",
                 "button_count": int(button_result.get("button_count") or 0),
                 "buttons_fallback": bool(button_result.get("buttons_fallback")),
                 "control_kind": str(button_result.get("control_kind") or "").strip(),
+                "expected_effect_count": 2,
+                "confirmed_effect_count": confirmed_effect_count,
+                "known_no_effect_count": known_no_effect_count,
+                "ambiguous_effect_count": ambiguous_effect_count,
             }
         )
     return receipts
@@ -3144,6 +3393,25 @@ def _use_best_current_whatsapp_voice_sample(job: dict[str, object]) -> dict[str,
     return audiobook_epub_pipeline.apply_audiobook_voice_audition_action(callback_token=token, action="use")
 
 
+def _use_automatic_cast_whatsapp_voice_sample(job: dict[str, object]) -> dict[str, object]:
+    current = _load_job_from_disk(job)
+    voice_selection = dict(dict(current.get("provider") or {}).get("voice_selection") or {})
+    rows = [row for row in list(voice_selection.get("pending_batch") or []) if isinstance(row, dict)]
+    if not rows:
+        raise RuntimeError("voice_batch_missing")
+    # This token is only a signed route to the job. The locked pipeline always
+    # re-resolves the highest-ranked current pending candidate before applying
+    # automatic cast, so a concurrent refresh cannot turn this into a stale
+    # user-selected voice.
+    token = str(rows[0].get("callback_token") or "").strip()
+    if not token:
+        raise RuntimeError("voice_batch_token_missing")
+    return audiobook_epub_pipeline.apply_audiobook_voice_audition_action(
+        callback_token=token,
+        action="use_automatic_cast",
+    )
+
+
 def _voice_choice_match_score(public: dict[str, object], requested: str) -> int:
     normalized_requested = " ".join(_normalize_voice_command_text(requested).split())
     if not normalized_requested:
@@ -3422,7 +3690,7 @@ def _playback_buttons(job: dict[str, object], recipient_digits: str) -> list[lis
     )
     if not accepted or not problem:
         return []
-    return [[("Playback works", accepted), ("Problem", problem)]]
+    return [[("Attest all 7 checks pass", accepted), ("Problem", problem)]]
 
 
 def _read_job_manifest(manifest_path: Path) -> dict[str, object]:
@@ -3756,7 +4024,7 @@ def _whatsapp_audiobook_runtime_status_reply_text(text: str, *, sender_digits: s
             "Audiobook voice samples are not live-ready yet. "
             f"Current blockers: {blocker_text}. "
             f"Voice catalog: {voice_count}/{min_voices}; audio generation account slots configured: {int(provider.get('api_key_slot_count') or 0)}. "
-            "After those blockers clear, send the source ebook again and I should return three voice samples with Use/Dismiss controls and text fallback replies like 'use <voice>' or 'dismiss all'. "
+            "After those blockers clear, send the source ebook again and I should return three optional voice samples with Use/Dismiss/Use automatic cast controls and text fallback replies like 'use <voice>', 'use automatic cast', or 'dismiss all'. "
             f"Completion blockers still tracked: {len(completion_blockers)}."
         )
     if completion_blockers:
@@ -3770,7 +4038,7 @@ def _whatsapp_audiobook_runtime_status_reply_text(text: str, *, sender_digits: s
         "Audiobook intake and voice samples are ready. "
         f"Voice catalog: {voice_count}/{min_voices}; Audiobookshelf public share is {public_share}. "
         "Send an EPUB, AZW, AZW3, or MOBI file here in WhatsApp to get the three voice samples. "
-        "If WhatsApp degrades, you can still reply with the voice name, 'dismiss <voice>', or 'dismiss all'."
+        "The preview is optional: reply 'use automatic cast' to let EA choose, or reply with the voice name, 'dismiss <voice>', or 'dismiss all'."
     )
 
 
@@ -3828,7 +4096,8 @@ def _latest_whatsapp_audiobook_playback_buttons_for_sender(
             _whatsapp_public_share_followup_actionable(job)
             and str(public_share.get("status") or "").strip() == "public_share_ready"
             and _whatsapp_public_share_delivery_status_recoverable(delivery.get("status"))
-            and playback_status in {"", "not_recorded"}
+            and playback_status in {"", "not_recorded", "accepted"}
+            and playback.get("listened") is not True
         )
 
     job: dict[str, object] = {}
@@ -3908,10 +4177,17 @@ def _record_whatsapp_public_share_delivery(
 ) -> dict[str, object]:
     current = _load_job_from_disk(job)
     whatsapp = dict(current.get("whatsapp") or {})
+    raw_message_id = str(
+        notification.get("message_id") or notification.get("id") or ""
+    ).strip()
     delivery = {
         "status": str(notification.get("status") or "").strip() or "unknown",
         "notified_at": _now_iso(),
-        "message_id_sha256": _sha(notification.get("message_id") or notification.get("id") or ""),
+        "message_id_sha256": (
+            hashlib.sha256(raw_message_id.encode("utf-8")).hexdigest()
+            if raw_message_id
+            else ""
+        ),
         "reason": str(notification.get("reason") or "").strip(),
         "callback_tokens_exposed": False,
         "audiobookshelf_token_exposed": False,
@@ -3941,13 +4217,24 @@ def _send_public_share_if_ready(
     job = audiobook_epub_pipeline.ensure_audiobook_playback_acceptance_callback(job)
     chat_ref = _whatsapp_chat_ref(job)
     inline_buttons_enabled = bool(getattr(args, "public_share_inline_buttons_enabled", False))
+    playback_buttons = (
+        _playback_buttons(job, recipient_digits)
+        if inline_buttons_enabled
+        else []
+    )
+    reply_text = _public_share_reply_text(job)
+    if playback_buttons:
+        reply_text = (
+            f"{reply_text}\n\n"
+            f"{audiobook_epub_pipeline.AUDIOBOOK_PERCEPTUAL_ATTESTATION_PROMPT}"
+        ).strip()
     try:
         sent = _send_reply(
             request_json=request_json,
             args=args,
             recipient_digits=recipient_digits,
-            text=_public_share_reply_text(job),
-            buttons=_playback_buttons(job, recipient_digits) if inline_buttons_enabled else None,
+            text=reply_text,
+            buttons=playback_buttons or None,
             chat_ref=chat_ref,
             persona_payload=_public_share_persona_payload(job),
         )
@@ -4033,6 +4320,7 @@ def _request_whatsapp_audiobook_approval(
     request_bytes: Callable[..., bytes],
     args: argparse.Namespace,
     message: dict[str, Any],
+    trusted_auto_approve: bool = False,
 ) -> tuple[dict[str, object], dict[str, object]]:
     sender_digits = _message_sender_digits(message)
     message_id = str(message.get("id") or "").strip()
@@ -4045,8 +4333,29 @@ def _request_whatsapp_audiobook_approval(
         sender_ref=sender_ref,
     )
     if existing:
+        if (
+            trusted_auto_approve
+            and str(existing.get("status") or "").strip() == "pending"
+        ):
+            existing = audiobook_access_approval.update_status(
+                str(existing.get("approval_id") or "").strip(),
+                status="approved",
+                decided_by="whatsapp_trusted_sender_policy",
+                reason="trusted_sender_auto_approved",
+                expected_statuses=("pending",),
+            )
+            return existing, {"status": "trusted_auto_approved"}
         delivery = dict(existing.get("approval_delivery") or {})
-        return existing, {"status": str(delivery.get("status") or "already_requested").strip()}
+        return existing, {
+            "status": str(
+                delivery.get("status")
+                or (
+                    "trusted_record_reused"
+                    if trusted_auto_approve
+                    else "already_requested"
+                )
+            ).strip()
+        }
     epub_path = _download_whatsapp_epub(request_bytes=request_bytes, args=args, message=message)
     record = audiobook_access_approval.create_pending_request(
         channel="whatsapp",
@@ -4063,6 +4372,15 @@ def _request_whatsapp_audiobook_approval(
         caption=_message_caption(message),
         requester_label=f"WhatsApp +{sender_digits}" if sender_digits else "WhatsApp requester",
     )
+    if trusted_auto_approve:
+        approved = audiobook_access_approval.update_status(
+            str(record.get("approval_id") or "").strip(),
+            status="approved",
+            decided_by="whatsapp_trusted_sender_policy",
+            reason="trusted_sender_auto_approved",
+            expected_statuses=("pending",),
+        )
+        return approved, {"status": "trusted_auto_approved"}
     delivery = audiobook_access_approval.send_telegram_approval_request(record=record)
     return record, delivery
 
@@ -4074,33 +4392,71 @@ def _process_epub_candidate(
     args: argparse.Namespace,
     message: dict[str, Any],
     approved_request: dict[str, object] | None = None,
+    started_job: dict[str, object] | None = None,
 ) -> tuple[dict[str, object], list[dict[str, object]], dict[str, object]]:
-    sender_digits = _message_sender_digits(message)
-    chat_ref = _message_chat_ref(message)
-    message_id = str(message.get("id") or "").strip()
-    filename = _message_media_filename(message) or "whatsapp-book.epub"
     approved = dict(approved_request or {})
-    epub_path = audiobook_access_approval.source_path(approved) if approved else Path()
-    if not epub_path.is_file():
-        epub_path = _download_whatsapp_epub(request_bytes=request_bytes, args=args, message=message)
-    principal_id = str(getattr(args, "principal_id", "") or DEFAULT_AUDIOBOOK_PRINCIPAL_ID).strip()
-    job = audiobook_epub_pipeline.create_job_from_epub(
-        epub_path=epub_path,
-        original_filename=filename,
-        principal_id=principal_id,
-        chat_id="",
-        message_id="",
-        caption=_message_caption(message),
-        source_url="",
-    )
+    delivery_args = args
+    if approved:
+        target = audiobook_access_approval.validate_approved_channel_target(
+            approved,
+            channel="whatsapp",
+            phone_number=_message_sender_digits(message),
+            sender_ref=_whatsapp_approval_sender_ref(
+                _message_sender_digits(message)
+            ),
+            session_ref=str(
+                getattr(args, "session_ref", "") or DEFAULT_SESSION_REF
+            ).strip(),
+            chat_ref=_message_chat_ref(message),
+            message_id=str(message.get("id") or "").strip(),
+        )
+        sender_digits = str(target.get("phone_number") or "").strip()
+        chat_ref = str(target.get("chat_ref") or "").strip()
+        message_id = str(target.get("message_id") or "").strip()
+        source = dict(approved.get("source") or {})
+        filename = str(source.get("filename") or "").strip() or "whatsapp-book.epub"
+        delivery_args = argparse.Namespace(**vars(args))
+        delivery_args.session_ref = str(target.get("session_ref") or "").strip()
+    else:
+        sender_digits = _message_sender_digits(message)
+        chat_ref = _message_chat_ref(message)
+        message_id = str(message.get("id") or "").strip()
+        filename = _message_media_filename(message) or "whatsapp-book.epub"
+    job = dict(started_job or {})
+    if not job:
+        epub_path = audiobook_access_approval.source_path(approved) if approved else Path()
+        if approved and not epub_path.is_file():
+            raise RuntimeError("approved_audiobook_source_missing")
+        if not approved and not epub_path.is_file():
+            epub_path = _download_whatsapp_epub(request_bytes=request_bytes, args=args, message=message)
+        principal_id = str(getattr(args, "principal_id", "") or DEFAULT_AUDIOBOOK_PRINCIPAL_ID).strip()
+        job = audiobook_epub_pipeline.create_job_from_epub(
+            epub_path=epub_path,
+            original_filename=filename,
+            principal_id=principal_id,
+            chat_id="",
+            message_id="",
+            caption="" if approved else _message_caption(message),
+            source_url="",
+        )
     metadata = {
         "sender_ref": sender_digits,
-        "session_ref": str(args.session_ref or DEFAULT_SESSION_REF).strip(),
+        "session_ref": str(
+            getattr(delivery_args, "session_ref", "") or DEFAULT_SESSION_REF
+        ).strip(),
         "message_id_sha256": _sha(message_id),
         "source": "whatsapp_web_session",
         "source_filename": filename,
-        "source_mime_type": _message_media_mime_type(message),
-        "caption_sha256": _sha(_message_caption(message)),
+        "source_mime_type": str(
+            dict(approved.get("source") or {}).get("mime_type")
+            if approved
+            else _message_media_mime_type(message)
+        ).strip(),
+        "caption_sha256": str(
+            dict(approved.get("source") or {}).get("caption_sha256") or ""
+        ).strip()
+        if approved
+        else _sha(_message_caption(message)),
         "delivery_status": "voice_samples_pending",
     }
     if chat_ref:
@@ -4108,7 +4464,7 @@ def _process_epub_candidate(
     job = _record_whatsapp_job_metadata(job=job, metadata=metadata)
     sample_receipts = _send_whatsapp_voice_samples(
         request_json=request_json,
-        args=args,
+        args=delivery_args,
         recipient_digits=sender_digits,
         job=job,
     )
@@ -4116,30 +4472,170 @@ def _process_epub_candidate(
     if sample_receipts:
         job = audiobook_epub_pipeline.record_audiobook_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
     job = _record_whatsapp_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
-    try:
-        _maybe_send_whatsapp_voice_management_controls(
-            request_json=request_json,
-            args=args,
-            recipient_digits=sender_digits,
-            job=job,
-        )
-    except Exception:
-        pass
+    management_expected_effect_count = 0
+    management_confirmed_effect_count = 0
+    management_known_no_effect_count = 0
+    management_ambiguous_effect_count = 0
+    if _voice_selection_needs_management_controls(job):
+        management_expected_effect_count = 1
+        try:
+            management_result = _maybe_send_whatsapp_voice_management_controls(
+                request_json=request_json,
+                args=delivery_args,
+                recipient_digits=sender_digits,
+                job=job,
+            )
+        except Exception:
+            management_ambiguous_effect_count = 1
+        else:
+            management_effect_state, _management_message_id = (
+                _whatsapp_transport_effect(management_result)
+            )
+            if management_effect_state == "confirmed":
+                management_confirmed_effect_count = 1
+            elif management_effect_state == "known_none":
+                management_known_no_effect_count = 1
+            else:
+                management_ambiguous_effect_count = 1
     reply = _send_reply(
         request_json=request_json,
-        args=args,
+        args=delivery_args,
         recipient_digits=sender_digits,
         text=_whatsapp_epub_reply_text(job),
         chat_ref=chat_ref,
     )
+    _reply_effect_state, reply_message_id = _whatsapp_transport_effect(reply)
     job = _record_whatsapp_job_metadata(
         job=job,
         metadata={
             "delivery_status": "voice_samples_sent" if sent_sample_count else "voice_samples_blocked",
-            "intake_reply_message_id_sha256": _sha(reply.get("message_id") or reply.get("id") or ""),
+            "intake_reply_message_id_sha256": _sha(reply_message_id)
+            if reply_message_id
+            else "",
+            "management_control_expected_effect_count": management_expected_effect_count,
+            "management_control_confirmed_effect_count": management_confirmed_effect_count,
+            "management_control_known_no_effect_count": management_known_no_effect_count,
+            "management_control_ambiguous_effect_count": management_ambiguous_effect_count,
         },
     )
     return job, sample_receipts, reply
+
+
+def _approved_whatsapp_delivery_attempt(
+    *,
+    request_json: Callable[..., dict[str, Any]],
+    request_bytes: Callable[..., bytes],
+    args: argparse.Namespace,
+    message: dict[str, Any],
+    approved_request: dict[str, object],
+    started_job: dict[str, object],
+) -> dict[str, object]:
+    payload = _process_epub_candidate(
+        request_json=request_json,
+        request_bytes=request_bytes,
+        args=args,
+        message=message,
+        approved_request=approved_request,
+        started_job=started_job,
+    )
+    job, sample_receipts, reply = payload
+    expected_effect_count = 0
+    confirmed_effect_count = 0
+    known_no_effect_count = 0
+    ambiguous_effect_count = 0
+    for raw_receipt in sample_receipts:
+        receipt = dict(raw_receipt)
+        if "expected_effect_count" in receipt:
+            expected_effect_count += int(receipt.get("expected_effect_count") or 0)
+            confirmed_effect_count += int(receipt.get("confirmed_effect_count") or 0)
+            known_no_effect_count += int(receipt.get("known_no_effect_count") or 0)
+            ambiguous_effect_count += int(receipt.get("ambiguous_effect_count") or 0)
+        else:
+            expected_effect_count += 1
+            message_id_sha256 = str(
+                receipt.get("media_message_id_sha256") or ""
+            ).strip().lower()
+            if (
+                str(receipt.get("status") or "").strip() == "sent"
+                and re.fullmatch(r"[0-9a-f]{64}", message_id_sha256)
+            ):
+                confirmed_effect_count += 1
+            elif str(receipt.get("status") or "").strip() == "sent":
+                ambiguous_effect_count += 1
+            else:
+                known_no_effect_count += 1
+    whatsapp = dict(job.get("whatsapp") or {})
+    expected_effect_count += int(
+        whatsapp.get("management_control_expected_effect_count") or 0
+    )
+    confirmed_effect_count += int(
+        whatsapp.get("management_control_confirmed_effect_count") or 0
+    )
+    known_no_effect_count += int(
+        whatsapp.get("management_control_known_no_effect_count") or 0
+    )
+    ambiguous_effect_count += int(
+        whatsapp.get("management_control_ambiguous_effect_count") or 0
+    )
+    expected_effect_count += 1
+    reply_effect_state, _reply_message_id = _whatsapp_transport_effect(reply)
+    if reply_effect_state == "confirmed":
+        confirmed_effect_count += 1
+    elif reply_effect_state == "known_none":
+        known_no_effect_count += 1
+    else:
+        ambiguous_effect_count += 1
+    return audiobook_access_approval.build_approved_delivery_outcome(
+        channel="whatsapp",
+        result=payload,
+        expected_effect_count=expected_effect_count,
+        confirmed_effect_count=confirmed_effect_count,
+        known_no_effect_count=known_no_effect_count,
+        ambiguous_effect_count=ambiguous_effect_count,
+        reason="whatsapp_delivery_receipts_classified",
+    )
+
+
+def _start_approved_whatsapp_audiobook_request(
+    *,
+    args: argparse.Namespace,
+    message: dict[str, Any],
+    record: dict[str, object],
+    deterministic_job_id: str,
+    start_identity_sha256: str,
+) -> dict[str, object]:
+    audiobook_access_approval.validate_approved_channel_target(
+        record,
+        channel="whatsapp",
+        phone_number=_message_sender_digits(message),
+        sender_ref=_whatsapp_approval_sender_ref(_message_sender_digits(message)),
+        session_ref=str(
+            getattr(args, "session_ref", "") or DEFAULT_SESSION_REF
+        ).strip(),
+        chat_ref=_message_chat_ref(message),
+        message_id=str(message.get("id") or "").strip(),
+    )
+    source = dict(record.get("source") or {})
+    epub_path = audiobook_access_approval.source_path(record)
+    if not epub_path.is_file():
+        raise RuntimeError("approved_audiobook_source_missing")
+    return audiobook_epub_pipeline.create_job_from_epub(
+        epub_path=epub_path,
+        original_filename=(
+            str(source.get("filename") or "").strip()
+            or epub_path.name
+        ),
+        principal_id=(
+            str(record.get("principal_id") or "").strip()
+            or str(getattr(args, "principal_id", "") or DEFAULT_AUDIOBOOK_PRINCIPAL_ID).strip()
+        ),
+        chat_id="",
+        message_id="",
+        caption="",
+        source_url="",
+        deterministic_job_id=deterministic_job_id,
+        intake_idempotency_key_sha256=start_identity_sha256,
+    )
 
 
 def _deliver_ready_whatsapp_share_links(
@@ -4225,7 +4721,7 @@ def _deliver_ready_whatsapp_share_links(
     }
 
 
-def build_report(
+def _build_report_transaction(
     args: argparse.Namespace,
     *,
     request_json: Callable[..., dict[str, Any]] = _request_json,
@@ -4343,7 +4839,27 @@ def build_report(
         retry_metadata: dict[str, object] = {}
         if action_id in actions:
             existing_status = str(dict(existing_action).get("status") or "").strip()
-            retry_failed_without_reply = existing_status in {"failed", "started"} and not bool(dict(existing_action).get("reply_sent"))
+            existing_approval_id = str(
+                dict(existing_action).get("approval_id") or ""
+            ).strip()
+            existing_approval = (
+                audiobook_access_approval.load_request(existing_approval_id)
+                if existing_approval_id
+                else {}
+            )
+            existing_delivery_state = str(
+                dict(existing_approval.get("first_delivery") or {}).get("state")
+                or ""
+            ).strip()
+            reconciled_no_effect_retry = (
+                existing_status == "delivery_outcome_unknown"
+                and existing_delivery_state == "failed_before_effect"
+            )
+            retry_failed_without_reply = (
+                existing_status
+                in {"approved", "failed", "started", "failed_before_effect"}
+                and not bool(dict(existing_action).get("reply_sent"))
+            ) or reconciled_no_effect_retry
             try:
                 existing_sample_sent = int(dict(existing_action).get("sample_sent") or 0)
             except Exception:
@@ -4369,13 +4885,22 @@ def build_report(
                 existing_action.update(retry_metadata)
                 actions[action_id] = existing_action
                 _save_state(state_path, state)
+                approval_id = str(dict(existing_action).get("approval_id") or "").strip()
+                if approval_id and _approval_request_status(approval_id) in {
+                    "approved",
+                    "starting",
+                    "started",
+                    "completed",
+                    "failed",
+                }:
+                    approved_request = audiobook_access_approval.load_request(approval_id)
             elif existing_status != "pending_approval":
                 skipped_processed += 1
                 continue
             else:
                 approval_id = str(dict(existing_action).get("approval_id") or "").strip()
                 approval_status = _approval_request_status(approval_id)
-                if approval_status == "approved":
+                if approval_status in {"approved", "starting", "started", "completed", "failed"}:
                     approved_request = audiobook_access_approval.load_request(approval_id)
                 elif approval_status == "denied":
                     sender_digits = _message_sender_digits(message)
@@ -4410,11 +4935,60 @@ def build_report(
 
         sender_digits = _message_sender_digits(message)
         sender_ref = _whatsapp_approval_sender_ref(sender_digits)
-        if not approved_request and audiobook_access_approval.approval_required(
+        operator_approval_required = audiobook_access_approval.approval_required(
             phone_number=sender_digits,
             sender_ref=sender_ref,
             channel="whatsapp",
-        ):
+        )
+        if not approved_request and not operator_approval_required:
+            try:
+                approved_request, trusted_delivery = (
+                    _request_whatsapp_audiobook_approval(
+                        request_bytes=request_bytes,
+                        args=args,
+                        message=message,
+                        trusted_auto_approve=True,
+                    )
+                )
+                actions[action_id] = {
+                    "approval_id": str(
+                        approved_request.get("approval_id") or ""
+                    ).strip(),
+                    "approval_id_sha256": _sha(
+                        approved_request.get("approval_id") or ""
+                    ),
+                    "approval_delivery_status": str(
+                        trusted_delivery.get("status") or ""
+                    ).strip(),
+                    "callback_hash": _sha("epub_media"),
+                    "kind": "audiobook_epub",
+                    "message_hash": _sha(message_id),
+                    "processed_at": now,
+                    "reply_sent": False,
+                    "status": "approved",
+                    "trusted_auto_approved": True,
+                }
+                _save_state(state_path, state)
+            except Exception as exc:
+                errors += 1
+                actions[action_id] = {
+                    "approval_id": "",
+                    "approval_id_sha256": "",
+                    "callback_hash": _sha("epub_media"),
+                    "kind": "audiobook_epub",
+                    "message_hash": _sha(message_id),
+                    "processed_at": now,
+                    "reply_sent": False,
+                    "status": "failed",
+                    "reason": "trusted_audiobook_intake_failed",
+                    "diagnostic_sha256": _sha(str(exc)),
+                }
+                processed += 1
+                epub_processed += 1
+                status_counts["failed"] = status_counts.get("failed", 0) + 1
+                _save_state(state_path, state)
+                continue
+        if not approved_request and operator_approval_required:
             actions[action_id] = {
                 "approval_id": "",
                 "approval_id_sha256": "",
@@ -4482,13 +5056,67 @@ def build_report(
             status_counts[str(actions[action_id].get("status") or "pending_approval")] = status_counts.get(str(actions[action_id].get("status") or "pending_approval"), 0) + 1
             _save_state(state_path, state)
             continue
+        started_job: dict[str, object] = {}
+        approval_start_replayed = False
+        if approved_request:
+            approval_id = str(approved_request.get("approval_id") or "").strip()
+            try:
+                audiobook_access_approval.validate_approved_channel_target(
+                    approved_request,
+                    channel="whatsapp",
+                    phone_number=_message_sender_digits(message),
+                    sender_ref=_whatsapp_approval_sender_ref(
+                        _message_sender_digits(message)
+                    ),
+                    session_ref=str(
+                        getattr(args, "session_ref", "") or DEFAULT_SESSION_REF
+                    ).strip(),
+                    chat_ref=_message_chat_ref(message),
+                    message_id=message_id,
+                )
+                start_result = audiobook_access_approval.run_approved_start_once(
+                    approval_id,
+                    starter=lambda claimed, job_id, identity: _start_approved_whatsapp_audiobook_request(
+                        args=args,
+                        message=message,
+                        record=claimed,
+                        deterministic_job_id=job_id,
+                        start_identity_sha256=identity,
+                    ),
+                )
+                started_job = dict(start_result.get("job") or {})
+                approval_start_replayed = not bool(start_result.get("started_now"))
+                approved_request = dict(start_result.get("record") or approved_request)
+            except Exception as exc:
+                errors += 1
+                actions[action_id] = {
+                    "approval_id": approval_id,
+                    "approval_id_sha256": _sha(approval_id),
+                    "callback_hash": _sha("epub_media"),
+                    "kind": "audiobook_epub",
+                    "message_hash": _sha(message_id),
+                    "processed_at": now,
+                    "reply_sent": False,
+                    "status": "failed",
+                    "reason": "approved_audiobook_start_failed",
+                    "diagnostic_sha256": _sha(str(exc)),
+                }
+                processed += 1
+                epub_processed += 1
+                status_counts["failed"] = status_counts.get("failed", 0) + 1
+                _save_state(state_path, state)
+                continue
         actions[action_id] = {
+            "approval_id": str(approved_request.get("approval_id") or "").strip(),
+            "approval_id_sha256": _sha(approved_request.get("approval_id") or "") if approved_request else "",
             "callback_hash": _sha("epub_media"),
             "kind": "audiobook_epub",
+            "job_id_sha256": _sha(started_job.get("job_id") or "") if started_job else "",
             "message_hash": _sha(message_id),
             "processed_at": now,
             "reply_sent": False,
             "status": "started",
+            "start_replayed": approval_start_replayed,
         }
         if retry_reason:
             actions[action_id]["retry_reason"] = retry_reason
@@ -4497,22 +5125,116 @@ def build_report(
             actions[action_id].update(retry_metadata)
         _save_state(state_path, state)
         try:
-            _job, sample_receipts, reply = _process_epub_candidate(
-                request_json=request_json,
-                request_bytes=request_bytes,
-                args=args,
-                message=message,
-                approved_request=approved_request,
-            )
+            if approved_request:
+                delivery_result = audiobook_access_approval.run_approved_delivery_once(
+                    str(approved_request.get("approval_id") or "").strip(),
+                    channel="whatsapp",
+                    job=started_job,
+                    deliverer=lambda: _approved_whatsapp_delivery_attempt(
+                        request_json=request_json,
+                        request_bytes=request_bytes,
+                        args=args,
+                        message=message,
+                        approved_request=approved_request,
+                        started_job=started_job,
+                    ),
+                )
+                if not bool(delivery_result.get("delivery_now")):
+                    delivery_status = str(delivery_result.get("delivery_status") or "").strip()
+                    action_status = (
+                        "started_reused"
+                        if delivery_status == "completed"
+                        else "delivery_outcome_unknown"
+                    )
+                    actions[action_id].update(
+                        {
+                            "delivery_binding_sha256": str(
+                                delivery_result.get("binding_sha256") or ""
+                            ).strip(),
+                            "delivery_status": delivery_status,
+                            "reply_sent": False,
+                            "sample_sent": 0,
+                            "status": action_status,
+                        }
+                    )
+                    if action_status == "delivery_outcome_unknown":
+                        errors += 1
+                    status_counts[action_status] = status_counts.get(action_status, 0) + 1
+                    processed += 1
+                    epub_processed += 1
+                    _save_state(state_path, state)
+                    continue
+                delivery_payload = delivery_result.get("result")
+                if not isinstance(delivery_payload, tuple) or len(delivery_payload) != 3:
+                    raise RuntimeError("approved_audiobook_delivery_result_invalid")
+                _job, sample_receipts, reply = delivery_payload
+                delivery_status = str(
+                    delivery_result.get("delivery_status") or ""
+                ).strip()
+                actions[action_id]["delivery_binding_sha256"] = str(
+                    delivery_result.get("binding_sha256") or ""
+                ).strip()
+                actions[action_id]["delivery_status"] = delivery_status
+                actions[action_id]["first_delivery_recovered"] = approval_start_replayed
+                if delivery_status != "completed":
+                    sent_samples = sum(
+                        1
+                        for item in sample_receipts
+                        if str(dict(item).get("status") or "") == "sent"
+                    )
+                    voice_sample_sent += sent_samples
+                    _reply_effect_state, reply_message_id = (
+                        _whatsapp_transport_effect(reply)
+                    )
+                    reply_was_sent = _reply_effect_state == "confirmed"
+                    action_status = (
+                        "failed_before_effect"
+                        if delivery_status == "failed_before_effect"
+                        else "delivery_outcome_unknown"
+                    )
+                    actions[action_id].update(
+                        {
+                            "reply_sent": reply_was_sent,
+                            "reply_message_hash": _sha(reply_message_id)
+                            if reply_message_id
+                            else "",
+                            "sample_sent": sent_samples,
+                            "status": action_status,
+                        }
+                    )
+                    if reply_was_sent:
+                        reply_sent += 1
+                    errors += 1
+                    status_counts[action_status] = (
+                        status_counts.get(action_status, 0) + 1
+                    )
+                    processed += 1
+                    epub_processed += 1
+                    _save_state(state_path, state)
+                    continue
+            else:
+                _job, sample_receipts, reply = _process_epub_candidate(
+                    request_json=request_json,
+                    request_bytes=request_bytes,
+                    args=args,
+                    message=message,
+                    approved_request=approved_request,
+                    started_job=started_job,
+                )
             sent_samples = sum(1 for item in sample_receipts if str(dict(item).get("status") or "") == "sent")
             voice_sample_sent += sent_samples
             status = "applied" if sent_samples else "blocked_voice_samples"
             if sent_samples <= 0:
                 errors += 1
+            _reply_effect_state, reply_message_id = _whatsapp_transport_effect(
+                reply
+            )
             actions[action_id].update(
                 {
-                    "reply_sent": bool(reply.get("ok", True)),
-                    "reply_message_hash": _sha(reply.get("message_id") or reply.get("id") or ""),
+                    "reply_sent": _reply_effect_state == "confirmed",
+                    "reply_message_hash": _sha(reply_message_id)
+                    if reply_message_id
+                    else "",
                     "sample_sent": sent_samples,
                     "status": status,
                 }
@@ -4523,21 +5245,22 @@ def build_report(
             status = "failed"
             errors += 1
             actions[action_id].update({"reply_sent": False, "status": status, "reason": type(exc).__name__})
-            try:
-                chat_ref = _message_chat_ref(message)
-                send_result = _send_reply(
-                    request_json=request_json,
-                    args=args,
-                    recipient_digits=sender_digits,
-                    text="I could not prepare that audiobook source yet.",
-                    chat_ref=chat_ref,
-                )
-                actions[action_id]["reply_sent"] = bool(send_result.get("ok", True))
-                actions[action_id]["reply_message_hash"] = _sha(send_result.get("message_id") or send_result.get("id") or "")
-                if actions[action_id]["reply_sent"]:
-                    reply_sent += 1
-            except Exception as reply_exc:
-                actions[action_id]["reply_error"] = type(reply_exc).__name__
+            if not approved_request:
+                try:
+                    chat_ref = _message_chat_ref(message)
+                    send_result = _send_reply(
+                        request_json=request_json,
+                        args=args,
+                        recipient_digits=sender_digits,
+                        text="I could not prepare that audiobook source yet.",
+                        chat_ref=chat_ref,
+                    )
+                    actions[action_id]["reply_sent"] = bool(send_result.get("ok", True))
+                    actions[action_id]["reply_message_hash"] = _sha(send_result.get("message_id") or send_result.get("id") or "")
+                    if actions[action_id]["reply_sent"]:
+                        reply_sent += 1
+                except Exception as reply_exc:
+                    actions[action_id]["reply_error"] = type(reply_exc).__name__
             status_counts[status] = status_counts.get(status, 0) + 1
         processed += 1
         epub_processed += 1
@@ -4661,6 +5384,41 @@ def build_report(
                     else:
                         status = "stale"
                         reply_text = "There is no pending audiobook voice batch to dismiss."
+            elif text_action == "use_automatic_cast":
+                job = _latest_waiting_whatsapp_voice_selection_job(sender_digits=sender_digits, chat_ref=chat_ref)
+                if not job:
+                    status = "stale"
+                    reply_text = "There is no pending audiobook voice batch to choose from."
+                else:
+                    if chat_ref and not _whatsapp_chat_ref(job):
+                        job = _record_whatsapp_job_metadata(job=job, metadata={"chat_ref": chat_ref})
+                    job = _use_automatic_cast_whatsapp_voice_sample(job)
+                    selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
+                    selected = dict(selection.get("selected") or {})
+                    label = str(selected.get("label") or "automatic cast").strip()
+                    actions[action_id]["automatic_cast_approved_by_user"] = bool(
+                        selection.get("automatic_cast_approved_by_user")
+                    )
+                    actions[action_id]["optional_preview_skipped"] = bool(selection.get("optional_preview_skipped"))
+                    actions[action_id]["selected_voice_label_hash"] = _sha(label)
+                    actions[action_id]["selected_candidate_key_hash"] = _sha(
+                        selection.get("selected_candidate_key") or ""
+                    )
+                    share_result = _send_public_share_if_ready(
+                        request_json=request_json,
+                        args=args,
+                        recipient_digits=sender_digits,
+                        job=job,
+                    )
+                    share_sent = str(share_result.get("status") or "") == "sent"
+                    actions[action_id]["public_share_status"] = str(share_result.get("status") or "")
+                    if share_sent:
+                        reply_text = ""
+                    elif str(job.get("status") or "").strip() == "failed":
+                        status = "failed"
+                        reply_text = _whatsapp_epub_reply_text(job)
+                    else:
+                        reply_text = "Automatic cast selected. I am rendering the audiobook now."
             elif text_action == "use_named":
                 job = _latest_waiting_whatsapp_voice_selection_job(sender_digits=sender_digits, chat_ref=chat_ref)
                 if not job:
@@ -5150,7 +5908,8 @@ def build_report(
             if playback_buttons:
                 reply_text = (
                     f"{reply_text}\n\n"
-                    f"Latest Audiobookshelf delivery awaiting playback confirmation: {title}."
+                    f"Latest Audiobookshelf delivery awaiting perceptual attestation: {title}.\n"
+                    f"{audiobook_epub_pipeline.AUDIOBOOK_PERCEPTUAL_ATTESTATION_PROMPT}"
                 ).strip()
                 actions[action_id]["playback_buttons_sent"] = True
             send_result = _send_reply(
@@ -5424,6 +6183,30 @@ def build_report(
     }
 
 
+def build_report(
+    args: argparse.Namespace,
+    *,
+    request_json: Callable[..., dict[str, Any]] = _request_json,
+    request_bytes: Callable[..., bytes] = _request_bytes,
+    handle_callback: Callable[..., dict[str, object]] = whatsapp_inbound_actions.handle_whatsapp_inbound_callback,
+    send_telegram_message: Callable[..., dict[str, object]] = _send_telegram_message,
+) -> dict[str, object]:
+    state_path = Path(str(args.state_file or DEFAULT_STATE_FILE))
+    with _state_run_lock(
+        state_path,
+        timeout_seconds=_state_run_lock_timeout_seconds(args),
+    ):
+        # The transaction loads state only after both locks are held, so a
+        # waiting worker observes every update committed by its predecessor.
+        return _build_report_transaction(
+            args,
+            request_json=request_json,
+            request_bytes=request_bytes,
+            handle_callback=handle_callback,
+            send_telegram_message=send_telegram_message,
+        )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Process WhatsApp Web audiobook source intake and selected button callbacks.")
     parser.add_argument("--session-api-base-url", default=_env("EA_WHATSAPP_WEB_SESSION_API_BASE_URL", DEFAULT_SESSION_API_BASE_URL))
@@ -5434,6 +6217,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-seconds", type=float, default=float(_env("EA_WHATSAPP_WEB_SESSION_REQUEST_TIMEOUT_SECONDS", "30") or "30"))
     parser.add_argument("--take", type=int, default=int(_env("EA_WHATSAPP_WEB_ACTION_MESSAGE_TAKE", "100") or "100"))
     parser.add_argument("--state-file", default=_env("EA_WHATSAPP_WEB_ACTION_STATE_FILE", DEFAULT_STATE_FILE))
+    parser.add_argument(
+        "--state-lock-timeout-seconds",
+        type=float,
+        default=_env_float(
+            "EA_WHATSAPP_WEB_ACTION_STATE_LOCK_TIMEOUT_SECONDS",
+            DEFAULT_STATE_RUN_LOCK_TIMEOUT_SECONDS,
+            minimum=0.05,
+            maximum=300.0,
+        ),
+    )
     parser.add_argument(
         "--conversation-fallback-enabled",
         action=argparse.BooleanOptionalAction,

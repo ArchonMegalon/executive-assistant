@@ -287,8 +287,8 @@ def test_approved_speaker_trait_change_invalidates_plan_hash() -> None:
         approved_speaker_profiles={"Anna": {"style": "calm"}},
     )
 
-    assert warm["version"] == 4
-    assert calm["version"] == 4
+    assert warm["version"] == 5
+    assert calm["version"] == 5
     assert warm["plan_sha256"] != calm["plan_sha256"]
 
 
@@ -327,6 +327,79 @@ def test_german_dialogue_dash_turns_keep_tags_and_named_speakers_stable() -> Non
     assert dialogue[0]["speaker_id"] != dialogue[1]["speaker_id"]
 
 
+def test_multiple_dialogue_dash_turns_in_one_paragraph_are_sequential() -> None:
+    text = "— Come now, said Anna.\n— Wait here, Ben replied."
+
+    plan = plan_narration((_chapter(1, text),), language="en", max_chars=180)
+
+    assert plan["status"] == "ready"
+    assert _reconstruct(plan, 1) == text
+    dialogue = [span for span in plan["spans"] if span["kind"] == "dialogue"]
+    narration = [span for span in plan["spans"] if span["kind"] == "narration"]
+    layout = [span for span in plan["spans"] if span["kind"] == "layout"]
+    assert [(span["source_text"], span["speaker_label"]) for span in dialogue] == [
+        ("Come now,", "Anna"),
+        ("Wait here,", "Ben"),
+    ]
+    assert [span["source_text"] for span in narration] == [
+        " said Anna.",
+        " Ben replied.",
+    ]
+    assert [span["source_text"] for span in layout] == ["— ", "\n— "]
+
+
+def test_multiple_german_dash_turns_in_one_paragraph_keep_tags_as_narration() -> None:
+    text = "— Komm jetzt, sagte Anna.\n— Warte, antwortete Ben."
+
+    plan = plan_narration((_chapter(1, text),), language="de-AT", max_chars=180)
+
+    assert plan["status"] == "ready"
+    assert _reconstruct(plan, 1) == text
+    dialogue = [span for span in plan["spans"] if span["kind"] == "dialogue"]
+    narration = [span for span in plan["spans"] if span["kind"] == "narration"]
+    assert [(span["source_text"], span["speaker_label"]) for span in dialogue] == [
+        ("Komm jetzt,", "Anna"),
+        ("Warte,", "Ben"),
+    ]
+    assert [span["source_text"] for span in narration] == [
+        " sagte Anna.",
+        " antwortete Ben.",
+    ]
+
+
+def test_unique_recent_speaker_pronoun_resolution_is_explicitly_uncertain() -> None:
+    text = 'Anna said, “One.” “Two,” she replied.'
+
+    plan = plan_narration((_chapter(1, text),), language="en", max_chars=180)
+
+    assert _reconstruct(plan, 1) == text
+    dialogue = [span for span in plan["spans"] if span["kind"] == "dialogue"]
+    assert [span["speaker_label"] for span in dialogue] == ["Anna", "Anna"]
+    assert dialogue[0]["speaker_id"] == dialogue[1]["speaker_id"]
+    assert dialogue[1]["attribution_provenance"] == (
+        "explicit_post_attribution_pronoun_"
+        "resolved_from_unique_recent_speaker_uncertain"
+    )
+    assert dialogue[1]["attribution_confidence"] == 0.65
+    assert plan["uncertain_dialogue_span_count"] == 1
+    assert plan["casting_review_required"] is True
+
+
+def test_pronoun_resolution_remains_unknown_with_multiple_recent_speakers() -> None:
+    text = 'Anna said, “One.” Ben said, “Two.” “Three,” she replied.'
+
+    plan = plan_narration((_chapter(1, text),), language="en", max_chars=180)
+
+    assert _reconstruct(plan, 1) == text
+    dialogue = [span for span in plan["spans"] if span["kind"] == "dialogue"]
+    assert [span["speaker_label"] for span in dialogue[:2]] == ["Anna", "Ben"]
+    assert dialogue[2]["speaker_label"] == "Unknown speaker"
+    assert str(dialogue[2]["speaker_id"]).startswith("speaker_unknown_")
+    assert dialogue[2]["attribution_provenance"] == (
+        "explicit_post_attribution_pronoun"
+    )
+
+
 def test_provider_limit_split_is_word_safe_and_records_continuation_boundary() -> None:
     text = (
         "This opening sentence establishes the room and its quiet atmosphere. "
@@ -360,6 +433,20 @@ def test_oversize_dialogue_is_blocked_instead_of_splitting_a_quote_pair() -> Non
     assert len(dialogue_passages) == 1
     assert dialogue_passages[0]["text"].startswith("“")
     assert dialogue_passages[0]["text"].endswith("”")
+
+
+def test_oversize_single_token_is_blocked_instead_of_hard_split() -> None:
+    text = "x" * 160
+
+    plan = plan_narration((_chapter(1, text),), language="en", max_chars=80)
+
+    assert plan["status"] == "blocked_source_integrity_or_planning"
+    assert any(
+        str(issue).startswith("unsplittable_span_exceeds_provider_limit:")
+        for issue in plan["source_integrity_issues"]
+    )
+    assert len(plan["passages"]) == 1
+    assert plan["passages"][0]["text"] == text
 
 
 def test_wrong_expected_source_hash_blocks_even_when_offsets_reconstruct() -> None:
@@ -402,3 +489,70 @@ def test_explicit_paragraph_pauses_keep_paragraphs_as_distinct_passages() -> Non
         "",
     ]
     assert [passage["pause_seconds_after"] for passage in passages] == [0.35, 1.2, 0.0]
+
+
+def test_batched_paragraphs_preserve_internal_boundary_intent_and_timing() -> None:
+    text = "First paragraph.\n\nSecond paragraph."
+
+    plan = plan_narration(
+        (_chapter(1, text),),
+        language="en",
+        max_chars=180,
+        batch_paragraphs_with_natural_pauses=True,
+        pause_policy={"paragraph": 0.35},
+    )
+
+    assert plan["status"] == "ready"
+    assert len(plan["passages"]) == 1
+    passage = plan["passages"][0]
+    assert passage["text"] == text
+    assert passage["internal_boundaries"] == [
+        {
+            "kind": "paragraph",
+            "char_offset": len("First paragraph."),
+            "layout_char_count": 2,
+            "pause_intent_seconds": 0.35,
+            "application": "natural_layout_hint_not_mastered_silence",
+        }
+    ]
+    assert passage["internal_pause_intent_seconds"] == 0.35
+    assert plan["boundary_counts"]["paragraph"] == 1
+    assert plan["inserted_pause_seconds_by_kind"]["paragraph"] == 0.0
+    assert plan["total_inserted_pause_seconds"] == 0.0
+    assert plan["total_internal_pause_intent_seconds"] == 0.35
+    assert plan["passage_size_evidence"] == {
+        "minimum_chars": len(text),
+        "maximum_chars": len(text),
+        "total_chars": len(text),
+        "average_chars": float(len(text)),
+    }
+    assert plan["unsafe_or_very_short_passage_runs"] == []
+
+
+def test_plan_reports_inserted_pause_totals_by_kind_and_unsafe_runs() -> None:
+    text = "A.\n\nB.\n\nA sufficiently long final passage."
+
+    plan = plan_narration(
+        (_chapter(1, text),),
+        language="en",
+        max_chars=180,
+        batch_paragraphs_with_natural_pauses=False,
+        pause_policy={"paragraph": 0.35},
+    )
+
+    assert plan["inserted_pause_seconds_by_kind"]["paragraph"] == 0.7
+    assert plan["total_inserted_pause_seconds"] == 0.7
+    assert plan["passage_size_evidence"] == {
+        "minimum_chars": 2,
+        "maximum_chars": len("A sufficiently long final passage."),
+        "total_chars": 2 + 2 + len("A sufficiently long final passage."),
+        "average_chars": 12.667,
+    }
+    assert plan["unsafe_or_very_short_passage_count"] == 2
+    assert plan["unsafe_or_very_short_passage_runs"] == [
+        {
+            "start_passage_index": 1,
+            "end_passage_index": 2,
+            "passage_count": 2,
+        }
+    ]
