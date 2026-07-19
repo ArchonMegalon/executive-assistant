@@ -9361,7 +9361,12 @@ def _build_memorial_conversation_turn_payload(
     ).as_public_payload()
 
 
-def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dict[str, object]:
+def _memorial_transcribe_audio_blob(
+    *,
+    payload: bytes,
+    content_type: str,
+    language: str = "",
+) -> dict[str, object]:
     if not payload:
         raise HTTPException(status_code=400, detail="audio_missing")
     if len(payload) > _MAX_SPEECH_UPLOAD_BYTES:
@@ -9440,7 +9445,7 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                         api_key=cartesia_api_key,
                         payload=variant_payload,
                         content_type=variant_content_type,
-                        language="de",
+                        language=_memorial_cartesia_language(language),
                     )
                     text = _repair_memorial_transcript_text(transcribed.get("text"))
                     if not text:
@@ -9550,23 +9555,14 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                     transcribed = product_service._onemin_speech_to_text(
                         api_key=api_key,
                         audio_path=audio_path,
-                        language="de",
+                        language=_memorial_onemin_language(language),
                     )
                     ai_record = dict(transcribed.get("aiRecord") or {}) if isinstance(transcribed.get("aiRecord"), dict) else {}
                     ai_detail = dict(ai_record.get("aiRecordDetail") or {}) if isinstance(ai_record.get("aiRecordDetail"), dict) else {}
                     text = _repair_memorial_transcript_text(
-                        product_service._extract_transcript_text(ai_detail.get("responseObject"))
-                        or product_service._extract_transcript_text(ai_detail.get("resultObject"))
+                        _memorial_onemin_transcript_text(ai_detail.get("responseObject"))
+                        or _memorial_onemin_transcript_text(ai_detail.get("resultObject"))
                     )
-                    if text.startswith("{") and text.endswith("}"):
-                        try:
-                            parsed_text = json.loads(text)
-                        except json.JSONDecodeError:
-                            parsed_text = {}
-                        if isinstance(parsed_text, dict):
-                            text = _repair_memorial_transcript_text(
-                                product_service._extract_transcript_text(parsed_text.get("text")) or text
-                            )
                     if not text:
                         raise RuntimeError(f"speech_transcript_empty:{variant_label}")
                     if _is_known_bad_memorial_subtitle_transcript(text):
@@ -10465,10 +10461,60 @@ def _memorial_cartesia_api_key() -> str:
 
 
 def _memorial_cartesia_language(language: str) -> str:
-    normalized = _text(language).strip().lower()
-    if normalized.startswith("de"):
-        return "de"
-    return normalized or "de"
+    normalized = _text(language).strip().lower().replace("_", "-")
+    primary = normalized.split("-", 1)[0].strip()
+    return primary if len(primary) == 2 and primary.isalpha() else "de"
+
+
+def _memorial_onemin_language(language: str) -> str:
+    normalized = _text(language).strip().lower().replace("_", "-")
+    primary = normalized.split("-", 1)[0].strip()
+    return primary if len(primary) in {2, 3} and primary.isalpha() else "de"
+
+
+def _memorial_onemin_transcript_text(
+    value: object,
+    *,
+    allow_provider_envelope: bool = True,
+) -> str:
+    """Accept top-level plaintext; nested output/content must be JSON transcript envelopes."""
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return ""
+        if candidate.startswith(("{", "[")):
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                return ""
+            return _memorial_onemin_transcript_text(
+                parsed,
+                allow_provider_envelope=allow_provider_envelope,
+            )
+        return _repair_memorial_transcript_text(candidate)
+    if not isinstance(value, dict):
+        return ""
+    for key in ("text", "transcript"):
+        if key not in value:
+            continue
+        transcript = _memorial_onemin_transcript_text(
+            value.get(key),
+            allow_provider_envelope=False,
+        )
+        if transcript:
+            return transcript
+    if allow_provider_envelope:
+        for key in ("output", "content"):
+            nested = value.get(key)
+            if isinstance(nested, str) and not nested.strip().startswith(("{", "[")):
+                continue
+            transcript = _memorial_onemin_transcript_text(
+                nested,
+                allow_provider_envelope=False,
+            )
+            if transcript:
+                return transcript
+    return ""
 
 
 def _cartesia_transcribe_audio(*, api_key: str, payload: bytes, content_type: str, language: str) -> dict[str, object]:

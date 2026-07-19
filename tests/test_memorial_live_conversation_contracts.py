@@ -8650,3 +8650,301 @@ def test_memorial_voicewave_prewarm_unexpected_failure_is_not_success(
         "voicewave_prewarm:unexpected"
     ]
     assert "voice_prewarm_reservation_id" not in current
+
+
+def _configure_isolated_onemin_transcription_test(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    response: dict[str, object],
+    observed_languages: list[str],
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    _clear_cartesia_env(monkeypatch)
+    public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_convert_audio_to_wav",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("skip_enhanced")),
+    )
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}},
+    )
+
+    def _fake_onemin_speech_to_text(**kwargs):
+        observed_languages.append(str(kwargs.get("language") or ""))
+        return response
+
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_onemin_speech_to_text)
+
+
+@pytest.mark.parametrize(
+    ("source_language", "provider_language", "transcript"),
+    (
+        ("en-US", "en", "Anna opens the lantern while Ben reads the first page aloud."),
+        ("de-AT", "de", "Anna öffnet die Laterne, während Ben die erste Seite laut liest."),
+    ),
+)
+def test_memorial_transcribe_forwards_source_language_and_extracts_only_verbose_text(
+    monkeypatch: pytest.MonkeyPatch,
+    source_language: str,
+    provider_language: str,
+    transcript: str,
+) -> None:
+    from app.api.routes import public_memorials
+
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "responseObject": {
+                        "content": json.dumps(
+                            {
+                                "task": "transcribe",
+                                "language": "provider metadata",
+                                "duration": 20.4,
+                                "text": transcript,
+                                "segments": [{"text": "verbose metadata must not be appended"}],
+                            }
+                        )
+                    }
+                }
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed=transcript),
+        content_type="audio/wav",
+        language=source_language,
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert result["transcript_text"] == transcript
+    assert observed_languages == [provider_language]
+
+
+def test_memorial_transcribe_fails_closed_when_onemin_response_has_no_transcript_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "responseObject": {
+                        "content": json.dumps(
+                            {
+                                "task": "transcribe",
+                                "duration": 20.4,
+                                "segments": [
+                                    {"text": "segment metadata is not an authoritative transcript"}
+                                ],
+                            }
+                        )
+                    },
+                    "resultObject": {"output": "plain provider metadata"},
+                }
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Anna and Ben"),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert result["transcript_text"] == ""
+    assert result["retryable"] is True
+    assert observed_languages == ["en"]
+
+
+def test_audiobook_publication_stt_forwards_source_language_to_runtime_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.services import audiobook_epub_pipeline
+
+    monkeypatch.delenv("EA_AUDIOBOOK_PUBLICATION_STT_COMMAND", raising=False)
+    monkeypatch.setattr(
+        audiobook_epub_pipeline,
+        "_transcribe_audiobook_publication_stt_sample_with_cartesia",
+        lambda **kwargs: {"status": "failed", "reason": "cartesia_api_key_missing"},
+    )
+    observed: dict[str, object] = {}
+
+    def _fake_runtime_transcribe(**kwargs):
+        observed.update(kwargs)
+        return {
+            "transcription_status": "transcribed",
+            "transcript_text": "Anna opens the lantern.",
+            "transcriber": "1min.ai/whisper-1",
+        }
+
+    monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", _fake_runtime_transcribe)
+    sample_path = tmp_path / "sample.wav"
+    sample_path.write_bytes(b"rights-safe-audio-fixture")
+
+    result = audiobook_epub_pipeline._transcribe_audiobook_publication_stt_sample(
+        sample_path=sample_path,
+        language="en-US",
+    )
+
+    assert result["status"] == "transcribed"
+    assert result["transcriber"] == "1min.ai/whisper-1"
+    assert observed["language"] == "en-US"
+
+
+def test_memorial_onemin_top_level_plaintext_response_object_remains_supported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    transcript = "Anna opens the lantern while Ben reads the first page aloud."
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "responseObject": transcript,
+                }
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed=transcript),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert result["transcript_text"] == transcript
+    assert observed_languages == ["en"]
+
+
+@pytest.mark.parametrize(
+    ("source_language", "provider_language"),
+    (("en-US", "en"), ("de-AT", "de")),
+)
+def test_memorial_cartesia_fallback_uses_primary_language(
+    monkeypatch: pytest.MonkeyPatch,
+    source_language: str,
+    provider_language: str,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setenv("CARTESIA_API_KEY", "cartesia-test-key")
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    observed_languages: list[str] = []
+
+    def _fake_cartesia(**kwargs):
+        observed_languages.append(str(kwargs.get("language") or ""))
+        return {"text": "Anna opens the lantern while Ben reads the first page aloud."}
+
+    monkeypatch.setattr(public_memorials, "_cartesia_transcribe_audio", _fake_cartesia)
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ())
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Anna and Ben"),
+        content_type="audio/wav",
+        language=source_language,
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert observed_languages
+    assert set(observed_languages) == {provider_language}
+    assert public_memorials._memorial_cartesia_language(source_language) == provider_language
+
+
+@pytest.mark.parametrize(
+    ("source_language", "provider_language"),
+    (("en-US", "en"), ("de-AT", "de")),
+)
+def test_audiobook_cartesia_request_uses_primary_language(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    source_language: str,
+    provider_language: str,
+) -> None:
+    import requests
+
+    from app.services import audiobook_epub_pipeline
+
+    monkeypatch.setattr(audiobook_epub_pipeline, "_audiobook_cartesia_api_key", lambda: "cartesia-test-key")
+    observed: dict[str, object] = {}
+
+    class _Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"text": "Anna opens the lantern while Ben reads the first page aloud."}
+
+    def _fake_post(*args, **kwargs):
+        observed.update(kwargs)
+        return _Response()
+
+    monkeypatch.setattr(requests, "post", _fake_post)
+    sample_path = tmp_path / "sample.wav"
+    sample_path.write_bytes(b"rights-safe-audio-fixture")
+
+    result = audiobook_epub_pipeline._transcribe_audiobook_publication_stt_sample_with_cartesia(
+        sample_path=sample_path,
+        language=source_language,
+    )
+
+    assert result["status"] == "transcribed"
+    assert dict(observed["data"])["language"] == provider_language
+    assert audiobook_epub_pipeline._audiobook_cartesia_language(source_language) == provider_language
+
+
+@pytest.mark.parametrize("invalid_language", ("eng-US", "eng", "e-US", "english"))
+def test_cartesia_language_normalizers_reject_non_iso_639_1_primaries(
+    invalid_language: str,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.services import audiobook_epub_pipeline
+
+    assert public_memorials._memorial_cartesia_language(invalid_language) == "de"
+    assert audiobook_epub_pipeline._audiobook_cartesia_language(invalid_language) == "de"

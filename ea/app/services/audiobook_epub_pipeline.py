@@ -17293,10 +17293,9 @@ def _audiobook_cartesia_api_key() -> str:
 
 
 def _audiobook_cartesia_language(language: str) -> str:
-    normalized = str(language or "").strip().lower()
-    if normalized.startswith("de"):
-        return "de"
-    return normalized or "de"
+    normalized = str(language or "").strip().lower().replace("_", "-")
+    primary = normalized.split("-", 1)[0].strip()
+    return primary if len(primary) == 2 and primary.isalpha() else "de"
 
 
 def _audiobook_cartesia_transcript_text(payload: object) -> str:
@@ -17396,6 +17395,7 @@ def _transcribe_audiobook_publication_stt_sample(*, sample_path: Path, language:
         result = public_memorials._memorial_transcribe_audio_blob(  # noqa: SLF001
             payload=sample_path.read_bytes(),
             content_type="audio/wav",
+            language=language,
         )
     except Exception as exc:
         return {"status": "failed", "reason": type(exc).__name__, "transcriber": "runtime"}
