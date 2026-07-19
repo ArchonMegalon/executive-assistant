@@ -1,0 +1,155 @@
+# Governed production staging overlay. This may only stage three paused services.
+# It never changes ea-api and grants no runtime activation or side-effect authority.
+name: ea
+
+x-audiobook-production-stage:
+  contract_name: ea.audiobook_runtime_production_stage_overlay.v1
+  deployment_scope: paused_stage_only
+  live_api_owner: memorial
+  live_api_mutation_authority: denied
+  runtime_activation_authority: denied
+  queue_mutation_authority: denied
+  provider_work_authority: denied
+  outbound_send_authority: denied
+
+x-audiobook-production-stage-service: &audiobook-production-stage-service
+  image: ${EA_AUDIOBOOK_PRODUCTION_IMAGE:?set the immutable image reference ending in @sha256:<digest>}
+  build: !reset null
+  pull_policy: never
+  profiles: !reset []
+  deploy: !override
+    replicas: 0
+  restart: "no"
+  env_file: !reset []
+  environment: !override
+    EA_SOURCE_REVISION: ${EA_AUDIOBOOK_PRODUCTION_REVISION:?set the exact 40-character source revision}
+    EA_DEPLOY_COMMIT_SHA: ${EA_AUDIOBOOK_PRODUCTION_REVISION:?set the exact 40-character source revision}
+    EA_AUDIOBOOK_RUNTIME_STAGE_ONLY: "1"
+    EA_AUDIOBOOK_RUNTIME_ACTIVATION_AUTHORITY: "0"
+    EA_AUDIOBOOK_RUNTIME_QUEUE_MUTATION_AUTHORITY: "0"
+    EA_AUDIOBOOK_RUNTIME_PROVIDER_WORK_AUTHORITY: "0"
+    EA_AUDIOBOOK_RUNTIME_OUTBOUND_SEND_AUTHORITY: "0"
+    EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED: "0"
+    EA_AUDIOBOOK_UNMIXR_AUTO_RENDER: "0"
+    EA_AUDIOBOOK_CINEMATIC_NARRATION: "0"
+    EA_AUDIOBOOKSHELF_AUTO_IMPORT: "0"
+    EA_AUDIOBOOKSHELF_PUBLIC_SHARE_ENABLED: "0"
+    EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED: "0"
+    EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS: "0"
+  labels: !override
+    org.opencontainers.image.revision: ${EA_AUDIOBOOK_PRODUCTION_REVISION:?set the exact 40-character source revision}
+    com.archonmegalon.ea.audiobook-runtime.contract: ea.audiobook_runtime_production_stage_overlay.v1
+    com.archonmegalon.ea.audiobook-runtime.deployment-scope: paused_stage_only
+    com.archonmegalon.ea.audiobook-runtime.activation-authority: denied
+    com.archonmegalon.ea.audiobook-runtime.live-api-owner: memorial
+  command: !override
+    - /bin/sh
+    - -ec
+    - >-
+      echo '{"contract":"ea.audiobook_runtime_production_stage_overlay.v1","event":"paused_stage_idle","ok":true}';
+      while :; do sleep 3600; done
+  entrypoint: !override
+    - /usr/local/bin/docker-entrypoint.sh
+  working_dir: /app
+  user: "10001:10001"
+  privileged: false
+  cap_add: !reset []
+  cap_drop: !override
+    - ALL
+  read_only: true
+  security_opt: !override
+    - no-new-privileges:true
+  tmpfs: !override
+    - /tmp
+    - /run
+  ports: !reset []
+  volumes: !reset []
+  configs: !reset []
+  secrets: !reset []
+  devices: !reset []
+  volumes_from: !reset []
+  extra_hosts: !reset []
+  depends_on: !reset []
+  healthcheck: !override
+    disable: true
+
+services:
+  ea-worker:
+    <<: *audiobook-production-stage-service
+    container_name: ea-worker
+    build: !reset null
+    profiles: !reset []
+    deploy: !override
+      replicas: 0
+    env_file: !override []
+    volumes: !override []
+    configs: !override []
+    secrets: !override []
+    devices: !override []
+    volumes_from: !override []
+    ports: !override []
+    extra_hosts: !override []
+    depends_on: !override {}
+    cap_add: !override []
+    privileged: false
+    healthcheck: !override
+      disable: true
+
+  ea-scheduler:
+    <<: *audiobook-production-stage-service
+    container_name: ea-scheduler
+    build: !reset null
+    profiles: !reset []
+    deploy: !override
+      replicas: 0
+    env_file: !override []
+    volumes: !override []
+    configs: !override []
+    secrets: !override []
+    devices: !override []
+    volumes_from: !override []
+    ports: !override []
+    extra_hosts: !override []
+    depends_on: !override {}
+    cap_add: !override []
+    privileged: false
+    healthcheck: !override
+      disable: true
+
+  ea-whatsapp-web-action-processor:
+    <<: *audiobook-production-stage-service
+    container_name: ea-whatsapp-web-action-processor
+    build: !reset null
+    profiles: !reset []
+    deploy: !override
+      replicas: 0
+    env_file: !override []
+    environment: !override
+      EA_SOURCE_REVISION: ${EA_AUDIOBOOK_PRODUCTION_REVISION:?set the exact 40-character source revision}
+      EA_DEPLOY_COMMIT_SHA: ${EA_AUDIOBOOK_PRODUCTION_REVISION:?set the exact 40-character source revision}
+      EA_AUDIOBOOK_RUNTIME_STAGE_ONLY: "1"
+      EA_AUDIOBOOK_RUNTIME_ACTIVATION_AUTHORITY: "0"
+      EA_AUDIOBOOK_RUNTIME_QUEUE_MUTATION_AUTHORITY: "0"
+      EA_AUDIOBOOK_RUNTIME_PROVIDER_WORK_AUTHORITY: "0"
+      EA_AUDIOBOOK_RUNTIME_OUTBOUND_SEND_AUTHORITY: "0"
+      EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED: "0"
+      EA_WHATSAPP_AUDIOBOOK_RESUME_DUE: "0"
+      EA_WHATSAPP_AUDIOBOOK_FOLLOWUP_ENABLED: "0"
+      EA_WHATSAPP_WEB_TG_SUMMARY_ENABLED: "0"
+      EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED: "0"
+      EA_AUDIOBOOK_UNMIXR_AUTO_RENDER: "0"
+      EA_AUDIOBOOK_CINEMATIC_NARRATION: "0"
+      EA_AUDIOBOOKSHELF_AUTO_IMPORT: "0"
+      EA_AUDIOBOOKSHELF_PUBLIC_SHARE_ENABLED: "0"
+    volumes: !override []
+    configs: !override []
+    secrets: !override []
+    devices: !override []
+    volumes_from: !override []
+    ports: !override []
+    extra_hosts: !override []
+    depends_on: !override {}
+    cap_add: !override []
+    privileged: false
+    healthcheck: !override
+      disable: true
