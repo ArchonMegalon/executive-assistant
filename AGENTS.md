@@ -6,7 +6,7 @@
 - Treat `.codex-design/` as the approved local mirror of the cross-repo Chummer design front door.
 <!-- fleet-design-mirror:end -->
 
-## vexp <!-- vexp v2.1.0 -->
+## vexp <!-- vexp v2.1.4 -->
 
 **MANDATORY: use `run_pipeline` - do NOT grep or glob the codebase.**
 vexp returns pre-indexed, graph-ranked context in a single call.
@@ -34,3 +34,16 @@ Intent auto-detection, hybrid ranking, session memory, auto-expanding budget.
 ### Multi-Repo
 `run_pipeline` auto-queries all indexed repos. Use `repos: ["alias"]` to scope. Run `index_status` to see aliases.
 <!-- /vexp -->
+
+## Active vexp qualification safety
+
+- Treat vexp schema-v6 `qualification_phase=enforced_soak` as a hard mutation hold.
+- Do not stop, disable, delete, replace, or restart vexp sentinel, qualification,
+  certificate, AppArmor, event-guard, or mutation-gate units/files during the hold.
+- Do not run the EA memorial deploy lane or create a Manfred candidate image/runtime
+  until a root-owned positive permit proves the exact terminal epoch. A missing
+  guard, lock, unit, state, certificate, or permit means **deny**, never permission.
+- The exact automatic `ea-manfred-candidate-retention.timer` cleanup lane may
+  continue; it is not promotion authority and must not mutate live EA.
+- If a requested task conflicts with this hold, report the conflict instead of
+  using sudo, Docker, or systemd to bypass it.
