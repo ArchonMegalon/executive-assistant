@@ -54,6 +54,7 @@ REQUIRED_PLANES = {
     "telegram_video_delivery",
     "memorial_voice_demo",
     "memorial_public_origin_gold",
+    "propertyquarry_spatial_tour",
     "ltd_provider_lanes",
 }
 GENERATED_RECEIPT_PATHS = {
@@ -182,6 +183,12 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
     for evidence_text in memorial_public_evidence:
         if not _is_stable_repo_evidence_path(evidence_text):
             issues.append("memorial public-origin evidence paths must be repo-relative or generated-artifact relative")
+    spatial_plane = by_key.get("propertyquarry_spatial_tour") or {}
+    spatial_evidence = [
+        str(item)
+        for item in list(spatial_plane.get("evidence") or [])
+        if str(item)
+    ]
     spatial_receipt_path = ROOT / MEMORIAL_SPATIAL_RECEIPT_RELPATH
     spatial_payload = _json(spatial_receipt_path)
     spatial_issues = validate_memorial_spatial_public_origin_receipt(
@@ -190,25 +197,23 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
         current_fingerprint=current_fingerprint,
     )
     spatial_evidence_path = MEMORIAL_SPATIAL_RECEIPT_RELPATH.as_posix()
-    memorial_public_plane_status = str(
-        memorial_public_plane.get("status") or ""
-    ).strip().lower()
+    spatial_plane_status = str(spatial_plane.get("status") or "").strip().lower()
     if spatial_issues:
-        if memorial_public_plane_status != "blocked":
+        if spatial_plane_status != "blocked":
             issues.append(
-                "memorial public-origin plane must be blocked while the strict public spatial-tour receipt is missing or invalid"
+                "PropertyQuarry spatial-tour plane must be blocked while its strict public receipt is missing or invalid"
             )
         spatial_missing = [
             str(item).lower()
-            for item in list(memorial_public_plane.get("missing_evidence") or [])
+            for item in list(spatial_plane.get("missing_evidence") or [])
         ]
         if not any("spatial" in item or "3d-tour" in item for item in spatial_missing):
             issues.append(
-                "memorial public-origin plane must surface the strict public 3D-tour receipt in missing_evidence"
+                "PropertyQuarry spatial-tour plane must surface its strict public receipt in missing_evidence"
             )
-    elif spatial_evidence_path not in memorial_public_evidence:
+    elif spatial_evidence_path not in spatial_evidence:
         issues.append(
-            "passing strict public spatial-tour receipt must be listed as memorial public-origin evidence"
+            "passing strict public spatial-tour receipt must be listed as PropertyQuarry spatial-plane evidence"
         )
     blocking_planes = [
         key
@@ -248,8 +253,8 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
         issues.append("missing rule: unknown external planes block whole-project gold claims")
     if "Whole-project gold requires every listed plane to pass" not in rules:
         issues.append("missing rule: whole-project gold must require every listed plane")
-    if "strict public spatial-tour receipt" not in rules:
-        issues.append("missing rule: memorial public-origin gold must require strict spatial-tour proof")
+    if "PropertyQuarry spatial-tour proof is an independently owned plane" not in rules:
+        issues.append("missing rule: PropertyQuarry spatial-tour proof must remain a separate plane")
     return issues
 
 

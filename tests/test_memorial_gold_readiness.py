@@ -146,31 +146,6 @@ def _room_receipt(*, base_url: str = "https://8.8.8.8") -> dict[str, object]:
     }
 
 
-def _install_passing_spatial_receipt(
-    readiness: object,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    source_git_head: str = "HEAD",
-) -> None:
-    spatial_path = tmp_path / "spatial.json"
-    spatial_path.write_text(
-        json.dumps(
-            {
-                "status": "pass",
-                "slug": "manfred",
-                "public_base_url": "https://8.8.8.8",
-                "runtime_revision": TEST_RUNTIME_REVISION,
-                "source_git_head": source_git_head,
-                "source_state_fingerprint": "unit-source-state",
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(readiness, "SPATIAL_RECEIPT", spatial_path)
-    monkeypatch.setattr(readiness, "_check_spatial_receipt", lambda *args, **kwargs: [])
-
-
 def test_memorial_gold_readiness_requires_public_browser_receipt(tmp_path: Path, monkeypatch) -> None:
     import scripts.verify_memorial_gold_readiness as readiness
 
@@ -212,8 +187,6 @@ def test_memorial_gold_readiness_passes_with_public_voice_and_browser_receipts(t
     monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
     monkeypatch.setattr(readiness, "_git_head", lambda: "HEAD")
     monkeypatch.setattr(readiness, "_run_script_json", lambda script_args: {"status": "pass", "mode": "memorial"})
-    _install_passing_spatial_receipt(readiness, tmp_path, monkeypatch)
-
     assert readiness.main() == 0
 
 
@@ -566,13 +539,6 @@ def test_memorial_gold_readiness_uses_source_git_head_before_receipt_commit_head
     monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
     monkeypatch.setattr(readiness, "_git_head", lambda: "SOURCE_HEAD")
     monkeypatch.setattr(readiness, "_run_script_json", lambda script_args: {"status": "pass", "mode": "memorial"})
-    _install_passing_spatial_receipt(
-        readiness,
-        tmp_path,
-        monkeypatch,
-        source_git_head="SOURCE_HEAD",
-    )
-
     assert readiness.main() == 0
 
 
@@ -607,13 +573,6 @@ def test_memorial_gold_readiness_allows_generated_only_receipt_commit_delta(tmp_
     monkeypatch.setattr(readiness, "_git_head", lambda: "CURRENT_HEAD")
     monkeypatch.setattr(readiness, "_fresh_enough", lambda recorded_head, current_head: recorded_head == "SOURCE_HEAD" and current_head == "CURRENT_HEAD")
     monkeypatch.setattr(readiness, "_run_script_json", lambda script_args: {"status": "pass", "mode": "memorial"})
-    _install_passing_spatial_receipt(
-        readiness,
-        tmp_path,
-        monkeypatch,
-        source_git_head="CURRENT_HEAD",
-    )
-
     assert readiness.main() == 0
 
 

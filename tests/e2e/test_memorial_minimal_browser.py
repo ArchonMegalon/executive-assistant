@@ -373,11 +373,15 @@ def _install_fake_audio_runtime(context) -> None:
         """
         (() => {
           navigator.mediaDevices = navigator.mediaDevices || {};
-          navigator.mediaDevices.getUserMedia = async () => ({
-            getTracks() {
-              return [{ stop() {} }];
-            },
-          });
+          window.__getUserMediaCalls = 0;
+          navigator.mediaDevices.getUserMedia = async () => {
+            window.__getUserMediaCalls += 1;
+            return {
+              getTracks() {
+                return [{ stop() {} }];
+              },
+            };
+          };
 
           class FakeMediaRecorder {
             constructor(stream, options) {
@@ -495,7 +499,7 @@ def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int
         ({"width": 900, "height": 650}, "relative"),
     ],
 )
-def test_memorial_source_first_page_scrolls_without_conversation_dock_overlap(
+def test_memorial_conversation_only_page_has_one_main_without_ui_noise(
     browser: Browser,
     memorial_minimal_server: dict[str, object],
     viewport: dict[str, int],
@@ -505,68 +509,86 @@ def test_memorial_source_first_page_scrolls_without_conversation_dock_overlap(
     slug = str(memorial_minimal_server["slug"])
     context = browser.new_context(viewport=viewport)
     page: Page = context.new_page()
+    page_errors: list[str] = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.wait_for_function(
             """() => (
-              document.querySelectorAll("article.memory-card").length === 6 &&
-              document.querySelectorAll(".source-list a").length === 8 &&
-              document.querySelectorAll(".prompt-list li").length === 4
+              document.querySelectorAll("main#memorial-conversation-region").length === 1 &&
+              document.getElementById("memorial-text-turn-form") &&
+              !document.getElementById("memorial-text-turn-form").hidden &&
+              !document.getElementById("memorial-conversation").disabled
             )""",
-            timeout=3000,
+            timeout=12000,
         )
         metrics = page.evaluate(
             """async () => {
               window.scrollTo(0, document.documentElement.scrollHeight);
               await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-              const main = document.getElementById("memorial-story");
-              const dock = document.getElementById("memorial-conversation-region");
-              const dockRect = dock.getBoundingClientRect();
-              const mainRect = main.getBoundingClientRect();
+              const conversation = document.getElementById("memorial-conversation-region");
+              const header = document.querySelector("header");
+              const conversationRect = conversation.getBoundingClientRect();
+              const headerRect = header.getBoundingClientRect();
+              const guidance = document.getElementById("memorial-conversation-disclosure");
+              const idleMonitor = document.getElementById("memorial-speech-monitor");
+              const textInput = document.getElementById("memorial-text-turn-input");
+              const textSubmit = document.getElementById("memorial-text-turn-submit");
               return {
                 scrollHeight: document.documentElement.scrollHeight,
                 scrollWidth: document.documentElement.scrollWidth,
                 viewportHeight: window.innerHeight,
                 viewportWidth: window.innerWidth,
-                dockPosition: getComputedStyle(dock).position,
-                dockTop: dockRect.top,
-                dockBottom: dockRect.bottom,
-                dockHeight: dockRect.height,
-                mainBottom: mainRect.bottom,
+                dockPosition: getComputedStyle(conversation).position,
+                conversationTop: conversationRect.top,
+                headerBottom: headerRect.bottom,
                 bodyPaddingBottom: parseFloat(getComputedStyle(document.body).paddingBottom || "0"),
                 bodyOverflow: getComputedStyle(document.body).overflowY,
                 htmlOverflow: getComputedStyle(document.documentElement).overflowY,
+                mainCount: document.querySelectorAll("body > main").length,
+                storyCount: document.querySelectorAll("#memorial-story").length,
+                contributionCount: document.querySelectorAll("#memorial-contribution").length,
+                settingsCount: document.querySelectorAll("details.conversation-settings").length,
+                installCount: document.querySelectorAll("#memorial-install-hint").length,
+                memoryRoomLinks: document.querySelectorAll("a[href*='/memory-room']").length,
+                mainLabel: conversation.getAttribute("aria-label"),
+                guidanceAlign: getComputedStyle(guidance).textAlign,
+                guidanceWidth: guidance.getBoundingClientRect().width,
+                chatWidth: document.querySelector(".chat").getBoundingClientRect().width,
+                idleMonitorDisplay: getComputedStyle(idleMonitor).display,
+                idleMonitorHeight: idleMonitor.getBoundingClientRect().height,
+                inputFontSize: parseFloat(getComputedStyle(textInput).fontSize),
+                inputHeight: textInput.getBoundingClientRect().height,
+                submitHeight: textSubmit.getBoundingClientRect().height,
               };
             }"""
         )
-        assert int(metrics["scrollHeight"]) > int(metrics["viewportHeight"])
+        assert int(metrics["scrollHeight"]) >= int(metrics["viewportHeight"])
         assert int(metrics["scrollWidth"]) <= int(metrics["viewportWidth"]) + 1
         assert metrics["dockPosition"] == expected_dock_position
         assert metrics["bodyOverflow"] == "auto"
         assert metrics["htmlOverflow"] == "auto"
-        if expected_dock_position == "fixed":
-            assert float(metrics["dockBottom"]) <= float(metrics["viewportHeight"]) + 1
-            assert float(metrics["mainBottom"]) <= float(metrics["dockTop"]) + 1
-            assert float(metrics["bodyPaddingBottom"]) >= float(metrics["dockHeight"]) + 39
-            page.evaluate(
-                """() => {
-                  const answer = document.getElementById("memorial-chat-answer");
-                  answer.hidden = false;
-                  answer.textContent = "Eine längere sichtbare Antwort. ".repeat(28);
-                }"""
-            )
-            page.wait_for_function(
-                """() => {
-                  const dock = document.getElementById("memorial-conversation-region");
-                  return parseFloat(getComputedStyle(document.body).paddingBottom || "0") >=
-                    dock.getBoundingClientRect().height + 39;
-                }""",
-                timeout=3000,
-            )
-        else:
-            assert float(metrics["dockTop"]) >= float(metrics["mainBottom"]) - 1
-            assert float(metrics["bodyPaddingBottom"]) == 0
+        assert float(metrics["conversationTop"]) >= float(metrics["headerBottom"]) - 1
+        assert float(metrics["bodyPaddingBottom"]) == 0
+        assert metrics["mainCount"] == 1
+        assert metrics["storyCount"] == 0
+        assert metrics["contributionCount"] == 0
+        assert metrics["settingsCount"] == 0
+        assert metrics["installCount"] == 0
+        assert metrics["memoryRoomLinks"] == 0
+        assert str(metrics["mainLabel"]).startswith("KI-Gespräch über ")
+        assert metrics["guidanceAlign"] == "center"
+        assert float(metrics["guidanceWidth"]) <= float(metrics["chatWidth"])
+        assert metrics["idleMonitorDisplay"] == "none"
+        assert float(metrics["idleMonitorHeight"]) == 0
+        assert float(metrics["inputFontSize"]) >= 16
+        assert float(metrics["inputHeight"]) >= 44
+        assert float(metrics["submitHeight"]) >= 44
+
+        assert page.get_by_text("Die Stimme ist künstlich erzeugt.", exact=False).is_visible()
+        assert page.get_by_role("button", name="Gespräch starten").is_visible()
+        assert page.get_by_label("Oder schreiben").is_visible()
 
         page_html = page.content()
         for sentinel in (
@@ -576,6 +598,125 @@ def test_memorial_source_first_page_scrolls_without_conversation_dock_overlap(
             PRIVATE_FAMILY_SENTINEL,
         ):
             assert sentinel not in page_html
+        page.wait_for_timeout(250)
+        assert page_errors == []
+    finally:
+        context.close()
+
+
+def test_memorial_blocked_voice_release_has_one_text_action_and_never_requests_microphone(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(public_memorials, "_memorial_voice_release_enforced", lambda: True)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda slug: {"allowed": False, "status": "blocked", "reason": "release_human_acceptance_missing"},
+    )
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    context.add_init_script(
+        """
+        (() => {
+          window.__getUserMediaCalls = 0;
+          navigator.mediaDevices = navigator.mediaDevices || {};
+          navigator.mediaDevices.getUserMedia = async () => {
+            window.__getUserMediaCalls += 1;
+            throw new DOMException("blocked test microphone", "NotAllowedError");
+          };
+        })();
+        """
+    )
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.wait_for_function(
+            "() => !document.getElementById('memorial-text-turn-form').hidden",
+            timeout=3000,
+        )
+        assert page.locator("#memorial-conversation-region").get_attribute("data-voice-release") == "blocked"
+        assert page.locator("#memorial-conversation").is_hidden()
+        assert page.locator("#memorial-voice-recovery-note").is_hidden()
+        assert page.locator("#memorial-conversation-disclosure").get_by_text(
+            "Sprechen ist derzeit nicht verfügbar", exact=False
+        ).is_visible()
+        assert page.locator("label[for='memorial-text-turn-input']").text_content() == "Frage schreiben"
+        assert page.locator("#memorial-speech-message").text_content() == "Schreiben ist bereit."
+
+        page.locator("#memorial-text-turn-input").fill("Was war Manfred wichtig?")
+        page.locator("#memorial-text-turn-input").press("Enter")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#memorial-speech-transcript > .speech-turn').length === 2",
+            timeout=5000,
+        )
+        assert page.evaluate("window.__getUserMediaCalls") == 0
+        assert page.locator("#memorial-speech-transcript > .speech-turn").count() == 2
+        assert page.locator("#memorial-chat-answer").is_hidden()
+    finally:
+        context.close()
+
+
+def test_memorial_text_retry_resubmits_text_without_starting_microphone(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    context.add_init_script(
+        """
+        (() => {
+          window.__getUserMediaCalls = 0;
+          navigator.mediaDevices = navigator.mediaDevices || {};
+          navigator.mediaDevices.getUserMedia = async () => {
+            window.__getUserMediaCalls += 1;
+            throw new DOMException("unexpected microphone request", "NotAllowedError");
+          };
+        })();
+        """
+    )
+    failed_requests: list[str] = []
+    page: Page = context.new_page()
+
+    def fail_text_turn(route) -> None:
+        failed_requests.append(route.request.url)
+        route.fulfill(
+            status=503,
+            content_type="application/json",
+            body=json.dumps({"detail": "test_text_failure"}),
+        )
+
+    page.route(f"**/memorials/{slug}/chat", fail_text_turn)
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.wait_for_function(
+            """() => (
+              !document.getElementById('memorial-text-turn-form').hidden &&
+              !document.getElementById('memorial-conversation').disabled
+            )""",
+            timeout=12000,
+        )
+        text_input = page.locator("#memorial-text-turn-input")
+        text_input.fill("Welche Erinnerung ist belegt?")
+        text_input.press("Enter")
+        retry = page.get_by_role("button", name="Textfrage erneut senden")
+        retry.wait_for(state="visible", timeout=3000)
+        assert len(failed_requests) == 1
+        assert page.evaluate("window.__getUserMediaCalls") == 0
+
+        retry.click()
+        page.wait_for_timeout(250)
+        assert len(failed_requests) == 2
+        assert page.evaluate("window.__getUserMediaCalls") == 0
+        assert text_input.input_value() == "Welche Erinnerung ist belegt?"
+        assert retry.is_visible()
     finally:
         context.close()
 
@@ -592,13 +733,10 @@ def test_memorial_memory_room_mobile_keyboard_and_back_journey(
     page.on("request", lambda request: room_requests.append(request.url))
     try:
         response = page.goto(
-            f"{base_url}/memorials/{slug}",
+            f"{base_url}/memorials/{slug}/memory-room",
             wait_until="domcontentloaded",
         )
         assert response is not None and response.ok
-        room_requests.clear()
-        page.locator('a[href="/memorials/manfred/memory-room"]').first.click()
-        page.wait_for_url(f"{base_url}/memorials/{slug}/memory-room")
         page.wait_for_function(
             "() => document.querySelector('[data-room-status]')?.textContent?.startsWith('Bereit')",
             timeout=3000,
@@ -697,8 +835,8 @@ def test_memorial_memory_room_mobile_keyboard_and_back_journey(
         assert int(reduced_motion["activePanels"]) == 1
 
         page.locator("[data-room-back]").first.click()
-        page.wait_for_url(f"{base_url}/memorials/{slug}#memorial-story")
-        assert page.locator("#memorial-story").is_visible()
+        page.wait_for_url(f"{base_url}/memorials/{slug}#memorial-conversation-region")
+        assert page.locator("#memorial-conversation-region").is_visible()
     finally:
         context.close()
 
@@ -806,7 +944,7 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
         page.wait_for_function(
             """() => {
               const button = document.getElementById("memorial-conversation");
-              return Boolean(button && button.textContent && button.textContent.includes("Gespräch stoppen"));
+              return Boolean(button && button.textContent && button.textContent.includes("Gespräch beenden"));
             }""",
             timeout=3000,
         )
@@ -821,7 +959,7 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
         page.wait_for_function(
             """() => {
               const button = document.getElementById("memorial-conversation");
-              return Boolean(button && button.textContent && button.textContent.includes("Gespräch beginnen"));
+              return Boolean(button && button.textContent && button.textContent.includes("Gespräch starten"));
             }""",
             timeout=7000,
         )
@@ -830,6 +968,14 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
         assert "Bitte noch einmal" not in phase_text
         assert "Bitte noch einmal" not in message_text
         assert page.locator("#memorial-retry-button").is_hidden()
+        turns = page.locator("#memorial-speech-transcript > .speech-turn")
+        assert turns.count() == 2
+        assert turns.nth(0).get_attribute("class") == "speech-turn user"
+        assert turns.nth(1).get_attribute("class") == "speech-turn assistant"
+        assert turns.nth(0).locator("strong").text_content() == "Du"
+        assert turns.nth(1).locator("strong").text_content() == "KI-Begleiter"
+        assert page.locator("#memorial-speech-transcript-live").is_hidden()
+        assert page.locator("#memorial-chat-answer").is_hidden()
     finally:
         context.close()
 

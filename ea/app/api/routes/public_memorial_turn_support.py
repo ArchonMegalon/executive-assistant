@@ -87,10 +87,16 @@ def _speech_synthesize_tail_silence_ms(*, direct_contact_opening: bool) -> int:
 
 
 async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSONResponse:
-    runtime = runtime_from_shared(shared)
     try:
-        shared._load_memorial(slug)
+        memorial = shared._load_memorial(slug)
+        if shared._memorial_voice_release_enforced():
+            shared._require_voice_consent(
+                shared._payload_with_slug(slug, memorial),
+                "conversation_turn",
+                request=request,
+            )
         shared._enforce_public_memorial_rate_limit("speech_transcribe", request=request)
+        runtime = runtime_from_shared(shared)
         content_length = shared._content_length_or_zero(request)
         if content_length > shared._MAX_SPEECH_UPLOAD_BYTES:
             return shared._public_memorial_error_response(413, "audio_too_large")
@@ -151,7 +157,11 @@ async def public_memorial_speech_synthesize_help(slug: str) -> JSONResponse:
 async def public_memorial_speech_synthesize(slug: str, request: Request) -> Response:
     try:
         memorial = shared._load_memorial(slug)
-        shared._require_voice_consent(shared._payload_with_slug(slug, memorial), "synthesize")
+        shared._require_voice_consent(
+            shared._payload_with_slug(slug, memorial),
+            "synthesize",
+            request=request,
+        )
     except HTTPException as exc:
         return shared._public_memorial_error_response(exc.status_code, shared._text(exc.detail, "request_failed"))
     try:
@@ -253,10 +263,13 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
 
 async def public_memorial_conversation_turn(slug: str, request: Request) -> JSONResponse:
     total_started = time.perf_counter()
-    runtime = runtime_from_shared(shared)
     try:
         memorial = shared._load_memorial(slug)
-        shared._require_voice_consent(shared._payload_with_slug(slug, memorial), "conversation_turn")
+        shared._require_voice_consent(
+            shared._payload_with_slug(slug, memorial),
+            "conversation_turn",
+            request=request,
+        )
     except HTTPException as exc:
         return shared._public_memorial_error_response(exc.status_code, shared._text(exc.detail, "request_failed"))
     content_length = shared._content_length_or_zero(request)
@@ -270,6 +283,7 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
     difficult_memory_mode = shared._extract_difficult_memory_mode(request=request)
     try:
         shared._enforce_public_memorial_rate_limit("conversation_turn", request=request, context=personal_memory_context)
+        runtime = runtime_from_shared(shared)
         voice_ab_variant = shared._voice_ab_variant_from_request(request=request)
         prefer_fast_tts, _ = shared._prefer_fast_tts_for_conversation_turn(slug)
         response_payload = build_public_memorial_turn(

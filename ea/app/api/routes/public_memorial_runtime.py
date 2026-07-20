@@ -8,19 +8,41 @@ from app.api.routes import public_memorials as shared
 router = APIRouter(tags=["public-memorial-runtime"])
 
 
+@router.post("/memorials/{slug}/voice-preview/session")
+async def public_memorial_voice_preview_session(
+    slug: str,
+    request: Request,
+) -> JSONResponse:
+    return await shared.public_memorial_voice_preview_session(
+        slug=slug,
+        request=request,
+    )
+
+
+@router.delete("/memorials/{slug}/voice-preview/session")
+async def public_memorial_voice_preview_session_delete(
+    slug: str,
+    request: Request,
+) -> JSONResponse:
+    return await shared.public_memorial_voice_preview_session_delete(
+        slug=slug,
+        request=request,
+    )
+
+
 @router.post("/memorials/{slug}/warmup")
 async def public_memorial_warmup(slug: str, request: Request) -> JSONResponse:
     return await shared.public_memorial_warmup(slug=slug, request=request)
 
 
 @router.get("/memorials/{slug}/warmup-status")
-def public_memorial_warmup_status(slug: str) -> JSONResponse:
-    return shared.public_memorial_warmup_status(slug=slug)
+def public_memorial_warmup_status(slug: str, request: Request) -> JSONResponse:
+    return shared.public_memorial_warmup_status(slug=slug, request=request)
 
 
 @router.get("/memorials/{slug}/readiness")
-def public_memorial_readiness(slug: str) -> JSONResponse:
-    return shared.public_memorial_readiness(slug=slug)
+def public_memorial_readiness(slug: str, request: Request) -> JSONResponse:
+    return shared.public_memorial_readiness(slug=slug, request=request)
 
 
 @router.get("/memorials/{slug}/video-meeting/status")

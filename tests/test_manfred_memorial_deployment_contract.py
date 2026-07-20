@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from starlette.websockets import WebSocket
 
 from scripts import build_manfred_memorial_image as image_builder
 from scripts import deploy_ea_memorial as memorial_deploy
@@ -46,6 +47,601 @@ def test_production_memorial_compose_is_image_pure_and_numeric_nonroot() -> None
         assert forbidden not in raw
 
 
+def test_production_memorial_compose_uses_private_runtime_state_for_gemini_oauth() -> None:
+    base = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    overlay_raw = (ROOT / "docker-compose.memorial.yml").read_text(encoding="utf-8")
+
+    class ComposeLoader(yaml.SafeLoader):
+        pass
+
+    ComposeLoader.add_constructor(
+        "!override",
+        lambda loader, node: loader.construct_sequence(node, deep=True),
+    )
+    overlay = yaml.load(overlay_raw, Loader=ComposeLoader)  # nosec B506
+
+    def environment(entries: list[str]) -> dict[str, str]:
+        return {
+            name: value
+            for name, value in (str(entry).split("=", 1) for entry in entries)
+        }
+
+    base_api = base["services"]["ea-api"]
+    overlay_api = overlay["services"]["ea-api"]
+    rendered_environment = {
+        **environment(base_api["environment"]),
+        **environment(overlay_api["environment"]),
+    }
+    rendered_volumes = overlay_api["volumes"]
+    credential_target = (
+        "/data/memorial-writable/state/gemini-oauth/oauth_creds.json"
+    )
+
+    assert rendered_environment["EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH"] == (
+        credential_target
+    )
+    assert any(
+        str(volume).endswith("/state:/data/memorial-writable/state")
+        for volume in rendered_volumes
+    )
+    assert all("gemini" not in str(volume).casefold() for volume in rendered_volumes)
+    assert "EA_MEMORIAL_GEMINI_OAUTH_CREDS_HOST_PATH" not in overlay_raw
+    assert "/home/tibor/.gemini" not in overlay_raw
+
+
+def test_production_memorial_compose_passes_sealed_conversation_decisions() -> None:
+    raw = (ROOT / "docker-compose.memorial.yml").read_text(encoding="utf-8")
+
+    assert (
+        "EA_MEMORIAL_DEPLOYMENT_ID=${EA_MEMORIAL_DEPLOYMENT_ID:?"
+        in raw
+    )
+    assert (
+        "EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH="
+        "${EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH:?" in raw
+    )
+    assert (
+        "EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION="
+        "${EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION:?" in raw
+    )
+    assert (
+        "EA_MEMORIAL_VOICE_PREVIEW_ENABLED="
+        "${EA_MEMORIAL_VOICE_PREVIEW_ENABLED:?" in raw
+    )
+    assert (
+        "EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES="
+        "${EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES:?" in raw
+    )
+
+
+def test_production_memorial_compose_is_memorial_only_without_public_tours() -> None:
+    raw = (ROOT / "docker-compose.memorial.yml").read_text(encoding="utf-8")
+
+    assert "EA_DEPLOY_PRIMARY_MODE=MEMORIAL" in raw
+    assert "EA_DEPLOY_ENABLED_MODES=MEMORIAL" in raw
+    assert "EA_DEPLOY_ENABLED_MODES=MEMORIAL,PROPERTY" not in raw
+    assert "EA_ENABLE_PUBLIC_TOURS=0" in raw
+    assert "PROPERTYQUARRY_ENABLE_PUBLIC_TOURS=0" in raw
+    assert "EA_ENABLE_PUBLIC_TOURS=1" not in raw
+    assert "PROPERTYQUARRY_ENABLE_PUBLIC_TOURS=1" not in raw
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+def test_exact_memorial_only_runtime_redirects_public_root_to_conversation_e2e(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import PlainTextResponse
+    from fastapi.testclient import TestClient
+
+    from app.api import app as app_module
+
+    monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "MEMORIAL")
+    monkeypatch.setenv("EA_DEPLOY_ENABLED_MODES", "MEMORIAL")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    application = FastAPI()
+    app_module.install_memorial_only_surface_boundary(application)
+
+    @application.api_route("/", methods=["GET", "HEAD"])
+    def generic_root() -> PlainTextResponse:
+        return PlainTextResponse("generic")
+
+    response = TestClient(application).request(
+        method,
+        "/?next=https%3A%2F%2Fevil.example%2Fcapture",
+        headers={"Host": "myexternalbrain.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/memorials/manfred"
+    assert response.headers["cache-control"] == "no-store"
+    assert "evil.example" not in response.headers["location"]
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/memorial/manfred"),
+        ("HEAD", "/memorial/manfred"),
+        ("GET", "/memorials/manfred"),
+        ("HEAD", "/memorials/manfred"),
+        ("GET", "/memorials/manfred/app.webmanifest"),
+        ("POST", "/memorials/manfred/chat"),
+        ("POST", "/memorials/manfred/conversation-turn"),
+        ("GET", "/memorials/manfred/icon.svg"),
+        ("GET", "/memorials/manfred/icon-180.png"),
+        ("GET", "/memorials/files/manfred/avatar.webp"),
+        ("GET", "/memorials/manfred/personal-memory"),
+        ("DELETE", "/memorials/manfred/personal-memory"),
+        ("POST", "/memorials/manfred/playback-telemetry"),
+        ("GET", "/memorials/manfred/readiness"),
+        ("POST", "/memorials/manfred/realtime/webrtc"),
+        ("GET", "/memorials/manfred/service-worker.js"),
+        ("POST", "/memorials/manfred/speech-synthesize"),
+        ("POST", "/memorials/manfred/speech-transcribe"),
+        ("POST", "/memorials/manfred/voice-preview/session"),
+        ("DELETE", "/memorials/manfred/voice-preview/session"),
+        ("POST", "/memorials/manfred/warmup"),
+        ("GET", "/memorials/manfred/warmup-status"),
+    ],
+)
+def test_memorial_only_boundary_allows_exact_conversation_http_surface(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    path: str,
+) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import PlainTextResponse
+    from fastapi.testclient import TestClient
+
+    from app.api import app as app_module
+
+    monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "MEMORIAL")
+    monkeypatch.setenv("EA_DEPLOY_ENABLED_MODES", "MEMORIAL")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    application = FastAPI()
+    app_module.install_memorial_only_surface_boundary(application)
+    application.add_api_route(
+        path,
+        lambda: PlainTextResponse("allowed"),
+        methods=[method],
+    )
+
+    response = TestClient(application).request(
+        method,
+        path,
+        headers={"Host": "myexternalbrain.com"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_memorial_only_boundary_allows_only_compose_healthcheck(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import PlainTextResponse
+    from fastapi.testclient import TestClient
+
+    from app.api import app as app_module
+
+    monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "MEMORIAL")
+    monkeypatch.setenv("EA_DEPLOY_ENABLED_MODES", "MEMORIAL")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    application = FastAPI()
+    app_module.install_memorial_only_surface_boundary(application)
+    application.add_api_route(
+        "/healthz",
+        lambda: PlainTextResponse("healthy"),
+        methods=["GET"],
+    )
+    application.add_api_route(
+        "/health/ready",
+        lambda: PlainTextResponse("must-not-run"),
+        methods=["GET"],
+    )
+    client = TestClient(application)
+
+    healthz = client.get("/healthz", headers={"Host": "127.0.0.1:8090"})
+    broader_health = client.get(
+        "/health/ready",
+        headers={"Host": "myexternalbrain.com"},
+    )
+
+    assert healthz.status_code == 200
+    assert healthz.text == "healthy"
+    assert broader_health.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("configured_origin", "request_host"),
+    [
+        ("https://example.com", "example.com"),
+        ("https://propertyquarry.com", "propertyquarry.com"),
+        ("https://jdownloader.girschele.com", "jdownloader.girschele.com"),
+        ("https://myexternalbrain.com:443", "myexternalbrain.com:443"),
+    ],
+)
+def test_memorial_only_boundary_rejects_every_noncanonical_configured_origin(
+    monkeypatch: pytest.MonkeyPatch,
+    configured_origin: str,
+    request_host: str,
+) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import PlainTextResponse
+    from fastapi.testclient import TestClient
+
+    from app.api import app as app_module
+
+    monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "MEMORIAL")
+    monkeypatch.setenv("EA_DEPLOY_ENABLED_MODES", "MEMORIAL")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", configured_origin)
+    application = FastAPI()
+    app_module.install_memorial_only_surface_boundary(application)
+    application.add_api_route(
+        "/memorials/manfred",
+        lambda: PlainTextResponse("must-not-run"),
+        methods=["GET"],
+    )
+    application.add_api_route(
+        "/healthz",
+        lambda: PlainTextResponse("healthy"),
+        methods=["GET"],
+    )
+    client = TestClient(application)
+
+    root = client.get("/", headers={"Host": request_host}, follow_redirects=False)
+    page = client.get("/memorials/manfred", headers={"Host": request_host})
+    healthz = client.get("/healthz", headers={"Host": "127.0.0.1:8090"})
+
+    assert root.status_code == 404
+    assert "location" not in root.headers
+    assert page.status_code == 404
+    assert healthz.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/memorials%2Fmanfred",
+        "/%6demorials/manfred",
+        "/memorials/manfred%2Frealtime/webrtc",
+        "/memorials/manfred/%2e%2e/admin",
+        "/memorials/files/manfred/%2e%2e/private.json",
+        "/memorials/files/manfred/avatar%2Fprivate.webp",
+    ],
+)
+def test_memorial_only_boundary_rejects_noncanonical_raw_paths_before_handler(
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import PlainTextResponse
+    from fastapi.testclient import TestClient
+
+    from app.api import app as app_module
+
+    monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "MEMORIAL")
+    monkeypatch.setenv("EA_DEPLOY_ENABLED_MODES", "MEMORIAL")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    application = FastAPI()
+    app_module.install_memorial_only_surface_boundary(application)
+    handler_calls = 0
+
+    @application.api_route("/{requested_path:path}", methods=["GET", "POST"])
+    def catch_all(requested_path: str) -> PlainTextResponse:
+        nonlocal handler_calls
+        handler_calls += 1
+        return PlainTextResponse(requested_path)
+
+    response = TestClient(application).get(
+        path,
+        headers={"Host": "myexternalbrain.com"},
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "not_found"}
+    assert handler_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/product"),
+        ("GET", "/pricing"),
+        ("GET", "/setup"),
+        ("GET", "/admin"),
+        ("GET", "/v1/providers/registry"),
+        ("GET", "/app"),
+        ("GET", "/archive-slug"),
+        ("GET", "/memorials/manfred/archive"),
+        ("GET", "/memorials/manfred/archive.json"),
+        ("GET", "/memorials/manfred/memory-room"),
+        ("GET", "/memorials/manfred/operator-status"),
+        ("GET", "/memorials/manfred/video-meeting/status"),
+        ("GET", "/memorials/manfred/voice-ab-admin"),
+        ("GET", "/memorials/manfred/voice-ab"),
+        ("POST", "/memorials/manfred/voice-ab/rate"),
+        ("GET", "/memorials/manfred/voice-config"),
+        ("GET", "/memorials/manfred/voice-profile"),
+        ("POST", "/memorials/manfred/contributions"),
+        ("POST", "/memorials/manfred/share-drafts"),
+        ("POST", "/memorials/manfred/whatsapp-draft"),
+        ("GET", "/memorials/other"),
+        ("POST", "/memorials/other/conversation-turn"),
+        ("GET", "/tours/manfred"),
+        ("GET", "/app/research/candidate-1"),
+        ("GET", "/memorials/manfred/speech-transcribe"),
+        ("POST", "/memorials/manfred"),
+    ],
+)
+def test_memorial_only_boundary_denies_every_non_conversation_http_surface_before_handler(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    path: str,
+) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import PlainTextResponse
+    from fastapi.testclient import TestClient
+
+    from app.api import app as app_module
+
+    monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "MEMORIAL")
+    monkeypatch.setenv("EA_DEPLOY_ENABLED_MODES", "MEMORIAL")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    application = FastAPI()
+    app_module.install_memorial_only_surface_boundary(application)
+    handler_calls = 0
+
+    def forbidden_handler() -> PlainTextResponse:
+        nonlocal handler_calls
+        handler_calls += 1
+        return PlainTextResponse("must-not-run")
+
+    application.add_api_route(path, forbidden_handler, methods=[method])
+    response = TestClient(application).request(
+        method,
+        path,
+        headers={"Host": "myexternalbrain.com"},
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "not_found"}
+    assert response.headers["cache-control"] == "no-store"
+    assert handler_calls == 0
+
+
+def test_memorial_only_boundary_is_fail_closed_for_websockets_before_handler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+
+    from app.api import app as app_module
+
+    monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "MEMORIAL")
+    monkeypatch.setenv("EA_DEPLOY_ENABLED_MODES", "MEMORIAL")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    application = FastAPI()
+    app_module.install_memorial_only_surface_boundary(application)
+    forbidden_calls = 0
+
+    @application.websocket("/memorials/manfred/realtime")
+    async def allowed_socket(websocket: WebSocket) -> None:
+        await websocket.accept()
+        await websocket.send_json({"type": "ready"})
+
+    @application.websocket("/internal/ws")
+    async def forbidden_socket(websocket: WebSocket) -> None:
+        nonlocal forbidden_calls
+        forbidden_calls += 1
+        await websocket.accept()
+
+    client = TestClient(application)
+    with client.websocket_connect(
+        "wss://myexternalbrain.com/memorials/manfred/realtime",
+        headers={"Origin": "https://myexternalbrain.com"},
+    ) as websocket:
+        assert websocket.receive_json() == {"type": "ready"}
+
+    for url, headers, expected_code in (
+        (
+            "wss://myexternalbrain.com/internal/ws",
+            {"Origin": "https://myexternalbrain.com"},
+            4404,
+        ),
+        (
+            "wss://myexternalbrain.com/memorials/other/realtime",
+            {"Origin": "https://myexternalbrain.com"},
+            4404,
+        ),
+        (
+            "wss://myexternalbrain.com/memorials/manfred/realtime",
+            {"Origin": "https://propertyquarry.com"},
+            4403,
+        ),
+        (
+            "wss://propertyquarry.com/memorials/manfred/realtime",
+            {"Origin": "https://myexternalbrain.com"},
+            4403,
+        ),
+        (
+            "wss://myexternalbrain.com/memorials/manfred%2Frealtime",
+            {"Origin": "https://myexternalbrain.com"},
+            4404,
+        ),
+    ):
+        with pytest.raises(WebSocketDisconnect) as blocked:
+            with client.websocket_connect(url, headers=headers):
+                pass
+        assert blocked.value.code == expected_code
+    assert forbidden_calls == 0
+
+
+def test_exact_memorial_only_runtime_blocks_property_and_tour_surfaces_e2e(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import PlainTextResponse
+    from fastapi.testclient import TestClient
+
+    from app.api import app as app_module
+
+    monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "MEMORIAL")
+    monkeypatch.setenv("EA_DEPLOY_ENABLED_MODES", "MEMORIAL")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    application = FastAPI()
+    app_module.install_memorial_only_surface_boundary(application)
+
+    @application.get("/app/research/{candidate_ref}")
+    def property_surface(candidate_ref: str) -> PlainTextResponse:
+        return PlainTextResponse(candidate_ref)
+
+    @application.get("/tours/{slug}")
+    def tour_surface(slug: str) -> PlainTextResponse:
+        return PlainTextResponse(slug)
+
+    client = TestClient(application)
+    for path in ("/app/research/candidate-1", "/tours/manfred"):
+        response = client.get(path, headers={"Host": "propertyquarry.com"})
+        assert response.status_code == 404
+        assert response.json() == {"detail": "not_found"}
+        assert response.headers["cache-control"] == "no-store"
+
+
+def test_create_app_enforces_memorial_only_public_topology_e2e(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.api import app as app_module
+
+    monkeypatch.setenv("EA_RUNTIME_MODE", "test")
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
+    monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "MEMORIAL")
+    monkeypatch.setenv("EA_DEPLOY_ENABLED_MODES", "MEMORIAL")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    # Even contradictory feature flags cannot expose these planes while the
+    # effective deploy topology is exactly MEMORIAL-only.
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_ENABLE_LEGACY_RUNTIME_SURFACES", "0")
+
+    client = TestClient(app_module.create_app())
+    request_headers = {"Host": "myexternalbrain.com"}
+
+    root = client.get(
+        "/?next=https%3A%2F%2Fevil.example%2Fcapture",
+        headers=request_headers,
+        follow_redirects=False,
+    )
+    root_head = client.head("/", headers=request_headers, follow_redirects=False)
+    tour = client.get("/tours/manfred", headers=request_headers)
+    property_research = client.get(
+        "/app/research/candidate-1",
+        headers={"Host": "propertyquarry.com"},
+    )
+    wrong_origin_roots = [
+        client.get(
+            "/",
+            headers={"Host": hostname},
+            follow_redirects=False,
+        )
+        for hostname in ("propertyquarry.com", "jdownloader.girschele.com")
+    ]
+    healthz = client.get("/healthz", headers={"Host": "127.0.0.1:8090"})
+    denied_surfaces = [
+        client.request(method, path, headers=request_headers)
+        for method, path in (
+            ("GET", "/product"),
+            ("GET", "/pricing"),
+            ("GET", "/setup"),
+            ("GET", "/admin"),
+            ("GET", "/v1/providers/registry"),
+            ("GET", "/app"),
+            ("GET", "/archive-slug"),
+            ("GET", "/memorials/manfred/archive"),
+            ("GET", "/memorials/manfred/memory-room"),
+            ("GET", "/memorials/other"),
+        )
+    ]
+
+    assert root.status_code == 307
+    assert root.headers["location"] == "/memorials/manfred"
+    assert root_head.status_code == 307
+    assert root_head.headers["location"] == "/memorials/manfred"
+    assert tour.status_code == 404
+    assert tour.json() == {"detail": "not_found"}
+    assert property_research.status_code == 404
+    assert property_research.json() == {"detail": "not_found"}
+    assert all(response.status_code == 404 for response in wrong_origin_roots)
+    assert all("location" not in response.headers for response in wrong_origin_roots)
+    assert healthz.status_code == 200
+    assert all(response.status_code == 404 for response in denied_surfaces)
+
+    duplicate_host = client.get(
+        "/",
+        headers=[
+            ("Host", "myexternalbrain.com"),
+            ("Host", "jdownloader.girschele.com"),
+        ],
+        follow_redirects=False,
+    )
+    explicit_default_port = client.get(
+        "/",
+        headers={"Host": "myexternalbrain.com:443"},
+        follow_redirects=False,
+    )
+    assert duplicate_host.status_code in {400, 404}
+    assert "location" not in duplicate_host.headers
+    assert explicit_default_port.status_code == 307
+    assert explicit_default_port.headers["location"] == "/memorials/manfred"
+
+
+@pytest.mark.parametrize(
+    ("primary_mode", "enabled_modes"),
+    [("EA_CORE", "EA_CORE"), ("MEMORIAL", "MEMORIAL,PROPERTY"), ("", "")],
+)
+def test_memorial_root_dispatch_leaves_every_other_mode_unchanged_e2e(
+    monkeypatch: pytest.MonkeyPatch,
+    primary_mode: str,
+    enabled_modes: str,
+) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import PlainTextResponse
+    from fastapi.testclient import TestClient
+
+    from app.api import app as app_module
+
+    monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", primary_mode)
+    monkeypatch.setenv("EA_DEPLOY_ENABLED_MODES", enabled_modes)
+    application = FastAPI()
+    app_module.install_memorial_only_surface_boundary(application)
+
+    @application.get("/")
+    def generic_root() -> PlainTextResponse:
+        return PlainTextResponse("generic")
+
+    @application.get("/tours/{slug}")
+    def tour_surface(slug: str) -> PlainTextResponse:
+        return PlainTextResponse(slug)
+
+    client = TestClient(application)
+    root = client.get("/", follow_redirects=False)
+    tour = client.get("/tours/example")
+
+    assert root.status_code == 200
+    assert root.text == "generic"
+    assert tour.status_code == 200
+    assert tour.text == "example"
+
+
 def test_projection_digest_matches_the_in_container_verifier(tmp_path: Path) -> None:
     root = tmp_path / "projection"
     nested = root / "public_memorials" / "manfred"
@@ -77,6 +673,135 @@ def test_projection_digest_matches_the_in_container_verifier(tmp_path: Path) -> 
         "file_count": len(rows),
         "projection_bytes": sum(int(item["size_bytes"]) for item in rows),
     }
+
+
+@pytest.mark.parametrize("bundle_included", [False, True])
+def test_candidate_runtime_projection_includes_exact_conversation_bundle(
+    tmp_path: Path,
+    bundle_included: bool,
+) -> None:
+    projection = tmp_path / "projection"
+    roots = {
+        container_path: projection / projected_path
+        for container_path, projected_path in candidate_runner.RUNTIME_PROJECTION_ROOTS
+    }
+    fixture_files = {
+        roots["/data/memorial/public"] / "manfred" / "memorial.json": (
+            b'{"slug":"manfred"}\n',
+            0o444,
+        ),
+        roots["/data/memorial/private"] / "manfred" / "tts_voice.json": (
+            b'{"voice":"private"}\n',
+            0o440,
+        ),
+        roots["/data/memorial/archive"] / "manfred" / "public" / "index.json": (
+            b"{}\n",
+            0o444,
+        ),
+        roots["/data/release-authority"] / "release_manifest.generated.json": (
+            b"{}\n",
+            0o444,
+        ),
+    }
+    if bundle_included:
+        fixture_files[
+            roots["/data/memorial_data/conversation-release"]
+            / candidate_prep.CONVERSATION_PREREQUISITES_FILENAME
+        ] = (b'{"status":"pass"}\n', 0o440)
+    for root in roots.values():
+        root.mkdir(parents=True, exist_ok=True)
+    for path, (content, mode) in fixture_files.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        path.chmod(mode)
+    for directory in sorted(projection.rglob("*"), reverse=True):
+        if directory.is_dir():
+            directory.chmod(0o550)
+    projection.chmod(0o550)
+
+    script = candidate_runner.RUNTIME_PROJECTION_SNAPSHOT_SCRIPT
+    for container_path, fixture_path in sorted(
+        roots.items(), key=lambda item: len(item[0]), reverse=True
+    ):
+        script = script.replace(container_path, str(fixture_path))
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    runtime_projection = json.loads(completed.stdout)
+    projection_sha256, projection_rows = candidate_prep._tree_digest(projection)
+
+    assert runtime_projection == {
+        "projection_sha256": projection_sha256,
+        "rows": projection_rows,
+        "schema": candidate_runner.RUNTIME_PROJECTION_SCHEMA,
+    }
+    conversation_rows = [
+        row
+        for row in projection_rows
+        if str(row["path"]).startswith(
+            f"{candidate_prep.CONVERSATION_RELEASE_DIRNAME}/"
+        )
+    ]
+    assert len(conversation_rows) == (1 if bundle_included else 0)
+
+
+def test_candidate_runtime_projection_roots_are_exactly_conversation_only() -> None:
+    assert candidate_runner.RUNTIME_PROJECTION_ROOTS == (
+        ("/data/memorial/public", "public_memorials"),
+        ("/data/memorial/private", "private_memorial_profiles"),
+        ("/data/memorial/archive", "memorial_archive"),
+        (
+            "/data/memorial_data/conversation-release",
+            candidate_prep.CONVERSATION_RELEASE_DIRNAME,
+        ),
+        ("/data/release-authority", "release-authority"),
+    )
+    assert "public_property_tours" not in (
+        candidate_runner.RUNTIME_PROJECTION_SNAPSHOT_SCRIPT
+    )
+    assert "propertyquarry" not in (
+        candidate_runner.RUNTIME_PROJECTION_SNAPSHOT_SCRIPT.casefold()
+    )
+
+
+@pytest.mark.parametrize(
+    "missing_container_root",
+    [container_path for container_path, _ in candidate_runner.RUNTIME_PROJECTION_ROOTS],
+)
+def test_candidate_runtime_projection_blocks_when_required_root_is_missing(
+    tmp_path: Path,
+    missing_container_root: str,
+) -> None:
+    projection = tmp_path / "projection"
+    roots = {
+        container_path: projection / projected_path
+        for container_path, projected_path in candidate_runner.RUNTIME_PROJECTION_ROOTS
+    }
+    for container_path, root in roots.items():
+        if container_path == missing_container_root:
+            continue
+        root.mkdir(parents=True, exist_ok=True)
+        root.chmod(0o550)
+    projection.chmod(0o550)
+
+    script = candidate_runner.RUNTIME_PROJECTION_SNAPSHOT_SCRIPT
+    for container_path, fixture_path in sorted(
+        roots.items(), key=lambda item: len(item[0]), reverse=True
+    ):
+        script = script.replace(container_path, str(fixture_path))
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert completed.stdout == ""
+    assert "FileNotFoundError" in completed.stderr
 
 
 def test_projection_digest_rejects_multiply_linked_files(tmp_path: Path) -> None:
@@ -210,17 +935,25 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
         "/data/release-authority/PROJECT_MODES.generated.json"
     )
     assert environment["EA_DEPLOY_PRIMARY_MODE"] == "MEMORIAL"
-    assert environment["EA_DEPLOY_ENABLED_MODES"] == "MEMORIAL,PROPERTY"
+    assert environment["EA_DEPLOY_ENABLED_MODES"] == "MEMORIAL"
     assert environment["EA_DEPLOY_COMPOSE_FILES"] == (
         "deploy/manfred-memorial/docker-compose.candidate.yml"
     )
     assert environment["EA_STORAGE_BACKEND"] == "postgres"
     assert environment["EA_ENABLE_LEGACY_RUNTIME_SURFACES"] == "1"
     assert environment["PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES"] == "1"
-    assert environment["EA_ENABLE_PUBLIC_TOURS"] == "1"
-    assert environment["PROPERTYQUARRY_ENABLE_PUBLIC_TOURS"] == "1"
+    assert environment["EA_ENABLE_PUBLIC_TOURS"] == "0"
+    assert environment["PROPERTYQUARRY_ENABLE_PUBLIC_TOURS"] == "0"
     assert environment["EA_ENABLE_PUBLIC_MEMORIALS"] == "1"
     assert environment["EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES"] == "0"
+    assert environment["EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION"] == "0"
+    assert environment["EA_MEMORIAL_VOICE_PREVIEW_ENABLED"] == "0"
+    assert environment["EA_MEMORIAL_DEPLOYMENT_ID"].startswith(
+        "${EA_MEMORIAL_DEPLOYMENT_ID"
+    )
+    assert environment["EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH"] == (
+        candidate_prep.CONVERSATION_PREREQUISITES_CONTAINER_PATH
+    )
     assert environment["EA_PUBLIC_MEMORIAL_RATE_BACKEND"] == "redis"
     assert environment["EA_MEMORIAL_PAGE_PREWARM_ENABLED"] == "0"
     assert environment["EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED"] == "0"
@@ -239,6 +972,11 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
         if str(mount).endswith(":/data/release-authority:ro")
     ]
     assert len(authority_mounts) == 1
+    assert (
+        "${EA_MANFRED_RELEASE_ROOT:?prepared release root is required}/"
+        "conversation-release:/data/memorial_data/conversation-release:ro"
+        in api["volumes"]
+    )
 
     assert (
         environment["EA_PUBLIC_MEMORIAL_DIR"]
@@ -256,6 +994,38 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
     assert "/app/app/services" not in rendered
     assert services["postgres"]["image"].count("@sha256:") == 1
     assert services["redis"]["image"].count("@sha256:") == 1
+
+
+def test_tracked_memorial_candidate_runtime_mode_is_memorial_only() -> None:
+    project_modes = {
+        "modes": [
+            {"key": "MEMORIAL"},
+            {"key": "PROPERTY"},
+        ]
+    }
+
+    def validate(enabled_modes: list[str]) -> list[str]:
+        return candidate_prep.validate_release_runtime_mode(
+            release_manifest={
+                "contract_name": "ea.release_manifest.v1",
+                "project_mode": "MEMORIAL",
+                "enabled_project_modes": enabled_modes,
+                "compose_files": [
+                    "deploy/manfred-memorial/docker-compose.candidate.yml"
+                ],
+                "compose_overrides": [],
+            },
+            project_modes=project_modes,
+            requested_mode="MEMORIAL",
+            enabled_modes=enabled_modes,
+            compose_overrides=[],
+            manfred_composite_candidate_observed=True,
+        )
+
+    assert validate(["MEMORIAL"]) == []
+    assert "memorial_mode_missing_override" in validate(
+        ["MEMORIAL", "PROPERTY"]
+    )
 
 
 def test_candidate_verifier_accepts_exact_unpublished_archive_gate() -> None:
@@ -972,7 +1742,7 @@ def test_candidate_projection_rejects_unsafe_paths_and_classifies_private_audio(
     assert assets[Path("audio/private.mp3")] == 0o400
 
 
-def test_candidate_spatial_review_inputs_are_explicit_and_threaded(
+def test_candidate_spatial_review_inputs_are_rejected_from_memorial_lane(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -984,6 +1754,8 @@ def test_candidate_spatial_review_inputs_are_explicit_and_threaded(
             "https://memorial.example.at",
             "--project-name",
             PROJECT,
+            "--image-build-receipt",
+            str(tmp_path / "image-build.json"),
             "--spatial-tour-bundle-dir",
             str(tmp_path / "bundle"),
             "--spatial-authority-receipt",
@@ -994,28 +1766,17 @@ def test_candidate_spatial_review_inputs_are_explicit_and_threaded(
             str(tmp_path / "browser.json"),
         ]
     )
-    assert parser_args.spatial_final_review_receipt == str(tmp_path / "final.json")
-    assert parser_args.spatial_browser_review_receipt == str(tmp_path / "browser.json")
-
     monkeypatch.setattr(candidate_prep, "_commit", lambda *_args: COMMIT)
     monkeypatch.setattr(
         candidate_prep,
         "_image_revision",
         lambda _image: ("sha256:" + "1" * 64, COMMIT),
     )
-    captured: dict[str, object] = {}
-
-    def capture_spatial_inputs(**kwargs: object) -> dict[str, object]:
-        captured.update(kwargs)
-        raise RuntimeError("spatial_inputs_captured")
-
-    monkeypatch.setattr(
-        candidate_prep,
-        "_validated_spatial_handoff_input",
-        capture_spatial_inputs,
-    )
     unlocked_prepare = candidate_prep.prepare_candidate.__wrapped__
-    with pytest.raises(RuntimeError, match="spatial_inputs_captured"):
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_spatial_inputs_forbidden_in_conversation_only",
+    ):
         unlocked_prepare(
             source_root=tmp_path,
             ref="HEAD",
@@ -1024,53 +1785,36 @@ def test_candidate_spatial_review_inputs_are_explicit_and_threaded(
             public_base_url="https://memorial.example.at",
             host_port=18090,
             project_name=PROJECT,
+            image_build_receipt=tmp_path / "image-build.json",
             spatial_tour_bundle_dir=tmp_path / "bundle",
             spatial_authority_receipt=tmp_path / "authority.json",
             spatial_final_review_receipt=tmp_path / "review" / ".." / "final.json",
             spatial_browser_review_receipt=tmp_path / "browser.json",
         )
 
-    assert captured == {
-        "bundle_dir": tmp_path / "bundle",
-        "authority_receipt_path": tmp_path / "authority.json",
-        "final_review_receipt_path": tmp_path / "final.json",
-        "browser_review_receipt_path": tmp_path / "browser.json",
-        "target_origin": "https://memorial.example.at",
-    }
-
 
 @pytest.mark.parametrize(
-    ("spatial_inputs", "expected_error"),
+    "spatial_inputs",
     [
-        (
-            {
-                "spatial_tour_bundle_dir": Path("bundle"),
-                "spatial_authority_receipt": Path("authority.json"),
-            },
-            "manfred_candidate_spatial_review_evidence_required",
-        ),
-        (
-            {
-                "spatial_tour_bundle_dir": Path("bundle"),
-                "spatial_authority_receipt": Path("authority.json"),
-                "spatial_final_review_receipt": Path("final.json"),
-            },
-            "manfred_candidate_spatial_review_input_pair_required",
-        ),
-        (
-            {
-                "spatial_final_review_receipt": Path("final.json"),
-                "spatial_browser_review_receipt": Path("browser.json"),
-            },
-            "manfred_candidate_spatial_review_evidence_required",
-        ),
+        {
+            "spatial_tour_bundle_dir": Path("bundle"),
+            "spatial_authority_receipt": Path("authority.json"),
+        },
+        {
+            "spatial_tour_bundle_dir": Path("bundle"),
+            "spatial_authority_receipt": Path("authority.json"),
+            "spatial_final_review_receipt": Path("final.json"),
+        },
+        {
+            "spatial_final_review_receipt": Path("final.json"),
+            "spatial_browser_review_receipt": Path("browser.json"),
+        },
     ],
 )
-def test_candidate_spatial_review_inputs_fail_closed_as_one_set(
+def test_candidate_spatial_review_inputs_fail_closed_as_out_of_scope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     spatial_inputs: dict[str, Path],
-    expected_error: str,
 ) -> None:
     monkeypatch.setattr(candidate_prep, "_commit", lambda *_args: COMMIT)
     monkeypatch.setattr(
@@ -1079,7 +1823,10 @@ def test_candidate_spatial_review_inputs_fail_closed_as_one_set(
         lambda _image: ("sha256:" + "1" * 64, COMMIT),
     )
 
-    with pytest.raises(ValueError, match=expected_error):
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_spatial_inputs_forbidden_in_conversation_only",
+    ):
         candidate_prep.prepare_candidate.__wrapped__(
             source_root=tmp_path,
             ref="HEAD",
@@ -1089,6 +1836,406 @@ def test_candidate_spatial_review_inputs_fail_closed_as_one_set(
             host_port=18090,
             project_name=PROJECT,
             **spatial_inputs,
+        )
+
+
+@pytest.mark.parametrize(
+    ("receipt_present", "evidence_present"),
+    [(True, False), (False, True)],
+)
+def test_candidate_conversation_prerequisite_inputs_must_be_paired(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    receipt_present: bool,
+    evidence_present: bool,
+) -> None:
+    monkeypatch.setattr(candidate_prep, "_commit", lambda *_args: COMMIT)
+    monkeypatch.setattr(
+        candidate_prep,
+        "_image_revision",
+        lambda _image: ("sha256:" + "1" * 64, COMMIT),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_conversation_prerequisites_inputs_incomplete",
+    ):
+        candidate_prep.prepare_candidate.__wrapped__(
+            source_root=tmp_path,
+            ref="HEAD",
+            image="ea-runtime:manfred-abcdef123456",
+            deploy_root=tmp_path / "deploy",
+            public_base_url="https://memorial.example.at",
+            host_port=18090,
+            project_name=PROJECT,
+            conversation_prerequisites_receipt=(
+                tmp_path / "prerequisites.json" if receipt_present else None
+            ),
+            conversation_evidence_root=(
+                tmp_path / "evidence" if evidence_present else None
+            ),
+        )
+
+
+def _write_private_json(path: Path, payload: dict[str, object]) -> bytes:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.chmod(0o700)
+    encoded = candidate_prep._receipt_bytes(payload)
+    path.write_bytes(encoded)
+    path.chmod(0o600)
+    return encoded
+
+
+def test_candidate_stages_exact_conversation_prerequisites_privately(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fingerprint = "f" * 64
+    receipt_path = tmp_path / "operator" / "prerequisites.json"
+    packet_bytes = _write_private_json(
+        receipt_path,
+        {
+            "status": "pass",
+            "conversation_prerequisites_pass": True,
+            "source_git_head": COMMIT,
+            "source_state_fingerprint": fingerprint,
+            "effective_expires_at": "2026-07-21T00:00:00Z",
+        },
+    )
+    evidence_root = tmp_path / "evidence"
+    readiness_bytes = _write_private_json(
+        evidence_root / candidate_prep.CONVERSATION_READINESS_FILENAME,
+        {"kind": "readiness"},
+    )
+    source_bytes: dict[str, bytes] = {
+        candidate_prep.CONVERSATION_READINESS_FILENAME: readiness_bytes,
+    }
+    for key, filename in candidate_prep.CONVERSATION_EVIDENCE_FILENAMES.items():
+        source_bytes[filename] = _write_private_json(
+            evidence_root / filename,
+            {"kind": key},
+        )
+    source_tts = tmp_path / "source" / "tts_voice.json"
+    staged_tts = tmp_path / "staging" / "private" / "tts_voice.json"
+    _write_private_json(source_tts, {"voice": "source"})
+    _write_private_json(staged_tts, {"voice": "source"})
+    staged_tts.chmod(0o400)
+    authority_root = tmp_path / "staging" / "release-authority"
+    for path in candidate_prep._candidate_release_authority_paths(
+        authority_root
+    ).values():
+        _write_private_json(path, {"authority": path.name})
+    authority_before = {
+        path.name: path.read_bytes()
+        for path in authority_root.iterdir()
+    }
+    destination = tmp_path / "staging" / candidate_prep.CONVERSATION_RELEASE_DIRNAME
+    calls: list[dict[str, object]] = []
+
+    def verify(**kwargs: object) -> dict[str, object]:
+        calls.append(dict(kwargs))
+        supplied_receipt = Path(str(kwargs["receipt_path"]))
+        supplied_root = Path(str(kwargs["readiness_evidence_root"]))
+        assert kwargs["expected_source_git_head"] == COMMIT
+        assert kwargs["expected_source_state_fingerprint"] == fingerprint
+        if len(calls) == 1:
+            assert supplied_receipt == receipt_path.resolve()
+            assert supplied_root == evidence_root.resolve()
+        else:
+            assert supplied_receipt == (
+                destination
+                / candidate_prep.CONVERSATION_PREREQUISITES_FILENAME
+            )
+            assert supplied_root == destination
+            assert supplied_receipt.read_bytes() == packet_bytes
+            for filename, expected in source_bytes.items():
+                assert (destination / filename).read_bytes() == expected
+        return {
+            "contract_name": candidate_prep.CONVERSATION_VERIFY_CONTRACT,
+            "status": "pass",
+            "issues": [],
+        }
+
+    monkeypatch.setattr(
+        candidate_prep,
+        "_canonical_conversation_prerequisites_verification",
+        verify,
+    )
+    evidence = candidate_prep._stage_conversation_prerequisites(
+        receipt_path=receipt_path,
+        evidence_root=evidence_root,
+        destination_root=destination,
+        source_tts_voice_path=source_tts,
+        staged_tts_voice_path=staged_tts,
+        authority_root=authority_root,
+        expected_source_git_head=COMMIT,
+        expected_source_state_fingerprint=fingerprint,
+    )
+
+    assert len(calls) == 2
+    assert evidence["packet_sha256"] == candidate_prep._sha256(packet_bytes)
+    assert evidence["readiness_receipt_sha256"] == candidate_prep._sha256(
+        readiness_bytes
+    )
+    assert evidence["room_audio_receipt_sha256"] == candidate_prep._sha256(
+        source_bytes[candidate_prep.CONVERSATION_ROOM_FILENAME]
+    )
+    assert len(evidence["evidence_sha256"]) == 8
+    assert len(evidence["files"]) == 10
+    assert all(
+        stat.S_IMODE(path.stat().st_mode) == 0o400
+        for path in destination.iterdir()
+    )
+    candidate_prep._set_modes(tmp_path / "staging")
+    _digest, projected = candidate_prep._tree_digest(tmp_path / "staging")
+    conversation_rows = [
+        row
+        for row in projected
+        if str(row["path"]).startswith(
+            f"{candidate_prep.CONVERSATION_RELEASE_DIRNAME}/"
+        )
+    ]
+    assert len(conversation_rows) == 10
+    assert {row["mode"] for row in conversation_rows} == {"440"}
+    assert authority_before == {
+        path.name: path.read_bytes()
+        for path in authority_root.iterdir()
+    }
+
+
+def test_candidate_initial_and_final_conversation_projections_are_exact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_root = tmp_path / "source"
+    private_source = (
+        source_root
+        / "memorial_data"
+        / "private_memorial_profiles"
+        / "manfred"
+    )
+    private_source.mkdir(parents=True)
+    image_id = "sha256:" + "1" * 64
+    fingerprint = "f" * 64
+    authority_artifact_sets: list[list[str]] = []
+
+    monkeypatch.setattr(candidate_prep, "_commit", lambda *_args: COMMIT)
+    monkeypatch.setattr(
+        candidate_prep,
+        "_image_revision",
+        lambda _image: (image_id, COMMIT),
+    )
+    monkeypatch.setattr(
+        candidate_prep,
+        "_image_build_authority_binding",
+        lambda *_args, **_kwargs: {"status": "pass"},
+    )
+    monkeypatch.setattr(
+        candidate_prep,
+        "_commit_generated_at",
+        lambda *_args: "2026-07-20T00:00:00Z",
+    )
+
+    def git_blob(_root: Path, _commit: str, path: str) -> bytes:
+        if path.endswith("/memorial.json"):
+            return b'{"slug":"manfred"}\n'
+        return b"{}\n"
+
+    monkeypatch.setattr(candidate_prep, "_git_blob", git_blob)
+    monkeypatch.setattr(
+        candidate_prep,
+        "_load_private_context",
+        lambda *_args: ({}, b'{"slug":"manfred"}\n'),
+    )
+
+    def copy_archive(**kwargs: object) -> list[dict[str, object]]:
+        Path(str(kwargs["destination"])).mkdir(parents=True, exist_ok=True)
+        return []
+
+    monkeypatch.setattr(candidate_prep, "_copy_archive", copy_archive)
+
+    def materialize_authority(**kwargs: object) -> dict[str, object]:
+        root = Path(str(kwargs["root"]))
+        artifacts = list(kwargs["public_artifacts"])
+        authority_artifact_sets.append(artifacts)
+        for name, path in candidate_prep._candidate_release_authority_paths(
+            root
+        ).items():
+            candidate_prep._write_bytes(
+                path,
+                candidate_prep._receipt_bytes(
+                    {
+                        "document": name,
+                        "artifact_set": artifacts,
+                        "commit": COMMIT,
+                    }
+                ),
+                mode=0o444,
+            )
+        return {"status": "pass"}
+
+    monkeypatch.setattr(
+        candidate_prep,
+        "_materialize_candidate_release_authority",
+        materialize_authority,
+    )
+    monkeypatch.setattr(
+        candidate_prep,
+        "_validate_candidate_release_authority_bundle",
+        lambda *_args, **_kwargs: {"status": "pass"},
+    )
+    monkeypatch.setattr(candidate_prep, "_chown_for_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        candidate_prep,
+        "resolve_source_worktree_fingerprint",
+        lambda _root: fingerprint,
+    )
+
+    bundle_contents = {
+        candidate_prep.CONVERSATION_PREREQUISITES_FILENAME: b"packet\n",
+        candidate_prep.CONVERSATION_READINESS_FILENAME: b"readiness\n",
+        **{
+            filename: f"{key}\n".encode("ascii")
+            for key, filename in candidate_prep.CONVERSATION_EVIDENCE_FILENAMES.items()
+        },
+    }
+
+    def stage_bundle(**kwargs: object) -> dict[str, object]:
+        destination = Path(str(kwargs["destination_root"]))
+        files: list[dict[str, object]] = []
+        for filename, content in sorted(bundle_contents.items()):
+            info = candidate_prep._write_bytes(
+                destination / filename,
+                content,
+                mode=0o400,
+            )
+            files.append(
+                {
+                    "path": (
+                        f"{candidate_prep.CONVERSATION_RELEASE_DIRNAME}/"
+                        f"{filename}"
+                    ),
+                    **info,
+                }
+            )
+        return {
+            "effective_expires_at": "2026-07-21T00:00:00Z",
+            "packet_sha256": candidate_prep._sha256(
+                bundle_contents[
+                    candidate_prep.CONVERSATION_PREREQUISITES_FILENAME
+                ]
+            ),
+            "readiness_receipt_sha256": candidate_prep._sha256(
+                bundle_contents[candidate_prep.CONVERSATION_READINESS_FILENAME]
+            ),
+            "room_audio_receipt_sha256": candidate_prep._sha256(
+                bundle_contents[candidate_prep.CONVERSATION_ROOM_FILENAME]
+            ),
+            "evidence_sha256": {
+                key: candidate_prep._sha256(bundle_contents[filename])
+                for key, filename in candidate_prep.CONVERSATION_EVIDENCE_FILENAMES.items()
+            },
+            "source_state_fingerprint": fingerprint,
+            "files": files,
+        }
+
+    monkeypatch.setattr(
+        candidate_prep,
+        "_stage_conversation_prerequisites",
+        stage_bundle,
+    )
+    common = {
+        "source_root": source_root,
+        "ref": "HEAD",
+        "image": "ea-runtime:manfred-abcdef123456",
+        "public_base_url": "https://myexternalbrain.com",
+        "host_port": 18090,
+        "project_name": PROJECT,
+        "image_build_receipt": tmp_path / "image-build.json",
+    }
+    initial = candidate_prep.prepare_candidate.__wrapped__(
+        deploy_root=tmp_path / "initial",
+        **common,
+    )
+    final = candidate_prep.prepare_candidate.__wrapped__(
+        deploy_root=tmp_path / "final",
+        conversation_prerequisites_receipt=tmp_path / "packet.json",
+        conversation_evidence_root=tmp_path / "evidence",
+        **common,
+    )
+
+    assert initial["conversation_prerequisites_included"] is False
+    assert initial["public_voice_activation_intended"] is False
+    assert initial["conversation_release_files"] == []
+    assert initial["conversation_prerequisites_sha256"] == ""
+    assert final["conversation_prerequisites_included"] is True
+    assert final["public_voice_activation_intended"] is True
+    assert final["conversation_prerequisites_effective_expires_at"] == (
+        "2026-07-21T00:00:00Z"
+    )
+    assert len(final["conversation_release_files"]) == 10
+    assert {row["mode"] for row in final["conversation_release_files"]} == {
+        "440"
+    }
+    assert authority_artifact_sets[0] == authority_artifact_sets[1]
+    assert all(
+        not path.startswith(f"{candidate_prep.CONVERSATION_RELEASE_DIRNAME}/")
+        for path in authority_artifact_sets[0]
+    )
+    initial_authority = (
+        Path(str(initial["release_root"]))
+        / candidate_prep.CANDIDATE_RELEASE_AUTHORITY_DIRNAME
+    )
+    final_authority = (
+        Path(str(final["release_root"]))
+        / candidate_prep.CANDIDATE_RELEASE_AUTHORITY_DIRNAME
+    )
+    assert {
+        path.name: path.read_bytes() for path in initial_authority.iterdir()
+    } == {path.name: path.read_bytes() for path in final_authority.iterdir()}
+
+
+@pytest.mark.parametrize(
+    "issue",
+    [
+        "release_receipt_content_mismatch",
+        "readiness_expired",
+        "voice_manfred_identity_mismatch",
+        "release_authority_status_not_exact_pass",
+        "readiness_source_binding_mismatch",
+    ],
+)
+def test_candidate_canonical_conversation_verifier_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    issue: str,
+) -> None:
+    from ea.scripts import manfred_realtime_conversation_release as release
+
+    monkeypatch.setattr(
+        release,
+        "verify_manfred_realtime_conversation_release",
+        lambda **_kwargs: {
+            "contract_name": candidate_prep.CONVERSATION_VERIFY_CONTRACT,
+            "status": "fail",
+            "issues": [issue],
+        },
+    )
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_conversation_prerequisites_not_pass",
+    ):
+        candidate_prep._canonical_conversation_prerequisites_verification(
+            receipt_path=tmp_path / "packet.json",
+            readiness_receipt_path=tmp_path / "readiness.json",
+            readiness_evidence_root=tmp_path,
+            room_receipt_path=tmp_path / "room.json",
+            tts_voice_path=tmp_path / "tts_voice.json",
+            release_manifest_path=tmp_path / "manifest.json",
+            release_authority_status_path=tmp_path / "status.json",
+            project_modes_path=tmp_path / "modes.json",
+            expected_source_git_head=COMMIT,
+            expected_source_state_fingerprint="f" * 64,
         )
 
 
@@ -1137,6 +2284,47 @@ def test_candidate_env_is_allowlisted_private_and_idempotent(tmp_path: Path) -> 
         & second.keys()
     )
     assert set(second) == candidate_runner.ALLOWED_ENV_KEYS
+    assert second["EA_MEMORIAL_DEPLOYMENT_ID"] == second[
+        "EA_MANFRED_DEPLOYMENT_ID"
+    ]
+    assert second["EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH"] == (
+        candidate_prep.CONVERSATION_PREREQUISITES_CONTAINER_PATH
+    )
+    assert second["EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION"] == "0"
+    assert second["EA_MEMORIAL_VOICE_PREVIEW_ENABLED"] == "1"
+    assert second["EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES"] == "1"
+
+    bundled_path = tmp_path / "bundled-candidate.env"
+    candidate_prep._write_env(
+        path=bundled_path,
+        image="ea-runtime:manfred-abcdef123456",
+        release_root=release_root,
+        runtime_root=runtime_root,
+        public_base_url="https://memorial.example.at",
+        host_port=18090,
+        project_name=PROJECT,
+        commit=COMMIT,
+        conversation_prerequisites_included=True,
+    )
+    bundled = candidate_prep._parse_env(bundled_path)
+    assert bundled["EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION"] == "1"
+    assert bundled["EA_MEMORIAL_VOICE_PREVIEW_ENABLED"] == "0"
+    assert bundled["EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES"] == "0"
+    for candidate_env in (second, bundled):
+        runtime_environment = candidate_runner._expected_candidate_api_environment(
+            candidate_env
+        )
+        assert runtime_environment["EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION"] == "0"
+        assert runtime_environment["EA_MEMORIAL_VOICE_PREVIEW_ENABLED"] == "0"
+        assert runtime_environment[
+            "EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES"
+        ] == "0"
+        assert runtime_environment["EA_MEMORIAL_DEPLOYMENT_ID"] == (
+            candidate_env["EA_MEMORIAL_DEPLOYMENT_ID"]
+        )
+        assert runtime_environment[
+            "EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH"
+        ] == candidate_prep.CONVERSATION_PREREQUISITES_CONTAINER_PATH
 
     existing_bytes = env_path.read_bytes()
     with pytest.raises(ValueError, match="manfred_candidate_env_existing_conflict"):
@@ -1231,6 +2419,8 @@ def test_candidate_release_authority_bundle_is_commit_bound_and_runtime_safe(
     assert evidence["runtime_authority_state"] == "clear"
     assert evidence["runtime_authority_posture"] == "authoritative_runtime"
     assert evidence["promotion_authority"] is False
+    assert evidence["project_mode"] == "MEMORIAL"
+    assert evidence["enabled_project_modes"] == ["MEMORIAL"]
     paths = candidate_prep._candidate_release_authority_paths(authority_root)
     assert set(path.name for path in authority_root.iterdir()) == {
         path.name for path in paths.values()
@@ -1246,6 +2436,16 @@ def test_candidate_release_authority_bundle_is_commit_bound_and_runtime_safe(
     assert str(tmp_path) not in json.dumps(status)
 
     manifest = json.loads(paths["release_manifest"].read_text(encoding="utf-8"))
+    deploy_context = json.loads(
+        paths["deploy_context"].read_text(encoding="utf-8")
+    )
+    authority_receipt = json.loads(
+        paths["receipt"].read_text(encoding="utf-8")
+    )
+    for payload in (manifest, deploy_context, authority_receipt):
+        assert payload["project_mode"] == "MEMORIAL"
+        assert payload["enabled_project_modes"] == ["MEMORIAL"]
+
     manifest["commit_sha"] = "c" * 40
     paths["release_manifest"].chmod(0o644)
     paths["release_manifest"].write_bytes(candidate_prep._receipt_bytes(manifest))
@@ -1472,7 +2672,6 @@ def test_runtime_runner_rejects_live_bind_or_external_network(tmp_path: Path) ->
     env_file = (tmp_path / "candidate.env").resolve()
     release_root = (tmp_path / "release").resolve()
     runtime_root = (tmp_path / "runtime").resolve()
-    spatial_root = (release_root / "public_property_tours").resolve()
     authority_root = (
         release_root / candidate_prep.CANDIDATE_RELEASE_AUTHORITY_DIRNAME
     ).resolve()
@@ -1485,10 +2684,15 @@ def test_runtime_runner_rejects_live_bind_or_external_network(tmp_path: Path) ->
         "EA_MANFRED_RELEASE_ROOT": str(release_root),
         "EA_MANFRED_RELEASE_AUTHORITY_ROOT": str(authority_root),
         "EA_MANFRED_RUNTIME_ROOT": str(runtime_root),
-        "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED": "0",
-        "EA_MANFRED_SPATIAL_RELEASE_ROOT": str(spatial_root),
-        "EA_MANFRED_SPATIAL_SHA256": candidate_prep._sha256(b"[]"),
-        "EA_MANFRED_SPATIAL_SLUG": "",
+        "EA_MANFRED_MEMORIAL_SURFACE": candidate_prep.MEMORIAL_SURFACE,
+        "EA_MANFRED_SPATIAL_SCOPE": candidate_prep.SPATIAL_SCOPE,
+        "EA_MEMORIAL_DEPLOYMENT_ID": f"{PROJECT}-{COMMIT[:12]}",
+        "EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH": (
+            candidate_prep.CONVERSATION_PREREQUISITES_CONTAINER_PATH
+        ),
+        "EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION": "0",
+        "EA_MEMORIAL_VOICE_PREVIEW_ENABLED": "1",
+        "EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES": "1",
         "EA_PUBLIC_APP_BASE_URL": "https://myexternalbrain.com",
     }
     mounts = [
@@ -1512,6 +2716,12 @@ def test_runtime_runner_rejects_live_bind_or_external_network(tmp_path: Path) ->
         },
         {
             "type": "bind",
+            "source": str(release_root / "conversation-release"),
+            "target": "/data/memorial_data/conversation-release",
+            "read_only": True,
+        },
+        {
+            "type": "bind",
             "source": str(runtime_root / "public-contributions"),
             "target": "/data/memorial/public-contributions",
         },
@@ -1524,12 +2734,6 @@ def test_runtime_runner_rejects_live_bind_or_external_network(tmp_path: Path) ->
             "type": "bind",
             "source": str(runtime_root / "state"),
             "target": "/data/memorial/state",
-        },
-        {
-            "type": "bind",
-            "source": str(spatial_root),
-            "target": "/data/public_property_tours",
-            "read_only": True,
         },
         {
             "type": "bind",
@@ -1645,7 +2849,7 @@ def test_page_render_prewarm_can_be_disabled_without_changing_default(
     assert calls == ["manfred"]
 
 
-def test_manfred_public_page_uses_scoped_editorial_minimal_theme() -> None:
+def test_manfred_public_page_selects_conversation_only_surface_explicitly() -> None:
     from app.api.routes import public_memorials
 
     common = {
@@ -1661,6 +2865,11 @@ def test_manfred_public_page_uses_scoped_editorial_minimal_theme() -> None:
         slug="manfred",
         **common,
     )
+    conversation_only_html = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        conversation_only=True,
+        **common,
+    )
     other_html = public_memorials._minimal_public_memorial_html(
         slug="another-memorial",
         **common,
@@ -1668,8 +2877,42 @@ def test_manfred_public_page_uses_scoped_editorial_minimal_theme() -> None:
 
     assert (
         '<body class="memorial-theme-minimal" '
-        'data-memorial-theme="editorial-minimal-v2">'
+        'data-memorial-theme="editorial-minimal-v2" '
+        'data-public-memorial-surface="legacy">'
     ) in manfred_html
+    assert (
+        '<body class="memorial-theme-minimal" '
+        'data-memorial-theme="editorial-minimal-v2" '
+        'data-public-memorial-surface="conversation-only">'
+    ) in conversation_only_html
+    assert "<section>Story</section>" in manfred_html
+    assert "<section>Story</section>" not in conversation_only_html
+    assert conversation_only_html.count("<main ") == 1
+    assert 'id="memorial-story"' not in conversation_only_html
+    assert 'id="memorial-contribution"' not in conversation_only_html
+    assert 'id="memorial-install-hint"' not in conversation_only_html
+    assert '<details class="conversation-settings">' not in conversation_only_html
+    assert 'id="memorial-conversation"' in conversation_only_html
+    assert 'id="memorial-text-turn-form"' in conversation_only_html
+    assert 'id="memorial-retry-button"' in conversation_only_html
+    assert 'id="memorial-speech-transcript" role="log"' in conversation_only_html
+    rendered_contract = candidate_verify.verify_conversation_only_page_html(
+        conversation_only_html.encode("utf-8")
+    )
+    assert rendered_contract == {
+        "status": "pass",
+        "public_surface": "conversation-only",
+        "main_count": 1,
+        "nav_count": 0,
+        "aside_count": 0,
+        "iframe_count": 0,
+        "video_count": 0,
+        "conversation_settings_count": 0,
+        "memory_room_link_count": 0,
+        "tour_link_count": 0,
+        "missing_required_ids": [],
+        "present_forbidden_ids": [],
+    }
     assert ".memorial-theme-minimal::before" in manfred_html
     assert ".memorial-theme-minimal .story-card" in manfred_html
     assert ".memorial-theme-minimal .skip-link:focus-visible" in manfred_html

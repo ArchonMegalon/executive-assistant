@@ -3,9 +3,11 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Awaitable, Callable
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, FastAPI, Request
-from starlette.responses import Response
+from fastapi import APIRouter, Depends, FastAPI, Request, WebSocket
+from starlette.responses import JSONResponse, RedirectResponse, Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.api.dependencies import require_request_auth
 from app.api.errors import install_error_handlers
@@ -13,10 +15,272 @@ from app.api.public_http import api_docs_enabled, install_public_http_hardening
 from app.api.threadpool_compat import inline_sync_handlers_enabled, install_inline_threadpool_compat
 from app.container import build_container
 from app.settings import get_settings, validate_startup_settings
-from app.api.routes.property_surface_boundary import install_property_surface_boundary
+from app.api.routes.property_surface_boundary import (
+    install_property_surface_boundary,
+)
 
 
 _SOURCE_REVISION_PATTERN = re.compile(r"[0-9a-f]{40}")
+_MEMORIAL_ROOT_TARGET = "/memorials/manfred"
+_MEMORIAL_ONLY_PUBLIC_ORIGIN = "https://myexternalbrain.com"
+_MEMORIAL_ONLY_HEALTH_METHODS = {"/healthz": frozenset({"GET"})}
+_MEMORIAL_ONLY_HTTP_METHODS = {
+    "/memorial/manfred": frozenset({"GET", "HEAD"}),
+    "/memorials/manfred": frozenset({"GET", "HEAD"}),
+    "/memorials/manfred/app.webmanifest": frozenset({"GET"}),
+    "/memorials/manfred/chat": frozenset({"POST"}),
+    "/memorials/manfred/conversation-turn": frozenset({"POST"}),
+    "/memorials/manfred/icon.svg": frozenset({"GET"}),
+    "/memorials/manfred/personal-memory": frozenset({"GET", "DELETE"}),
+    "/memorials/manfred/playback-telemetry": frozenset({"POST"}),
+    "/memorials/manfred/readiness": frozenset({"GET"}),
+    "/memorials/manfred/realtime/webrtc": frozenset({"POST"}),
+    "/memorials/manfred/service-worker.js": frozenset({"GET"}),
+    "/memorials/manfred/speech-synthesize": frozenset({"POST"}),
+    "/memorials/manfred/speech-transcribe": frozenset({"POST"}),
+    "/memorials/manfred/voice-preview/session": frozenset({"POST", "DELETE"}),
+    "/memorials/manfred/warmup": frozenset({"POST"}),
+    "/memorials/manfred/warmup-status": frozenset({"GET"}),
+}
+_MEMORIAL_ONLY_ICON_PATH_PATTERN = re.compile(
+    r"/memorials/manfred/icon-(?:180|192|512)\.png"
+)
+_MEMORIAL_ONLY_PUBLIC_FILE_PREFIX = "/memorials/files/manfred/"
+_MEMORIAL_ONLY_WEBSOCKET_PATH = "/memorials/manfred/realtime"
+
+
+def _normalized_deploy_mode(value: object) -> str:
+    return str(value or "").strip().upper().replace("-", "_")
+
+
+def _exact_memorial_only_runtime() -> bool:
+    primary = _normalized_deploy_mode(os.getenv("EA_DEPLOY_PRIMARY_MODE"))
+    enabled = tuple(
+        _normalized_deploy_mode(value)
+        for value in str(os.getenv("EA_DEPLOY_ENABLED_MODES") or "").split(",")
+        if str(value).strip()
+    )
+    return primary == "MEMORIAL" and enabled == ("MEMORIAL",)
+
+
+def _exact_memorial_public_authority() -> tuple[str, int | None] | None:
+    raw = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
+    try:
+        parsed = urlsplit(raw)
+        port = parsed.port
+    except ValueError:
+        return None
+    hostname = str(parsed.hostname or "").lower().rstrip(".")
+    authority = hostname if port in {None, 443} else f"{hostname}:{port}"
+    if (
+        parsed.scheme.lower() != "https"
+        or not hostname
+        or parsed.username
+        or parsed.password
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or raw.lower() != f"https://{authority}"
+        or f"https://{authority}" != _MEMORIAL_ONLY_PUBLIC_ORIGIN
+    ):
+        return None
+    return hostname, port
+
+
+def _request_authority_matches(
+    request: Request | WebSocket,
+    expected: tuple[str, int | None] | None,
+) -> bool:
+    host_values = [
+        value
+        for name, value in list(request.scope.get("headers") or [])
+        if bytes(name).lower() == b"host"
+    ]
+    if expected is None or len(host_values) != 1:
+        return False
+    try:
+        raw = bytes(host_values[0]).decode("ascii", errors="strict")
+        if not raw or any(character.isspace() for character in raw):
+            return False
+        parsed = urlsplit(f"//{raw}")
+        hostname = str(parsed.hostname or "").lower()
+        port = parsed.port
+    except (UnicodeError, ValueError):
+        return False
+    return (
+        parsed.username is None
+        and parsed.password is None
+        and hostname == expected[0]
+        and (port or 443) == (expected[1] or 443)
+    )
+
+
+def _memorial_public_origin(
+    authority: tuple[str, int | None] | None,
+) -> str:
+    if authority is None:
+        return ""
+    hostname, port = authority
+    rendered_authority = hostname if port in {None, 443} else f"{hostname}:{port}"
+    return f"https://{rendered_authority}"
+
+
+def _single_scope_header(scope: Scope, name: bytes) -> str | None:
+    values = [
+        value
+        for key, value in list(scope.get("headers") or [])
+        if bytes(key).lower() == name
+    ]
+    if len(values) != 1:
+        return None
+    try:
+        rendered = bytes(values[0]).decode("ascii", errors="strict")
+    except UnicodeError:
+        return None
+    if not rendered or any(character.isspace() for character in rendered):
+        return None
+    return rendered
+
+
+def _memorial_only_http_path_allowed(*, method: str, path: str) -> bool:
+    allowed_methods = _MEMORIAL_ONLY_HTTP_METHODS.get(path)
+    if allowed_methods is not None:
+        return method in allowed_methods
+    if method != "GET":
+        return False
+    if _MEMORIAL_ONLY_ICON_PATH_PATTERN.fullmatch(path):
+        return True
+    return (
+        path.startswith(_MEMORIAL_ONLY_PUBLIC_FILE_PREFIX)
+        and len(path) > len(_MEMORIAL_ONLY_PUBLIC_FILE_PREFIX)
+    )
+
+
+def _memorial_only_raw_path_matches(scope: Scope, *, path: str) -> bool:
+    raw_value = scope.get("raw_path")
+    if raw_value is None or raw_value == b"":
+        return True
+    try:
+        raw_path = bytes(raw_value)
+    except (TypeError, ValueError):
+        return False
+    if path.startswith(_MEMORIAL_ONLY_PUBLIC_FILE_PREFIX):
+        raw_prefix = _MEMORIAL_ONLY_PUBLIC_FILE_PREFIX.encode("ascii")
+        lowered = raw_path.lower()
+        return bool(
+            raw_path.startswith(raw_prefix)
+            and len(raw_path) > len(raw_prefix)
+            and b"\\" not in raw_path
+            and b"//" not in raw_path
+            and b"%2f" not in lowered
+            and b"%5c" not in lowered
+            and b"%2e" not in lowered
+            and b"/./" not in raw_path
+            and b"/../" not in raw_path
+        )
+    try:
+        return raw_path == path.encode("ascii", errors="strict")
+    except UnicodeEncodeError:
+        return False
+
+
+def _memorial_only_not_found() -> JSONResponse:
+    return JSONResponse(
+        {"detail": "not_found"},
+        status_code=404,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+        },
+    )
+
+
+class _MemorialOnlySurfaceBoundary:
+    """Fail closed before non-Manfred HTTP or WebSocket handlers run."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        public_authority: tuple[str, int | None] | None,
+    ) -> None:
+        self.app = app
+        self.public_authority = public_authority
+        self.public_origin = _memorial_public_origin(public_authority)
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        scope_type = str(scope.get("type") or "")
+        path = str(scope.get("path") or "")
+        if scope_type == "http":
+            method = str(scope.get("method") or "").upper()
+            request = Request(scope, receive=receive)
+            if not _memorial_only_raw_path_matches(scope, path=path):
+                await _memorial_only_not_found()(scope, receive, send)
+                return
+            if path == "/" and method in {"GET", "HEAD"}:
+                if not _request_authority_matches(
+                    request,
+                    self.public_authority,
+                ):
+                    await _memorial_only_not_found()(scope, receive, send)
+                    return
+                response = RedirectResponse(
+                    _MEMORIAL_ROOT_TARGET,
+                    status_code=307,
+                    headers={"Cache-Control": "no-store"},
+                )
+                await response(scope, receive, send)
+                return
+            health_methods = _MEMORIAL_ONLY_HEALTH_METHODS.get(path)
+            if health_methods is not None and method in health_methods:
+                await self.app(scope, receive, send)
+                return
+            if not _memorial_only_http_path_allowed(method=method, path=path):
+                await _memorial_only_not_found()(scope, receive, send)
+                return
+            if not _request_authority_matches(request, self.public_authority):
+                await _memorial_only_not_found()(scope, receive, send)
+                return
+            await self.app(scope, receive, send)
+            return
+        if scope_type == "websocket":
+            if (
+                path != _MEMORIAL_ONLY_WEBSOCKET_PATH
+                or not _memorial_only_raw_path_matches(scope, path=path)
+            ):
+                await send({"type": "websocket.close", "code": 4404})
+                return
+            websocket = WebSocket(scope, receive=receive, send=send)
+            origin = _single_scope_header(scope, b"origin")
+            if (
+                not _request_authority_matches(
+                    websocket,
+                    self.public_authority,
+                )
+                or not self.public_origin
+                or origin != self.public_origin
+            ):
+                await send({"type": "websocket.close", "code": 4403})
+                return
+            await self.app(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+def install_memorial_only_surface_boundary(app: FastAPI) -> None:
+    """Keep the exact Memorial-only public origin on the Manfred conversation."""
+
+    if not _exact_memorial_only_runtime():
+        return
+    app.add_middleware(
+        _MemorialOnlySurfaceBoundary,
+        public_authority=_exact_memorial_public_authority(),
+    )
 
 
 def _validated_source_revision(value: object) -> str | None:
@@ -69,6 +333,7 @@ def _include_public_routes(
     health_router: APIRouter,
     register_router: APIRouter,
 ) -> None:
+    memorial_only = _exact_memorial_only_runtime()
     app.include_router(audiobook_player_router)
     app.include_router(public_documents_router)
     app.include_router(landing_access_router)
@@ -79,14 +344,15 @@ def _include_public_routes(
     app.include_router(landing_workspace_router)
     app.include_router(landing_public_router)
     app.include_router(landing_console_router)
-    app.include_router(landing_property_router)
+    if not memorial_only:
+        app.include_router(landing_property_router)
     app.include_router(fliplink_public_router)
     app.include_router(hedy_meeting_review_router)
     if settings.public_results_enabled:
         from app.api.routes.public_results import router as public_results_router
 
         app.include_router(public_results_router)
-    if settings.public_tours_enabled:
+    if settings.public_tours_enabled and not memorial_only:
         from app.api.routes.public_tours import router as public_tours_router
 
         app.include_router(public_tours_router)
@@ -232,6 +498,7 @@ def create_app() -> FastAPI:
     install_source_revision_header(app)
     install_error_handlers(app)
     install_property_surface_boundary(app)
+    install_memorial_only_surface_boundary(app)
     install_public_http_hardening(app, settings=s)
     app.state.container = build_container(settings=s)
     app.router.on_startup.append(_prewarm_provider_health_cache)

@@ -15,24 +15,33 @@ import hashlib
 import json
 import math
 import os
+import pwd
 import re
 import stat
 import subprocess  # nosec B404 - commands are fixed below
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
+from typing import Any, BinaryIO, Callable, Iterator, Mapping, Protocol, Sequence
 
 try:
     from scripts.source_state_head import source_worktree_metadata
 except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from source_state_head import source_worktree_metadata
+
+try:
+    from scripts import verify_memorial_deploy_readiness as readiness_verifier
+    from scripts import verify_release_authority as release_authority_verifier
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    import verify_memorial_deploy_readiness as readiness_verifier  # type: ignore[no-redef]
+    import verify_release_authority as release_authority_verifier  # type: ignore[no-redef]
 
 try:
     from scripts.memorial_bind_source_guard import (
@@ -46,23 +55,64 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
     )
 
 try:
+    from scripts.provision_memorial_gemini_oauth import (
+        CONTRACT as GEMINI_OAUTH_PROVISION_CONTRACT,
+        MAX_CREDENTIAL_BYTES as GEMINI_OAUTH_MAX_CREDENTIAL_BYTES,
+        TARGET_RELATIVE_PARTS as GEMINI_OAUTH_TARGET_RELATIVE_PARTS,
+        TARGET_UID as GEMINI_OAUTH_TARGET_UID,
+        CredentialSnapshot,
+        ProvisioningError as GeminiOAuthProvisioningError,
+        snapshot_source_credentials,
+    )
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from provision_memorial_gemini_oauth import (  # type: ignore[no-redef]
+        CONTRACT as GEMINI_OAUTH_PROVISION_CONTRACT,
+        MAX_CREDENTIAL_BYTES as GEMINI_OAUTH_MAX_CREDENTIAL_BYTES,
+        TARGET_RELATIVE_PARTS as GEMINI_OAUTH_TARGET_RELATIVE_PARTS,
+        TARGET_UID as GEMINI_OAUTH_TARGET_UID,
+        CredentialSnapshot,
+        ProvisioningError as GeminiOAuthProvisioningError,
+        snapshot_source_credentials,
+    )
+
+try:
+    from scripts.build_manfred_memorial_image import (
+        IMAGE_BUILD_RECEIPT_MAX_BYTES,
+        RECEIPT_SCHEMA as IMAGE_BUILD_RECEIPT_SCHEMA,
+        validate_build_authority_binding,
+        validated_build_receipt_binding,
+    )
     from scripts.prepare_manfred_memorial_candidate import (
+        MEMORIAL_SURFACE,
         PROPERTY_ARTIFACT_COMMIT,
         PROPERTY_AUTHORITY_SHA256,
         PROPERTY_PRE_AUTHORITY_SHA256,
         PROPERTY_TOUR_SHA256,
+        SPATIAL_SCOPE,
         _spatial_package_sha256,
         _spatial_tree_snapshot,
         _tree_digest as _candidate_projection_tree_digest,
     )
 except ModuleNotFoundError as exc:  # pragma: no cover - direct script execution
-    if exc.name not in {"scripts", "scripts.prepare_manfred_memorial_candidate"}:
+    if exc.name not in {
+        "scripts",
+        "scripts.build_manfred_memorial_image",
+        "scripts.prepare_manfred_memorial_candidate",
+    }:
         raise
+    from build_manfred_memorial_image import (  # type: ignore[no-redef]
+        IMAGE_BUILD_RECEIPT_MAX_BYTES,
+        RECEIPT_SCHEMA as IMAGE_BUILD_RECEIPT_SCHEMA,
+        validate_build_authority_binding,
+        validated_build_receipt_binding,
+    )
     from prepare_manfred_memorial_candidate import (  # type: ignore[no-redef]
+        MEMORIAL_SURFACE,
         PROPERTY_ARTIFACT_COMMIT,
         PROPERTY_AUTHORITY_SHA256,
         PROPERTY_PRE_AUTHORITY_SHA256,
         PROPERTY_TOUR_SHA256,
+        SPATIAL_SCOPE,
         _spatial_package_sha256,
         _spatial_tree_snapshot,
         _tree_digest as _candidate_projection_tree_digest,
@@ -84,11 +134,43 @@ except ModuleNotFoundError as exc:  # pragma: no cover - direct script execution
 
 
 ROOT = Path(__file__).resolve().parents[1]
+GEMINI_OAUTH_SOURCE_PATH = Path("/home/tibor/.gemini/oauth_creds.json")
+GEMINI_OAUTH_SOURCE_TRUSTED_ROOT = Path("/home/tibor")
+GEMINI_OAUTH_INSTALL_ROOT = "/runtime"
+GEMINI_OAUTH_INSTALL_TARGET = (
+    f"{GEMINI_OAUTH_INSTALL_ROOT}/"
+    + "/".join(GEMINI_OAUTH_TARGET_RELATIVE_PARTS)
+)
+GEMINI_OAUTH_API_TARGET = (
+    "/data/memorial-writable/" + "/".join(GEMINI_OAUTH_TARGET_RELATIVE_PARTS)
+)
+GEMINI_OAUTH_BINDING_SCHEMA = "ea.memorial_gemini_oauth_binding.v1"
+GEMINI_OAUTH_PROVISION_STDOUT_MAX_BYTES = 4096
+GEMINI_OAUTH_PROVISION_TIMEOUT_SECONDS = 30.0
+GEMINI_OAUTH_PROVISION_PIDS_LIMIT = 32
+GEMINI_OAUTH_HELPER_IDENTITY_SCHEMA = "ea.memorial_gemini_oauth_helper_identity.v1"
+GEMINI_OAUTH_HELPER_NAME_READABLE_MAX_CHARS = 40
+GEMINI_OAUTH_HELPER_NAME_MAX_CHARS = 128
+GEMINI_OAUTH_DOCKER_ENV_ALLOWLIST = frozenset(
+    {
+        "DOCKER_CONFIG",
+        "DOCKER_CONTEXT",
+        "DOCKER_HOST",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "PATH",
+        "TMPDIR",
+        "USER",
+        "XDG_RUNTIME_DIR",
+    }
+)
 MEMORIAL_COMPOSE_FILE = "docker-compose.memorial.yml"
 PROJECT_NAME = "ea"
 API_SERVICE = "ea-api"
 REDIS_SERVICE = "ea-redis"
 MEMORIAL_SLUG = "manfred"
+CANDIDATE_RUNTIME_SCHEMA = "ea.manfred_memorial_candidate_runtime.v6"
 REQUIRED_CONTROL_TOUR_SLUG = (
     "360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
 )
@@ -207,28 +289,285 @@ MAX_HTTP_BODY_BYTES = 2 * 1024 * 1024
 MAX_INTERNAL_OPENAPI_BYTES = 8 * 1024 * 1024
 MAX_FIXED_JSON_SCRIPT_OUTPUT_BYTES = 64 * 1024
 MAX_PRIVATE_RELEASE_EVIDENCE_BYTES = 2 * 1024 * 1024
+MAX_DEPLOYMENT_RECEIPT_BYTES = 8 * 1024 * 1024
 MAX_DEPLOYMENT_INPUT_BYTES = 8 * 1024 * 1024
 MAX_GIT_INDEX_LIST_BYTES = 16 * 1024 * 1024
 MAX_RECEIPT_CONTENT_TYPE_CHARS = 160
 MAX_VEXP_SENTINEL_STATE_BYTES = 1024 * 1024
+MAX_VEXP_QUALIFICATION_CERTIFICATE_BYTES = 2 * 1024 * 1024
+MAX_VEXP_QUALIFICATION_CERTIFICATE_SIDECAR_BYTES = 72
 MAX_VEXP_MUTATION_PERMIT_BYTES = 16 * 1024
+MAX_VEXP_MUTATION_PERMIT_COMMIT_BYTES = 16 * 1024
+MAX_VEXP_EPOCH_VOID_LEDGER_ENTRY_BYTES = 64 * 1024
+MAX_VEXP_CANDIDATE_SEAL_STATUS_BYTES = 16 * 1024
+MAX_VEXP_CURRENT_PREDICATE_POINTER_BYTES = 16 * 1024
+MAX_VEXP_CURRENT_PREDICATE_RECORD_BYTES = 64 * 1024
+MAX_VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_BYTES = 256 * 1024
+MAX_VEXP_TRUSTED_ROOT_PRODUCER_BYTES = 16 * 1024 * 1024
 DEFAULT_VEXP_SENTINEL_STATE_PATH = (
-    Path.home() / ".local" / "state" / "vexp-sentinel" / "state.json"
+    Path(pwd.getpwuid(os.geteuid()).pw_dir)
+    / ".local"
+    / "state"
+    / "vexp-sentinel"
+    / "state.json"
+)
+DEFAULT_VEXP_QUALIFICATION_CERTIFICATE_ROOT = Path(
+    "/var/lib/vexp-qualification-certificate"
+)
+DEFAULT_VEXP_QUALIFICATION_CERTIFICATE_DIRECTORY = (
+    DEFAULT_VEXP_QUALIFICATION_CERTIFICATE_ROOT / "certificates"
 )
 DEFAULT_VEXP_MUTATION_PERMIT_PATH = Path(
     "/run/ea/memorial-vexp-mutation-permit.json"
 )
+DEFAULT_VEXP_MUTATION_PERMIT_COMMIT_PATH = Path(
+    "/run/ea/memorial-vexp-mutation-permit.commit.json"
+)
 DEFAULT_VEXP_MUTATION_PERMIT_LOCK_PATH = Path(
     "/run/ea/memorial-vexp-mutation-permit.lock"
 )
+DEFAULT_VEXP_MUTATION_AUTHORITY_TRUSTED_PARENT = Path("/run")
+DEFAULT_VEXP_EPOCH_VOID_LEDGER_ROOT = Path(
+    "/var/lib/vexp-qualification-epoch-voids"
+)
+DEFAULT_VEXP_CURRENT_PREDICATE_TRUSTED_PARENT = Path("/var/lib")
+DEFAULT_VEXP_CURRENT_PREDICATE_ROOT = Path(
+    "/var/lib/vexp-qualification-current-predicate"
+)
+DEFAULT_VEXP_CURRENT_PREDICATE_RECORDS_DIRECTORY = (
+    DEFAULT_VEXP_CURRENT_PREDICATE_ROOT / "records"
+)
+DEFAULT_VEXP_CURRENT_PREDICATE_POINTER_PATH = (
+    DEFAULT_VEXP_CURRENT_PREDICATE_ROOT / "current.json"
+)
+DEFAULT_VEXP_CURRENT_PREDICATE_PRODUCER_MANIFEST_PATH = (
+    DEFAULT_VEXP_CURRENT_PREDICATE_ROOT / "producer-manifest.json"
+)
+TRUSTED_VEXP_CURRENT_PREDICATE_PRODUCER = Path(
+    "/usr/local/libexec/vexp-current-predicate-attestor"
+)
+DEFAULT_VEXP_TRUSTED_ROOT_PRODUCER_PARENT = Path("/usr/local/libexec")
+VEXP_TRUSTED_ROOT_PRODUCER_PARENT_MODE = 0o755
+VEXP_TRUSTED_ROOT_PRODUCER_MODE = 0o555
+DEFAULT_VEXP_BOOT_ID_PATH = Path("/proc/sys/kernel/random/boot_id")
+TRUSTED_VEXP_PERMIT_MANAGER_PYTHON = Path("/usr/bin/python3")
+TRUSTED_VEXP_PERMIT_MANAGER = Path(
+    "/usr/local/libexec/ea/manage-manfred-vexp-mutation-permit"
+)
+VEXP_CANDIDATE_FINALIZATION_ROOT = Path(
+    "/var/lib/vexp-manfred-candidate-authority/finalizations"
+)
+VEXP_CANDIDATE_FINALIZATION_CONTRACT_NAME = (
+    "ea.vexp_candidate_finalization.v1"
+)
+VEXP_CANDIDATE_FINALIZATION_VERSION = 1
+VEXP_CANDIDATE_FINALIZATION_COMMIT_CONTRACT_NAME = (
+    "ea.vexp_candidate_finalization_commit.v1"
+)
+VEXP_CANDIDATE_FINALIZATION_COMMIT_VERSION = 1
+VEXP_CANDIDATE_FINALIZATION_COMMIT_STATUS_KEYS = frozenset(
+    {"contract_name", "version", "status", "sha256"}
+)
+VEXP_CANDIDATE_FINALIZATION_STATUS_KEYS = frozenset(
+    {
+        "status",
+        "contract_name",
+        "version",
+        "path",
+        "sha256",
+        "commit",
+        "candidate_permit_sha256",
+        "candidate_receipt_path",
+        "candidate_receipt_sha256",
+        "image_build_receipt_sha256",
+        "image_build_permit_sha256",
+        "epoch_started_ms",
+        "qualification_certificate_sha256",
+    }
+)
 VEXP_SENTINEL_STATE_VERSION = 6
-VEXP_MUTATION_PERMIT_CONTRACT_NAME = "ea.vexp_memorial_mutation_permit.v1"
-VEXP_MUTATION_PERMIT_VERSION = 1
+VEXP_QUALIFICATION_CERTIFICATE_SCHEMA = "ea.vexp_qualification_certificate.v2"
+VEXP_QUALIFICATION_CERTIFICATE_OWNER_UID = 0
+VEXP_QUALIFICATION_CERTIFICATE_OWNER_GID = 1000
+VEXP_QUALIFICATION_CERTIFICATE_MODE = 0o640
+VEXP_QUALIFICATION_CERTIFICATE_DIRECTORY_MODE = 0o750
+VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_ROOT = Path(
+    "/var/lib/vexp-qualification-recovery"
+)
+VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_PATH = (
+    VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_ROOT
+    / "reviewed-implementation-manifest.json"
+)
+VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_OWNER_UID = 0
+VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_OWNER_GID = 1000
+VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_ROOT_MODE = 0o750
+VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_MODE = 0o640
+VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_CONTRACT_NAME = (
+    "ea.vexp_qualification_implementation_manifest.v1"
+)
+VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_VERSION = 1
+VEXP_EPOCH_VOID_LEDGER_DIRECTORY_MODE = 0o750
+VEXP_EPOCH_VOID_LEDGER_ENTRY_MODE = 0o640
+VEXP_CURRENT_PREDICATE_DIRECTORY_MODE = 0o750
+VEXP_CURRENT_PREDICATE_FILE_MODE = 0o640
+VEXP_CURRENT_PREDICATE_OWNER_UID = 0
+VEXP_CURRENT_PREDICATE_OWNER_GID = 1000
+VEXP_CURRENT_PREDICATE_POINTER_CONTRACT_NAME = (
+    "ea.vexp_current_predicate_pointer.v1"
+)
+VEXP_CURRENT_PREDICATE_POINTER_VERSION = 1
+VEXP_CURRENT_PREDICATE_POINTER_KEYS = frozenset(
+    {
+        "contract_name",
+        "version",
+        "status",
+        "epoch_started_ms",
+        "generation",
+        "record_path",
+        "record_sha256",
+    }
+)
+VEXP_CURRENT_PREDICATE_PRODUCER_MANIFEST_CONTRACT_NAME = (
+    "ea.vexp_current_predicate_producer_manifest.v1"
+)
+VEXP_CURRENT_PREDICATE_PRODUCER_MANIFEST_VERSION = 1
+VEXP_CURRENT_PREDICATE_PRODUCER_MANIFEST_KEYS = frozenset(
+    {
+        "contract_name",
+        "version",
+        "status",
+        "producer_path",
+        "producer_sha256",
+    }
+)
+VEXP_CURRENT_PREDICATE_CONTRACT_NAME = "ea.vexp_current_predicate.v1"
+VEXP_CURRENT_PREDICATE_VERSION = 1
+VEXP_CURRENT_PREDICATE_KEYS = frozenset(
+    {
+        "contract_name",
+        "version",
+        "status",
+        "epoch_started_ms",
+        "generation",
+        "observed_at",
+        "recorded_at",
+        "boot_id",
+        "monotonic_ns",
+        "sentinel_state_path",
+        "sentinel_state_owner_uid",
+        "sentinel_state_sha256",
+        "terminal_identity_sha256",
+        "qualification_certificate_sha256",
+        "predicate_contract_sha256",
+        "current_resources_healthy",
+        "certification_blockers",
+        "certification_deferments",
+        "sentinel_producer_sha256",
+        "root_predicate_producer_sha256",
+        "previous_record_sha256",
+    }
+)
+VEXP_CURRENT_PREDICATE_STATUS_KEYS = frozenset(
+    {
+        "contract_name",
+        "version",
+        "status",
+        "epoch_started_ms",
+        "generation",
+        "record_sha256",
+        "boot_id",
+        "monotonic_ns",
+        "sentinel_producer_sha256",
+        "root_predicate_producer_sha256",
+    }
+)
+VEXP_MUTATION_PERMIT_CONTRACT_NAME = "ea.vexp_memorial_mutation_permit.v2"
+VEXP_MUTATION_PERMIT_VERSION = 2
+VEXP_MUTATION_PERMIT_COMMIT_CONTRACT_NAME = (
+    "ea.vexp_mutation_permit_commit.v1"
+)
+VEXP_MUTATION_PERMIT_COMMIT_VERSION = 1
 VEXP_MUTATION_BOUNDARIES = (
     "before_ensure_redis",
     "before_protect_previous_image",
     "before_recreate_api",
+    "before_api_exec",
+    "before_api_interaction",
+    "before_rollback_api",
 )
+CANDIDATE_VEXP_MUTATION_PERMIT_CONTRACT_NAME = (
+    "ea.vexp_manfred_candidate_mutation_permit.v2"
+)
+CANDIDATE_VEXP_MUTATION_PERMIT_VERSION = 2
+CANDIDATE_VEXP_MUTATION_SEQUENCE = (
+    "before_candidate_up",
+    *("before_candidate_exec",) * 2,
+    "before_candidate_interaction",
+    *("before_candidate_exec",) * 5,
+    "before_candidate_restart",
+    "before_candidate_interaction",
+    *("before_candidate_exec",) * 7,
+    *("before_candidate_interaction",) * 2,
+    *("before_candidate_exec",) * 2,
+)
+CANDIDATE_VEXP_AUTHORITY_EVIDENCE_KEYS = frozenset(
+    {
+        "status",
+        "phase",
+        "boundary",
+        "contract_name",
+        "version",
+        "epoch_started_ms",
+        "qualified_at",
+        "terminal_identity_sha256",
+        "qualification_certificate_schema",
+        "qualification_certificate_sha256",
+        "qualification_certificate_identity",
+        "qualification_certificate_event_hash",
+        "permit_sha256",
+        "permit_commit",
+        "epoch_void_ledger",
+        "permit_issued_at",
+        "permit_expires_at",
+        "current_predicate",
+    }
+)
+CANDIDATE_VEXP_AUTHORITY_TUPLE_KEYS = (
+    CANDIDATE_VEXP_AUTHORITY_EVIDENCE_KEYS
+    - {"status", "phase", "boundary", "current_predicate"}
+)
+CANDIDATE_VEXP_OPERATION_KEYS = frozenset(
+    {
+        "sequence",
+        "operation",
+        "resource",
+        "runner_acknowledged",
+        "authority",
+    }
+)
+CANDIDATE_VEXP_OPERATION_RESOURCE_KEYS = frozenset({"argv", "target"})
+CANDIDATE_VEXP_OPERATIONS_BY_BOUNDARY = {
+    "before_candidate_up": frozenset({"compose_up"}),
+    "before_candidate_exec": frozenset(
+        {
+            "redis_ping",
+            "runtime_projection_snapshot",
+            "candidate_openapi_snapshot",
+            "contribution_mode_probe",
+            "conversation_state_mode_probe",
+            "internal_transport_request",
+        }
+    ),
+    "before_candidate_interaction": frozenset(
+        {
+            "candidate_smoke",
+            "candidate_smoke_after_restart",
+            "runtime_identity_probe",
+            "browser_surface_audit",
+        }
+    ),
+    "before_candidate_restart": frozenset({"compose_restart_api"}),
+}
 VEXP_MUTATION_PERMIT_KEYS = frozenset(
     {
         "contract_name",
@@ -239,9 +578,29 @@ VEXP_MUTATION_PERMIT_KEYS = frozenset(
         "qualification_earliest_completion_at",
         "qualified_at",
         "terminal_identity_sha256",
+        "qualification_certificate_schema",
+        "qualification_certificate_sha256",
+        "qualification_certificate_identity",
+        "qualification_certificate_event_hash",
         "issued_at",
         "expires_at",
         "mutation_boundaries",
+    }
+)
+VEXP_MUTATION_PERMIT_COMMIT_KEYS = frozenset(
+    {
+        "contract_name",
+        "version",
+        "status",
+        "permit_sha256",
+        "permit_contract_name",
+        "permit_version",
+        "epoch_started_at",
+        "epoch_started_ms",
+        "terminal_identity_sha256",
+        "qualification_certificate_sha256",
+        "issued_at",
+        "expires_at",
     }
 )
 VEXP_UTC_TIMESTAMP_PATTERN = re.compile(
@@ -252,29 +611,100 @@ MINIMUM_VEXP_QUALIFICATION_AT = datetime(
 )
 MAX_VEXP_MUTATION_PERMIT_LIFETIME = timedelta(hours=1)
 MAX_VEXP_MUTATION_ACTION_SECONDS = 180.0
+MAX_VEXP_MUTATION_TRANSACTION_FORWARD_SECONDS = 900.0
+MAX_VEXP_MUTATION_TRANSACTION_ROLLBACK_SECONDS = 180.0
+MAX_VEXP_MUTATION_TRANSACTION_TRANSITION_SECONDS = 30.0
 MAX_VEXP_SENTINEL_STATE_AGE = timedelta(minutes=5)
 MAX_VEXP_SENTINEL_STATE_FUTURE_SKEW = timedelta(seconds=30)
+MAX_VEXP_CURRENT_PREDICATE_AGE = timedelta(minutes=5)
+MAX_VEXP_CURRENT_PREDICATE_FUTURE_SKEW = timedelta(seconds=30)
+MINIMUM_VEXP_QUALIFICATION_DURATION_MS = 7 * 24 * 60 * 60 * 1000
+VEXP_ACTIVE_CHAIN_KEYS = frozenset(
+    {
+        "anchor",
+        "qualification_event",
+        "tail_sequence",
+        "tail_hash",
+        "event_count",
+        "index",
+        "index_sha256",
+    }
+)
+VEXP_CHAIN_INDEX_ROW_KEYS = frozenset(
+    {"at", "event", "sequence", "previous_hash", "hash"}
+)
+VEXP_SOURCE_ATTESTATION_KEYS = frozenset(
+    {
+        "sentinel_state_sha256",
+        "event_generations",
+        "event_log_guard_sha256",
+        "event_log_guard",
+        "apparmor_audit_sha256",
+        "apparmor_audit",
+        "implementation_manifest_sha256",
+        "implementation",
+    }
+)
+VEXP_IMPLEMENTATION_ATTESTATION_KEYS = frozenset(
+    {
+        "sentinel_executable",
+        "sentinel_systemd_unit",
+        "predicate_contract",
+        "finalizer_executable",
+        "finalizer_checksum_manifest",
+        "finalizer_checksum_binding",
+        "finalizer_systemd_unit",
+        "systemd_runtime",
+        "apparmor_policy",
+    }
+)
+VEXP_IMPLEMENTATION_FILE_ATTESTATION_KEYS = (
+    VEXP_IMPLEMENTATION_ATTESTATION_KEYS - {"predicate_contract"}
+)
+VEXP_IMPLEMENTATION_MANIFEST_KEYS = frozenset(
+    {"contract_name", "version", "status", "artifacts"}
+)
+VEXP_IMPLEMENTATION_MANIFEST_ARTIFACT_KEYS = frozenset(
+    {"path", "sha256", "owner_uid", "owner_gid", "mode"}
+)
+VEXP_CERTIFICATE_SEAL_KEYS = frozenset(
+    {
+        "writer",
+        "write_policy",
+        "telegram_sent_by_finalizer",
+        "docker_socket_used",
+    }
+)
 CONTAINER_OPENAPI_SNAPSHOT_SCRIPT = f"""
 import json
+import signal
 import sys
 
 from app.main import app
 
-payload = {{
-    "docs_url": app.docs_url,
-    "document": app.openapi(),
-    "openapi_url": app.openapi_url,
-    "redoc_url": app.redoc_url,
-}}
-raw = json.dumps(
-    payload,
-    ensure_ascii=False,
-    separators=(",", ":"),
-    sort_keys=True,
-).encode("utf-8")
-if len(raw) > {MAX_INTERNAL_OPENAPI_BYTES}:
-    raise SystemExit(86)
-sys.stdout.buffer.write(raw)
+def deadline_exceeded(_signum, _frame):
+    raise TimeoutError("internal_openapi_snapshot_deadline_exceeded")
+
+signal.signal(signal.SIGALRM, deadline_exceeded)
+signal.alarm(25)
+try:
+    payload = {{
+        "docs_url": app.docs_url,
+        "document": app.openapi(),
+        "openapi_url": app.openapi_url,
+        "redoc_url": app.redoc_url,
+    }}
+    raw = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    if len(raw) > {MAX_INTERNAL_OPENAPI_BYTES}:
+        raise SystemExit(86)
+    sys.stdout.buffer.write(raw)
+finally:
+    signal.alarm(0)
 """.strip()
 RELEASE_EVIDENCE_ENV_ALLOWLIST = frozenset(
     {
@@ -558,6 +988,18 @@ class DeployError(RuntimeError):
     """A fail-closed deployment or verification error."""
 
 
+class GeminiOAuthHelperExitUnconfirmed(DeployError):
+    """The one-shot helper may still own the credential mutation target."""
+
+
+class GeminiOAuthHelperNeverStarted(DeployError):
+    """A pre-run check denied the helper before Docker run was invoked."""
+
+
+class GeminiOAuthHelperNameCollision(GeminiOAuthHelperNeverStarted):
+    """The exact governed helper name was already present before invocation."""
+
+
 @dataclass(frozen=True)
 class HttpResponse:
     status: int
@@ -576,6 +1018,18 @@ class Runner(Protocol):
         env: Mapping[str, str],
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]: ...
+
+    def run_secret_stdin(
+        self,
+        args: Sequence[str],
+        *,
+        cwd: Path,
+        env: Mapping[str, str],
+        write_stdin: Callable[[BinaryIO], None],
+        timeout_seconds: float,
+        container_name: str,
+        max_output_bytes: int,
+    ) -> subprocess.CompletedProcess[bytes]: ...
 
 
 class SubprocessRunner:
@@ -606,6 +1060,217 @@ class SubprocessRunner:
         if check and completed.returncode != 0:
             raise DeployError(f"command_failed:{completed.returncode}:{executable}")
         return completed
+
+    def run_secret_stdin(
+        self,
+        args: Sequence[str],
+        *,
+        cwd: Path,
+        env: Mapping[str, str],
+        write_stdin: Callable[[BinaryIO], None],
+        timeout_seconds: float,
+        container_name: str,
+        max_output_bytes: int,
+    ) -> subprocess.CompletedProcess[bytes]:
+        """Stream a secret through a bounded anonymous pipe and prove exit."""
+
+        executable = Path(str(args[0] or "command")).name or "command"
+        if (
+            executable != "docker"
+            or re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,127}", container_name)
+            is None
+            or type(max_output_bytes) is not int
+            or not 0 < max_output_bytes <= 1024 * 1024
+            or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(float(timeout_seconds))
+            or timeout_seconds <= 0
+        ):
+            raise DeployError("secret_stdin_command_invalid")
+        process: subprocess.Popen[bytes] | None = None
+        try:
+            process = subprocess.Popen(  # nosec B603 - fixed executable/arguments
+                list(args),
+                cwd=cwd,
+                env=dict(env),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+            )
+        except OSError:
+            raise DeployError(
+                f"secret_stdin_command_unavailable:{executable}"
+            ) from None
+
+        if process.stdin is None or process.stdout is None or process.stderr is None:
+            process.kill()
+            process.wait()
+            raise DeployError(f"secret_stdin_stream_failed:{executable}")
+
+        stdin_stream = process.stdin
+        stdout_stream = process.stdout
+        stderr_stream = process.stderr
+        process.stdin = None
+        process.stdout = None
+        process.stderr = None
+        writer_failed = threading.Event()
+        reader_failed = threading.Event()
+        stdout_capture = bytearray()
+        stderr_capture = bytearray()
+
+        def write_secret() -> None:
+            try:
+                write_stdin(stdin_stream)
+            except BaseException:
+                writer_failed.set()
+            finally:
+                try:
+                    stdin_stream.close()
+                except OSError:
+                    pass
+
+        def read_bounded(stream: BinaryIO, target: bytearray) -> None:
+            try:
+                while True:
+                    chunk = stream.read(64 * 1024)
+                    if not chunk:
+                        break
+                    remaining = max_output_bytes + 1 - len(target)
+                    if remaining > 0:
+                        target.extend(chunk[:remaining])
+            except BaseException:
+                reader_failed.set()
+            finally:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
+        threads = [
+            threading.Thread(target=write_secret, daemon=True),
+            threading.Thread(
+                target=read_bounded,
+                args=(stdout_stream, stdout_capture),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=read_bounded,
+                args=(stderr_stream, stderr_capture),
+                daemon=True,
+            ),
+        ]
+        started_threads: list[threading.Thread] = []
+
+        def helper_container_absent() -> bool:
+            try:
+                observed = subprocess.run(  # nosec B603 - fixed Docker query
+                    [
+                        str(args[0]),
+                        "container",
+                        "ls",
+                        "--all",
+                        "--quiet",
+                        "--filter",
+                        f"name=^/{container_name}$",
+                    ],
+                    cwd=cwd,
+                    env=dict(env),
+                    check=False,
+                    capture_output=True,
+                    timeout=5.0,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return False
+            return observed.returncode == 0 and not observed.stdout.strip()
+
+        def stop_local_client() -> None:
+            if process.poll() is not None:
+                return
+            try:
+                process.terminate()
+            except OSError:
+                pass
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+                process.wait()
+
+        def join_streams() -> bool:
+            for thread in started_threads:
+                thread.join(timeout=2.0)
+            return len(started_threads) == len(threads) and not any(
+                thread.is_alive() for thread in started_threads
+            )
+
+        def wipe_captures() -> None:
+            for capture in (stdout_capture, stderr_capture):
+                for index in range(len(capture)):
+                    capture[index] = 0
+                capture.clear()
+
+        try:
+            for thread in threads:
+                thread.start()
+                started_threads.append(thread)
+            process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            stop_local_client()
+            streams_closed = join_streams()
+            absent = helper_container_absent()
+            wipe_captures()
+            if not streams_closed or not absent:
+                raise GeminiOAuthHelperExitUnconfirmed(
+                    "gemini_oauth_helper_exit_unconfirmed"
+                ) from None
+            raise DeployError(f"secret_stdin_command_timeout:{executable}") from None
+        except KeyboardInterrupt:
+            stop_local_client()
+            streams_closed = join_streams()
+            absent = helper_container_absent()
+            wipe_captures()
+            if not streams_closed or not absent:
+                raise GeminiOAuthHelperExitUnconfirmed(
+                    "gemini_oauth_helper_exit_unconfirmed"
+                ) from None
+            raise
+        except BaseException:
+            stop_local_client()
+            streams_closed = join_streams()
+            absent = helper_container_absent()
+            wipe_captures()
+            if not streams_closed or not absent:
+                raise GeminiOAuthHelperExitUnconfirmed(
+                    "gemini_oauth_helper_exit_unconfirmed"
+                ) from None
+            raise DeployError(f"secret_stdin_stream_failed:{executable}") from None
+
+        streams_closed = join_streams()
+        absent = helper_container_absent()
+        if (
+            not streams_closed
+            or not absent
+            or writer_failed.is_set()
+            or reader_failed.is_set()
+        ):
+            wipe_captures()
+            if not streams_closed or not absent:
+                raise GeminiOAuthHelperExitUnconfirmed(
+                    "gemini_oauth_helper_exit_unconfirmed"
+                )
+            raise DeployError(f"secret_stdin_stream_failed:{executable}")
+        stdout = bytes(stdout_capture)
+        stderr = bytes(stderr_capture)
+        wipe_captures()
+        return subprocess.CompletedProcess(
+            list(args),
+            process.returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )
 
 
 def _utc_now() -> str:
@@ -647,6 +1312,23 @@ def _trusted_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
     )
 
 
+def _trusted_directory_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    """Stable identity and trust metadata for an authority directory.
+
+    Directory timestamps and sizes can change for unrelated children under
+    ``/run``.  They are deliberately excluded; inode identity, type/mode,
+    ownership, and link count are the security-relevant invariants.
+    """
+
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_uid,
+        metadata.st_gid,
+    )
+
+
 def _decode_guard_json(raw: bytes, *, reason: str) -> dict[str, Any]:
     def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         payload: dict[str, Any] = {}
@@ -672,6 +1354,18 @@ def _decode_guard_json(raw: bytes, *, reason: str) -> dict[str, Any]:
     return payload
 
 
+def _canonical_guard_json_bytes(payload: Mapping[str, Any]) -> bytes:
+    return (
+        json.dumps(
+            dict(payload),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
 def _vexp_terminal_identity(state: Mapping[str, Any]) -> dict[str, object]:
     return {
         "epoch_started_at": state.get("epoch_started_at"),
@@ -693,6 +1387,12 @@ def _vexp_terminal_identity_sha256(state: Mapping[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _require_vexp_sha256(value: object, *, reason: str) -> str:
+    if not isinstance(value, str) or not SHA256_HEX_PATTERN.fullmatch(value):
+        raise DeployError(reason)
+    return value
+
+
 class VexpMemorialMutationAuthority:
     """Fixed production authority boundary for memorial mutations.
 
@@ -703,11 +1403,29 @@ class VexpMemorialMutationAuthority:
 
     @property
     def sentinel_state_path(self) -> Path:
+        if os.geteuid() == 0:
+            raise DeployError("vexp_memorial_deploy_non_root_operator_required")
         return DEFAULT_VEXP_SENTINEL_STATE_PATH
 
     @property
     def sentinel_state_owner_uid(self) -> int:
         return os.geteuid()
+
+    @property
+    def qualification_certificate_root(self) -> Path:
+        return DEFAULT_VEXP_QUALIFICATION_CERTIFICATE_ROOT
+
+    @property
+    def qualification_certificate_directory(self) -> Path:
+        return DEFAULT_VEXP_QUALIFICATION_CERTIFICATE_DIRECTORY
+
+    @property
+    def qualification_certificate_owner_uid(self) -> int:
+        return VEXP_QUALIFICATION_CERTIFICATE_OWNER_UID
+
+    @property
+    def qualification_certificate_owner_gid(self) -> int:
+        return VEXP_QUALIFICATION_CERTIFICATE_OWNER_GID
 
     @property
     def mutation_permit_path(self) -> Path:
@@ -718,12 +1436,194 @@ class VexpMemorialMutationAuthority:
         return 0
 
     @property
+    def mutation_permit_owner_gid(self) -> int:
+        return 0
+
+    @property
+    def mutation_permit_commit_path(self) -> Path:
+        return DEFAULT_VEXP_MUTATION_PERMIT_COMMIT_PATH
+
+    @property
+    def mutation_permit_commit_owner_uid(self) -> int:
+        return 0
+
+    @property
+    def mutation_permit_commit_owner_gid(self) -> int:
+        return 0
+
+    @property
     def mutation_permit_lock_path(self) -> Path:
         return DEFAULT_VEXP_MUTATION_PERMIT_LOCK_PATH
 
     @property
     def mutation_permit_lock_owner_uid(self) -> int:
         return 0
+
+    @property
+    def mutation_permit_lock_owner_gid(self) -> int:
+        return 0
+
+    @property
+    def mutation_authority_trusted_parent(self) -> Path:
+        return DEFAULT_VEXP_MUTATION_AUTHORITY_TRUSTED_PARENT
+
+    @property
+    def mutation_authority_directory_owner_uid(self) -> int:
+        return 0
+
+    @property
+    def mutation_authority_directory_owner_gid(self) -> int:
+        return 0
+
+    def mutation_authority_directory_chain_identity(
+        self,
+    ) -> tuple[tuple[int, ...], ...]:
+        """Capture the exact non-writable directory chain for `/run/ea`.
+
+        Production is intentionally fixed to ``/``, ``/run``, and ``/run/ea``.
+        Test authorities may explicitly replace the trusted parent with their
+        temporary authority directory; production callers cannot configure it.
+        """
+
+        reason = "vexp_mutation_authority_directory_chain"
+        trusted_parent = self.mutation_authority_trusted_parent
+        authority_directory = self.mutation_permit_path.parent
+        authority_paths = (
+            self.mutation_permit_path,
+            self.mutation_permit_commit_path,
+            self.mutation_permit_lock_path,
+        )
+        if (
+            not trusted_parent.is_absolute()
+            or ".." in trusted_parent.parts
+            or any(not path.is_absolute() or ".." in path.parts for path in authority_paths)
+            or any(path.parent != authority_directory for path in authority_paths)
+        ):
+            raise DeployError(f"{reason}_invalid")
+        if trusted_parent == DEFAULT_VEXP_MUTATION_AUTHORITY_TRUSTED_PARENT:
+            if authority_directory != trusted_parent / "ea":
+                raise DeployError(f"{reason}_invalid")
+            chain = (Path("/"), trusted_parent, authority_directory)
+        else:
+            # Explicit test-only authority roots are exact, not inferred from a
+            # caller-selected permit path.
+            if authority_directory != trusted_parent:
+                raise DeployError(f"{reason}_invalid")
+            chain = (trusted_parent,)
+        identities: list[tuple[int, ...]] = []
+        for path in chain:
+            try:
+                metadata = os.stat(path, follow_symlinks=False)
+            except OSError as exc:
+                raise DeployError(f"{reason}_unavailable") from exc
+            if (
+                not stat.S_ISDIR(metadata.st_mode)
+                or stat.S_IMODE(metadata.st_mode) != 0o755
+                or metadata.st_uid != self.mutation_authority_directory_owner_uid
+                or metadata.st_gid != self.mutation_authority_directory_owner_gid
+            ):
+                raise DeployError(f"{reason}_untrusted")
+            identities.append(_trusted_directory_identity(metadata))
+        return tuple(identities)
+
+    @property
+    def epoch_void_ledger_root(self) -> Path:
+        return DEFAULT_VEXP_EPOCH_VOID_LEDGER_ROOT
+
+    @property
+    def epoch_void_ledger_owner_uid(self) -> int:
+        return VEXP_QUALIFICATION_CERTIFICATE_OWNER_UID
+
+    @property
+    def epoch_void_ledger_owner_gid(self) -> int:
+        return VEXP_QUALIFICATION_CERTIFICATE_OWNER_GID
+
+    @property
+    def current_predicate_trusted_parent(self) -> Path:
+        return DEFAULT_VEXP_CURRENT_PREDICATE_TRUSTED_PARENT
+
+    @property
+    def current_predicate_root(self) -> Path:
+        return DEFAULT_VEXP_CURRENT_PREDICATE_ROOT
+
+    @property
+    def current_predicate_records_directory(self) -> Path:
+        return DEFAULT_VEXP_CURRENT_PREDICATE_RECORDS_DIRECTORY
+
+    @property
+    def current_predicate_pointer_path(self) -> Path:
+        return DEFAULT_VEXP_CURRENT_PREDICATE_POINTER_PATH
+
+    @property
+    def current_predicate_producer_manifest_path(self) -> Path:
+        return DEFAULT_VEXP_CURRENT_PREDICATE_PRODUCER_MANIFEST_PATH
+
+    @property
+    def current_predicate_producer_path(self) -> Path:
+        return TRUSTED_VEXP_CURRENT_PREDICATE_PRODUCER
+
+    @property
+    def current_predicate_producer_trusted_parent(self) -> Path:
+        return DEFAULT_VEXP_TRUSTED_ROOT_PRODUCER_PARENT
+
+    @property
+    def current_predicate_producer_owner_uid(self) -> int:
+        return 0
+
+    @property
+    def current_predicate_producer_owner_gid(self) -> int:
+        return 0
+
+    @property
+    def current_predicate_owner_uid(self) -> int:
+        return VEXP_CURRENT_PREDICATE_OWNER_UID
+
+    @property
+    def current_predicate_owner_gid(self) -> int:
+        return VEXP_CURRENT_PREDICATE_OWNER_GID
+
+    def current_boot_id(self) -> str:
+        reason = "vexp_current_predicate_boot_id"
+        if not hasattr(os, "O_NOFOLLOW"):
+            raise DeployError(f"{reason}_nofollow_unavailable")
+        if not hasattr(os, "O_NONBLOCK"):
+            raise DeployError(f"{reason}_nonblock_unavailable")
+        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+        descriptor = -1
+        try:
+            descriptor = os.open(DEFAULT_VEXP_BOOT_ID_PATH, flags)
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != 0
+                or stat.S_IMODE(metadata.st_mode) != 0o444
+            ):
+                raise DeployError(f"{reason}_untrusted")
+            raw = os.read(descriptor, 129)
+            final_metadata = os.fstat(descriptor)
+        except DeployError:
+            raise
+        except OSError as exc:
+            raise DeployError(f"{reason}_unavailable") from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        if _trusted_file_identity(final_metadata) != _trusted_file_identity(metadata):
+            raise DeployError(f"{reason}_changed_during_read")
+        try:
+            value = raw.decode("ascii").strip().lower()
+        except UnicodeDecodeError as exc:
+            raise DeployError(f"{reason}_invalid") from exc
+        if not re.fullmatch(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+            r"[0-9a-f]{4}-[0-9a-f]{12}",
+            value,
+        ):
+            raise DeployError(f"{reason}_invalid")
+        return value
+
+    def monotonic_ns(self) -> int:
+        return time.monotonic_ns()
 
     def utc_now(self) -> datetime:
         return datetime.now(UTC)
@@ -732,6 +1632,7 @@ class VexpMemorialMutationAuthority:
     def shared_lease(self) -> Iterator[None]:
         """Hold the issuer-coordinated shared authorization lock."""
         reason_prefix = "vexp_mutation_permit_lock"
+        initial_directory_chain = self.mutation_authority_directory_chain_identity()
         if not hasattr(os, "O_NOFOLLOW"):
             raise DeployError(f"{reason_prefix}_nofollow_unavailable")
         if not hasattr(os, "O_NONBLOCK"):
@@ -752,6 +1653,7 @@ class VexpMemorialMutationAuthority:
                 or metadata.st_nlink != 1
                 or stat.S_IMODE(metadata.st_mode) != 0o644
                 or metadata.st_uid != self.mutation_permit_lock_owner_uid
+                or metadata.st_gid != self.mutation_permit_lock_owner_gid
             ):
                 raise DeployError(f"{reason_prefix}_untrusted")
             try:
@@ -774,16 +1676,55 @@ class VexpMemorialMutationAuthority:
                 != _trusted_file_identity(metadata)
                 or _trusted_file_identity(final_path_metadata)
                 != _trusted_file_identity(metadata)
+                or self.mutation_authority_directory_chain_identity()
+                != initial_directory_chain
             ):
                 raise DeployError(f"{reason_prefix}_changed_during_acquire")
-            yield
+
+            def require_same_lock() -> None:
+                try:
+                    current_metadata = os.fstat(descriptor)
+                    current_path_metadata = os.stat(
+                        self.mutation_permit_lock_path,
+                        follow_symlinks=False,
+                    )
+                except OSError as exc:
+                    raise DeployError(f"{reason_prefix}_changed") from exc
+                if (
+                    _trusted_file_identity(current_metadata)
+                    != _trusted_file_identity(metadata)
+                    or _trusted_file_identity(current_path_metadata)
+                    != _trusted_file_identity(metadata)
+                    or self.mutation_authority_directory_chain_identity()
+                    != initial_directory_chain
+                ):
+                    raise DeployError(f"{reason_prefix}_changed")
+
+            try:
+                yield
+            except BaseException as action_error:
+                try:
+                    require_same_lock()
+                except BaseException as postcheck_error:
+                    raise postcheck_error from action_error
+                raise
+            else:
+                require_same_lock()
         finally:
+            release_error: DeployError | None = None
             if locked:
                 try:
                     fcntl.flock(descriptor, fcntl.LOCK_UN)
-                except OSError:
-                    pass
-            os.close(descriptor)
+                except OSError as exc:
+                    release_error = DeployError(f"{reason_prefix}_release_failed")
+                    release_error.__cause__ = exc
+            try:
+                os.close(descriptor)
+            except OSError as exc:
+                release_error = DeployError(f"{reason_prefix}_close_failed")
+                release_error.__cause__ = exc
+            if release_error is not None:
+                raise release_error
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -1589,6 +2530,12 @@ class MemorialDeployLane:
     vexp_mutation_permit_contract_name = VEXP_MUTATION_PERMIT_CONTRACT_NAME
     vexp_mutation_permit_version = VEXP_MUTATION_PERMIT_VERSION
     vexp_mutation_boundaries = VEXP_MUTATION_BOUNDARIES
+    vexp_transaction_forward_seconds = (
+        MAX_VEXP_MUTATION_TRANSACTION_FORWARD_SECONDS
+    )
+    vexp_transaction_rollback_seconds = (
+        MAX_VEXP_MUTATION_TRANSACTION_ROLLBACK_SECONDS
+    )
 
     def __init__(
         self,
@@ -1612,6 +2559,13 @@ class MemorialDeployLane:
         bind_source_validator: Callable[..., dict[str, object]] = (
             validate_memorial_bind_sources
         ),
+        release_evidence_verifier: Callable[
+            [Mapping[str, bytes]],
+            tuple[Mapping[str, Any], Mapping[str, Any]],
+        ]
+        | None = None,
+        gemini_oauth_snapshot_factory: Callable[[], CredentialSnapshot]
+        | None = None,
     ) -> None:
         self.root = root.resolve()
         self.env = dict(os.environ if env is None else env)
@@ -1626,6 +2580,8 @@ class MemorialDeployLane:
         self.internal_openapi_snapshot = internal_openapi_snapshot
         self.durable_root_check = durable_root_check
         self.bind_source_validator = bind_source_validator
+        self.release_evidence_verifier = release_evidence_verifier
+        self.gemini_oauth_snapshot_factory = gemini_oauth_snapshot_factory
         self.env_file_values = _parse_env_file(self.root / ".env")
         self.deployment_id = _safe_deployment_id(self.env)
         self.memorial_image_reference = str(
@@ -1634,13 +2590,17 @@ class MemorialDeployLane:
         self.candidate_receipt_value = str(
             self.env.get("EA_MEMORIAL_CANDIDATE_RECEIPT") or ""
         ).strip()
-        self.control_tour_slug = str(
+        self.legacy_control_tour_slug = str(
             self.env.get("EA_MEMORIAL_CONTROL_TOUR_SLUG") or ""
         ).strip()
-        if self.control_tour_slug and not CONTROL_TOUR_SLUG_PATTERN.fullmatch(
-            self.control_tour_slug
+        if self.legacy_control_tour_slug and not CONTROL_TOUR_SLUG_PATTERN.fullmatch(
+            self.legacy_control_tour_slug
         ):
             raise DeployError("memorial_control_tour_slug_invalid")
+        # Conversation-only Memorial never consumes the legacy PropertyQuarry
+        # control-tour setting. The joint/spatial deployer remains the explicit
+        # legacy lane for that separate product plane.
+        self.control_tour_slug = ""
         configured_hosts = _first_nonempty(
             self.env.get("EA_MEMORIAL_PUBLIC_HOST_ALLOWLIST"),
             self.env_file_values.get("EA_MEMORIAL_PUBLIC_HOST_ALLOWLIST"),
@@ -1679,6 +2639,15 @@ class MemorialDeployLane:
         self._vexp_mutation_authority = VexpMemorialMutationAuthority()
         self._vexp_mutation_deadline: float | None = None
         self._vexp_mutation_expires_at: datetime | None = None
+        self._vexp_transaction_deadline: float | None = None
+        self._vexp_transaction_forward_deadline: float | None = None
+        self._vexp_transaction_rollback_deadline: float | None = None
+        self._vexp_transaction_expires_at: datetime | None = None
+        self._vexp_transaction_permit_sha256 = ""
+        self._vexp_transaction_phase: str | None = None
+        self._candidate_finalization_authority_identity: (
+            tuple[int, str] | None
+        ) = None
         self._lock_handle: Any | None = None
         self._global_lock_handle: Any | None = None
         self.compose_bin: tuple[str, ...] = ()
@@ -1691,6 +2660,12 @@ class MemorialDeployLane:
             "project_name": PROJECT_NAME,
             "service_scope": [API_SERVICE, REDIS_SERVICE],
             "api_mutation_scope": [API_SERVICE],
+            "credential_mutation_scope": [GEMINI_OAUTH_API_TARGET],
+            "memorial_surface": MEMORIAL_SURFACE,
+            "spatial_scope": SPATIAL_SCOPE,
+            "legacy_control_tour_configured_but_not_consumed": bool(
+                self.legacy_control_tour_slug
+            ),
             "target_compose_files": [],
             "rollback_compose_files": [],
             "started_at": _utc_now(),
@@ -1971,6 +2946,7 @@ class MemorialDeployLane:
         expected_uid: int,
         max_bytes: int,
         reason_prefix: str,
+        expected_gid: int | None = None,
     ) -> bytes:
         if not hasattr(os, "O_NOFOLLOW"):
             raise DeployError(f"{reason_prefix}_nofollow_unavailable")
@@ -1989,6 +2965,7 @@ class MemorialDeployLane:
                 or metadata.st_nlink != 1
                 or stat.S_IMODE(metadata.st_mode) != expected_mode
                 or metadata.st_uid != expected_uid
+                or (expected_gid is not None and metadata.st_gid != expected_gid)
             ):
                 raise DeployError(f"{reason_prefix}_untrusted")
             if not 0 < metadata.st_size <= max_bytes:
@@ -2049,16 +3026,1254 @@ class MemorialDeployLane:
             raise DeployError("vexp_sentinel_state_epoch_invalid")
         return payload, hashlib.sha256(raw).hexdigest()
 
+    def _validate_vexp_current_predicate_directory_chain(
+        self,
+    ) -> tuple[tuple[int, ...], ...]:
+        authority = self._vexp_mutation_authority
+        trusted_parent = authority.current_predicate_trusted_parent
+        root = authority.current_predicate_root
+        records = authority.current_predicate_records_directory
+        pointer = authority.current_predicate_pointer_path
+        producer_manifest = authority.current_predicate_producer_manifest_path
+        paths: tuple[Path, ...] = (trusted_parent, root, records)
+        if (
+            any(not path.is_absolute() or ".." in path.parts for path in paths)
+            or root != trusted_parent / "vexp-qualification-current-predicate"
+            or records != root / "records"
+            or pointer != root / "current.json"
+            or producer_manifest != root / "producer-manifest.json"
+        ):
+            raise DeployError("vexp_current_predicate_path_contract_invalid")
+        if trusted_parent == Path("/var/lib"):
+            paths = (Path("/"), Path("/var"), *paths)
+        identities: list[tuple[int, ...]] = []
+        for path in paths:
+            try:
+                metadata = os.stat(path, follow_symlinks=False)
+            except OSError as exc:
+                raise DeployError(
+                    "vexp_current_predicate_directory_chain_unavailable"
+                ) from exc
+            if (
+                not stat.S_ISDIR(metadata.st_mode)
+                or metadata.st_uid != authority.current_predicate_owner_uid
+                or stat.S_IMODE(metadata.st_mode) & 0o022
+            ):
+                raise DeployError(
+                    "vexp_current_predicate_directory_chain_untrusted"
+                )
+            if path in {root, records} and (
+                stat.S_IMODE(metadata.st_mode)
+                != VEXP_CURRENT_PREDICATE_DIRECTORY_MODE
+                or metadata.st_gid != authority.current_predicate_owner_gid
+            ):
+                raise DeployError(
+                    "vexp_current_predicate_directory_chain_untrusted"
+                )
+            identities.append(_trusted_file_identity(metadata))
+        return tuple(identities)
+
+    def _vexp_current_predicate_monotonic_now(self) -> int:
+        try:
+            value = self._vexp_mutation_authority.monotonic_ns()
+        except DeployError:
+            raise
+        except Exception as exc:
+            raise DeployError(
+                "vexp_current_predicate_monotonic_clock_invalid"
+            ) from exc
+        if type(value) is not int or value <= 0:
+            raise DeployError("vexp_current_predicate_monotonic_clock_invalid")
+        return value
+
+    def _vexp_current_predicate_generation_paths(
+        self, *, epoch_started_ms: int, generation: int
+    ) -> tuple[Path, ...]:
+        """Return the exact, gap-free current-epoch predicate history."""
+
+        reason = "vexp_current_predicate_generation_invalid"
+        if (
+            type(epoch_started_ms) is not int
+            or epoch_started_ms <= 0
+            or type(generation) is not int
+            or generation <= 0
+        ):
+            raise DeployError(reason)
+        records = self._vexp_mutation_authority.current_predicate_records_directory
+        prefix = f"{epoch_started_ms}-"
+        generations: dict[int, Path] = {}
+        try:
+            with os.scandir(records) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if not name.startswith(prefix):
+                        continue
+                    match = re.fullmatch(
+                        rf"{re.escape(prefix)}([1-9][0-9]*)\.json", name
+                    )
+                    if match is None:
+                        raise DeployError(reason)
+                    record_generation = int(match.group(1))
+                    if record_generation in generations:
+                        raise DeployError(reason)
+                    generations[record_generation] = records / name
+        except DeployError:
+            raise
+        except OSError as exc:
+            raise DeployError(reason) from exc
+        ordered_generations = sorted(generations)
+        if (
+            len(ordered_generations) != generation
+            or any(
+                observed != expected
+                for expected, observed in enumerate(ordered_generations, start=1)
+            )
+        ):
+            raise DeployError(reason)
+        return tuple(generations[index] for index in ordered_generations)
+
+    def _measure_trusted_vexp_current_predicate_producer(
+        self,
+        *,
+        expected_sha256: str,
+    ) -> tuple[str, tuple[int, ...]]:
+        authority = self._vexp_mutation_authority
+        producer_path = authority.current_predicate_producer_path
+        trusted_parent = authority.current_predicate_producer_trusted_parent
+        expected_digest = _require_vexp_sha256(
+            expected_sha256,
+            reason="vexp_current_predicate_producer_sha256_invalid",
+        )
+        if (
+            not producer_path.is_absolute()
+            or not trusted_parent.is_absolute()
+            or ".." in producer_path.parts
+            or ".." in trusted_parent.parts
+            or producer_path.parent != trusted_parent
+        ):
+            raise DeployError("vexp_current_predicate_producer_path_invalid")
+        parent_chain: tuple[Path, ...] = (trusted_parent,)
+        if trusted_parent == DEFAULT_VEXP_TRUSTED_ROOT_PRODUCER_PARENT:
+            parent_chain = (
+                Path("/"),
+                Path("/usr"),
+                Path("/usr/local"),
+                trusted_parent,
+            )
+        for directory in parent_chain:
+            try:
+                directory_metadata = os.stat(directory, follow_symlinks=False)
+            except OSError as exc:
+                raise DeployError(
+                    "vexp_current_predicate_producer_parent_unavailable"
+                ) from exc
+            if (
+                not stat.S_ISDIR(directory_metadata.st_mode)
+                or stat.S_IMODE(directory_metadata.st_mode)
+                != VEXP_TRUSTED_ROOT_PRODUCER_PARENT_MODE
+                or directory_metadata.st_uid
+                != authority.current_predicate_producer_owner_uid
+                or directory_metadata.st_gid
+                != authority.current_predicate_producer_owner_gid
+            ):
+                raise DeployError("vexp_current_predicate_producer_parent_untrusted")
+        if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_NONBLOCK"):
+            raise DeployError("vexp_current_predicate_producer_safe_open_unavailable")
+        descriptor = -1
+        try:
+            descriptor = os.open(
+                producer_path,
+                os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+            )
+        except OSError as exc:
+            raise DeployError("vexp_current_predicate_producer_unavailable") from exc
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or stat.S_IMODE(metadata.st_mode) != VEXP_TRUSTED_ROOT_PRODUCER_MODE
+                or metadata.st_uid != authority.current_predicate_producer_owner_uid
+                or metadata.st_gid != authority.current_predicate_producer_owner_gid
+                or not 0 < metadata.st_size <= MAX_VEXP_TRUSTED_ROOT_PRODUCER_BYTES
+            ):
+                raise DeployError("vexp_current_predicate_producer_untrusted")
+            with os.fdopen(descriptor, "rb") as handle:
+                descriptor = -1
+                raw = handle.read(MAX_VEXP_TRUSTED_ROOT_PRODUCER_BYTES + 1)
+                final_metadata = os.fstat(handle.fileno())
+        except OSError as exc:
+            raise DeployError("vexp_current_predicate_producer_unreadable") from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        try:
+            final_path_metadata = os.stat(producer_path, follow_symlinks=False)
+        except OSError as exc:
+            raise DeployError(
+                "vexp_current_predicate_producer_changed_during_read"
+            ) from exc
+        identity = _trusted_file_identity(metadata)
+        if (
+            len(raw) != metadata.st_size
+            or len(raw) > MAX_VEXP_TRUSTED_ROOT_PRODUCER_BYTES
+            or _trusted_file_identity(final_metadata) != identity
+            or _trusted_file_identity(final_path_metadata) != identity
+        ):
+            raise DeployError("vexp_current_predicate_producer_changed_during_read")
+        observed_digest = hashlib.sha256(raw).hexdigest()
+        if observed_digest != expected_digest:
+            raise DeployError("vexp_current_predicate_producer_sha256_mismatch")
+        return observed_digest, identity
+
+    def _read_trusted_vexp_current_predicate(
+        self,
+        *,
+        state: Mapping[str, Any],
+        state_sha256: str,
+        qualification_certificate: Mapping[str, Any],
+        qualification_certificate_evidence: Mapping[str, str],
+        now: datetime,
+    ) -> dict[str, object]:
+        authority = self._vexp_mutation_authority
+        initial_directory_identities = (
+            self._validate_vexp_current_predicate_directory_chain()
+        )
+        producer_manifest_raw = self._read_trusted_guard_file(
+            authority.current_predicate_producer_manifest_path,
+            expected_mode=VEXP_CURRENT_PREDICATE_FILE_MODE,
+            expected_uid=authority.current_predicate_owner_uid,
+            expected_gid=authority.current_predicate_owner_gid,
+            max_bytes=MAX_VEXP_CURRENT_PREDICATE_POINTER_BYTES,
+            reason_prefix="vexp_current_predicate_producer_manifest",
+        )
+        producer_manifest = _decode_guard_json(
+            producer_manifest_raw,
+            reason="vexp_current_predicate_producer_manifest_json_invalid",
+        )
+        if producer_manifest_raw != _canonical_guard_json_bytes(producer_manifest):
+            raise DeployError(
+                "vexp_current_predicate_producer_manifest_not_canonical"
+            )
+        if (
+            set(producer_manifest)
+            != VEXP_CURRENT_PREDICATE_PRODUCER_MANIFEST_KEYS
+            or producer_manifest.get("contract_name")
+            != VEXP_CURRENT_PREDICATE_PRODUCER_MANIFEST_CONTRACT_NAME
+            or type(producer_manifest.get("version")) is not int
+            or producer_manifest["version"]
+            != VEXP_CURRENT_PREDICATE_PRODUCER_MANIFEST_VERSION
+            or producer_manifest.get("status") != "reviewed"
+            or producer_manifest.get("producer_path")
+            != str(authority.current_predicate_producer_path)
+        ):
+            raise DeployError(
+                "vexp_current_predicate_producer_manifest_contract_invalid"
+            )
+        root_predicate_producer_sha256 = _require_vexp_sha256(
+            producer_manifest.get("producer_sha256"),
+            reason="vexp_current_predicate_producer_manifest_contract_invalid",
+        )
+        (
+            measured_root_predicate_producer_sha256,
+            root_predicate_producer_identity,
+        ) = self._measure_trusted_vexp_current_predicate_producer(
+            expected_sha256=root_predicate_producer_sha256,
+        )
+        pointer_raw = self._read_trusted_guard_file(
+            authority.current_predicate_pointer_path,
+            expected_mode=VEXP_CURRENT_PREDICATE_FILE_MODE,
+            expected_uid=authority.current_predicate_owner_uid,
+            expected_gid=authority.current_predicate_owner_gid,
+            max_bytes=MAX_VEXP_CURRENT_PREDICATE_POINTER_BYTES,
+            reason_prefix="vexp_current_predicate_pointer",
+        )
+        pointer = _decode_guard_json(
+            pointer_raw,
+            reason="vexp_current_predicate_pointer_json_invalid",
+        )
+        if pointer_raw != _canonical_guard_json_bytes(pointer):
+            raise DeployError("vexp_current_predicate_pointer_not_canonical")
+        if (
+            set(pointer) != VEXP_CURRENT_PREDICATE_POINTER_KEYS
+            or pointer.get("contract_name")
+            != VEXP_CURRENT_PREDICATE_POINTER_CONTRACT_NAME
+            or type(pointer.get("version")) is not int
+            or pointer["version"] != VEXP_CURRENT_PREDICATE_POINTER_VERSION
+            or pointer.get("status") != "published"
+        ):
+            raise DeployError("vexp_current_predicate_pointer_contract_invalid")
+
+        epoch_started_ms = state.get("epoch_started_ms")
+        generation = pointer.get("generation")
+        if (
+            type(epoch_started_ms) is not int
+            or epoch_started_ms <= 0
+            or pointer.get("epoch_started_ms") != epoch_started_ms
+            or type(generation) is not int
+            or generation <= 0
+        ):
+            raise DeployError("vexp_current_predicate_pointer_binding_invalid")
+        pointer_record_sha256 = _require_vexp_sha256(
+            pointer.get("record_sha256"),
+            reason="vexp_current_predicate_pointer_binding_invalid",
+        )
+        generation_paths = self._vexp_current_predicate_generation_paths(
+            epoch_started_ms=epoch_started_ms,
+            generation=generation,
+        )
+        expected_record_path = generation_paths[-1]
+        if pointer.get("record_path") != str(expected_record_path):
+            raise DeployError("vexp_current_predicate_pointer_binding_invalid")
+
+        chain_raw: list[bytes] = []
+        chain: list[dict[str, Any]] = []
+        chain_sha256: list[str] = []
+        for record_index, history_path in enumerate(generation_paths, start=1):
+            history_raw = self._read_trusted_guard_file(
+                history_path,
+                expected_mode=VEXP_CURRENT_PREDICATE_FILE_MODE,
+                expected_uid=authority.current_predicate_owner_uid,
+                expected_gid=authority.current_predicate_owner_gid,
+                max_bytes=MAX_VEXP_CURRENT_PREDICATE_RECORD_BYTES,
+                reason_prefix=(
+                    "vexp_current_predicate_record"
+                    if record_index == generation
+                    else "vexp_current_predicate_history_record"
+                ),
+            )
+            history = _decode_guard_json(
+                history_raw,
+                reason="vexp_current_predicate_record_json_invalid",
+            )
+            if history_raw != _canonical_guard_json_bytes(history):
+                raise DeployError(
+                    "vexp_current_predicate_record_not_canonical"
+                    if record_index == generation
+                    else "vexp_current_predicate_generation_invalid"
+                )
+            chain_raw.append(history_raw)
+            chain.append(history)
+            chain_sha256.append(hashlib.sha256(history_raw).hexdigest())
+        record_raw = chain_raw[-1]
+        record = chain[-1]
+        record_sha256 = chain_sha256[-1]
+        if record_sha256 != pointer_record_sha256:
+            raise DeployError("vexp_current_predicate_record_sha256_mismatch")
+
+        observed_at = _parse_vexp_utc_timestamp(
+            record.get("observed_at"),
+            reason="vexp_current_predicate_wall_clock_invalid",
+        )
+        recorded_at = _parse_vexp_utc_timestamp(
+            record.get("recorded_at"),
+            reason="vexp_current_predicate_wall_clock_invalid",
+        )
+        state_updated_at = _parse_vexp_utc_timestamp(
+            state.get("updated_at"),
+            reason="vexp_current_predicate_wall_clock_invalid",
+        )
+        if (
+            observed_at != state_updated_at
+            or observed_at > recorded_at
+            or observed_at < now - MAX_VEXP_CURRENT_PREDICATE_AGE
+            or recorded_at < now - MAX_VEXP_CURRENT_PREDICATE_AGE
+            or observed_at > now + MAX_VEXP_CURRENT_PREDICATE_FUTURE_SKEW
+            or recorded_at > now + MAX_VEXP_CURRENT_PREDICATE_FUTURE_SKEW
+        ):
+            raise DeployError("vexp_current_predicate_wall_clock_invalid")
+
+        try:
+            current_boot_id = authority.current_boot_id()
+        except DeployError:
+            raise
+        except Exception as exc:
+            raise DeployError("vexp_current_predicate_boot_id_invalid") from exc
+        if (
+            not isinstance(current_boot_id, str)
+            or not re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                r"[0-9a-f]{4}-[0-9a-f]{12}",
+                current_boot_id,
+            )
+            or record.get("boot_id") != current_boot_id
+        ):
+            raise DeployError("vexp_current_predicate_boot_id_invalid")
+        record_monotonic_ns = record.get("monotonic_ns")
+        current_monotonic_ns = self._vexp_current_predicate_monotonic_now()
+        maximum_age_ns = int(
+            MAX_VEXP_CURRENT_PREDICATE_AGE.total_seconds() * 1_000_000_000
+        )
+        if (
+            type(record_monotonic_ns) is not int
+            or record_monotonic_ns <= 0
+            or record_monotonic_ns > current_monotonic_ns
+            or current_monotonic_ns - record_monotonic_ns > maximum_age_ns
+        ):
+            raise DeployError("vexp_current_predicate_monotonic_clock_invalid")
+
+        source_attestations = qualification_certificate.get("source_attestations")
+        implementation = (
+            source_attestations.get("implementation")
+            if isinstance(source_attestations, dict)
+            else None
+        )
+        sentinel_executable = (
+            implementation.get("sentinel_executable")
+            if isinstance(implementation, dict)
+            else None
+        )
+        predicate_contract = (
+            implementation.get("predicate_contract")
+            if isinstance(implementation, dict)
+            else None
+        )
+        sentinel_producer_sha256 = _require_vexp_sha256(
+            sentinel_executable.get("sha256")
+            if isinstance(sentinel_executable, dict)
+            else None,
+            reason="vexp_current_predicate_producer_binding_invalid",
+        )
+        predicate_contract_sha256 = _require_vexp_sha256(
+            predicate_contract.get("sha256")
+            if isinstance(predicate_contract, dict)
+            else None,
+            reason="vexp_current_predicate_contract_binding_invalid",
+        )
+        certificate_sha256 = _require_vexp_sha256(
+            qualification_certificate_evidence.get("sha256"),
+            reason="vexp_current_predicate_certificate_binding_invalid",
+        )
+        terminal_identity_sha256 = _vexp_terminal_identity_sha256(state)
+        previous_observed_at: datetime | None = None
+        previous_recorded_at: datetime | None = None
+        previous_monotonic_ns: int | None = None
+        for record_index, (history, history_sha256) in enumerate(
+            zip(chain, chain_sha256, strict=True), start=1
+        ):
+            del history_sha256
+            structural_reason = (
+                "vexp_current_predicate_record_contract_invalid"
+                if record_index == generation
+                else "vexp_current_predicate_generation_invalid"
+            )
+            if (
+                set(history) != VEXP_CURRENT_PREDICATE_KEYS
+                or history.get("contract_name")
+                != VEXP_CURRENT_PREDICATE_CONTRACT_NAME
+                or type(history.get("version")) is not int
+                or history["version"] != VEXP_CURRENT_PREDICATE_VERSION
+                or history.get("status") != "positive"
+                or history.get("epoch_started_ms") != epoch_started_ms
+                or history.get("generation") != record_index
+            ):
+                raise DeployError(structural_reason)
+            expected_previous_sha256 = (
+                "0" * 64 if record_index == 1 else chain_sha256[record_index - 2]
+            )
+            if history.get("previous_record_sha256") != expected_previous_sha256:
+                raise DeployError("vexp_current_predicate_generation_invalid")
+            history_observed_at = _parse_vexp_utc_timestamp(
+                history.get("observed_at"),
+                reason="vexp_current_predicate_wall_clock_invalid",
+            )
+            history_recorded_at = _parse_vexp_utc_timestamp(
+                history.get("recorded_at"),
+                reason="vexp_current_predicate_wall_clock_invalid",
+            )
+            if (
+                history_observed_at > history_recorded_at
+                or history_observed_at
+                > now + MAX_VEXP_CURRENT_PREDICATE_FUTURE_SKEW
+                or history_recorded_at
+                > now + MAX_VEXP_CURRENT_PREDICATE_FUTURE_SKEW
+                or (
+                    previous_observed_at is not None
+                    and history_observed_at < previous_observed_at
+                )
+                or (
+                    previous_recorded_at is not None
+                    and history_recorded_at < previous_recorded_at
+                )
+            ):
+                raise DeployError("vexp_current_predicate_generation_invalid")
+            if (
+                history.get("boot_id") != current_boot_id
+                or qualification_certificate.get("qualification_boot_id")
+                != current_boot_id
+            ):
+                raise DeployError("vexp_current_predicate_boot_id_invalid")
+            history_monotonic_ns = history.get("monotonic_ns")
+            if (
+                type(history_monotonic_ns) is not int
+                or history_monotonic_ns <= 0
+                or history_monotonic_ns > current_monotonic_ns
+                or (
+                    previous_monotonic_ns is not None
+                    and history_monotonic_ns <= previous_monotonic_ns
+                )
+            ):
+                raise DeployError("vexp_current_predicate_monotonic_clock_invalid")
+            _require_vexp_sha256(
+                history.get("sentinel_state_sha256"),
+                reason="vexp_current_predicate_binding_invalid",
+            )
+            if (
+                not authority.sentinel_state_path.is_absolute()
+                or history.get("sentinel_state_path")
+                != str(authority.sentinel_state_path)
+                or history.get("sentinel_state_owner_uid")
+                != authority.sentinel_state_owner_uid
+                or history.get("terminal_identity_sha256")
+                != terminal_identity_sha256
+                or history.get("qualification_certificate_sha256")
+                != certificate_sha256
+                or history.get("predicate_contract_sha256")
+                != predicate_contract_sha256
+                or history.get("sentinel_producer_sha256")
+                != sentinel_producer_sha256
+                or history.get("root_predicate_producer_sha256")
+                != root_predicate_producer_sha256
+                or history.get("current_resources_healthy") is not True
+                or history.get("certification_blockers") != []
+                or history.get("certification_deferments") != []
+            ):
+                raise DeployError("vexp_current_predicate_binding_invalid")
+            previous_observed_at = history_observed_at
+            previous_recorded_at = history_recorded_at
+            previous_monotonic_ns = history_monotonic_ns
+        if (
+            not authority.sentinel_state_path.is_absolute()
+            or record.get("sentinel_state_path")
+            != str(authority.sentinel_state_path)
+            or record.get("sentinel_state_owner_uid")
+            != authority.sentinel_state_owner_uid
+            or record.get("sentinel_state_sha256") != state_sha256
+            or record.get("terminal_identity_sha256")
+            != terminal_identity_sha256
+            or record.get("qualification_certificate_sha256")
+            != certificate_sha256
+            or record.get("predicate_contract_sha256")
+            != predicate_contract_sha256
+            or state.get("predicate_contract_sha256")
+            != predicate_contract_sha256
+            or record.get("sentinel_producer_sha256")
+            != sentinel_producer_sha256
+            or record.get("root_predicate_producer_sha256")
+            != root_predicate_producer_sha256
+            or record.get("current_resources_healthy") is not True
+            or record.get("certification_blockers") != []
+            or record.get("certification_deferments") != []
+            or state.get("current_resources_healthy") is not True
+            or state.get("certification_blockers") != []
+            or state.get("certification_deferments") != []
+        ):
+            raise DeployError("vexp_current_predicate_binding_invalid")
+
+        final_pointer_raw = self._read_trusted_guard_file(
+            authority.current_predicate_pointer_path,
+            expected_mode=VEXP_CURRENT_PREDICATE_FILE_MODE,
+            expected_uid=authority.current_predicate_owner_uid,
+            expected_gid=authority.current_predicate_owner_gid,
+            max_bytes=MAX_VEXP_CURRENT_PREDICATE_POINTER_BYTES,
+            reason_prefix="vexp_current_predicate_pointer",
+        )
+        final_generation_paths = self._vexp_current_predicate_generation_paths(
+            epoch_started_ms=epoch_started_ms,
+            generation=generation,
+        )
+        final_chain_raw = [
+            self._read_trusted_guard_file(
+                history_path,
+                expected_mode=VEXP_CURRENT_PREDICATE_FILE_MODE,
+                expected_uid=authority.current_predicate_owner_uid,
+                expected_gid=authority.current_predicate_owner_gid,
+                max_bytes=MAX_VEXP_CURRENT_PREDICATE_RECORD_BYTES,
+                reason_prefix="vexp_current_predicate_history_record",
+            )
+            for history_path in final_generation_paths
+        ]
+        final_directory_identities = (
+            self._validate_vexp_current_predicate_directory_chain()
+        )
+        final_producer_manifest_raw = self._read_trusted_guard_file(
+            authority.current_predicate_producer_manifest_path,
+            expected_mode=VEXP_CURRENT_PREDICATE_FILE_MODE,
+            expected_uid=authority.current_predicate_owner_uid,
+            expected_gid=authority.current_predicate_owner_gid,
+            max_bytes=MAX_VEXP_CURRENT_PREDICATE_POINTER_BYTES,
+            reason_prefix="vexp_current_predicate_producer_manifest",
+        )
+        (
+            final_root_predicate_producer_sha256,
+            final_root_predicate_producer_identity,
+        ) = self._measure_trusted_vexp_current_predicate_producer(
+            expected_sha256=root_predicate_producer_sha256,
+        )
+        if (
+            final_pointer_raw != pointer_raw
+            or final_generation_paths != generation_paths
+            or final_chain_raw != chain_raw
+            or final_producer_manifest_raw != producer_manifest_raw
+            or final_root_predicate_producer_sha256
+            != measured_root_predicate_producer_sha256
+            or final_root_predicate_producer_identity
+            != root_predicate_producer_identity
+            or final_directory_identities != initial_directory_identities
+        ):
+            raise DeployError(
+                "vexp_current_predicate_changed_during_read"
+            )
+        summary = {
+            "contract_name": record["contract_name"],
+            "version": record["version"],
+            "status": record["status"],
+            "epoch_started_ms": record["epoch_started_ms"],
+            "generation": record["generation"],
+            "record_sha256": record_sha256,
+            "boot_id": record["boot_id"],
+            "monotonic_ns": record["monotonic_ns"],
+            "sentinel_producer_sha256": record[
+                "sentinel_producer_sha256"
+            ],
+            "root_predicate_producer_sha256": record[
+                "root_predicate_producer_sha256"
+            ],
+        }
+        if set(summary) != VEXP_CURRENT_PREDICATE_STATUS_KEYS:
+            raise DeployError("vexp_current_predicate_summary_invalid")
+        return summary
+
+    def _require_vexp_epoch_not_voided(
+        self, state: Mapping[str, Any]
+    ) -> None:
+        authority = self._vexp_mutation_authority
+        root = authority.epoch_void_ledger_root
+        if not root.is_absolute():
+            raise DeployError("vexp_epoch_void_ledger_root_untrusted")
+        try:
+            root_metadata = os.stat(root, follow_symlinks=False)
+        except OSError as exc:
+            raise DeployError("vexp_epoch_void_ledger_root_unavailable") from exc
+        if (
+            not stat.S_ISDIR(root_metadata.st_mode)
+            or stat.S_IMODE(root_metadata.st_mode)
+            != VEXP_EPOCH_VOID_LEDGER_DIRECTORY_MODE
+            or root_metadata.st_uid != authority.epoch_void_ledger_owner_uid
+            or root_metadata.st_gid != authority.epoch_void_ledger_owner_gid
+        ):
+            raise DeployError("vexp_epoch_void_ledger_root_untrusted")
+        epoch_started_ms = state.get("epoch_started_ms")
+        if type(epoch_started_ms) is not int or epoch_started_ms <= 0:
+            raise DeployError("vexp_sentinel_state_epoch_invalid")
+        entry = root / f"{epoch_started_ms}.json"
+        try:
+            os.stat(entry, follow_symlinks=False)
+        except FileNotFoundError:
+            try:
+                final_root_metadata = os.stat(root, follow_symlinks=False)
+            except OSError as exc:
+                raise DeployError(
+                    "vexp_epoch_void_ledger_root_changed_during_check"
+                ) from exc
+            if _trusted_file_identity(
+                final_root_metadata
+            ) != _trusted_file_identity(root_metadata):
+                raise DeployError(
+                    "vexp_epoch_void_ledger_root_changed_during_check"
+                )
+            return
+        except OSError as exc:
+            raise DeployError("vexp_epoch_void_ledger_entry_untrusted") from exc
+        self._read_trusted_guard_file(
+            entry,
+            expected_mode=VEXP_EPOCH_VOID_LEDGER_ENTRY_MODE,
+            expected_uid=authority.epoch_void_ledger_owner_uid,
+            expected_gid=authority.epoch_void_ledger_owner_gid,
+            max_bytes=MAX_VEXP_EPOCH_VOID_LEDGER_ENTRY_BYTES,
+            reason_prefix="vexp_epoch_void_ledger_entry",
+        )
+        raise DeployError("vexp_qualification_epoch_voided")
+
+    def _validate_vexp_qualification_certificate_directory(
+        self, path: Path, *, reason: str
+    ) -> None:
+        try:
+            metadata = os.stat(path, follow_symlinks=False)
+        except OSError as exc:
+            raise DeployError(reason) from exc
+        authority = self._vexp_mutation_authority
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode)
+            != VEXP_QUALIFICATION_CERTIFICATE_DIRECTORY_MODE
+            or metadata.st_uid != authority.qualification_certificate_owner_uid
+            or metadata.st_gid != authority.qualification_certificate_owner_gid
+        ):
+            raise DeployError(reason)
+
+    def _validate_vexp_root_owned_artifact_parent_chain(
+        self, path: Path, *, reason: str
+    ) -> None:
+        if (
+            not path.is_absolute()
+            or path.name in {"", ".", ".."}
+            or ".." in path.parts
+        ):
+            raise DeployError(reason)
+        chain = [Path("/")]
+        current = Path("/")
+        for component in path.parent.parts[1:]:
+            current = current / component
+            chain.append(current)
+        for directory in chain:
+            try:
+                metadata = os.stat(directory, follow_symlinks=False)
+            except OSError as exc:
+                raise DeployError(reason) from exc
+            if (
+                not stat.S_ISDIR(metadata.st_mode)
+                or metadata.st_uid != 0
+                or stat.S_IMODE(metadata.st_mode) & 0o022
+            ):
+                raise DeployError(reason)
+
+    def _require_reviewed_vexp_qualification_implementation_manifest(
+        self, certificate: Mapping[str, Any]
+    ) -> None:
+        missing_reason = "vexp_qualification_implementation_manifest_missing"
+        reason = "vexp_qualification_implementation_manifest_invalid"
+        try:
+            os.stat(
+                VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_PATH,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError as exc:
+            raise DeployError(missing_reason) from exc
+        except OSError as exc:
+            raise DeployError(reason) from exc
+        for directory in (
+            Path("/"),
+            Path("/var"),
+            Path("/var/lib"),
+            VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_ROOT,
+        ):
+            try:
+                metadata = os.stat(directory, follow_symlinks=False)
+            except OSError as exc:
+                raise DeployError(reason) from exc
+            if (
+                not stat.S_ISDIR(metadata.st_mode)
+                or metadata.st_uid
+                != VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_OWNER_UID
+                or stat.S_IMODE(metadata.st_mode) & 0o022
+                or (
+                    directory
+                    == VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_ROOT
+                    and (
+                        stat.S_IMODE(metadata.st_mode)
+                        != VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_ROOT_MODE
+                        or metadata.st_gid
+                        != VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_OWNER_GID
+                    )
+                )
+            ):
+                raise DeployError(reason)
+        raw = self._read_trusted_guard_file(
+            VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_PATH,
+            expected_mode=VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_MODE,
+            expected_uid=VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_OWNER_UID,
+            expected_gid=VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_OWNER_GID,
+            max_bytes=MAX_VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_BYTES,
+            reason_prefix="vexp_qualification_implementation_manifest",
+        )
+        manifest = _decode_guard_json(raw, reason=reason)
+        manifest_sha256 = hashlib.sha256(raw).hexdigest()
+        source_attestations = certificate.get("source_attestations")
+        implementation = (
+            source_attestations.get("implementation")
+            if isinstance(source_attestations, dict)
+            else None
+        )
+        if (
+            raw != _canonical_guard_json_bytes(manifest)
+            or set(manifest) != VEXP_IMPLEMENTATION_MANIFEST_KEYS
+            or manifest.get("contract_name")
+            != VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_CONTRACT_NAME
+            or manifest.get("version")
+            != VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_VERSION
+            or manifest.get("status") != "reviewed"
+            or not isinstance(source_attestations, dict)
+            or not isinstance(implementation, dict)
+            or source_attestations.get("implementation_manifest_sha256")
+            != manifest_sha256
+        ):
+            raise DeployError(reason)
+        artifacts = manifest.get("artifacts")
+        if not isinstance(artifacts, dict) or set(artifacts) != (
+            VEXP_IMPLEMENTATION_FILE_ATTESTATION_KEYS
+        ):
+            raise DeployError(reason)
+        initial_artifact_raw: dict[str, bytes] = {}
+        for artifact_name in sorted(VEXP_IMPLEMENTATION_FILE_ATTESTATION_KEYS):
+            artifact = artifacts.get(artifact_name)
+            certificate_identity = implementation.get(artifact_name)
+            if (
+                not isinstance(artifact, dict)
+                or set(artifact) != VEXP_IMPLEMENTATION_MANIFEST_ARTIFACT_KEYS
+                or not isinstance(certificate_identity, dict)
+                or artifact.get("sha256") != certificate_identity.get("sha256")
+                or type(artifact.get("owner_uid")) is not int
+                or artifact["owner_uid"]
+                != VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_OWNER_UID
+                or type(artifact.get("owner_gid")) is not int
+                or artifact["owner_gid"] < 0
+                or type(artifact.get("mode")) is not int
+                or not 0 < artifact["mode"] <= 0o7777
+                or artifact["mode"] & 0o022
+                or not isinstance(artifact.get("path"), str)
+            ):
+                raise DeployError(reason)
+            artifact_path = Path(str(artifact["path"]))
+            self._validate_vexp_root_owned_artifact_parent_chain(
+                artifact_path, reason=reason
+            )
+            expected_sha256 = _require_vexp_sha256(
+                artifact.get("sha256"), reason=reason
+            )
+            artifact_raw = self._read_trusted_guard_file(
+                artifact_path,
+                expected_mode=artifact["mode"],
+                expected_uid=artifact["owner_uid"],
+                expected_gid=artifact["owner_gid"],
+                max_bytes=MAX_VEXP_TRUSTED_ROOT_PRODUCER_BYTES,
+                reason_prefix="vexp_qualification_implementation_artifact",
+            )
+            if hashlib.sha256(artifact_raw).hexdigest() != expected_sha256:
+                raise DeployError(reason)
+            initial_artifact_raw[artifact_name] = artifact_raw
+        final_raw = self._read_trusted_guard_file(
+            VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_PATH,
+            expected_mode=VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_MODE,
+            expected_uid=VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_OWNER_UID,
+            expected_gid=VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_OWNER_GID,
+            max_bytes=MAX_VEXP_QUALIFICATION_IMPLEMENTATION_MANIFEST_BYTES,
+            reason_prefix="vexp_qualification_implementation_manifest",
+        )
+        if final_raw != raw:
+            raise DeployError(
+                "vexp_qualification_implementation_manifest_changed"
+            )
+        for artifact_name in sorted(VEXP_IMPLEMENTATION_FILE_ATTESTATION_KEYS):
+            artifact = dict(artifacts[artifact_name])
+            final_artifact_raw = self._read_trusted_guard_file(
+                Path(str(artifact["path"])),
+                expected_mode=int(artifact["mode"]),
+                expected_uid=int(artifact["owner_uid"]),
+                expected_gid=int(artifact["owner_gid"]),
+                max_bytes=MAX_VEXP_TRUSTED_ROOT_PRODUCER_BYTES,
+                reason_prefix="vexp_qualification_implementation_artifact",
+            )
+            if final_artifact_raw != initial_artifact_raw[artifact_name]:
+                raise DeployError(
+                    "vexp_qualification_implementation_artifact_changed"
+                )
+
+    def _validate_vexp_qualification_certificate(
+        self,
+        certificate: Mapping[str, Any],
+        *,
+        state: Mapping[str, Any],
+    ) -> dict[str, str]:
+        if certificate.get("schema") != VEXP_QUALIFICATION_CERTIFICATE_SCHEMA:
+            raise DeployError("vexp_qualification_certificate_contract_invalid")
+        if (
+            type(certificate.get("sentinel_version")) is not int
+            or certificate["sentinel_version"] != VEXP_SENTINEL_STATE_VERSION
+        ):
+            raise DeployError(
+                "vexp_qualification_certificate_sentinel_version_invalid"
+            )
+        epoch_started_ms = state.get("epoch_started_ms")
+        if (
+            type(epoch_started_ms) is not int
+            or certificate.get("epoch_started_ms") != epoch_started_ms
+            or certificate.get("epoch_started_at") != state.get("epoch_started_at")
+            or certificate.get("qualified_at") != state.get("qualified_at")
+        ):
+            raise DeployError(
+                "vexp_qualification_certificate_terminal_binding_invalid"
+            )
+        epoch_started_at = _parse_vexp_utc_timestamp(
+            certificate.get("epoch_started_at"),
+            reason="vexp_qualification_certificate_terminal_binding_invalid",
+        )
+        qualified_at = _parse_vexp_utc_timestamp(
+            certificate.get("qualified_at"),
+            reason="vexp_qualification_certificate_terminal_binding_invalid",
+        )
+        if (
+            epoch_started_at.microsecond % 1_000 != 0
+            or _datetime_epoch_ms(epoch_started_at) != epoch_started_ms
+        ):
+            raise DeployError(
+                "vexp_qualification_certificate_terminal_binding_invalid"
+            )
+        wall_duration_ms = _datetime_epoch_ms(qualified_at) - epoch_started_ms
+        qualification_duration_ms = certificate.get("qualification_duration_ms")
+        monotonic_duration_ms = certificate.get(
+            "qualification_monotonic_duration_ms"
+        )
+        qualification_boot_id = certificate.get("qualification_boot_id")
+        monotonic_started_ns = certificate.get(
+            "qualification_monotonic_started_ns"
+        )
+        monotonic_qualified_ns = certificate.get(
+            "qualification_monotonic_qualified_ns"
+        )
+        if (
+            type(qualification_duration_ms) is not int
+            or qualification_duration_ms != wall_duration_ms
+            or qualification_duration_ms < MINIMUM_VEXP_QUALIFICATION_DURATION_MS
+            or type(monotonic_duration_ms) is not int
+            or monotonic_duration_ms < MINIMUM_VEXP_QUALIFICATION_DURATION_MS
+            or not isinstance(qualification_boot_id, str)
+            or re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                r"[0-9a-f]{4}-[0-9a-f]{12}",
+                qualification_boot_id,
+            )
+            is None
+            or type(monotonic_started_ns) is not int
+            or monotonic_started_ns <= 0
+            or type(monotonic_qualified_ns) is not int
+            or monotonic_qualified_ns <= monotonic_started_ns
+            or monotonic_qualified_ns - monotonic_started_ns
+            != monotonic_duration_ms * 1_000_000
+        ):
+            raise DeployError("vexp_qualification_certificate_duration_invalid")
+
+        active_chain = certificate.get("active_chain")
+        if (
+            not isinstance(active_chain, dict)
+            or set(active_chain) != VEXP_ACTIVE_CHAIN_KEYS
+        ):
+            raise DeployError("vexp_qualification_certificate_chain_invalid")
+        anchor = active_chain.get("anchor")
+        if (
+            not isinstance(anchor, dict)
+            or anchor.get("event") != "qualification_reset"
+        ):
+            raise DeployError("vexp_qualification_certificate_chain_invalid")
+        try:
+            anchor_row = {
+                key: anchor[key] for key in VEXP_CHAIN_INDEX_ROW_KEYS
+            }
+        except KeyError as exc:
+            raise DeployError(
+                "vexp_qualification_certificate_chain_invalid"
+            ) from exc
+        index = active_chain.get("index")
+        event_count = active_chain.get("event_count")
+        if (
+            not isinstance(index, list)
+            or not index
+            or type(event_count) is not int
+            or event_count != len(index)
+        ):
+            raise DeployError("vexp_qualification_certificate_chain_invalid")
+        normalized_rows: list[dict[str, Any]] = []
+        previous_hash: str | None = None
+        previous_sequence: int | None = None
+        for row_index, row in enumerate(index):
+            if (
+                not isinstance(row, dict)
+                or set(row) != VEXP_CHAIN_INDEX_ROW_KEYS
+            ):
+                raise DeployError("vexp_qualification_certificate_chain_invalid")
+            sequence = row.get("sequence")
+            row_previous_hash = _require_vexp_sha256(
+                row.get("previous_hash"),
+                reason="vexp_qualification_certificate_chain_invalid",
+            )
+            if (
+                type(sequence) is not int
+                or sequence < 0
+                or (
+                    previous_sequence is not None
+                    and sequence != previous_sequence + 1
+                )
+                or (row_index > 0 and row_previous_hash != previous_hash)
+                or not isinstance(row.get("event"), str)
+                or not row["event"]
+            ):
+                raise DeployError("vexp_qualification_certificate_chain_invalid")
+            _parse_vexp_utc_timestamp(
+                row.get("at"),
+                reason="vexp_qualification_certificate_chain_invalid",
+            )
+            row_hash = _require_vexp_sha256(
+                row.get("hash"),
+                reason="vexp_qualification_certificate_chain_invalid",
+            )
+            normalized_rows.append(dict(row))
+            previous_hash = row_hash
+            previous_sequence = sequence
+        if (
+            anchor_row != normalized_rows[0]
+            or active_chain.get("tail_sequence") != previous_sequence
+            or active_chain.get("tail_hash") != previous_hash
+            or _require_vexp_sha256(
+                active_chain.get("index_sha256"),
+                reason="vexp_qualification_certificate_chain_invalid",
+            )
+            != _canonical_json_sha256(normalized_rows)
+        ):
+            raise DeployError("vexp_qualification_certificate_chain_invalid")
+        qualification_event = active_chain.get("qualification_event")
+        if not isinstance(qualification_event, dict):
+            raise DeployError("vexp_qualification_certificate_chain_invalid")
+        try:
+            qualification_row = {
+                key: qualification_event[key]
+                for key in VEXP_CHAIN_INDEX_ROW_KEYS
+            }
+        except KeyError as exc:
+            raise DeployError(
+                "vexp_qualification_certificate_chain_invalid"
+            ) from exc
+        if (
+            qualification_event.get("event")
+            != "seven_day_qualification_achieved"
+            or qualification_event.get("at") != certificate.get("qualified_at")
+            or sum(row == qualification_row for row in normalized_rows) != 1
+        ):
+            raise DeployError("vexp_qualification_certificate_chain_invalid")
+        qualification_event_hash = _require_vexp_sha256(
+            qualification_event.get("hash"),
+            reason="vexp_qualification_certificate_chain_invalid",
+        )
+
+        terminal_state = certificate.get("terminal_state")
+        if not isinstance(terminal_state, dict):
+            raise DeployError(
+                "vexp_qualification_certificate_terminal_state_invalid"
+            )
+        if (
+            terminal_state.get("version") != VEXP_SENTINEL_STATE_VERSION
+            or terminal_state.get("epoch_started_at")
+            != state.get("epoch_started_at")
+            or terminal_state.get("epoch_started_ms") != epoch_started_ms
+            or terminal_state.get("qualified_at") != state.get("qualified_at")
+            or terminal_state.get("qualification_boot_id")
+            != qualification_boot_id
+            or terminal_state.get("qualification_monotonic_started_ns")
+            != monotonic_started_ns
+            or terminal_state.get("qualification_monotonic_qualified_ns")
+            != monotonic_qualified_ns
+            or terminal_state.get("qualification_phase") != "qualified"
+            or terminal_state.get("certification_blockers") != []
+            or terminal_state.get("certification_deferments") != []
+            or terminal_state.get("last_event_hash") != previous_hash
+        ):
+            raise DeployError(
+                "vexp_qualification_certificate_terminal_state_invalid"
+            )
+
+        attestations = certificate.get("source_attestations")
+        if (
+            not isinstance(attestations, dict)
+            or set(attestations) != VEXP_SOURCE_ATTESTATION_KEYS
+        ):
+            raise DeployError(
+                "vexp_qualification_certificate_attestations_invalid"
+            )
+        for key in (
+            "sentinel_state_sha256",
+            "event_log_guard_sha256",
+            "apparmor_audit_sha256",
+            "implementation_manifest_sha256",
+        ):
+            _require_vexp_sha256(
+                attestations.get(key),
+                reason="vexp_qualification_certificate_attestations_invalid",
+            )
+        if (
+            not isinstance(attestations.get("event_generations"), (list, dict))
+            or not attestations["event_generations"]
+            or not isinstance(attestations.get("event_log_guard"), dict)
+            or not attestations["event_log_guard"]
+            or not isinstance(attestations.get("apparmor_audit"), dict)
+            or not attestations["apparmor_audit"]
+        ):
+            raise DeployError(
+                "vexp_qualification_certificate_attestations_invalid"
+            )
+        implementation = attestations.get("implementation")
+        if (
+            not isinstance(implementation, dict)
+            or set(implementation) != VEXP_IMPLEMENTATION_ATTESTATION_KEYS
+            or any(value in (None, "", [], {}) for value in implementation.values())
+        ):
+            raise DeployError(
+                "vexp_qualification_certificate_attestations_invalid"
+            )
+        predicate_contract = implementation.get("predicate_contract")
+        if (
+            not isinstance(predicate_contract, dict)
+            or set(predicate_contract) != {"value", "sha256"}
+            or predicate_contract.get("value") in (None, "", [], {})
+        ):
+            raise DeployError(
+                "vexp_qualification_certificate_attestations_invalid"
+            )
+        _require_vexp_sha256(
+            predicate_contract.get("sha256"),
+            reason="vexp_qualification_certificate_attestations_invalid",
+        )
+        for implementation_key in VEXP_IMPLEMENTATION_ATTESTATION_KEYS - {
+            "predicate_contract"
+        }:
+            implementation_identity = implementation.get(implementation_key)
+            if (
+                not isinstance(implementation_identity, dict)
+                or set(implementation_identity) != {"sha256"}
+            ):
+                raise DeployError(
+                    "vexp_qualification_certificate_attestations_invalid"
+                )
+            _require_vexp_sha256(
+                implementation_identity.get("sha256"),
+                reason="vexp_qualification_certificate_attestations_invalid",
+            )
+        if (
+            terminal_state.get("predicate_contract")
+            != predicate_contract["value"]
+            or terminal_state.get("predicate_contract_sha256")
+            != predicate_contract["sha256"]
+            or state.get("predicate_contract") != predicate_contract["value"]
+            or state.get("predicate_contract_sha256")
+            != predicate_contract["sha256"]
+        ):
+            raise DeployError(
+                "vexp_qualification_certificate_predicate_contract_binding_invalid"
+            )
+
+        seal = certificate.get("seal")
+        if (
+            not isinstance(seal, dict)
+            or set(seal) != VEXP_CERTIFICATE_SEAL_KEYS
+            or seal.get("writer") != "root_owned_systemd_oneshot"
+            or seal.get("write_policy") != "create_exclusive_never_overwrite"
+            or seal.get("telegram_sent_by_finalizer") is not False
+            or seal.get("docker_socket_used") is not False
+        ):
+            raise DeployError("vexp_qualification_certificate_seal_invalid")
+
+        identity = certificate.get("identity")
+        if (
+            not isinstance(identity, str)
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", identity)
+        ):
+            raise DeployError("vexp_qualification_certificate_identity_invalid")
+        identity_payload = dict(certificate)
+        identity_payload.pop("identity", None)
+        if identity != f"sha256:{_canonical_json_sha256(identity_payload)}":
+            raise DeployError("vexp_qualification_certificate_identity_invalid")
+        return {
+            "schema": VEXP_QUALIFICATION_CERTIFICATE_SCHEMA,
+            "identity": identity,
+            "event_hash": qualification_event_hash,
+        }
+
+    def _read_trusted_vexp_qualification_certificate(
+        self, state: Mapping[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        epoch_started_ms = state.get("epoch_started_ms")
+        if type(epoch_started_ms) is not int or epoch_started_ms <= 0:
+            raise DeployError("vexp_qualification_certificate_epoch_invalid")
+        authority = self._vexp_mutation_authority
+        self._validate_vexp_qualification_certificate_directory(
+            authority.qualification_certificate_root,
+            reason="vexp_qualification_certificate_root_untrusted",
+        )
+        self._validate_vexp_qualification_certificate_directory(
+            authority.qualification_certificate_directory,
+            reason="vexp_qualification_certificate_directory_untrusted",
+        )
+        certificate_path = (
+            authority.qualification_certificate_directory
+            / f"{epoch_started_ms}.json"
+        )
+        sidecar_path = certificate_path.with_suffix(".json.sha256")
+        raw = self._read_trusted_guard_file(
+            certificate_path,
+            expected_mode=VEXP_QUALIFICATION_CERTIFICATE_MODE,
+            expected_uid=authority.qualification_certificate_owner_uid,
+            expected_gid=authority.qualification_certificate_owner_gid,
+            max_bytes=MAX_VEXP_QUALIFICATION_CERTIFICATE_BYTES,
+            reason_prefix="vexp_qualification_certificate",
+        )
+        sidecar = self._read_trusted_guard_file(
+            sidecar_path,
+            expected_mode=VEXP_QUALIFICATION_CERTIFICATE_MODE,
+            expected_uid=authority.qualification_certificate_owner_uid,
+            expected_gid=authority.qualification_certificate_owner_gid,
+            max_bytes=MAX_VEXP_QUALIFICATION_CERTIFICATE_SIDECAR_BYTES,
+            reason_prefix="vexp_qualification_certificate_sidecar",
+        )
+        raw_sha256 = hashlib.sha256(raw).hexdigest()
+        if sidecar != f"sha256:{raw_sha256}\n".encode("ascii"):
+            raise DeployError("vexp_qualification_certificate_sidecar_invalid")
+        certificate = _decode_guard_json(
+            raw, reason="vexp_qualification_certificate_json_invalid"
+        )
+        evidence = self._validate_vexp_qualification_certificate(
+            certificate, state=state
+        )
+        self._require_reviewed_vexp_qualification_implementation_manifest(
+            certificate
+        )
+        evidence["sha256"] = raw_sha256
+        return certificate, evidence
+
     def _read_trusted_vexp_mutation_permit(
         self,
     ) -> tuple[dict[str, Any], str]:
-        raw = self._read_trusted_guard_file(
-            self._vexp_mutation_authority.mutation_permit_path,
+        authority = self._vexp_mutation_authority
+        initial_directory_chain = (
+            authority.mutation_authority_directory_chain_identity()
+        )
+        commit_raw = self._read_trusted_guard_file(
+            authority.mutation_permit_commit_path,
             expected_mode=0o644,
-            expected_uid=self._vexp_mutation_authority.mutation_permit_owner_uid,
+            expected_uid=authority.mutation_permit_commit_owner_uid,
+            expected_gid=authority.mutation_permit_commit_owner_gid,
+            max_bytes=MAX_VEXP_MUTATION_PERMIT_COMMIT_BYTES,
+            reason_prefix="vexp_mutation_permit_commit",
+        )
+        raw = self._read_trusted_guard_file(
+            authority.mutation_permit_path,
+            expected_mode=0o644,
+            expected_uid=authority.mutation_permit_owner_uid,
+            expected_gid=authority.mutation_permit_owner_gid,
             max_bytes=MAX_VEXP_MUTATION_PERMIT_BYTES,
             reason_prefix="vexp_mutation_permit",
         )
+        final_commit_raw = self._read_trusted_guard_file(
+            authority.mutation_permit_commit_path,
+            expected_mode=0o644,
+            expected_uid=authority.mutation_permit_commit_owner_uid,
+            expected_gid=authority.mutation_permit_commit_owner_gid,
+            max_bytes=MAX_VEXP_MUTATION_PERMIT_COMMIT_BYTES,
+            reason_prefix="vexp_mutation_permit_commit",
+        )
+        if (
+            final_commit_raw != commit_raw
+            or authority.mutation_authority_directory_chain_identity()
+            != initial_directory_chain
+        ):
+            raise DeployError("vexp_mutation_permit_commit_changed_during_read")
         payload = _decode_guard_json(raw, reason="vexp_mutation_permit_json_invalid")
         if set(payload) != VEXP_MUTATION_PERMIT_KEYS:
             raise DeployError("vexp_mutation_permit_schema_invalid")
@@ -2073,13 +4288,73 @@ class MemorialDeployLane:
             raise DeployError("vexp_mutation_permit_not_positive")
         if payload.get("mutation_boundaries") != list(self.vexp_mutation_boundaries):
             raise DeployError("vexp_mutation_permit_boundaries_invalid")
-        return payload, hashlib.sha256(raw).hexdigest()
+        if (
+            payload.get("qualification_certificate_schema")
+            != VEXP_QUALIFICATION_CERTIFICATE_SCHEMA
+            or not isinstance(
+                payload.get("qualification_certificate_sha256"), str
+            )
+            or not SHA256_HEX_PATTERN.fullmatch(
+                payload["qualification_certificate_sha256"]
+            )
+            or not isinstance(
+                payload.get("qualification_certificate_identity"), str
+            )
+            or not re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                payload["qualification_certificate_identity"],
+            )
+            or not isinstance(
+                payload.get("qualification_certificate_event_hash"), str
+            )
+            or not SHA256_HEX_PATTERN.fullmatch(
+                payload["qualification_certificate_event_hash"]
+            )
+        ):
+            raise DeployError("vexp_mutation_permit_certificate_binding_invalid")
+        permit_sha256 = hashlib.sha256(raw).hexdigest()
+        commit = _decode_guard_json(
+            commit_raw,
+            reason="vexp_mutation_permit_commit_json_invalid",
+        )
+        if set(commit) != VEXP_MUTATION_PERMIT_COMMIT_KEYS:
+            raise DeployError("vexp_mutation_permit_commit_schema_invalid")
+        if (
+            commit.get("contract_name")
+            != VEXP_MUTATION_PERMIT_COMMIT_CONTRACT_NAME
+            or type(commit.get("version")) is not int
+            or commit["version"] != VEXP_MUTATION_PERMIT_COMMIT_VERSION
+            or commit.get("status") != "committed"
+        ):
+            raise DeployError("vexp_mutation_permit_commit_contract_invalid")
+        expected_commit_binding = {
+            "permit_sha256": permit_sha256,
+            "permit_contract_name": payload.get("contract_name"),
+            "permit_version": payload.get("version"),
+            "epoch_started_at": payload.get("epoch_started_at"),
+            "epoch_started_ms": payload.get("epoch_started_ms"),
+            "terminal_identity_sha256": payload.get(
+                "terminal_identity_sha256"
+            ),
+            "qualification_certificate_sha256": payload.get(
+                "qualification_certificate_sha256"
+            ),
+            "issued_at": payload.get("issued_at"),
+            "expires_at": payload.get("expires_at"),
+        }
+        if any(
+            commit.get(key) != value
+            for key, value in expected_commit_binding.items()
+        ):
+            raise DeployError("vexp_mutation_permit_commit_binding_invalid")
+        return payload, permit_sha256
 
     def _validate_vexp_mutation_permit(
         self,
         permit: Mapping[str, Any],
         *,
         state: Mapping[str, Any],
+        qualification_certificate: Mapping[str, str],
         now: datetime,
         parsed_qualified_at: datetime,
     ) -> datetime:
@@ -2091,6 +4366,25 @@ class MemorialDeployLane:
             != _vexp_terminal_identity_sha256(state)
         ):
             raise DeployError("vexp_mutation_permit_identity_digest_invalid")
+        expected_certificate_binding = {
+            "qualification_certificate_schema": qualification_certificate[
+                "schema"
+            ],
+            "qualification_certificate_sha256": qualification_certificate[
+                "sha256"
+            ],
+            "qualification_certificate_identity": qualification_certificate[
+                "identity"
+            ],
+            "qualification_certificate_event_hash": qualification_certificate[
+                "event_hash"
+            ],
+        }
+        if any(
+            permit.get(key) != value
+            for key, value in expected_certificate_binding.items()
+        ):
+            raise DeployError("vexp_mutation_permit_certificate_binding_mismatch")
         issued_at = _parse_vexp_utc_timestamp(
             permit.get("issued_at"), reason="vexp_mutation_permit_issued_at_invalid"
         )
@@ -2124,6 +4418,8 @@ class MemorialDeployLane:
         blockers = state.get("certification_blockers")
         if not isinstance(blockers, list) or blockers:
             raise DeployError("vexp_sentinel_certification_blockers_present")
+        if state.get("certification_deferments") != []:
+            raise DeployError("vexp_sentinel_certification_deferments_present")
 
     def _vexp_guard_now(self) -> datetime:
         try:
@@ -2152,20 +4448,207 @@ class MemorialDeployLane:
         return float(monotonic_now)
 
     def _remaining_vexp_mutation_seconds(self) -> float | None:
-        deadline = self._vexp_mutation_deadline
-        expires_at = self._vexp_mutation_expires_at
-        if deadline is None and expires_at is None:
-            return None
-        if deadline is None or expires_at is None:
-            raise DeployError("vexp_mutation_action_lease_invalid")
-        monotonic_now = self._vexp_monotonic_now()
-        remaining = min(
-            deadline - monotonic_now,
-            (expires_at - self._vexp_guard_now()).total_seconds(),
+        action_deadline = self._vexp_mutation_deadline
+        action_expires_at = self._vexp_mutation_expires_at
+        action_fields = (action_deadline, action_expires_at)
+        transaction_fields = (
+            self._vexp_transaction_deadline,
+            self._vexp_transaction_forward_deadline,
+            self._vexp_transaction_expires_at,
+            self._vexp_transaction_phase,
+            self._vexp_transaction_permit_sha256 or None,
         )
-        if not math.isfinite(remaining) or remaining <= 0:
-            raise DeployError("vexp_mutation_action_deadline_exceeded")
+        action_active = any(value is not None for value in action_fields)
+        transaction_active = any(value is not None for value in transaction_fields)
+        if not action_active and not transaction_active:
+            return None
+        if action_active and any(value is None for value in action_fields):
+            raise DeployError("vexp_mutation_action_lease_invalid")
+        if transaction_active and any(value is None for value in transaction_fields):
+            raise DeployError("vexp_mutation_transaction_lease_invalid")
+        monotonic_now = self._vexp_monotonic_now()
+        remaining_values: list[float] = []
+        if action_active:
+            assert action_deadline is not None
+            assert action_expires_at is not None
+            action_remaining = min(
+                action_deadline - monotonic_now,
+                (action_expires_at - self._vexp_guard_now()).total_seconds(),
+            )
+            if not math.isfinite(action_remaining) or action_remaining <= 0:
+                raise DeployError("vexp_mutation_action_deadline_exceeded")
+            remaining_values.append(action_remaining)
+        if transaction_active:
+            transaction_deadline = self._vexp_transaction_deadline
+            forward_deadline = self._vexp_transaction_forward_deadline
+            rollback_deadline = self._vexp_transaction_rollback_deadline
+            transaction_expires_at = self._vexp_transaction_expires_at
+            phase = self._vexp_transaction_phase
+            assert transaction_deadline is not None
+            assert forward_deadline is not None
+            assert transaction_expires_at is not None
+            if phase == "forward":
+                phase_deadline = forward_deadline
+            elif phase == "rollback" and rollback_deadline is not None:
+                phase_deadline = rollback_deadline
+            else:
+                raise DeployError("vexp_mutation_transaction_phase_invalid")
+            transaction_remaining = min(
+                phase_deadline - monotonic_now,
+                transaction_deadline - monotonic_now,
+                (
+                    transaction_expires_at - self._vexp_guard_now()
+                ).total_seconds(),
+            )
+            if (
+                not math.isfinite(transaction_remaining)
+                or transaction_remaining <= 0
+            ):
+                raise DeployError(
+                    "vexp_mutation_transaction_deadline_exceeded"
+                )
+            remaining_values.append(transaction_remaining)
+        remaining = min(remaining_values)
         return remaining
+
+    def _vexp_transaction_budget(self) -> tuple[float, float, float]:
+        forward_seconds = float(self.vexp_transaction_forward_seconds)
+        rollback_seconds = float(self.vexp_transaction_rollback_seconds)
+        transition_seconds = float(
+            MAX_VEXP_MUTATION_TRANSACTION_TRANSITION_SECONDS
+        )
+        if (
+            not math.isfinite(forward_seconds)
+            or not math.isfinite(rollback_seconds)
+            or not math.isfinite(transition_seconds)
+            or forward_seconds <= 0
+            or rollback_seconds <= 0
+            or transition_seconds < 0
+        ):
+            raise DeployError("vexp_mutation_transaction_budget_invalid")
+        return forward_seconds, rollback_seconds, transition_seconds
+
+    @contextmanager
+    def _vexp_mutation_transaction(self, boundary: str) -> Iterator[None]:
+        if (
+            self._vexp_transaction_deadline is not None
+            or self._vexp_transaction_forward_deadline is not None
+            or self._vexp_transaction_rollback_deadline is not None
+            or self._vexp_transaction_expires_at is not None
+            or self._vexp_transaction_permit_sha256
+            or self._vexp_transaction_phase is not None
+        ):
+            raise DeployError("vexp_mutation_transaction_lease_nested")
+        with self._vexp_mutation_authority.shared_lease():
+            permit_expires_at = self._require_vexp_mutation_permitted(
+                boundary,
+                record_success=False,
+            )
+            _permit, permit_sha256 = self._read_trusted_vexp_mutation_permit()
+            monotonic_now = self._vexp_monotonic_now()
+            permit_remaining = (
+                permit_expires_at - self._vexp_guard_now()
+            ).total_seconds()
+            forward_seconds, rollback_seconds, transition_seconds = (
+                self._vexp_transaction_budget()
+            )
+            total_seconds = (
+                forward_seconds + rollback_seconds + transition_seconds
+            )
+            if (
+                not math.isfinite(permit_remaining)
+                or permit_remaining < total_seconds
+            ):
+                raise DeployError(
+                    "vexp_mutation_transaction_budget_insufficient"
+                )
+            transaction_deadline = monotonic_now + total_seconds
+            forward_deadline = monotonic_now + forward_seconds
+            if (
+                not math.isfinite(transaction_deadline)
+                or not math.isfinite(forward_deadline)
+                or forward_deadline <= monotonic_now
+                or transaction_deadline <= forward_deadline
+            ):
+                raise DeployError("vexp_mutation_transaction_clock_invalid")
+            self._vexp_transaction_deadline = transaction_deadline
+            self._vexp_transaction_forward_deadline = forward_deadline
+            self._vexp_transaction_expires_at = permit_expires_at
+            self._vexp_transaction_permit_sha256 = permit_sha256
+            self._vexp_transaction_phase = "forward"
+            self._record_check(
+                "vexp_mutation_transaction_budget",
+                "pass",
+                boundary=boundary,
+                forward_seconds=forward_seconds,
+                rollback_seconds=rollback_seconds,
+                transition_seconds=transition_seconds,
+                total_seconds=total_seconds,
+                permit_expires_at=permit_expires_at.isoformat().replace(
+                    "+00:00", "Z"
+                ),
+                permit_sha256=permit_sha256,
+                coordination_lease="shared_held",
+            )
+            try:
+                yield
+            finally:
+                self._vexp_transaction_deadline = None
+                self._vexp_transaction_forward_deadline = None
+                self._vexp_transaction_rollback_deadline = None
+                self._vexp_transaction_expires_at = None
+                self._vexp_transaction_permit_sha256 = ""
+                self._vexp_transaction_phase = None
+
+    def _require_vexp_mutation_transaction_current(self, boundary: str) -> None:
+        if (
+            self._vexp_transaction_phase not in {"forward", "rollback"}
+            or self._vexp_transaction_expires_at is None
+            or not self._vexp_transaction_permit_sha256
+        ):
+            raise DeployError("vexp_mutation_transaction_lease_missing")
+        self._remaining_vexp_mutation_seconds()
+        permit_expires_at = self._require_vexp_mutation_permitted(
+            boundary,
+            record_success=False,
+        )
+        _permit, permit_sha256 = self._read_trusted_vexp_mutation_permit()
+        if (
+            permit_expires_at != self._vexp_transaction_expires_at
+            or permit_sha256 != self._vexp_transaction_permit_sha256
+        ):
+            raise DeployError("vexp_mutation_transaction_authority_changed")
+        self._remaining_vexp_mutation_seconds()
+
+    def _enter_vexp_mutation_transaction_rollback(self) -> None:
+        if (
+            self._vexp_transaction_phase != "forward"
+            or self._vexp_transaction_deadline is None
+        ):
+            raise DeployError("vexp_mutation_transaction_lease_missing")
+        _forward_seconds, rollback_seconds, _transition_seconds = (
+            self._vexp_transaction_budget()
+        )
+        monotonic_now = self._vexp_monotonic_now()
+        rollback_deadline = monotonic_now + rollback_seconds
+        if (
+            not math.isfinite(rollback_deadline)
+            or rollback_deadline <= monotonic_now
+            or rollback_deadline > self._vexp_transaction_deadline
+        ):
+            raise DeployError(
+                "vexp_mutation_transaction_rollback_budget_unavailable"
+            )
+        self._vexp_transaction_rollback_deadline = rollback_deadline
+        self._vexp_transaction_phase = "rollback"
+        self._remaining_vexp_mutation_seconds()
+
+    def _vexp_bounded_timeout(self, requested_seconds: float) -> float:
+        requested = max(float(requested_seconds), 0.001)
+        remaining = self._remaining_vexp_mutation_seconds()
+        if remaining is None:
+            return requested
+        return min(requested, remaining)
 
     def _record_vexp_soak_guard(
         self,
@@ -2175,6 +4658,8 @@ class MemorialDeployLane:
         reason: str,
         state: Mapping[str, Any] | None = None,
         state_sha256: str = "",
+        qualification_certificate: Mapping[str, str] | None = None,
+        current_predicate: Mapping[str, object] | None = None,
         permit: Mapping[str, Any] | None = None,
         permit_sha256: str = "",
     ) -> None:
@@ -2218,6 +4703,27 @@ class MemorialDeployLane:
                     "permit_expires_at": permit.get("expires_at"),
                 }
             )
+        if qualification_certificate is not None:
+            detail.update(
+                {
+                    "qualification_certificate_schema": (
+                        qualification_certificate.get("schema")
+                    ),
+                    "qualification_certificate_sha256": (
+                        qualification_certificate.get("sha256")
+                    ),
+                    "qualification_certificate_identity": (
+                        qualification_certificate.get("identity")
+                    ),
+                    "qualification_certificate_event_hash": (
+                        qualification_certificate.get("event_hash")
+                    ),
+                }
+            )
+        if current_predicate is not None:
+            if set(current_predicate) != VEXP_CURRENT_PREDICATE_STATUS_KEYS:
+                raise DeployError("vexp_current_predicate_summary_invalid")
+            detail["current_predicate"] = dict(current_predicate)
         self._record_check("vexp_soak_mutation_guard", status, **detail)
 
     @contextmanager
@@ -2232,6 +4738,19 @@ class MemorialDeployLane:
             with self._vexp_mutation_authority.shared_lease():
                 lease_acquired = True
                 permit_expires_at = self._require_vexp_mutation_permitted(boundary)
+                if self._vexp_transaction_phase is not None:
+                    _permit, permit_sha256 = (
+                        self._read_trusted_vexp_mutation_permit()
+                    )
+                    if (
+                        permit_expires_at
+                        != self._vexp_transaction_expires_at
+                        or permit_sha256
+                        != self._vexp_transaction_permit_sha256
+                    ):
+                        raise DeployError(
+                            "vexp_mutation_transaction_authority_changed"
+                        )
                 monotonic_now = self._vexp_monotonic_now()
                 permit_remaining = (
                     permit_expires_at - self._vexp_guard_now()
@@ -2247,9 +4766,46 @@ class MemorialDeployLane:
                     raise DeployError("vexp_mutation_action_clock_invalid")
                 self._vexp_mutation_deadline = deadline
                 self._vexp_mutation_expires_at = permit_expires_at
-                try:
-                    yield
+
+                def require_postconditions() -> None:
                     self._remaining_vexp_mutation_seconds()
+                    final_expires_at = self._require_vexp_mutation_permitted(
+                        boundary,
+                        record_success=False,
+                    )
+                    if final_expires_at != permit_expires_at:
+                        raise DeployError("vexp_mutation_authority_changed")
+                    if self._vexp_transaction_phase is not None:
+                        _permit, final_permit_sha256 = (
+                            self._read_trusted_vexp_mutation_permit()
+                        )
+                        if (
+                            final_expires_at
+                            != self._vexp_transaction_expires_at
+                            or final_permit_sha256
+                            != self._vexp_transaction_permit_sha256
+                        ):
+                            raise DeployError(
+                                "vexp_mutation_transaction_authority_changed"
+                            )
+                    self._remaining_vexp_mutation_seconds()
+
+                try:
+                    try:
+                        yield
+                    except BaseException as action_error:
+                        try:
+                            require_postconditions()
+                        except BaseException as postcheck_error:
+                            if isinstance(
+                                action_error,
+                                GeminiOAuthHelperExitUnconfirmed,
+                            ):
+                                raise action_error from postcheck_error
+                            raise postcheck_error from action_error
+                        raise
+                    else:
+                        require_postconditions()
                 finally:
                     self._vexp_mutation_deadline = None
                     self._vexp_mutation_expires_at = None
@@ -2268,11 +4824,17 @@ class MemorialDeployLane:
                     raise DeployError(str(exc)) from record_exc
             raise
 
-    def _require_vexp_mutation_permitted(self, boundary: str) -> datetime:
+    def _require_vexp_mutation_permitted(
+        self,
+        boundary: str,
+        *,
+        record_success: bool = True,
+    ) -> datetime:
         if boundary not in self.vexp_mutation_boundaries:
             raise DeployError("vexp_mutation_boundary_invalid")
         try:
             state, state_sha256 = self._read_trusted_vexp_sentinel_state()
+            self._require_vexp_epoch_not_voided(state)
         except DeployError as exc:
             self._record_vexp_soak_guard(
                 boundary=boundary,
@@ -2390,12 +4952,8 @@ class MemorialDeployLane:
             )
             raise DeployError("vexp_sentinel_qualification_not_elapsed")
         try:
-            permit, permit_sha256 = self._read_trusted_vexp_mutation_permit()
-            permit_expires_at = self._validate_vexp_mutation_permit(
-                permit,
-                state=state,
-                now=now,
-                parsed_qualified_at=parsed_qualified_at,
+            certificate, qualification_certificate = (
+                self._read_trusted_vexp_qualification_certificate(state)
             )
         except DeployError as exc:
             self._record_vexp_soak_guard(
@@ -2406,11 +4964,13 @@ class MemorialDeployLane:
                 state_sha256=state_sha256,
             )
             raise
-        expected_terminal_identity = _vexp_terminal_identity(state)
-        expected_terminal_identity_sha256 = _vexp_terminal_identity_sha256(state)
         try:
-            final_state, final_state_sha256 = (
-                self._read_trusted_vexp_sentinel_state()
+            current_predicate = self._read_trusted_vexp_current_predicate(
+                state=state,
+                state_sha256=state_sha256,
+                qualification_certificate=certificate,
+                qualification_certificate_evidence=qualification_certificate,
+                now=now,
             )
         except DeployError as exc:
             self._record_vexp_soak_guard(
@@ -2419,6 +4979,45 @@ class MemorialDeployLane:
                 reason=str(exc),
                 state=state,
                 state_sha256=state_sha256,
+                qualification_certificate=qualification_certificate,
+            )
+            raise
+        try:
+            permit, permit_sha256 = self._read_trusted_vexp_mutation_permit()
+            permit_expires_at = self._validate_vexp_mutation_permit(
+                permit,
+                state=state,
+                qualification_certificate=qualification_certificate,
+                now=now,
+                parsed_qualified_at=parsed_qualified_at,
+            )
+        except DeployError as exc:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=str(exc),
+                state=state,
+                state_sha256=state_sha256,
+                qualification_certificate=qualification_certificate,
+                current_predicate=current_predicate,
+            )
+            raise
+        expected_terminal_identity = _vexp_terminal_identity(state)
+        expected_terminal_identity_sha256 = _vexp_terminal_identity_sha256(state)
+        try:
+            final_state, final_state_sha256 = (
+                self._read_trusted_vexp_sentinel_state()
+            )
+            self._require_vexp_epoch_not_voided(final_state)
+        except DeployError as exc:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=str(exc),
+                state=state,
+                state_sha256=state_sha256,
+                qualification_certificate=qualification_certificate,
+                current_predicate=current_predicate,
                 permit=permit,
                 permit_sha256=permit_sha256,
             )
@@ -2434,6 +5033,8 @@ class MemorialDeployLane:
                 reason=reason,
                 state=final_state,
                 state_sha256=final_state_sha256,
+                qualification_certificate=qualification_certificate,
+                current_predicate=current_predicate,
                 permit=permit,
                 permit_sha256=permit_sha256,
             )
@@ -2447,6 +5048,8 @@ class MemorialDeployLane:
                 reason=str(exc),
                 state=final_state,
                 state_sha256=final_state_sha256,
+                qualification_certificate=qualification_certificate,
+                current_predicate=current_predicate,
                 permit=permit,
                 permit_sha256=permit_sha256,
             )
@@ -2467,19 +5070,105 @@ class MemorialDeployLane:
                 reason=reason,
                 state=final_state,
                 state_sha256=final_state_sha256,
+                qualification_certificate=qualification_certificate,
+                current_predicate=current_predicate,
                 permit=permit,
                 permit_sha256=permit_sha256,
             )
             raise DeployError(reason)
-        self._record_vexp_soak_guard(
-            boundary=boundary,
-            status="pass",
-            reason="trusted_terminal_qualification_and_root_permit",
-            state=final_state,
-            state_sha256=final_state_sha256,
-            permit=permit,
-            permit_sha256=permit_sha256,
+        try:
+            final_certificate, final_qualification_certificate = (
+                self._read_trusted_vexp_qualification_certificate(final_state)
+            )
+        except DeployError as exc:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=str(exc),
+                state=final_state,
+                state_sha256=final_state_sha256,
+                qualification_certificate=qualification_certificate,
+                current_predicate=current_predicate,
+                permit=permit,
+                permit_sha256=permit_sha256,
+            )
+            raise
+        if final_qualification_certificate != qualification_certificate:
+            reason = "vexp_qualification_certificate_changed"
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=reason,
+                state=final_state,
+                state_sha256=final_state_sha256,
+                qualification_certificate=final_qualification_certificate,
+                current_predicate=current_predicate,
+                permit=permit,
+                permit_sha256=permit_sha256,
+            )
+            raise DeployError(reason)
+        try:
+            final_current_predicate = (
+                self._read_trusted_vexp_current_predicate(
+                    state=final_state,
+                    state_sha256=final_state_sha256,
+                    qualification_certificate=final_certificate,
+                    qualification_certificate_evidence=(
+                        final_qualification_certificate
+                    ),
+                    now=now,
+                )
+            )
+        except DeployError as exc:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=str(exc),
+                state=final_state,
+                state_sha256=final_state_sha256,
+                qualification_certificate=final_qualification_certificate,
+                current_predicate=current_predicate,
+                permit=permit,
+                permit_sha256=permit_sha256,
+            )
+            raise
+        candidate_authority_identity = (
+            self._candidate_finalization_authority_identity
         )
+        if candidate_authority_identity is not None and (
+            final_state.get("epoch_started_ms")
+            != candidate_authority_identity[0]
+            or final_qualification_certificate.get("sha256")
+            != candidate_authority_identity[1]
+        ):
+            reason = "vexp_candidate_finalization_authority_changed"
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="fail",
+                reason=reason,
+                state=final_state,
+                state_sha256=final_state_sha256,
+                qualification_certificate=final_qualification_certificate,
+                current_predicate=final_current_predicate,
+                permit=permit,
+                permit_sha256=permit_sha256,
+            )
+            raise DeployError(reason)
+        if record_success:
+            self._record_vexp_soak_guard(
+                boundary=boundary,
+                status="pass",
+                reason=(
+                    "trusted_terminal_qualification_root_certificate_"
+                    "current_predicate_and_permit"
+                ),
+                state=final_state,
+                state_sha256=final_state_sha256,
+                qualification_certificate=final_qualification_certificate,
+                current_predicate=final_current_predicate,
+                permit=permit,
+                permit_sha256=permit_sha256,
+            )
         return permit_expires_at
 
     def _run(
@@ -2503,6 +5192,580 @@ class MemorialDeployLane:
                 timeout_seconds=remaining_seconds,
             )
         return self.runner.run(list(args), **run_kwargs)
+
+    def _run_secret_stdin(
+        self,
+        args: Sequence[str],
+        *,
+        env: Mapping[str, str],
+        write_stdin: Callable[[BinaryIO], None],
+        timeout_seconds: float,
+        container_name: str,
+        max_output_bytes: int,
+    ) -> subprocess.CompletedProcess[bytes]:
+        run_secret_stdin = getattr(self.runner, "run_secret_stdin", None)
+        if not callable(run_secret_stdin):
+            raise DeployError("gemini_oauth_secret_stdin_runner_unsupported")
+        try:
+            completed = run_secret_stdin(
+                list(args),
+                cwd=self.root,
+                env=dict(env),
+                write_stdin=write_stdin,
+                timeout_seconds=timeout_seconds,
+                container_name=container_name,
+                max_output_bytes=max_output_bytes,
+            )
+        except KeyboardInterrupt:
+            raise
+        except GeminiOAuthHelperExitUnconfirmed:
+            raise
+        except Exception:
+            raise DeployError("gemini_oauth_provision_transport_failed") from None
+        if not isinstance(completed, subprocess.CompletedProcess):
+            raise DeployError("gemini_oauth_provision_transport_failed")
+        return completed
+
+    def _gemini_oauth_docker_environment(self) -> dict[str, str]:
+        return {
+            key: str(self.env[key])
+            for key in sorted(GEMINI_OAUTH_DOCKER_ENV_ALLOWLIST)
+            if key in self.env and str(self.env[key])
+        }
+
+    def _open_gemini_oauth_snapshot(self) -> CredentialSnapshot:
+        try:
+            snapshot = (
+                self.gemini_oauth_snapshot_factory()
+                if self.gemini_oauth_snapshot_factory is not None
+                else snapshot_source_credentials(
+                    GEMINI_OAUTH_SOURCE_PATH,
+                    trusted_root=GEMINI_OAUTH_SOURCE_TRUSTED_ROOT,
+                )
+            )
+        except KeyboardInterrupt:
+            raise
+        except Exception:
+            raise DeployError("gemini_oauth_source_snapshot_failed") from None
+        if not isinstance(snapshot, CredentialSnapshot):
+            raise DeployError("gemini_oauth_source_snapshot_failed")
+        return snapshot
+
+    @staticmethod
+    def _gemini_oauth_binding_from_snapshot(
+        snapshot: CredentialSnapshot,
+    ) -> dict[str, object]:
+        metadata = snapshot.metadata
+        if (
+            metadata.schema != GEMINI_OAUTH_PROVISION_CONTRACT
+            or metadata.status != "snapshotted"
+            or SHA256_HEX_PATTERN.fullmatch(metadata.sha256) is None
+            or type(metadata.size_bytes) is not int
+            or not 0 < metadata.size_bytes <= GEMINI_OAUTH_MAX_CREDENTIAL_BYTES
+            or type(metadata.uid) is not int
+            or metadata.uid < 0
+            or type(metadata.gid) is not int
+            or metadata.gid < 0
+            or metadata.mode != "0600"
+            or type(metadata.device) is not int
+            or metadata.device < 0
+            or type(metadata.inode) is not int
+            or metadata.inode <= 0
+        ):
+            raise DeployError("gemini_oauth_source_snapshot_metadata_invalid")
+        return {
+            "schema": GEMINI_OAUTH_BINDING_SCHEMA,
+            "source": {
+                "alias": "canonical_user_gemini_oauth",
+                "schema": metadata.schema,
+                "sha256": metadata.sha256,
+                "size_bytes": metadata.size_bytes,
+                "uid": metadata.uid,
+                "gid": metadata.gid,
+                "mode": metadata.mode,
+                "device": metadata.device,
+                "inode": metadata.inode,
+            },
+            "runtime": {
+                "installer_root": GEMINI_OAUTH_INSTALL_ROOT,
+                "installer_target": GEMINI_OAUTH_INSTALL_TARGET,
+                "api_target": GEMINI_OAUTH_API_TARGET,
+            },
+        }
+
+    def _gemini_oauth_source_binding(self) -> dict[str, object]:
+        try:
+            with self._open_gemini_oauth_snapshot() as snapshot:
+                return self._gemini_oauth_binding_from_snapshot(snapshot)
+        except KeyboardInterrupt:
+            raise
+        except DeployError:
+            raise
+        except Exception:
+            raise DeployError("gemini_oauth_source_snapshot_failed") from None
+
+    def _gemini_oauth_helper_container_name(
+        self, deployment_context: Mapping[str, Any]
+    ) -> str:
+        normalized = re.sub(
+            r"[^a-z0-9_.-]+", "-", self.deployment_id.lower()
+        ).strip("-.")
+        readable_prefix = (
+            normalized[:GEMINI_OAUTH_HELPER_NAME_READABLE_MAX_CHARS]
+            or "unknown"
+        )
+        try:
+            identity_sha256 = _canonical_json_sha256(
+                {
+                    "schema": GEMINI_OAUTH_HELPER_IDENTITY_SCHEMA,
+                    "deployment_id": self.deployment_id,
+                    "release_root": str(self.root),
+                    "deployment_context": dict(deployment_context),
+                }
+            )
+        except (TypeError, ValueError):
+            raise DeployError("gemini_oauth_helper_identity_invalid") from None
+        name = f"ea-memorial-oauth-{readable_prefix}-{identity_sha256}"
+        if (
+            len(name) > GEMINI_OAUTH_HELPER_NAME_MAX_CHARS
+            or len(name.encode("ascii")) != len(name)
+            or re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,127}", name) is None
+            or not name.endswith(identity_sha256)
+        ):
+            raise DeployError("gemini_oauth_helper_container_name_invalid")
+        return name
+
+    @staticmethod
+    def _expected_gemini_oauth_install_command(
+        *, candidate_image_id: str, runtime_root: Path, container_name: str
+    ) -> list[str]:
+        if IMAGE_ID_PATTERN.fullmatch(candidate_image_id) is None:
+            raise DeployError("gemini_oauth_candidate_image_id_invalid")
+        if (
+            len(container_name) > GEMINI_OAUTH_HELPER_NAME_MAX_CHARS
+            or len(container_name.encode("ascii")) != len(container_name)
+            or re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,127}", container_name)
+            is None
+        ):
+            raise DeployError("gemini_oauth_helper_container_name_invalid")
+        selected_root = runtime_root.resolve()
+        selected_root_text = os.fspath(selected_root)
+        if (
+            not selected_root.is_absolute()
+            or selected_root == Path("/")
+            or ".." in selected_root.parts
+            or any(
+                character in selected_root_text
+                for character in ("\x00", "\n", "\r", ",")
+            )
+        ):
+            raise DeployError("gemini_oauth_runtime_root_invalid")
+        return [
+            "docker",
+            "run",
+            "--rm",
+            "--interactive",
+            "--name",
+            container_name,
+            "--network",
+            "none",
+            "--user",
+            f"{GEMINI_OAUTH_TARGET_UID}:{GEMINI_OAUTH_TARGET_UID}",
+            "--read-only",
+            "--pull",
+            "never",
+            "--log-driver",
+            "none",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+            "--pids-limit",
+            str(GEMINI_OAUTH_PROVISION_PIDS_LIMIT),
+            "--sig-proxy",
+            "true",
+            "--mount",
+            f"type=bind,src={selected_root_text},dst={GEMINI_OAUTH_INSTALL_ROOT}",
+            "--entrypoint",
+            "python3",
+            candidate_image_id,
+            "/app/scripts/provision_memorial_gemini_oauth.py",
+            "install",
+            "--runtime-root",
+            GEMINI_OAUTH_INSTALL_ROOT,
+        ]
+
+    def _gemini_oauth_install_command(
+        self,
+        *,
+        candidate_image_id: str,
+        runtime_root: Path,
+        container_name: str,
+    ) -> list[str]:
+        return self._expected_gemini_oauth_install_command(
+            candidate_image_id=candidate_image_id,
+            runtime_root=runtime_root,
+            container_name=container_name,
+        )
+
+    def _validate_gemini_oauth_install_command(
+        self,
+        command: Sequence[str],
+        *,
+        candidate_image_id: str,
+        runtime_root: Path,
+        container_name: str,
+    ) -> None:
+        expected = self._expected_gemini_oauth_install_command(
+            candidate_image_id=candidate_image_id,
+            runtime_root=runtime_root,
+            container_name=container_name,
+        )
+        if list(command) != expected:
+            raise DeployError("gemini_oauth_provision_command_invalid")
+
+    def _gemini_oauth_helper_name_absence_evidence(
+        self,
+        container_name: str,
+        *,
+        boundary: str,
+    ) -> dict[str, object]:
+        if (
+            not SAFE_SCRIPT_ORIGIN_PATTERN.fullmatch(boundary)
+            or len(container_name) > GEMINI_OAUTH_HELPER_NAME_MAX_CHARS
+            or re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,127}", container_name)
+            is None
+        ):
+            raise DeployError("gemini_oauth_helper_name_check_invalid")
+        command = [
+            "docker",
+            "container",
+            "ls",
+            "--all",
+            "--filter",
+            f"name=^/{re.escape(container_name)}$",
+            "--format",
+            "{{.Names}}",
+        ]
+        checked_at = ""
+        try:
+            completed = self._run(
+                command,
+                env=self._gemini_oauth_docker_environment(),
+                check=False,
+            )
+            checked_at = _utc_now()
+        except DeployError:
+            if not checked_at:
+                checked_at = _utc_now()
+            return {
+                "status": "unverified",
+                "boundary": boundary,
+                "checked_at": checked_at,
+                "container_name": container_name,
+                "exact_name_absent": None,
+                "helper_invocation_state": "not_started",
+                "error_code": "gemini_oauth_helper_name_check_failed",
+            }
+        if (
+            not isinstance(completed.stdout, str)
+            or not isinstance(completed.stderr, str)
+            or completed.returncode != 0
+            or completed.stderr
+            or len(completed.stdout.encode("utf-8")) > 4096
+        ):
+            return {
+                "status": "unverified",
+                "boundary": boundary,
+                "checked_at": checked_at,
+                "container_name": container_name,
+                "exact_name_absent": None,
+                "helper_invocation_state": "not_started",
+                "error_code": "gemini_oauth_helper_name_check_failed",
+            }
+        observed_names = [
+            line.strip() for line in completed.stdout.splitlines() if line.strip()
+        ]
+        if any(name != container_name for name in observed_names):
+            return {
+                "status": "unverified",
+                "boundary": boundary,
+                "checked_at": checked_at,
+                "container_name": container_name,
+                "exact_name_absent": None,
+                "helper_invocation_state": "not_started",
+                "error_code": "gemini_oauth_helper_name_check_invalid",
+            }
+        exact_name_absent = not observed_names
+        return {
+            "status": "pass" if exact_name_absent else "collision",
+            "boundary": boundary,
+            "checked_at": checked_at,
+            "container_name": container_name,
+            "exact_name_absent": exact_name_absent,
+            "helper_invocation_state": "not_started",
+        }
+
+    def _record_gemini_oauth_helper_name_check(
+        self, evidence: Mapping[str, object]
+    ) -> None:
+        checks = list(self.receipt.get("gemini_oauth_helper_name_checks") or [])
+        checks.append(dict(evidence))
+        self.receipt["gemini_oauth_helper_name_checks"] = checks
+        detail = dict(evidence)
+        evidence_status = str(detail.pop("status", ""))
+        self._record_check(
+            "gemini_oauth_helper_name_absence",
+            "pass" if evidence_status == "pass" else "fail",
+            evidence_status=evidence_status,
+            **detail,
+        )
+
+    def _require_gemini_oauth_helper_name_absent(
+        self,
+        container_name: str,
+        *,
+        boundary: str,
+    ) -> dict[str, object]:
+        evidence = self._gemini_oauth_helper_name_absence_evidence(
+            container_name,
+            boundary=boundary,
+        )
+        self._record_gemini_oauth_helper_name_check(evidence)
+        if evidence.get("status") == "collision":
+            raise GeminiOAuthHelperNameCollision(
+                "gemini_oauth_helper_name_collision"
+            )
+        if evidence.get("status") != "pass":
+            raise GeminiOAuthHelperNeverStarted(
+                "gemini_oauth_helper_name_absence_unverified"
+            )
+        return evidence
+
+    def _record_gemini_oauth_pre_run_point_checks(
+        self,
+        *,
+        api_stopped: Mapping[str, object],
+        helper_name_absence: Mapping[str, object],
+        helper_invocation_state: str,
+    ) -> None:
+        self._record_gemini_oauth_api_stopped_check(api_stopped)
+        self._record_gemini_oauth_helper_name_check(helper_name_absence)
+        status = (
+            "pass"
+            if api_stopped.get("status") == "pass"
+            and helper_name_absence.get("status") == "pass"
+            else "fail"
+        )
+        evidence = {
+            "status": status,
+            "release_context_guard_boundary": "before_gemini_oauth_install",
+            "api_stopped": dict(api_stopped),
+            "helper_name_absence": dict(helper_name_absence),
+            "helper_invocation_state": helper_invocation_state,
+            "continuous_absence_claimed": False,
+        }
+        self.receipt["gemini_oauth_pre_run_point_checks"] = evidence
+        self._record_check(
+            "gemini_oauth_pre_run_point_checks",
+            status,
+            api_checked_at=api_stopped.get("checked_at"),
+            helper_name_checked_at=helper_name_absence.get("checked_at"),
+            helper_invocation_state=helper_invocation_state,
+            continuous_absence_claimed=False,
+        )
+
+    def _provision_gemini_oauth(
+        self,
+        *,
+        candidate: Mapping[str, Any],
+        previous: Mapping[str, Any],
+        expected_binding: Mapping[str, object],
+        command: Sequence[str],
+        helper_container_name: str,
+        runtime_root: Path,
+        before_mutation: Callable[[str], None],
+    ) -> None:
+        candidate_image_id = str(candidate.get("image_id") or "")
+        helper_command = list(command)
+        self._validate_gemini_oauth_install_command(
+            helper_command,
+            candidate_image_id=candidate_image_id,
+            runtime_root=runtime_root,
+            container_name=helper_container_name,
+        )
+        docker_environment = self._gemini_oauth_docker_environment()
+        timeout_seconds = self._vexp_bounded_timeout(
+            GEMINI_OAUTH_PROVISION_TIMEOUT_SECONDS
+        )
+
+        try:
+            with self._open_gemini_oauth_snapshot() as snapshot:
+                current_binding = self._gemini_oauth_binding_from_snapshot(snapshot)
+                if current_binding != dict(expected_binding):
+                    raise DeployError("gemini_oauth_source_changed")
+                before_mutation("before_gemini_oauth_install")
+                api_stopped = self._gemini_oauth_api_stopped_evidence(
+                    previous,
+                    boundary="after_release_guard_before_helper_run",
+                )
+                if api_stopped.get("status") != "pass":
+                    helper_name_absence: dict[str, object] = {
+                        "status": "not_checked",
+                        "boundary": "after_release_guard_before_helper_run",
+                        "checked_at": None,
+                        "container_name": helper_container_name,
+                        "exact_name_absent": None,
+                        "helper_invocation_state": "not_started",
+                        "reason": "api_stopped_recheck_failed",
+                    }
+                    self._record_gemini_oauth_pre_run_point_checks(
+                        api_stopped=api_stopped,
+                        helper_name_absence=helper_name_absence,
+                        helper_invocation_state="not_started",
+                    )
+                    raise DeployError("gemini_oauth_api_stop_not_confirmed")
+                helper_name_absence = (
+                    self._gemini_oauth_helper_name_absence_evidence(
+                        helper_container_name,
+                        boundary="after_release_guard_before_helper_run",
+                    )
+                )
+                if helper_name_absence.get("status") != "pass":
+                    self._record_gemini_oauth_pre_run_point_checks(
+                        api_stopped=api_stopped,
+                        helper_name_absence=helper_name_absence,
+                        helper_invocation_state="not_started",
+                    )
+                    if helper_name_absence.get("status") == "collision":
+                        raise GeminiOAuthHelperNameCollision(
+                            "gemini_oauth_helper_name_collision"
+                        )
+                    raise GeminiOAuthHelperNeverStarted(
+                        "gemini_oauth_helper_name_absence_unverified"
+                    )
+                try:
+                    completed = self._run_secret_stdin(
+                        helper_command,
+                        env=docker_environment,
+                        write_stdin=snapshot.write_secret_to,
+                        timeout_seconds=timeout_seconds,
+                        container_name=helper_container_name,
+                        max_output_bytes=GEMINI_OAUTH_PROVISION_STDOUT_MAX_BYTES,
+                    )
+                except BaseException:
+                    self._record_gemini_oauth_pre_run_point_checks(
+                        api_stopped=api_stopped,
+                        helper_name_absence=helper_name_absence,
+                        helper_invocation_state="invocation_attempted",
+                    )
+                    raise
+                self._record_gemini_oauth_pre_run_point_checks(
+                    api_stopped=api_stopped,
+                    helper_name_absence=helper_name_absence,
+                    helper_invocation_state="completed",
+                )
+        except KeyboardInterrupt:
+            raise
+        except DeployError:
+            raise
+        except GeminiOAuthProvisioningError:
+            raise DeployError("gemini_oauth_provision_transport_failed") from None
+        except Exception:
+            raise DeployError("gemini_oauth_provision_transport_failed") from None
+
+        if completed.returncode != 0:
+            self._record_check(
+                "gemini_oauth_provisioning",
+                "fail",
+                error_code="gemini_oauth_provision_failed",
+                return_code=int(completed.returncode),
+            )
+            raise DeployError("gemini_oauth_provision_failed")
+        stdout = completed.stdout
+        stderr = completed.stderr
+        if (
+            not isinstance(stdout, bytes)
+            or not isinstance(stderr, bytes)
+            or stderr
+            or not 0 < len(stdout) <= GEMINI_OAUTH_PROVISION_STDOUT_MAX_BYTES
+        ):
+            raise DeployError("gemini_oauth_provision_receipt_invalid")
+        try:
+            provision_receipt = _decode_guard_json(
+                stdout,
+                reason="gemini_oauth_provision_receipt_invalid",
+            )
+        except DeployError:
+            raise DeployError("gemini_oauth_provision_receipt_invalid") from None
+        source_binding_value = expected_binding.get("source")
+        source_binding = (
+            dict(source_binding_value)
+            if isinstance(source_binding_value, dict)
+            else {}
+        )
+        expected_receipt = {
+            "schema": GEMINI_OAUTH_PROVISION_CONTRACT,
+            "status": "provisioned",
+            "sha256": source_binding.get("sha256"),
+            "size_bytes": source_binding.get("size_bytes"),
+            "uid": GEMINI_OAUTH_TARGET_UID,
+            "gid": GEMINI_OAUTH_TARGET_UID,
+            "mode": "0600",
+        }
+        if (
+            provision_receipt != expected_receipt
+            or stdout != _canonical_guard_json_bytes(provision_receipt)
+        ):
+            raise DeployError("gemini_oauth_provision_receipt_invalid")
+
+        self.receipt["gemini_oauth_provisioning"] = {
+            "schema": GEMINI_OAUTH_BINDING_SCHEMA,
+            "status": "pass",
+            "candidate_image_id": candidate_image_id,
+            "source_binding_sha256": _canonical_json_sha256(
+                dict(expected_binding)
+            ),
+            "source": {
+                "sha256": source_binding["sha256"],
+                "size_bytes": source_binding["size_bytes"],
+            },
+            "runtime": dict(expected_binding.get("runtime") or {}),
+            "installed": provision_receipt,
+            "secret_transport": {
+                "transport": "anonymous_stdin_pipe",
+                "argv_contains_secret": False,
+                "environment_contains_secret": False,
+                "temporary_file_created": False,
+            },
+            "container_hardening": {
+                "immutable_candidate_image_id": True,
+                "remove_after_exit": True,
+                "interactive_stdin": True,
+                "container_name": helper_container_name,
+                "network": "none",
+                "user": f"{GEMINI_OAUTH_TARGET_UID}:{GEMINI_OAUTH_TARGET_UID}",
+                "read_only_rootfs": True,
+                "pull_policy": "never",
+                "log_driver": "none",
+                "capabilities": "all_dropped",
+                "no_new_privileges": True,
+                "pids_limit": GEMINI_OAUTH_PROVISION_PIDS_LIMIT,
+                "signal_proxy": True,
+                "writable_mount_count": 1,
+                "writable_mount_target": GEMINI_OAUTH_INSTALL_ROOT,
+            },
+        }
+        self._record_check(
+            "gemini_oauth_provisioning",
+            "pass",
+            sha256=str(provision_receipt["sha256"]),
+            size_bytes=int(provision_receipt["size_bytes"]),
+            uid=int(provision_receipt["uid"]),
+            gid=int(provision_receipt["gid"]),
+            mode=str(provision_receipt["mode"]),
+            runtime_target=GEMINI_OAUTH_API_TARGET,
+        )
 
     def _detect_compose(self) -> None:
         docker_compose = self._run(["docker", "compose", "version"], check=False)
@@ -3169,65 +6432,234 @@ class MemorialDeployLane:
         return phase_directory
 
     @staticmethod
-    def _private_evidence_metadata(path: Path) -> dict[str, object]:
-        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
+    def _trusted_file_snapshot(
+        path: Path,
+        *,
+        max_bytes: int,
+        expected_uid: int,
+        force_mode: int | None,
+        reason_prefix: str,
+    ) -> tuple[bytes, dict[str, object]]:
+        """Read and identify one regular file through the same trusted descriptor."""
+
+        if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_NONBLOCK"):
+            raise DeployError(f"{reason_prefix}_nofollow_unavailable:{path.name}")
+        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK | os.O_NOFOLLOW
         try:
             descriptor = os.open(path, flags)
         except OSError as exc:
-            raise DeployError(f"release_evidence_file_unavailable:{path.name}") from exc
+            raise DeployError(f"{reason_prefix}_unavailable:{path.name}") from exc
         try:
             before = os.fstat(descriptor)
             if (
                 not stat.S_ISREG(before.st_mode)
                 or before.st_nlink != 1
-                or before.st_uid != os.geteuid()
+                or before.st_uid != expected_uid
             ):
-                raise DeployError(f"release_evidence_file_invalid:{path.name}")
-            if before.st_size > MAX_PRIVATE_RELEASE_EVIDENCE_BYTES:
-                raise DeployError(f"release_evidence_file_too_large:{path.name}")
-            os.fchmod(descriptor, 0o600)
-            os.fsync(descriptor)
-            before = os.fstat(descriptor)
-            identity = (
-                before.st_dev,
-                before.st_ino,
-                before.st_mode,
-                before.st_size,
-                before.st_nlink,
-                before.st_mtime_ns,
-                before.st_ctime_ns,
-            )
-            digest = hashlib.sha256()
+                raise DeployError(f"{reason_prefix}_invalid:{path.name}")
+            if not 0 < before.st_size <= max_bytes:
+                raise DeployError(f"{reason_prefix}_size_invalid:{path.name}")
+            if force_mode is not None:
+                if stat.S_IMODE(before.st_mode) != force_mode:
+                    os.fchmod(descriptor, force_mode)
+                    os.fsync(descriptor)
+                    before = os.fstat(descriptor)
+                if stat.S_IMODE(before.st_mode) != force_mode:
+                    raise DeployError(
+                        f"{reason_prefix}_permissions_invalid:{path.name}"
+                    )
+            identity = _trusted_file_identity(before)
+            chunks: list[bytes] = []
             total = 0
             while True:
-                chunk = os.read(descriptor, 1024 * 1024)
+                chunk = os.read(descriptor, min(1024 * 1024, max_bytes + 1 - total))
                 if not chunk:
                     break
+                chunks.append(chunk)
                 total += len(chunk)
-                if total > MAX_PRIVATE_RELEASE_EVIDENCE_BYTES:
-                    raise DeployError(f"release_evidence_file_too_large:{path.name}")
-                digest.update(chunk)
+                if total > max_bytes:
+                    raise DeployError(f"{reason_prefix}_size_invalid:{path.name}")
             after = os.fstat(descriptor)
-            after_identity = (
-                after.st_dev,
-                after.st_ino,
-                after.st_mode,
-                after.st_size,
-                after.st_nlink,
-                after.st_mtime_ns,
-                after.st_ctime_ns,
-            )
-            if identity != after_identity or total != after.st_size:
-                raise DeployError(f"release_evidence_file_changed:{path.name}")
-            return {
-                "sha256": digest.hexdigest(),
+            try:
+                path_metadata = os.stat(path, follow_symlinks=False)
+            except OSError as exc:
+                raise DeployError(f"{reason_prefix}_changed:{path.name}") from exc
+            if (
+                identity != _trusted_file_identity(after)
+                or identity != _trusted_file_identity(path_metadata)
+                or total != after.st_size
+            ):
+                raise DeployError(f"{reason_prefix}_changed:{path.name}")
+            raw = b"".join(chunks)
+            return raw, {
+                "sha256": hashlib.sha256(raw).hexdigest(),
                 "size_bytes": total,
-                "mode": "0600",
+                "mode": f"{stat.S_IMODE(after.st_mode):04o}",
+                "device": after.st_dev,
+                "inode": after.st_ino,
+                "uid": after.st_uid,
+                "gid": after.st_gid,
+                "link_count": after.st_nlink,
+                "mtime_ns": after.st_mtime_ns,
+                "ctime_ns": after.st_ctime_ns,
             }
+        except OSError as exc:
+            raise DeployError(f"{reason_prefix}_unreadable:{path.name}") from exc
         finally:
             os.close(descriptor)
+
+    @classmethod
+    def _private_evidence_snapshot(
+        cls, path: Path
+    ) -> tuple[bytes, dict[str, object]]:
+        return cls._trusted_file_snapshot(
+            path,
+            max_bytes=MAX_PRIVATE_RELEASE_EVIDENCE_BYTES,
+            expected_uid=os.geteuid(),
+            force_mode=0o600,
+            reason_prefix="release_evidence_file",
+        )
+
+    @classmethod
+    def _private_evidence_metadata(cls, path: Path) -> dict[str, object]:
+        _raw, metadata = cls._private_evidence_snapshot(path)
+        return metadata
+
+    def _project_modes_snapshot(self) -> tuple[bytes, dict[str, object]]:
+        return self._trusted_file_snapshot(
+            self.root / ".codex-design/product/PROJECT_MODES.generated.json",
+            max_bytes=MAX_DEPLOYMENT_INPUT_BYTES,
+            expected_uid=os.geteuid(),
+            force_mode=None,
+            reason_prefix="release_evidence_project_modes",
+        )
+
+    def _release_evidence_snapshots(
+        self, paths: Mapping[str, Path]
+    ) -> tuple[dict[str, bytes], dict[str, dict[str, object]]]:
+        snapshots: dict[str, bytes] = {}
+        metadata: dict[str, dict[str, object]] = {}
+        for name in (
+            "deploy_context",
+            "release_manifest",
+            "release_authority_status",
+            "memorial_operator_status",
+        ):
+            raw, file_metadata = self._private_evidence_snapshot(paths[name])
+            snapshots[name] = raw
+            metadata[name] = file_metadata
+        return snapshots, metadata
+
+    def _verify_release_evidence_snapshots(
+        self, snapshots: Mapping[str, bytes]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        expected_names = {
+            "deploy_context",
+            "release_manifest",
+            "release_authority_status",
+            "memorial_operator_status",
+            "project_modes",
+        }
+        if set(snapshots) != expected_names:
+            raise DeployError("release_evidence_verifier_inputs_invalid")
+        if self.release_evidence_verifier is not None:
+            result = self.release_evidence_verifier(dict(snapshots))
+            if (
+                not isinstance(result, tuple)
+                or len(result) != 2
+                or not isinstance(result[0], Mapping)
+                or not isinstance(result[1], Mapping)
+            ):
+                raise DeployError("release_evidence_verifier_result_invalid")
+            return dict(result[0]), dict(result[1])
+
+        release_manifest = _decode_guard_json(
+            snapshots["release_manifest"],
+            reason="release_manifest_snapshot_invalid",
+        )
+        project_modes = _decode_guard_json(
+            snapshots["project_modes"],
+            reason="release_project_modes_snapshot_invalid",
+        )
+        release_authority_status = _decode_guard_json(
+            snapshots["release_authority_status"],
+            reason="release_authority_status_snapshot_invalid",
+        )
+        memorial_operator_status = _decode_guard_json(
+            snapshots["memorial_operator_status"],
+            reason="memorial_operator_status_snapshot_invalid",
+        )
+        issues = release_authority_verifier.validate_release_authority(
+            release_manifest=release_manifest,
+            project_modes=project_modes,
+            require_public_origin=True,
+            require_explicit_deployment=True,
+            require_clean_worktree=True,
+            require_tracking_branch=True,
+            require_source_remote_ref=True,
+            require_compose_files=True,
+        )
+        authority = {
+            "contract_name": "ea.release_authority_gate.v1",
+            "status": "pass" if not issues else "fail",
+            "authority_posture": release_authority_verifier._derive_authority_posture(
+                issues
+            ),
+            "issues": list(issues),
+            "source_worktree_dirty": bool(
+                release_manifest.get(
+                    "source_worktree_dirty", release_manifest.get("dirty_worktree")
+                )
+            ),
+            "deployment_id": str(release_manifest.get("deployment_id") or "").strip(),
+            "commit_sha": str(release_manifest.get("commit_sha") or "").strip(),
+            "project_mode": release_authority_verifier._normalize_mode(
+                str(release_manifest.get("project_mode") or "")
+            ),
+            "public_origin": str(release_manifest.get("public_origin") or "").strip(),
+        }
+
+        # The deploy-wide lock serializes this short adapter. It lets the canonical
+        # readiness builder consume the already-opened bytes instead of reopening
+        # caller-swappable paths after their metadata was sealed.
+        memorial_token = Path(
+            "/__ea_memorial_snapshot__/memorial-operator-status.json"
+        )
+        authority_token = Path(
+            "/__ea_memorial_snapshot__/release-authority-status.json"
+        )
+        original_load_json = readiness_verifier._load_json
+        original_release_authority_payload = (
+            readiness_verifier._release_authority_payload
+        )
+
+        def snapshot_load(path: Path) -> dict[str, object]:
+            if path == memorial_token:
+                return dict(memorial_operator_status)
+            raise DeployError("release_evidence_readiness_snapshot_path_invalid")
+
+        def snapshot_authority(
+            *, release_authority_status_path: Path
+        ) -> dict[str, object]:
+            if release_authority_status_path != authority_token:
+                raise DeployError("release_evidence_readiness_snapshot_path_invalid")
+            return dict(release_authority_status)
+
+        try:
+            readiness_verifier._load_json = snapshot_load
+            readiness_verifier._release_authority_payload = snapshot_authority
+            readiness = readiness_verifier.build_payload(
+                memorial_status_path=memorial_token,
+                release_authority_status_path=authority_token,
+            )
+        finally:
+            readiness_verifier._load_json = original_load_json
+            readiness_verifier._release_authority_payload = (
+                original_release_authority_payload
+            )
+        if not isinstance(readiness, dict):
+            raise DeployError("release_evidence_verifier_result_invalid")
+        return authority, dict(readiness)
 
     @staticmethod
     def _write_private_evidence_json(path: Path, payload: Mapping[str, object]) -> None:
@@ -3298,7 +6730,6 @@ class MemorialDeployLane:
                 / "memorial-operator-status.json",
                 "phase_manifest": evidence_directory / "phase-manifest.json",
             }
-            evidence_files: dict[str, dict[str, object]] = {}
             evidence_env = self._release_evidence_environment()
 
             self._run_release_evidence_materializer(
@@ -3308,9 +6739,6 @@ class MemorialDeployLane:
                 expected_source_seal=source_seal,
                 label=f"{phase}_deploy_context",
                 env=evidence_env,
-            )
-            evidence_files["deploy_context"] = self._private_evidence_metadata(
-                paths["deploy_context"]
             )
             self._require_deployment_input_seal(deployment_input_seal)
 
@@ -3323,9 +6751,6 @@ class MemorialDeployLane:
                 expected_source_seal=source_seal,
                 label=f"{phase}_release_manifest",
                 env=manifest_env,
-            )
-            evidence_files["release_manifest"] = self._private_evidence_metadata(
-                paths["release_manifest"]
             )
             self._require_deployment_input_seal(deployment_input_seal)
 
@@ -3340,9 +6765,6 @@ class MemorialDeployLane:
                 expected_source_seal=source_seal,
                 label=f"{phase}_authority_status",
                 env=evidence_env,
-            )
-            evidence_files["release_authority_status"] = (
-                self._private_evidence_metadata(paths["release_authority_status"])
             )
             self._require_deployment_input_seal(deployment_input_seal)
 
@@ -3360,31 +6782,17 @@ class MemorialDeployLane:
                 label=f"{phase}_operator_status",
                 env=evidence_env,
             )
-            evidence_files["memorial_operator_status"] = (
-                self._private_evidence_metadata(paths["memorial_operator_status"])
-            )
             self._require_deployment_input_seal(deployment_input_seal)
 
-            authority = self._run_json_script(
-                "scripts/verify_release_authority.py",
-                "--release-manifest",
-                str(paths["release_manifest"]),
-                "--pretty",
-                origin=f"{phase}_release_authority",
-                expected_source_seal=source_seal,
-                env=evidence_env,
+            verifier_snapshots, evidence_files = self._release_evidence_snapshots(
+                paths
             )
-            self._require_deployment_input_seal(deployment_input_seal)
-            readiness = self._run_json_script(
-                "scripts/verify_memorial_deploy_readiness.py",
-                "--memorial-status",
-                str(paths["memorial_operator_status"]),
-                "--release-authority-status",
-                str(paths["release_authority_status"]),
-                "--pretty",
-                origin=f"{phase}_memorial_readiness",
-                expected_source_seal=source_seal,
-                env=evidence_env,
+            project_modes_raw, project_modes_metadata = (
+                self._project_modes_snapshot()
+            )
+            verifier_snapshots["project_modes"] = project_modes_raw
+            authority, readiness = self._verify_release_evidence_snapshots(
+                verifier_snapshots
             )
             self._require_deployment_input_seal(deployment_input_seal)
 
@@ -3428,11 +6836,19 @@ class MemorialDeployLane:
             if str(readiness.get("status") or "").lower() != "pass":
                 raise DeployError("memorial_deploy_readiness_not_pass")
 
-            for name, path in paths.items():
-                if name == "phase_manifest":
-                    continue
-                if self._private_evidence_metadata(path) != evidence_files[name]:
-                    raise DeployError(f"release_evidence_file_rehashed_mismatch:{name}")
+            _verified_snapshots, verified_metadata = (
+                self._release_evidence_snapshots(paths)
+            )
+            for name, metadata in evidence_files.items():
+                if verified_metadata[name] != metadata:
+                    raise DeployError(
+                        f"release_evidence_file_rehashed_mismatch:{name}"
+                    )
+            _project_modes_verified, verified_project_modes_metadata = (
+                self._project_modes_snapshot()
+            )
+            if verified_project_modes_metadata != project_modes_metadata:
+                raise DeployError("release_evidence_project_modes_rehashed_mismatch")
 
             relative_directory = Path(f"{self.deployment_id}.evidence") / phase
             receipt_files = {
@@ -3486,6 +6902,12 @@ class MemorialDeployLane:
                 },
                 "projection_sha256": str(projection.get("projection_sha256") or ""),
                 "evidence_files": receipt_files,
+                "verifier_inputs": {
+                    "project_modes": {
+                        "path": ".codex-design/product/PROJECT_MODES.generated.json",
+                        **project_modes_metadata,
+                    }
+                },
                 "authority": authority_projection,
                 "readiness": readiness_projection,
             }
@@ -3513,6 +6935,12 @@ class MemorialDeployLane:
                 "source_seal": source_seal,
                 "deployment_input_sha256": deployment_input_sha256,
                 "files": receipt_files,
+                "verifier_inputs": {
+                    "project_modes": {
+                        "path": ".codex-design/product/PROJECT_MODES.generated.json",
+                        **project_modes_metadata,
+                    }
+                },
                 "authority": authority_projection,
                 "readiness": readiness_projection,
             }
@@ -3543,6 +6971,342 @@ class MemorialDeployLane:
         if final_seal_error is not None:
             raise final_seal_error
         return authority
+
+    def _require_receipt_matches_memory(self) -> None:
+        expected = (json.dumps(self.receipt, indent=2, sort_keys=True) + "\n").encode(
+            "utf-8"
+        )
+        if len(expected) > MAX_DEPLOYMENT_RECEIPT_BYTES:
+            raise DeployError("deployment_receipt_too_large")
+        current = self._read_trusted_guard_file(
+            self.receipt_path,
+            expected_mode=0o600,
+            expected_uid=os.geteuid(),
+            max_bytes=MAX_DEPLOYMENT_RECEIPT_BYTES,
+            reason_prefix="deployment_receipt",
+        )
+        if current != expected:
+            raise DeployError("deployment_receipt_memory_mismatch")
+
+    @staticmethod
+    def _stable_predeploy_receipt_binding(
+        receipt: Mapping[str, Any],
+    ) -> dict[str, object]:
+        promotion = dict(receipt.get("candidate_promotion_evidence") or {})
+        release_evidence = dict(receipt.get("release_evidence") or {})
+        return {
+            "contract_name": str(receipt.get("contract_name") or ""),
+            "deployment_id": str(receipt.get("deployment_id") or ""),
+            "project_name": str(receipt.get("project_name") or ""),
+            "service_scope": list(receipt.get("service_scope") or []),
+            "api_mutation_scope": list(receipt.get("api_mutation_scope") or []),
+            "credential_mutation_scope": list(
+                receipt.get("credential_mutation_scope") or []
+            ),
+            "memorial_surface": str(receipt.get("memorial_surface") or ""),
+            "spatial_scope": str(receipt.get("spatial_scope") or ""),
+            "target_compose_files": list(receipt.get("target_compose_files") or []),
+            "release_source": dict(receipt.get("release_source") or {}),
+            "source_revision": str(receipt.get("source_revision") or ""),
+            "public_origin": str(receipt.get("public_origin") or ""),
+            "previous_api": dict(receipt.get("previous_api") or {}),
+            "rollback_compose_files": list(
+                receipt.get("rollback_compose_files") or []
+            ),
+            "candidate_image": dict(receipt.get("candidate_image") or {}),
+            "gemini_oauth_source_binding": dict(
+                receipt.get("gemini_oauth_source_binding") or {}
+            ),
+            "candidate_promotion_sha256": _canonical_json_sha256(promotion),
+            "predeploy_release_evidence_sha256": _canonical_json_sha256(
+                dict(release_evidence.get("predeploy") or {})
+            ),
+        }
+
+    def _capture_predeploy_release_context_seal(
+        self,
+        *,
+        release_source: Mapping[str, str],
+        authority: Mapping[str, Any],
+        previous: Mapping[str, Any],
+        rollback_render: Mapping[str, Any],
+        public_origin: str,
+        candidate: Mapping[str, Any],
+        candidate_promotion: Mapping[str, Any],
+        deployment_input_seal: Mapping[str, Sequence[Mapping[str, object]]],
+        target_mounts: Sequence[Mapping[str, object]],
+        gemini_oauth_binding: Mapping[str, object],
+    ) -> dict[str, object]:
+        release_evidence = dict(self.receipt.get("release_evidence") or {})
+        predeploy = release_evidence.get("predeploy")
+        if not isinstance(predeploy, dict):
+            raise DeployError("predeploy_release_evidence_missing")
+        source_seal = predeploy.get("source_seal")
+        if not isinstance(source_seal, dict):
+            raise DeployError("predeploy_release_source_seal_missing")
+        seal: dict[str, object] = {
+            "release_source": dict(release_source),
+            "authority_sha256": _canonical_json_sha256(dict(authority)),
+            "previous_sha256": _canonical_json_sha256(dict(previous)),
+            "rollback_render_sha256": _canonical_json_sha256(
+                dict(rollback_render)
+            ),
+            "public_origin": public_origin,
+            "source_seal": dict(source_seal),
+            "release_evidence": json.loads(
+                json.dumps(predeploy, ensure_ascii=True, sort_keys=True)
+            ),
+            "candidate": dict(candidate),
+            "candidate_promotion_sha256": _canonical_json_sha256(
+                dict(candidate_promotion)
+            ),
+            "target_mounts_sha256": _canonical_json_sha256(
+                [dict(item) for item in target_mounts]
+            ),
+            "gemini_oauth": json.loads(
+                json.dumps(gemini_oauth_binding, ensure_ascii=True, sort_keys=True)
+            ),
+            "deployment_input_sha256": _canonical_json_sha256(
+                {
+                    key: [dict(item) for item in value]
+                    for key, value in deployment_input_seal.items()
+                }
+            ),
+            "receipt_binding": self._stable_predeploy_receipt_binding(self.receipt),
+        }
+        return seal
+
+    def _require_predeploy_release_evidence_current(
+        self,
+        expected: Mapping[str, Any],
+        *,
+        expected_source_seal: Mapping[str, str],
+    ) -> None:
+        expected_directory = f"{self.deployment_id}.evidence/predeploy"
+        if (
+            str(expected.get("directory") or "") != expected_directory
+            or expected.get("directory_mode") != "0700"
+        ):
+            raise DeployError("predeploy_release_evidence_identity_invalid")
+        evidence_directory = self.receipt_dir / expected_directory
+        try:
+            directory_metadata = evidence_directory.lstat()
+        except OSError as exc:
+            raise DeployError("predeploy_release_evidence_directory_missing") from exc
+        if (
+            not stat.S_ISDIR(directory_metadata.st_mode)
+            or stat.S_ISLNK(directory_metadata.st_mode)
+            or directory_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(directory_metadata.st_mode) != 0o700
+        ):
+            raise DeployError("predeploy_release_evidence_directory_invalid")
+
+        expected_names = {
+            "deploy_context": "deploy-context.json",
+            "release_manifest": "release-manifest.json",
+            "release_authority_status": "release-authority-status.json",
+            "memorial_operator_status": "memorial-operator-status.json",
+            "phase_manifest": "phase-manifest.json",
+        }
+        metadata_keys = (
+            "sha256",
+            "size_bytes",
+            "mode",
+            "device",
+            "inode",
+            "uid",
+            "gid",
+            "link_count",
+            "mtime_ns",
+            "ctime_ns",
+        )
+        files_value = expected.get("files")
+        files = dict(files_value) if isinstance(files_value, dict) else {}
+        if set(files) != set(expected_names):
+            raise DeployError("predeploy_release_evidence_files_invalid")
+        paths: dict[str, Path] = {}
+        expected_metadata: dict[str, dict[str, object]] = {}
+        for name, filename in expected_names.items():
+            entry_value = files.get(name)
+            entry = dict(entry_value) if isinstance(entry_value, dict) else {}
+            if (
+                set(entry) != {"path", *metadata_keys}
+                or entry.get("path") != f"{expected_directory}/{filename}"
+            ):
+                raise DeployError("predeploy_release_evidence_file_identity_invalid")
+            path = evidence_directory / filename
+            paths[name] = path
+            expected_metadata[name] = {key: entry[key] for key in metadata_keys}
+
+        verifier_snapshots, current_metadata = self._release_evidence_snapshots(paths)
+        _phase_manifest_raw, phase_manifest_metadata = (
+            self._private_evidence_snapshot(paths["phase_manifest"])
+        )
+        current_metadata["phase_manifest"] = phase_manifest_metadata
+        for name, metadata in current_metadata.items():
+            if metadata != expected_metadata[name]:
+                raise DeployError(f"predeploy_release_evidence_file_changed:{name}")
+
+        verifier_inputs_value = expected.get("verifier_inputs")
+        verifier_inputs = (
+            dict(verifier_inputs_value)
+            if isinstance(verifier_inputs_value, dict)
+            else {}
+        )
+        if set(verifier_inputs) != {"project_modes"}:
+            raise DeployError("predeploy_release_verifier_inputs_invalid")
+        project_modes_value = verifier_inputs.get("project_modes")
+        project_modes_entry = (
+            dict(project_modes_value)
+            if isinstance(project_modes_value, dict)
+            else {}
+        )
+        if (
+            set(project_modes_entry) != {"path", *metadata_keys}
+            or project_modes_entry.get("path")
+            != ".codex-design/product/PROJECT_MODES.generated.json"
+        ):
+            raise DeployError("predeploy_release_project_modes_identity_invalid")
+        expected_project_modes_metadata = {
+            key: project_modes_entry[key] for key in metadata_keys
+        }
+        project_modes_raw, project_modes_metadata = self._project_modes_snapshot()
+        if project_modes_metadata != expected_project_modes_metadata:
+            raise DeployError("predeploy_release_project_modes_changed")
+        verifier_snapshots["project_modes"] = project_modes_raw
+        authority, readiness = self._verify_release_evidence_snapshots(
+            verifier_snapshots
+        )
+        authority_projection = {
+            "contract_name": str(authority.get("contract_name") or ""),
+            "status": str(authority.get("status") or ""),
+            "authority_posture": str(authority.get("authority_posture") or ""),
+            "deployment_id": str(authority.get("deployment_id") or ""),
+            "commit_sha": str(authority.get("commit_sha") or ""),
+            "project_mode": str(authority.get("project_mode") or ""),
+            "public_origin": str(authority.get("public_origin") or ""),
+            "source_worktree_dirty": bool(authority.get("source_worktree_dirty")),
+        }
+        readiness_projection = {
+            "contract_name": str(readiness.get("contract_name") or ""),
+            "status": str(readiness.get("status") or ""),
+            "issues": [
+                str(item)
+                for item in list(readiness.get("issues") or [])
+                if str(item)
+            ],
+        }
+        if (
+            authority_projection != expected.get("authority")
+            or authority_projection.get("contract_name")
+            != "ea.release_authority_gate.v1"
+            or str(authority_projection.get("status") or "").lower() != "pass"
+            or authority_projection.get("source_worktree_dirty") is not False
+            or authority_projection.get("deployment_id") != self.deployment_id
+            or authority_projection.get("commit_sha")
+            != expected_source_seal.get("head")
+            or str(authority_projection.get("project_mode") or "").upper()
+            != "MEMORIAL"
+            or readiness_projection != expected.get("readiness")
+            or readiness_projection.get("contract_name")
+            != "ea.memorial_deploy_readiness.v1"
+            or str(readiness_projection.get("status") or "").lower() != "pass"
+        ):
+            raise DeployError("predeploy_release_authority_changed")
+        _verified_snapshots, verified_metadata = self._release_evidence_snapshots(
+            paths
+        )
+        _phase_manifest_verified, verified_phase_manifest_metadata = (
+            self._private_evidence_snapshot(paths["phase_manifest"])
+        )
+        verified_metadata["phase_manifest"] = verified_phase_manifest_metadata
+        for name, metadata in verified_metadata.items():
+            if metadata != expected_metadata[name]:
+                raise DeployError(f"predeploy_release_evidence_file_changed:{name}")
+        _project_modes_verified, verified_project_modes_metadata = (
+            self._project_modes_snapshot()
+        )
+        if verified_project_modes_metadata != expected_project_modes_metadata:
+            raise DeployError("predeploy_release_project_modes_changed")
+
+    def _require_predeploy_release_context_current(
+        self,
+        expected: Mapping[str, Any],
+        *,
+        boundary: str,
+        deployment_input_seal: Mapping[
+            str, Sequence[Mapping[str, object]]
+        ],
+    ) -> None:
+        if not SAFE_SCRIPT_ORIGIN_PATTERN.fullmatch(boundary):
+            raise DeployError("predeploy_release_context_boundary_invalid")
+        self._require_receipt_matches_memory()
+        release_source_value = expected.get("release_source")
+        release_source = (
+            dict(release_source_value)
+            if isinstance(release_source_value, dict)
+            else {}
+        )
+        if self._current_release_source_metadata() != release_source:
+            raise DeployError("predeploy_release_source_changed")
+        gemini_oauth_value = expected.get("gemini_oauth")
+        gemini_oauth = (
+            dict(gemini_oauth_value)
+            if isinstance(gemini_oauth_value, dict)
+            else {}
+        )
+        if self._gemini_oauth_source_binding() != gemini_oauth:
+            raise DeployError("gemini_oauth_source_changed")
+        source_seal_value = expected.get("source_seal")
+        source_seal = (
+            dict(source_seal_value) if isinstance(source_seal_value, dict) else {}
+        )
+        self._require_release_evidence_source_seal(source_seal)
+        self._require_deployment_input_seal(deployment_input_seal)
+        if _canonical_json_sha256(
+            {
+                key: [dict(item) for item in value]
+                for key, value in deployment_input_seal.items()
+            }
+        ) != str(expected.get("deployment_input_sha256") or ""):
+            raise DeployError("predeploy_deployment_input_identity_changed")
+        evidence_value = expected.get("release_evidence")
+        evidence = dict(evidence_value) if isinstance(evidence_value, dict) else {}
+        self._require_predeploy_release_evidence_current(
+            evidence,
+            expected_source_seal=source_seal,
+        )
+        source_revision = str(release_source.get("source_revision") or "")
+        reference = _safe_candidate_image_reference(
+            self.memorial_image_reference,
+            source_revision=source_revision,
+        )
+        candidate = self._inspect_image(reference)
+        if candidate != expected.get("candidate"):
+            raise DeployError("predeploy_candidate_image_changed")
+        candidate_promotion = self._validate_candidate_promotion_receipt(
+            candidate=candidate,
+            source_revision=source_revision,
+        )
+        if _canonical_json_sha256(candidate_promotion) != str(
+            expected.get("candidate_promotion_sha256") or ""
+        ):
+            raise DeployError("predeploy_candidate_promotion_changed")
+        if self._stable_predeploy_receipt_binding(self.receipt) != expected.get(
+            "receipt_binding"
+        ):
+            raise DeployError("predeploy_deployment_receipt_binding_changed")
+        self._require_release_evidence_source_seal(source_seal)
+        if self._current_release_source_metadata() != release_source:
+            raise DeployError("predeploy_release_source_changed")
+        self._require_deployment_input_seal(deployment_input_seal)
+        self._require_receipt_matches_memory()
+        self._record_check(
+            "predeploy_release_context_revalidation",
+            "pass",
+            boundary=boundary,
+            seal_sha256=_canonical_json_sha256(dict(expected)),
+        )
 
     def _bind_source_access(
         self,
@@ -4018,6 +7782,535 @@ class MemorialDeployLane:
             runtime_root = self.root / runtime_root
         return runtime_root.resolve()
 
+    def _validate_candidate_vexp_authority(
+        self,
+        value: object,
+        *,
+        observed_at: object,
+    ) -> dict[str, Any]:
+        reason = "memorial_candidate_vexp_authority_invalid"
+        if not isinstance(value, dict) or set(value) != {
+            "entry",
+            "mutations",
+            "finalization",
+            "cleanup_requires_positive_authority",
+            "retention_timer_only_authority_free_cleanup",
+        }:
+            raise DeployError(reason)
+        entry = value.get("entry")
+        mutations = value.get("mutations")
+        finalization = value.get("finalization")
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(mutations, list)
+            or not isinstance(finalization, dict)
+            or value.get("cleanup_requires_positive_authority") is not True
+            or value.get("retention_timer_only_authority_free_cleanup") is not True
+        ):
+            raise DeployError(reason)
+
+        operation_rows: list[dict[str, Any]] = []
+        rows: list[dict[str, Any]] = [dict(entry)]
+        for sequence, raw_operation in enumerate(mutations, start=1):
+            if not isinstance(raw_operation, dict):
+                raise DeployError(reason)
+            operation = dict(raw_operation)
+            resource = operation.get("resource")
+            authority = operation.get("authority")
+            if (
+                set(operation) != CANDIDATE_VEXP_OPERATION_KEYS
+                or operation.get("sequence") != sequence
+                or operation.get("runner_acknowledged") is not True
+                or not isinstance(operation.get("operation"), str)
+                or not isinstance(resource, dict)
+                or set(resource) != CANDIDATE_VEXP_OPERATION_RESOURCE_KEYS
+                or not isinstance(resource.get("argv"), list)
+                or not 0 < len(resource["argv"]) <= 256
+                or any(
+                    not isinstance(argument, str)
+                    or not argument
+                    or len(argument) > 16 * 1024
+                    or "\x00" in argument
+                    for argument in resource["argv"]
+                )
+                or not isinstance(resource.get("target"), str)
+                or not resource["target"]
+                or len(resource["target"]) > 16 * 1024
+                or "\x00" in resource["target"]
+                or not isinstance(authority, dict)
+            ):
+                raise DeployError(reason)
+            operation_rows.append(operation)
+            rows.append(dict(authority))
+        rows.append(dict(finalization))
+        if any(
+            set(row) != CANDIDATE_VEXP_AUTHORITY_EVIDENCE_KEYS for row in rows
+        ):
+            raise DeployError(reason)
+        expected_phases_and_boundaries = (
+            [("entry", "candidate_entry")]
+            + [
+                ("pre_mutation", boundary)
+                for boundary in CANDIDATE_VEXP_MUTATION_SEQUENCE
+            ]
+            + [("finalization", "candidate_receipt_publication")]
+        )
+        if len(rows) != len(expected_phases_and_boundaries):
+            raise DeployError(reason)
+
+        immutable_authority = {
+            key: rows[0].get(key) for key in CANDIDATE_VEXP_AUTHORITY_TUPLE_KEYS
+        }
+        previous_predicate_generation = 0
+        previous_predicate_monotonic_ns = 0
+        for row, (phase, boundary) in zip(
+            rows, expected_phases_and_boundaries, strict=True
+        ):
+            if (
+                row.get("status") != "pass"
+                or row.get("phase") != phase
+                or row.get("boundary") != boundary
+                or {
+                    key: row.get(key)
+                    for key in CANDIDATE_VEXP_AUTHORITY_TUPLE_KEYS
+                }
+                != immutable_authority
+            ):
+                raise DeployError(reason)
+            predicate = row.get("current_predicate")
+            if not isinstance(predicate, dict):
+                raise DeployError(reason)
+            generation = predicate.get("generation")
+            monotonic_ns = predicate.get("monotonic_ns")
+            if (
+                set(predicate) != VEXP_CURRENT_PREDICATE_STATUS_KEYS
+                or predicate.get("contract_name")
+                != VEXP_CURRENT_PREDICATE_CONTRACT_NAME
+                or predicate.get("version") != VEXP_CURRENT_PREDICATE_VERSION
+                or predicate.get("status") != "positive"
+                or predicate.get("epoch_started_ms")
+                != immutable_authority.get("epoch_started_ms")
+                or type(generation) is not int
+                or generation < previous_predicate_generation
+                or type(monotonic_ns) is not int
+                or monotonic_ns < previous_predicate_monotonic_ns
+                or not isinstance(predicate.get("boot_id"), str)
+                or len(str(predicate["boot_id"])) != 36
+                or any(
+                    SHA256_HEX_PATTERN.fullmatch(
+                        str(predicate.get(name) or "")
+                    )
+                    is None
+                    for name in (
+                        "record_sha256",
+                        "sentinel_producer_sha256",
+                        "root_predicate_producer_sha256",
+                    )
+                )
+            ):
+                raise DeployError(reason)
+            previous_predicate_generation = generation
+            previous_predicate_monotonic_ns = monotonic_ns
+        for operation, (_phase, boundary) in zip(
+            operation_rows,
+            expected_phases_and_boundaries[1:-1],
+            strict=True,
+        ):
+            if str(operation["operation"]) not in (
+                CANDIDATE_VEXP_OPERATIONS_BY_BOUNDARY.get(boundary, frozenset())
+            ):
+                raise DeployError(reason)
+
+        epoch_started_ms = immutable_authority.get("epoch_started_ms")
+        terminal_identity_sha256 = immutable_authority.get(
+            "terminal_identity_sha256"
+        )
+        certificate_sha256 = immutable_authority.get(
+            "qualification_certificate_sha256"
+        )
+        certificate_identity = immutable_authority.get(
+            "qualification_certificate_identity"
+        )
+        certificate_event_hash = immutable_authority.get(
+            "qualification_certificate_event_hash"
+        )
+        if (
+            immutable_authority.get("contract_name")
+            != CANDIDATE_VEXP_MUTATION_PERMIT_CONTRACT_NAME
+            or immutable_authority.get("version")
+            != CANDIDATE_VEXP_MUTATION_PERMIT_VERSION
+            or type(epoch_started_ms) is not int
+            or epoch_started_ms <= 0
+            or immutable_authority.get("qualification_certificate_schema")
+            != VEXP_QUALIFICATION_CERTIFICATE_SCHEMA
+            or SHA256_HEX_PATTERN.fullmatch(str(terminal_identity_sha256 or ""))
+            is None
+            or SHA256_HEX_PATTERN.fullmatch(str(certificate_sha256 or "")) is None
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", str(certificate_identity or ""))
+            is None
+            or SHA256_HEX_PATTERN.fullmatch(str(certificate_event_hash or ""))
+            is None
+            or SHA256_HEX_PATTERN.fullmatch(
+                str(immutable_authority.get("permit_sha256") or "")
+            )
+            is None
+        ):
+            raise DeployError(reason)
+
+        qualified_at = _parse_vexp_utc_timestamp(
+            immutable_authority.get("qualified_at"), reason=reason
+        )
+        permit_issued_at = _parse_vexp_utc_timestamp(
+            immutable_authority.get("permit_issued_at"), reason=reason
+        )
+        permit_expires_at = _parse_vexp_utc_timestamp(
+            immutable_authority.get("permit_expires_at"), reason=reason
+        )
+        candidate_observed_at = _parse_vexp_utc_timestamp(observed_at, reason=reason)
+        if (
+            permit_issued_at < qualified_at
+            or permit_expires_at <= permit_issued_at
+            or permit_expires_at - permit_issued_at
+            > MAX_VEXP_MUTATION_PERMIT_LIFETIME
+            or candidate_observed_at < permit_issued_at
+            or candidate_observed_at >= permit_expires_at
+        ):
+            raise DeployError(reason)
+
+        permit_commit = immutable_authority.get("permit_commit")
+        if (
+            not isinstance(permit_commit, dict)
+            or set(permit_commit)
+            != {"contract_name", "version", "status", "sha256"}
+            or permit_commit.get("contract_name")
+            != VEXP_MUTATION_PERMIT_COMMIT_CONTRACT_NAME
+            or permit_commit.get("version") != VEXP_MUTATION_PERMIT_COMMIT_VERSION
+            or permit_commit.get("status") != "committed"
+            or SHA256_HEX_PATTERN.fullmatch(str(permit_commit.get("sha256") or ""))
+            is None
+        ):
+            raise DeployError(reason)
+
+        void_ledger = immutable_authority.get("epoch_void_ledger")
+        expected_ledger_root = self._vexp_mutation_authority.epoch_void_ledger_root
+        expected_ledger_entry = expected_ledger_root / f"{epoch_started_ms}.json"
+        if (
+            not isinstance(void_ledger, dict)
+            or set(void_ledger)
+            != {"root", "entry", "entry_present", "root_trusted"}
+            or void_ledger.get("root") != str(expected_ledger_root)
+            or void_ledger.get("entry") != str(expected_ledger_entry)
+            or void_ledger.get("entry_present") is not False
+            or void_ledger.get("root_trusted") is not True
+        ):
+            raise DeployError(reason)
+
+        with self._vexp_mutation_authority.shared_lease():
+            state, _state_sha256 = self._read_trusted_vexp_sentinel_state()
+            self._require_vexp_epoch_not_voided(state)
+            now = self._vexp_guard_now()
+            if (
+                state.get("qualification_phase") != "qualified"
+                or state.get("qualified_at") is None
+                or state.get("current_resources_healthy") is not True
+                or state.get("certification_blockers") != []
+                or state.get("certification_deferments") != []
+                or state.get("epoch_started_ms") != epoch_started_ms
+                or state.get("qualified_at")
+                != immutable_authority.get("qualified_at")
+                or _vexp_terminal_identity_sha256(state)
+                != terminal_identity_sha256
+            ):
+                raise DeployError(reason)
+            self._validate_vexp_sentinel_liveness(state, now=now)
+            _certificate, certificate_evidence = (
+                self._read_trusted_vexp_qualification_certificate(state)
+            )
+            if certificate_evidence != {
+                "schema": VEXP_QUALIFICATION_CERTIFICATE_SCHEMA,
+                "identity": certificate_identity,
+                "event_hash": certificate_event_hash,
+                "sha256": certificate_sha256,
+            }:
+                raise DeployError(reason)
+
+        return {
+            "status": "pass",
+            "contract_name": CANDIDATE_VEXP_MUTATION_PERMIT_CONTRACT_NAME,
+            "version": CANDIDATE_VEXP_MUTATION_PERMIT_VERSION,
+            "epoch_started_ms": epoch_started_ms,
+            "terminal_identity_sha256": terminal_identity_sha256,
+            "qualification_certificate_sha256": certificate_sha256,
+            "historical_candidate_permit_sha256": immutable_authority[
+                "permit_sha256"
+            ],
+            "mutation_count": len(mutations),
+            "mutation_sequence_exact": True,
+            "receipt_publication_finalized_under_authority": True,
+            "current_terminal_epoch_and_certificate_bound": True,
+        }
+
+    def _validate_candidate_image_build_authority(
+        self,
+        value: object,
+        *,
+        source_revision: str,
+        image_reference: str,
+        image_id: str,
+        candidate_vexp_authority: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        reason = "memorial_candidate_image_build_authority_invalid"
+        try:
+            binding = validate_build_authority_binding(
+                value,
+                commit=source_revision,
+                image_tag=image_reference,
+                image_id=image_id,
+            )
+            raw_path = Path(str(binding["receipt_path"]))
+            if not raw_path.is_absolute() or raw_path.is_symlink():
+                raise RuntimeError(reason)
+            flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(raw_path, flags)
+            try:
+                metadata = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.getuid()
+                    or metadata.st_nlink != 1
+                    or stat.S_IMODE(metadata.st_mode) != 0o600
+                    or metadata.st_size <= 0
+                    or metadata.st_size > IMAGE_BUILD_RECEIPT_MAX_BYTES
+                ):
+                    raise RuntimeError(reason)
+                chunks: list[bytes] = []
+                remaining = int(metadata.st_size)
+                while remaining:
+                    chunk = os.read(descriptor, min(65536, remaining))
+                    if not chunk:
+                        raise RuntimeError(reason)
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                if (
+                    _trusted_file_identity(os.fstat(descriptor))
+                    != _trusted_file_identity(metadata)
+                ):
+                    raise RuntimeError(reason)
+            finally:
+                os.close(descriptor)
+            raw = b"".join(chunks)
+            if (
+                hashlib.sha256(raw).hexdigest() != binding["receipt_sha256"]
+                or validated_build_receipt_binding(
+                    raw,
+                    receipt_path=raw_path,
+                    commit=source_revision,
+                    image_tag=image_reference,
+                    image_id=image_id,
+                )
+                != binding
+            ):
+                raise RuntimeError(reason)
+        except (OSError, RuntimeError, ValueError, KeyError) as exc:
+            raise DeployError(reason) from exc
+
+        authority = dict(binding["authority"])
+        entry = authority.get("entry")
+        if not isinstance(entry, dict):
+            raise DeployError(reason)
+        image_build_permit_sha256 = str(entry.get("permit_sha256") or "")
+        if (
+            entry.get("epoch_started_ms")
+            != candidate_vexp_authority.get("epoch_started_ms")
+            or entry.get("terminal_identity_sha256")
+            != candidate_vexp_authority.get("terminal_identity_sha256")
+            or entry.get("qualification_certificate_sha256")
+            != candidate_vexp_authority.get("qualification_certificate_sha256")
+            or SHA256_HEX_PATTERN.fullmatch(image_build_permit_sha256) is None
+        ):
+            raise DeployError(reason)
+        image_reused = binding.get("image_reused")
+        authority_basis = authority.get("authority_basis")
+        if (
+            (image_reused is True and authority_basis != "preexisting_image_current_authority_probe")
+            or (image_reused is False and authority_basis != "new_image_build")
+        ):
+            raise DeployError(reason)
+        return {
+            "status": "pass",
+            "receipt_schema": IMAGE_BUILD_RECEIPT_SCHEMA,
+            "receipt_path": str(binding["receipt_path"]),
+            "receipt_sha256": str(binding["receipt_sha256"]),
+            "image_tag": image_reference,
+            "image_id": image_id,
+            "source_revision": source_revision,
+            "producer_sha256": str(binding["producer_sha256"]),
+            "image_reused": image_reused,
+            "authority_basis": authority_basis,
+            "historical_image_build_permit_sha256": image_build_permit_sha256,
+            "operation_count": int(authority["operation_count"]),
+            "operations_exact": True,
+            "receipt_publication_held_under_authority": True,
+            "current_terminal_epoch_and_certificate_bound": True,
+            "creation_under_candidate_permit_claim_allowed": image_reused is False,
+            "preexisting_image_current_probe_only": image_reused is True,
+        }
+
+    def _validate_candidate_finalization_seal(
+        self,
+        *,
+        candidate_receipt_path: Path,
+        candidate_receipt_sha256: str,
+        candidate_vexp_authority: Mapping[str, Any],
+        candidate_image_build_authority: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        reason = "memorial_candidate_finalization_seal_invalid"
+        candidate_permit_sha256 = _require_vexp_sha256(
+            candidate_vexp_authority.get("historical_candidate_permit_sha256"),
+            reason=reason,
+        )
+        image_build_receipt_sha256 = _require_vexp_sha256(
+            candidate_image_build_authority.get("receipt_sha256"),
+            reason=reason,
+        )
+        image_build_permit_sha256 = _require_vexp_sha256(
+            candidate_image_build_authority.get(
+                "historical_image_build_permit_sha256"
+            ),
+            reason=reason,
+        )
+        expected_epoch_started_ms = candidate_vexp_authority.get(
+            "epoch_started_ms"
+        )
+        expected_certificate_sha256 = _require_vexp_sha256(
+            candidate_vexp_authority.get("qualification_certificate_sha256"),
+            reason=reason,
+        )
+        expected_terminal_identity_sha256 = _require_vexp_sha256(
+            candidate_vexp_authority.get("terminal_identity_sha256"),
+            reason=reason,
+        )
+        if (
+            type(expected_epoch_started_ms) is not int
+            or expected_epoch_started_ms <= 0
+            or not candidate_receipt_path.is_absolute()
+            or candidate_receipt_path != candidate_receipt_path.resolve()
+        ):
+            raise DeployError(reason)
+        expected_record_path = (
+            VEXP_CANDIDATE_FINALIZATION_ROOT
+            / f"{candidate_permit_sha256}.json"
+        )
+
+        def require_current_terminal_authority() -> None:
+            state, _state_sha256 = self._read_trusted_vexp_sentinel_state()
+            self._require_vexp_epoch_not_voided(state)
+            now = self._vexp_guard_now()
+            if (
+                state.get("qualification_phase") != "qualified"
+                or state.get("qualified_at") is None
+                or state.get("current_resources_healthy") is not True
+                or state.get("certification_blockers") != []
+                or state.get("certification_deferments") != []
+                or state.get("epoch_started_ms") != expected_epoch_started_ms
+                or _vexp_terminal_identity_sha256(state)
+                != expected_terminal_identity_sha256
+            ):
+                raise DeployError(reason)
+            self._validate_vexp_sentinel_liveness(state, now=now)
+            _certificate, certificate_evidence = (
+                self._read_trusted_vexp_qualification_certificate(state)
+            )
+            if certificate_evidence.get("sha256") != expected_certificate_sha256:
+                raise DeployError(reason)
+
+        command = [
+            str(TRUSTED_VEXP_PERMIT_MANAGER_PYTHON),
+            "-I",
+            str(TRUSTED_VEXP_PERMIT_MANAGER),
+            "candidate-seal-status",
+            "--candidate-permit-sha256",
+            candidate_permit_sha256,
+            "--candidate-receipt",
+            str(candidate_receipt_path),
+            "--candidate-receipt-sha256",
+            candidate_receipt_sha256,
+            "--image-build-receipt-sha256",
+            image_build_receipt_sha256,
+        ]
+        try:
+            with self._vexp_mutation_authority.shared_lease():
+                require_current_terminal_authority()
+                completed = self._run(command, env={}, check=False)
+                if (
+                    completed.returncode != 0
+                    or not isinstance(completed.stdout, str)
+                    or not isinstance(completed.stderr, str)
+                    or completed.stderr != ""
+                    or not completed.stdout.endswith("\n")
+                    or completed.stdout.count("\n") != 1
+                ):
+                    raise DeployError(reason)
+                try:
+                    raw = completed.stdout.encode("utf-8", errors="strict")
+                except UnicodeEncodeError as exc:
+                    raise DeployError(reason) from exc
+                if not 0 < len(raw) <= MAX_VEXP_CANDIDATE_SEAL_STATUS_BYTES:
+                    raise DeployError(reason)
+                seal = _decode_guard_json(raw, reason=reason)
+                require_current_terminal_authority()
+        except DeployError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise DeployError(reason) from exc
+
+        if (
+            set(seal) != VEXP_CANDIDATE_FINALIZATION_STATUS_KEYS
+            or seal.get("status") != "valid"
+            or seal.get("contract_name")
+            != VEXP_CANDIDATE_FINALIZATION_CONTRACT_NAME
+            or type(seal.get("version")) is not int
+            or seal.get("version") != VEXP_CANDIDATE_FINALIZATION_VERSION
+            or seal.get("path") != str(expected_record_path)
+            or type(seal.get("sha256")) is not str
+            or SHA256_HEX_PATTERN.fullmatch(str(seal.get("sha256") or ""))
+            is None
+            or seal.get("candidate_permit_sha256") != candidate_permit_sha256
+            or seal.get("candidate_receipt_path") != str(candidate_receipt_path)
+            or seal.get("candidate_receipt_sha256") != candidate_receipt_sha256
+            or seal.get("image_build_receipt_sha256")
+            != image_build_receipt_sha256
+            or seal.get("image_build_permit_sha256")
+            != image_build_permit_sha256
+            or type(seal.get("epoch_started_ms")) is not int
+            or seal.get("epoch_started_ms") != expected_epoch_started_ms
+            or seal.get("qualification_certificate_sha256")
+            != expected_certificate_sha256
+        ):
+            raise DeployError(reason)
+        finalization_commit = seal.get("commit")
+        if (
+            not isinstance(finalization_commit, dict)
+            or set(finalization_commit)
+            != VEXP_CANDIDATE_FINALIZATION_COMMIT_STATUS_KEYS
+            or finalization_commit.get("contract_name")
+            != VEXP_CANDIDATE_FINALIZATION_COMMIT_CONTRACT_NAME
+            or type(finalization_commit.get("version")) is not int
+            or finalization_commit.get("version")
+            != VEXP_CANDIDATE_FINALIZATION_COMMIT_VERSION
+            or finalization_commit.get("status") != "committed"
+            or SHA256_HEX_PATTERN.fullmatch(
+                str(finalization_commit.get("sha256") or "")
+            )
+            is None
+        ):
+            raise DeployError(reason)
+        self._candidate_finalization_authority_identity = (
+            expected_epoch_started_ms,
+            expected_certificate_sha256,
+        )
+        return dict(seal)
+
     def _validate_candidate_promotion_receipt(
         self,
         *,
@@ -4055,12 +8348,25 @@ class MemorialDeployLane:
                 os.close(descriptor)
         if not raw or len(raw) > MAX_HTTP_BODY_BYTES:
             raise DeployError("memorial_candidate_receipt_size_invalid")
-        try:
-            payload = json.loads(raw)
-        except Exception as exc:
-            raise DeployError("memorial_candidate_receipt_json_invalid") from exc
-        if not isinstance(payload, dict):
-            raise DeployError("memorial_candidate_receipt_json_invalid")
+        payload = _decode_guard_json(
+            raw,
+            reason="memorial_candidate_receipt_json_invalid",
+        )
+        candidate_receipt_sha256 = hashlib.sha256(raw).hexdigest()
+
+        candidate_vexp_authority = self._validate_candidate_vexp_authority(
+            payload.get("vexp_candidate_mutation_authority"),
+            observed_at=payload.get("observed_at"),
+        )
+        candidate_image_build_authority = (
+            self._validate_candidate_image_build_authority(
+                payload.get("image_build_authority_binding"),
+                source_revision=source_revision,
+                image_reference=str(candidate.get("reference") or ""),
+                image_id=str(candidate.get("image_id") or ""),
+                candidate_vexp_authority=candidate_vexp_authority,
+            )
+        )
 
         expected_data_root = self._configured_memorial_data_root()
         self.durable_root_check(expected_data_root)
@@ -4186,12 +8492,10 @@ class MemorialDeployLane:
             value = openapi.get(name)
             return dict(value) if isinstance(value, dict) else {}
 
-        live_openapi_before = openapi_snapshot("live_before")
         candidate_openapi = openapi_snapshot("candidate")
         candidate_openapi_public_endpoint = openapi_snapshot(
             "candidate_public_endpoint"
         )
-        live_openapi_after = openapi_snapshot("live_after")
 
         def valid_openapi_snapshot(
             value: Mapping[str, Any],
@@ -4360,6 +8664,7 @@ class MemorialDeployLane:
         }
         required_smoke_checks = {
             "archive_publication_gate",
+            "conversation_only_public_surface",
             "singular_memorial_alias",
             "source_grounded_narrator_boundary",
             "voice_provider_boundary_blocked",
@@ -4384,7 +8689,6 @@ class MemorialDeployLane:
             "/data/memorial/public",
             "/data/memorial/private",
             "/data/memorial/archive",
-            "/data/public_property_tours",
             "/data/release-authority",
         ]
         expected_candidate_env_keys = sorted(
@@ -4397,14 +8701,12 @@ class MemorialDeployLane:
                 "EA_MANFRED_ENV_FILE",
                 "EA_MANFRED_HOST_PORT",
                 "EA_MANFRED_IMAGE",
+                "EA_MANFRED_MEMORIAL_SURFACE",
                 "EA_MANFRED_POSTGRES_PASSWORD",
                 "EA_MANFRED_RELEASE_AUTHORITY_ROOT",
                 "EA_MANFRED_RELEASE_ROOT",
                 "EA_MANFRED_RUNTIME_ROOT",
-                "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED",
-                "EA_MANFRED_SPATIAL_RELEASE_ROOT",
-                "EA_MANFRED_SPATIAL_SHA256",
-                "EA_MANFRED_SPATIAL_SLUG",
+                "EA_MANFRED_SPATIAL_SCOPE",
                 "EA_PUBLIC_APP_BASE_URL",
                 "EA_SIGNING_SECRET",
             }
@@ -4576,7 +8878,7 @@ class MemorialDeployLane:
             )
 
         def valid_runtime_mounts(value: object) -> bool:
-            if not isinstance(value, list) or len(value) != 9:
+            if not isinstance(value, list) or len(value) != 8:
                 return False
             rows: dict[str, dict[str, Any]] = {}
             for raw_row in value:
@@ -4596,8 +8898,6 @@ class MemorialDeployLane:
                 "/data/memorial/private": expected_data_root
                 / "private_memorial_profiles",
                 "/data/memorial/archive": expected_data_root / "memorial_archive",
-                "/data/public_property_tours": expected_data_root
-                / "public_property_tours",
                 "/data/release-authority": expected_data_root / "release-authority",
             }
             for destination, source in expected_read_only.items():
@@ -5029,8 +9329,7 @@ class MemorialDeployLane:
             )
 
         if (
-            str(payload.get("schema") or "")
-            != "ea.manfred_memorial_candidate_runtime.v4"
+            str(payload.get("schema") or "") != CANDIDATE_RUNTIME_SCHEMA
             or str(payload.get("status") or "").lower() != "pass"
             or str(payload.get("image") or "") != str(candidate.get("reference") or "")
             or str(payload.get("image_id") or "")
@@ -5053,11 +9352,25 @@ class MemorialDeployLane:
             or str(payload.get("prepared_image_id") or "")
             != str(candidate.get("image_id") or "")
             or payload.get("projection_tree_revalidated") is not True
+            or payload.get("memorial_surface") != MEMORIAL_SURFACE
+            or payload.get("spatial_scope") != SPATIAL_SCOPE
+            or payload.get("public_property_tours_packaged") is not False
+            or payload.get("public_property_tours_tested") is not False
+            or payload.get("memorial_spatial_receipt_generated") is not False
+            or "spatial_handoff" in payload
+            or "spatial_handoff_runtime" in payload
             or type(expected_projection_count) is not int
             or int(expected_projection_count) < 0
             or type(expected_projection_bytes) is not int
             or int(expected_projection_bytes) < 0
             or not isinstance(payload.get("projection_files"), list)
+            or any(
+                str(dict(row).get("path") or "").startswith(
+                    "public_property_tours/"
+                )
+                for row in list(payload.get("projection_files") or [])
+                if isinstance(row, dict)
+            )
             or payload.get("live_ea_api_unchanged") is not True
             or payload.get("live_ea_project_unchanged") is not True
             or payload.get("provider_calls_performed") is not False
@@ -5130,8 +9443,6 @@ class MemorialDeployLane:
             or not valid_execution_inputs(execution_inputs)
             or not valid_runtime_posture(runtime_api_posture)
             or not valid_registry_recovery(registry_recovery)
-            or not valid_spatial_projection(spatial_projection)
-            or not valid_spatial_runtime(spatial_runtime)
             or named_resources != expected_named_resources
             or payload.get("api_network_internal") is not True
             or payload.get("gateway_has_runtime_secrets") is not False
@@ -5142,67 +9453,27 @@ class MemorialDeployLane:
             or payload.get("candidate_left_running_for_soak") is not True
             or payload.get("promotion_authority") is not False
             or str(browser.get("status") or "").lower() != "pass"
+            or browser.get("memorial_surface") != MEMORIAL_SURFACE
+            or browser.get("spatial_scope") != SPATIAL_SCOPE
             or not _has_exact_zero_browser_counts(browser)
             or not required_smoke_checks <= first_checks
             or not required_smoke_checks <= second_checks
-            or openapi.get("retirement_policy_id") != OPENAPI_RETIREMENT_POLICY_ID
-            or openapi.get("retirement_allowed_operations")
-            != list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS)
-            or openapi.get("retired_operations")
-            != list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS)
-            or type(openapi.get("retired_operation_count")) is not int
-            or openapi["retired_operation_count"]
-            != len(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS)
-            or openapi.get("retirement_policy_exact_match") is not True
-            or openapi.get("compatible_evolution_policy_id")
-            != OPENAPI_COMPATIBLE_EVOLUTION_POLICY_ID
-            or openapi.get("compatible_evolution_allowed_operations")
-            != list(OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS)
-            or not isinstance(openapi.get("compatible_evolved_operations"), list)
-            or any(
-                type(operation) is not str
-                for operation in openapi["compatible_evolved_operations"]
-            )
-            or openapi.get("compatible_evolved_operations")
-            != sorted(set(openapi["compatible_evolved_operations"]))
-            or any(
-                operation not in OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS
-                for operation in openapi["compatible_evolved_operations"]
-            )
-            or type(openapi.get("compatible_evolved_operation_count")) is not int
-            or openapi.get("compatible_evolved_operation_count")
-            != len(openapi["compatible_evolved_operations"])
-            or openapi.get("compatible_evolution_policy_exact_match") is not True
-            or openapi.get("candidate_preserves_live_contract") is not True
-            or type(openapi.get("missing_or_changed_operation_count")) is not int
-            or openapi["missing_or_changed_operation_count"] != 0
-            or type(openapi.get("missing_or_changed_schema_count")) is not int
-            or openapi["missing_or_changed_schema_count"] != 0
-            or type(openapi.get("missing_or_changed_security_scheme_count")) is not int
-            or openapi["missing_or_changed_security_scheme_count"] != 0
-            or not valid_openapi_snapshot(live_openapi_before, live_snapshot=True)
+            or set(openapi)
+            != {
+                "candidate",
+                "candidate_public_endpoint",
+                "live_comparison_status",
+                "candidate_preserves_live_contract",
+                "candidate_live_contract_claim_allowed",
+            }
+            or openapi.get("live_comparison_status")
+            != "deferred_to_governed_promotion"
+            or openapi.get("candidate_preserves_live_contract") is not False
+            or openapi.get("candidate_live_contract_claim_allowed") is not False
             or not valid_openapi_snapshot(candidate_openapi, candidate_snapshot=True)
             or not valid_candidate_openapi_public_endpoint(
                 candidate_openapi_public_endpoint
             )
-            or not valid_openapi_snapshot(live_openapi_after, live_snapshot=True)
-            or live_openapi_before != live_openapi_after
-            or int(candidate_openapi.get("path_count") or 0)
-            < max(
-                0,
-                int(live_openapi_before.get("path_count") or 0)
-                - len(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS),
-            )
-            or int(candidate_openapi.get("operation_count") or 0)
-            < max(
-                0,
-                int(live_openapi_before.get("operation_count") or 0)
-                - len(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS),
-            )
-            or int(candidate_openapi.get("schema_count") or 0)
-            < int(live_openapi_before.get("schema_count") or 0)
-            or int(candidate_openapi.get("security_scheme_count") or 0)
-            < int(live_openapi_before.get("security_scheme_count") or 0)
             or live_before.get("project") != PROJECT_NAME
             or live_before != live_after
             or not isinstance(live_containers, list)
@@ -5233,10 +9504,16 @@ class MemorialDeployLane:
             or expected_projection_bytes != projection_bytes
         ):
             raise DeployError("memorial_candidate_projection_digest_mismatch")
+        candidate_finalization_seal = self._validate_candidate_finalization_seal(
+            candidate_receipt_path=path,
+            candidate_receipt_sha256=candidate_receipt_sha256,
+            candidate_vexp_authority=candidate_vexp_authority,
+            candidate_image_build_authority=candidate_image_build_authority,
+        )
         evidence = {
             "path": str(path),
-            "sha256": hashlib.sha256(raw).hexdigest(),
-            "schema": "ea.manfred_memorial_candidate_runtime.v4",
+            "sha256": candidate_receipt_sha256,
+            "schema": CANDIDATE_RUNTIME_SCHEMA,
             "status": "pass",
             "image": str(candidate.get("reference") or ""),
             "image_id": str(candidate.get("image_id") or ""),
@@ -5246,6 +9523,12 @@ class MemorialDeployLane:
             "image_locator_revalidated": True,
             "live_ea_unchanged": True,
             "provider_calls_performed": False,
+            "memorial_surface": MEMORIAL_SURFACE,
+            "spatial_scope": SPATIAL_SCOPE,
+            "spatial_receipt_consumed": False,
+            "vexp_candidate_mutation_authority": candidate_vexp_authority,
+            "image_build_authority": candidate_image_build_authority,
+            "candidate_finalization_seal": candidate_finalization_seal,
             "projection": {
                 "release_id": expected_data_root.name,
                 "release_root": str(expected_data_root),
@@ -5294,33 +9577,12 @@ class MemorialDeployLane:
                 "state_before_launch": str(registry_recovery["state_before_launch"]),
                 "safe": True,
             },
-            "spatial_handoff": {
-                "slug": spatial_slug,
-                "route_count": 8,
-                "html_json_viewer_200": True,
-                "proof_only_404": True,
-                "release_verifier_pass": True,
-                "browser_schema": "ea.manfred_spatial_candidate_browser.v5",
-                "browser_pass": True,
-                "identity_bound": True,
-                "package_sha256": spatial_package_sha256,
-                "allowed_files": observed_spatial_allowed_files,
-                "viewer_relpath": spatial_viewer_relpath,
-                "proof_relpath": spatial_proof_relpath,
-                "tour_manifest_canonical_sha256": (
-                    candidate_public_tour_canonical_sha256
-                ),
-                "property_artifact_commit": PROPERTY_ARTIFACT_COMMIT,
-                "upstream_publication_authority_sha256": (
-                    PROPERTY_AUTHORITY_SHA256
-                ),
-                "upstream_tour_manifest_sha256": PROPERTY_TOUR_SHA256,
-                "pre_authority_manifest_canonical_sha256": (
-                    PROPERTY_PRE_AUTHORITY_SHA256
-                ),
-                "upstream_public_activation_authority": True,
-                "ea_public_activation_authority": False,
-                "provider_calls_performed": False,
+            "separate_spatial_plane": {
+                "status": "not_in_memorial_scope",
+                "owner": "PropertyQuarry",
+                "scope": SPATIAL_SCOPE,
+                "receipt_consumed": False,
+                "routes_tested": False,
             },
             "live_ea": {
                 "snapshot_sha256": _canonical_json_sha256(live_before),
@@ -5331,33 +9593,14 @@ class MemorialDeployLane:
                 "unchanged": True,
             },
             "openapi": {
-                "live": live_openapi_before,
                 "candidate": candidate_openapi,
-                "retirement_policy_id": OPENAPI_RETIREMENT_POLICY_ID,
-                "retirement_allowed_operations": list(
-                    OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
-                ),
-                "retired_operations": list(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS),
-                "retired_operation_count": len(OPENAPI_RETIREMENT_ALLOWED_OPERATIONS),
-                "retirement_policy_exact_match": True,
-                "compatible_evolution_policy_id": (
-                    OPENAPI_COMPATIBLE_EVOLUTION_POLICY_ID
-                ),
-                "compatible_evolution_allowed_operations": list(
-                    OPENAPI_COMPATIBLE_EVOLUTION_ALLOWED_OPERATIONS
-                ),
-                "compatible_evolved_operations": list(
-                    openapi["compatible_evolved_operations"]
-                ),
-                "compatible_evolved_operation_count": int(
-                    openapi["compatible_evolved_operation_count"]
-                ),
-                "compatible_evolution_policy_exact_match": True,
                 "candidate_public_openapi_retired": True,
-                "candidate_preserves_live_contract": True,
-                "missing_or_changed_operation_count": 0,
-                "missing_or_changed_schema_count": 0,
-                "missing_or_changed_security_scheme_count": 0,
+                "live_comparison_status": "deferred_to_governed_promotion",
+                "candidate_preserves_live_contract": False,
+                "candidate_live_contract_claim_allowed": False,
+                "compatibility_enforced_by": (
+                    "governed_postdeploy_internal_snapshot_with_rollback"
+                ),
             },
             "browser": {
                 "status": "pass",
@@ -5373,7 +9616,7 @@ class MemorialDeployLane:
         self._record_check("candidate_promotion_evidence", "pass")
         return evidence
 
-    def _release_source_metadata(self) -> dict[str, str]:
+    def _current_release_source_metadata(self) -> dict[str, str]:
         self.durable_root_check(self.root)
         branch_result = self._run(
             ["git", "symbolic-ref", "--quiet", "--short", "HEAD"], check=False
@@ -5401,6 +9644,10 @@ class MemorialDeployLane:
             "source_revision": source_revision,
             "release_root": str(self.root),
         }
+        return metadata
+
+    def _release_source_metadata(self) -> dict[str, str]:
+        metadata = self._current_release_source_metadata()
         self.receipt["release_source"] = metadata
         self._write_receipt()
         return metadata
@@ -5502,23 +9749,24 @@ class MemorialDeployLane:
             or int(expected_projection_bytes) < 0
         ):
             raise DeployError("deployed_api_projection_expectation_invalid")
-        completed = self._run(
-            [
-                "/usr/bin/timeout",
-                "--signal=KILL",
-                "30s",
-                "docker",
-                "exec",
-                API_SERVICE,
-                "python3",
-                "-c",
-                CONTAINER_PROJECTION_DIGEST_SCRIPT,
-                "/data/memorial_data",
-                str(expected_file_count),
-                str(expected_projection_bytes),
-            ],
-            check=False,
-        )
+        with self._vexp_mutation_lease("before_api_exec"):
+            completed = self._run(
+                [
+                    "/usr/bin/timeout",
+                    "--signal=KILL",
+                    "30s",
+                    "docker",
+                    "exec",
+                    API_SERVICE,
+                    "python3",
+                    "-c",
+                    CONTAINER_PROJECTION_DIGEST_SCRIPT,
+                    "/data/memorial_data",
+                    str(expected_file_count),
+                    str(expected_projection_bytes),
+                ],
+                check=False,
+            )
         if completed.returncode != 0:
             verifier_failures = {
                 10: "root_invalid",
@@ -5661,11 +9909,15 @@ class MemorialDeployLane:
                 raise DeployError("vexp_mutation_action_deadline_exceeded")
             self.sleep(sleep_seconds)
 
-    def _ensure_redis(self) -> None:
+    def _ensure_redis(
+        self, *, before_mutation: Callable[[str], None] | None = None
+    ) -> None:
         inspection = self._inspect_container_optional(REDIS_SERVICE)
         action = "already_healthy"
         if inspection is None:
             action = "created_missing"
+            if before_mutation is not None:
+                before_mutation("before_redis_create")
             self._run(
                 self._target_compose(
                     "up", "-d", "--no-build", "--no-deps", REDIS_SERVICE
@@ -5684,6 +9936,8 @@ class MemorialDeployLane:
                 return
             if not running and not restarting:
                 action = "started_existing"
+                if before_mutation is not None:
+                    before_mutation("before_redis_start")
                 self._run(["docker", "start", REDIS_SERVICE])
             else:
                 action = "waited_for_existing"
@@ -5708,25 +9962,171 @@ class MemorialDeployLane:
         self._write_receipt()
         return source_revision
 
-    def _protect_previous_image(self, previous: Mapping[str, Any]) -> str:
+    def _protect_previous_image(
+        self,
+        previous: Mapping[str, Any],
+        *,
+        before_mutation: Callable[[str], None] | None = None,
+    ) -> str:
         rollback_tag = _safe_rollback_tag(self.deployment_id)
+        if before_mutation is not None:
+            before_mutation("before_protect_previous_image_tag")
         self._run(["docker", "image", "tag", str(previous["image_id"]), rollback_tag])
         protected = self._inspect_image(rollback_tag)
         if protected["image_id"] != str(previous["image_id"]):
             raise DeployError("rollback_image_protection_mismatch")
         return rollback_tag
 
-    def _recreate_api(self) -> None:
-        self._run(
-            self._target_compose(
-                "up",
-                "-d",
-                "--no-build",
-                "--no-deps",
-                "--force-recreate",
-                API_SERVICE,
-            )
+    def _stop_api_for_gemini_oauth(
+        self,
+        previous: Mapping[str, Any],
+        *,
+        before_mutation: Callable[[str], None],
+    ) -> None:
+        rollback_root = Path(str(previous.get("working_dir") or "")).resolve()
+        rollback_files = [
+            str(item)
+            for item in list(previous.get("compose_config_files") or [])
+            if str(item).strip()
+        ]
+        if not rollback_files:
+            raise DeployError("gemini_oauth_api_stop_topology_missing")
+        current = self._inspect_container(API_SERVICE)
+        self._require_compose_identity(
+            current,
+            service=API_SERVICE,
+            reason_prefix="gemini_oauth_api_stop",
         )
+        if (
+            str(current.get("Id") or "") != str(previous.get("container_id") or "")
+            or str(current.get("Image") or "") != str(previous.get("image_id") or "")
+            or not bool(dict(current.get("State") or {}).get("Running"))
+        ):
+            raise DeployError("gemini_oauth_api_stop_identity_changed")
+        command = self._rollback_compose(
+            rollback_root,
+            rollback_files,
+            "stop",
+            "--timeout",
+            "30",
+            API_SERVICE,
+        )
+        before_mutation("before_stop_api_for_gemini_oauth")
+        self._run(
+            command,
+            cwd=rollback_root,
+            env=self._rollback_environment(previous),
+        )
+        initial_api_stopped = self._require_api_stopped_for_gemini_oauth(
+            previous,
+            boundary="after_api_stop_confirmation",
+            record_pass=True,
+        )
+        self.receipt["gemini_oauth_runtime_lock_exclusion"] = {
+            "status": "initial_point_check_pass",
+            "initial_api_stopped": initial_api_stopped,
+            "helper_invocation_state_at_initial_check": "not_started",
+            "lock_protocol_compatibility_assumed": False,
+            "rollback_requires_confirmed_helper_exit": True,
+            "future_helper_requires_api_stop": True,
+            "continuous_absence_claimed": False,
+        }
+
+    def _gemini_oauth_api_stopped_evidence(
+        self,
+        previous: Mapping[str, Any],
+        *,
+        boundary: str,
+    ) -> dict[str, object]:
+        if not SAFE_SCRIPT_ORIGIN_PATTERN.fullmatch(boundary):
+            raise DeployError("gemini_oauth_api_stop_boundary_invalid")
+        try:
+            stopped = self._inspect_container(API_SERVICE)
+            self._require_compose_identity(
+                stopped,
+                service=API_SERVICE,
+                reason_prefix="gemini_oauth_api_stopped",
+            )
+        except DeployError:
+            return {
+                "status": "fail",
+                "boundary": boundary,
+                "checked_at": _utc_now(),
+                "container_id": "",
+                "image_id": "",
+                "running": None,
+                "restarting": None,
+                "error_code": "gemini_oauth_api_stop_not_confirmed",
+            }
+        stopped_state = dict(stopped.get("State") or {})
+        container_id = str(stopped.get("Id") or "")
+        image_id = str(stopped.get("Image") or "")
+        running = bool(stopped_state.get("Running"))
+        restarting = bool(stopped_state.get("Restarting"))
+        exact_stopped = (
+            container_id == str(previous.get("container_id") or "")
+            and image_id == str(previous.get("image_id") or "")
+            and not running
+            and not restarting
+        )
+        return {
+            "status": "pass" if exact_stopped else "fail",
+            "boundary": boundary,
+            "checked_at": _utc_now(),
+            "container_id": container_id,
+            "image_id": image_id,
+            "running": running,
+            "restarting": restarting,
+            **(
+                {}
+                if exact_stopped
+                else {"error_code": "gemini_oauth_api_stop_not_confirmed"}
+            ),
+        }
+
+    def _record_gemini_oauth_api_stopped_check(
+        self, evidence: Mapping[str, object]
+    ) -> None:
+        detail = dict(evidence)
+        evidence_status = str(detail.pop("status", ""))
+        self._record_check(
+            "gemini_oauth_api_stopped_point_check",
+            "pass" if evidence_status == "pass" else "fail",
+            evidence_status=evidence_status,
+            **detail,
+        )
+
+    def _require_api_stopped_for_gemini_oauth(
+        self,
+        previous: Mapping[str, Any],
+        *,
+        boundary: str = "gemini_oauth_api_stopped",
+        record_pass: bool = False,
+    ) -> dict[str, object]:
+        evidence = self._gemini_oauth_api_stopped_evidence(
+            previous,
+            boundary=boundary,
+        )
+        if record_pass or evidence.get("status") != "pass":
+            self._record_gemini_oauth_api_stopped_check(evidence)
+        if evidence.get("status") != "pass":
+            raise DeployError("gemini_oauth_api_stop_not_confirmed")
+        return evidence
+
+    def _recreate_api(
+        self, *, before_mutation: Callable[[str], None] | None = None
+    ) -> None:
+        command = self._target_compose(
+            "up",
+            "-d",
+            "--no-build",
+            "--no-deps",
+            "--force-recreate",
+            API_SERVICE,
+        )
+        if before_mutation is not None:
+            before_mutation("before_recreate_api_up")
+        self._run(command)
 
     def _local_origin(self) -> str:
         host_port = _first_nonempty(
@@ -5752,7 +10152,9 @@ class MemorialDeployLane:
             try:
                 response = self.http_get(
                     url,
-                    self.request_timeout_seconds,
+                    self._vexp_bounded_timeout(
+                        self.request_timeout_seconds
+                    ),
                     public_authority,
                 )
                 if response.status != 200:
@@ -5819,7 +10221,7 @@ class MemorialDeployLane:
                 last_error = str(exc)
             if self.monotonic() >= deadline:
                 raise DeployError(f"http_probe_exhausted:{url}:{last_error}")
-            self.sleep(self.poll_seconds)
+            self.sleep(self._vexp_bounded_timeout(self.poll_seconds))
 
     def _verify_singular_memorial_alias(
         self,
@@ -5840,7 +10242,7 @@ class MemorialDeployLane:
         for method in ("GET", "HEAD"):
             response = self.http_no_redirect(
                 url,
-                self.request_timeout_seconds,
+                self._vexp_bounded_timeout(self.request_timeout_seconds),
                 method,
                 public_authority,
             )
@@ -5881,7 +10283,12 @@ class MemorialDeployLane:
         last_error = ""
         while True:
             try:
-                response = self.http_get(url, self.request_timeout_seconds)
+                response = self.http_get(
+                    url,
+                    self._vexp_bounded_timeout(
+                        self.request_timeout_seconds
+                    ),
+                )
                 if response.status != 200:
                     raise DeployError(f"http_status_invalid:{url}:{response.status}")
                 if len(response.body) > MAX_HTTP_BODY_BYTES:
@@ -5904,7 +10311,7 @@ class MemorialDeployLane:
                 last_error = str(exc)
             if self.monotonic() >= deadline:
                 raise DeployError(f"http_probe_exhausted:{url}:{last_error}")
-            self.sleep(self.poll_seconds)
+            self.sleep(self._vexp_bounded_timeout(self.poll_seconds))
 
     def _capture_openapi_control(self) -> dict[str, Any]:
         url = f"{self._local_origin()}/openapi.json"
@@ -5916,21 +10323,23 @@ class MemorialDeployLane:
         }
 
     def _capture_internal_openapi_control(self) -> dict[str, Any]:
-        if self.internal_openapi_snapshot is None:
-            completed = self._run(
-                [
-                    "/usr/bin/timeout",
-                    "--signal=KILL",
-                    "30s",
-                    "docker",
-                    "exec",
-                    API_SERVICE,
-                    "python3",
-                    "-c",
-                    CONTAINER_OPENAPI_SNAPSHOT_SCRIPT,
-                ],
-                check=False,
-            )
+        docker_exec_performed = self.internal_openapi_snapshot is None
+        if docker_exec_performed:
+            with self._vexp_mutation_lease("before_api_exec"):
+                completed = self._run(
+                    [
+                        "/usr/bin/timeout",
+                        "--signal=KILL",
+                        "30s",
+                        "docker",
+                        "exec",
+                        API_SERVICE,
+                        "python3",
+                        "-c",
+                        CONTAINER_OPENAPI_SNAPSHOT_SCRIPT,
+                    ],
+                    check=False,
+                )
             if completed.returncode != 0:
                 raise DeployError("deployed_api_internal_openapi_snapshot_failed")
             encoded = completed.stdout.encode("utf-8", errors="strict")
@@ -5967,6 +10376,15 @@ class MemorialDeployLane:
                 probe={
                     "source": "deployed_api_container_app.openapi",
                     "container": API_SERVICE,
+                    "transport": (
+                        "docker_exec"
+                        if docker_exec_performed
+                        else "in_process_snapshot"
+                    ),
+                    "docker_exec_performed": docker_exec_performed,
+                    "live_action_performed": docker_exec_performed,
+                    "action_class": "read_only_non_mutating_probe",
+                    "live_mutation_performed": False,
                     "public_docs_config_retired": True,
                     "document_bytes": len(encoded_document),
                     "document_sha256": hashlib.sha256(encoded_document).hexdigest(),
@@ -5983,8 +10401,16 @@ class MemorialDeployLane:
     def _sanitized_tour_control(control: Mapping[str, Any]) -> dict[str, Any]:
         return {key: value for key, value in control.items() if key != "_json_payload"}
 
-    def _capture_non_memorial_controls(self) -> dict[str, Any]:
-        controls: dict[str, Any] = {"openapi": self._capture_openapi_control()}
+    def _capture_non_memorial_controls(
+        self, *, internal_openapi: bool = False
+    ) -> dict[str, Any]:
+        controls: dict[str, Any] = {
+            "openapi": (
+                self._capture_internal_openapi_control()
+                if internal_openapi
+                else self._capture_openapi_control()
+            )
+        }
         predeploy_operations = dict(
             dict(controls["openapi"].get("_contract") or {}).get("operations") or {}
         )
@@ -6358,7 +10784,9 @@ class MemorialDeployLane:
             for method in ("GET", "HEAD"):
                 response = self.http_no_redirect(
                     url,
-                    self.request_timeout_seconds,
+                    self._vexp_bounded_timeout(
+                        self.request_timeout_seconds
+                    ),
                     method,
                     "",
                 )
@@ -6506,21 +10934,25 @@ class MemorialDeployLane:
         ]
         if probes[2]["body_sha256"] != probes[4]["body_sha256"]:
             raise DeployError("public_memorial_manifest_differs_from_local")
-        spatial_probe = self._verify_public_spatial_tour(
-            validated_public_origin,
-            source_revision,
-            candidate_promotion_evidence,
-        )
+        del candidate_promotion_evidence
         self.receipt["probes"] = probes
         self.receipt["alias_probes"] = alias_probes
-        self.receipt["public_spatial_tour"] = spatial_probe
+        self.receipt["memorial_surface"] = MEMORIAL_SURFACE
+        self.receipt["spatial_scope"] = SPATIAL_SCOPE
+        self.receipt["public_spatial_tour"] = {
+            "status": "not_in_memorial_scope",
+            "owner": "PropertyQuarry",
+            "scope": SPATIAL_SCOPE,
+            "requests_performed": 0,
+            "receipt_consumed": False,
+        }
         self._record_check(
             "local_and_public_memorial",
             "pass",
             alias_method_probes=sum(
                 len(list(item.get("methods") or [])) for item in alias_probes
             ),
-            spatial_method_probes=int(spatial_probe["request_count"]),
+            spatial_method_probes=0,
         )
 
     def _verify_candidate_origin(
@@ -6535,6 +10967,7 @@ class MemorialDeployLane:
             "--wait-seconds",
             str(max(1, min(600, int(self.wait_seconds or 1)))),
             "--browser-audit",
+            "--conversation-only",
             origin=label,
         )
         required_checks = {
@@ -6543,6 +10976,7 @@ class MemorialDeployLane:
             "source_grounded_narrator_boundary",
             "voice_provider_boundary_blocked",
             "browser_provider_websocket_boundary",
+            "conversation_only_public_surface",
         }
         checks = {
             str(item).strip()
@@ -6556,6 +10990,8 @@ class MemorialDeployLane:
             or not required_checks <= checks
             or payload.get("provider_calls_performed") is not False
             or payload.get("page_get_performed") is not True
+            or payload.get("memorial_surface") != MEMORIAL_SURFACE
+            or payload.get("spatial_scope") != SPATIAL_SCOPE
             or str(browser.get("status") or "").lower() != "pass"
             or not _has_exact_zero_browser_counts(browser)
         ):
@@ -6582,23 +11018,23 @@ class MemorialDeployLane:
         }
 
     def _verify_candidate_origins(self, public_origin: str) -> None:
-        evidence = [
-            self._verify_candidate_origin(
+        with self._vexp_mutation_lease("before_api_interaction"):
+            local_evidence = self._verify_candidate_origin(
                 label="local",
                 base_url=self._local_origin(),
                 public_origin=public_origin,
             )
-        ]
+        evidence = [local_evidence]
         self.receipt["candidate_verifier"] = list(evidence)
         self._record_check("candidate_verifier_origin", "pass", origin="local")
 
-        evidence.append(
-            self._verify_candidate_origin(
+        with self._vexp_mutation_lease("before_api_interaction"):
+            public_evidence = self._verify_candidate_origin(
                 label="public",
                 base_url=public_origin,
                 public_origin=public_origin,
             )
-        )
+        evidence.append(public_evidence)
         self.receipt["candidate_verifier"] = evidence
         self._record_check("candidate_verifier_origin", "pass", origin="public")
         self._record_check("local_and_public_candidate_verifier", "pass")
@@ -6609,6 +11045,8 @@ class MemorialDeployLane:
         rollback_tag: str,
         baseline: Mapping[str, Any],
         deployment_input_seal: Mapping[str, Sequence[Mapping[str, object]]],
+        *,
+        before_mutation: Callable[[str], None] | None = None,
     ) -> dict[str, Any]:
         self._require_deployment_input_seal(deployment_input_seal, scope="rollback")
         prior_openapi_value = baseline.get("openapi")
@@ -6646,25 +11084,36 @@ class MemorialDeployLane:
             reason="rollback_image_reference_unrestorable",
         )
         rollback_env = self._rollback_environment(previous)
-        self._run(
-            ["docker", "image", "tag", str(previous["image_id"]), prior_reference],
-            env=rollback_env,
-        )
+        rollback_tag_command = [
+            "docker",
+            "image",
+            "tag",
+            str(previous["image_id"]),
+            prior_reference,
+        ]
+        with self._vexp_mutation_lease("before_rollback_api"):
+            if before_mutation is not None:
+                before_mutation("before_rollback_image_tag")
+            self._run(rollback_tag_command, env=rollback_env)
         self._require_deployment_input_seal(deployment_input_seal, scope="rollback")
-        self._run(
-            self._rollback_compose(
-                rollback_root,
-                rollback_files,
-                "up",
-                "-d",
-                "--no-build",
-                "--no-deps",
-                "--force-recreate",
-                API_SERVICE,
-            ),
-            cwd=rollback_root,
-            env=rollback_env,
+        rollback_api_command = self._rollback_compose(
+            rollback_root,
+            rollback_files,
+            "up",
+            "-d",
+            "--no-build",
+            "--no-deps",
+            "--force-recreate",
+            API_SERVICE,
         )
+        with self._vexp_mutation_lease("before_rollback_api"):
+            if before_mutation is not None:
+                before_mutation("before_rollback_api_up")
+            self._run(
+                rollback_api_command,
+                cwd=rollback_root,
+                env=rollback_env,
+            )
         ready = self._wait_container(API_SERVICE, require_health=True)
         current = self._inspect_container(API_SERVICE)
         self._require_compose_identity(
@@ -6701,7 +11150,7 @@ class MemorialDeployLane:
         ):
             raise DeployError("rollback_process_config_identity_mismatch")
         health_probe = self._wait_http(f"{self._local_origin()}/health", kind="health")
-        restored_openapi = self._capture_openapi_control()
+        restored_openapi = self._capture_internal_openapi_control()
         restored_contract = dict(restored_openapi.get("_contract") or {})
         if restored_contract != prior_contract:
             raise DeployError("rollback_openapi_contract_mismatch")
@@ -6743,8 +11192,6 @@ class MemorialDeployLane:
         self._write_receipt()
         if not (self.root / ".env").is_file():
             raise DeployError("env_file_missing")
-        if self.control_tour_slug != REQUIRED_CONTROL_TOUR_SLUG:
-            raise DeployError("memorial_control_tour_slug_required")
         release_source = self._release_source_metadata()
         source_state = source_worktree_metadata(self.root, dirty_path_limit=10000)
         if bool(source_state.get("source_worktree_dirty")):
@@ -6775,12 +11222,21 @@ class MemorialDeployLane:
             str(authority.get("public_origin") or ""),
             allowed_hosts=self.allowed_public_hosts,
         )
-        non_memorial_controls = self._capture_non_memorial_controls()
+        gemini_oauth_binding = self._gemini_oauth_source_binding()
+        non_memorial_controls: dict[str, Any] = {}
+        self.receipt["predeploy_non_memorial_controls"] = {
+            "status": "deferred_to_authorized_transaction",
+            "openapi_source": "deployed_api_container_app.openapi",
+            "docker_exec_performed": False,
+            "action_class": "deferred_read_only_non_mutating_probe",
+            "live_mutation_performed": False,
+        }
         self.receipt.update(
             {
                 "status": "preflight_pass",
                 "source_revision": source_revision,
                 "public_origin": public_origin,
+                "gemini_oauth_source_binding": gemini_oauth_binding,
                 "previous_api": self._sanitized_previous_api(previous),
                 "rollback_compose_files": previous["compose_config_files"],
                 "rollback": {
@@ -6790,6 +11246,26 @@ class MemorialDeployLane:
                 },
             }
         )
+        self._write_receipt()
+        predeploy_release_context_seal = (
+            self._capture_predeploy_release_context_seal(
+                release_source=release_source,
+                authority=authority,
+                previous=previous,
+                rollback_render=rollback_render,
+                public_origin=public_origin,
+                candidate=candidate,
+                candidate_promotion=candidate_promotion,
+                deployment_input_seal=deployment_input_seal,
+                target_mounts=target_mounts,
+                gemini_oauth_binding=gemini_oauth_binding,
+            )
+        )
+        self.receipt["predeploy_release_context_seal"] = {
+            "status": "sealed",
+            "sha256": _canonical_json_sha256(predeploy_release_context_seal),
+            "preimage": predeploy_release_context_seal,
+        }
         self._write_receipt()
         return {
             "authority": authority,
@@ -6802,6 +11278,8 @@ class MemorialDeployLane:
             "deployment_input_seal": deployment_input_seal,
             "non_memorial_controls": non_memorial_controls,
             "target_mounts": target_mounts,
+            "gemini_oauth_binding": gemini_oauth_binding,
+            "predeploy_release_context_seal": predeploy_release_context_seal,
         }
 
     def deploy(self, *, preflight_only: bool = False) -> dict[str, Any]:
@@ -6813,6 +11291,68 @@ class MemorialDeployLane:
         active_action: str | None = None
         previous: dict[str, Any] = {}
         non_memorial_controls: dict[str, Any] = {}
+        transaction_stack = ExitStack()
+        transaction_active = False
+
+        def require_predeploy_release_context(boundary: str) -> None:
+            recorded = dict(
+                self.receipt.get("predeploy_release_context_seal") or {}
+            )
+            preimage_value = recorded.get("preimage")
+            expected = (
+                dict(preimage_value) if isinstance(preimage_value, dict) else {}
+            )
+            if (
+                set(recorded) != {"status", "sha256", "preimage"}
+                or recorded.get("status") != "sealed"
+                or recorded.get("sha256") != _canonical_json_sha256(expected)
+                or dict(context.get("predeploy_release_context_seal") or {})
+                != expected
+            ):
+                raise DeployError("predeploy_release_context_seal_changed")
+            if (
+                str(context.get("source_revision") or "")
+                != dict(expected.get("release_source") or {}).get(
+                    "source_revision"
+                )
+                or str(context.get("public_origin") or "")
+                != expected.get("public_origin")
+                or dict(context.get("candidate") or {})
+                != expected.get("candidate")
+                or _canonical_json_sha256(
+                    dict(context.get("authority") or {})
+                )
+                != expected.get("authority_sha256")
+                or _canonical_json_sha256(
+                    dict(context.get("previous") or {})
+                )
+                != expected.get("previous_sha256")
+                or _canonical_json_sha256(
+                    dict(context.get("rollback_render") or {})
+                )
+                != expected.get("rollback_render_sha256")
+                or _canonical_json_sha256(
+                    dict(context.get("candidate_promotion") or {})
+                )
+                != expected.get("candidate_promotion_sha256")
+                or _canonical_json_sha256(
+                    [dict(item) for item in list(context.get("target_mounts") or [])]
+                )
+                != expected.get("target_mounts_sha256")
+                or dict(context.get("gemini_oauth_binding") or {})
+                != expected.get("gemini_oauth")
+            ):
+                raise DeployError("predeploy_release_context_changed")
+            self._require_predeploy_release_context_current(
+                expected,
+                boundary=boundary,
+                deployment_input_seal=context["deployment_input_seal"],
+            )
+
+        def begin_api_mutation(boundary: str) -> None:
+            nonlocal mutation_started
+            require_predeploy_release_context(boundary)
+            mutation_started = True
 
         def persist_preparation(
             status: str,
@@ -6847,6 +11387,16 @@ class MemorialDeployLane:
                 self._write_receipt()
                 return self.receipt
 
+            pending_action = "mutation_transaction"
+            persist_preparation("transaction_authorization_pending")
+            transaction_stack.enter_context(
+                self._vexp_mutation_transaction("before_ensure_redis")
+            )
+            transaction_active = True
+            non_memorial_controls = self._capture_non_memorial_controls(
+                internal_openapi=True
+            )
+            context["non_memorial_controls"] = non_memorial_controls
             self._require_deployment_input_seal(context["deployment_input_seal"])
             pending_action = "ensure_redis"
             persist_preparation("authorization_pending")
@@ -6855,7 +11405,7 @@ class MemorialDeployLane:
                 active_action = "ensure_redis"
                 preparation_attempted.append("ensure_redis")
                 persist_preparation("in_progress")
-                self._ensure_redis()
+                self._ensure_redis(before_mutation=require_predeploy_release_context)
             preparation_completed.append("ensure_redis")
             active_action = None
             persist_preparation("in_progress")
@@ -6866,7 +11416,10 @@ class MemorialDeployLane:
                 active_action = "protect_previous_image"
                 preparation_attempted.append("protect_previous_image")
                 persist_preparation("in_progress")
-                rollback_tag = self._protect_previous_image(previous)
+                rollback_tag = self._protect_previous_image(
+                    previous,
+                    before_mutation=require_predeploy_release_context,
+                )
             preparation_completed.append("protect_previous_image")
             active_action = None
             self.receipt["rollback"] = {
@@ -6875,8 +11428,88 @@ class MemorialDeployLane:
                 "image_id": previous["image_id"],
                 "image_tag": rollback_tag,
             }
+            gemini_oauth_candidate_image_id = str(
+                dict(context["candidate"]).get("image_id") or ""
+            )
+            gemini_oauth_runtime_root = self._configured_memorial_runtime_root()
+            gemini_oauth_helper_container_name = (
+                self._gemini_oauth_helper_container_name(context)
+            )
+            gemini_oauth_install_command = self._gemini_oauth_install_command(
+                candidate_image_id=gemini_oauth_candidate_image_id,
+                runtime_root=gemini_oauth_runtime_root,
+                container_name=gemini_oauth_helper_container_name,
+            )
+            self._validate_gemini_oauth_install_command(
+                gemini_oauth_install_command,
+                candidate_image_id=gemini_oauth_candidate_image_id,
+                runtime_root=gemini_oauth_runtime_root,
+                container_name=gemini_oauth_helper_container_name,
+            )
+            self._require_gemini_oauth_helper_name_absent(
+                gemini_oauth_helper_container_name,
+                boundary="before_api_stop",
+            )
+            self.receipt["status"] = "stopping_api_for_gemini_oauth"
+            pending_action = "stop_api_for_gemini_oauth"
+            persist_preparation("api_stop_authorization_pending")
+            with self._vexp_mutation_lease("before_recreate_api"):
+                pending_action = None
+                active_action = "stop_api_for_gemini_oauth"
+                preparation_attempted.append("stop_api_for_gemini_oauth")
+                persist_preparation(
+                    "in_progress",
+                    api_mutation_started=True,
+                    api_runtime_state="stop_mutation_possible",
+                )
+                self._stop_api_for_gemini_oauth(
+                    previous,
+                    before_mutation=begin_api_mutation,
+                )
+            preparation_completed.append("stop_api_for_gemini_oauth")
+            active_action = None
+            persist_preparation(
+                "in_progress",
+                api_mutation_started=True,
+                api_runtime_state="stopped_for_credential_provisioning",
+            )
+
+            self.receipt["status"] = "provisioning_gemini_oauth"
+            pending_action = "provision_gemini_oauth"
+            persist_preparation(
+                "authorization_pending",
+                api_mutation_started=True,
+                api_runtime_state="stopped_for_credential_provisioning",
+            )
+            with self._vexp_mutation_lease("before_recreate_api"):
+                self._revalidate_bind_source_access(
+                    boundary="before_gemini_oauth_install"
+                )
+                pending_action = None
+                active_action = "provision_gemini_oauth"
+                preparation_attempted.append("provision_gemini_oauth")
+                persist_preparation(
+                    "in_progress",
+                    api_mutation_started=True,
+                    api_runtime_state="stopped_for_credential_provisioning",
+                )
+                self._provision_gemini_oauth(
+                    candidate=dict(context["candidate"]),
+                    previous=previous,
+                    expected_binding=dict(context["gemini_oauth_binding"]),
+                    command=gemini_oauth_install_command,
+                    helper_container_name=gemini_oauth_helper_container_name,
+                    runtime_root=gemini_oauth_runtime_root,
+                    before_mutation=require_predeploy_release_context,
+                )
+            preparation_completed.append("provision_gemini_oauth")
+            active_action = None
             self.receipt["status"] = "changing_api"
-            persist_preparation("complete")
+            persist_preparation(
+                "complete",
+                api_mutation_started=True,
+                api_runtime_state="stopped_after_credential_provisioning",
+            )
 
             self._require_deployment_input_seal(context["deployment_input_seal"])
             pending_action = "recreate_api"
@@ -6891,8 +11524,7 @@ class MemorialDeployLane:
                     api_mutation_started=True,
                     api_runtime_state="mutation_possible",
                 )
-                mutation_started = True
-                self._recreate_api()
+                self._recreate_api(before_mutation=begin_api_mutation)
             persist_preparation(
                 "complete",
                 api_mutation_started=True,
@@ -6934,6 +11566,12 @@ class MemorialDeployLane:
                 ),
             )
 
+            self._require_vexp_mutation_transaction_current(
+                "before_api_interaction"
+            )
+            transaction_stack.close()
+            transaction_active = False
+
             self.receipt["status"] = "pass"
             self.receipt["completed_at"] = _utc_now()
             self.receipt["rollback"]["status"] = "available"
@@ -6953,13 +11591,33 @@ class MemorialDeployLane:
                 "reason": original_error,
                 "type": type(exc).__name__,
             }
+            if isinstance(exc, GeminiOAuthHelperExitUnconfirmed):
+                self.receipt["status"] = "rollback_denied_helper_exit_unconfirmed"
+                self.receipt["rollback"] = {
+                    "status": "denied",
+                    "reason": "gemini_oauth_helper_exit_unconfirmed",
+                }
+                self.receipt["preparation"].update(
+                    {
+                        "status": "helper_exit_unconfirmed",
+                        "api_mutation_started": True,
+                        "api_runtime_state": "stopped_or_unknown_no_rollback",
+                        "rollback_required": True,
+                        "rollback_performed": False,
+                    }
+                )
+                self.receipt["completed_at"] = _utc_now()
+                self._write_receipt()
+                raise
             if mutation_started and previous and rollback_tag:
                 try:
+                    self._enter_vexp_mutation_transaction_rollback()
                     rollback = self._rollback(
                         previous,
                         rollback_tag,
                         non_memorial_controls,
                         context["deployment_input_seal"],
+                        before_mutation=require_predeploy_release_context,
                     )
                     self.receipt["status"] = "failed_rolled_back"
                     self.receipt["rollback"] = rollback
@@ -7049,7 +11707,11 @@ class MemorialDeployLane:
                 raise
             raise DeployError(original_error) from exc
         finally:
-            self._release_lock()
+            try:
+                if transaction_active:
+                    transaction_stack.close()
+            finally:
+                self._release_lock()
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -7059,7 +11721,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--preflight-only",
         action="store_true",
-        help="Run evidence, Compose, rollback-input, and origin checks without Docker mutations.",
+        help=(
+            "Run checks; Docker inspect/exec probes may run, but no Docker mutation "
+            "is allowed."
+        ),
     )
     parser.add_argument("--wait-seconds", type=float, default=90.0)
     parser.add_argument("--poll-seconds", type=float, default=2.0)

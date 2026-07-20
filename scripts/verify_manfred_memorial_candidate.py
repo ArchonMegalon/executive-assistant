@@ -11,6 +11,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
 from typing import Callable
@@ -37,6 +38,8 @@ MEMORIAL_GUEST_COOKIE = "ea_memorial_guest"
 MEMORIAL_HSTS = "max-age=31536000"
 MEMORIAL_ARCHIVE_GATE_SCHEMA = "ea.memorial_archive_gate.v1"
 MEMORIAL_ARCHIVE_GATE_STATE = "intentionally_unpublished"
+MEMORIAL_SURFACE = "conversation_only"
+SPATIAL_SCOPE = "separate_propertyquarry_lane"
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -418,6 +421,127 @@ def _wait_for_health(base_url: str, timeout_seconds: int) -> None:
     raise RuntimeError(last_error)
 
 
+class _ConversationOnlyDocumentParser(HTMLParser):
+    """Collect rendered DOM facts without mistaking script strings for elements."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.ids: set[str] = set()
+        self.main_count = 0
+        self.nav_count = 0
+        self.aside_count = 0
+        self.iframe_count = 0
+        self.video_count = 0
+        self.conversation_settings_count = 0
+        self.memory_room_link_count = 0
+        self.tour_link_count = 0
+        self.public_surface = ""
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        attributes = {str(key): str(value or "") for key, value in attrs}
+        element_id = attributes.get("id", "").strip()
+        if element_id:
+            self.ids.add(element_id)
+        classes = set(attributes.get("class", "").split())
+        href = attributes.get("href", "")
+        if tag == "body":
+            self.public_surface = attributes.get(
+                "data-public-memorial-surface", ""
+            )
+        elif tag == "main":
+            self.main_count += 1
+        elif tag == "nav":
+            self.nav_count += 1
+        elif tag == "aside":
+            self.aside_count += 1
+        elif tag == "iframe":
+            self.iframe_count += 1
+        elif tag == "video":
+            self.video_count += 1
+        if tag == "details" and "conversation-settings" in classes:
+            self.conversation_settings_count += 1
+        if tag == "a" and "/memory-room" in href:
+            self.memory_room_link_count += 1
+        if tag == "a" and "/tours/" in href:
+            self.tour_link_count += 1
+
+
+def verify_conversation_only_page_html(page_body: bytes) -> dict[str, object]:
+    """Verify the exact rendered Memorial voice/text public surface."""
+
+    try:
+        page_html = page_body.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("candidate_conversation_surface_invalid") from exc
+    parser = _ConversationOnlyDocumentParser()
+    try:
+        parser.feed(page_html)
+        parser.close()
+    except Exception as exc:
+        raise RuntimeError("candidate_conversation_surface_invalid") from exc
+
+    required_ids = {
+        "memorial-conversation-region",
+        "memorial-conversation",
+        "memorial-text-turn-form",
+        "memorial-text-turn-input",
+        "memorial-retry-button",
+        "memorial-speech-message",
+        "memorial-speech-transcript",
+        "memorial-chat-status",
+        "memorial-speech-audio",
+    }
+    forbidden_ids = {
+        "memorial-story",
+        "memorial-memory-room",
+        "memorial-contribution",
+        "memorial-contribution-form",
+        "memorial-install-hint",
+        "memorial-install-button",
+        "memorial-personal-memory-optin",
+        "memorial-video-call-avatar",
+    }
+    missing_ids = sorted(required_ids - parser.ids)
+    present_forbidden_ids = sorted(forbidden_ids.intersection(parser.ids))
+    contract = {
+        "status": "pass",
+        "public_surface": parser.public_surface,
+        "main_count": parser.main_count,
+        "nav_count": parser.nav_count,
+        "aside_count": parser.aside_count,
+        "iframe_count": parser.iframe_count,
+        "video_count": parser.video_count,
+        "conversation_settings_count": parser.conversation_settings_count,
+        "memory_room_link_count": parser.memory_room_link_count,
+        "tour_link_count": parser.tour_link_count,
+        "missing_required_ids": missing_ids,
+        "present_forbidden_ids": present_forbidden_ids,
+    }
+    if (
+        parser.public_surface != "conversation-only"
+        or parser.main_count != 1
+        or parser.nav_count != 0
+        or parser.aside_count != 0
+        or parser.iframe_count != 0
+        or parser.video_count != 0
+        or parser.conversation_settings_count != 0
+        or parser.memory_room_link_count != 0
+        or parser.tour_link_count != 0
+        or missing_ids
+        or present_forbidden_ids
+    ):
+        contract["status"] = "fail"
+        raise RuntimeError(
+            "candidate_conversation_surface_invalid:"
+            + json.dumps(contract, sort_keys=True, separators=(",", ":"))
+        )
+    return contract
+
+
 def _chromium_launch_executable(browser_type: object) -> str:
     configured = str(os.environ.get("EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE") or "").strip()
     if configured:
@@ -445,6 +569,7 @@ def audit_browser_surface(
     base_url: str,
     *,
     public_origin: str | None = None,
+    conversation_only: bool = False,
 ) -> dict[str, object]:
     try:
         from playwright.sync_api import Error as PlaywrightError
@@ -556,8 +681,18 @@ def audit_browser_surface(
             accessibility = page.evaluate(
                 """() => {
                   const visible = (element) => {
-                    const style = getComputedStyle(element);
-                    return !element.hidden && style.display !== "none" && style.visibility !== "hidden";
+                    if (!element || element.getClientRects().length === 0) return false;
+                    if (typeof element.checkVisibility === "function" &&
+                        !element.checkVisibility({visibilityProperty: true, contentVisibilityAuto: true})) return false;
+                    for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+                      const style = getComputedStyle(ancestor);
+                      if (ancestor.hidden || style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") return false;
+                      if (ancestor.tagName === "DETAILS" && !ancestor.open) {
+                        const summary = Array.from(ancestor.children).find((child) => child.tagName === "SUMMARY");
+                        if (!summary || !summary.contains(element)) return false;
+                      }
+                    }
+                    return true;
                   };
                   const controls = Array.from(document.querySelectorAll("input, textarea, button"))
                     .filter((element) => visible(element) && String(element.type || "") !== "hidden");
@@ -572,6 +707,11 @@ def audit_browser_surface(
                   const storyRect = story?.getBoundingClientRect();
                   const conversationRect = conversation?.getBoundingClientRect();
                   const conversationPosition = conversation ? getComputedStyle(conversation).position : "missing";
+                  const unwantedIds = [
+                    "memorial-story", "memorial-memory-room", "memorial-contribution-form",
+                    "memorial-install", "memorial-conversation-settings",
+                    "memorial-personal-memory-optin", "memorial-video-avatar"
+                  ].filter((id) => document.getElementById(id));
                   return {
                     lang: document.documentElement.lang,
                     main_count: document.querySelectorAll("main").length,
@@ -599,17 +739,18 @@ def audit_browser_surface(
                       0,
                       Math.round((storyRect?.bottom || 0) - (conversationRect?.top || 0)),
                     ),
+                    conversation_region_present: Boolean(conversation),
+                    story_present: Boolean(story),
+                    unwanted_ids: unwantedIds,
+                    public_nav_count: document.querySelectorAll("nav a").length,
                   };
                 }"""
             )
-            if (
+            common_accessibility_failed = (
                 not str(accessibility.get("lang") or "").lower().startswith("de")
                 or accessibility.get("main_count") != 1
                 or accessibility.get("h1_count") != 1
-                or int(accessibility.get("skip_link_count") or 0) < 2
                 or accessibility.get("unlabeled_controls")
-                or accessibility.get("consent_checked") is True
-                or accessibility.get("personal_memory_checked") is True
                 or accessibility.get("conversation_enabled") is not True
                 or accessibility.get("conversation_label")
                 != "Schriftliche Frage stellen"
@@ -627,10 +768,37 @@ def audit_browser_surface(
                 or int(accessibility.get("horizontal_overflow") or 0) > 1
                 or accessibility.get("conversation_position")
                 in {"fixed", "sticky", "missing"}
-                or accessibility.get("conversation_after_story") is not True
-                or int(accessibility.get("conversation_overlap") or 0) > 1
-            ):
-                raise RuntimeError("candidate_browser_accessibility_contract_failed")
+                or accessibility.get("conversation_region_present") is not True
+            )
+            conversation_scope_failed = (
+                conversation_only
+                and (
+                    int(accessibility.get("skip_link_count") or 0) < 1
+                    or accessibility.get("story_present") is True
+                    or accessibility.get("unwanted_ids")
+                    or int(accessibility.get("public_nav_count") or 0) != 0
+                )
+            )
+            legacy_scope_failed = (
+                not conversation_only
+                and (
+                    int(accessibility.get("skip_link_count") or 0) < 2
+                    or accessibility.get("consent_checked") is True
+                    or accessibility.get("personal_memory_checked") is True
+                    or accessibility.get("conversation_after_story") is not True
+                    or int(accessibility.get("conversation_overlap") or 0) > 1
+                )
+            )
+            if common_accessibility_failed or conversation_scope_failed or legacy_scope_failed:
+                raise RuntimeError(
+                    "candidate_browser_accessibility_contract_failed:"
+                    + json.dumps(
+                        accessibility,
+                        ensure_ascii=True,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                )
 
             navigation = page.evaluate(
                 """() => {
@@ -665,6 +833,8 @@ def audit_browser_surface(
                       0,
                       Math.round((storyRect?.bottom || 0) - (conversationRect?.top || 0)),
                     ),
+                    conversation_present: Boolean(conversation),
+                    story_present: Boolean(story),
                   };
                 }"""
             )
@@ -673,8 +843,18 @@ def audit_browser_surface(
                 desktop_overflow > 1
                 or desktop_layout.get("conversation_position")
                 in {"fixed", "sticky", "missing"}
-                or desktop_layout.get("conversation_after_story") is not True
-                or int(desktop_layout.get("conversation_overlap") or 0) > 1
+                or desktop_layout.get("conversation_present") is not True
+                or (
+                    conversation_only
+                    and desktop_layout.get("story_present") is True
+                )
+                or (
+                    not conversation_only
+                    and (
+                        desktop_layout.get("conversation_after_story") is not True
+                        or int(desktop_layout.get("conversation_overlap") or 0) > 1
+                    )
+                )
             ):
                 raise RuntimeError("candidate_browser_desktop_layout_contract_failed")
             context.close()
@@ -698,6 +878,12 @@ def audit_browser_surface(
         "horizontal_overflow_px": 0,
         "conversation_in_document_flow": True,
         "conversation_overlap_px": 0,
+        "memorial_surface": (
+            MEMORIAL_SURFACE if conversation_only else "legacy_full_memorial"
+        ),
+        "spatial_scope": (
+            SPATIAL_SCOPE if conversation_only else "legacy_memorial_coupled"
+        ),
         "unlabeled_controls": 0,
         "automatic_provider_requests": 0,
         "automatic_websockets": 0,
@@ -818,6 +1004,7 @@ def verify_candidate(
     withdraw_receipt: Path | None,
     browser_audit: bool = False,
     transport_request: Callable[..., tuple[int, bytes, dict[str, str]]] | None = None,
+    conversation_only: bool = False,
 ) -> dict[str, object]:
     _wait_for_health(base_url, wait_seconds)
     checks: list[str] = ["healthz"]
@@ -841,6 +1028,14 @@ def verify_candidate(
         raise RuntimeError("candidate_public_headers_incomplete")
     checks.append("public_projection")
 
+    if conversation_only:
+        _page_status, page_body, _page_headers = _request(
+            base_url,
+            "/memorials/manfred",
+        )
+        conversation_surface = verify_conversation_only_page_html(page_body)
+        checks.append("conversation_only_public_surface")
+
     transport_security = _verify_memorial_transport_security(
         base_url,
         public_origin,
@@ -859,14 +1054,15 @@ def verify_candidate(
         request_fn=transport_request,
     )
     archive_gate = _verify_memorial_archive_gate(base_url)
-    _request(base_url, "/memorials/manfred/app.webmanifest")
-    _request(base_url, "/memorials/manfred/service-worker.js")
+    if not conversation_only:
+        _request(base_url, "/memorials/manfred/app.webmanifest")
+        _request(base_url, "/memorials/manfred/service-worker.js")
     checks.extend(
         [
             "head_surface_no_prewarm",
             "singular_memorial_alias",
             "archive_publication_gate",
-            "pwa",
+            *( [] if conversation_only else ["pwa"] ),
         ]
     )
 
@@ -919,24 +1115,25 @@ def verify_candidate(
         raise RuntimeError("candidate_voice_release_boundary_invalid")
     checks.append("voice_provider_boundary_blocked")
 
-    _status, share_body, _headers = _request(
-        base_url,
-        "/memorials/manfred/share-drafts",
-        method="POST",
-        payload={
-            "public_origin": public_origin,
-            "channels": ["telegram", "whatsapp"],
-            "include_archive": True,
-            "include_audio": False,
-        },
-    )
-    share_packet = _json_body(share_body, path="share-drafts")
-    serialized_share = json.dumps(share_packet, ensure_ascii=False, sort_keys=True)
-    if PRIVATE_AUDIO_RELPATH in serialized_share or _contains_forbidden_recipient_field(
-        share_packet
-    ):
-        raise RuntimeError("candidate_share_packet_private_data_exposed")
-    checks.append("unsent_public_share_drafts")
+    if not conversation_only:
+        _status, share_body, _headers = _request(
+            base_url,
+            "/memorials/manfred/share-drafts",
+            method="POST",
+            payload={
+                "public_origin": public_origin,
+                "channels": ["telegram", "whatsapp"],
+                "include_archive": True,
+                "include_audio": False,
+            },
+        )
+        share_packet = _json_body(share_body, path="share-drafts")
+        serialized_share = json.dumps(share_packet, ensure_ascii=False, sort_keys=True)
+        if PRIVATE_AUDIO_RELPATH in serialized_share or _contains_forbidden_recipient_field(
+            share_packet
+        ):
+            raise RuntimeError("candidate_share_packet_private_data_exposed")
+        checks.append("unsent_public_share_drafts")
 
     contribution = {
         "submitted": False,
@@ -945,6 +1142,8 @@ def verify_candidate(
     }
     if submit_receipt is not None and withdraw_receipt is not None:
         raise ValueError("candidate_contribution_mode_conflict")
+    if conversation_only and (submit_receipt is not None or withdraw_receipt is not None):
+        raise ValueError("candidate_contribution_forbidden_in_conversation_only")
     if submit_receipt is not None:
         contribution = _submit_contribution(base_url, submit_receipt)
         checks.append("private_contribution_submitted")
@@ -957,6 +1156,7 @@ def verify_candidate(
         browser_evidence = audit_browser_surface(
             base_url,
             public_origin=public_origin,
+            conversation_only=conversation_only,
         )
         if browser_evidence.get("status") != "pass" or not _has_exact_zero_counts(
             browser_evidence
@@ -973,6 +1173,11 @@ def verify_candidate(
         .replace("+00:00", "Z"),
         "base_url": base_url,
         "checks": checks,
+        **(
+            {"conversation_only_public_surface": conversation_surface}
+            if conversation_only
+            else {}
+        ),
         "provider_calls_performed": False,
         "page_get_performed": browser_audit,
         "operator_surface_used": False,
@@ -981,6 +1186,12 @@ def verify_candidate(
         "transport_security": transport_security,
         "contribution": contribution,
         "browser_audit": browser_evidence,
+        "memorial_surface": (
+            MEMORIAL_SURFACE if conversation_only else "legacy_full_memorial"
+        ),
+        "spatial_scope": (
+            SPATIAL_SCOPE if conversation_only else "legacy_memorial_coupled"
+        ),
     }
 
 
@@ -995,6 +1206,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--browser-audit",
         action="store_true",
         help="Exercise the rendered surface and fail on provider requests or WebSockets.",
+    )
+    parser.add_argument(
+        "--conversation-only",
+        action="store_true",
+        help="Prove only the conversation surface and voice/text boundaries.",
     )
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--submit-contribution-receipt", default="")
@@ -1016,6 +1232,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.withdraw_contribution_receipt
             else None,
             browser_audit=bool(args.browser_audit),
+            conversation_only=bool(args.conversation_only),
         )
     except (
         OSError,

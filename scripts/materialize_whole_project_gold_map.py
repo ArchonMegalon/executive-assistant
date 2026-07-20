@@ -396,7 +396,6 @@ def build_gold_map(
         if memorial_public_voice_status == "pass"
         and memorial_public_browser_status == "pass"
         and memorial_public_room_status == "pass"
-        and memorial_spatial_status == "pass"
         else "blocked"
     )
     memorial_voice_missing = (
@@ -411,13 +410,6 @@ def build_gold_map(
         memorial_public_missing.append("public-origin browser realtime/audio playback gold receipt")
     if memorial_public_room_status != "pass":
         memorial_public_missing.append("public-origin room/device audio intelligibility receipt with manual attestation")
-    if memorial_spatial_status != "pass":
-        memorial_public_missing.append(
-            "public-origin polished 3D-tour receipt with pinned PropertyQuarry authority, v5 browser interactions, deploy binding, and exact public bytes"
-        )
-        memorial_public_missing.extend(
-            f"public spatial-tour receipt: {issue}" for issue in memorial_spatial_issues
-        )
     memorial_public_design_notes = (
         [
             "Use: Memorial public-origin gold: pass.",
@@ -552,19 +544,38 @@ def build_gold_map(
             title="Memorial Public-Origin Experience Gold",
             owner_repo="memorial runtime",
             status=memorial_public_gold_status,
-            claim="The public memorial experience is gold only when the deployed public origin proves voice, realtime playback, room/device intelligibility, latency, and the polished generated 3D tour through exact-byte public-origin and browser-interaction evidence. Local or candidate-only receipts do not satisfy this plane.",
+            claim="The conversation-only public memorial is gold only when the deployed public origin proves voice, text fallback, realtime playback, room/device intelligibility, and latency. PropertyQuarry spatial tours are a separate plane.",
             evidence=[
                 _display_path(path)
                 for path in (
                     memorial_public_voice_receipt,
                     memorial_public_browser_receipt,
                     memorial_public_room_receipt,
-                    memorial_spatial_public_origin_receipt,
                 )
                 if path.is_file()
             ],
             missing_evidence=memorial_public_missing,
             design_notes=memorial_public_design_notes,
+        ),
+        _plane(
+            key="propertyquarry_spatial_tour",
+            title="PropertyQuarry Public Spatial Tour",
+            owner_repo="PropertyQuarry",
+            status=memorial_spatial_status,
+            claim="PropertyQuarry owns spatial-tour publication and exact-byte/browser proof. This plane never gates the conversation-only Memorial claim.",
+            evidence=(
+                [_display_path(memorial_spatial_public_origin_receipt)]
+                if memorial_spatial_public_origin_receipt.is_file()
+                else []
+            ),
+            missing_evidence=[
+                f"PropertyQuarry spatial receipt: {issue}"
+                for issue in memorial_spatial_issues
+            ],
+            design_notes=[
+                "spatial_scope=separate_propertyquarry_lane",
+                "memorial_public_origin_gold_dependency=false",
+            ],
         ),
         _plane(
             key="ltd_provider_lanes",
@@ -642,8 +653,8 @@ def build_gold_map(
             "Telegram video delivery requires a dedicated live delivery receipt before it can support whole-project gold.",
             "Design mirror parity is bounded; canonical product/UI proof must come from owning repos.",
             "Memorial voice/realtime readiness requires its own browser, STT, TTS, and latency receipts.",
-            "Memorial public-origin gold requires the public voice roundtrip receipt, public browser realtime receipt, public room-audio receipt, and strict public spatial-tour receipt.",
-            "The spatial-tour receipt must bind the pinned PropertyQuarry authority and package to polished v5 candidate-browser proof, the governed deploy receipt, and all exact public-origin GET/HEAD observations; status-only or candidate-only evidence is insufficient.",
+            "Memorial public-origin gold requires public voice roundtrip, browser realtime/text fallback, and room-audio receipts.",
+            "PropertyQuarry spatial-tour proof is an independently owned plane and never blocks the conversation-only Memorial claim.",
         ],
         "blocking_planes": blocking_planes,
         "planes": planes,

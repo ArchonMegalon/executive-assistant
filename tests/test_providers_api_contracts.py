@@ -10575,6 +10575,9 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
                 "subtitle": "Eine ruhige Seite fuer Erinnerungen und Originalstimme.",
                 "disclosure": "Originalaufnahmen sind als Original gekennzeichnet.",
                 "intro": "Neue Texte sind keine direkte Rede.",
+                "write_token": "PRIVATE_WRITE_TOKEN_CANARY",
+                "memory_principal_id": "PRIVATE_MEMORY_PRINCIPAL_CANARY",
+                "voice_clone": {"voice_id": "PRIVATE_CLONE_CANARY"},
                 "audio_clips": [
                     {
                         "public": True,
@@ -10605,24 +10608,42 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
 
     assert page.status_code == 200
     assert "Manfred" in page.text
-    assert "Originalaufnahmen" in page.text
-    assert "Stimme aus dem Archiv" in page.text
-    assert "Hanusch Gespraech" in page.text
+    assert 'id="memorial-conversation-region"' in page.text
+    assert 'id="memorial-text-turn-form"' in page.text
+    assert 'id="memorial-speech-transcript"' in page.text
+    assert 'id="memorial-chat-answer"' in page.text
+    assert "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen." in page.text
+    assert "Sie ist nicht Manfred und spricht nicht für ihn." in page.text
+    assert "für Spracherkennung und Wiedergabe wird dein Audio verarbeitet" in page.text
+    assert "Originalaufnahmen" not in page.text
+    assert "Stimme aus dem Archiv" not in page.text
+    assert "Hanusch Gespraech" not in page.text
+    assert "Originalaufnahme" not in page.text
+    assert "Schach" not in page.text
+    assert "Das Schach soll in der Familie bleiben." not in page.text
+    assert "Was ist wirklich belegt?" not in page.text
+    assert "audio/hanusch-enhanced.mp3" not in page.text
     assert "Seine Stimme hoeren" not in page.text
     assert "Quellenbasiertes Profil" not in page.text
     assert "Weitere gefundene Kandidaten" not in page.text
-    assert "Was ist wirklich belegt?" in page.text
     assert "Archiv lesen" not in page.text
-    assert "Gespräch beginnen" in page.text
-    assert "Am Handy/Desktop installieren" in page.text
+    assert "Gespräch starten" in page.text
+    assert "Am Handy/Desktop installieren" not in page.text
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
     assert "voice clone" not in page.text.lower()
+    assert "PRIVATE_WRITE_TOKEN_CANARY" not in page.text
+    assert "PRIVATE_MEMORY_PRINCIPAL_CANARY" not in page.text
+    assert "PRIVATE_CLONE_CANARY" not in page.text
     assert "https://js.clickrank.ai/seo/" not in page.text
 
     payload = client.get(f"/memorials/{slug}.json")
     assert payload.status_code == 200
     assert payload.json()["person_name"] == "Manfred"
     assert payload.json()["audio_clips"][0]["asset_relpath"] == "audio/hanusch-enhanced.mp3"
+    assert payload.json()["suggested_prompts"] == ["Was ist wirklich belegt?"]
+    assert "PRIVATE_WRITE_TOKEN_CANARY" not in payload.text
+    assert "PRIVATE_MEMORY_PRINCIPAL_CANARY" not in payload.text
+    assert "PRIVATE_CLONE_CANARY" not in payload.text
 
     audio = client.get(f"/memorials/files/{slug}/audio/hanusch-enhanced.mp3")
     assert audio.status_code == 200
@@ -10757,7 +10778,7 @@ def test_public_memorial_chat_excludes_private_context_and_public_diagnosis_leak
     assert "speechHadError" not in page.text
     assert "Die Verbindung zum Mikrofon war gerade instabil. Bitte versuche es noch einmal." not in page.text
     assert "readJsonResponse" not in page.text
-    assert "Bereit." in page.text
+    assert "Bereit für deine Frage." in page.text
     assert "recorder.start(250)" in page.text
     assert "x-memorial-visitor-id" not in page.text
     assert "visitor_id:" not in page.text
@@ -10897,6 +10918,7 @@ def test_public_memorial_speech_transcribe_normalizes_json_text_payload(
         "_onemin_speech_to_text",
         lambda **kwargs: {
             "aiRecord": {
+                "status": "SUCCESS",
                 "aiRecordDetail": {
                     "responseObject": {
                         "text": json.dumps({"text": "Was war ihm bei Familie wichtig?", "language": "german"})
@@ -10950,6 +10972,7 @@ def test_public_memorial_speech_transcribe_converts_browser_webm_before_upload(
         "_onemin_speech_to_text",
         lambda **kwargs: {
             "aiRecord": {
+                "status": "SUCCESS",
                 "aiRecordDetail": {
                     "responseObject": {"text": "Was war ihm bei Familie wichtig?"}
                 }
@@ -11008,8 +11031,13 @@ def test_public_memorial_speech_transcribe_retries_with_enhanced_wav_after_empty
     def _fake_transcribe(**kwargs):
         transcribe_calls["count"] += 1
         if transcribe_calls["count"] == 1:
-            return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": ""}}}}
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Was war ihm bei Familie wichtig?"}}}}
+            return {"aiRecord": {"status": "SUCCESS", "aiRecordDetail": {"responseObject": {"text": ""}}}}
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {"responseObject": {"text": "Was war ihm bei Familie wichtig?"}},
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_transcribe)
     client = _client(principal_id="exec-public-memorial-speech-enhanced-retry")
@@ -11068,6 +11096,7 @@ def test_public_memorial_speech_transcribe_reads_onemin_keys_from_manifest_slots
         "_onemin_speech_to_text",
         lambda **kwargs: {
             "aiRecord": {
+                "status": "SUCCESS",
                 "aiRecordDetail": {
                     "responseObject": {"text": "Was war ihm bei Familie wichtig?"}
                 }

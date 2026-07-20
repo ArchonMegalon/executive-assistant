@@ -5,6 +5,7 @@ import copy
 import hashlib
 import http.server
 import json
+import os
 from pathlib import Path
 import shutil
 import threading
@@ -583,6 +584,10 @@ def test_candidate_runner_emits_bounded_route_actionability_diagnostics(
             str(tmp_path / "candidate.env"),
             "--receipt",
             str(tmp_path / "candidate-runtime.json"),
+            "--vexp-state-path",
+            str(tmp_path / "state.json"),
+            "--vexp-state-owner-uid",
+            str(os.geteuid()),
         ]
     )
 
@@ -1719,9 +1724,7 @@ def _valid_receipt() -> dict[str, object]:
                 "body_sha256": hashlib.sha256(public_tour_body).hexdigest(),
                 "body_bytes": len(public_tour_body),
                 "canonical_json_sha256": hashlib.sha256(
-                    browser_gate._canonical_json_bytes_without_lf(
-                        public_tour_payload
-                    )
+                    browser_gate._canonical_json_bytes_without_lf(public_tour_payload)
                 ).hexdigest(),
                 "source_revision": COMMIT,
                 "source_revision_verified": True,

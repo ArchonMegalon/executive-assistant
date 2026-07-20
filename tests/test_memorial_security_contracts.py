@@ -472,9 +472,9 @@ def test_public_memorial_pwa_install_is_disabled_by_default(
     assert "cache.addAll" not in worker.text
     page = client.get(f"/memorials/{slug}")
     assert page.status_code == 200
-    assert "Gespräch beginnen" in page.text
+    assert "Gespräch starten" in page.text
     assert 'id="memorial-video-call"' not in page.text
-    assert "Am Handy/Desktop installieren" in page.text
+    assert "Am Handy/Desktop installieren" not in page.text
     assert "memorialPwaInstallEnabled = false" in page.text
     assert "App installieren" not in page.text
     assert 'id="memorial-hero-actions"' in page.text
@@ -490,9 +490,9 @@ def test_public_memorial_pwa_install_is_disabled_by_default(
     assert 'id="memorial-video-call-avatar-face"' not in page.text
     assert 'id="memorial-video-call-continue-no-camera"' not in page.text
     assert 'id="memorial-video-call-avatar-video"' not in page.text
-    assert 'id="memorial-video-call-avatar-fallback"' in page.text
-    assert "VidBoard noch nicht live" in page.text
-    assert "Gleich kannst du mit mir reden." in page.text
+    assert 'id="memorial-video-call-avatar-fallback"' not in page.text
+    assert "VidBoard noch nicht live" not in page.text
+    assert "Gleich kannst du mit mir reden." not in page.text
     assert "/memorials/manfred/realtime" in page.text
     assert "/memorials/manfred/realtime/webrtc" not in page.text
     assert "RTCPeerConnection" not in page.text
@@ -509,9 +509,9 @@ def test_public_memorial_pwa_install_is_disabled_by_default(
     assert "utterance.onstart = () => {" not in page.text
     assert 'setSpeechStatus("Ich antworte gleich.", "working", "Meine Stimme wird gestartet")' not in page.text
     assert "<h1>" in page.text
-    assert '<a class="skip-link" href="#memorial-story">' in page.text
-    assert '<main id="memorial-story" tabindex="-1">' in page.text
-    assert '<aside class="conversation-dock"' in page.text
+    assert '<a class="skip-link" href="#memorial-story">' not in page.text
+    assert '<main id="memorial-story" tabindex="-1">' not in page.text
+    assert '<aside class="conversation-dock"' not in page.text
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
     assert "Hosted on myexternalbrain.com" not in page.text
 
@@ -1271,9 +1271,9 @@ def test_public_memorial_video_call_blocks_unverified_avatar_asset(
     page = client.get(f"/memorials/{slug}")
     assert page.status_code == 200
     assert 'id="memorial-video-call-avatar-video"' not in page.text
-    assert 'id="memorial-video-call-avatar-fallback"' in page.text
-    assert "VidBoard in Prüfung" in page.text
-    assert "liegt vor, ist aber noch nicht freigegeben" in page.text
+    assert 'id="memorial-video-call-avatar-fallback"' not in page.text
+    assert "VidBoard in Prüfung" not in page.text
+    assert "liegt vor, ist aber noch nicht freigegeben" not in page.text
     assert f'/memorials/files/{slug}/video/manfred-avatar.mp4' not in page.text
 
     asset = client.get(f"/memorials/files/{slug}/video/manfred-avatar.mp4")
@@ -2082,7 +2082,7 @@ def test_public_memorial_page_does_not_emit_dead_client_identity_fields(
     assert "memorial_guest_visitor_id_v1" not in response.text
 
 
-def test_public_memorial_page_keeps_archive_and_voice_feedback_collapsed(
+def test_public_memorial_page_removes_archive_voice_feedback_install_and_contribution_ui(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2149,21 +2149,18 @@ def test_public_memorial_page_keeps_archive_and_voice_feedback_collapsed(
     assert 'id="memorial-speech-transcript-live"' in body
     assert 'id="memorial-speech-transcript"' in body
     assert 'id="memorial-voice-recovery-note"' in body
-    assert "Wenn die Stimme stockt, bleibt die Antwort als Text sichtbar." in body
-    assert "Du kannst ruhig unterbrechen oder noch einmal sprechen." in body
-    assert "Gespräch beginnen" in body
-    assert "Am Handy/Desktop installieren" in body
+    assert "Wenn die Sprachausgabe stockt, bleibt die Antwort als Text sichtbar." in body
+    assert "Du kannst jederzeit noch einmal sprechen oder schreiben." in body
+    assert "Gespräch starten" in body
+    assert "Am Handy/Desktop installieren" not in body
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in body
-    assert "Bitte noch einmal sprechen" in body
-    assert (
-        '<details class="story-section contribution-panel contribution-disclosure" '
-        'id="memorial-contribution">'
-    ) in body
-    assert "<summary>Eine private Erinnerung beitragen</summary>" in body
+    assert "Sprachfunktion erneut versuchen" in body
+    assert 'id="memorial-contribution"' not in body
+    assert "Eine private Erinnerung beitragen" not in body
     assert 'id="memorial-contribution" open' not in body
 
 
-def test_public_memorial_page_exposes_conversation_settings_and_memory_consent_controls(
+def test_public_memorial_page_removes_conversation_settings_and_personal_memory_controls(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2188,28 +2185,18 @@ def test_public_memorial_page_exposes_conversation_settings_and_memory_consent_c
 
     assert response.status_code == 200
     body = response.text
-    assert "Gesprächseinstellungen" in body
-    assert 'id="memorial-autostart-optin"' in body
-    assert 'id="memorial-personal-memory-optin"' in body
-    assert 'id="memorial-personal-memory-status"' in body
-    assert 'id="memorial-personal-memory-forget"' in body
-    assert 'id="memorial-personal-memory-forget" disabled aria-disabled="true"' in body
-    assert "pseudonym auf unserem Server gespeichert" in body
-    assert "Mit diesem Browser verknüpfen" in body
-    assert "Gesprächsgedächtnis löschen" in body
+    assert "Gesprächseinstellungen" not in body
+    assert 'id="memorial-autostart-optin"' not in body
+    assert 'id="memorial-personal-memory-optin"' not in body
+    assert 'id="memorial-personal-memory-status"' not in body
+    assert 'id="memorial-personal-memory-forget"' not in body
+    assert "pseudonym auf unserem Server gespeichert" not in body
+    assert "Mit diesem Browser verknüpfen" not in body
+    assert "Gesprächsgedächtnis löschen" not in body
     assert "Persönliche Gesprächserinnerungen bleiben nur in diesem Browser" not in body
     assert "Nur dieses Gerät merkt sich etwas" not in body
     assert 'href="/security"' not in body
     assert 'href="/data-deletion"' not in body
-    assert 'href="#memorial-contribution-management"' in body
-    assert "Private Einreichungen und ihre Rücknahmebelege" in body
-    assert "Es gibt noch kein Gesprächsgedächtnis zu löschen" in body
-    assert "KI-gestützten, synthetischen Manfred-Stimme" in body
-    assert "eingesetzte Sprachdienste verarbeiten das Audio" in body
-    assert (
-        'href="#memorial-conversation-region">'
-        "Zum quellengebundenen Gedenkbegleiter</a>"
-    ) in body
     assert 'const memorialAutostartStorageKey = "memorial_autostart_enabled_manfred_v2";' in body
     assert 'const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_manfred_v2";' in body
     assert 'const memorialContributionStorageKey = "memorial_contribution_receipt_manfred_v1";' in body
@@ -2231,22 +2218,18 @@ def test_public_memorial_page_exposes_conversation_settings_and_memory_consent_c
     assert 'conversationButton.setAttribute("aria-label", label)' in body
     assert 'conversationButton.setAttribute("title", label)' in body
     assert 'id="memorial-text-turn-form"' in body
-    assert 'for="memorial-text-turn-input">Oder ohne Mikrofon schreiben</label>' in body
+    assert 'for="memorial-text-turn-input">Oder schreiben</label>' in body
     assert 'type: "user_text_turn"' in body
     assert "setMicrophoneFailureStatus" in body
     assert "Der Mikrofonzugriff ist blockiert." in body
     assert 'id="memorial-speech-transcript" role="log" aria-label="Gesprächsverlauf"' in body
     assert 'aria-controls="memorial-chat-status" aria-expanded="false"' in body
     assert 'behavior: memorialReducedMotionQuery.matches ? "auto" : "smooth"' in body
-    assert 'id="memorial-contribution-form"' in body
-    assert "Eine Erinnerung beitragen" in body
-    assert "bleibt zunächst privat" in body
-    assert 'id="memorial-contribution-consent"' in body
-    assert 'id="memorial-contribution-management-jump" hidden' in body
-    assert 'id="memorial-contribution-management"' in body
-    assert 'data-js-ready="false"' in body
-    assert "Rücknahmebeleg sicher aufbewahren" in body
-    assert "if (contributionDisclosure) contributionDisclosure.open = true;" in body
+    assert 'id="memorial-contribution-form"' not in body
+    assert "Eine Erinnerung beitragen" not in body
+    assert 'id="memorial-contribution-consent"' not in body
+    assert 'id="memorial-contribution-management-jump"' not in body
+    assert 'id="memorial-contribution-management"' not in body
     assert 'id="memorial-contribution-token"' not in body
     assert "/memorials/manfred/conversation-turn" not in body
     assert ".contribution-management-section dd" in body
@@ -5309,8 +5292,8 @@ def test_public_memorial_preserves_explicitly_approved_curated_memory_excerpt(
     assert public_json.json()["memory_cards"][0]["body"] == approved_excerpt
     assert public_json.json()["memory_cards"][0]["curation_status"] == "approved_public_excerpt"
     assert public_page.status_code == 200
-    assert approved_excerpt in public_page.text
-    assert "Familienarchiv &lt;script&gt;alert(1)&lt;/script&gt;" in public_page.text
+    assert approved_excerpt not in public_page.text
+    assert "Familienarchiv &lt;script&gt;alert(1)&lt;/script&gt;" not in public_page.text
     assert "Familienarchiv <script>alert(1)</script>" not in public_page.text
     assert "Unredigierter Arbeitsentwurf" not in public_json.text
     assert "Unredigierter Arbeitsentwurf" not in public_page.text

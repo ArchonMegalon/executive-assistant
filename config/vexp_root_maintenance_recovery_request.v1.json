@@ -1,0 +1,181 @@
+{
+  "authority": false,
+  "contract_name": "ea.vexp_root_maintenance_recovery_manifest.v1",
+  "external_owner_handoff": {
+    "external_pre_change_authorization_required": true,
+    "finalizer_implementation_location": "external_owner_required",
+    "owner_plane": "fleet",
+    "reason": "ea_must_not_own_release_authority_or_hidden_contract_packages",
+    "required": true,
+    "request_grants_root_execution_authority": false,
+    "root_receipt_is_post_execution_evidence": true,
+    "required_root_receipt": {
+      "contract_name": "fleet.vexp_root_maintenance_recovery_receipt.v1",
+      "must_be_root_owned": true,
+      "must_be_signed": true,
+      "must_bind_atomic_pre_change_state_sha256": true,
+      "must_bind_exact_artifact_manifest_sha256": true,
+      "must_bind_new_epoch_identity": true,
+      "must_bind_pre_change_void_receipt_sha256": true,
+      "must_bind_pre_change_artifact_manifest_sha256": true,
+      "must_bind_request_identity": true,
+      "must_bind_operator_snapshot_epoch_identity_sha256": true,
+      "must_record_actual_state_owner_uid": true,
+      "must_record_first_change_after_void": true,
+      "must_record_plumbing_rollback_disposition": true,
+      "signature_algorithm": "ed25519"
+    }
+  },
+  "guarded_plumbing": [
+    {
+      "allowed_actions": [
+        "install_exact_reviewed_artifact",
+        "replace_exact_reviewed_artifact",
+        "restore_manifest_bound_pre_change_artifact_after_failure",
+        "start_named_unit",
+        "restart_named_unit",
+        "verify_identity"
+      ],
+      "component": "sentinel"
+    },
+    {
+      "allowed_actions": [
+        "install_exact_reviewed_artifact",
+        "replace_exact_reviewed_artifact",
+        "restore_manifest_bound_pre_change_artifact_after_failure",
+        "start_named_unit",
+        "restart_named_unit",
+        "verify_identity"
+      ],
+      "component": "qualification_finalizer"
+    },
+    {
+      "allowed_actions": [
+        "install_exact_reviewed_artifact",
+        "replace_exact_reviewed_artifact",
+        "restore_manifest_bound_pre_change_artifact_after_failure",
+        "start_named_unit",
+        "restart_named_unit",
+        "verify_identity"
+      ],
+      "component": "certificate_writer_plumbing"
+    },
+    {
+      "allowed_actions": [
+        "install_exact_reviewed_artifact",
+        "replace_exact_reviewed_artifact",
+        "restore_manifest_bound_pre_change_artifact_after_failure",
+        "reload_named_policy",
+        "verify_identity"
+      ],
+      "component": "apparmor"
+    },
+    {
+      "allowed_actions": [
+        "install_exact_reviewed_artifact",
+        "replace_exact_reviewed_artifact",
+        "restore_manifest_bound_pre_change_artifact_after_failure",
+        "start_named_unit",
+        "restart_named_unit",
+        "verify_identity"
+      ],
+      "component": "event_guard"
+    },
+    {
+      "allowed_actions": [
+        "install_exact_reviewed_artifact",
+        "replace_exact_reviewed_artifact",
+        "restore_manifest_bound_pre_change_artifact_after_failure",
+        "start_named_unit",
+        "restart_named_unit",
+        "verify_identity"
+      ],
+      "component": "mutation_gate"
+    },
+    {
+      "allowed_actions": [
+        "install_exact_reviewed_artifact",
+        "replace_exact_reviewed_artifact",
+        "restore_manifest_bound_pre_change_artifact_after_failure",
+        "start_named_unit",
+        "restart_named_unit",
+        "verify_identity"
+      ],
+      "component": "current_predicate_attestor"
+    },
+    {
+      "allowed_actions": [
+        "install_exact_reviewed_artifact",
+        "replace_exact_reviewed_artifact",
+        "restore_manifest_bound_pre_change_artifact_after_failure",
+        "start_named_unit",
+        "restart_named_unit",
+        "verify_identity"
+      ],
+      "component": "candidate_boundary_attestor"
+    }
+  ],
+  "guarded_plumbing_failure_policy": {
+    "authority_restoration_forbidden": true,
+    "epoch_void_remains_permanent": true,
+    "plumbing_rollback_allowed_after_durable_void": true,
+    "pre_change_artifact_manifest_required": true,
+    "rollback_must_be_recorded_in_root_receipt": true,
+    "rollback_must_use_pre_change_artifact_manifest": true,
+    "rollback_scope": "guarded_plumbing_only"
+  },
+  "post_recovery_qualification": {
+    "certificate_schema": "ea.vexp_qualification_certificate.v2",
+    "certification_blockers": [],
+    "certification_deferments": [],
+    "current_resources_healthy": true,
+    "independent_root_finalizer_required": true,
+    "minimum_monotonic_duration_ms": 604800000,
+    "minimum_wall_duration_ms": 604800000,
+    "permit_contract_version": 2,
+    "permit_may_be_issued_only_after_certificate_validation": true,
+    "separate_root_permit_manager_required": true,
+    "state_version": 6,
+    "strictly_newer_epoch_required": true
+  },
+  "pre_change_epoch_void": {
+    "active_epoch_and_derived_authority_irrevocably_void": true,
+    "actual_state_owner_must_match_trusted_sentinel_owner": true,
+    "atomic_root_actor_pre_change_state_capture_required": true,
+    "durable_root_owned_receipt_required": true,
+    "hand_edits_forbidden": true,
+    "must_bind_atomic_pre_change_state_sha256": true,
+    "must_match_operator_snapshot_epoch_identity_sha256": true,
+    "must_precede_first_guarded_change": true,
+    "receipt_contract_name": "fleet.vexp_qualification_epoch_void_receipt.v1",
+    "receipt_must_be_signed": true,
+    "stable_no_follow_actual_state_read_required": true
+  },
+  "prohibited_effects": [
+    "authority_restoring_rollback",
+    "candidate_creation",
+    "certificate_issuance",
+    "docker_or_compose_mutation",
+    "live_ea_mutation",
+    "merge",
+    "permit_issuance",
+    "promotion"
+  ],
+  "reviewed_blob_paths": [
+    ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
+    "AGENTS.md",
+    "config/vexp_root_maintenance_recovery_request.v1.json",
+    "docs/MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md",
+    "docs/MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md",
+    "scripts/deploy_ea_memorial.py",
+    "scripts/manage_manfred_vexp_mutation_permit.py",
+    "scripts/manfred_candidate_vexp_authority.py",
+    "scripts/materialize_vexp_root_maintenance_recovery_request.py",
+    "scripts/materialize_vexp_sentinel_v6_floor_fix.py",
+    "scripts/run_manfred_memorial_candidate.py",
+    "scripts/verify_vexp_root_maintenance_recovery_request.py",
+    "scripts/vexp_root_maintenance_recovery_request.py"
+  ],
+  "scope": "source_only_external_root_handoff",
+  "version": 1
+}

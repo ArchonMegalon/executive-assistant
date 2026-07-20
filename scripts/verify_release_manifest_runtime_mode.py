@@ -85,7 +85,7 @@ def validate_release_contract(
     manfred_composite_candidate = (
         manfred_composite_candidate_observed is True
         and requested == "MEMORIAL"
-        and enabled_set == {"MEMORIAL", "PROPERTY"}
+        and enabled_set == {"MEMORIAL"}
         and manifest_compose_files == {MANFRED_COMPOSITE_CANDIDATE_COMPOSE}
         and not manifest_compose_overrides
         and not override_basenames

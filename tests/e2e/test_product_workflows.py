@@ -1062,9 +1062,71 @@ def test_commitment_candidate_can_be_edited_before_accept_in_real_browser(page: 
 
 
 @pytest.fixture()
-def operator_browser_server() -> Iterator[dict[str, object]]:
+def operator_browser_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[dict[str, object]]:
     os.environ.pop("EA_ALLOW_LOOPBACK_NO_AUTH", None)
+    from app.product.service import ProductService
     from tests.product_test_helpers import seed_executive_operator_fixture
+
+    def _frozen_product_control_projection(
+        _service: ProductService,
+    ) -> dict[str, object]:
+        return {
+            "available": True,
+            "state": "ready",
+            "summary": "Next 12 Biggest Wins is materially closed as the latest recommended closeout wave; journey proof is ready; flagship replacement readiness is still open; overall progress is 100% in 'Public-fit polish'; the longest pole rem...",
+            "projection_note": "Mirrors weekly pulse, published journey gates, support fallout, and public-guide freshness; it does not replace design, Fleet, or Hub ownership.",
+            "active_wave": "Next 12 Biggest Wins",
+            "active_wave_status": "complete",
+            "next_checkpoint_question": "What is the smallest cross-repo slice that makes the campaign OS indispensable and turns trust, adoption, and publication depth into a real launch advantage?",
+            "launch_readiness": "Hold launch expansion until published flagship readiness proof returns to ready posture.",
+            "provider_route_stewardship": {
+                "default_status": "Pilot defaults are governed",
+                "canary_status": "Canary green on all active lanes",
+                "review_due": "2026-07-25",
+                "next_decision": "Promote once canaries stay green and support fallout remains clear through the next route review.",
+            },
+            "governor_decision": {
+                "decision_id": "2026-07-13-focus-next-12-biggest-wins",
+                "action": "focus_shift",
+                "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 43 snapshots, and the pacing risk remains concentrated in Core Engine while trust/public...",
+            },
+            "journey_gate_health": {
+                "state": "ready",
+                "reason": "Journey proof is steady on current published evidence.",
+                "ready_count": 0,
+                "warning_count": 0,
+                "blocked_count": 0,
+                "recommended_action": "Journey proof is steady on current published evidence.",
+            },
+            "journey_gate_freshness": {
+                "state": "missing",
+                "detail": "Published journey gates are not available on this host.",
+                "generated_at": "",
+            },
+            "public_guide_freshness": {
+                "origin": "design_mirror_fallback",
+                "state": "watch",
+                "detail": "Downstream public guide manifest is not available on this host; using mirrored design export sources. 13/24 mapped public-guide sources are mirrored. Export manifest updated at 2026-07-14T03:44:35.914615+00:00. Missin...",
+                "generated_at": "2026-07-14T03:44:35.914615+00:00",
+                "path": ".codex-design/product/PUBLIC_GUIDE_EXPORT_MANIFEST.yaml",
+                "status": "fallback",
+            },
+            "pulse_freshness": {
+                "state": "fresh",
+                "generated_at": "2026-07-13T04:39:23Z",
+                "age_seconds": 0,
+            },
+            "journey_highlights": [],
+            "sources": {},
+        }
+
+    monkeypatch.setattr(
+        ProductService,
+        "_product_control_projection",
+        _frozen_product_control_projection,
+    )
 
     principal_id = "fixture-operator-browser"
     client, seeded = seed_executive_operator_fixture(principal_id=principal_id)

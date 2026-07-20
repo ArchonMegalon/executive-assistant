@@ -290,6 +290,21 @@ def _setup_memorial(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
     slug = "manfred"
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
     monkeypatch.setenv("UNMIXR_API_KEY", "unit-test-unmixr-key")
+    oauth_root = tmp_path / "gemini-oauth"
+    oauth_root.mkdir(mode=0o700)
+    oauth_root.chmod(0o700)
+    monkeypatch.setenv(
+        "EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH",
+        str(oauth_root / "oauth_creds.json"),
+    )
+    for name in tuple(os.environ):
+        if name in {
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "EA_GEMINI_API_KEY",
+            "EA_GOOGLE_API_KEY",
+        } or re.fullmatch(r"GOOGLE_API_KEY_FALLBACK_\d+", name):
+            monkeypatch.delenv(name, raising=False)
     from app.api.routes import public_memorials
 
     monkeypatch.setattr(
@@ -4306,14 +4321,25 @@ def test_blocked_voice_release_renders_polished_text_only_memorial_guide(
         pwa_short_name="Manfred",
         clickrank_html="",
         story_html="<section>Erinnerungen</section>",
+        conversation_only=True,
     )
 
+    assert 'data-public-memorial-surface="conversation-only"' in page
     assert 'data-voice-release="blocked"' in page
-    assert "Schriftliche Frage stellen" in page
-    assert "Zum quellengebundenen Gedenkbegleiter" in page
+    assert "Frage schreiben" in page
+    assert "Zum Gespräch" in page
+    assert "Sprechen ist derzeit nicht verfügbar; du kannst deine Frage schreiben." in page
     assert "ist nicht Manfred und spricht nicht für ihn" in page
+    assert 'id="memorial-conversation"' in page
+    assert 'aria-disabled="true" disabled' in page
+    assert '[data-voice-release="blocked"] .hero-actions' in page
+    assert "<section>Erinnerungen</section>" not in page
     assert "Was möchtest du Manfred fragen?" not in page
     assert "KI-gestützten, synthetischen Manfred-Stimme" not in page
+    assert "Gemini Live verbunden" not in page
+    assert "Direkte Kontaktantwort aus der Phrase-Bank" not in page
+    assert 'statusBits.push("Pfad:' not in page
+    assert 'statusBits.push("Policy:' not in page
     assert "const memorialVoiceReleaseAllowed = false;" in page
     assert "const memorialPagePrewarmEnabled = false;" in page
     assert 'if (!memorialVoiceReleaseAllowed) return null;' in page
@@ -5584,8 +5610,15 @@ def test_memorial_warmup_status_route_reports_snapshot_state(
         "readiness_ttl_remaining_seconds": 600.0,
         "readiness_ttl_state": "fresh",
         "readiness_refresh_recommended": False,
-        "degraded_reasons": ["realtime_backend_unavailable"],
-        "next_actions": ["check_memorial_realtime_backend", "continue_with_spoken_turn_fallback"],
+        "degraded_reasons": [
+            "realtime_backend_unavailable",
+            "gemini_oauth_credentials_unavailable",
+        ],
+        "next_actions": [
+            "check_memorial_realtime_backend",
+            "provision_memorial_gemini_oauth_credentials",
+            "continue_with_spoken_turn_fallback",
+        ],
         "operator_attention_recommended": True,
         "operator_action_required": False,
         "operator_action_state": "attention",
@@ -6355,9 +6388,9 @@ def test_memorial_landing_does_not_enable_conversation_on_warmup_timeout() -> No
     assert 'let contactAcknowledgementReady = false;' in source
     assert 'contactAcknowledgementReady = true;' in source
     assert "if (completedConversationTurns === 0 && contactAcknowledgementReady)" in source
-    assert "Die kurze Begrüßung ist nicht vorgeladen; das Gespräch bleibt verfügbar." in source
+    assert 'setMemorialLandingReady(true, "Das Gespräch ist bereit.")' in source
     assert 'retryButton.dataset.action = "voice-readiness";' in source
-    assert 'retryButton.textContent = "Stimme erneut prüfen";' in source
+    assert 'retryButton.textContent = "Sprachfunktion erneut versuchen";' in source
     assert "memorialWarmupPollDelayMs" in source
     assert "memorialLastWarmupStatus" in source
     assert "memorialLastWarmupStatus = payload;" in source
@@ -6681,7 +6714,7 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "playFastContactAcknowledgement" in source
     assert "if (completedConversationTurns === 0 && contactAcknowledgementReady)" in source
     assert "await playFastContactAcknowledgement(generation);" in source
-    assert 'const contactAcknowledgementText = "Worum geht es?";' in source
+    assert 'const contactAcknowledgementText = "Worüber möchtest du sprechen?";' in source
     assert 'id="memorial-read-answer"' in source
     assert 'id="memorial-replay-answer"' in source
     assert 'id="memorial-toggle-status"' in source
@@ -6695,7 +6728,8 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "activeRealtimeAudioTurn.sendBlob(event.data)" not in source
     assert "blob.arrayBuffer().then" in source
     assert "pcmChunksToWavBlob" in source
-    assert "Ich sichere die Antwort lokal." in source
+    assert 'setSpeechStatus("Antwort wird vorbereitet …", "working", "")' in source
+    assert "Ich sichere die Antwort lokal." not in source
     assert "await finishConversationTurn(fallbackBlob, generation, null);" in source
     assert "const maxActiveSpeechMs = 3400;" in source
     assert "if (liveAnswerEventAt > 0) return;" in source
@@ -6704,11 +6738,11 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert 'if (type === "answer")' in source
     assert 'if (type === "audio_complete")' in source
     assert 'message.effective_text || payload.transcript_text || ""' in source
-    assert 'Verstanden als: ' in source
+    assert 'So habe ich dich verstanden: ' in source
     assert "showAnswerText(liveAnswerTranscript);" in source
     assert "turn_complete" in source
     assert "activeRecordingHadSpeech" in source
-    assert "Ich habe kaum Stimme gehört" in source
+    assert "Ich konnte dich nicht hören." in source
     assert "now - lastVoiceAt > 920" in source
     assert 'ensureMemorialReady("page_load")' in source
     assert 'requestMemorialWarmup("conversation_start")' not in source
@@ -6717,7 +6751,7 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "finishConversationTurn" in source
     assert "window.__memorialMinimalBooted" in source
     assert "startConversation();" not in source
-    assert "Gespräch stoppen" in source
+    assert "Gespräch beenden" in source
     assert "captureTurnAudio" not in source
     assert "ontouchstart=" not in source
     assert 'if (window.speechSynthesis) window.speechSynthesis.cancel();' in source
@@ -7507,6 +7541,36 @@ def test_memorial_gemini_live_accepts_quiet_speech_mixed_with_room_noise(
     assert not any(message.get("type") == "error" and message.get("message") == "speech_not_detected" for message in messages)
 
 
+def _write_private_gemini_oauth_credentials(
+    target: Path,
+    payload: dict[str, object],
+) -> None:
+    target.parent.chmod(0o700)
+    target.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    target.chmod(0o600)
+
+
+def _reset_gemini_oauth_process_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+    public_memorials: object,
+) -> None:
+    monkeypatch.setattr(
+        public_memorials,
+        "_MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_UNTIL",
+        0.0,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_IDENTITY",
+        None,
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_REASON",
+        "",
+    )
+
+
 def test_memorial_gemini_live_reports_oauth_scope_errors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -7520,19 +7584,18 @@ def test_memorial_gemini_live_reports_oauth_scope_errors(
     for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     creds_path = tmp_path / "oauth_creds.json"
-    creds_path.write_text(
-        json.dumps(
-            {
-                "access_token": "oauth-access-token",
-                "refresh_token": "oauth-refresh-token",
-                "scope": "https://www.googleapis.com/auth/cloud-platform",
-                "token_type": "Bearer",
-                "expiry_date": int((time.time() + 3600) * 1000),
-                "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
-            }
-        ),
-        encoding="utf-8",
+    _write_private_gemini_oauth_credentials(
+        creds_path,
+        {
+            "access_token": "oauth-access-token",
+            "refresh_token": "oauth-refresh-token",
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "token_type": "Bearer",
+            "expiry_date": int((time.time() + 3600) * 1000),
+            "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
+        },
     )
+    _reset_gemini_oauth_process_cooldown(monkeypatch, public_memorials)
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
 
@@ -7572,19 +7635,18 @@ def test_memorial_gemini_live_fails_soft_to_audio_buffer_after_oauth_scope_error
     for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     creds_path = tmp_path / "oauth_creds.json"
-    creds_path.write_text(
-        json.dumps(
-            {
-                "access_token": "oauth-access-token",
-                "refresh_token": "oauth-refresh-token",
-                "scope": "https://www.googleapis.com/auth/cloud-platform",
-                "token_type": "Bearer",
-                "expiry_date": int((time.time() + 3600) * 1000),
-                "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
-            }
-        ),
-        encoding="utf-8",
+    _write_private_gemini_oauth_credentials(
+        creds_path,
+        {
+            "access_token": "oauth-access-token",
+            "refresh_token": "oauth-refresh-token",
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "token_type": "Bearer",
+            "expiry_date": int((time.time() + 3600) * 1000),
+            "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
+        },
     )
+    _reset_gemini_oauth_process_cooldown(monkeypatch, public_memorials)
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
 
@@ -7643,19 +7705,18 @@ def test_memorial_gemini_live_uses_mounted_oauth_credentials(
     for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     creds_path = tmp_path / "oauth_creds.json"
-    creds_path.write_text(
-        json.dumps(
-            {
-                "access_token": "oauth-access-token",
-                "refresh_token": "oauth-refresh-token",
-                "scope": "https://www.googleapis.com/auth/cloud-platform",
-                "token_type": "Bearer",
-                "expiry_date": int((time.time() + 3600) * 1000),
-                "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
-            }
-        ),
-        encoding="utf-8",
+    _write_private_gemini_oauth_credentials(
+        creds_path,
+        {
+            "access_token": "oauth-access-token",
+            "refresh_token": "oauth-refresh-token",
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "token_type": "Bearer",
+            "expiry_date": int((time.time() + 3600) * 1000),
+            "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
+        },
     )
+    _reset_gemini_oauth_process_cooldown(monkeypatch, public_memorials)
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
 
@@ -7679,19 +7740,18 @@ def test_memorial_gemini_live_prefers_vertex_oauth_when_project_configured(
     for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     creds_path = tmp_path / "oauth_creds.json"
-    creds_path.write_text(
-        json.dumps(
-            {
-                "access_token": "oauth-access-token",
-                "refresh_token": "oauth-refresh-token",
-                "scope": "https://www.googleapis.com/auth/cloud-platform",
-                "token_type": "Bearer",
-                "expiry_date": int((time.time() + 3600) * 1000),
-                "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
-            }
-        ),
-        encoding="utf-8",
+    _write_private_gemini_oauth_credentials(
+        creds_path,
+        {
+            "access_token": "oauth-access-token",
+            "refresh_token": "oauth-refresh-token",
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "token_type": "Bearer",
+            "expiry_date": int((time.time() + 3600) * 1000),
+            "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
+        },
     )
+    _reset_gemini_oauth_process_cooldown(monkeypatch, public_memorials)
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
     monkeypatch.setenv("EA_GEMINI_LIVE_VERTEX_PROJECT", "openclaw-concierge")
@@ -7728,19 +7788,18 @@ def test_memorial_gemini_live_websocket_streams_vertex_pcm_schema(
     for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     creds_path = tmp_path / "oauth_creds.json"
-    creds_path.write_text(
-        json.dumps(
-            {
-                "access_token": "oauth-access-token",
-                "refresh_token": "oauth-refresh-token",
-                "scope": "https://www.googleapis.com/auth/cloud-platform",
-                "token_type": "Bearer",
-                "expiry_date": int((time.time() + 3600) * 1000),
-                "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
-            }
-        ),
-        encoding="utf-8",
+    _write_private_gemini_oauth_credentials(
+        creds_path,
+        {
+            "access_token": "oauth-access-token",
+            "refresh_token": "oauth-refresh-token",
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "token_type": "Bearer",
+            "expiry_date": int((time.time() + 3600) * 1000),
+            "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
+        },
     )
+    _reset_gemini_oauth_process_cooldown(monkeypatch, public_memorials)
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
     monkeypatch.setenv("EA_GEMINI_LIVE_VERTEX_PROJECT", "openclaw-concierge")
@@ -7848,18 +7907,17 @@ def test_memorial_gemini_live_refreshes_expired_oauth_credentials(
     for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     creds_path = tmp_path / "oauth_creds.json"
-    creds_path.write_text(
-        json.dumps(
-            {
-                "access_token": "expired-access-token",
-                "refresh_token": "oauth-refresh-token",
-                "scope": "https://www.googleapis.com/auth/cloud-platform",
-                "token_type": "Bearer",
-                "expiry_date": int((time.time() - 60) * 1000),
-            }
-        ),
-        encoding="utf-8",
+    _write_private_gemini_oauth_credentials(
+        creds_path,
+        {
+            "access_token": "expired-access-token",
+            "refresh_token": "oauth-refresh-token",
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "token_type": "Bearer",
+            "expiry_date": int((time.time() - 60) * 1000),
+        },
     )
+    _reset_gemini_oauth_process_cooldown(monkeypatch, public_memorials)
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CLIENT_ID", "test-oauth-client-id")
@@ -7917,18 +7975,17 @@ def test_memorial_gemini_live_reuses_existing_google_oauth_client_for_first_refr
     ):
         monkeypatch.delenv(name, raising=False)
     creds_path = tmp_path / "oauth_creds.json"
-    creds_path.write_text(
-        json.dumps(
-            {
-                "access_token": "stale-but-future-access-token",
-                "refresh_token": "oauth-refresh-token",
-                "scope": "https://www.googleapis.com/auth/cloud-platform",
-                "token_type": "Bearer",
-                "expiry_date": int((time.time() + 3600) * 1000),
-            }
-        ),
-        encoding="utf-8",
+    _write_private_gemini_oauth_credentials(
+        creds_path,
+        {
+            "access_token": "stale-but-future-access-token",
+            "refresh_token": "oauth-refresh-token",
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "token_type": "Bearer",
+            "expiry_date": int((time.time() + 3600) * 1000),
+        },
     )
+    _reset_gemini_oauth_process_cooldown(monkeypatch, public_memorials)
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "existing-google-client")
@@ -7971,18 +8028,17 @@ def test_memorial_gemini_live_rejects_stale_oauth_when_required_refresh_fails(
     for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     creds_path = tmp_path / "oauth_creds.json"
-    creds_path.write_text(
-        json.dumps(
-            {
-                "access_token": "stale-token",
-                "refresh_token": "oauth-refresh-token",
-                "scope": "https://www.googleapis.com/auth/cloud-platform",
-                "token_type": "Bearer",
-                "expiry_date": int((time.time() + 3600) * 1000),
-            }
-        ),
-        encoding="utf-8",
+    _write_private_gemini_oauth_credentials(
+        creds_path,
+        {
+            "access_token": "stale-token",
+            "refresh_token": "oauth-refresh-token",
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "token_type": "Bearer",
+            "expiry_date": int((time.time() + 3600) * 1000),
+        },
     )
+    _reset_gemini_oauth_process_cooldown(monkeypatch, public_memorials)
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "existing-google-client")
@@ -8019,20 +8075,19 @@ def test_memorial_gemini_live_oauth_refresh_failure_cooldown_skips_repeated_http
     for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     creds_path = tmp_path / "oauth_creds.json"
-    creds_path.write_text(
-        json.dumps(
-            {
-                "access_token": "stale-token",
-                "refresh_token": "oauth-refresh-token",
-                "scope": "https://www.googleapis.com/auth/cloud-platform",
-                "token_type": "Bearer",
-                "expiry_date": int((time.time() + 3600) * 1000),
-                "ea_memorial_live_refresh_failed_at": time.time(),
-                "ea_memorial_live_refresh_failed_reason": "http_401",
-            }
-        ),
-        encoding="utf-8",
+    _write_private_gemini_oauth_credentials(
+        creds_path,
+        {
+            "access_token": "stale-token",
+            "refresh_token": "oauth-refresh-token",
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "token_type": "Bearer",
+            "expiry_date": int((time.time() + 3600) * 1000),
+            "ea_memorial_live_refresh_failed_at": time.time(),
+            "ea_memorial_live_refresh_failed_reason": "http_401",
+        },
     )
+    _reset_gemini_oauth_process_cooldown(monkeypatch, public_memorials)
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
     monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "existing-google-client")
