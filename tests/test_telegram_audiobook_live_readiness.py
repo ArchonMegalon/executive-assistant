@@ -34,6 +34,33 @@ def _item_by_key(section: dict[str, object], key: str) -> dict[str, object]:
     raise AssertionError(f"missing readiness item {key}")
 
 
+def test_telegram_audiobook_live_readiness_next_action_names_exact_storage_blockers() -> None:
+    materializer = _load_script("materialize_telegram_audiobook_live_readiness")
+
+    assert materializer._next_action(
+        ["jobs_root_durable", "jobs_root_writable"],
+        [
+            "audiobookshelf_import_root_durable",
+            "audiobookshelf_import_root_writable",
+        ],
+    ) == (
+        "Configure durable, writable audiobook job and Audiobookshelf import "
+        "storage, then rerun readiness."
+    )
+    assert materializer._next_action(
+        ["jobs_root_writable"],
+        [],
+    ) == "Configure durable, writable audiobook job storage and rerun readiness."
+    assert materializer._next_action(
+        [],
+        ["audiobookshelf_import_root_writable"],
+    ) == "Configure durable, writable Audiobookshelf import storage and rerun readiness."
+    assert materializer._next_action(
+        [],
+        ["player_access_signing_secret_present"],
+    ) == "Configure player-scoped audiobook link prerequisites and rerun readiness."
+
+
 def test_telegram_audiobook_live_readiness_blocks_missing_live_sample_prereqs(
     monkeypatch,
     tmp_path: Path,
