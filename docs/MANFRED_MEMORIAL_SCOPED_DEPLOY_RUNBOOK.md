@@ -26,6 +26,12 @@ mode-`0640` pair at
 Source-only preparation may continue, but none of the candidate or deployment
 commands later in this runbook are authorized.
 
+Missing or incompatible root authority plumbing is repaired only through the
+separate epoch-voiding recovery exception in `AGENTS.md`. That recovery is not
+part of this release lane, cannot create candidate or promotion authority, and
+requires a strictly newer schema-v6 epoch plus a new full seven-day soak before
+this runbook may continue.
+
 The only governed order is:
 
 1. finish source-only memorial and PropertyQuarry-owned 3D inputs;
@@ -390,7 +396,10 @@ epoch. `enforced_soak` is an unconditional deny. Missing state, lock, or permit
 files; stale or malformed JSON; wrong ownership/mode; symlinks/hardlinks; an
 unhealthy current resource set; or any certification blocker also deny. Do not
 repair those conditions by editing sentinel state, hand-authoring permit JSON,
-or invoking Docker directly.
+or invoking Docker directly. An explicitly authorized root-plumbing recovery
+must follow the commit-and-SHA-256-bound, epoch-voiding exception in
+`AGENTS.md`; its receipt never substitutes for terminal qualification,
+certificate, permit, or lock evidence.
 
 The permit manager uses the fixed files
 `/run/ea/memorial-vexp-mutation-permit.json` and
@@ -524,5 +533,7 @@ is wedged, never delete or replace the stable lock. Use root process tooling to
 identify the exact holder, capture its receipt and current container state, and
 terminate only the governed deploy process tree under the incident procedure.
 Verify API and rollback truth before retrying revoke. Do not stop, restart,
-replace, or otherwise mutate sentinel or qualification units. A failed or
-expired permit is a deny, not an invitation to bypass the lane.
+replace, or otherwise mutate sentinel or qualification units from this release
+or incident lane. Separate root-plumbing recovery is governed only by the
+epoch-voiding exception in `AGENTS.md` and cannot continue this deploy. A failed
+or expired permit is a deny, not an invitation to bypass the lane.

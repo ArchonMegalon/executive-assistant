@@ -10,7 +10,10 @@ pair is absent or untrusted. The v2 permit must bind the certificate's exact raw
 SHA-256, canonical identity, schema, and qualification event hash. Never
 manufacture the permit, relabel the API-only contract, invoke raw Compose, or
 change sentinel, qualification, AppArmor, certificate, event-guard, or
-mutation-gate state.
+mutation-gate state from this release lane. Missing or incompatible authority
+plumbing is handled only by the separate commit-and-SHA-256-bound,
+epoch-voiding recovery exception in `AGENTS.md`; that recovery cannot create or
+resume joint promotion authority.
 
 The joint receipt has contract
 `ea.memorial_joint_api_ingress_deploy.v1`. Its permit has contract
