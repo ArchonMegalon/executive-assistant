@@ -275,6 +275,10 @@ def test_only_guarded_components_and_actions_are_requestable(
         for row in payload["guarded_plumbing"]
     }
     assert guarded == recovery.ALLOWED_COMPONENT_ACTIONS
+    assert {
+        "current_predicate_attestor",
+        "candidate_boundary_attestor",
+    }.issubset(guarded)
     assert all(
         "restore_manifest_bound_pre_change_artifact_after_failure" in actions
         for actions in guarded.values()
@@ -290,6 +294,14 @@ def test_only_guarded_components_and_actions_are_requestable(
     assert failure_policy["epoch_void_remains_permanent"] is True
     assert failure_policy["authority_restoration_forbidden"] is True
     assert failure_policy["rollback_scope"] == "guarded_plumbing_only"
+
+
+def test_memorial_source_gate_includes_root_recovery_contract() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    target = makefile.split("verify-manfred-memorial-source-gate:", 1)[1].split(
+        "\ntest-all:", 1
+    )[0]
+    assert "tests/test_vexp_root_maintenance_recovery_request.py" in target
 
 
 @pytest.mark.parametrize(

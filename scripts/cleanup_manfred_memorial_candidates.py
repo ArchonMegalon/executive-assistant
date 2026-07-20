@@ -2,7 +2,7 @@
 """Fail-closed retention audit for Manfred Memorial candidate runtimes.
 
 This bounded controller deliberately has no Docker mutation primitive.  It proves
-which registered v4 candidate is currently identity-stable and quarantines every
+which registered v5 candidate is currently identity-stable and quarantines every
 other posture.  A later destructive controller can consume the same evidence only
 after adding persistent, long-running keeper qualification and exact resource
 revalidation.
@@ -36,6 +36,8 @@ from scripts.manfred_candidate_fleet_lock import (  # noqa: E402
 from scripts.manfred_candidate_registry import (  # noqa: E402
     RUNTIME_SCHEMA_V3,
     RUNTIME_SCHEMA_V4,
+    RUNTIME_SCHEMA_V5,
+    _runtime_identity,
     _validated_compose_attestation,
     _validated_execution_inputs,
     _validated_runtime_posture,
@@ -258,9 +260,9 @@ def _validated_timestamp(value: object) -> str:
     return text
 
 
-def _parse_v4_proof(posture: dict[str, object]) -> RuntimeProof:
+def _parse_v5_proof(posture: dict[str, object]) -> RuntimeProof:
     if (
-        posture.get("runtime_schema") != RUNTIME_SCHEMA_V4
+        posture.get("runtime_schema") != RUNTIME_SCHEMA_V5
         or posture.get("legacy") is not False
         or posture.get("retention_eligible") is not True
         or posture.get("quarantined") is not False
@@ -280,6 +282,10 @@ def _parse_v4_proof(posture: dict[str, object]) -> RuntimeProof:
     payload, digest = _read_private_receipt(receipt_path)
     if digest != expected_digest:
         raise RuntimeError("manfred_candidate_retention_receipt_changed")
+    try:
+        registry_identity = _runtime_identity(payload)
+    except RuntimeError as exc:
+        raise RuntimeError("manfred_candidate_retention_receipt_invalid") from exc
 
     revision = str(payload.get("image_source_revision") or "")
     image = str(payload.get("image") or "")
@@ -307,9 +313,14 @@ def _parse_v4_proof(posture: dict[str, object]) -> RuntimeProof:
     except RuntimeError as exc:
         raise RuntimeError("manfred_candidate_retention_receipt_invalid") from exc
     if (
-        payload.get("schema") != RUNTIME_SCHEMA_V4
+        payload.get("schema") != RUNTIME_SCHEMA_V5
         or payload.get("status") != "pass"
         or payload_project != project
+        or registry_identity.get("schema") != RUNTIME_SCHEMA_V5
+        or registry_identity.get("project") != project
+        or registry_identity.get("image_id") != image_id
+        or registry_identity.get("revision") != revision
+        or registry_identity.get("port") != port
         or str(posture.get("observed_at") or "") != observed_at
         or HEX_40.fullmatch(revision) is None
         or IMAGE_ID.fullmatch(image_id) is None
@@ -702,14 +713,16 @@ def _evaluate_locked(
                 reason="live_project_reserved",
             )
             continue
-        if schema == RUNTIME_SCHEMA_V3 or posture.get("legacy") is True:
+        if schema in {RUNTIME_SCHEMA_V3, RUNTIME_SCHEMA_V4} or posture.get(
+            "legacy"
+        ) is True:
             candidates[project] = _quarantine_row(
                 project,
-                runtime_schema=RUNTIME_SCHEMA_V3,
-                reason="legacy_runtime_receipt_v3",
+                runtime_schema=schema,
+                reason=f"legacy_runtime_receipt_{schema.rsplit('.', 1)[-1]}",
             )
             continue
-        if schema != RUNTIME_SCHEMA_V4:
+        if schema != RUNTIME_SCHEMA_V5:
             candidates[project] = _quarantine_row(
                 project,
                 runtime_schema=schema or "unknown",
@@ -717,12 +730,12 @@ def _evaluate_locked(
             )
             continue
         try:
-            proofs[project] = _parse_v4_proof(posture)
+            proofs[project] = _parse_v5_proof(posture)
         except RuntimeError as exc:
             candidates[project] = _quarantine_row(
                 project,
-                runtime_schema=RUNTIME_SCHEMA_V4,
-                reason="registered_v4_receipt_invalid",
+                runtime_schema=RUNTIME_SCHEMA_V5,
+                reason="registered_v5_receipt_invalid",
                 error=_safe_error(exc),
             )
 
@@ -739,7 +752,7 @@ def _evaluate_locked(
         except RuntimeError as exc:
             candidates[project] = _quarantine_row(
                 project,
-                runtime_schema=RUNTIME_SCHEMA_V4,
+                runtime_schema=RUNTIME_SCHEMA_V5,
                 reason="runtime_identity_not_qualified",
                 error=_safe_error(exc),
             )
@@ -760,7 +773,7 @@ def _evaluate_locked(
         except RuntimeError as exc:
             candidates[project] = _quarantine_row(
                 project,
-                runtime_schema=RUNTIME_SCHEMA_V4,
+                runtime_schema=RUNTIME_SCHEMA_V5,
                 reason="runtime_identity_stability_revoked",
                 error=_safe_error(exc),
             )
@@ -768,7 +781,7 @@ def _evaluate_locked(
         stable_projects.append(project)
         candidates[project] = {
             "project": project,
-            "runtime_schema": RUNTIME_SCHEMA_V4,
+            "runtime_schema": RUNTIME_SCHEMA_V5,
             "qualification": "observed_identity_stable",
             "quarantined": False,
             "four_way_runtime_identity_verified": True,
@@ -800,7 +813,7 @@ def _evaluate_locked(
         keeper = proofs[keeper_project]
         observed_keeper = {
             "project": keeper.project,
-            "runtime_schema": RUNTIME_SCHEMA_V4,
+            "runtime_schema": RUNTIME_SCHEMA_V5,
             "receipt_sha256": keeper.receipt_sha256,
             "revision": keeper.revision,
             "image_id": keeper.image_id,

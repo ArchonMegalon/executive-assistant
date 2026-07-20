@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib
 import json
 import subprocess
@@ -156,12 +157,87 @@ def test_manfred_image_build_passes_and_records_exact_source_revision(
 ) -> None:
     import scripts.build_manfred_memorial_image as builder
 
+    class Lease:
+        def __init__(self, boundary: str) -> None:
+            self.authority_evidence = authority_evidence(
+                phase="pre_mutation",
+                boundary=boundary,
+            )
+
+        def command_timeout(self, requested_seconds: float) -> float:
+            return requested_seconds
+
+    def authority_evidence(*, phase: str, boundary: str) -> dict[str, object]:
+        return {
+            "status": "pass",
+            "phase": phase,
+            "boundary": boundary,
+            "contract_name": "ea.vexp_manfred_candidate_mutation_permit.v2",
+            "version": 2,
+            "epoch_started_ms": 1784519901061,
+            "qualified_at": "2026-07-27T03:58:21.061Z",
+            "terminal_identity_sha256": "1" * 64,
+            "qualification_certificate_schema": "ea.vexp_qualification_certificate.v2",
+            "qualification_certificate_sha256": "2" * 64,
+            "qualification_certificate_identity": f"sha256:{'3' * 64}",
+            "qualification_certificate_event_hash": "4" * 64,
+            "permit_sha256": "5" * 64,
+            "permit_commit": {
+                "contract_name": "ea.vexp_mutation_permit_commit.v1",
+                "version": 1,
+                "status": "committed",
+                "sha256": "6" * 64,
+            },
+            "epoch_void_ledger": {
+                "root": "/var/lib/vexp-qualification-epoch-voids",
+                "entry": "/var/lib/vexp-qualification-epoch-voids/1784519901061.json",
+                "entry_present": False,
+                "root_trusted": True,
+            },
+                "permit_issued_at": "2026-07-27T04:00:00Z",
+                "permit_expires_at": "2026-07-27T05:00:00Z",
+                "current_predicate": {
+                    "contract_name": "ea.vexp_current_predicate.v1",
+                    "version": 1,
+                    "status": "positive",
+                    "epoch_started_ms": 1784519901061,
+                    "generation": 1,
+                    "record_sha256": "7" * 64,
+                    "boot_id": "12345678-1234-4234-9234-123456789abc",
+                    "monotonic_ns": 604_861_000_000_000,
+                    "sentinel_producer_sha256": "8" * 64,
+                    "root_predicate_producer_sha256": "9" * 64,
+                },
+            }
+
+    class Authority:
+        def require_current(self) -> dict[str, object]:
+            return authority_evidence(phase="entry", boundary="candidate_entry")
+
+        @contextlib.contextmanager
+        def mutation(self, boundary: str, *, minimum_validity_seconds: float):
+            assert minimum_validity_seconds > 0
+            yield Lease(boundary)
+
+        @contextlib.contextmanager
+        def finalization(self):
+            yield authority_evidence(
+                phase="finalization",
+                boundary="candidate_receipt_publication",
+            )
+
     source_root = tmp_path / "repo"
     (source_root / ".git").mkdir(parents=True)
     commit = "b" * 40
+    image_id = f"sha256:{'e' * 64}"
     commands: list[list[str]] = []
 
     monkeypatch.setattr(builder, "_commit_for_ref", lambda _root, _ref: commit)
+    monkeypatch.setattr(
+        builder,
+        "_root_free_bytes",
+        lambda: builder.MINIMUM_ROOT_FREE_BYTES + 1024,
+    )
 
     def materialize_context(*, source_root: Path, commit: str, destination: Path) -> None:
         del source_root, commit
@@ -181,25 +257,75 @@ def test_manfred_image_build_passes_and_records_exact_source_revision(
 
     monkeypatch.setattr(builder, "_materialize_tracked_context", materialize_context)
     monkeypatch.setattr(builder, "_run", record_run)
-    monkeypatch.setattr(builder, "_ensure_dedicated_builder", lambda: False)
-    monkeypatch.setattr(builder, "_prune_dedicated_builder_cache", lambda: None)
-    listed_image_ids = iter((None, "sha256:image", "sha256:image"))
+
+    def record_operation(
+        authority: object,
+        operations: list[dict[str, object]],
+        operation: str,
+    ) -> None:
+        with authority.mutation(  # type: ignore[attr-defined]
+            "before_candidate_image_build",
+            minimum_validity_seconds=120,
+        ) as lease:
+            record = builder._record_authorized_operation(
+                operations,
+                operation=operation,
+                argv=["fixture-runner", operation],
+                target=f"test-{operation}",
+                evidence=dict(lease.authority_evidence),
+            )
+            record["runner_acknowledged"] = True
+
+    monkeypatch.setattr(
+        builder,
+        "_ensure_dedicated_builder",
+        lambda _authority, _operations: False,
+    )
+    monkeypatch.setattr(
+        builder,
+        "_prune_dedicated_builder_cache",
+        lambda authority, operations: record_operation(
+            authority,
+            operations,
+            "builder_prune",
+        ),
+    )
+    listed_image_ids = iter((None, image_id, image_id))
     monkeypatch.setattr(builder, "_listed_image_id", lambda _tag: next(listed_image_ids))
     monkeypatch.setattr(
         builder,
         "_image_inspection",
         lambda _tag, *, expected_commit: (
-            "sha256:image",
+            image_id,
             {"RootFS": {"Layers": ["sha256:layer"]}},
         ),
     )
-    monkeypatch.setattr(builder, "_verify_image_filesystem", lambda _tag: None)
+    def verify_filesystem(
+        _image_id: str,
+        *,
+        authority: object,
+        operations: list[dict[str, object]],
+    ) -> str:
+        for operation in (
+            "verification_create",
+            "verification_probe",
+            "verification_cleanup",
+        ):
+            record_operation(authority, operations, operation)
+        return "test-verification-container"
+
+    monkeypatch.setattr(
+        builder,
+        "_verify_image_filesystem_authorized",
+        verify_filesystem,
+    )
 
     receipt = builder.build_image(
         source_root=source_root,
         ref="HEAD",
         tag=f"ea-runtime:manfred-{commit}",
         receipt_path=tmp_path / "receipt.json",
+        vexp_authority=Authority(),
     )
 
     build_command = next(
@@ -209,7 +335,7 @@ def test_manfred_image_build_passes_and_records_exact_source_revision(
     )
     build_arg_index = build_command.index("--build-arg")
     assert build_command[build_arg_index + 1] == f"EA_SOURCE_REVISION={commit}"
-    assert receipt["schema"] == "ea.manfred_memorial_image_build.v2"
+    assert receipt["schema"] == "ea.manfred_memorial_image_build.v3"
     assert receipt["runtime_source_revision"] == commit
 
 
@@ -341,4 +467,4 @@ def test_candidate_runtime_revision_probe_reads_image_bound_header(monkeypatch) 
         candidate._candidate_runtime_source_revision("http://127.0.0.1:18090")
         == revision
     )
-    assert candidate.RECEIPT_SCHEMA == "ea.manfred_memorial_candidate_runtime.v4"
+    assert candidate.RECEIPT_SCHEMA == "ea.manfred_memorial_candidate_runtime.v6"

@@ -495,7 +495,7 @@ def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int
         ({"width": 900, "height": 650}, "relative"),
     ],
 )
-def test_memorial_source_first_page_scrolls_without_conversation_dock_overlap(
+def test_memorial_conversation_only_page_has_one_main_without_ui_noise(
     browser: Browser,
     memorial_minimal_server: dict[str, object],
     viewport: dict[str, int],
@@ -505,14 +505,16 @@ def test_memorial_source_first_page_scrolls_without_conversation_dock_overlap(
     slug = str(memorial_minimal_server["slug"])
     context = browser.new_context(viewport=viewport)
     page: Page = context.new_page()
+    page_errors: list[str] = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.wait_for_function(
             """() => (
-              document.querySelectorAll("article.memory-card").length === 6 &&
-              document.querySelectorAll(".source-list a").length === 8 &&
-              document.querySelectorAll(".prompt-list li").length === 4
+              document.querySelectorAll("main#memorial-conversation-region").length === 1 &&
+              document.getElementById("memorial-text-turn-form") &&
+              !document.getElementById("memorial-text-turn-form").hidden
             )""",
             timeout=3000,
         )
@@ -520,53 +522,43 @@ def test_memorial_source_first_page_scrolls_without_conversation_dock_overlap(
             """async () => {
               window.scrollTo(0, document.documentElement.scrollHeight);
               await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-              const main = document.getElementById("memorial-story");
-              const dock = document.getElementById("memorial-conversation-region");
-              const dockRect = dock.getBoundingClientRect();
-              const mainRect = main.getBoundingClientRect();
+              const conversation = document.getElementById("memorial-conversation-region");
+              const header = document.querySelector("header");
+              const conversationRect = conversation.getBoundingClientRect();
+              const headerRect = header.getBoundingClientRect();
               return {
                 scrollHeight: document.documentElement.scrollHeight,
                 scrollWidth: document.documentElement.scrollWidth,
                 viewportHeight: window.innerHeight,
                 viewportWidth: window.innerWidth,
-                dockPosition: getComputedStyle(dock).position,
-                dockTop: dockRect.top,
-                dockBottom: dockRect.bottom,
-                dockHeight: dockRect.height,
-                mainBottom: mainRect.bottom,
+                dockPosition: getComputedStyle(conversation).position,
+                conversationTop: conversationRect.top,
+                headerBottom: headerRect.bottom,
                 bodyPaddingBottom: parseFloat(getComputedStyle(document.body).paddingBottom || "0"),
                 bodyOverflow: getComputedStyle(document.body).overflowY,
                 htmlOverflow: getComputedStyle(document.documentElement).overflowY,
+                mainCount: document.querySelectorAll("body > main").length,
+                storyCount: document.querySelectorAll("#memorial-story").length,
+                contributionCount: document.querySelectorAll("#memorial-contribution").length,
+                settingsCount: document.querySelectorAll("details.conversation-settings").length,
+                installCount: document.querySelectorAll("#memorial-install-hint").length,
+                memoryRoomLinks: document.querySelectorAll("a[href*='/memory-room']").length,
               };
             }"""
         )
-        assert int(metrics["scrollHeight"]) > int(metrics["viewportHeight"])
+        assert int(metrics["scrollHeight"]) >= int(metrics["viewportHeight"])
         assert int(metrics["scrollWidth"]) <= int(metrics["viewportWidth"]) + 1
         assert metrics["dockPosition"] == expected_dock_position
         assert metrics["bodyOverflow"] == "auto"
         assert metrics["htmlOverflow"] == "auto"
-        if expected_dock_position == "fixed":
-            assert float(metrics["dockBottom"]) <= float(metrics["viewportHeight"]) + 1
-            assert float(metrics["mainBottom"]) <= float(metrics["dockTop"]) + 1
-            assert float(metrics["bodyPaddingBottom"]) >= float(metrics["dockHeight"]) + 39
-            page.evaluate(
-                """() => {
-                  const answer = document.getElementById("memorial-chat-answer");
-                  answer.hidden = false;
-                  answer.textContent = "Eine längere sichtbare Antwort. ".repeat(28);
-                }"""
-            )
-            page.wait_for_function(
-                """() => {
-                  const dock = document.getElementById("memorial-conversation-region");
-                  return parseFloat(getComputedStyle(document.body).paddingBottom || "0") >=
-                    dock.getBoundingClientRect().height + 39;
-                }""",
-                timeout=3000,
-            )
-        else:
-            assert float(metrics["dockTop"]) >= float(metrics["mainBottom"]) - 1
-            assert float(metrics["bodyPaddingBottom"]) == 0
+        assert float(metrics["conversationTop"]) >= float(metrics["headerBottom"]) - 1
+        assert float(metrics["bodyPaddingBottom"]) == 0
+        assert metrics["mainCount"] == 1
+        assert metrics["storyCount"] == 0
+        assert metrics["contributionCount"] == 0
+        assert metrics["settingsCount"] == 0
+        assert metrics["installCount"] == 0
+        assert metrics["memoryRoomLinks"] == 0
 
         page_html = page.content()
         for sentinel in (
@@ -576,6 +568,8 @@ def test_memorial_source_first_page_scrolls_without_conversation_dock_overlap(
             PRIVATE_FAMILY_SENTINEL,
         ):
             assert sentinel not in page_html
+        page.wait_for_timeout(250)
+        assert page_errors == []
     finally:
         context.close()
 
@@ -592,13 +586,10 @@ def test_memorial_memory_room_mobile_keyboard_and_back_journey(
     page.on("request", lambda request: room_requests.append(request.url))
     try:
         response = page.goto(
-            f"{base_url}/memorials/{slug}",
+            f"{base_url}/memorials/{slug}/memory-room",
             wait_until="domcontentloaded",
         )
         assert response is not None and response.ok
-        room_requests.clear()
-        page.locator('a[href="/memorials/manfred/memory-room"]').first.click()
-        page.wait_for_url(f"{base_url}/memorials/{slug}/memory-room")
         page.wait_for_function(
             "() => document.querySelector('[data-room-status]')?.textContent?.startsWith('Bereit')",
             timeout=3000,
@@ -697,8 +688,8 @@ def test_memorial_memory_room_mobile_keyboard_and_back_journey(
         assert int(reduced_motion["activePanels"]) == 1
 
         page.locator("[data-room-back]").first.click()
-        page.wait_for_url(f"{base_url}/memorials/{slug}#memorial-story")
-        assert page.locator("#memorial-story").is_visible()
+        page.wait_for_url(f"{base_url}/memorials/{slug}#memorial-conversation-region")
+        assert page.locator("#memorial-conversation-region").is_visible()
     finally:
         context.close()
 

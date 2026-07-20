@@ -91,6 +91,28 @@
         "verify_identity"
       ],
       "component": "mutation_gate"
+    },
+    {
+      "allowed_actions": [
+        "install_exact_reviewed_artifact",
+        "replace_exact_reviewed_artifact",
+        "restore_manifest_bound_pre_change_artifact_after_failure",
+        "start_named_unit",
+        "restart_named_unit",
+        "verify_identity"
+      ],
+      "component": "current_predicate_attestor"
+    },
+    {
+      "allowed_actions": [
+        "install_exact_reviewed_artifact",
+        "replace_exact_reviewed_artifact",
+        "restore_manifest_bound_pre_change_artifact_after_failure",
+        "start_named_unit",
+        "restart_named_unit",
+        "verify_identity"
+      ],
+      "component": "candidate_boundary_attestor"
     }
   ],
   "guarded_plumbing_failure_policy": {
@@ -145,9 +167,12 @@
     "config/vexp_root_maintenance_recovery_request.v1.json",
     "docs/MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md",
     "docs/MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md",
+    "scripts/deploy_ea_memorial.py",
     "scripts/manage_manfred_vexp_mutation_permit.py",
+    "scripts/manfred_candidate_vexp_authority.py",
     "scripts/materialize_vexp_root_maintenance_recovery_request.py",
     "scripts/materialize_vexp_sentinel_v6_floor_fix.py",
+    "scripts/run_manfred_memorial_candidate.py",
     "scripts/verify_vexp_root_maintenance_recovery_request.py",
     "scripts/vexp_root_maintenance_recovery_request.py"
   ],

@@ -286,7 +286,7 @@ def test_public_surface_excludes_public_looking_private_overlay(
     assert "PRIVATE_PROJECTION_CANARY" not in public_json
     assert "PRIVATE_PROJECTION_CANARY" not in public_html
     assert "TRACKED_PUBLIC_CANARY" in public_json
-    assert "TRACKED_PUBLIC_CANARY" in public_html
+    assert "TRACKED_PUBLIC_CANARY" not in public_html
 
     bundle = tmp_path / "bundle"
     (bundle / "audio").mkdir(parents=True)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import errno
+import inspect
 import io
 import json
 import os
@@ -28,13 +29,49 @@ EXPECTED_OPENAPI_RETIREMENT_OPERATIONS = [
 ]
 
 
+class _FakeCandidateVexpLease:
+    def __init__(self, boundary: str) -> None:
+        self.authority_evidence = {
+            "status": "pass",
+            "phase": "pre_mutation",
+            "boundary": boundary,
+        }
+
+    def command_timeout(self, requested_seconds: float) -> float:
+        return requested_seconds
+
+
+class _FakeCandidateVexpAuthority:
+    def __init__(self) -> None:
+        self.mutation_boundaries: list[str] = []
+
+    def require_current(self) -> dict[str, object]:
+        return {
+            "status": "pass",
+            "phase": "entry",
+            "boundary": "candidate_entry",
+        }
+
+    @contextlib.contextmanager
+    def mutation(self, boundary: str, *, minimum_validity_seconds: float):
+        assert minimum_validity_seconds > 0
+        self.mutation_boundaries.append(boundary)
+        yield _FakeCandidateVexpLease(boundary)
+
+    @contextlib.contextmanager
+    def finalization(self):
+        yield {
+            "status": "pass",
+            "phase": "finalization",
+            "boundary": "candidate_receipt_publication",
+        }
+
+
 def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     env_file = (tmp_path / "candidate.env").resolve()
     release_root = (tmp_path / "releases" / "release-a").resolve()
     runtime_root = (tmp_path / "runtime").resolve()
     release_root.mkdir(parents=True)
-    spatial_root = release_root / "public_property_tours"
-    spatial_root.mkdir()
     authority_root = release_root / prepare.CANDIDATE_RELEASE_AUTHORITY_DIRNAME
     authority_root.mkdir()
     runtime_root.mkdir(parents=True)
@@ -47,10 +84,8 @@ def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         "EA_MANFRED_RELEASE_ROOT": str(release_root),
         "EA_MANFRED_RELEASE_AUTHORITY_ROOT": str(authority_root),
         "EA_MANFRED_RUNTIME_ROOT": str(runtime_root),
-        "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED": "0",
-        "EA_MANFRED_SPATIAL_RELEASE_ROOT": str(spatial_root),
-        "EA_MANFRED_SPATIAL_SHA256": prepare._sha256(b"[]"),
-        "EA_MANFRED_SPATIAL_SLUG": "",
+        "EA_MANFRED_MEMORIAL_SURFACE": prepare.MEMORIAL_SURFACE,
+        "EA_MANFRED_SPATIAL_SCOPE": prepare.SPATIAL_SCOPE,
         "EA_MANFRED_HOST_PORT": "18091",
         "EA_MANFRED_POSTGRES_PASSWORD": "p" * 64,
         "DATABASE_URL": "postgresql://ea:private@postgres:5432/ea",
@@ -102,12 +137,6 @@ def _compose_payloads(env_file: Path, env: dict[str, str]) -> tuple[dict, dict]:
             "type": "bind",
             "source": str(runtime_root / "state"),
             "target": "/data/memorial/state",
-        },
-        {
-            "type": "bind",
-            "source": env["EA_MANFRED_SPATIAL_RELEASE_ROOT"],
-            "target": "/data/public_property_tours",
-            "read_only": True,
         },
         {
             "type": "bind",
@@ -209,6 +238,11 @@ def _openapi_snapshot() -> tuple[dict[str, object], dict[str, object]]:
 def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> None:
     monkeypatch.setattr(
         runner,
+        "candidate_vexp_authority",
+        lambda **_kwargs: _FakeCandidateVexpAuthority(),
+    )
+    monkeypatch.setattr(
+        runner,
         "_assert_env_allowlist",
         lambda _path, *, environment_bytes=None: dict(env),
     )
@@ -255,6 +289,10 @@ def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> Non
             "prepared_image_locator": env["EA_MANFRED_IMAGE"],
             "prepared_image_id": IMAGE_ID,
             "projection_tree_revalidated": True,
+            "memorial_surface": prepare.MEMORIAL_SURFACE,
+            "spatial_scope": prepare.SPATIAL_SCOPE,
+            "public_property_tours_packaged": False,
+            "memorial_spatial_receipt_generated": False,
         },
     )
     monkeypatch.setattr(
@@ -269,9 +307,11 @@ def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> Non
                 "/data/memorial/public",
                 "/data/memorial/private",
                 "/data/memorial/archive",
-                "/data/public_property_tours",
                 "/data/release-authority",
             ],
+            "memorial_surface": prepare.MEMORIAL_SURFACE,
+            "spatial_scope": prepare.SPATIAL_SCOPE,
+            "public_property_tours_packaged": False,
             "runtime_bytes_match_prepared_projection": True,
         },
     )
@@ -321,13 +361,8 @@ def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> Non
     monkeypatch.setattr(runner, "_assert_live_http", lambda: None)
     monkeypatch.setattr(
         runner,
-        "_live_openapi_contract_snapshot",
-        lambda _snapshot: copy.deepcopy(_openapi_snapshot()),
-    )
-    monkeypatch.setattr(
-        runner,
         "_candidate_openapi_contract_snapshot",
-        lambda _compose, _environment: copy.deepcopy(_openapi_snapshot()),
+        lambda _compose, _environment, **_kwargs: copy.deepcopy(_openapi_snapshot()),
     )
     monkeypatch.setattr(
         runner,
@@ -346,6 +381,569 @@ def _patch_prestart(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> Non
     )
 
 
+def test_candidate_authority_entry_denial_stops_before_docker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+
+    class DeniedAuthority:
+        def require_current(self) -> dict[str, object]:
+            raise RuntimeError("candidate-authority-denied")
+
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Docker must not run after candidate authority denial"
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="candidate-authority-denied"):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=tmp_path / "runtime.json",
+            wait_seconds=60,
+            vexp_authority=DeniedAuthority(),
+        )
+
+
+def test_candidate_up_boundary_denial_never_runs_compose_up(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    commands: list[list[str]] = []
+    pending_cleared: list[str] = []
+
+    class DeniedUpAuthority(_FakeCandidateVexpAuthority):
+        @contextlib.contextmanager
+        def mutation(self, boundary: str, *, minimum_validity_seconds: float):
+            assert boundary == "before_candidate_up"
+            assert minimum_validity_seconds > 0
+            raise RuntimeError("candidate-up-authority-denied")
+            yield  # pragma: no cover
+
+    monkeypatch.setattr(
+        runner,
+        "_candidate_preflight",
+        lambda project, port: {"project": project, "port": port},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda argv, **_kwargs: commands.append(list(argv)) or b"",
+    )
+    monkeypatch.setattr(
+        runner,
+        "clear_candidate_pending",
+        lambda project: pending_cleared.append(project) or {"pending_cleared": True},
+    )
+
+    with pytest.raises(RuntimeError, match="candidate-up-authority-denied"):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=tmp_path / "runtime.json",
+            wait_seconds=60,
+            vexp_authority=DeniedUpAuthority(),
+        )
+
+    assert commands == []
+    assert pending_cleared == [PROJECT]
+
+
+def test_candidate_up_postcheck_race_denies_unauthorized_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    commands: list[list[str]] = []
+
+    class ChangedAfterUpAuthority(_FakeCandidateVexpAuthority):
+        @contextlib.contextmanager
+        def mutation(self, boundary: str, *, minimum_validity_seconds: float):
+            assert minimum_validity_seconds > 0
+            if boundary == "before_candidate_up":
+                yield _FakeCandidateVexpLease(boundary)
+                raise RuntimeError("candidate-authority-changed-after-up")
+            if boundary == "before_candidate_cleanup":
+                raise runner.CandidateAuthorityError(
+                    "candidate-cleanup-authority-unavailable"
+                )
+            raise AssertionError(f"unexpected boundary: {boundary}")
+
+    monkeypatch.setattr(
+        runner,
+        "_candidate_preflight",
+        lambda project, port: {"project": project, "port": port},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda argv, **_kwargs: commands.append(list(argv)) or b"",
+    )
+    monkeypatch.setattr(
+        runner,
+        "_assert_candidate_project_absent",
+        lambda _project: {},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_loopback_port_not_listening",
+        lambda _port: None,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="candidate-authority-changed-after-up",
+    ):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=tmp_path / "runtime.json",
+            wait_seconds=60,
+            vexp_authority=ChangedAfterUpAuthority(),
+        )
+
+    assert len(commands) == 1
+    assert "up" in commands[0]
+    assert "restart" not in commands[0]
+    assert not any("down" in command for command in commands)
+    assert not (tmp_path / "runtime.json").exists()
+
+
+def test_first_mutating_interaction_denial_stops_before_callback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    commands: list[list[str]] = []
+    interaction_callbacks: list[str] = []
+
+    class DeniedInteractionAuthority(_FakeCandidateVexpAuthority):
+        @contextlib.contextmanager
+        def mutation(self, boundary: str, *, minimum_validity_seconds: float):
+            if boundary == "before_candidate_interaction":
+                self.mutation_boundaries.append(boundary)
+                raise runner.CandidateAuthorityError(
+                    "candidate-interaction-authority-denied"
+                )
+                yield  # pragma: no cover
+            with super().mutation(
+                boundary,
+                minimum_validity_seconds=minimum_validity_seconds,
+            ) as lease:
+                yield lease
+
+    authority = DeniedInteractionAuthority()
+    monkeypatch.setattr(
+        runner,
+        "_candidate_preflight",
+        lambda project, port: {"project": project, "loopback_port": port},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_run",
+        lambda argv, **_kwargs: commands.append(list(argv)) or b"",
+    )
+    monkeypatch.setattr(runner, "_assert_redis", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        runner,
+        "verify_candidate",
+        lambda **_kwargs: interaction_callbacks.append("smoke") or {},
+    )
+    monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _p: {})
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_loopback_port_not_listening",
+        lambda _port: None,
+    )
+
+    with pytest.raises(
+        runner.CandidateAuthorityError,
+        match="candidate-interaction-authority-denied",
+    ):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=tmp_path / "runtime.json",
+            wait_seconds=60,
+            vexp_authority=authority,
+        )
+
+    assert interaction_callbacks == []
+    assert authority.mutation_boundaries == [
+        "before_candidate_up",
+        "before_candidate_interaction",
+        "before_candidate_cleanup",
+    ]
+    assert any("up" in command for command in commands)
+    assert any("down" in command for command in commands)
+    assert not any("restart" in command for command in commands)
+    assert not (tmp_path / "runtime.json").exists()
+
+
+def test_revoked_interaction_authority_blocks_second_smoke_before_callback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    commands: list[list[str]] = []
+    interaction_callbacks: list[str] = []
+    api_container_id = "1" * 64
+
+    class RevokedInteractionAuthority(_FakeCandidateVexpAuthority):
+        def __init__(self) -> None:
+            super().__init__()
+            self.interaction_count = 0
+
+        @contextlib.contextmanager
+        def mutation(self, boundary: str, *, minimum_validity_seconds: float):
+            if boundary == "before_candidate_interaction":
+                self.interaction_count += 1
+                if self.interaction_count == 2:
+                    self.mutation_boundaries.append(boundary)
+                    raise runner.CandidateAuthorityError(
+                        "candidate-interaction-authority-revoked"
+                    )
+                    yield  # pragma: no cover
+            with super().mutation(
+                boundary,
+                minimum_validity_seconds=minimum_validity_seconds,
+            ) as lease:
+                yield lease
+
+    authority = RevokedInteractionAuthority()
+
+    def run(argv: list[str], **_kwargs: object) -> bytes:
+        commands.append(list(argv))
+        if "ps" in argv and "api" in argv:
+            return api_container_id.encode("ascii")
+        return b""
+
+    def verify_candidate(**_kwargs: object) -> dict[str, object]:
+        interaction_callbacks.append("smoke")
+        return {"checks": [], "contribution": {}}
+
+    monkeypatch.setattr(
+        runner,
+        "_candidate_preflight",
+        lambda project, port: {"project": project, "loopback_port": port},
+    )
+    monkeypatch.setattr(runner, "_run", run)
+    monkeypatch.setattr(runner, "_assert_redis", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(runner, "verify_candidate", verify_candidate)
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_candidate_api_healthy",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _p: {})
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_loopback_port_not_listening",
+        lambda _port: None,
+    )
+
+    with pytest.raises(
+        runner.CandidateAuthorityError,
+        match="candidate-interaction-authority-revoked",
+    ):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=tmp_path / "runtime.json",
+            wait_seconds=60,
+            vexp_authority=authority,
+        )
+
+    assert interaction_callbacks == ["smoke"]
+    assert authority.mutation_boundaries == [
+        "before_candidate_up",
+        "before_candidate_interaction",
+        "before_candidate_restart",
+        "before_candidate_interaction",
+        "before_candidate_cleanup",
+    ]
+    assert any("restart" in command for command in commands)
+    assert any("down" in command for command in commands)
+    assert not (tmp_path / "runtime.json").exists()
+
+
+def test_success_receipt_seals_exact_candidate_mutation_and_finalization_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    authority = _FakeCandidateVexpAuthority()
+    commands: list[list[str]] = []
+    smoke_calls = 0
+    api_container_id = "1" * 64
+    container_images = {
+        "api": {"container_id": api_container_id, "image_id": IMAGE_ID},
+        "gateway": {"container_id": "2" * 64, "image_id": IMAGE_ID},
+        "prepared_image_id": IMAGE_ID,
+        "revision_label": COMMIT,
+        "all_match_prepared_image": True,
+    }
+    runtime_projection = {
+        "schema": runner.RUNTIME_PROJECTION_SCHEMA,
+        "projection_sha256": "d" * 64,
+        "file_count": 0,
+        "projection_bytes": 0,
+        "mount_roots": [
+            "/data/memorial/public",
+            "/data/memorial/private",
+            "/data/memorial/archive",
+            "/data/public_property_tours",
+            "/data/release-authority",
+        ],
+        "runtime_bytes_match_prepared_projection": True,
+    }
+
+    def record_exec(
+        vexp_authority: _FakeCandidateVexpAuthority,
+        vexp_mutation_evidence: list[dict[str, object]],
+    ) -> None:
+        with vexp_authority.mutation(
+            "before_candidate_exec",
+            minimum_validity_seconds=120,
+        ) as lease:
+            operation = runner._begin_candidate_operation(
+                vexp_mutation_evidence,
+                operation="redis_ping",
+                argv=["fixture-candidate-exec", "redis-ping"],
+                target="fixture:redis",
+                authority=dict(lease.authority_evidence),
+            )
+            operation["runner_acknowledged"] = True
+
+    def run(argv: list[str], **_kwargs: object) -> bytes:
+        commands.append(list(argv))
+        if "ps" in argv and "api" in argv:
+            return api_container_id.encode("ascii")
+        return b""
+
+    def assert_redis(
+        _compose: list[str],
+        _environment: dict[str, str],
+        *,
+        vexp_authority: _FakeCandidateVexpAuthority,
+        vexp_mutation_evidence: list[dict[str, object]],
+    ) -> None:
+        record_exec(vexp_authority, vexp_mutation_evidence)
+
+    def projection_evidence(
+        *,
+        vexp_authority: _FakeCandidateVexpAuthority,
+        vexp_mutation_evidence: list[dict[str, object]],
+        **_kwargs: object,
+    ) -> dict[str, object]:
+        record_exec(vexp_authority, vexp_mutation_evidence)
+        return dict(runtime_projection)
+
+    def loopback_request(
+        *_args: object,
+        vexp_authority: _FakeCandidateVexpAuthority,
+        vexp_mutation_evidence: list[dict[str, object]],
+        **_kwargs: object,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        record_exec(vexp_authority, vexp_mutation_evidence)
+        return 200, b"{}", {}
+
+    def verify_candidate(**kwargs: object) -> dict[str, object]:
+        nonlocal smoke_calls
+        smoke_calls += 1
+        transport = kwargs["transport_request"]
+        assert callable(transport)
+        for index in range(5):
+            transport(  # type: ignore[operator]
+                kwargs["base_url"],
+                f"/candidate-check-{index}",
+                expected={200},
+            )
+        return {
+            "checks": [f"smoke-{smoke_calls}", "conversation_only_public_surface"],
+            "contribution": {"survived_candidate_restart": False},
+        }
+
+    def conversation_state_mode(
+        _compose: list[str],
+        _environment: dict[str, str],
+        *,
+        vexp_authority: _FakeCandidateVexpAuthority,
+        vexp_mutation_evidence: list[dict[str, object]],
+    ) -> dict[str, str]:
+        record_exec(vexp_authority, vexp_mutation_evidence)
+        return {"conversation_state_root": "700"}
+
+    def openapi_snapshot(
+        _compose: list[str],
+        _environment: dict[str, str],
+        *,
+        vexp_authority: _FakeCandidateVexpAuthority,
+        vexp_mutation_evidence: list[dict[str, object]],
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        record_exec(vexp_authority, vexp_mutation_evidence)
+        return copy.deepcopy(_openapi_snapshot())
+
+    monkeypatch.setattr(
+        runner,
+        "_candidate_preflight",
+        lambda project, port: {"project": project, "loopback_port": port},
+    )
+    monkeypatch.setattr(runner, "_run", run)
+    monkeypatch.setattr(runner, "_assert_redis", assert_redis)
+    monkeypatch.setattr(
+        runner,
+        "_candidate_runtime_projection_evidence",
+        projection_evidence,
+    )
+    monkeypatch.setattr(runner, "_candidate_api_loopback_request", loopback_request)
+    monkeypatch.setattr(runner, "verify_candidate", verify_candidate)
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_candidate_api_healthy",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        runner,
+        "_assert_conversation_state_mode",
+        conversation_state_mode,
+    )
+    monkeypatch.setattr(
+        runner,
+        "_candidate_api_runtime_posture",
+        lambda **_kwargs: {
+            "api_container_id": api_container_id,
+            "running_and_healthy": True,
+        },
+    )
+    monkeypatch.setattr(
+        runner,
+        "_candidate_container_image_evidence",
+        lambda **_kwargs: copy.deepcopy(container_images),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_candidate_runtime_version_identity",
+        lambda *_args, **_kwargs: {
+            "source_revision_header": COMMIT,
+            "body_commit_sha": COMMIT,
+            "revision_agreement_verified": True,
+        },
+    )
+    monkeypatch.setattr(
+        runner,
+        "audit_browser_surface",
+        lambda _base_url, **_kwargs: {
+            "status": "pass",
+            "memorial_surface": prepare.MEMORIAL_SURFACE,
+            "spatial_scope": prepare.SPATIAL_SCOPE,
+        },
+    )
+    monkeypatch.setattr(runner, "_assert_logs_clean", lambda *_args: None)
+    monkeypatch.setattr(
+        runner,
+        "_candidate_openapi_contract_snapshot",
+        openapi_snapshot,
+    )
+
+    receipt = runner.prove_candidate(
+        env_file=env_file,
+        compose_file=tmp_path / "compose.yml",
+        receipt_path=tmp_path / "runtime.json",
+        wait_seconds=60,
+        vexp_authority=authority,
+    )
+
+    expected_boundaries = (
+        ["before_candidate_up"]
+        + ["before_candidate_exec"] * 2
+        + ["before_candidate_interaction"]
+        + ["before_candidate_exec"] * 5
+        + ["before_candidate_restart"]
+        + ["before_candidate_interaction"]
+        + ["before_candidate_exec"] * 7
+        + ["before_candidate_interaction"] * 2
+        + ["before_candidate_exec"] * 2
+    )
+    assert len(expected_boundaries) == 22
+    assert authority.mutation_boundaries == expected_boundaries
+    assert smoke_calls == 2
+    assert [
+        "up" if "up" in command else "restart" if "restart" in command else "ps"
+        for command in commands
+    ] == ["up", "ps", "restart", "ps"]
+    assert receipt["openapi_contract"] == {
+        "candidate": _openapi_snapshot()[1],
+        "candidate_public_endpoint": {
+            "status": 404,
+            "public_endpoint_retired": True,
+        },
+        "live_comparison_status": "deferred_to_governed_promotion",
+        "candidate_preserves_live_contract": False,
+        "candidate_live_contract_claim_allowed": False,
+    }
+    envelope = receipt["vexp_candidate_mutation_authority"]
+    assert envelope["entry"] == {
+        "status": "pass",
+        "phase": "entry",
+        "boundary": "candidate_entry",
+    }
+    assert envelope["finalization"] == {
+        "status": "pass",
+        "phase": "finalization",
+        "boundary": "candidate_receipt_publication",
+    }
+    assert envelope["cleanup_requires_positive_authority"] is True
+    assert envelope["retention_timer_only_authority_free_cleanup"] is True
+    mutations = envelope["mutations"]
+    assert isinstance(mutations, list)
+    assert len(mutations) == len(expected_boundaries)
+    allowed_by_boundary = {
+        "before_candidate_up": {"compose_up"},
+        "before_candidate_exec": {"redis_ping"},
+        "before_candidate_interaction": {
+            "candidate_smoke",
+            "candidate_smoke_after_restart",
+            "runtime_identity_probe",
+            "browser_surface_audit",
+        },
+        "before_candidate_restart": {"compose_restart_api"},
+    }
+    for sequence, (operation, boundary) in enumerate(
+        zip(mutations, expected_boundaries, strict=True),
+        start=1,
+    ):
+        assert set(operation) == {
+            "sequence",
+            "operation",
+            "resource",
+            "runner_acknowledged",
+            "authority",
+        }
+        assert operation["sequence"] == sequence
+        assert operation["operation"] in allowed_by_boundary[boundary]
+        assert operation["runner_acknowledged"] is True
+        assert set(operation["resource"]) == {"argv", "target"}
+        assert operation["resource"]["argv"]
+        assert operation["resource"]["target"]
+        assert operation["authority"] == {
+            "status": "pass",
+            "phase": "pre_mutation",
+            "boundary": boundary,
+        }
+
+
 def test_project_name_requires_deployment_specific_candidate_prefix() -> None:
     assert prepare._validate_project_name(PROJECT) == PROJECT
     for value in (
@@ -358,19 +956,19 @@ def test_project_name_requires_deployment_specific_candidate_prefix() -> None:
             prepare._validate_project_name(value)
 
 
-def test_property_candidate_requires_approved_spatial_handoff_before_source_access(
+def test_conversation_candidate_does_not_require_spatial_handoff_before_source_access(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(
         prepare,
         "_commit",
-        lambda *_args, **_kwargs: pytest.fail(
-            "source resolution must not run without the required spatial handoff"
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("source-resolution-reached")
         ),
     )
 
-    with pytest.raises(ValueError, match="manfred_candidate_spatial_handoff_required"):
+    with pytest.raises(RuntimeError, match="source-resolution-reached"):
         prepare.prepare_candidate(
             source_root=tmp_path,
             ref="HEAD",
@@ -409,10 +1007,7 @@ def test_image_build_receipt_is_no_replace_with_exact_byte_reuse(
 @pytest.mark.parametrize(
     "temporary_name",
     [
-        (
-            f".{image_builder.RECEIPT_TEMP_BASENAME}.1234."
-            "abcdef012345abcdef012345.tmp"
-        ),
+        (f".{image_builder.RECEIPT_TEMP_BASENAME}.1234.abcdef012345abcdef012345.tmp"),
         ".image-build.json.abc123__",
     ],
 )
@@ -453,8 +1048,7 @@ def test_image_build_receipt_recovery_fault_preserves_no_replace_semantics(
 ) -> None:
     receipt = tmp_path / "image-build.json"
     temporary = tmp_path / (
-        f".{image_builder.RECEIPT_TEMP_BASENAME}.1234."
-        "abcdef012345abcdef012345.tmp"
+        f".{image_builder.RECEIPT_TEMP_BASENAME}.1234.abcdef012345abcdef012345.tmp"
     )
     payload = {
         "schema": image_builder.RECEIPT_SCHEMA,
@@ -539,8 +1133,7 @@ def test_image_build_receipt_conflicting_interrupted_link_fails_closed(
 ) -> None:
     receipt = tmp_path / "image-build.json"
     temporary = tmp_path / (
-        f".{image_builder.RECEIPT_TEMP_BASENAME}.1234."
-        "abcdef012345abcdef012345.tmp"
+        f".{image_builder.RECEIPT_TEMP_BASENAME}.1234.abcdef012345abcdef012345.tmp"
     )
     desired = {
         "schema": image_builder.RECEIPT_SCHEMA,
@@ -570,8 +1163,7 @@ def test_image_build_receipt_durable_conflict_is_not_masked_by_cleanup_fsync(
 ) -> None:
     receipt = tmp_path / "image-build.json"
     temporary = tmp_path / (
-        f".{image_builder.RECEIPT_TEMP_BASENAME}.1234."
-        "abcdef012345abcdef012345.tmp"
+        f".{image_builder.RECEIPT_TEMP_BASENAME}.1234.abcdef012345abcdef012345.tmp"
     )
     desired = {
         "schema": image_builder.RECEIPT_SCHEMA,
@@ -615,8 +1207,7 @@ def test_image_build_receipt_destination_is_never_its_own_recovery_stage(
     tmp_path: Path,
 ) -> None:
     receipt = tmp_path / (
-        f".{image_builder.RECEIPT_TEMP_BASENAME}.1234."
-        "abcdef012345abcdef012345.tmp"
+        f".{image_builder.RECEIPT_TEMP_BASENAME}.1234.abcdef012345abcdef012345.tmp"
     )
     unrelated = tmp_path / "operator-backup.json"
     payload = {
@@ -702,35 +1293,66 @@ def test_runtime_version_identity_delegates_all_four_revision_inputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     expected = {
+        "path": "/version",
+        "status": 200,
         "commit_sha": COMMIT,
         "body_commit_sha": COMMIT,
         "source_revision_header": COMMIT,
+        "expected_commit_sha": COMMIT,
         "oci_image_revision": COMMIT,
+        "repository": "EA",
+        "role": "api",
+        "release_authority_state": "clear",
+        "release_authority_posture": "authoritative_runtime",
+        "release_authority_source": "published_status_artifact",
+        "commit_observed_over_http": True,
         "revision_agreement_verified": True,
     }
-    observed: list[tuple[str, str, str]] = []
+    observed: list[tuple[str, int]] = []
 
-    def verify(base_url: str, *, expected_commit: str, oci_image_revision: str):
-        observed.append((base_url, expected_commit, oci_image_revision))
-        return expected
+    class Response:
+        status = 200
 
-    monkeypatch.setattr(runner, "_verified_candidate_version", verify)
-    assert (
-        runner._candidate_runtime_version_identity(
-            "http://127.0.0.1:18091",
-            expected_commit=COMMIT,
-            oci_image_revision=COMMIT,
-        )
-        is expected
-    )
-    assert observed == [("http://127.0.0.1:18091", COMMIT, COMMIT)]
+        def __init__(self, header_commit: str) -> None:
+            self.headers = {
+                "X-EA-Source-Revision": header_commit,
+                "Content-Type": "application/json; charset=utf-8",
+            }
+
+        def read(self, _maximum: int) -> bytes:
+            return json.dumps(
+                {
+                    "commit_sha": COMMIT,
+                    "repository": "EA",
+                    "role": "api",
+                    "release_authority_state": "clear",
+                    "release_authority_posture": "authoritative_runtime",
+                    "release_authority_source": "published_status_artifact",
+                }
+            ).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def open_version(request: object, *, timeout: int):
+        observed.append((str(getattr(request, "full_url", "")), timeout))
+        return Response(COMMIT)
+
+    monkeypatch.setattr(runner.urllib.request, "urlopen", open_version)
+    assert runner._candidate_runtime_version_identity(
+        "http://127.0.0.1:18091",
+        expected_commit=COMMIT,
+        oci_image_revision=COMMIT,
+    ) == expected
+    assert observed == [("http://127.0.0.1:18091/version", 10)]
 
     monkeypatch.setattr(
-        runner,
-        "_verified_candidate_version",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("body_header_split")
-        ),
+        runner.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: Response("c" * 40),
     )
     with pytest.raises(
         RuntimeError,
@@ -907,6 +1529,8 @@ def test_internal_transport_probe_is_api_loopback_only_and_parses_security_heade
         lambda argv, **_kwargs: commands.append(list(argv)) or raw,
     )
 
+    authority = _FakeCandidateVexpAuthority()
+    evidence: list[dict[str, object]] = []
     status, body, headers = runner._candidate_api_loopback_request(
         ["docker", "compose", "--project-name", PROJECT],
         {"PATH": "/usr/bin:/bin"},
@@ -920,6 +1544,8 @@ def test_internal_transport_probe_is_api_loopback_only_and_parses_security_heade
         },
         expected={200},
         follow_redirects=False,
+        vexp_authority=authority,
+        vexp_mutation_evidence=evidence,
     )
 
     assert status == 200
@@ -950,6 +1576,8 @@ def test_internal_transport_probe_is_api_loopback_only_and_parses_security_heade
     else:
         assert "--head" not in command
         assert command[command.index("--request") + 1] == method
+    assert authority.mutation_boundaries == ["before_candidate_exec"]
+    assert len(evidence) == 1
 
 
 @pytest.mark.parametrize("method", ["GET", "HEAD"])
@@ -970,6 +1598,8 @@ def test_internal_transport_probe_allows_exact_singular_alias_first_hop(
         lambda argv, **_kwargs: commands.append(list(argv)) or raw,
     )
 
+    authority = _FakeCandidateVexpAuthority()
+    evidence: list[dict[str, object]] = []
     status, body, headers = runner._candidate_api_loopback_request(
         ["docker", "compose", "--project-name", PROJECT],
         {"PATH": "/usr/bin:/bin"},
@@ -983,6 +1613,8 @@ def test_internal_transport_probe_allows_exact_singular_alias_first_hop(
         },
         expected={308},
         follow_redirects=False,
+        vexp_authority=authority,
+        vexp_mutation_evidence=evidence,
     )
 
     assert status == 308
@@ -1002,6 +1634,8 @@ def test_internal_transport_probe_allows_exact_singular_alias_first_hop(
     else:
         assert "--head" not in command
         assert command[command.index("--request") + 1] == method
+    assert authority.mutation_boundaries == ["before_candidate_exec"]
+    assert len(evidence) == 1
 
 
 def test_internal_transport_probe_rejects_unexpected_status(
@@ -1013,6 +1647,8 @@ def test_internal_transport_probe_rejects_unexpected_status(
         + f"\n{runner.INTERNAL_TRANSPORT_STATUS_MARKER}308\n".encode("ascii")
     )
     monkeypatch.setattr(runner, "_run", lambda *_args, **_kwargs: raw)
+    authority = _FakeCandidateVexpAuthority()
+    evidence: list[dict[str, object]] = []
     with pytest.raises(
         RuntimeError,
         match="candidate_http_status_unexpected:/memorials/manfred:308",
@@ -1024,7 +1660,11 @@ def test_internal_transport_probe_rejects_unexpected_status(
             "/memorials/manfred",
             expected={200},
             follow_redirects=False,
+            vexp_authority=authority,
+            vexp_mutation_evidence=evidence,
         )
+    assert authority.mutation_boundaries == ["before_candidate_exec"]
+    assert len(evidence) == 1
 
 
 def test_restart_health_wait_pins_container_identity_until_healthy(
@@ -1033,8 +1673,18 @@ def test_restart_health_wait_pins_container_identity_until_healthy(
     container_id = "a" * 64
     inspections = iter(
         [
-            [{"Id": container_id, "State": {"Running": True, "Health": {"Status": "starting"}}}],
-            [{"Id": container_id, "State": {"Running": True, "Health": {"Status": "healthy"}}}],
+            [
+                {
+                    "Id": container_id,
+                    "State": {"Running": True, "Health": {"Status": "starting"}},
+                }
+            ],
+            [
+                {
+                    "Id": container_id,
+                    "State": {"Running": True, "Health": {"Status": "healthy"}},
+                }
+            ],
         ]
     )
     monotonic = iter([0.0, 0.0, 1.0])
@@ -1190,6 +1840,8 @@ def test_internal_transport_probe_rejects_paths_curl_cannot_send_exactly(
         "_run",
         lambda *_args, **_kwargs: pytest.fail("invalid path must fail before curl"),
     )
+    authority = _FakeCandidateVexpAuthority()
+    evidence: list[dict[str, object]] = []
     with pytest.raises(
         RuntimeError,
         match="manfred_candidate_internal_transport_request_invalid",
@@ -1201,7 +1853,11 @@ def test_internal_transport_probe_rejects_paths_curl_cannot_send_exactly(
             path,
             expected={200},
             follow_redirects=False,
+            vexp_authority=authority,
+            vexp_mutation_evidence=evidence,
         )
+    assert authority.mutation_boundaries == []
+    assert evidence == []
 
 
 def test_internal_transport_probe_rejects_case_insensitive_outgoing_duplicates(
@@ -1214,6 +1870,8 @@ def test_internal_transport_probe_rejects_case_insensitive_outgoing_duplicates(
             "duplicate headers must fail before curl"
         ),
     )
+    authority = _FakeCandidateVexpAuthority()
+    evidence: list[dict[str, object]] = []
     with pytest.raises(
         RuntimeError,
         match="manfred_candidate_internal_transport_request_invalid",
@@ -1226,31 +1884,38 @@ def test_internal_transport_probe_rejects_case_insensitive_outgoing_duplicates(
             headers={"Host": "myexternalbrain.com", "host": "spoof.invalid"},
             expected={200},
             follow_redirects=False,
+            vexp_authority=authority,
+            vexp_mutation_evidence=evidence,
         )
+    assert authority.mutation_boundaries == []
+    assert evidence == []
 
 
-def test_spatial_bind_environment_and_api_only_scope_fail_closed(
+def test_conversation_candidate_forbids_spatial_bind_and_environment(
     tmp_path: Path,
 ) -> None:
     env_file, env = _candidate_env(tmp_path)
     payload, source = _compose_payloads(env_file, env)
 
-    missing_bind = copy.deepcopy(payload)
-    missing_bind["services"]["api"]["volumes"] = [
-        mount
-        for mount in missing_bind["services"]["api"]["volumes"]
-        if mount.get("target") != "/data/public_property_tours"
-    ]
+    forbidden_bind = copy.deepcopy(payload)
+    forbidden_bind["services"]["api"]["volumes"].append(
+        {
+            "type": "bind",
+            "source": str(tmp_path / "public_property_tours"),
+            "target": "/data/public_property_tours",
+            "read_only": True,
+        }
+    )
     with pytest.raises(RuntimeError, match="compose_mount_root_mismatch"):
         runner._assert_compose_isolation(
-            missing_bind, source, env=env, env_file=env_file
+            forbidden_bind, source, env=env, env_file=env_file
         )
 
     wrong_environment = copy.deepcopy(source)
     wrong_environment["services"]["api"]["environment"]["EA_PUBLIC_TOUR_DIR"] = (
         "/tmp/public-tours"
     )
-    with pytest.raises(RuntimeError, match="spatial_compose_environment_invalid"):
+    with pytest.raises(RuntimeError, match="compose_api_environment_not_allowlisted"):
         runner._assert_compose_isolation(
             payload, wrong_environment, env=env, env_file=env_file
         )
@@ -1259,7 +1924,7 @@ def test_spatial_bind_environment_and_api_only_scope_fail_closed(
     gateway_bind["services"]["gateway"]["volumes"] = [
         {
             "type": "bind",
-            "source": env["EA_MANFRED_SPATIAL_RELEASE_ROOT"],
+            "source": str(tmp_path / "public_property_tours"),
             "target": "/data/public_property_tours",
             "read_only": True,
         }
@@ -1270,7 +1935,7 @@ def test_spatial_bind_environment_and_api_only_scope_fail_closed(
         )
 
     invalid_env = dict(env)
-    invalid_env.pop("EA_MANFRED_SPATIAL_SHA256")
+    invalid_env["EA_MANFRED_SPATIAL_SHA256"] = prepare._sha256(b"[]")
     env_file.write_text(
         "".join(f"{name}={value}\n" for name, value in sorted(invalid_env.items())),
         encoding="utf-8",
@@ -1291,40 +1956,33 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
     )
     prepare._set_modes(release_root)
     projection_sha256, projected_files = prepare._tree_digest(release_root)
-    spatial_root = release_root / "public_property_tours"
-    spatial_sha256, spatial_files = prepare._tree_digest(spatial_root)
     receipt_path = release_root.parent.parent / "receipts" / f"{release_root.name}.json"
     receipt_path.parent.mkdir(parents=True)
-    spatial_receipt_path = receipt_path.with_name(f"{release_root.name}.spatial.json")
-    spatial_receipt = {
-        "schema": prepare.SPATIAL_PROJECTION_SCHEMA,
-        "status": "pass",
-        "created_at": "2026-07-14T00:00:00Z",
-        "release_id": release_root.name,
-        "spatial_handoff_included": False,
-        "slug": "",
-        "spatial_release_root": str(spatial_root),
-        "spatial_projection_sha256": spatial_sha256,
-        "file_count": 0,
-        "projection_bytes": 0,
-        "files": spatial_files,
-        "asset_paths": [],
-        "viewer_relpath": "",
-        "proof_relpath": "",
-        "route_labels": [],
-        "upstream_publication_authority": {},
-        "upstream_publication_authority_sha256": "",
-        "upstream_public_activation_authority": False,
-        "upstream_package_sha256": "",
-        "upstream_tour_manifest_sha256": "",
-        "pre_authority_manifest_canonical_sha256": "",
-        "review_evidence": {},
-        "source_verifier": {},
-        "candidate_handoff_authorized": False,
-        "public_activation_authority": False,
+    build_receipt_path = (tmp_path / "image-build.v3.json").resolve()
+    build_receipt_bytes = b'{"schema":"test-image-build"}\n'
+    build_receipt_path.write_bytes(build_receipt_bytes)
+    build_receipt_path.chmod(0o600)
+    image_build_authority_binding = {
+        "receipt_schema": image_builder.RECEIPT_SCHEMA,
+        "receipt_path": str(build_receipt_path),
+        "receipt_sha256": prepare._sha256(build_receipt_bytes),
+        "image_tag": env["EA_MANFRED_IMAGE"],
+        "image_id": IMAGE_ID,
+        "runtime_source_revision": COMMIT,
+        "producer_sha256": "c" * 64,
+        "image_reused": False,
+        "authority": {},
     }
-    spatial_receipt_path.write_bytes(prepare._receipt_bytes(spatial_receipt))
-    spatial_receipt_path.chmod(0o600)
+    monkeypatch.setattr(
+        runner,
+        "validate_build_authority_binding",
+        lambda value, **_kwargs: dict(value),
+    )
+    monkeypatch.setattr(
+        runner,
+        "validated_build_receipt_binding",
+        lambda _encoded, **_kwargs: dict(image_build_authority_binding),
+    )
     receipt_path.write_bytes(
         prepare._receipt_bytes(
             {
@@ -1342,18 +2000,11 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
                 "projection_bytes": sum(
                     int(row["size_bytes"]) for row in projected_files
                 ),
-                "spatial_handoff_included": False,
-                "spatial_slug": "",
-                "spatial_release_root": str(spatial_root),
-                "spatial_projection_sha256": spatial_sha256,
-                "spatial_file_count": 0,
-                "spatial_projection_bytes": 0,
-                "spatial_receipt_path": str(spatial_receipt_path),
-                "spatial_receipt_sha256": prepare._sha256(
-                    prepare._receipt_bytes(spatial_receipt)
-                ),
-                "spatial_upstream_public_activation_authority": False,
-                "spatial_ea_public_activation_authority": False,
+                "memorial_surface": prepare.MEMORIAL_SURFACE,
+                "spatial_scope": prepare.SPATIAL_SCOPE,
+                "public_property_tours_packaged": False,
+                "memorial_spatial_receipt_generated": False,
+                "image_build_authority_binding": image_build_authority_binding,
             }
         ),
     )
@@ -1374,26 +2025,6 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
         lambda *_args, **_kwargs: release_authority_evidence,
     )
 
-    with pytest.raises(RuntimeError, match="manfred_candidate_spatial_handoff_required"):
-        runner._projection_evidence(env)
-
-    empty_spatial_evidence = {
-        "included": False,
-        "slug": "",
-        "release_root": str(spatial_root),
-        "projection_sha256": spatial_sha256,
-        "file_count": 0,
-        "projection_bytes": 0,
-        "receipt_path": str(spatial_receipt_path),
-        "receipt_sha256": prepare._sha256(prepare._receipt_bytes(spatial_receipt)),
-        "projection_tree_revalidated": True,
-        "ea_public_activation_authority": False,
-    }
-    monkeypatch.setattr(
-        runner,
-        "_spatial_projection_evidence",
-        lambda *_args, **_kwargs: empty_spatial_evidence,
-    )
     evidence = runner._projection_evidence(env)
     assert evidence == {
         "release_id": release_root.name,
@@ -1401,14 +2032,16 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
         "projection_sha256": projection_sha256,
         "projection_files": projected_files,
         "projection_file_count": len(projected_files),
-        "projection_bytes": sum(
-            int(row["size_bytes"]) for row in projected_files
-        ),
+        "projection_bytes": sum(int(row["size_bytes"]) for row in projected_files),
         "projection_commit": COMMIT,
         "prepared_image_locator": env["EA_MANFRED_IMAGE"],
         "prepared_image_id": IMAGE_ID,
+        "image_build_authority_binding": image_build_authority_binding,
         "projection_tree_revalidated": True,
-        "spatial_handoff": empty_spatial_evidence,
+        "memorial_surface": prepare.MEMORIAL_SURFACE,
+        "spatial_scope": prepare.SPATIAL_SCOPE,
+        "public_property_tours_packaged": False,
+        "memorial_spatial_receipt_generated": False,
         "release_authority": release_authority_evidence,
     }
 
@@ -1757,9 +2390,13 @@ def test_candidate_openapi_snapshot_is_internal_bounded_and_docs_retired(
         )
 
     monkeypatch.setattr(runner, "_run_bounded_output", run)
+    authority = _FakeCandidateVexpAuthority()
+    mutation_evidence: list[dict[str, object]] = []
     contract, evidence = runner._candidate_openapi_contract_snapshot(
         ["docker", "compose", "--project-name", PROJECT],
         {"PATH": "/usr/bin:/bin"},
+        vexp_authority=authority,
+        vexp_mutation_evidence=mutation_evidence,
     )
 
     assert contract == runner._canonical_openapi_contract(document)
@@ -1770,6 +2407,8 @@ def test_candidate_openapi_snapshot_is_internal_bounded_and_docs_retired(
     assert commands[0][-6:-3] == ["exec", "-T", "api"]
     assert commands[0][-3:-1] == ["python", "-c"]
     assert commands[0][-1] == runner.CANDIDATE_OPENAPI_SNAPSHOT_SCRIPT
+    assert authority.mutation_boundaries == ["before_candidate_exec"]
+    assert len(mutation_evidence) == 1
 
     exposed = copy.deepcopy(envelope)
     exposed["openapi_url"] = "/openapi.json"
@@ -1779,88 +2418,24 @@ def test_candidate_openapi_snapshot_is_internal_bounded_and_docs_retired(
         lambda *_args, **_kwargs: json.dumps(exposed).encode("utf-8"),
     )
     with pytest.raises(RuntimeError, match="internal_openapi_docs_exposed"):
-        runner._candidate_openapi_contract_snapshot(["docker", "compose"], {})
-
-
-def test_live_openapi_snapshot_is_identity_bound_internal_and_docs_retired(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    document = _meaningful_openapi_document()
-    envelope = {
-        "docs_url": None,
-        "document": document,
-        "openapi_url": None,
-        "redoc_url": None,
-    }
-    container_id = "a" * 64
-    image_id = "sha256:" + "b" * 64
-    snapshot = _baseline_snapshot()
-    snapshot["containers"][0]["container_id"] = container_id
-    snapshot["containers"][0]["image_id"] = image_id
-    commands: list[list[str]] = []
-    environments: list[dict[str, str]] = []
-
-    def run(
-        argv: list[str],
-        *,
-        timeout: int,
-        environment: dict[str, str],
-        stdout_limit: int,
-        stderr_limit: int,
-        output_limit_error: str,
-    ) -> bytes:
-        commands.append(list(argv))
-        environments.append(environment)
-        assert timeout == 120
-        assert stdout_limit == runner.MAX_OPENAPI_DOCUMENT_BYTES
-        assert stderr_limit == runner.MAX_OPENAPI_SNAPSHOT_STDERR_BYTES
-        assert output_limit_error.endswith("snapshot_output_too_large")
-        return json.dumps(envelope, separators=(",", ":"), sort_keys=True).encode(
-            "utf-8"
+        runner._candidate_openapi_contract_snapshot(
+            ["docker", "compose"],
+            {},
+            vexp_authority=authority,
+            vexp_mutation_evidence=mutation_evidence,
         )
+    assert authority.mutation_boundaries == ["before_candidate_exec"] * 2
+    assert len(mutation_evidence) == 2
 
-    monkeypatch.setattr(runner, "_run_bounded_output", run)
-    monkeypatch.setattr(
-        runner,
-        "_safe_subprocess_environment",
-        lambda: {"PATH": "/usr/bin:/bin"},
-    )
-    contract, evidence = runner._live_openapi_contract_snapshot(snapshot)
 
-    assert contract == runner._canonical_openapi_contract(document)
-    assert evidence["snapshot_source"] == runner.LIVE_OPENAPI_SNAPSHOT_SOURCE
-    assert evidence["public_docs_config_retired"] is True
-    assert evidence["container_id"] == container_id
-    assert evidence["image_id"] == image_id
-    assert evidence["service"] == "ea-api"
-    assert evidence["container_name"] == "ea-api"
-    assert evidence["running"] is True
-    assert evidence["health"] == "healthy"
-    assert environments == [{"PATH": "/usr/bin:/bin"}]
-    assert commands == [
-        [
-            "docker",
-            "exec",
-            container_id,
-            "python",
-            "-c",
-            runner.CANDIDATE_OPENAPI_SNAPSHOT_SCRIPT,
-        ]
-    ]
+def test_candidate_proof_never_execs_live_openapi_and_defers_comparison() -> None:
+    source = inspect.getsource(runner._prove_candidate_with_execution_inputs)
 
-    exposed = copy.deepcopy(envelope)
-    exposed["docs_url"] = "/docs"
-    monkeypatch.setattr(
-        runner,
-        "_run_bounded_output",
-        lambda *_args, **_kwargs: json.dumps(exposed).encode("utf-8"),
-    )
-    with pytest.raises(RuntimeError, match="live_internal_openapi_docs_exposed"):
-        runner._live_openapi_contract_snapshot(snapshot)
-
-    snapshot["containers"][0]["container_id"] = "not-a-container-id"
-    with pytest.raises(RuntimeError, match="live_api_identity_invalid"):
-        runner._live_openapi_contract_snapshot(snapshot)
+    assert "_live_openapi_contract_snapshot" not in source
+    assert '"live_comparison_status": "deferred_to_governed_promotion"' in source
+    assert '"candidate_preserves_live_contract": False' in source
+    assert '"candidate_live_contract_claim_allowed": False' in source
+    assert not hasattr(runner, "_live_openapi_contract_snapshot")
 
 
 def test_candidate_openapi_public_endpoint_must_be_structured_secure_404(
@@ -2215,9 +2790,9 @@ def test_openapi_retirement_rejects_partial_or_reintroduced_policy(case: str) ->
     else:
         _retire_governed_spatial_operations(live_document)
         candidate_document = copy.deepcopy(live_document)
-        candidate_document["paths"][
-            "/v1/internal/governed-spatial-render/build"
-        ] = {"post": {"responses": {"202": {}}}}
+        candidate_document["paths"]["/v1/internal/governed-spatial-render/build"] = {
+            "post": {"responses": {"202": {}}}
+        }
 
     live = runner._canonical_openapi_contract(live_document)
     candidate = runner._canonical_openapi_contract(candidate_document)
@@ -2236,9 +2811,7 @@ def test_openapi_retirement_is_idempotent_after_live_policy_applied() -> None:
     assert result["retirement_allowed_operations"] == list(
         EXPECTED_OPENAPI_RETIREMENT_OPERATIONS
     )
-    assert result["retired_operations"] == list(
-        EXPECTED_OPENAPI_RETIREMENT_OPERATIONS
-    )
+    assert result["retired_operations"] == list(EXPECTED_OPENAPI_RETIREMENT_OPERATIONS)
     assert result["retired_operation_count"] == len(
         EXPECTED_OPENAPI_RETIREMENT_OPERATIONS
     )
@@ -2290,7 +2863,9 @@ def test_post_start_failure_cleans_only_explicit_candidate_project(
     monkeypatch.setattr(
         runner,
         "_assert_redis",
-        lambda *_args: (_ for _ in ()).throw(RuntimeError("candidate-smoke-failed")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("candidate-smoke-failed")
+        ),
     )
     monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _project: {})
     monkeypatch.setattr(
@@ -2341,7 +2916,7 @@ def test_existing_runtime_receipt_is_preserved_and_blocks_start(
     assert commands == []
 
 
-def test_existing_spatial_browser_receipt_is_preserved_and_blocks_start(
+def test_spatial_browser_receipt_argument_is_forbidden_and_existing_file_preserved(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2359,7 +2934,10 @@ def test_existing_spatial_browser_receipt_is_preserved_and_blocks_start(
     spatial_receipt.write_bytes(original)
     spatial_receipt.chmod(0o600)
 
-    with pytest.raises(RuntimeError, match=runner.RECEIPT_OUTPUT_EXISTS):
+    with pytest.raises(
+        RuntimeError,
+        match="spatial_browser_receipt_forbidden_in_conversation_only",
+    ):
         runner.prove_candidate(
             env_file=env_file,
             compose_file=tmp_path / "compose.yml",
@@ -2377,7 +2955,7 @@ def test_existing_spatial_browser_receipt_is_preserved_and_blocks_start(
     "spatial_name",
     ["runtime.json", "candidate-contribution.private.json"],
 )
-def test_spatial_browser_receipt_cannot_alias_other_candidate_receipts(
+def test_spatial_browser_receipt_argument_is_forbidden_before_alias_checks(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     spatial_name: str,
@@ -2392,7 +2970,10 @@ def test_spatial_browser_receipt_cannot_alias_other_candidate_receipts(
     )
     runtime_receipt = tmp_path / "runtime.json"
 
-    with pytest.raises(RuntimeError, match=runner.RECEIPT_PATH_INVALID):
+    with pytest.raises(
+        RuntimeError,
+        match="spatial_browser_receipt_forbidden_in_conversation_only",
+    ):
         runner.prove_candidate(
             env_file=env_file,
             compose_file=tmp_path / "compose.yml",
@@ -2422,7 +3003,7 @@ def test_cleanup_detects_any_main_project_snapshot_change(
     monkeypatch.setattr(
         runner,
         "_assert_redis",
-        lambda *_args: (_ for _ in ()).throw(
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
             RuntimeError("original-candidate-failure")
         ),
     )
@@ -2456,7 +3037,9 @@ def test_cleanup_reports_persistent_bound_port_without_weakening_absence_proof(
     monkeypatch.setattr(
         runner,
         "_assert_redis",
-        lambda *_args: (_ for _ in ()).throw(RuntimeError("candidate-smoke-failed")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("candidate-smoke-failed")
+        ),
     )
     monkeypatch.setattr(
         runner,
@@ -2515,10 +3098,14 @@ def test_candidate_cleanup_retries_bounded_compose_down_after_timeout(
         lambda project: absence_checks.append(project) or {},
     )
 
+    authority = _FakeCandidateVexpAuthority()
+    evidence: list[dict[str, object]] = []
     runner._cleanup_candidate_project(
         compose=["docker", "compose", "--project-name", PROJECT],
         environment={"PATH": "/usr/bin:/bin"},
         project=PROJECT,
+        vexp_authority=authority,
+        vexp_mutation_evidence=evidence,
     )
 
     assert [timeout for _argv, timeout, _environment in commands] == [120, 180]
@@ -2532,6 +3119,11 @@ def test_candidate_cleanup_retries_bounded_compose_down_after_timeout(
         for _argv, _timeout, environment in commands
     )
     assert absence_checks == [PROJECT]
+    assert authority.mutation_boundaries == [
+        "before_candidate_cleanup",
+        "before_candidate_cleanup",
+    ]
+    assert len(evidence) == 2
 
 
 def test_persistent_compose_timeout_uses_exact_candidate_label_fallback(
@@ -2572,10 +3164,14 @@ def test_persistent_compose_timeout_uses_exact_candidate_label_fallback(
     monkeypatch.setattr(runner, "_project_snapshot", lambda project: snapshot)
     monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _project: {})
 
+    authority = _FakeCandidateVexpAuthority()
+    evidence: list[dict[str, object]] = []
     runner._cleanup_candidate_project(
         compose=["docker", "compose", "--project-name", PROJECT],
         environment={"PATH": "/usr/bin:/bin"},
         project=PROJECT,
+        vexp_authority=authority,
+        vexp_mutation_evidence=evidence,
     )
 
     assert [timeout for argv, timeout in commands if "down" in argv] == [120, 180]
@@ -2586,6 +3182,8 @@ def test_persistent_compose_timeout_uses_exact_candidate_label_fallback(
         ["docker", "volume", "rm", f"{PROJECT}_artifacts"],
     ]
     assert not any("ea-api" in value for argv in destructive for value in argv)
+    assert authority.mutation_boundaries == ["before_candidate_cleanup"] * 5
+    assert len(evidence) == 5
 
 
 def test_forced_cleanup_rejects_scope_mismatch_before_any_mutation(
@@ -2611,9 +3209,17 @@ def test_forced_cleanup_rejects_scope_mismatch_before_any_mutation(
         lambda argv, **_kwargs: commands.append(list(argv)) or b"",
     )
 
+    authority = _FakeCandidateVexpAuthority()
+    evidence: list[dict[str, object]] = []
     with pytest.raises(RuntimeError, match="forced_cleanup_scope_invalid"):
-        runner._force_remove_candidate_project(PROJECT)
+        runner._force_remove_candidate_project(
+            PROJECT,
+            vexp_authority=authority,
+            vexp_mutation_evidence=evidence,
+        )
     assert commands == []
+    assert authority.mutation_boundaries == []
+    assert evidence == []
 
 
 @pytest.mark.parametrize(
@@ -2657,6 +3263,8 @@ def test_candidate_cleanup_rejects_hostile_compose_scope_before_mutation(
             compose=compose,
             environment=environment,
             project=PROJECT,
+            vexp_authority=_FakeCandidateVexpAuthority(),
+            vexp_mutation_evidence=[],
         )
     assert commands == []
 
@@ -2678,7 +3286,7 @@ def test_post_start_keyboard_interrupt_cleans_candidate_and_is_preserved(
     monkeypatch.setattr(
         runner,
         "_assert_redis",
-        lambda *_args: (_ for _ in ()).throw(KeyboardInterrupt()),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
     )
     monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _project: {})
     monkeypatch.setattr(
@@ -2714,7 +3322,7 @@ def test_post_start_sigterm_cleans_candidate_and_is_preserved(
     monkeypatch.setattr(
         runner,
         "_assert_redis",
-        lambda *_args: (_ for _ in ()).throw(
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
             runner.GovernedSignalInterrupt(signal.SIGTERM)
         ),
     )
@@ -2745,6 +3353,7 @@ def test_second_interrupt_cannot_abort_bounded_cleanup(
         lambda project, port: {"project": project, "loopback_port": port},
     )
     absence_checked: list[str] = []
+    forced_cleanup_attempts: list[str] = []
 
     def run(argv: list[str], **_kwargs: object) -> bytes:
         if "down" in argv:
@@ -2755,7 +3364,7 @@ def test_second_interrupt_cannot_abort_bounded_cleanup(
     monkeypatch.setattr(
         runner,
         "_assert_redis",
-        lambda *_args: (_ for _ in ()).throw(
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
             runner.GovernedSignalInterrupt(signal.SIGTERM)
         ),
     )
@@ -2764,10 +3373,13 @@ def test_second_interrupt_cannot_abort_bounded_cleanup(
         "_assert_candidate_project_absent",
         lambda project: absence_checked.append(project) or {},
     )
+
+    def interrupt_forced_cleanup(project: str, **_kwargs: object) -> None:
+        forced_cleanup_attempts.append(project)
+        raise KeyboardInterrupt()
+
     monkeypatch.setattr(
-        runner,
-        "_force_remove_candidate_project",
-        lambda _project: (_ for _ in ()).throw(KeyboardInterrupt()),
+        runner, "_force_remove_candidate_project", interrupt_forced_cleanup
     )
     monkeypatch.setattr(runner, "_assert_loopback_port_free", lambda _port: None)
 
@@ -2779,6 +3391,7 @@ def test_second_interrupt_cannot_abort_bounded_cleanup(
             wait_seconds=60,
         )
     assert absence_checked == [PROJECT]
+    assert forced_cleanup_attempts == [PROJECT]
     assert any(
         "candidate_compose_down_failed" in note
         for note in getattr(caught.value, "__notes__", [])
@@ -2807,6 +3420,10 @@ def test_main_maps_governed_signals_to_shell_exit_status(
                 str(tmp_path / "candidate.env"),
                 "--receipt",
                 str(tmp_path / "runtime.json"),
+                "--vexp-state-path",
+                str(tmp_path / "state.json"),
+                "--vexp-state-owner-uid",
+                str(os.geteuid()),
             ]
         )
         == expected_status
@@ -2814,7 +3431,7 @@ def test_main_maps_governed_signals_to_shell_exit_status(
 
 
 @pytest.mark.parametrize("include_spatial_output", [False, True])
-def test_main_spatial_browser_receipt_option_is_backward_compatible(
+def test_main_spatial_browser_receipt_option_is_removed_from_memorial_lane(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     include_spatial_output: bool,
@@ -2832,14 +3449,22 @@ def test_main_spatial_browser_receipt_option_is_backward_compatible(
         str(tmp_path / "candidate.env"),
         "--receipt",
         str(tmp_path / "runtime.json"),
+        "--vexp-state-path",
+        str(tmp_path / "state.json"),
+        "--vexp-state-owner-uid",
+        str(os.geteuid()),
     ]
     if include_spatial_output:
         argv.extend(["--spatial-browser-receipt", str(spatial_output)])
 
-    assert runner.main(argv) == 0
-    assert captured["spatial_browser_receipt_path"] == (
-        spatial_output if include_spatial_output else None
-    )
+    if include_spatial_output:
+        with pytest.raises(SystemExit) as exc_info:
+            runner.main(argv)
+        assert exc_info.value.code == 2
+        assert captured == {}
+    else:
+        assert runner.main(argv) == 0
+        assert "spatial_browser_receipt_path" not in captured
 
 
 def test_existing_release_is_rehashed_and_mode_bound_before_reuse(
@@ -3129,7 +3754,7 @@ def test_pending_registration_precedes_compose_up_and_clears_after_recovery(
     monkeypatch.setattr(
         runner,
         "_assert_redis",
-        lambda *_args: (_ for _ in ()).throw(RuntimeError("smoke-failed")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("smoke-failed")),
     )
     monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _p: {})
     monkeypatch.setattr(
@@ -3150,31 +3775,29 @@ def test_pending_registration_precedes_compose_up_and_clears_after_recovery(
     assert events[-2:] == ["compose-down", "cleared"]
 
 
-def test_first_smoke_restart_failure_withdraws_before_candidate_teardown(
+def test_first_smoke_restart_failure_cleans_conversation_candidate_without_contribution(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     env_file, env = _candidate_env(tmp_path)
     _patch_prestart(monkeypatch, env)
     runtime_receipt = tmp_path / "runtime-v4.json"
-    contribution_receipt = tmp_path / "candidate-contribution.private.json"
     events: list[str] = []
     monkeypatch.setattr(
         runner,
         "_candidate_preflight",
         lambda project, port: {"project": project, "loopback_port": port},
     )
-    monkeypatch.setattr(runner, "_assert_redis", lambda *_args: None)
+    monkeypatch.setattr(runner, "_assert_redis", lambda *_args, **_kwargs: None)
 
     def verify_candidate(**kwargs: object) -> dict[str, object]:
-        submitted = kwargs.get("submit_receipt")
-        assert submitted == contribution_receipt
-        contribution_receipt.write_text('{"manage_token":"private"}\n', encoding="utf-8")
-        contribution_receipt.chmod(0o600)
+        assert kwargs.get("submit_receipt") is None
+        assert kwargs.get("withdraw_receipt") is None
+        assert kwargs.get("conversation_only") is True
         events.append("first-smoke")
         return {
-            "checks": ["private_contribution_submitted"],
-            "contribution": {"submitted": True, "withdrawn": False},
+            "checks": ["conversation_only_public_surface"],
+            "contribution": {"submitted": False, "withdrawn": False},
         }
 
     monkeypatch.setattr(runner, "verify_candidate", verify_candidate)
@@ -3192,18 +3815,6 @@ def test_first_smoke_restart_failure_withdraws_before_candidate_teardown(
 
     monkeypatch.setattr(runner, "_run", run)
 
-    def withdraw(_base_url: str, path: Path) -> bool:
-        assert path == contribution_receipt
-        assert path.is_file()
-        events.append("contribution-withdrawn")
-        path.unlink()
-        return True
-
-    monkeypatch.setattr(
-        runner,
-        "_withdraw_candidate_contribution_if_present",
-        withdraw,
-    )
     monkeypatch.setattr(
         runner,
         "_cleanup_candidate_project",
@@ -3222,8 +3833,7 @@ def test_first_smoke_restart_failure_withdraws_before_candidate_teardown(
     monkeypatch.setattr(
         runner,
         "clear_candidate_pending",
-        lambda _project: events.append("pending-cleared")
-        or {"pending_cleared": True},
+        lambda _project: events.append("pending-cleared") or {"pending_cleared": True},
     )
 
     with pytest.raises(RuntimeError, match="restart-failed"):
@@ -3238,13 +3848,11 @@ def test_first_smoke_restart_failure_withdraws_before_candidate_teardown(
         "compose-up",
         "first-smoke",
         "restart-failed",
-        "contribution-withdrawn",
         "candidate-cleaned",
         "candidate-absent",
         "port-closed",
         "pending-cleared",
     ]
-    assert not contribution_receipt.exists()
 
 
 def test_failed_recovery_preserves_pending_registry_intent(
@@ -3273,7 +3881,7 @@ def test_failed_recovery_preserves_pending_registry_intent(
     monkeypatch.setattr(
         runner,
         "_assert_redis",
-        lambda *_args: (_ for _ in ()).throw(RuntimeError("smoke-failed")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("smoke-failed")),
     )
     monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _p: {})
     monkeypatch.setattr(
@@ -3299,7 +3907,14 @@ def test_pending_only_crash_withdraws_contribution_before_cleanup_and_clear(
 ) -> None:
     env_file, env = _candidate_env(tmp_path)
     _patch_prestart(monkeypatch, env)
+    contribution_receipt = tmp_path / "candidate-contribution.private.json"
+    contribution_receipt.write_text(
+        '{"manage_token":"private"}\n',
+        encoding="utf-8",
+    )
+    contribution_receipt.chmod(0o600)
     events: list[str] = []
+    preflight_calls: list[tuple[str, int]] = []
     monkeypatch.setattr(
         runner,
         "candidate_registry_recovery_state",
@@ -3308,8 +3923,11 @@ def test_pending_only_crash_withdraws_contribution_before_cleanup_and_clear(
     monkeypatch.setattr(
         runner,
         "_withdraw_candidate_contribution_if_present",
-        lambda _base_url, _receipt_path: events.append("contribution-withdrawn")
-        or True,
+        lambda _base_url, _receipt_path, *, expected_artifact=None: (
+            pytest.fail("missing exact contribution artifact")
+            if expected_artifact is None
+            else (events.append("contribution-withdrawn") or True)
+        ),
     )
     monkeypatch.setattr(
         runner,
@@ -3344,12 +3962,16 @@ def test_pending_only_crash_withdraws_contribution_before_cleanup_and_clear(
     monkeypatch.setattr(
         runner,
         "_candidate_preflight",
-        lambda _project, _port: (_ for _ in ()).throw(
-            RuntimeError("stop-after-recovery")
+        lambda project, port: (
+            preflight_calls.append((project, port))
+            or pytest.fail("fresh candidate launch must require a new invocation")
         ),
     )
 
-    with pytest.raises(RuntimeError, match="stop-after-recovery"):
+    with pytest.raises(
+        RuntimeError,
+        match="manfred_candidate_pending_recovery_completed:fresh_invocation_required",
+    ):
         runner.prove_candidate(
             env_file=env_file,
             compose_file=tmp_path / "compose.yml",
@@ -3365,6 +3987,58 @@ def test_pending_only_crash_withdraws_contribution_before_cleanup_and_clear(
         "live-unchanged",
         "pending-cleared",
     ]
+    assert preflight_calls == []
+
+
+def test_pending_only_crash_without_contribution_skips_interaction_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file, env = _candidate_env(tmp_path)
+    _patch_prestart(monkeypatch, env)
+    events: list[str] = []
+    monkeypatch.setattr(
+        runner,
+        "candidate_registry_recovery_state",
+        lambda **_kwargs: {"state": "pending_only"},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_withdraw_candidate_contribution_if_present",
+        lambda *_args, **_kwargs: pytest.fail(
+            "withdraw must not run without a contribution receipt"
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_cleanup_candidate_project",
+        lambda **_kwargs: events.append("cleanup"),
+    )
+    monkeypatch.setattr(runner, "_assert_candidate_project_absent", lambda _p: {})
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_loopback_port_not_listening",
+        lambda _port: None,
+    )
+    monkeypatch.setattr(runner, "_assert_live_recovery_unchanged", lambda **_k: None)
+    monkeypatch.setattr(
+        runner,
+        "clear_candidate_pending_exact",
+        lambda **_kwargs: {"pending_cleared": True},
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="manfred_candidate_pending_recovery_completed:fresh_invocation_required",
+    ):
+        runner.prove_candidate(
+            env_file=env_file,
+            compose_file=tmp_path / "compose.yml",
+            receipt_path=tmp_path / "runtime-v4.json",
+            wait_seconds=60,
+        )
+
+    assert events == ["cleanup"]
 
 
 def test_pending_contribution_withdrawal_failure_preserves_runtime_and_token(
@@ -3421,19 +4095,15 @@ def test_pending_receipt_crash_resumes_exact_running_candidate_without_up(
 ) -> None:
     env_file, env = _candidate_env(tmp_path)
     _patch_prestart(monkeypatch, env)
-    browser_receipt = {
-        "schema": runner.SPATIAL_BROWSER_RECEIPT_SCHEMA,
-        "status": "pass",
-        "secret_material_recorded": False,
-    }
     receipt_payload = {
         "schema": runner.RECEIPT_SCHEMA,
         "status": "pass",
-        "spatial_handoff_runtime": {
-            "candidate_browser_gate": browser_receipt,
-        },
+        "memorial_surface": prepare.MEMORIAL_SURFACE,
+        "spatial_scope": prepare.SPATIAL_SCOPE,
+        "public_property_tours_tested": False,
+        "memorial_spatial_receipt_generated": False,
     }
-    spatial_receipt = tmp_path / "candidate-browser.v5.json"
+    runtime_receipt = tmp_path / "runtime-v6.json"
     events: list[str] = []
     monkeypatch.setattr(
         runner,
@@ -3456,7 +4126,7 @@ def test_pending_receipt_crash_resumes_exact_running_candidate_without_up(
     )
 
     def register(path: Path, *, require_pending: bool = False):  # type: ignore[no-untyped-def]
-        assert path == tmp_path / "runtime-v4.json"
+        assert path == runtime_receipt
         assert require_pending is True
         events.append("registered")
         return {"registered": True}
@@ -3471,17 +4141,12 @@ def test_pending_receipt_crash_resumes_exact_running_candidate_without_up(
     recovered = runner.prove_candidate(
         env_file=env_file,
         compose_file=tmp_path / "compose.yml",
-        receipt_path=tmp_path / "runtime-v4.json",
-        spatial_browser_receipt_path=spatial_receipt,
+        receipt_path=runtime_receipt,
         wait_seconds=60,
     )
 
     assert recovered == receipt_payload
     assert events == ["runtime-verified", "live-unchanged", "registered"]
-    assert json.loads(spatial_receipt.read_text(encoding="utf-8")) == browser_receipt
-    assert spatial_receipt.stat().st_uid == os.geteuid()
-    assert spatial_receipt.stat().st_nlink == 1
-    assert stat.S_IMODE(spatial_receipt.stat().st_mode) == 0o600
 
 
 def test_invalid_pending_receipt_is_preserved_after_exact_cleanup(
@@ -3642,9 +4307,9 @@ def test_source_replacement_after_validation_cannot_reach_compose_render(
         )
 
     assert len(observed) == 1
-    sealed_environment, sealed_compose, sealed_env_path, sealed_compose_path = (
-        observed[0]
-    )
+    sealed_environment, sealed_compose, sealed_env_path, sealed_compose_path = observed[
+        0
+    ]
     assert sealed_environment == original_environment_bytes
     assert sealed_compose == compose_bytes
     assert sealed_env_path != env_file
@@ -3699,7 +4364,7 @@ def test_recovered_runtime_rebinds_projection_compose_and_execution_evidence(
         return runtime_posture
 
     monkeypatch.setattr(runner, "_candidate_api_runtime_posture", posture)
-    monkeypatch.setattr(runner, "_assert_redis", lambda *_args: None)
+    monkeypatch.setattr(runner, "_assert_redis", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(runner, "_assert_logs_clean", lambda *_args: None)
     receipt = {
         **projection,
@@ -3715,6 +4380,8 @@ def test_recovered_runtime_rebinds_projection_compose_and_execution_evidence(
         "runtime_projection_identity_stable": True,
         "runtime_api_posture": runtime_posture,
     }
+    authority = _FakeCandidateVexpAuthority()
+    evidence: list[dict[str, object]] = []
 
     runner._assert_recovered_candidate_runtime(
         receipt=receipt,
@@ -3727,6 +4394,8 @@ def test_recovered_runtime_rebinds_projection_compose_and_execution_evidence(
         compose_attestation=compose_attestation,
         execution_inputs_evidence=execution_inputs,
         execution_environment_sha256="e" * 64,
+        vexp_authority=authority,
+        vexp_mutation_evidence=evidence,
     )
     assert observed_hashes == ["e" * 64]
 
@@ -3743,6 +4412,8 @@ def test_recovered_runtime_rebinds_projection_compose_and_execution_evidence(
             compose_attestation=compose_attestation,
             execution_inputs_evidence=execution_inputs,
             execution_environment_sha256="e" * 64,
+            vexp_authority=authority,
+            vexp_mutation_evidence=evidence,
         )
 
 
@@ -3777,10 +4448,14 @@ def test_runtime_projection_snapshot_must_equal_prepared_file_rows(
         lambda *_args, **_kwargs: json.dumps(payload).encode("utf-8"),
     )
 
+    authority = _FakeCandidateVexpAuthority()
+    mutation_evidence: list[dict[str, object]] = []
     evidence = runner._candidate_runtime_projection_evidence(
         compose=["docker", "compose"],
         environment={},
         projection=projection,
+        vexp_authority=authority,
+        vexp_mutation_evidence=mutation_evidence,
     )
     assert evidence["projection_sha256"] == digest
     assert evidence["runtime_bytes_match_prepared_projection"] is True
@@ -3791,7 +4466,11 @@ def test_runtime_projection_snapshot_must_equal_prepared_file_rows(
             compose=["docker", "compose"],
             environment={},
             projection=projection,
+            vexp_authority=authority,
+            vexp_mutation_evidence=mutation_evidence,
         )
+    assert authority.mutation_boundaries == ["before_candidate_exec"] * 2
+    assert len(mutation_evidence) == 2
 
 
 @pytest.mark.parametrize("receipt_case", ["hardlink", "noncanonical"])

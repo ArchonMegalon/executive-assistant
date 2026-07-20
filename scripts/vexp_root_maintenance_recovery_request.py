@@ -141,6 +141,22 @@ ALLOWED_COMPONENT_ACTIONS: Final[dict[str, tuple[str, ...]]] = {
         "restart_named_unit",
         "verify_identity",
     ),
+    "current_predicate_attestor": (
+        "install_exact_reviewed_artifact",
+        "replace_exact_reviewed_artifact",
+        "restore_manifest_bound_pre_change_artifact_after_failure",
+        "start_named_unit",
+        "restart_named_unit",
+        "verify_identity",
+    ),
+    "candidate_boundary_attestor": (
+        "install_exact_reviewed_artifact",
+        "replace_exact_reviewed_artifact",
+        "restore_manifest_bound_pre_change_artifact_after_failure",
+        "start_named_unit",
+        "restart_named_unit",
+        "verify_identity",
+    ),
 }
 OPERATOR_STATE_SNAPSHOT_KEYS: Final = frozenset(
     {
@@ -205,9 +221,12 @@ REVIEWED_BLOB_PATHS: Final[tuple[str, ...]] = (
     DEFAULT_MANIFEST_PATH,
     "docs/MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md",
     "docs/MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md",
+    "scripts/deploy_ea_memorial.py",
     "scripts/manage_manfred_vexp_mutation_permit.py",
+    "scripts/manfred_candidate_vexp_authority.py",
     "scripts/materialize_vexp_root_maintenance_recovery_request.py",
     "scripts/materialize_vexp_sentinel_v6_floor_fix.py",
+    "scripts/run_manfred_memorial_candidate.py",
     "scripts/verify_vexp_root_maintenance_recovery_request.py",
     "scripts/vexp_root_maintenance_recovery_request.py",
 )

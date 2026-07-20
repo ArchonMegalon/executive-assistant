@@ -24,6 +24,12 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 try:
+    from scripts.build_manfred_memorial_image import (
+        IMAGE_BUILD_AUTHORITY_BINDING_KEYS,
+        IMAGE_BUILD_RECEIPT_MAX_BYTES,
+        RECEIPT_SCHEMA as IMAGE_BUILD_RECEIPT_SCHEMA,
+        validated_build_receipt_binding,
+    )
     from scripts.manfred_candidate_fleet_lock import hold_candidate_fleet_lock
     from scripts.materialize_release_authority_status import build_status
     from scripts.verify_deploy_context import verify as verify_deploy_context
@@ -32,6 +38,12 @@ try:
         validate_release_contract as validate_release_runtime_mode,
     )
 except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from build_manfred_memorial_image import (  # type: ignore[no-redef]
+        IMAGE_BUILD_AUTHORITY_BINDING_KEYS,
+        IMAGE_BUILD_RECEIPT_MAX_BYTES,
+        RECEIPT_SCHEMA as IMAGE_BUILD_RECEIPT_SCHEMA,
+        validated_build_receipt_binding,
+    )
     from manfred_candidate_fleet_lock import hold_candidate_fleet_lock
     from materialize_release_authority_status import build_status
     from verify_deploy_context import verify as verify_deploy_context
@@ -41,7 +53,10 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
     )
 
 
-RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_projection.v3"
+LEGACY_RECEIPT_SCHEMA_V3 = "ea.manfred_memorial_candidate_projection.v3"
+RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_projection.v4"
+MEMORIAL_SURFACE = "conversation_only"
+SPATIAL_SCOPE = "separate_propertyquarry_lane"
 PROPERTY_PUBLICATION_AUTHORITY_SCHEMA = (
     "propertyquarry.generated-viewer-publication-authority.v1"
 )
@@ -2085,6 +2100,56 @@ def _read_regular_source(
         os.close(parent_descriptor)
 
 
+def _image_build_authority_binding(
+    receipt_path: Path,
+    *,
+    commit: str,
+    image: str,
+    image_id: str,
+) -> dict[str, object]:
+    normalized = Path(os.path.abspath(os.fspath(receipt_path.expanduser())))
+    if not receipt_path.expanduser().is_absolute() or normalized.is_symlink():
+        raise ValueError("manfred_candidate_image_build_receipt_path_invalid")
+    try:
+        metadata = os.lstat(normalized)
+    except OSError as exc:
+        raise ValueError("manfred_candidate_image_build_receipt_missing") from exc
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or stat.S_ISLNK(metadata.st_mode)
+        or metadata.st_uid != os.getuid()
+        or metadata.st_nlink != 1
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+    ):
+        raise ValueError("manfred_candidate_image_build_receipt_private_invalid")
+    try:
+        encoded = _read_regular_source(
+            normalized,
+            maximum=IMAGE_BUILD_RECEIPT_MAX_BYTES,
+        )
+        if encoded is None:  # pragma: no cover - missing_ok is false
+            raise ValueError("manfred_candidate_image_build_receipt_missing")
+        binding = validated_build_receipt_binding(
+            encoded,
+            receipt_path=normalized,
+            commit=commit,
+            image_tag=image,
+            image_id=image_id,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError("manfred_candidate_image_build_receipt_invalid") from exc
+    if (
+        set(binding) != IMAGE_BUILD_AUTHORITY_BINDING_KEYS
+        or binding.get("receipt_schema") != IMAGE_BUILD_RECEIPT_SCHEMA
+        or binding.get("receipt_path") != str(normalized)
+        or binding.get("image_tag") != image
+        or binding.get("image_id") != image_id
+        or binding.get("runtime_source_revision") != commit
+    ):
+        raise ValueError("manfred_candidate_image_build_receipt_binding_invalid")
+    return binding
+
+
 def _copy_regular(
     source: Path, destination: Path, *, maximum: int, mode: int
 ) -> dict[str, object]:
@@ -3121,10 +3186,6 @@ def _write_env(
     host_port: int,
     project_name: str,
     commit: str,
-    spatial_release_root: Path | None = None,
-    spatial_handoff_included: bool = False,
-    spatial_slug: str = "",
-    spatial_sha256: str = "",
     rotate_secrets: bool = False,
 ) -> None:
     if not COMMIT_RE.fullmatch(commit):
@@ -3141,14 +3202,6 @@ def _write_env(
     signing_secret = (
         "" if rotate_secrets else current.get("EA_SIGNING_SECRET", "")
     ) or secrets.token_urlsafe(64)
-    resolved_spatial_root = (
-        spatial_release_root or (release_root / "public_property_tours")
-    ).resolve()
-    normalized_spatial_sha256 = spatial_sha256 or _sha256(b"[]")
-    if not SHA256_RE.fullmatch(normalized_spatial_sha256):
-        raise ValueError("manfred_candidate_spatial_digest_invalid")
-    if spatial_handoff_included != bool(spatial_slug):
-        raise ValueError("manfred_candidate_spatial_slug_invalid")
     values = {
         "EA_MANFRED_COMMIT": commit,
         "EA_MANFRED_COMPOSE_PROJECT": normalized_project_name,
@@ -3160,12 +3213,8 @@ def _write_env(
             (release_root / CANDIDATE_RELEASE_AUTHORITY_DIRNAME).resolve()
         ),
         "EA_MANFRED_RUNTIME_ROOT": str(runtime_root.resolve()),
-        "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED": (
-            "1" if spatial_handoff_included else "0"
-        ),
-        "EA_MANFRED_SPATIAL_RELEASE_ROOT": str(resolved_spatial_root),
-        "EA_MANFRED_SPATIAL_SHA256": normalized_spatial_sha256,
-        "EA_MANFRED_SPATIAL_SLUG": spatial_slug,
+        "EA_MANFRED_MEMORIAL_SURFACE": MEMORIAL_SURFACE,
+        "EA_MANFRED_SPATIAL_SCOPE": SPATIAL_SCOPE,
         "EA_MANFRED_HOST_PORT": str(host_port),
         "EA_MANFRED_POSTGRES_PASSWORD": postgres_password,
         "DATABASE_URL": f"postgresql://ea:{postgres_password}@postgres:5432/ea",
@@ -3212,6 +3261,7 @@ def prepare_candidate(
     public_base_url: str,
     host_port: int,
     project_name: str,
+    image_build_receipt: Path | None = None,
     spatial_tour_bundle_dir: Path | None = None,
     spatial_authority_receipt: Path | None = None,
     spatial_final_review_receipt: Path | None = None,
@@ -3226,64 +3276,30 @@ def prepare_candidate(
         raise ValueError("manfred_candidate_host_port_invalid")
     project_name = _validate_project_name(project_name)
     public_base_url = _validate_public_base_url(public_base_url)
-    if bool(spatial_tour_bundle_dir) != bool(spatial_authority_receipt):
-        raise ValueError("manfred_candidate_spatial_input_pair_required")
-    if bool(spatial_final_review_receipt) != bool(spatial_browser_review_receipt):
-        raise ValueError("manfred_candidate_spatial_review_input_pair_required")
-    if bool(spatial_tour_bundle_dir) != bool(spatial_final_review_receipt):
-        raise ValueError("manfred_candidate_spatial_review_evidence_required")
-    if not all(
-        (
+    if any(
+        value is not None
+        for value in (
             spatial_tour_bundle_dir,
             spatial_authority_receipt,
             spatial_final_review_receipt,
             spatial_browser_review_receipt,
         )
     ):
-        raise ValueError("manfred_candidate_spatial_handoff_required")
+        raise ValueError(
+            "manfred_candidate_spatial_inputs_forbidden_in_conversation_only"
+        )
     commit = _commit(source_root, ref)
     image_id, image_commit = _image_revision(image)
     if image_commit != commit:
         raise ValueError("manfred_candidate_image_revision_mismatch")
-    spatial_handoff: dict[str, object] = {
-        "included": False,
-        "slug": "",
-        "files": {},
-        "asset_paths": [],
-        "viewer_relpath": "",
-        "proof_relpath": "",
-        "route_labels": [],
-        "upstream_publication_authority": {},
-        "upstream_publication_authority_sha256": "",
-        "upstream_public_activation_authority": False,
-        "upstream_package_sha256": "",
-        "upstream_tour_manifest_sha256": "",
-        "pre_authority_manifest_canonical_sha256": "",
-        "review_evidence": {},
-        "verifier_receipt": {},
-    }
-    if (
-        spatial_tour_bundle_dir
-        and spatial_authority_receipt
-        and spatial_final_review_receipt
-        and spatial_browser_review_receipt
-    ):
-        spatial_handoff = _validated_spatial_handoff_input(
-            bundle_dir=Path(
-                os.path.abspath(os.fspath(spatial_tour_bundle_dir.expanduser()))
-            ),
-            authority_receipt_path=Path(
-                os.path.abspath(os.fspath(spatial_authority_receipt.expanduser()))
-            ),
-            final_review_receipt_path=Path(
-                os.path.abspath(os.fspath(spatial_final_review_receipt.expanduser()))
-            ),
-            browser_review_receipt_path=Path(
-                os.path.abspath(os.fspath(spatial_browser_review_receipt.expanduser()))
-            ),
-            target_origin=public_base_url,
-        )
-
+    if image_build_receipt is None:
+        raise ValueError("manfred_candidate_image_build_receipt_required")
+    image_build_authority_binding = _image_build_authority_binding(
+        image_build_receipt,
+        commit=commit,
+        image=image,
+        image_id=image_id,
+    )
     slug = "manfred"
     public_documents: dict[str, bytes] = {}
     for name in PUBLIC_GIT_FILES:
@@ -3311,8 +3327,6 @@ def prepare_candidate(
         public_root = staging / "public_memorials" / slug
         private_root = staging / "private_memorial_profiles" / slug
         archive_root = staging / "memorial_archive"
-        spatial_root = staging / "public_property_tours"
-        spatial_root.mkdir(mode=0o700)
         file_receipts: list[dict[str, object]] = []
         for name, content in public_documents.items():
             info = _write_bytes(public_root / name, content, mode=0o444)
@@ -3409,30 +3423,13 @@ def prepare_candidate(
             }
             for row in archive_receipts
         )
-        spatial_slug = str(spatial_handoff.get("slug") or "")
-        if spatial_handoff.get("included") is True:
-            spatial_files = dict(spatial_handoff.get("files") or {})
-            for relpath, content in sorted(spatial_files.items()):
-                if not isinstance(content, bytes):
-                    raise ValueError("manfred_candidate_spatial_source_invalid")
-                info = _write_bytes(
-                    spatial_root / spatial_slug / _safe_relative(relpath),
-                    content,
-                    mode=0o444,
-                )
-                file_receipts.append(
-                    {
-                        "path": (f"public_property_tours/{spatial_slug}/{relpath}"),
-                        **info,
-                    }
-                )
         authority_generated_at = _commit_generated_at(source_root, commit)
         created_at = authority_generated_at
         public_release_artifacts = [
             str(row.get("path") or "")
             for row in file_receipts
             if str(row.get("path") or "").startswith(
-                ("public_memorials/", "public_property_tours/", "memorial_archive/")
+                ("public_memorials/", "memorial_archive/")
             )
         ]
         authority_root = staging / CANDIDATE_RELEASE_AUTHORITY_DIRNAME
@@ -3457,7 +3454,6 @@ def prepare_candidate(
             }
             for row in authority_files
         )
-        spatial_projection_sha256, spatial_projected_files = _tree_digest(spatial_root)
         projection_sha256, projected_files = _tree_digest(staging)
         release_id = f"{commit[:12]}-{projection_sha256[:12]}"
         release_root = releases_root / release_id
@@ -3497,10 +3493,6 @@ def prepare_candidate(
             host_port=host_port,
             project_name=project_name,
             commit=commit,
-            spatial_release_root=release_root / "public_property_tours",
-            spatial_handoff_included=bool(spatial_handoff.get("included")),
-            spatial_slug=spatial_slug,
-            spatial_sha256=spatial_projection_sha256,
             rotate_secrets=rotate_secrets,
         )
         release_authority = _validate_candidate_release_authority_bundle(
@@ -3510,52 +3502,6 @@ def prepare_candidate(
             expected_project_name=project_name,
             expected_public_origin=public_base_url,
         )
-        spatial_receipt_path = receipts_root / f"{release_id}.spatial.json"
-        spatial_receipt = {
-            "schema": SPATIAL_PROJECTION_SCHEMA,
-            "status": "pass",
-            "created_at": created_at,
-            "release_id": release_id,
-            "spatial_handoff_included": bool(spatial_handoff.get("included")),
-            "slug": spatial_slug,
-            "spatial_release_root": str(
-                (release_root / "public_property_tours").resolve()
-            ),
-            "spatial_projection_sha256": spatial_projection_sha256,
-            "file_count": len(spatial_projected_files),
-            "projection_bytes": sum(
-                int(row["size_bytes"]) for row in spatial_projected_files
-            ),
-            "files": spatial_projected_files,
-            "asset_paths": list(spatial_handoff.get("asset_paths") or []),
-            "viewer_relpath": str(spatial_handoff.get("viewer_relpath") or ""),
-            "proof_relpath": str(spatial_handoff.get("proof_relpath") or ""),
-            "route_labels": list(spatial_handoff.get("route_labels") or []),
-            "upstream_publication_authority": dict(
-                spatial_handoff.get("upstream_publication_authority") or {}
-            ),
-            "upstream_publication_authority_sha256": str(
-                spatial_handoff.get("upstream_publication_authority_sha256") or ""
-            ),
-            "upstream_public_activation_authority": bool(
-                spatial_handoff.get("upstream_public_activation_authority")
-            ),
-            "upstream_package_sha256": str(
-                spatial_handoff.get("upstream_package_sha256") or ""
-            ),
-            "upstream_tour_manifest_sha256": str(
-                spatial_handoff.get("upstream_tour_manifest_sha256") or ""
-            ),
-            "pre_authority_manifest_canonical_sha256": str(
-                spatial_handoff.get("pre_authority_manifest_canonical_sha256") or ""
-            ),
-            "review_evidence": dict(spatial_handoff.get("review_evidence") or {}),
-            "source_verifier": dict(spatial_handoff.get("verifier_receipt") or {}),
-            "candidate_handoff_authorized": bool(spatial_handoff.get("included")),
-            "public_activation_authority": False,
-        }
-        spatial_receipt_bytes = _receipt_bytes(spatial_receipt)
-        _atomic_receipt(spatial_receipt_path, spatial_receipt)
         receipt = {
             "schema": RECEIPT_SCHEMA,
             "status": "pass",
@@ -3563,6 +3509,7 @@ def prepare_candidate(
             "commit": commit,
             "image": image,
             "image_id": image_id,
+            "image_build_authority_binding": image_build_authority_binding,
             "release_id": release_id,
             "release_root": str(release_root),
             "runtime_root": str(runtime_root),
@@ -3581,22 +3528,10 @@ def prepare_candidate(
             "runtime_uid": runtime_uid,
             "runtime_gid": runtime_gid,
             "projection_operator_gid": operator_gid,
-            "spatial_handoff_included": bool(spatial_handoff.get("included")),
-            "spatial_slug": spatial_slug,
-            "spatial_release_root": str(
-                (release_root / "public_property_tours").resolve()
-            ),
-            "spatial_projection_sha256": spatial_projection_sha256,
-            "spatial_file_count": len(spatial_projected_files),
-            "spatial_projection_bytes": sum(
-                int(row["size_bytes"]) for row in spatial_projected_files
-            ),
-            "spatial_receipt_path": str(spatial_receipt_path.resolve()),
-            "spatial_receipt_sha256": _sha256(spatial_receipt_bytes),
-            "spatial_upstream_public_activation_authority": bool(
-                spatial_handoff.get("upstream_public_activation_authority")
-            ),
-            "spatial_ea_public_activation_authority": False,
+            "memorial_surface": MEMORIAL_SURFACE,
+            "spatial_scope": SPATIAL_SCOPE,
+            "public_property_tours_packaged": False,
+            "memorial_spatial_receipt_generated": False,
             "release_authority": release_authority,
             "release_authority_runtime_clear": True,
             "release_authority_promotion_authority": False,
@@ -3619,6 +3554,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ref", default="HEAD")
     parser.add_argument("--image", required=True)
     parser.add_argument(
+        "--image-build-receipt",
+        required=True,
+        help="Required private canonical v3 image-build authority receipt.",
+    )
+    parser.add_argument(
         "--deploy-root",
         default=str(Path("~/.local/share/ea-deploy/manfred-memorial")),
     )
@@ -3632,23 +3572,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rotate-secrets", action="store_true")
     parser.add_argument(
         "--spatial-tour-bundle-dir",
-        required=True,
-        help="Required exact Property-owned six-file generated-viewer bundle.",
+        help="Rejected for the conversation-only Memorial contract; use the separate PropertyQuarry lane.",
     )
     parser.add_argument(
         "--spatial-authority-receipt",
-        required=True,
-        help="Mode-0600 detached Property publication authority paired with the bundle.",
+        help="Rejected for the conversation-only Memorial contract.",
     )
     parser.add_argument(
         "--spatial-final-review-receipt",
-        required=True,
-        help="Mode-0600 pinned Property flagship final-review receipt paired with the bundle.",
+        help="Rejected for the conversation-only Memorial contract.",
     )
     parser.add_argument(
         "--spatial-browser-review-receipt",
-        required=True,
-        help="Mode-0600 pinned Property exact-viewer browser receipt paired with the bundle.",
+        help="Rejected for the conversation-only Memorial contract.",
     )
     return parser
 
@@ -3660,6 +3596,7 @@ def main(argv: list[str] | None = None) -> int:
             source_root=Path(args.source_root),
             ref=args.ref,
             image=args.image,
+            image_build_receipt=Path(args.image_build_receipt),
             deploy_root=Path(args.deploy_root),
             public_base_url=args.public_base_url,
             host_port=args.host_port,

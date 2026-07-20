@@ -37,7 +37,7 @@ class MemorialRuntimeTests(unittest.TestCase):
 
         self.assertEqual(model, public_memorials.FAST_PUBLIC_MODEL)
 
-    def test_public_memorial_page_opens_with_person_context_before_runtime_button(self) -> None:
+    def test_public_memorial_page_is_conversation_only(self) -> None:
         payload = {
             "slug": "manfred",
             "person_name": "Manfred",
@@ -104,45 +104,62 @@ class MemorialRuntimeTests(unittest.TestCase):
             )
 
         self.assertIn("<h1>Erinnerungen an Manfred</h1>", rendered)
-        self.assertIn("Eine ruhige Seite für Erinnerungen, Originalstimme und dokumentierte Gedanken.", rendered)
-        self.assertIn('<a class="skip-link" href="#memorial-story">', rendered)
+        self.assertIn("Ein ruhiger Ort für ein Gespräch über Manfred.", rendered)
+        self.assertNotIn("Eine ruhige Seite für Erinnerungen, Originalstimme und dokumentierte Gedanken.", rendered)
         self.assertIn('<a class="skip-link" href="#memorial-conversation-region">', rendered)
-        self.assertIn('<main id="memorial-story" tabindex="-1">', rendered)
-        self.assertIn("Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen.", rendered)
+        self.assertIn('data-public-memorial-surface="conversation-only"', rendered)
+        self.assertEqual(rendered.count("<main "), 1)
+        self.assertNotIn("<aside ", rendered)
+        self.assertIn(
+            '<main class="conversation-dock" '
+            'aria-label="Quellengebundener Gedenkbegleiter für Manfred" '
+            'id="memorial-conversation-region" tabindex="-1"',
+            rendered,
+        )
         self.assertLess(
-            rendered.index("Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen."),
+            rendered.index("<h1>Erinnerungen an Manfred</h1>"),
             rendered.index('id="memorial-conversation"'),
         )
-        self.assertIn("Stimme aus dem Archiv", rendered)
-        self.assertIn("Über Gerechtigkeit", rendered)
-        self.assertIn('controls preload="metadata"', rendered)
-        self.assertIn("/memorials/files/manfred/audio/gerechtigkeit.mp3", rendered)
-        self.assertIn("Gerechtigkeit bedeutete für mich ...", rendered)
-        self.assertIn("Kindheit in Döbling", rendered)
-        self.assertIn("Eine freigegebene Erinnerung.", rendered)
-        self.assertIn("Öffentliche Quelle", rendered)
-        self.assertIn('href="https://example.test/manfred"', rendered)
-        self.assertIn('referrerpolicy="no-referrer"', rendered)
-        self.assertNotIn('target="_blank"', rendered)
-        self.assertIn("Was war dir bei Gerechtigkeit wichtig?", rendered)
+        self.assertNotIn('<a class="skip-link" href="#memorial-story">', rendered)
+        self.assertNotIn('id="memorial-story"', rendered)
+        self.assertNotIn('<nav class="hero-nav"', rendered)
+        self.assertNotIn("Stimme aus dem Archiv", rendered)
+        self.assertNotIn("Über Gerechtigkeit", rendered)
+        self.assertNotIn("/memorials/files/manfred/audio/gerechtigkeit.mp3", rendered)
+        self.assertNotIn("Gerechtigkeit bedeutete für mich ...", rendered)
+        self.assertNotIn("Kindheit in Döbling", rendered)
+        self.assertNotIn("Eine freigegebene Erinnerung.", rendered)
+        self.assertNotIn("Öffentliche Quelle", rendered)
+        self.assertNotIn("Was war dir bei Gerechtigkeit wichtig?", rendered)
+        self.assertNotIn("3D-Erinnerungsraum", rendered)
+        self.assertNotIn('id="memorial-contribution"', rendered)
+        self.assertNotIn('id="memorial-contribution-form"', rendered)
+        self.assertNotIn('id="memorial-contribution-management"', rendered)
+        self.assertNotIn('id="memorial-install-hint"', rendered)
+        self.assertNotIn("Optional: Am Handy/Desktop installieren.", rendered)
+        self.assertNotIn('<details class="conversation-settings">', rendered)
+        self.assertNotIn('id="memorial-personal-memory-optin"', rendered)
+        self.assertNotIn('id="memorial-video-call-avatar"', rendered)
+        self.assertNotIn('/video-meeting/', rendered)
         self.assertNotIn("PRIVATE_AUDIO_SENTINEL", rendered)
         self.assertNotIn("PRIVATE_MEMORY_SENTINEL", rendered)
         self.assertNotIn("PRIVATE_SOURCE_SENTINEL", rendered)
         self.assertNotIn("PRIVATE_PROFILE_SENTINEL", rendered)
+        self.assertIn('id="memorial-conversation"', rendered)
+        self.assertIn('id="memorial-text-turn-form"', rendered)
+        self.assertIn('id="memorial-text-turn-input"', rendered)
+        self.assertIn('id="memorial-retry-button"', rendered)
+        self.assertIn('id="memorial-speech-transcript" role="log"', rendered)
+        self.assertIn('id="memorial-chat-status"', rendered)
         self.assertIn(
             'id="memorial-speech-message" role="status" aria-live="polite" aria-atomic="true"',
             rendered,
         )
         self.assertNotIn('id="memorial-speech-note" role="status"', rendered)
         self.assertNotIn('id="memorial-speech-transcript-shell" aria-live=', rendered)
-        self.assertIn(
-            '<aside class="conversation-dock" '
-            'aria-label="Quellengebundener Gedenkbegleiter für Manfred" '
-            'id="memorial-conversation-region" tabindex="-1"',
-            rendered,
-        )
         self.assertIn('id="memorial-speech-audio" preload="none" aria-hidden="true"', rendered)
         self.assertNotIn(" autoplay", rendered)
+        self.assertIn("Du sprichst mit einem KI-gestützten, quellengebundenen Gedenkbegleiter.", rendered)
         self.assertIn("Das Mikrofon wird erst nach deinem Start verwendet.", rendered)
         self.assertIn("Gespräch wird vorbereitet …", rendered)
 
@@ -190,8 +207,8 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertNotIn("NON_STRING_PROMPT_SENTINEL", rendered)
         self.assertNotIn("<script>MEMORY_MARKUP_SENTINEL</script>", rendered)
         self.assertNotIn("<img src=x onerror=MEMORY_BODY_SENTINEL>", rendered)
-        self.assertIn("&lt;script&gt;MEMORY_MARKUP_SENTINEL&lt;/script&gt;", rendered)
-        self.assertIn("&lt;img src=x onerror=MEMORY_BODY_SENTINEL&gt;", rendered)
+        self.assertNotIn("MEMORY_MARKUP_SENTINEL", rendered)
+        self.assertNotIn("MEMORY_BODY_SENTINEL", rendered)
 
     def test_public_memorial_payload_filters_nested_story_collections(self) -> None:
         payload = {
@@ -350,9 +367,13 @@ class MemorialRuntimeTests(unittest.TestCase):
         ):
             rendered = public_memorials._public_memorial_page_html(payload, private_profile={})
 
-        self.assertEqual(rendered.count('class="story-card memory-card"'), 6)
-        self.assertEqual(rendered.count('referrerpolicy="no-referrer"'), 1)
+        self.assertEqual(rendered.count('class="story-card memory-card"'), 0)
+        self.assertEqual(rendered.count('referrerpolicy="no-referrer"'), 0)
         self.assertNotIn('id="memorial-archive-title"', rendered)
+        self.assertNotIn('id="memorial-story"', rendered)
+        self.assertNotIn("3D-Erinnerungsraum", rendered)
+        self.assertNotIn('id="memorial-contribution"', rendered)
+        self.assertIn('data-public-memorial-surface="conversation-only"', rendered)
         self.assertNotIn("Hanusch Krankenhaus: Gespraech ueber Behandlung und Familie", rendered)
         self.assertNotIn("Der Flugzeugreisegepaeckkoffer", rendered)
 

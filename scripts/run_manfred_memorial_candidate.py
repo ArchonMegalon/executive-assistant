@@ -31,7 +31,10 @@ from scripts.prepare_manfred_memorial_candidate import (  # noqa: E402
     CANDIDATE_RELEASE_AUTHORITY_DIRNAME,
     PROPERTY_AUTHORITY_SHA256,
     PROPERTY_PUBLICATION_AUTHORITY_SCHEMA,
+    IMAGE_BUILD_RECEIPT_MAX_BYTES,
+    MEMORIAL_SURFACE,
     RECEIPT_SCHEMA as PROJECTION_RECEIPT_SCHEMA,
+    SPATIAL_SCOPE,
     SPATIAL_PROJECTION_SCHEMA,
     SPATIAL_SLUG_RE,
     _canonical_json_bytes,
@@ -46,8 +49,20 @@ from scripts.prepare_manfred_memorial_candidate import (  # noqa: E402
     _validated_property_publication,
     _validate_project_name,
 )
+from scripts.build_manfred_memorial_image import (  # noqa: E402
+    IMAGE_BUILD_AUTHORITY_BINDING_KEYS,
+    RECEIPT_SCHEMA as IMAGE_BUILD_RECEIPT_SCHEMA,
+    validate_build_authority_binding,
+    validated_build_receipt_binding,
+)
 from scripts.manfred_candidate_fleet_lock import (  # noqa: E402
     hold_candidate_fleet_lock,
+)
+from scripts.manfred_candidate_vexp_authority import (  # noqa: E402
+    DEFAULT_SENTINEL_STATE_PATH,
+    CandidateAuthorityError,
+    CandidateVexpMutationAuthority,
+    candidate_vexp_authority,
 )
 from scripts.manfred_candidate_registry import (  # noqa: E402
     candidate_registry_recovery_state,
@@ -66,13 +81,13 @@ from scripts.verify_manfred_memorial_candidate import (  # noqa: E402
 )
 from scripts.verify_manfred_spatial_candidate_browser import (  # noqa: E402
     RECEIPT_SCHEMA as SPATIAL_BROWSER_RECEIPT_SCHEMA,
-    _candidate_version as _verified_candidate_version,
     audit_spatial_candidate_browser,
     validate_spatial_candidate_browser_receipt,
 )
 
 
-RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_runtime.v4"
+LEGACY_RECEIPT_SCHEMA_V5 = "ea.manfred_memorial_candidate_runtime.v5"
+RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_runtime.v6"
 ROUTE_ACTIONABILITY_DIAGNOSTIC_SCHEMA = "ea.manfred_route_actionability_diagnostic.v1"
 MAX_FAILURE_DIAGNOSTIC_BYTES = 8 * 1024
 SPATIAL_BROWSER_RECEIPT_INVALID = "manfred_candidate_spatial_browser_receipt_invalid"
@@ -85,14 +100,12 @@ ALLOWED_ENV_KEYS = {
     "EA_MANFRED_ENV_FILE",
     "EA_MANFRED_HOST_PORT",
     "EA_MANFRED_IMAGE",
+    "EA_MANFRED_MEMORIAL_SURFACE",
     "EA_MANFRED_POSTGRES_PASSWORD",
     "EA_MANFRED_RELEASE_ROOT",
     "EA_MANFRED_RELEASE_AUTHORITY_ROOT",
     "EA_MANFRED_RUNTIME_ROOT",
-    "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED",
-    "EA_MANFRED_SPATIAL_RELEASE_ROOT",
-    "EA_MANFRED_SPATIAL_SHA256",
-    "EA_MANFRED_SPATIAL_SLUG",
+    "EA_MANFRED_SPATIAL_SCOPE",
     "EA_PUBLIC_APP_BASE_URL",
     "EA_SIGNING_SECRET",
 }
@@ -230,7 +243,7 @@ def _compose_environment(
 def _run(
     argv: list[str],
     *,
-    timeout: int = 300,
+    timeout: float = 300,
     environment: dict[str, str] | None = None,
 ) -> bytes:
     completed = subprocess.run(
@@ -245,10 +258,46 @@ def _run(
     return completed.stdout
 
 
+def _producer_sha256(*, producer_path: Path | None = None) -> str:
+    """Bind the runtime receipt to the exact reviewed candidate producer bytes."""
+
+    path = (producer_path or Path(__file__)).expanduser()
+    try:
+        before = path.stat()
+        raw = path.read_bytes()
+        after = path.stat()
+    except OSError as exc:
+        raise RuntimeError("manfred_candidate_producer_metadata_invalid") from exc
+    identity = lambda value: (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_nlink,
+        value.st_uid,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+    if (
+        not stat.S_ISREG(before.st_mode)
+        or before.st_uid != os.getuid()
+        or before.st_nlink != 1
+        or stat.S_IMODE(before.st_mode) & 0o022
+        or identity(before) != identity(after)
+    ):
+        raise RuntimeError("manfred_candidate_producer_metadata_invalid")
+    digest = hashlib.sha256(raw).hexdigest()
+    if len(digest) != 64 or any(
+        character not in "0123456789abcdef" for character in digest
+    ):
+        raise RuntimeError("manfred_candidate_producer_digest_invalid")
+    return digest
+
+
 def _run_bounded_output(
     argv: list[str],
     *,
-    timeout: int,
+    timeout: float,
     environment: dict[str, str],
     stdout_limit: int,
     stderr_limit: int,
@@ -285,6 +334,70 @@ def _run_bounded_output(
             stderr=stderr,
         )
     return stdout
+
+
+@contextlib.contextmanager
+def _candidate_exec_timeout(
+    *,
+    vexp_authority: CandidateVexpMutationAuthority,
+    vexp_mutation_evidence: list[dict[str, object]],
+    operation: str,
+    argv: list[str],
+    target: str,
+    timeout_seconds: float,
+):
+    with vexp_authority.mutation(
+        "before_candidate_exec",
+        minimum_validity_seconds=timeout_seconds,
+    ) as lease:
+        record = _begin_candidate_operation(
+            vexp_mutation_evidence,
+            operation=operation,
+            argv=argv,
+            target=target,
+            authority=dict(lease.authority_evidence),
+        )
+        try:
+            yield lease.command_timeout(timeout_seconds)
+        except BaseException:
+            raise
+        else:
+            record["runner_acknowledged"] = True
+
+
+def _begin_candidate_operation(
+    operations: list[dict[str, object]],
+    *,
+    operation: str,
+    argv: list[str],
+    target: str,
+    authority: dict[str, object],
+) -> dict[str, object]:
+    if (
+        not operation
+        or not isinstance(argv, list)
+        or not argv
+        or any(
+            not isinstance(argument, str)
+            or not argument
+            or len(argument) > 16 * 1024
+            or "\x00" in argument
+            for argument in argv
+        )
+        or not target
+        or len(target) > 16 * 1024
+        or "\x00" in target
+    ):
+        raise RuntimeError("manfred_candidate_operation_descriptor_invalid")
+    record: dict[str, object] = {
+        "sequence": len(operations) + 1,
+        "operation": operation,
+        "resource": {"argv": list(argv), "target": target},
+        "runner_acknowledged": False,
+        "authority": dict(authority),
+    }
+    operations.append(record)
+    return record
 
 
 def _compose_argv(
@@ -975,26 +1088,38 @@ def _openapi_document(
 def _candidate_openapi_contract_snapshot(
     compose: list[str],
     environment: dict[str, str],
+    *,
+    vexp_authority: CandidateVexpMutationAuthority,
+    vexp_mutation_evidence: list[dict[str, object]],
 ) -> tuple[dict[str, object], dict[str, object]]:
+    snapshot_argv = [
+        *compose,
+        "exec",
+        "-T",
+        "api",
+        "python",
+        "-c",
+        CANDIDATE_OPENAPI_SNAPSHOT_SCRIPT,
+    ]
     try:
-        body = _run_bounded_output(
-            [
-                *compose,
-                "exec",
-                "-T",
-                "api",
-                "python",
-                "-c",
-                CANDIDATE_OPENAPI_SNAPSHOT_SCRIPT,
-            ],
-            timeout=120,
-            environment=environment,
-            stdout_limit=MAX_OPENAPI_DOCUMENT_BYTES,
-            stderr_limit=MAX_OPENAPI_SNAPSHOT_STDERR_BYTES,
-            output_limit_error=(
-                "manfred_candidate_internal_openapi_snapshot_output_too_large"
-            ),
-        )
+        with _candidate_exec_timeout(
+            vexp_authority=vexp_authority,
+            vexp_mutation_evidence=vexp_mutation_evidence,
+            operation="candidate_openapi_snapshot",
+            argv=snapshot_argv,
+            target="api:openapi",
+            timeout_seconds=120,
+        ) as timeout:
+            body = _run_bounded_output(
+                snapshot_argv,
+                timeout=timeout,
+                environment=environment,
+                stdout_limit=MAX_OPENAPI_DOCUMENT_BYTES,
+                stderr_limit=MAX_OPENAPI_SNAPSHOT_STDERR_BYTES,
+                output_limit_error=(
+                    "manfred_candidate_internal_openapi_snapshot_output_too_large"
+                ),
+            )
     except (OSError, subprocess.SubprocessError) as exc:
         raise RuntimeError(
             "manfred_candidate_internal_openapi_snapshot_unavailable"
@@ -1018,75 +1143,6 @@ def _candidate_openapi_contract_snapshot(
         **_openapi_contract_evidence(contract),
         "snapshot_source": CANDIDATE_OPENAPI_SNAPSHOT_SOURCE,
         "public_docs_config_retired": True,
-    }
-
-
-def _live_openapi_contract_snapshot(
-    snapshot: dict[str, object],
-) -> tuple[dict[str, object], dict[str, object]]:
-    api = _main_api_snapshot(snapshot)
-    container_id = str(api.get("container_id") or "").strip().lower()
-    image_id = str(api.get("image_id") or "").strip().lower()
-    if (
-        len(container_id) != 64
-        or any(character not in "0123456789abcdef" for character in container_id)
-        or len(image_id) != 71
-        or not image_id.startswith("sha256:")
-        or any(character not in "0123456789abcdef" for character in image_id[7:])
-        or str(api.get("name") or "") != "ea-api"
-        or str(api.get("service") or "") != "ea-api"
-        or api.get("running") is not True
-        or str(api.get("health") or "") != "healthy"
-    ):
-        raise RuntimeError("manfred_candidate_live_api_identity_invalid")
-    try:
-        body = _run_bounded_output(
-            [
-                "docker",
-                "exec",
-                container_id,
-                "python",
-                "-c",
-                CANDIDATE_OPENAPI_SNAPSHOT_SCRIPT,
-            ],
-            timeout=120,
-            environment=_safe_subprocess_environment(),
-            stdout_limit=MAX_OPENAPI_DOCUMENT_BYTES,
-            stderr_limit=MAX_OPENAPI_SNAPSHOT_STDERR_BYTES,
-            output_limit_error=(
-                "manfred_candidate_live_internal_openapi_snapshot_output_too_large"
-            ),
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise RuntimeError(
-            "manfred_candidate_live_internal_openapi_snapshot_unavailable"
-        ) from exc
-    envelope = _openapi_document(
-        body,
-        invalid_error="manfred_candidate_live_internal_openapi_snapshot_invalid",
-        too_large_error="manfred_candidate_live_internal_openapi_snapshot_too_large",
-    )
-    if (
-        envelope.get("docs_url") is not None
-        or envelope.get("openapi_url") is not None
-        or envelope.get("redoc_url") is not None
-    ):
-        raise RuntimeError("manfred_candidate_live_internal_openapi_docs_exposed")
-    document = envelope.get("document")
-    if not isinstance(document, dict):
-        raise RuntimeError("manfred_candidate_live_internal_openapi_snapshot_invalid")
-    contract = _canonical_openapi_contract(document)
-    return contract, {
-        **_openapi_contract_evidence(contract),
-        "snapshot_source": LIVE_OPENAPI_SNAPSHOT_SOURCE,
-        "public_docs_config_retired": True,
-        "container_id": container_id,
-        "image_id": image_id,
-        "started_at": str(api.get("started_at") or ""),
-        "service": "ea-api",
-        "container_name": "ea-api",
-        "running": True,
-        "health": "healthy",
     }
 
 
@@ -1313,6 +1369,40 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
     image = raw_image
     image_id = raw_image_id
     try:
+        image_build_authority_binding = validate_build_authority_binding(
+            payload.get("image_build_authority_binding"),
+            commit=commit,
+            image_tag=image,
+            image_id=image_id,
+        )
+        build_receipt_path = Path(
+            str(image_build_authority_binding["receipt_path"])
+        )
+        build_receipt_bytes = _read_private_output(
+            build_receipt_path,
+            maximum=IMAGE_BUILD_RECEIPT_MAX_BYTES,
+        )
+        if (
+            build_receipt_bytes is None
+            or hashlib.sha256(build_receipt_bytes).hexdigest()
+            != image_build_authority_binding["receipt_sha256"]
+            or validated_build_receipt_binding(
+                build_receipt_bytes,
+                receipt_path=build_receipt_path,
+                commit=commit,
+                image_tag=image,
+                image_id=image_id,
+            )
+            != image_build_authority_binding
+        ):
+            raise RuntimeError(
+                "manfred_candidate_image_build_authority_binding_invalid"
+            )
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise RuntimeError(
+            "manfred_candidate_image_build_authority_binding_invalid"
+        ) from exc
+    try:
         operator_gid = int(payload.get("projection_operator_gid"))
     except (TypeError, ValueError):
         operator_gid = -1
@@ -1338,6 +1428,12 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         or env["EA_MANFRED_COMMIT"] != commit
         or env["EA_MANFRED_DEPLOYMENT_ID"]
         != f"{env['EA_MANFRED_COMPOSE_PROJECT']}-{commit[:12]}"
+        or env["EA_MANFRED_MEMORIAL_SURFACE"] != MEMORIAL_SURFACE
+        or env["EA_MANFRED_SPATIAL_SCOPE"] != SPATIAL_SCOPE
+        or payload.get("memorial_surface") != MEMORIAL_SURFACE
+        or payload.get("spatial_scope") != SPATIAL_SCOPE
+        or payload.get("public_property_tours_packaged") is not False
+        or payload.get("memorial_spatial_receipt_generated") is not False
     ):
         raise RuntimeError("manfred_candidate_projection_receipt_mismatch")
     try:
@@ -1351,12 +1447,11 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         != sum(int(row["size_bytes"]) for row in observed_files)
     ):
         raise RuntimeError("manfred_candidate_projection_tree_digest_mismatch")
-    spatial = _spatial_projection_evidence(
-        env,
-        projection_receipt=payload,
-        release_root=release_root,
-        release_id=release_id,
-    )
+    if any(
+        str(row.get("path") or "").startswith("public_property_tours/")
+        for row in observed_files
+    ) or (release_root / "public_property_tours").exists():
+        raise RuntimeError("manfred_candidate_spatial_projection_forbidden")
     authority_root = (release_root / CANDIDATE_RELEASE_AUTHORITY_DIRNAME).resolve()
     if Path(env["EA_MANFRED_RELEASE_AUTHORITY_ROOT"]).resolve() != authority_root:
         raise RuntimeError("manfred_candidate_release_authority_root_mismatch")
@@ -1380,8 +1475,12 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         "projection_commit": commit,
         "prepared_image_locator": image,
         "prepared_image_id": image_id,
+        "image_build_authority_binding": image_build_authority_binding,
         "projection_tree_revalidated": True,
-        "spatial_handoff": spatial,
+        "memorial_surface": MEMORIAL_SURFACE,
+        "spatial_scope": SPATIAL_SCOPE,
+        "public_property_tours_packaged": False,
+        "memorial_spatial_receipt_generated": False,
         "release_authority": release_authority,
     }
 
@@ -1658,11 +1757,6 @@ def _candidate_api_runtime_posture(
             str((runtime_root / "state").resolve()),
             True,
         ),
-        "/data/public_property_tours": (
-            "bind",
-            str(Path(candidate_env["EA_MANFRED_SPATIAL_RELEASE_ROOT"]).resolve()),
-            False,
-        ),
         "/data/release-authority": (
             "bind",
             str(Path(candidate_env["EA_MANFRED_RELEASE_AUTHORITY_ROOT"]).resolve()),
@@ -1742,29 +1836,42 @@ def _candidate_runtime_projection_evidence(
     compose: list[str],
     environment: dict[str, str],
     projection: dict[str, object],
+    vexp_authority: CandidateVexpMutationAuthority,
+    vexp_mutation_evidence: list[dict[str, object]],
 ) -> dict[str, object]:
     expected_files = projection.get("projection_files")
     if not isinstance(expected_files, list) or any(
         not isinstance(row, dict) for row in expected_files
     ):
         raise RuntimeError("manfred_candidate_runtime_projection_expected_invalid")
+    snapshot_argv = [
+        *compose,
+        "exec",
+        "-T",
+        "api",
+        "python",
+        "-c",
+        RUNTIME_PROJECTION_SNAPSHOT_SCRIPT,
+    ]
     try:
-        raw = _run_bounded_output(
-            [
-                *compose,
-                "exec",
-                "-T",
-                "api",
-                "python",
-                "-c",
-                RUNTIME_PROJECTION_SNAPSHOT_SCRIPT,
-            ],
-            timeout=120,
-            environment=environment,
-            stdout_limit=MAX_RUNTIME_PROJECTION_SNAPSHOT_BYTES,
-            stderr_limit=1024 * 1024,
-            output_limit_error="manfred_candidate_runtime_projection_output_too_large",
-        )
+        with _candidate_exec_timeout(
+            vexp_authority=vexp_authority,
+            vexp_mutation_evidence=vexp_mutation_evidence,
+            operation="runtime_projection_snapshot",
+            argv=snapshot_argv,
+            target="api:runtime_projection",
+            timeout_seconds=120,
+        ) as timeout:
+            raw = _run_bounded_output(
+                snapshot_argv,
+                timeout=timeout,
+                environment=environment,
+                stdout_limit=MAX_RUNTIME_PROJECTION_SNAPSHOT_BYTES,
+                stderr_limit=1024 * 1024,
+                output_limit_error=(
+                    "manfred_candidate_runtime_projection_output_too_large"
+                ),
+            )
         payload = json.loads(raw)
     except (
         OSError,
@@ -1811,7 +1918,6 @@ def _candidate_runtime_projection_evidence(
             "/data/memorial/public",
             "/data/memorial/private",
             "/data/memorial/archive",
-            "/data/public_property_tours",
             "/data/release-authority",
         ],
         "runtime_bytes_match_prepared_projection": True,
@@ -2034,7 +2140,12 @@ def _assert_candidate_project_absent(project: str) -> dict[str, object]:
     }
 
 
-def _force_remove_candidate_project(project: str) -> None:
+def _force_remove_candidate_project(
+    project: str,
+    *,
+    vexp_authority: CandidateVexpMutationAuthority,
+    vexp_mutation_evidence: list[dict[str, object]],
+) -> None:
     safe_project = _validate_project_name(project)
     named = _candidate_named_resources(safe_project)
     snapshot = _project_snapshot(safe_project)
@@ -2065,36 +2176,51 @@ def _force_remove_candidate_project(project: str) -> None:
     ):
         raise RuntimeError("manfred_candidate_forced_cleanup_scope_invalid")
     if containers:
-        _run(
-            [
-                "docker",
-                "container",
-                "rm",
-                "--force",
-                *[str(row["container_id"]) for row in containers],
-            ],
-            timeout=60,
-        )
+        with vexp_authority.mutation(
+            "before_candidate_cleanup",
+            minimum_validity_seconds=60,
+        ) as lease:
+            vexp_mutation_evidence.append(dict(lease.authority_evidence))
+            _run(
+                [
+                    "docker",
+                    "container",
+                    "rm",
+                    "--force",
+                    *[str(row["container_id"]) for row in containers],
+                ],
+                timeout=lease.command_timeout(60),
+            )
     if networks:
-        _run(
-            [
-                "docker",
-                "network",
-                "rm",
-                *[str(row["network_id"]) for row in networks],
-            ],
-            timeout=60,
-        )
+        with vexp_authority.mutation(
+            "before_candidate_cleanup",
+            minimum_validity_seconds=60,
+        ) as lease:
+            vexp_mutation_evidence.append(dict(lease.authority_evidence))
+            _run(
+                [
+                    "docker",
+                    "network",
+                    "rm",
+                    *[str(row["network_id"]) for row in networks],
+                ],
+                timeout=lease.command_timeout(60),
+            )
     if volumes:
-        _run(
-            [
-                "docker",
-                "volume",
-                "rm",
-                *[str(row["name"]) for row in volumes],
-            ],
-            timeout=60,
-        )
+        with vexp_authority.mutation(
+            "before_candidate_cleanup",
+            minimum_validity_seconds=60,
+        ) as lease:
+            vexp_mutation_evidence.append(dict(lease.authority_evidence))
+            _run(
+                [
+                    "docker",
+                    "volume",
+                    "rm",
+                    *[str(row["name"]) for row in volumes],
+                ],
+                timeout=lease.command_timeout(60),
+            )
 
 
 def _cleanup_candidate_project(
@@ -2102,6 +2228,8 @@ def _cleanup_candidate_project(
     compose: list[str],
     environment: dict[str, str],
     project: str,
+    vexp_authority: CandidateVexpMutationAuthority,
+    vexp_mutation_evidence: list[dict[str, object]],
 ) -> None:
     safe_project = _validate_project_name(project)
     if (
@@ -2128,12 +2256,27 @@ def _cleanup_candidate_project(
     ]
     for timeout in CANDIDATE_COMPOSE_DOWN_TIMEOUTS:
         try:
-            _run(down, timeout=timeout, environment=environment)
+            with vexp_authority.mutation(
+                "before_candidate_cleanup",
+                minimum_validity_seconds=timeout,
+            ) as lease:
+                vexp_mutation_evidence.append(dict(lease.authority_evidence))
+                _run(
+                    down,
+                    timeout=lease.command_timeout(timeout),
+                    environment=environment,
+                )
             _assert_candidate_project_absent(safe_project)
             return
+        except CandidateAuthorityError:
+            raise
         except BaseException:
             continue
-    _force_remove_candidate_project(safe_project)
+    _force_remove_candidate_project(
+        safe_project,
+        vexp_authority=vexp_authority,
+        vexp_mutation_evidence=vexp_mutation_evidence,
+    )
     _assert_candidate_project_absent(safe_project)
 
 
@@ -2155,15 +2298,69 @@ def _candidate_runtime_version_identity(
     oci_image_revision: str,
 ) -> dict[str, object]:
     try:
-        return _verified_candidate_version(
-            base_url,
-            expected_commit=expected_commit,
-            oci_image_revision=oci_image_revision,
+        request = urllib.request.Request(
+            f"{str(base_url or '').rstrip('/')}/version",
+            method="GET",
+            headers={"Accept": "application/json"},
         )
-    except (RuntimeError, ValueError) as exc:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if int(getattr(response, "status", 0) or 0) != 200:
+                raise RuntimeError("manfred_candidate_runtime_version_status")
+            body = response.read(64 * 1024 + 1)
+            header_commit = str(
+                response.headers.get("X-EA-Source-Revision") or ""
+            ).strip()
+            media_type = str(response.headers.get("Content-Type") or "").partition(
+                ";"
+            )[0].strip().lower()
+        payload = json.loads(body)
+    except (
+        OSError,
+        UnicodeError,
+        ValueError,
+        json.JSONDecodeError,
+        urllib.error.URLError,
+    ) as exc:
         raise RuntimeError(
             "manfred_candidate_runtime_version_identity_invalid"
         ) from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("manfred_candidate_runtime_version_identity_invalid")
+    body_commit = str(payload.get("commit_sha") or "").strip()
+    commits = {body_commit, header_commit, expected_commit, oci_image_revision}
+    if (
+        len(body) > 64 * 1024
+        or media_type != "application/json"
+        or len(commits) != 1
+        or any(
+            len(value) != 40
+            or value != value.lower()
+            or any(character not in "0123456789abcdef" for character in value)
+            for value in commits
+        )
+        or payload.get("repository") != "EA"
+        or payload.get("role") != "api"
+        or payload.get("release_authority_state") != "clear"
+        or payload.get("release_authority_posture") != "authoritative_runtime"
+        or payload.get("release_authority_source") != "published_status_artifact"
+    ):
+        raise RuntimeError("manfred_candidate_runtime_version_identity_invalid")
+    return {
+        "path": "/version",
+        "status": 200,
+        "commit_sha": expected_commit,
+        "body_commit_sha": body_commit,
+        "source_revision_header": header_commit,
+        "expected_commit_sha": expected_commit,
+        "oci_image_revision": oci_image_revision,
+        "repository": "EA",
+        "role": "api",
+        "release_authority_state": "clear",
+        "release_authority_posture": "authoritative_runtime",
+        "release_authority_source": "published_status_artifact",
+        "commit_observed_over_http": True,
+        "revision_agreement_verified": True,
+    }
 
 
 def _candidate_runtime_source_revision(base_url: str) -> str:
@@ -2525,7 +2722,7 @@ def _expected_candidate_api_environment(env: dict[str, str]) -> dict[str, str]:
         "EA_DEPLOY_TRACKING_BRANCH": "origin/main",
         "EA_DEPLOY_COMMIT_SHA": env["EA_MANFRED_COMMIT"],
         "EA_DEPLOY_PRIMARY_MODE": "MEMORIAL",
-        "EA_DEPLOY_ENABLED_MODES": "MEMORIAL,PROPERTY",
+        "EA_DEPLOY_ENABLED_MODES": "MEMORIAL",
         "EA_DEPLOY_COMPOSE_FILES": CANDIDATE_COMPOSE_RELATIVE_PATH.as_posix(),
         "EA_DEPLOY_PUBLIC_ORIGIN": env["EA_PUBLIC_APP_BASE_URL"],
         "EA_RELEASE_LABEL": env["EA_MANFRED_DEPLOYMENT_ID"],
@@ -2540,8 +2737,8 @@ def _expected_candidate_api_environment(env: dict[str, str]) -> dict[str, str]:
         "PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES": "1",
         "EA_ENABLE_PUBLIC_SIDE_SURFACES": "0",
         "EA_ENABLE_PUBLIC_RESULTS": "0",
-        "EA_ENABLE_PUBLIC_TOURS": "1",
-        "PROPERTYQUARRY_ENABLE_PUBLIC_TOURS": "1",
+        "EA_ENABLE_PUBLIC_TOURS": "0",
+        "PROPERTYQUARRY_ENABLE_PUBLIC_TOURS": "0",
         "EA_ENABLE_PUBLIC_MEMORIALS": "1",
         "PROPERTYQUARRY_ENABLE_PUBLIC_MEMORIALS": "1",
         "EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES": "0",
@@ -2559,7 +2756,6 @@ def _expected_candidate_api_environment(env: dict[str, str]) -> dict[str, str]:
         "EA_MEMORIAL_STATE_DIR": "/data/memorial/state",
         "EA_PUBLIC_MEMORIAL_ARTIFACT_DIR": "/data/artifacts",
         "EA_ARTIFACTS_DIR": "/data/artifacts",
-        "EA_PUBLIC_TOUR_DIR": "/data/public_property_tours",
         "EA_MEMORIAL_PAGE_PREWARM_ENABLED": "0",
         "EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED": "0",
         "EA_AUDIOBOOK_UNMIXR_AUTO_RENDER": "0",
@@ -2665,10 +2861,6 @@ def _assert_compose_isolation(
         raise RuntimeError("manfred_candidate_compose_env_file_mismatch")
     resolved_environment = dict(api.get("environment") or {})
     declared_environment = dict(source_api.get("environment") or {})
-    if str(declared_environment.get("EA_PUBLIC_TOUR_DIR") or "") != (
-        "/data/public_property_tours"
-    ):
-        raise RuntimeError("manfred_candidate_spatial_compose_environment_invalid")
     if str(declared_environment.get("EA_TRUST_PROXY_HEADERS") or "") != "1":
         raise RuntimeError("manfred_candidate_transport_probe_trust_invalid")
     expected_declared_environment = _expected_candidate_api_environment(env)
@@ -2731,10 +2923,6 @@ def _assert_compose_isolation(
             str((Path(env["EA_MANFRED_RUNTIME_ROOT"]) / "state").resolve()),
             False,
         ),
-        "/data/public_property_tours": (
-            str(Path(env["EA_MANFRED_SPATIAL_RELEASE_ROOT"]).resolve()),
-            True,
-        ),
         "/data/release-authority": (
             str(Path(env["EA_MANFRED_RELEASE_AUTHORITY_ROOT"]).resolve()),
             True,
@@ -2785,15 +2973,12 @@ def _assert_compose_isolation(
             if source.startswith("/docker/EA") or source == "/var/run/docker.sock":
                 raise RuntimeError("manfred_candidate_compose_live_bind_forbidden")
             if service_name != "api" and (
-                target == "/data/public_property_tours"
-                or source == env["EA_MANFRED_SPATIAL_RELEASE_ROOT"]
-            ):
-                raise RuntimeError("manfred_candidate_spatial_compose_scope_invalid")
-            if service_name != "api" and (
                 target == "/data/release-authority"
                 or source == env["EA_MANFRED_RELEASE_AUTHORITY_ROOT"]
             ):
                 raise RuntimeError("manfred_candidate_release_compose_scope_invalid")
+            if target == "/data/public_property_tours":
+                raise RuntimeError("manfred_candidate_spatial_compose_scope_invalid")
 
 
 def _assert_env_allowlist(
@@ -2821,7 +3006,6 @@ def _assert_env_allowlist(
         "EA_MANFRED_RELEASE_ROOT",
         "EA_MANFRED_RELEASE_AUTHORITY_ROOT",
         "EA_MANFRED_RUNTIME_ROOT",
-        "EA_MANFRED_SPATIAL_RELEASE_ROOT",
     ):
         path = Path(env[name]).expanduser()
         if (
@@ -2832,9 +3016,6 @@ def _assert_env_allowlist(
         ):
             raise RuntimeError("manfred_candidate_env_path_invalid")
     release_root = Path(env["EA_MANFRED_RELEASE_ROOT"]).resolve()
-    spatial_root = Path(env["EA_MANFRED_SPATIAL_RELEASE_ROOT"]).resolve()
-    if spatial_root != (release_root / "public_property_tours").resolve():
-        raise RuntimeError("manfred_candidate_spatial_env_root_mismatch")
     authority_root = Path(env["EA_MANFRED_RELEASE_AUTHORITY_ROOT"]).resolve()
     if authority_root != (release_root / CANDIDATE_RELEASE_AUTHORITY_DIRNAME).resolve():
         raise RuntimeError("manfred_candidate_release_authority_env_root_mismatch")
@@ -2847,17 +3028,12 @@ def _assert_env_allowlist(
         != f"{env['EA_MANFRED_COMPOSE_PROJECT']}-{commit[:12]}"
     ):
         raise RuntimeError("manfred_candidate_release_identity_invalid")
-    included = env["EA_MANFRED_SPATIAL_HANDOFF_INCLUDED"]
-    slug = env["EA_MANFRED_SPATIAL_SLUG"]
-    digest = env["EA_MANFRED_SPATIAL_SHA256"]
     if (
-        included not in {"0", "1"}
-        or (included == "1") != bool(slug)
-        or (slug and not SPATIAL_SLUG_RE.fullmatch(slug))
-        or len(digest) != 64
-        or any(character not in "0123456789abcdef" for character in digest)
+        env["EA_MANFRED_MEMORIAL_SURFACE"] != MEMORIAL_SURFACE
+        or env["EA_MANFRED_SPATIAL_SCOPE"] != SPATIAL_SCOPE
+        or (release_root / "public_property_tours").exists()
     ):
-        raise RuntimeError("manfred_candidate_spatial_env_invalid")
+        raise RuntimeError("manfred_candidate_conversation_scope_invalid")
     try:
         port = int(env["EA_MANFRED_HOST_PORT"])
     except ValueError as exc:
@@ -2867,18 +3043,33 @@ def _assert_env_allowlist(
     return env
 
 
-def _assert_redis(compose: list[str], environment: dict[str, str]) -> None:
-    response = _run(
-        [*compose, "exec", "-T", "redis", "redis-cli", "ping"],
-        timeout=30,
-        environment=environment,
-    )
+def _assert_redis(
+    compose: list[str],
+    environment: dict[str, str],
+    *,
+    vexp_authority: CandidateVexpMutationAuthority,
+    vexp_mutation_evidence: list[dict[str, object]],
+) -> None:
+    argv = [*compose, "exec", "-T", "redis", "redis-cli", "ping"]
+    with _candidate_exec_timeout(
+        vexp_authority=vexp_authority,
+        vexp_mutation_evidence=vexp_mutation_evidence,
+        operation="redis_ping",
+        argv=argv,
+        target="redis",
+        timeout_seconds=30,
+    ) as timeout:
+        response = _run(argv, timeout=timeout, environment=environment)
     if response.decode("utf-8", errors="replace").strip() != "PONG":
         raise RuntimeError("manfred_candidate_redis_unavailable")
 
 
 def _assert_contribution_modes(
-    compose: list[str], environment: dict[str, str]
+    compose: list[str],
+    environment: dict[str, str],
+    *,
+    vexp_authority: CandidateVexpMutationAuthority,
+    vexp_mutation_evidence: list[dict[str, object]],
 ) -> dict[str, str]:
     command = (
         "private=/data/memorial/private-contributions/manfred/family_contributions.json; "
@@ -2886,15 +3077,50 @@ def _assert_contribution_modes(
         'test -f "$private"; test -f "$public"; '
         'printf \'%s %s\' "$(stat -c %a "$private")" "$(stat -c %a "$public")"'
     )
-    raw = _run(
-        [*compose, "exec", "-T", "api", "/bin/sh", "-ec", command],
-        timeout=30,
-        environment=environment,
-    )
+    argv = [*compose, "exec", "-T", "api", "/bin/sh", "-ec", command]
+    with _candidate_exec_timeout(
+        vexp_authority=vexp_authority,
+        vexp_mutation_evidence=vexp_mutation_evidence,
+        operation="contribution_mode_probe",
+        argv=argv,
+        target="api:/data/memorial/contributions",
+        timeout_seconds=30,
+    ) as timeout:
+        raw = _run(argv, timeout=timeout, environment=environment)
     private_mode, public_mode = raw.decode("ascii").strip().split()
     if private_mode != "600" or public_mode != "644":
         raise RuntimeError("manfred_candidate_contribution_permissions_invalid")
     return {"private_ledger": private_mode, "public_projection": public_mode}
+
+
+def _assert_conversation_state_mode(
+    compose: list[str],
+    environment: dict[str, str],
+    *,
+    vexp_authority: CandidateVexpMutationAuthority,
+    vexp_mutation_evidence: list[dict[str, object]],
+) -> dict[str, str]:
+    """Prove the conversation-only candidate's writable state root is private."""
+
+    command = (
+        "state=/data/memorial/state; "
+        'test -d "$state"; '
+        'printf \'%s\' "$(stat -c %a "$state")"'
+    )
+    argv = [*compose, "exec", "-T", "api", "/bin/sh", "-ec", command]
+    with _candidate_exec_timeout(
+        vexp_authority=vexp_authority,
+        vexp_mutation_evidence=vexp_mutation_evidence,
+        operation="conversation_state_mode_probe",
+        argv=argv,
+        target="api:/data/memorial/state",
+        timeout_seconds=30,
+    ) as timeout:
+        raw = _run(argv, timeout=timeout, environment=environment)
+    mode = raw.decode("ascii").strip()
+    if mode != "700":
+        raise RuntimeError("manfred_candidate_conversation_state_permissions_invalid")
+    return {"conversation_state_root": mode}
 
 
 def _parse_internal_transport_headers(raw: bytes) -> tuple[int, dict[str, str]]:
@@ -2976,6 +3202,8 @@ def _candidate_api_loopback_request(
     headers: dict[str, str] | None = None,
     expected: set[int] | None = None,
     follow_redirects: bool = True,
+    vexp_authority: CandidateVexpMutationAuthority,
+    vexp_mutation_evidence: list[dict[str, object]],
 ) -> tuple[int, bytes, dict[str, str]]:
     del base_url
     raw_path = str(path or "")
@@ -3056,9 +3284,16 @@ def _candidate_api_loopback_request(
         outgoing_header_names.add(lower_name)
         argv.extend(["--header", f"{normalized_name}: {normalized_value}"])
     argv.append(f"http://127.0.0.1:8090{raw_path}")
-    status, response_headers = _parse_internal_transport_headers(
-        _run(argv, timeout=30, environment=environment)
-    )
+    with _candidate_exec_timeout(
+        vexp_authority=vexp_authority,
+        vexp_mutation_evidence=vexp_mutation_evidence,
+        operation="internal_transport_request",
+        argv=argv,
+        target=f"api:http://127.0.0.1:8090{raw_path}",
+        timeout_seconds=30,
+    ) as timeout:
+        response = _run(argv, timeout=timeout, environment=environment)
+    status, response_headers = _parse_internal_transport_headers(response)
     allowed = expected or {200}
     if status not in allowed:
         raise RuntimeError(f"candidate_http_status_unexpected:{path}:{status}")
@@ -3525,12 +3760,18 @@ def _receipt_artifact_if_present(path: Path) -> _CreatedReceiptArtifact | None:
 def _withdraw_candidate_contribution_if_present(
     base_url: str,
     receipt_path: Path,
+    *,
+    expected_artifact: _CreatedReceiptArtifact | None = None,
 ) -> bool:
     """Withdraw a receipt-bound synthetic contribution without losing its token."""
 
     artifact = _receipt_artifact_if_present(receipt_path)
     if artifact is None:
+        if expected_artifact is not None:
+            raise RuntimeError("manfred_candidate_contribution_receipt_changed")
         return False
+    if expected_artifact is not None and artifact != expected_artifact:
+        raise RuntimeError("manfred_candidate_contribution_receipt_changed")
     _withdraw_contribution(base_url, artifact.path)
     if _receipt_artifact_if_present(artifact.path) is not None:
         raise RuntimeError("manfred_candidate_contribution_withdrawal_incomplete")
@@ -3773,6 +4014,8 @@ def _assert_recovered_candidate_runtime(
     compose_attestation: dict[str, object],
     execution_inputs_evidence: dict[str, object],
     execution_environment_sha256: str,
+    vexp_authority: CandidateVexpMutationAuthority,
+    vexp_mutation_evidence: list[dict[str, object]],
 ) -> None:
     if any(receipt.get(name) != value for name, value in projection.items()):
         raise RuntimeError("manfred_candidate_recovered_projection_identity_invalid")
@@ -3785,6 +4028,8 @@ def _assert_recovered_candidate_runtime(
         compose=compose,
         environment=environment,
         projection=projection,
+        vexp_authority=vexp_authority,
+        vexp_mutation_evidence=vexp_mutation_evidence,
     )
     if (
         receipt.get("runtime_projection_initial") != runtime_projection
@@ -3822,21 +4067,22 @@ def _assert_recovered_candidate_runtime(
     )
     if receipt.get("runtime_api_posture") != runtime_posture:
         raise RuntimeError("manfred_candidate_recovered_runtime_posture_invalid")
-    _assert_redis(compose, environment)
+    _assert_redis(
+        compose,
+        environment,
+        vexp_authority=vexp_authority,
+        vexp_mutation_evidence=vexp_mutation_evidence,
+    )
     _assert_logs_clean(compose, environment)
 
 
 def _assert_live_recovery_unchanged(
     *,
     before: dict[str, object],
-    openapi_contract: dict[str, object],
 ) -> None:
     after = _live_snapshot()
     _assert_live_unchanged(before, after)
     _assert_live_http()
-    after_contract, _after_evidence = _live_openapi_contract_snapshot(after)
-    if after_contract != openapi_contract:
-        raise RuntimeError("manfred_candidate_live_openapi_changed")
 
 
 def _prove_candidate_with_execution_inputs(
@@ -3847,8 +4093,14 @@ def _prove_candidate_with_execution_inputs(
     projection: dict[str, object],
     compose_attestation: dict[str, object],
     execution_inputs: _SealedExecutionInputs,
+    vexp_authority: CandidateVexpMutationAuthority,
+    vexp_entry_evidence: dict[str, object],
     spatial_browser_receipt_path: Path | None = None,
 ) -> dict[str, object]:
+    if spatial_browser_receipt_path is not None:
+        raise RuntimeError(
+            "manfred_candidate_spatial_browser_receipt_forbidden_in_conversation_only"
+        )
     env_file = execution_inputs.environment_path
     compose_file = execution_inputs.compose_path
     receipt_path = _normalized_receipt_path(receipt_path)
@@ -3897,6 +4149,33 @@ def _prove_candidate_with_execution_inputs(
     _assert_sealed_execution_inputs_current(execution_inputs)
     compose = _compose_argv(project, env_file, compose_file)
     base_url = f"http://127.0.0.1:{port}"
+    vexp_mutation_evidence: list[dict[str, object]] = []
+
+    @contextlib.contextmanager
+    def candidate_interaction_authority(
+        *,
+        operation: str,
+        argv: list[str],
+        target: str,
+        minimum_validity_seconds: float,
+    ):
+        with vexp_authority.mutation(
+            "before_candidate_interaction",
+            minimum_validity_seconds=minimum_validity_seconds,
+        ) as lease:
+            record = _begin_candidate_operation(
+                vexp_mutation_evidence,
+                operation=operation,
+                argv=argv,
+                target=target,
+                authority=dict(lease.authority_evidence),
+            )
+            try:
+                yield lease
+            except BaseException:
+                raise
+            else:
+                record["runner_acknowledged"] = True
 
     def cleanup_candidate_project() -> None:
         _assert_sealed_execution_inputs_current(execution_inputs)
@@ -3904,6 +4183,8 @@ def _prove_candidate_with_execution_inputs(
             compose=compose,
             environment=compose_environment,
             project=project,
+            vexp_authority=vexp_authority,
+            vexp_mutation_evidence=vexp_mutation_evidence,
         )
 
     def transport_request(
@@ -3928,6 +4209,8 @@ def _prove_candidate_with_execution_inputs(
             headers=headers,
             expected=expected,
             follow_redirects=follow_redirects,
+            vexp_authority=vexp_authority,
+            vexp_mutation_evidence=vexp_mutation_evidence,
         )
 
     with _hold_candidate_locks(project, port) as lock_evidence:
@@ -3935,9 +4218,6 @@ def _prove_candidate_with_execution_inputs(
         live_before = _live_snapshot()
         _assert_live_healthy(live_before)
         _assert_live_http()
-        live_openapi_contract, live_openapi_before = _live_openapi_contract_snapshot(
-            live_before
-        )
         recovery = candidate_registry_recovery_state(
             project=project,
             port=port,
@@ -3990,10 +4270,11 @@ def _prove_candidate_with_execution_inputs(
                     execution_environment_sha256=str(
                         execution_inputs.evidence["environment_sha256"]
                     ),
+                    vexp_authority=vexp_authority,
+                    vexp_mutation_evidence=vexp_mutation_evidence,
                 )
                 _assert_live_recovery_unchanged(
                     before=live_before,
-                    openapi_contract=live_openapi_contract,
                 )
                 if recovery_state == "pending_receipt":
                     registration = register_candidate_receipt(
@@ -4023,7 +4304,6 @@ def _prove_candidate_with_execution_inputs(
                     try:
                         _assert_live_recovery_unchanged(
                             before=live_before,
-                            openapi_contract=live_openapi_contract,
                         )
                     except BaseException:
                         recovery_errors.append("live_ea_changed_or_unhealthy")
@@ -4068,12 +4348,33 @@ def _prove_candidate_with_execution_inputs(
             recovery_errors = []
             with _shield_cleanup_interrupts():
                 try:
-                    launch_recovery_evidence["pending_contribution_reconciled"] = (
-                        _withdraw_candidate_contribution_if_present(
-                            base_url,
-                            contribution_receipt,
-                        )
+                    contribution_artifact = _receipt_artifact_if_present(
+                        contribution_receipt
                     )
+                    if contribution_artifact is not None:
+                        with candidate_interaction_authority(
+                            operation="candidate_contribution_recovery",
+                            argv=[
+                                "withdraw_candidate_contribution",
+                                "--base-url",
+                                base_url,
+                                "--receipt",
+                                str(contribution_receipt),
+                            ],
+                            target=str(contribution_receipt),
+                            minimum_validity_seconds=60
+                        ):
+                            launch_recovery_evidence[
+                                "pending_contribution_reconciled"
+                            ] = _withdraw_candidate_contribution_if_present(
+                                base_url,
+                                contribution_receipt,
+                                expected_artifact=contribution_artifact,
+                            )
+                    else:
+                        launch_recovery_evidence[
+                            "pending_contribution_reconciled"
+                        ] = False
                 except BaseException as recovery_exc:
                     raise RuntimeError(
                         "manfred_candidate_pending_contribution_recovery_failed"
@@ -4090,7 +4391,6 @@ def _prove_candidate_with_execution_inputs(
                 try:
                     _assert_live_recovery_unchanged(
                         before=live_before,
-                        openapi_contract=live_openapi_contract,
                     )
                 except BaseException:
                     recovery_errors.append("live_ea_changed_or_unhealthy")
@@ -4119,6 +4419,10 @@ def _prove_candidate_with_execution_inputs(
                     + ",".join(recovery_errors)
                 )
             launch_recovery_evidence["crash_intent_reconciled"] = True
+            raise RuntimeError(
+                "manfred_candidate_pending_recovery_completed:"
+                "fresh_invocation_required"
+            )
         elif recovery_state != "absent":
             raise RuntimeError("manfred_candidate_registry_recovery_invalid")
 
@@ -4139,29 +4443,70 @@ def _prove_candidate_with_execution_inputs(
             )
             pending_registered = True
             _assert_sealed_execution_inputs_current(execution_inputs)
-            up_started = True
-            _run(
-                [*compose, "up", "-d", "--wait", "--wait-timeout", str(wait_seconds)],
-                timeout=wait_seconds + 60,
-                environment=compose_environment,
+            up_argv = [
+                *compose,
+                "up",
+                "-d",
+                "--wait",
+                "--wait-timeout",
+                str(wait_seconds),
+            ]
+            with vexp_authority.mutation(
+                "before_candidate_up",
+                minimum_validity_seconds=wait_seconds + 60,
+            ) as lease:
+                operation_record = _begin_candidate_operation(
+                    vexp_mutation_evidence,
+                    operation="compose_up",
+                    argv=up_argv,
+                    target=project,
+                    authority=dict(lease.authority_evidence),
+                )
+                up_started = True
+                _run(
+                    up_argv,
+                    timeout=lease.command_timeout(wait_seconds + 60),
+                    environment=compose_environment,
+                )
+                operation_record["runner_acknowledged"] = True
+            _assert_redis(
+                compose,
+                compose_environment,
+                vexp_authority=vexp_authority,
+                vexp_mutation_evidence=vexp_mutation_evidence,
             )
-            _assert_redis(compose, compose_environment)
             runtime_projection_initial = _candidate_runtime_projection_evidence(
                 compose=compose,
                 environment=compose_environment,
                 projection=projection,
+                vexp_authority=vexp_authority,
+                vexp_mutation_evidence=vexp_mutation_evidence,
             )
 
             _assert_new_receipt_path(contribution_receipt)
             try:
-                first_smoke = verify_candidate(
-                    base_url=base_url,
-                    public_origin=env["EA_PUBLIC_APP_BASE_URL"],
-                    wait_seconds=wait_seconds,
-                    submit_receipt=contribution_receipt,
-                    withdraw_receipt=None,
-                    transport_request=transport_request,
-                )
+                with candidate_interaction_authority(
+                    operation="candidate_smoke",
+                    argv=[
+                        "verify_candidate",
+                        "--base-url",
+                        base_url,
+                        "--public-origin",
+                        env["EA_PUBLIC_APP_BASE_URL"],
+                        "--conversation-only",
+                    ],
+                    target=base_url,
+                    minimum_validity_seconds=wait_seconds + 60
+                ):
+                    first_smoke = verify_candidate(
+                        base_url=base_url,
+                        public_origin=env["EA_PUBLIC_APP_BASE_URL"],
+                        wait_seconds=wait_seconds,
+                        submit_receipt=None,
+                        withdraw_receipt=None,
+                        transport_request=transport_request,
+                        conversation_only=True,
+                    )
             finally:
                 contribution_artifact = _receipt_artifact_if_present(
                     contribution_receipt
@@ -4182,25 +4527,52 @@ def _prove_candidate_with_execution_inputs(
             if not api_before_restart:
                 raise RuntimeError("manfred_candidate_api_missing")
             _assert_sealed_execution_inputs_current(execution_inputs)
-            _run(
-                [*compose, "restart", "api"],
-                timeout=90,
-                environment=compose_environment,
-            )
+            restart_argv = [*compose, "restart", "api"]
+            with vexp_authority.mutation(
+                "before_candidate_restart",
+                minimum_validity_seconds=90,
+            ) as lease:
+                operation_record = _begin_candidate_operation(
+                    vexp_mutation_evidence,
+                    operation="compose_restart_api",
+                    argv=restart_argv,
+                    target=f"{project}:api",
+                    authority=dict(lease.authority_evidence),
+                )
+                _run(
+                    restart_argv,
+                    timeout=lease.command_timeout(90),
+                    environment=compose_environment,
+                )
+                operation_record["runner_acknowledged"] = True
             _wait_for_candidate_api_healthy(
                 compose=compose,
                 environment=compose_environment,
                 expected_container_id=api_before_restart,
                 wait_seconds=wait_seconds,
             )
-            second_smoke = verify_candidate(
-                base_url=base_url,
-                public_origin=env["EA_PUBLIC_APP_BASE_URL"],
-                wait_seconds=wait_seconds,
-                submit_receipt=None,
-                withdraw_receipt=contribution_receipt,
-                transport_request=transport_request,
-            )
+            with candidate_interaction_authority(
+                operation="candidate_smoke_after_restart",
+                argv=[
+                    "verify_candidate",
+                    "--base-url",
+                    base_url,
+                    "--public-origin",
+                    env["EA_PUBLIC_APP_BASE_URL"],
+                    "--conversation-only",
+                ],
+                target=base_url,
+                minimum_validity_seconds=wait_seconds + 60
+            ):
+                second_smoke = verify_candidate(
+                    base_url=base_url,
+                    public_origin=env["EA_PUBLIC_APP_BASE_URL"],
+                    wait_seconds=wait_seconds,
+                    submit_receipt=None,
+                    withdraw_receipt=None,
+                    transport_request=transport_request,
+                    conversation_only=True,
+                )
             api_after_restart = (
                 _run(
                     [*compose, "ps", "-q", "api"],
@@ -4212,9 +4584,17 @@ def _prove_candidate_with_execution_inputs(
             )
             if api_after_restart != api_before_restart:
                 raise RuntimeError("manfred_candidate_restart_recreated_container")
-            _assert_redis(compose, compose_environment)
-            contribution_modes = _assert_contribution_modes(
-                compose, compose_environment
+            _assert_redis(
+                compose,
+                compose_environment,
+                vexp_authority=vexp_authority,
+                vexp_mutation_evidence=vexp_mutation_evidence,
+            )
+            conversation_state_mode = _assert_conversation_state_mode(
+                compose,
+                compose_environment,
+                vexp_authority=vexp_authority,
+                vexp_mutation_evidence=vexp_mutation_evidence,
             )
             runtime_api_posture = _candidate_api_runtime_posture(
                 compose=compose,
@@ -4236,35 +4616,58 @@ def _prove_candidate_with_execution_inputs(
             )
             image_id = str(projection["prepared_image_id"])
             image_source_revision = str(projection["projection_commit"])
-            runtime_version_identity = _candidate_runtime_version_identity(
-                base_url,
-                expected_commit=image_source_revision,
-                oci_image_revision=str(initial_container_images["revision_label"]),
-            )
+            with candidate_interaction_authority(
+                operation="runtime_identity_probe",
+                argv=[
+                    "candidate_runtime_version_identity",
+                    "--base-url",
+                    base_url,
+                    "--expected-commit",
+                    image_source_revision,
+                ],
+                target=base_url,
+                minimum_validity_seconds=60,
+            ):
+                runtime_version_identity = _candidate_runtime_version_identity(
+                    base_url,
+                    expected_commit=image_source_revision,
+                    oci_image_revision=str(
+                        initial_container_images["revision_label"]
+                    ),
+                )
             runtime_source_revision = str(
                 runtime_version_identity["source_revision_header"]
             )
             runtime_authority_commit = str(runtime_version_identity["body_commit_sha"])
-            spatial_handoff = _spatial_handoff_runtime_proof(
-                base_url,
-                projection,
-                oci_image_id=image_id,
-                serving_container_id=str(
-                    dict(initial_container_images["gateway"])["container_id"]
-                ),
-            )
-            browser_surface = audit_browser_surface(base_url)
+            with candidate_interaction_authority(
+                operation="browser_surface_audit",
+                argv=[
+                    "audit_browser_surface",
+                    "--base-url",
+                    base_url,
+                    "--public-origin",
+                    env["EA_PUBLIC_APP_BASE_URL"],
+                    "--conversation-only",
+                ],
+                target=base_url,
+                minimum_validity_seconds=180,
+            ):
+                browser_surface = audit_browser_surface(
+                    base_url,
+                    public_origin=env["EA_PUBLIC_APP_BASE_URL"],
+                    conversation_only=True,
+                )
             _assert_logs_clean(compose, compose_environment)
             candidate_openapi_retirement = _assert_candidate_openapi_retired(base_url)
             candidate_openapi_contract, candidate_openapi = (
                 _candidate_openapi_contract_snapshot(
                     compose,
                     compose_environment,
+                    vexp_authority=vexp_authority,
+                    vexp_mutation_evidence=vexp_mutation_evidence,
                 )
             )
-            openapi_preservation = _assert_openapi_contract_preserved(
-                live_openapi_contract, candidate_openapi_contract
-            )
+            del candidate_openapi_contract
             final_container_images = _candidate_container_image_evidence(
                 compose=compose,
                 environment=compose_environment,
@@ -4277,20 +4680,18 @@ def _prove_candidate_with_execution_inputs(
                 compose=compose,
                 environment=compose_environment,
                 projection=projection,
+                vexp_authority=vexp_authority,
+                vexp_mutation_evidence=vexp_mutation_evidence,
             )
             if runtime_projection_final != runtime_projection_initial:
                 raise RuntimeError("manfred_candidate_runtime_projection_changed")
             live_after = _live_snapshot()
             _assert_live_unchanged(live_before, live_after)
             _assert_live_http()
-            live_openapi_after_contract, live_openapi_after = (
-                _live_openapi_contract_snapshot(live_after)
-            )
-            if live_openapi_after_contract != live_openapi_contract:
-                raise RuntimeError("manfred_candidate_live_openapi_changed")
             receipt = {
                 "schema": RECEIPT_SCHEMA,
                 "status": "pass",
+                "producer_sha256": _producer_sha256(),
                 "observed_at": datetime.now(timezone.utc)
                 .replace(microsecond=0)
                 .isoformat()
@@ -4331,22 +4732,20 @@ def _prove_candidate_with_execution_inputs(
                 "provider_credentials_present": False,
                 "provider_calls_performed": False,
                 "redis_ping": "PONG",
-                "contribution_modes": contribution_modes,
-                "spatial_handoff_runtime": spatial_handoff,
-                "contribution_survived_restart": bool(
-                    second_smoke.get("contribution", {}).get(
-                        "survived_candidate_restart"
-                    )
-                ),
+                "conversation_state_mode": conversation_state_mode,
+                "memorial_surface": MEMORIAL_SURFACE,
+                "spatial_scope": SPATIAL_SCOPE,
+                "public_property_tours_tested": False,
+                "memorial_spatial_receipt_generated": False,
                 "first_smoke_checks": first_smoke.get("checks", []),
                 "second_smoke_checks": second_smoke.get("checks", []),
                 "browser_surface": browser_surface,
                 "openapi_contract": {
-                    "live_before": live_openapi_before,
                     "candidate": candidate_openapi,
                     "candidate_public_endpoint": candidate_openapi_retirement,
-                    "live_after": live_openapi_after,
-                    **openapi_preservation,
+                    "live_comparison_status": "deferred_to_governed_promotion",
+                    "candidate_preserves_live_contract": False,
+                    "candidate_live_contract_claim_allowed": False,
                 },
                 "live_ea_api_unchanged": True,
                 "live_ea_api": _main_api_snapshot(live_after),
@@ -4356,21 +4755,25 @@ def _prove_candidate_with_execution_inputs(
                 "candidate_left_running_for_soak": True,
                 "promotion_authority": False,
             }
-            with _shield_cleanup_interrupts():
-                if spatial_browser_receipt_path is not None:
-                    _persist_spatial_browser_receipt(
-                        spatial_browser_receipt_path,
+            with vexp_authority.finalization() as finalization_evidence:
+                receipt["vexp_candidate_mutation_authority"] = {
+                    "entry": dict(vexp_entry_evidence),
+                    "mutations": [dict(row) for row in vexp_mutation_evidence],
+                    "finalization": dict(finalization_evidence),
+                    "cleanup_requires_positive_authority": True,
+                    "retention_timer_only_authority_free_cleanup": True,
+                }
+                with _shield_cleanup_interrupts():
+                    registration = _persist_runtime_receipt(
+                        receipt_path,
                         receipt,
                         created_artifacts=created_artifacts,
                     )
-                registration = _persist_runtime_receipt(
-                    receipt_path,
-                    receipt,
-                    created_artifacts=created_artifacts,
-                )
-                if registration.get("registered") is not True:
-                    raise RuntimeError("manfred_candidate_registry_registration_failed")
-                pending_registered = False
+                    if registration.get("registered") is not True:
+                        raise RuntimeError(
+                            "manfred_candidate_registry_registration_failed"
+                        )
+            pending_registered = False
             return receipt
         except BaseException as exc:
             if not up_started:
@@ -4385,10 +4788,27 @@ def _prove_candidate_with_execution_inputs(
             with _shield_cleanup_interrupts():
                 contribution_withdrawal_blocked = False
                 try:
-                    _withdraw_candidate_contribution_if_present(
-                        base_url,
-                        contribution_receipt,
+                    contribution_artifact = _receipt_artifact_if_present(
+                        contribution_receipt
                     )
+                    if contribution_artifact is not None:
+                        with candidate_interaction_authority(
+                            operation="candidate_contribution_recovery",
+                            argv=[
+                                "withdraw_candidate_contribution",
+                                "--base-url",
+                                base_url,
+                                "--receipt",
+                                str(contribution_receipt),
+                            ],
+                            target=str(contribution_receipt),
+                            minimum_validity_seconds=60
+                        ):
+                            _withdraw_candidate_contribution_if_present(
+                                base_url,
+                                contribution_receipt,
+                                expected_artifact=contribution_artifact,
+                            )
                 except BaseException:
                     contribution_withdrawal_blocked = True
                     recovery_errors.append("candidate_contribution_withdrawal_failed")
@@ -4421,22 +4841,6 @@ def _prove_candidate_with_execution_inputs(
                         recovery_errors.append(
                             "candidate_private_receipt_cleanup_failed"
                         )
-                if spatial_browser_receipt_path is not None:
-                    try:
-                        spatial_browser_artifact = created_artifacts.get(
-                            spatial_browser_receipt_path
-                        )
-                        if (
-                            spatial_browser_artifact is not None
-                            and not _unlink_created_receipt_artifact(
-                                spatial_browser_artifact
-                            )
-                        ):
-                            raise RuntimeError(RECEIPT_ARTIFACT_INVALID)
-                    except BaseException:
-                        recovery_errors.append(
-                            "candidate_spatial_browser_receipt_cleanup_failed"
-                        )
                 try:
                     runtime_artifact = created_artifacts.get(receipt_path)
                     if (
@@ -4450,11 +4854,6 @@ def _prove_candidate_with_execution_inputs(
                     recovered_live = _live_snapshot()
                     _assert_live_unchanged(live_before, recovered_live)
                     _assert_live_http()
-                    recovered_openapi_contract, _recovered_openapi = (
-                        _live_openapi_contract_snapshot(recovered_live)
-                    )
-                    if recovered_openapi_contract != live_openapi_contract:
-                        raise RuntimeError("manfred_candidate_live_openapi_changed")
                 except BaseException:
                     recovery_errors.append("live_ea_changed_or_unhealthy")
                 if pending_registered and not recovery_errors:
@@ -4489,6 +4888,9 @@ def prove_candidate(
     receipt_path: Path,
     wait_seconds: int,
     spatial_browser_receipt_path: Path | None = None,
+    vexp_state_path: Path = DEFAULT_SENTINEL_STATE_PATH,
+    vexp_state_owner_uid: int | None = None,
+    vexp_authority: CandidateVexpMutationAuthority | None = None,
 ) -> dict[str, object]:
     canonical_env_file = Path(
         os.path.abspath(os.fspath(env_file.expanduser()))
@@ -4508,6 +4910,15 @@ def prove_candidate(
         expected_commit=env["EA_MANFRED_COMMIT"],
     )
     projection = _projection_evidence(env)
+    authority = vexp_authority or candidate_vexp_authority(
+        state_path=Path(vexp_state_path),
+        state_owner_uid=(
+            os.geteuid()
+            if vexp_state_owner_uid is None
+            else vexp_state_owner_uid
+        ),
+    )
+    entry_evidence = authority.require_current()
     with _sealed_candidate_execution_inputs(
         compose_bytes=compose_bytes,
         environment_bytes=environment_bytes,
@@ -4522,6 +4933,8 @@ def prove_candidate(
             projection=projection,
             compose_attestation=compose_attestation,
             execution_inputs=execution_inputs,
+            vexp_authority=authority,
+            vexp_entry_evidence=entry_evidence,
             spatial_browser_receipt_path=spatial_browser_receipt_path,
         )
 
@@ -4537,8 +4950,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(root / "deploy/manfred-memorial/docker-compose.candidate.yml"),
     )
     parser.add_argument("--receipt", required=True)
-    parser.add_argument("--spatial-browser-receipt")
     parser.add_argument("--wait-seconds", type=int, default=240)
+    parser.add_argument("--vexp-state-path", required=True)
+    parser.add_argument("--vexp-state-owner-uid", required=True, type=int)
     return parser
 
 
@@ -4573,11 +4987,8 @@ def main(argv: list[str] | None = None) -> int:
                 compose_file=Path(args.compose_file),
                 receipt_path=Path(args.receipt).expanduser().resolve(),
                 wait_seconds=max(60, min(600, int(args.wait_seconds))),
-                spatial_browser_receipt_path=(
-                    Path(args.spatial_browser_receipt).expanduser()
-                    if args.spatial_browser_receipt
-                    else None
-                ),
+                vexp_state_path=Path(args.vexp_state_path),
+                vexp_state_owner_uid=args.vexp_state_owner_uid,
             )
     except GovernedSignalInterrupt as exc:
         print(

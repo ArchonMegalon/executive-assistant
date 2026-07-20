@@ -24,17 +24,12 @@ def test_manfred_source_gate_covers_launch_critical_contracts() -> None:
 
     required_suites = {
         "tests/test_manfred_memorial_deployment_contract.py",
-        "tests/test_manfred_spatial_candidate_browser.py",
-        "tests/test_manfred_joint_deploy.py",
         "tests/test_memorial_governed_deploy.py",
+        "tests/test_manfred_candidate_isolation.py",
+        "tests/test_manfred_candidate_registry_v6.py",
         "tests/test_memorial_private_context.py",
         "tests/test_memorial_security_contracts.py",
         "tests/test_memorial_release_policy.py",
-        "tests/test_public_tour_release_policy.py",
-        "tests/test_propertyquarry_public_tour_branding.py",
-        "tests/test_public_tour_publication_quarantine.py",
-        "tests/test_public_tour_no_media_renderer.py",
-        "tests/test_memorial_spatial_tour_public_origin.py",
         "tests/test_ea_public_ingress_reconciliation.py",
         "tests/test_memorial_gold_readiness.py",
         "tests/test_memorial_operator_artifacts.py",
@@ -50,7 +45,7 @@ def test_manfred_source_gate_covers_launch_critical_contracts() -> None:
 
     for suite in required_suites:
         assert suite in body
-    assert "-k 'public_memorial or public_tour'" in body
+    assert "-k 'public_memorial and not public_tour'" in body
     assert "--rootdir=ea ea/tests/test_memorial_runtime.py" in body
 
 
@@ -68,14 +63,34 @@ def test_manfred_source_gate_cannot_mutate_or_contact_live_runtime() -> None:
         assert forbidden not in body
 
 
-def test_manfred_promotion_preflight_sequences_source_and_joint_proof_only() -> None:
+def test_manfred_promotion_preflight_sequences_source_and_scoped_proof_only() -> None:
     body = _make_target_body("verify-manfred-memorial-promotion-preflight")
 
     source_index = body.index("$(MAKE) verify-manfred-memorial-source-gate")
-    joint_index = body.index("$(MAKE) verify-ea-memorial-joint-deploy")
-    assert source_index < joint_index
+    scoped_index = body.index("$(MAKE) verify-ea-memorial-scoped-deploy")
+    assert source_index < scoped_index
+    assert "verify-ea-memorial-joint-deploy" not in body
     assert "$(MAKE) deploy-ea-memorial" not in body
     assert "reconcile-ea-public-ingress" not in body
+
+
+def test_propertyquarry_spatial_compatibility_gate_is_separate_and_complete() -> None:
+    body = _make_target_body(
+        "verify-propertyquarry-spatial-compatibility-source-gate"
+    )
+
+    for suite in (
+        "tests/test_manfred_spatial_candidate_browser.py",
+        "tests/test_manfred_joint_deploy.py",
+        "tests/test_memorial_spatial_tour_public_origin.py",
+        "tests/test_memorial_memory_room.py",
+        "tests/test_public_tour_release_policy.py",
+        "tests/test_propertyquarry_public_tour_branding.py",
+        "tests/test_public_tour_publication_quarantine.py",
+        "tests/test_public_tour_no_media_renderer.py",
+    ):
+        assert suite in body
+    assert "-k 'public_tour'" in body
 
 
 def test_manfred_public_launch_gate_materializes_every_public_proof_plane() -> None:

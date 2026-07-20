@@ -2,7 +2,7 @@
 .PHONY: deploy-ea-memorial-scoped verify-ea-memorial-scoped-deploy
 .PHONY: deploy-ea-memorial-joint verify-ea-memorial-joint-deploy
 .PHONY: reconcile-ea-public-ingress verify-ea-public-ingress-preflight verify-ea-public-ingress-public
-.PHONY: verify-manfred-memorial-source-gate verify-manfred-memorial-promotion-preflight manfred-memorial-public-launch-gates
+.PHONY: verify-manfred-memorial-source-gate verify-propertyquarry-spatial-compatibility-source-gate verify-manfred-memorial-promotion-preflight manfred-memorial-public-launch-gates
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 TEST_API_PYTEST_IGNORE ?= --ignore-glob=tests/test_chummer*.py --ignore-glob=tests/test_next90*.py --ignore=tests/test_design_mirror_bundle_contracts.py
@@ -59,7 +59,7 @@ deploy-ea-memorial:
 	EA_DEPLOY_PRIMARY_MODE=MEMORIAL \
 	EA_DEPLOY_ENABLED_MODES=MEMORIAL \
 	EA_DEPLOY_COMPOSE_OVERRIDES=docker-compose.memorial.yml \
-	$(MAKE) deploy-ea-memorial-joint
+	$(MAKE) deploy-ea-memorial-scoped
 
 deploy-ea-memorial-joint:
 	@ : "$${EA_DEPLOYMENT_ID:?Set an explicit EA_DEPLOYMENT_ID before joint memorial deployment}"
@@ -117,10 +117,11 @@ verify-ea-public-ingress-public:
 
 verify-manfred-memorial-promotion-preflight:
 	$(MAKE) verify-manfred-memorial-source-gate
-	$(MAKE) verify-ea-memorial-joint-deploy
+	$(MAKE) verify-ea-memorial-scoped-deploy
 
-# Run only after an authorized joint deploy. This materializes real public,
-# provider, room-review, and spatial evidence; it never grants mutation authority.
+# Run only after an authorized scoped conversation-only Memorial deploy. This
+# materializes real public provider and room-review evidence; it never grants
+# mutation authority.
 manfred-memorial-public-launch-gates:
 	EA_PUBLIC_ORIGIN="$${EA_PUBLIC_ORIGIN:-$${MEMORIAL_PUBLIC_ORIGIN:?Set EA_PUBLIC_ORIGIN or MEMORIAL_PUBLIC_ORIGIN}}" $(MAKE) verify-ea-public-ingress-public
 	$(MAKE) materialize-memorial-public-gold
@@ -204,20 +205,21 @@ test-api:
 verify-manfred-memorial-source-gate:
 	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
 		tests/test_manfred_memorial_deployment_contract.py \
-		tests/test_manfred_spatial_candidate_browser.py \
-		tests/test_manfred_joint_deploy.py \
 		tests/test_memorial_governed_deploy.py
+	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
+		tests/test_manage_manfred_vexp_mutation_permit.py \
+		tests/test_vexp_root_maintenance_recovery_request.py \
+		tests/test_manfred_candidate_vexp_authority.py \
+		tests/test_manfred_candidate_isolation.py \
+		tests/test_manfred_candidate_registry_v6.py \
+		tests/test_manfred_image_builder_cache.py \
+		tests/test_memorial_vexp_soak_guard.py \
+		tests/test_memorial_runtime_source_revision.py
 	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
 		tests/test_memorial_private_context.py \
 		tests/test_memorial_security_contracts.py \
-		tests/test_memorial_memory_room.py \
-		tests/test_memorial_release_policy.py \
-		tests/test_public_tour_release_policy.py \
-		tests/test_propertyquarry_public_tour_branding.py \
-		tests/test_public_tour_publication_quarantine.py \
-		tests/test_public_tour_no_media_renderer.py
+		tests/test_memorial_release_policy.py
 	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
-		tests/test_memorial_spatial_tour_public_origin.py \
 		tests/test_ea_public_ingress_reconciliation.py \
 		tests/test_memorial_gold_readiness.py \
 		tests/test_memorial_operator_artifacts.py \
@@ -229,9 +231,25 @@ verify-manfred-memorial-source-gate:
 	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
 		tests/test_memorial_live_conversation_contracts.py
 	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
-		tests/test_providers_api_contracts.py -k 'public_memorial or public_tour'
+		tests/test_providers_api_contracts.py -k 'public_memorial and not public_tour'
 	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
 		--rootdir=ea ea/tests/test_memorial_runtime.py
+
+# Separate legacy/spatial compatibility proof. It is intentionally not a
+# dependency of the conversation-only Memorial candidate, deploy, or gold gate.
+verify-propertyquarry-spatial-compatibility-source-gate:
+	@echo "Running the separate PropertyQuarry/spatial compatibility plane; this does not gate Memorial." >&2
+	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
+		tests/test_manfred_spatial_candidate_browser.py \
+		tests/test_manfred_joint_deploy.py \
+		tests/test_memorial_spatial_tour_public_origin.py \
+		tests/test_memorial_memory_room.py \
+		tests/test_public_tour_release_policy.py \
+		tests/test_propertyquarry_public_tour_branding.py \
+		tests/test_public_tour_publication_quarantine.py \
+		tests/test_public_tour_no_media_renderer.py
+	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
+		tests/test_providers_api_contracts.py -k 'public_tour'
 
 test-all:
 	PYTHONPATH=ea $(PYTHON_BIN) -m pytest -q
@@ -623,7 +641,6 @@ runtime-hard-exit-gates:
 memorial-gold-gates:
 	$(MAKE) verify-memorial-runtime-overlay
 	$(MAKE) verify-memorial-voice-stability
-	$(MAKE) verify-memorial-spatial-tour-public-origin
 	$(MAKE) verify-memorial-gold-readiness
 
 materialize-memorial-public-voice-gold:
@@ -663,6 +680,7 @@ materialize-memorial-public-browser-meaningful-gold:
 		--output .codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json
 
 materialize-memorial-spatial-tour-public-origin:
+	@echo "PropertyQuarry spatial proof is a separate plane; this compatibility target does not participate in Memorial gold." >&2
 	$(PYTHON_BIN) scripts/materialize_memorial_spatial_tour_public_origin.py \
 		--deploy-receipt "$${MEMORIAL_SPATIAL_DEPLOY_RECEIPT:?Set MEMORIAL_SPATIAL_DEPLOY_RECEIPT to the passing governed deploy receipt}" \
 		--candidate-browser-receipt "$${MEMORIAL_SPATIAL_CANDIDATE_BROWSER_RECEIPT:?Set MEMORIAL_SPATIAL_CANDIDATE_BROWSER_RECEIPT to the passing v5 candidate-browser receipt}" \
@@ -677,8 +695,6 @@ materialize-memorial-public-auto-receipts-clean:
 		--python-bin "$(PYTHON_BIN)" \
 		--base-url "$${MEMORIAL_PUBLIC_ORIGIN:?Set MEMORIAL_PUBLIC_ORIGIN to the deployed memorial origin}" \
 		--slug "$${MEMORIAL_PUBLIC_SLUG:-manfred}" \
-		--spatial-deploy-receipt "$${MEMORIAL_SPATIAL_DEPLOY_RECEIPT:?Set MEMORIAL_SPATIAL_DEPLOY_RECEIPT to the passing governed deploy receipt}" \
-		--spatial-candidate-browser-receipt "$${MEMORIAL_SPATIAL_CANDIDATE_BROWSER_RECEIPT:?Set MEMORIAL_SPATIAL_CANDIDATE_BROWSER_RECEIPT to the passing v5 candidate-browser receipt}" \
 		--direct-min-f1 "$${MEMORIAL_GOLD_DIRECT_TTS_F1_MIN:-0.92}" \
 		--conversation-min-f1 "$${MEMORIAL_GOLD_CONVERSATION_AUDIO_F1_MIN:-0.90}" \
 		--browser-first-answer-ms "$${MEMORIAL_GOLD_MAX_BROWSER_FIRST_ANSWER_MS:-4500}" \
@@ -731,8 +747,6 @@ materialize-memorial-public-gold:
 		--python-bin "$(PYTHON_BIN)" \
 		--base-url "$${MEMORIAL_PUBLIC_ORIGIN:?Set MEMORIAL_PUBLIC_ORIGIN to the deployed memorial origin}" \
 		--slug "$${MEMORIAL_PUBLIC_SLUG:-manfred}" \
-		--spatial-deploy-receipt "$${MEMORIAL_SPATIAL_DEPLOY_RECEIPT:?Set MEMORIAL_SPATIAL_DEPLOY_RECEIPT to the passing governed deploy receipt}" \
-		--spatial-candidate-browser-receipt "$${MEMORIAL_SPATIAL_CANDIDATE_BROWSER_RECEIPT:?Set MEMORIAL_SPATIAL_CANDIDATE_BROWSER_RECEIPT to the passing v5 candidate-browser receipt}" \
 		--reviewer "$${MEMORIAL_ROOM_REVIEWER:?Set MEMORIAL_ROOM_REVIEWER to the listener/operator name}" \
 		--device-label "$${MEMORIAL_ROOM_DEVICE_LABEL:-}" \
 		--speaker-label "$${MEMORIAL_ROOM_SPEAKER_LABEL:-}" \

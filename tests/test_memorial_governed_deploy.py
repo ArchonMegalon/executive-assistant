@@ -16,6 +16,7 @@ from app.services.public_tour_release_policy import (
     GENERATED_RECONSTRUCTION_PROVIDER,
     PUBLIC_TOUR_GENERATED_VIEWER_RELEASE_CONTRACT,
 )
+from scripts import build_manfred_memorial_image as image_builder
 from scripts import deploy_ea_memorial as deploy
 
 
@@ -29,14 +30,34 @@ class TestVexpMemorialMutationAuthority(deploy.VexpMemorialMutationAuthority):
         certificate_root: Path,
         certificate_directory: Path,
         permit_path: Path,
+        permit_commit_path: Path,
         lock_path: Path,
+        epoch_void_ledger_root: Path,
+        current_predicate_trusted_parent: Path,
+        current_predicate_root: Path,
+        current_predicate_producer_trusted_parent: Path,
+        current_predicate_producer_path: Path,
+        current_boot_id: str,
+        monotonic_ns: Callable[[], int],
         utc_now: Callable[[], datetime],
     ) -> None:
         self._state_path = state_path
         self._certificate_root = certificate_root
         self._certificate_directory = certificate_directory
         self._permit_path = permit_path
+        self._permit_commit_path = permit_commit_path
         self._lock_path = lock_path
+        self._epoch_void_ledger_root = epoch_void_ledger_root
+        self._current_predicate_trusted_parent = (
+            current_predicate_trusted_parent
+        )
+        self._current_predicate_root = current_predicate_root
+        self._current_predicate_producer_trusted_parent = (
+            current_predicate_producer_trusted_parent
+        )
+        self._current_predicate_producer_path = current_predicate_producer_path
+        self._current_boot_id = current_boot_id
+        self._monotonic_ns = monotonic_ns
         self._utc_now = utc_now
 
     @property
@@ -46,6 +67,18 @@ class TestVexpMemorialMutationAuthority(deploy.VexpMemorialMutationAuthority):
     @property
     def mutation_permit_path(self) -> Path:
         return self._permit_path
+
+    @property
+    def mutation_permit_commit_path(self) -> Path:
+        return self._permit_commit_path
+
+    @property
+    def mutation_permit_commit_owner_uid(self) -> int:
+        return os.geteuid()
+
+    @property
+    def mutation_permit_commit_owner_gid(self) -> int:
+        return os.getegid()
 
     @property
     def qualification_certificate_root(self) -> Path:
@@ -68,12 +101,94 @@ class TestVexpMemorialMutationAuthority(deploy.VexpMemorialMutationAuthority):
         return os.geteuid()
 
     @property
+    def mutation_permit_owner_gid(self) -> int:
+        return os.getegid()
+
+    @property
     def mutation_permit_lock_path(self) -> Path:
         return self._lock_path
 
     @property
     def mutation_permit_lock_owner_uid(self) -> int:
         return os.geteuid()
+
+    @property
+    def mutation_permit_lock_owner_gid(self) -> int:
+        return os.getegid()
+
+    @property
+    def mutation_authority_trusted_parent(self) -> Path:
+        return self._permit_path.parent
+
+    @property
+    def mutation_authority_directory_owner_uid(self) -> int:
+        return os.geteuid()
+
+    @property
+    def mutation_authority_directory_owner_gid(self) -> int:
+        return os.getegid()
+
+    @property
+    def epoch_void_ledger_root(self) -> Path:
+        return self._epoch_void_ledger_root
+
+    @property
+    def epoch_void_ledger_owner_uid(self) -> int:
+        return os.geteuid()
+
+    @property
+    def epoch_void_ledger_owner_gid(self) -> int:
+        return os.getegid()
+
+    @property
+    def current_predicate_trusted_parent(self) -> Path:
+        return self._current_predicate_trusted_parent
+
+    @property
+    def current_predicate_root(self) -> Path:
+        return self._current_predicate_root
+
+    @property
+    def current_predicate_records_directory(self) -> Path:
+        return self._current_predicate_root / "records"
+
+    @property
+    def current_predicate_pointer_path(self) -> Path:
+        return self._current_predicate_root / "current.json"
+
+    @property
+    def current_predicate_producer_manifest_path(self) -> Path:
+        return self._current_predicate_root / "producer-manifest.json"
+
+    @property
+    def current_predicate_producer_path(self) -> Path:
+        return self._current_predicate_producer_path
+
+    @property
+    def current_predicate_producer_trusted_parent(self) -> Path:
+        return self._current_predicate_producer_trusted_parent
+
+    @property
+    def current_predicate_producer_owner_uid(self) -> int:
+        return os.geteuid()
+
+    @property
+    def current_predicate_producer_owner_gid(self) -> int:
+        return os.getegid()
+
+    @property
+    def current_predicate_owner_uid(self) -> int:
+        return os.geteuid()
+
+    @property
+    def current_predicate_owner_gid(self) -> int:
+        return os.getegid()
+
+    def current_boot_id(self) -> str:
+        return self._current_boot_id
+
+    def monotonic_ns(self) -> int:
+        return self._monotonic_ns()
 
     def utc_now(self) -> datetime:
         return self._utc_now()
@@ -115,6 +230,12 @@ def _vexp_certificate(state: Mapping[str, object]) -> dict[str, object]:
         "qualification_monotonic_duration_ms": (
             deploy.MINIMUM_VEXP_QUALIFICATION_DURATION_MS
         ),
+        "qualification_boot_id": "12345678-1234-4234-9234-123456789abc",
+        "qualification_monotonic_started_ns": 1_000_000_000,
+        "qualification_monotonic_qualified_ns": (
+            1_000_000_000
+            + deploy.MINIMUM_VEXP_QUALIFICATION_DURATION_MS * 1_000_000
+        ),
         "active_chain": {
             "anchor": {**reset_event, "source": "sentinel"},
             "qualification_event": {**event, "source": "sentinel"},
@@ -129,6 +250,12 @@ def _vexp_certificate(state: Mapping[str, object]) -> dict[str, object]:
             "epoch_started_at": state["epoch_started_at"],
             "epoch_started_ms": state["epoch_started_ms"],
             "qualified_at": state["qualified_at"],
+            "qualification_boot_id": "12345678-1234-4234-9234-123456789abc",
+            "qualification_monotonic_started_ns": 1_000_000_000,
+            "qualification_monotonic_qualified_ns": (
+                1_000_000_000
+                + deploy.MINIMUM_VEXP_QUALIFICATION_DURATION_MS * 1_000_000
+            ),
             "qualification_phase": "qualified",
             "certification_blockers": [],
             "certification_deferments": [],
@@ -143,6 +270,7 @@ def _vexp_certificate(state: Mapping[str, object]) -> dict[str, object]:
             "event_log_guard": {"status": "pass"},
             "apparmor_audit_sha256": "e" * 64,
             "apparmor_audit": {"status": "pass"},
+            "implementation_manifest_sha256": "0" * 64,
             "implementation": {
                 "sentinel_executable": {"sha256": "1" * 64},
                 "sentinel_systemd_unit": {"sha256": "2" * 64},
@@ -312,44 +440,17 @@ def test_public_spatial_fixture_uses_the_real_redacted_route_projection() -> Non
 
 
 def _candidate_promotion_evidence() -> dict[str, object]:
-    allowed_files = {
-        relpath: {
-            "sha256": hashlib.sha256(content).hexdigest(),
-            "size_bytes": len(content),
-        }
-        for relpath, content in sorted(SPATIAL_TEST_FILES.items())
-    }
     return {
         "provider_calls_performed": False,
-        "spatial_handoff": {
-            "slug": deploy.REQUIRED_CONTROL_TOUR_SLUG,
-            "route_count": 8,
-            "html_json_viewer_200": True,
-            "proof_only_404": True,
-            "release_verifier_pass": True,
-            "browser_schema": "ea.manfred_spatial_candidate_browser.v5",
-            "browser_pass": True,
-            "identity_bound": True,
-            "package_sha256": deploy._spatial_package_sha256(SPATIAL_TEST_FILES),
-            "allowed_files": allowed_files,
-            "viewer_relpath": SPATIAL_VIEWER_RELPATH,
-            "proof_relpath": SPATIAL_PROOF_RELPATH,
-            "tour_manifest_canonical_sha256": deploy._canonical_json_sha256(
-                PUBLIC_SPATIAL_TOUR_PAYLOAD
-            ),
-            "property_artifact_commit": deploy.PROPERTY_ARTIFACT_COMMIT,
-            "upstream_publication_authority_sha256": (
-                deploy.PROPERTY_AUTHORITY_SHA256
-            ),
-            "upstream_tour_manifest_sha256": hashlib.sha256(
-                SPATIAL_TEST_FILES["tour.json"]
-            ).hexdigest(),
-            "pre_authority_manifest_canonical_sha256": (
-                deploy.PROPERTY_PRE_AUTHORITY_SHA256
-            ),
-            "upstream_public_activation_authority": True,
-            "ea_public_activation_authority": False,
-            "provider_calls_performed": False,
+        "memorial_surface": "conversation_only",
+        "spatial_scope": "separate_propertyquarry_lane",
+        "spatial_receipt_consumed": False,
+        "separate_spatial_plane": {
+            "status": "not_in_memorial_scope",
+            "owner": "PropertyQuarry",
+            "scope": "separate_propertyquarry_lane",
+            "receipt_consumed": False,
+            "routes_tested": False,
         },
     }
 
@@ -571,6 +672,14 @@ class FakeRunner:
         self.postdeploy_authority_public_origin: str | None = None
         self.authority_posture = "authoritative_runtime"
         self.postdeploy_authority_posture: str | None = None
+        self.candidate_seal_returncode = 0
+        self.candidate_seal_stderr = ""
+        self.candidate_seal_stdout_override: str | None = None
+        self.candidate_seal_overrides: dict[str, object] = {}
+        self.candidate_seal_extra_fields: dict[str, object] = {}
+        self.candidate_seal_epoch_started_ms = 0
+        self.candidate_seal_certificate_sha256 = ""
+        self.candidate_seal_image_build_permit_sha256 = "8" * 64
 
     @staticmethod
     def _api_mounts(root: Path, *, memorial: bool) -> list[dict[str, object]]:
@@ -655,7 +764,61 @@ class FakeRunner:
         stdout = ""
         stderr = ""
         returncode = 0
-        if argv[:3] == ["docker", "compose", "version"]:
+        if argv[:4] == [
+            str(deploy.TRUSTED_VEXP_PERMIT_MANAGER_PYTHON),
+            "-I",
+            str(deploy.TRUSTED_VEXP_PERMIT_MANAGER),
+            "candidate-seal-status",
+        ]:
+            candidate_permit_sha256 = argv[
+                argv.index("--candidate-permit-sha256") + 1
+            ]
+            candidate_receipt_path = argv[argv.index("--candidate-receipt") + 1]
+            candidate_receipt_sha256 = argv[
+                argv.index("--candidate-receipt-sha256") + 1
+            ]
+            image_build_receipt_sha256 = argv[
+                argv.index("--image-build-receipt-sha256") + 1
+            ]
+            seal: dict[str, object] = {
+                "status": "valid",
+                "contract_name": deploy.VEXP_CANDIDATE_FINALIZATION_CONTRACT_NAME,
+                "version": deploy.VEXP_CANDIDATE_FINALIZATION_VERSION,
+                "path": str(
+                    deploy.VEXP_CANDIDATE_FINALIZATION_ROOT
+                    / f"{candidate_permit_sha256}.json"
+                ),
+                "sha256": "0" * 64,
+                "commit": {
+                    "contract_name": (
+                        deploy.VEXP_CANDIDATE_FINALIZATION_COMMIT_CONTRACT_NAME
+                    ),
+                    "version": deploy.VEXP_CANDIDATE_FINALIZATION_COMMIT_VERSION,
+                    "status": "committed",
+                    "sha256": "f" * 64,
+                },
+                "candidate_permit_sha256": candidate_permit_sha256,
+                "candidate_receipt_path": candidate_receipt_path,
+                "candidate_receipt_sha256": candidate_receipt_sha256,
+                "image_build_receipt_sha256": image_build_receipt_sha256,
+                "image_build_permit_sha256": (
+                    self.candidate_seal_image_build_permit_sha256
+                ),
+                "epoch_started_ms": self.candidate_seal_epoch_started_ms,
+                "qualification_certificate_sha256": (
+                    self.candidate_seal_certificate_sha256
+                ),
+            }
+            seal.update(self.candidate_seal_overrides)
+            seal.update(self.candidate_seal_extra_fields)
+            stdout = (
+                self.candidate_seal_stdout_override
+                if self.candidate_seal_stdout_override is not None
+                else json.dumps(seal, sort_keys=True) + "\n"
+            )
+            stderr = self.candidate_seal_stderr
+            returncode = self.candidate_seal_returncode
+        elif argv[:3] == ["docker", "compose", "version"]:
             stdout = "Docker Compose version v2"
         elif argv[:2] == ["docker-compose", "version"]:
             returncode = 1
@@ -1030,6 +1193,7 @@ class FakeRunner:
                     "source_grounded_narrator_boundary",
                     "voice_provider_boundary_blocked",
                     "browser_provider_websocket_boundary",
+                    "conversation_only_public_surface",
                 ]
                 if self.candidate_archive_gate_check:
                     candidate_checks.append("archive_publication_gate")
@@ -1040,6 +1204,8 @@ class FakeRunner:
                         "checks": candidate_checks,
                         "provider_calls_performed": False,
                         "page_get_performed": True,
+                        "memorial_surface": "conversation_only",
+                        "spatial_scope": "separate_propertyquarry_lane",
                         "browser_audit": {
                             "status": "pass",
                             "automatic_provider_requests": 0,
@@ -1634,7 +1800,10 @@ def _lane(
     projection_root.mkdir(exist_ok=True)
     projection_root.chmod(0o750)
     spatial_slug = deploy.REQUIRED_CONTROL_TOUR_SLUG
-    spatial_root = projection_root / "public_property_tours"
+    # Keep the legacy spatial fixture available to tests that exercise the
+    # separately governed PropertyQuarry lane, but never package it inside the
+    # conversation-only Memorial projection.
+    spatial_root = root / ".runtime" / "propertyquarry-test-projection"
     spatial_bundle_root = spatial_root / spatial_slug
     spatial_root.mkdir(exist_ok=True)
     spatial_root.chmod(0o750)
@@ -1713,7 +1882,6 @@ def _lane(
             "/data/memorial/public",
             "/data/memorial/private",
             "/data/memorial/archive",
-            "/data/public_property_tours",
             "/data/release-authority",
         ],
         "runtime_bytes_match_prepared_projection": True,
@@ -1762,14 +1930,12 @@ def _lane(
             "EA_MANFRED_ENV_FILE",
             "EA_MANFRED_HOST_PORT",
             "EA_MANFRED_IMAGE",
+            "EA_MANFRED_MEMORIAL_SURFACE",
             "EA_MANFRED_POSTGRES_PASSWORD",
             "EA_MANFRED_RELEASE_AUTHORITY_ROOT",
             "EA_MANFRED_RELEASE_ROOT",
             "EA_MANFRED_RUNTIME_ROOT",
-            "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED",
-            "EA_MANFRED_SPATIAL_RELEASE_ROOT",
-            "EA_MANFRED_SPATIAL_SHA256",
-            "EA_MANFRED_SPATIAL_SLUG",
+            "EA_MANFRED_SPATIAL_SCOPE",
             "EA_PUBLIC_APP_BASE_URL",
             "EA_SIGNING_SECRET",
         }
@@ -1810,10 +1976,6 @@ def _lane(
             (
                 "/data/memorial/archive",
                 projection_root / "memorial_archive",
-            ),
-            (
-                "/data/public_property_tours",
-                projection_root / "public_property_tours",
             ),
             (
                 "/data/release-authority",
@@ -2220,9 +2382,16 @@ def _lane(
 
     vexp_authority_root = root.parent / "vexp-test-authority"
     vexp_authority_root.mkdir(parents=True, exist_ok=True)
+    vexp_authority_root.chmod(0o755)
     vexp_state_path = vexp_authority_root / "state.json"
     vexp_permit_path = vexp_authority_root / "memorial-mutation-permit.json"
+    vexp_permit_commit_path = (
+        vexp_authority_root / "memorial-mutation-permit.commit.json"
+    )
     vexp_lock_path = vexp_authority_root / "memorial-mutation-permit.lock"
+    vexp_epoch_void_ledger_root = vexp_authority_root / "epoch-voids"
+    vexp_epoch_void_ledger_root.mkdir(mode=0o750, exist_ok=True)
+    vexp_epoch_void_ledger_root.chmod(0o750)
     vexp_certificate_root = vexp_authority_root / "qualification-certificate"
     vexp_certificate_root.mkdir(mode=0o750, exist_ok=True)
     vexp_certificate_root.chmod(0o750)
@@ -2254,6 +2423,8 @@ def _lane(
         + "\n"
     ).encode("utf-8")
     vexp_certificate_sha256 = hashlib.sha256(vexp_certificate_raw).hexdigest()
+    runner.candidate_seal_epoch_started_ms = int(vexp_state["epoch_started_ms"])
+    runner.candidate_seal_certificate_sha256 = vexp_certificate_sha256
     vexp_certificate_path = (
         vexp_certificate_directory / f"{vexp_state['epoch_started_ms']}.json"
     )
@@ -2293,12 +2464,354 @@ def _lane(
         json.dumps(vexp_state, sort_keys=True) + "\n", encoding="utf-8"
     )
     vexp_state_path.chmod(0o600)
-    vexp_permit_path.write_text(
-        json.dumps(vexp_permit, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    vexp_permit_raw = (
+        json.dumps(vexp_permit, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    vexp_permit_path.write_bytes(vexp_permit_raw)
     vexp_permit_path.chmod(0o644)
+    vexp_permit_commit = {
+        "contract_name": deploy.VEXP_MUTATION_PERMIT_COMMIT_CONTRACT_NAME,
+        "version": deploy.VEXP_MUTATION_PERMIT_COMMIT_VERSION,
+        "status": "committed",
+        "permit_sha256": hashlib.sha256(vexp_permit_raw).hexdigest(),
+        "permit_contract_name": vexp_permit["contract_name"],
+        "permit_version": vexp_permit["version"],
+        "epoch_started_at": vexp_permit["epoch_started_at"],
+        "epoch_started_ms": vexp_permit["epoch_started_ms"],
+        "terminal_identity_sha256": vexp_permit["terminal_identity_sha256"],
+        "qualification_certificate_sha256": vexp_permit[
+            "qualification_certificate_sha256"
+        ],
+        "issued_at": vexp_permit["issued_at"],
+        "expires_at": vexp_permit["expires_at"],
+    }
+    vexp_permit_commit_path.write_text(
+        json.dumps(vexp_permit_commit, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    vexp_permit_commit_path.chmod(0o644)
     vexp_lock_path.touch()
     vexp_lock_path.chmod(0o644)
+
+    current_predicate_root = (
+        vexp_authority_root / "vexp-qualification-current-predicate"
+    )
+    current_predicate_root.mkdir(mode=0o750, exist_ok=True)
+    current_predicate_root.chmod(0o750)
+    current_predicate_records = current_predicate_root / "records"
+    current_predicate_records.mkdir(mode=0o750, exist_ok=True)
+    current_predicate_records.chmod(0o750)
+    current_predicate_producer_parent = vexp_authority_root / "root-producers"
+    current_predicate_producer_parent.mkdir(mode=0o755, exist_ok=True)
+    current_predicate_producer_parent.chmod(0o755)
+    current_predicate_producer_path = (
+        current_predicate_producer_parent / "current-predicate-attestor"
+    )
+    producer_bytes = b"governed deploy test predicate attestor\n"
+    if current_predicate_producer_path.exists():
+        assert current_predicate_producer_path.read_bytes() == producer_bytes
+    else:
+        current_predicate_producer_path.write_bytes(producer_bytes)
+    current_predicate_producer_path.chmod(0o555)
+    current_predicate_producer_sha256 = hashlib.sha256(
+        current_predicate_producer_path.read_bytes()
+    ).hexdigest()
+    current_predicate_manifest = {
+        "contract_name": (
+            deploy.VEXP_CURRENT_PREDICATE_PRODUCER_MANIFEST_CONTRACT_NAME
+        ),
+        "version": deploy.VEXP_CURRENT_PREDICATE_PRODUCER_MANIFEST_VERSION,
+        "status": "reviewed",
+        "producer_path": str(current_predicate_producer_path),
+        "producer_sha256": current_predicate_producer_sha256,
+    }
+    current_predicate_manifest_path = (
+        current_predicate_root / "producer-manifest.json"
+    )
+    current_predicate_manifest_path.write_bytes(
+        deploy._canonical_guard_json_bytes(current_predicate_manifest)
+    )
+    current_predicate_manifest_path.chmod(0o640)
+    current_predicate_boot_id = "12345678-1234-4234-9234-123456789abc"
+    current_predicate_monotonic_ns = (
+        1_000_000_000
+        + deploy.MINIMUM_VEXP_QUALIFICATION_DURATION_MS * 1_000_000
+        + 60_000_000_000
+    )
+    vexp_state_raw = vexp_state_path.read_bytes()
+    current_predicate_record = {
+        "contract_name": deploy.VEXP_CURRENT_PREDICATE_CONTRACT_NAME,
+        "version": deploy.VEXP_CURRENT_PREDICATE_VERSION,
+        "status": "positive",
+        "epoch_started_ms": vexp_state["epoch_started_ms"],
+        "generation": 1,
+        "observed_at": "2026-07-20T09:59:00.000Z",
+        "recorded_at": "2026-07-20T09:59:00.000Z",
+        "boot_id": current_predicate_boot_id,
+        "monotonic_ns": current_predicate_monotonic_ns,
+        "sentinel_state_path": str(vexp_state_path),
+        "sentinel_state_owner_uid": os.geteuid(),
+        "sentinel_state_sha256": hashlib.sha256(vexp_state_raw).hexdigest(),
+        "terminal_identity_sha256": deploy._vexp_terminal_identity_sha256(
+            vexp_state
+        ),
+        "qualification_certificate_sha256": vexp_certificate_sha256,
+        "predicate_contract_sha256": vexp_state["predicate_contract_sha256"],
+        "current_resources_healthy": True,
+        "certification_blockers": [],
+        "certification_deferments": [],
+        "sentinel_producer_sha256": "1" * 64,
+        "root_predicate_producer_sha256": (
+            current_predicate_producer_sha256
+        ),
+        "previous_record_sha256": "0" * 64,
+    }
+    current_predicate_record_path = (
+        current_predicate_records
+        / f"{vexp_state['epoch_started_ms']}-1.json"
+    )
+    current_predicate_record_raw = deploy._canonical_guard_json_bytes(
+        current_predicate_record
+    )
+    current_predicate_record_path.write_bytes(current_predicate_record_raw)
+    current_predicate_record_path.chmod(0o640)
+    current_predicate_pointer = {
+        "contract_name": deploy.VEXP_CURRENT_PREDICATE_POINTER_CONTRACT_NAME,
+        "version": deploy.VEXP_CURRENT_PREDICATE_POINTER_VERSION,
+        "status": "published",
+        "epoch_started_ms": vexp_state["epoch_started_ms"],
+        "generation": 1,
+        "record_path": str(current_predicate_record_path),
+        "record_sha256": hashlib.sha256(
+            current_predicate_record_raw
+        ).hexdigest(),
+    }
+    current_predicate_pointer_path = current_predicate_root / "current.json"
+    current_predicate_pointer_path.write_bytes(
+        deploy._canonical_guard_json_bytes(current_predicate_pointer)
+    )
+    current_predicate_pointer_path.chmod(0o640)
+
+    candidate_authority_core = {
+        "status": "pass",
+        "contract_name": deploy.CANDIDATE_VEXP_MUTATION_PERMIT_CONTRACT_NAME,
+        "version": deploy.CANDIDATE_VEXP_MUTATION_PERMIT_VERSION,
+        "epoch_started_ms": vexp_state["epoch_started_ms"],
+        "qualified_at": vexp_state["qualified_at"],
+        "terminal_identity_sha256": deploy._vexp_terminal_identity_sha256(
+            vexp_state
+        ),
+        "qualification_certificate_schema": vexp_certificate["schema"],
+        "qualification_certificate_sha256": vexp_certificate_sha256,
+        "qualification_certificate_identity": vexp_certificate["identity"],
+        "qualification_certificate_event_hash": vexp_qualification_event["hash"],
+        "permit_sha256": "8" * 64,
+        "permit_commit": {
+            "contract_name": deploy.VEXP_MUTATION_PERMIT_COMMIT_CONTRACT_NAME,
+            "version": deploy.VEXP_MUTATION_PERMIT_COMMIT_VERSION,
+            "status": "committed",
+            "sha256": "9" * 64,
+        },
+        "epoch_void_ledger": {
+            "root": str(vexp_epoch_void_ledger_root),
+            "entry": str(
+                vexp_epoch_void_ledger_root
+                / f"{vexp_state['epoch_started_ms']}.json"
+            ),
+            "entry_present": False,
+            "root_trusted": True,
+        },
+        "permit_issued_at": "2026-07-20T09:45:00.000Z",
+        "permit_expires_at": "2026-07-20T10:30:00.000Z",
+        "current_predicate": {
+            "contract_name": deploy.VEXP_CURRENT_PREDICATE_CONTRACT_NAME,
+            "version": deploy.VEXP_CURRENT_PREDICATE_VERSION,
+            "status": "positive",
+            "epoch_started_ms": vexp_state["epoch_started_ms"],
+            "generation": 1,
+            "record_sha256": hashlib.sha256(
+                current_predicate_record_raw
+            ).hexdigest(),
+            "boot_id": current_predicate_boot_id,
+            "monotonic_ns": current_predicate_monotonic_ns,
+            "sentinel_producer_sha256": "1" * 64,
+            "root_predicate_producer_sha256": (
+                current_predicate_producer_sha256
+            ),
+        },
+    }
+
+    def candidate_authority_row(*, phase: str, boundary: str) -> dict[str, object]:
+        return {**candidate_authority_core, "phase": phase, "boundary": boundary}
+
+    candidate_payload = json.loads(candidate_receipt.read_text(encoding="utf-8"))
+    candidate_payload["schema"] = "ea.manfred_memorial_candidate_runtime.v6"
+    candidate_payload["memorial_surface"] = "conversation_only"
+    candidate_payload["spatial_scope"] = "separate_propertyquarry_lane"
+    candidate_payload["public_property_tours_packaged"] = False
+    candidate_payload["public_property_tours_tested"] = False
+    candidate_payload["memorial_spatial_receipt_generated"] = False
+    candidate_payload.pop("spatial_handoff", None)
+    candidate_payload.pop("spatial_handoff_runtime", None)
+    candidate_payload["browser_surface"].update(
+        {
+            "memorial_surface": "conversation_only",
+            "spatial_scope": "separate_propertyquarry_lane",
+        }
+    )
+    for smoke_key in ("first_smoke_checks", "second_smoke_checks"):
+        candidate_payload[smoke_key].append("conversation_only_public_surface")
+    candidate_payload["observed_at"] = "2026-07-20T09:50:00Z"
+    candidate_payload["openapi_contract"] = {
+        "candidate": candidate_payload["openapi_contract"]["candidate"],
+        "candidate_public_endpoint": candidate_payload["openapi_contract"][
+            "candidate_public_endpoint"
+        ],
+        "live_comparison_status": "deferred_to_governed_promotion",
+        "candidate_preserves_live_contract": False,
+        "candidate_live_contract_claim_allowed": False,
+    }
+    candidate_payload["vexp_candidate_mutation_authority"] = {
+        "entry": candidate_authority_row(
+            phase="entry", boundary="candidate_entry"
+        ),
+        "mutations": [
+            {
+                "sequence": sequence,
+                "operation": {
+                    "before_candidate_up": "compose_up",
+                    "before_candidate_exec": "redis_ping",
+                    "before_candidate_interaction": "candidate_smoke",
+                    "before_candidate_restart": "compose_restart_api",
+                }[boundary],
+                "resource": {
+                    "argv": [
+                        "fixture-runner",
+                        {
+                            "before_candidate_up": "compose_up",
+                            "before_candidate_exec": "redis_ping",
+                            "before_candidate_interaction": "candidate_smoke",
+                            "before_candidate_restart": "compose_restart_api",
+                        }[boundary],
+                    ],
+                    "target": f"fixture:{sequence}",
+                },
+                "runner_acknowledged": True,
+                "authority": candidate_authority_row(
+                    phase="pre_mutation",
+                    boundary=boundary,
+                ),
+            }
+            for sequence, boundary in enumerate(
+                deploy.CANDIDATE_VEXP_MUTATION_SEQUENCE,
+                start=1,
+            )
+        ],
+        "finalization": candidate_authority_row(
+            phase="finalization", boundary="candidate_receipt_publication"
+        ),
+        "cleanup_requires_positive_authority": True,
+        "retention_timer_only_authority_free_cleanup": True,
+    }
+    image_build_receipt = root / ".runtime" / "candidate-image-build.v3.json"
+    image_build_operations = []
+    for sequence, (operation, resource) in enumerate(
+        (
+            ("image_build", runner.candidate_reference),
+            ("builder_prune", image_builder.BUILDX_BUILDER_NAME),
+            (
+                "verification_create",
+                image_builder._verification_container_name(runner.candidate_image),
+            ),
+            (
+                "verification_probe",
+                image_builder._verification_container_name(runner.candidate_image),
+            ),
+            (
+                "verification_cleanup",
+                image_builder._verification_container_name(runner.candidate_image),
+            ),
+        ),
+        start=1,
+    ):
+        operation_argv = ["test-image-builder", operation, resource]
+        image_build_operations.append(
+            {
+                "sequence": sequence,
+                "operation": operation,
+                "resource": {
+                    "argv": operation_argv,
+                    "target": resource,
+                },
+                "runner_acknowledged": True,
+                "authority": candidate_authority_row(
+                    phase="pre_mutation",
+                    boundary="before_candidate_image_build",
+                ),
+            }
+        )
+    image_build_authority = {
+        "entry": candidate_authority_row(
+            phase="entry",
+            boundary="candidate_entry",
+        ),
+        "operations": image_build_operations,
+        "finalization": candidate_authority_row(
+            phase="finalization",
+            boundary="candidate_receipt_publication",
+        ),
+        "operation_count": len(image_build_operations),
+        "operations_exact": True,
+        "authority_basis": "new_image_build",
+        "receipt_publication": "exclusive_hardlink_noreplace_v1",
+        "receipt_publication_held_under_authority": True,
+    }
+    image_build_payload = image_builder._success_receipt(
+        commit=source_revision,
+        image_tag=runner.candidate_reference,
+        image_id=runner.candidate_image,
+        inspection={"RootFS": {"Layers": ["sha256:test-layer"]}},
+        created_at="2026-07-20T09:49:00Z",
+        builder_created=False,
+        builder_validated=True,
+        image_reused=False,
+        cache_prune_status="pass",
+        admission={
+            "producer_sha256": "7" * 64,
+            "soak_root_free_floor_bytes": (
+                image_builder.SOAK_ROOT_FREE_FLOOR_BYTES
+            ),
+            "build_root_free_headroom_bytes": (
+                image_builder.BUILD_ROOT_FREE_HEADROOM_BYTES
+            ),
+            "minimum_root_free_bytes": image_builder.MINIMUM_ROOT_FREE_BYTES,
+            "root_free_bytes": {
+                stage: image_builder.MINIMUM_ROOT_FREE_BYTES
+                for stage in image_builder.ROOT_FREE_OBSERVATION_STAGES
+            },
+            "builder_created_before_build": False,
+            "docker_mutations_before_build": 0,
+            "docker_build_started": True,
+        },
+        producer_sha256="7" * 64,
+        image_build_authority=image_build_authority,
+    )
+    image_build_raw = image_builder._build_receipt_bytes(image_build_payload)
+    image_build_receipt.write_bytes(image_build_raw)
+    image_build_receipt.chmod(0o600)
+    candidate_payload["image_build_authority_binding"] = (
+        image_builder.validated_build_receipt_binding(
+            image_build_raw,
+            receipt_path=image_build_receipt,
+            commit=source_revision,
+            image_tag=runner.candidate_reference,
+            image_id=runner.candidate_image,
+        )
+    )
+    candidate_receipt.write_text(
+        json.dumps(candidate_payload, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    candidate_receipt.chmod(0o600)
 
     def selected_http(
         url: str,
@@ -2357,8 +2870,21 @@ def _lane(
         certificate_root=vexp_certificate_root,
         certificate_directory=vexp_certificate_directory,
         permit_path=vexp_permit_path,
+        permit_commit_path=vexp_permit_commit_path,
         lock_path=vexp_lock_path,
+        epoch_void_ledger_root=vexp_epoch_void_ledger_root,
+        current_predicate_trusted_parent=vexp_authority_root,
+        current_predicate_root=current_predicate_root,
+        current_predicate_producer_trusted_parent=(
+            current_predicate_producer_parent
+        ),
+        current_predicate_producer_path=current_predicate_producer_path,
+        current_boot_id=current_predicate_boot_id,
+        monotonic_ns=lambda: current_predicate_monotonic_ns,
         utc_now=lambda: datetime(2026, 7, 20, 10, 0, tzinfo=UTC),
+    )
+    lane._require_reviewed_vexp_qualification_implementation_manifest = (  # type: ignore[method-assign]
+        lambda _certificate: None
     )
     return lane
 
@@ -2422,19 +2948,19 @@ def test_default_global_lock_is_host_stable_across_receipt_roots(
     assert release_root not in lane.global_lock_path.parents
 
 
-def test_preflight_requires_the_flagship_control_tour(
+def test_preflight_does_not_require_a_propertyquarry_control_tour(
     release_root: Path,
 ) -> None:
     runner = FakeRunner(release_root)
     lane = _lane(release_root, runner, control_tour_slug="")
 
-    with pytest.raises(
-        deploy.DeployError,
-        match="memorial_control_tour_slug_required",
-    ):
-        lane.preflight()
+    context = lane.preflight()
 
-    assert runner.calls == []
+    assert "EA_MEMORIAL_CONTROL_TOUR_SLUG" not in lane.env
+    assert context["candidate_promotion"]["memorial_surface"] == "conversation_only"
+    assert context["candidate_promotion"]["spatial_scope"] == (
+        "separate_propertyquarry_lane"
+    )
 
 
 def test_candidate_projection_is_rehashed_before_promotion(
@@ -2452,7 +2978,16 @@ def test_candidate_projection_is_rehashed_before_promotion(
         source_revision="b" * 40,
     )
     assert evidence["projection"]["tree_revalidated"] is True
-    assert evidence["projection"]["file_count"] == len(SPATIAL_TEST_FILES)
+    assert evidence["projection"]["file_count"] == 0
+    assert evidence["spatial_receipt_consumed"] is False
+    assert evidence["separate_spatial_plane"] == {
+        "status": "not_in_memorial_scope",
+        "owner": "PropertyQuarry",
+        "scope": "separate_propertyquarry_lane",
+        "receipt_consumed": False,
+        "routes_tested": False,
+    }
+    calls_after_validated_receipt = list(runner.calls)
 
     projection_root = release_root / "memorial_data"
     projection_root.chmod(0o750)
@@ -2469,7 +3004,7 @@ def test_candidate_projection_is_rehashed_before_promotion(
             candidate=candidate,
             source_revision="b" * 40,
         )
-    assert runner.calls == []
+    assert runner.calls == calls_after_validated_receipt
 
 
 def test_post_recreate_projection_mismatch_rolls_back(
@@ -3439,49 +3974,48 @@ def test_happy_path_mutates_only_redis_and_api(
     promotion = receipt["candidate_promotion_evidence"]
     assert promotion["path"] == lane.candidate_receipt_value
     assert len(promotion["sha256"]) == 64
-    assert promotion["schema"] == "ea.manfred_memorial_candidate_runtime.v4"
+    assert promotion["schema"] == "ea.manfred_memorial_candidate_runtime.v6"
+    assert promotion["memorial_surface"] == "conversation_only"
+    assert promotion["spatial_scope"] == "separate_propertyquarry_lane"
+    assert promotion["spatial_receipt_consumed"] is False
     assert len(promotion["projection"]["projection_sha256"]) == 64
     assert len(promotion["live_ea"]["snapshot_sha256"]) == 64
-    assert promotion["openapi"]["candidate_preserves_live_contract"] is True
+    assert promotion["openapi"]["candidate_preserves_live_contract"] is False
+    assert promotion["openapi"]["candidate_live_contract_claim_allowed"] is False
     assert (
-        promotion["openapi"]["retirement_policy_id"]
-        == deploy.OPENAPI_RETIREMENT_POLICY_ID
+        promotion["openapi"]["live_comparison_status"]
+        == "deferred_to_governed_promotion"
     )
-    assert promotion["openapi"]["retired_operations"] == list(
-        deploy.OPENAPI_RETIREMENT_ALLOWED_OPERATIONS
-    )
-    assert promotion["openapi"]["retired_operation_count"] == 2
     assert promotion["openapi"]["candidate_public_openapi_retired"] is True
-    assert promotion["openapi"]["compatible_evolution_policy_exact_match"] is True
-    assert promotion["openapi"]["compatible_evolved_operations"] == ["GET /version"]
+    assert promotion["openapi"]["compatibility_enforced_by"] == (
+        "governed_postdeploy_internal_snapshot_with_rollback"
+    )
+    assert promotion["vexp_candidate_mutation_authority"][
+        "mutation_sequence_exact"
+    ] is True
+    assert promotion["vexp_candidate_mutation_authority"][
+        "mutation_count"
+    ] == len(deploy.CANDIDATE_VEXP_MUTATION_SEQUENCE)
     assert promotion["browser"]["http_errors"] == 0
     assert promotion["runtime_identity"]["revision_agreement_verified"] is True
     assert promotion["execution_inputs"]["sealed"] is True
     assert promotion["runtime_posture"]["hardened"] is True
     assert promotion["registry_recovery"]["safe"] is True
-    spatial_handoff = promotion["spatial_handoff"]
-    assert spatial_handoff["identity_bound"] is True
-    assert set(spatial_handoff["allowed_files"]) == set(SPATIAL_TEST_FILES)
-    assert all(
-        set(file_evidence) == {"sha256", "size_bytes"}
-        for file_evidence in spatial_handoff["allowed_files"].values()
-    )
-    assert all(
-        not relpath.startswith("/") and "://" not in relpath
-        for relpath in spatial_handoff["allowed_files"]
-    )
-    assert spatial_handoff["property_artifact_commit"] == (
-        deploy.PROPERTY_ARTIFACT_COMMIT
-    )
-    assert spatial_handoff["upstream_public_activation_authority"] is True
-    assert spatial_handoff["ea_public_activation_authority"] is False
-    assert spatial_handoff["provider_calls_performed"] is False
+    assert promotion["separate_spatial_plane"] == {
+        "status": "not_in_memorial_scope",
+        "owner": "PropertyQuarry",
+        "scope": "separate_propertyquarry_lane",
+        "receipt_consumed": False,
+        "routes_tested": False,
+    }
     public_spatial = receipt["public_spatial_tour"]
-    assert public_spatial["request_count"] == 16
-    assert public_spatial["proof_only_404"] is True
-    assert public_spatial["redirect_count"] == 0
-    assert public_spatial["external_request_count"] == 0
-    assert public_spatial["provider_calls_performed"] is False
+    assert public_spatial == {
+        "status": "not_in_memorial_scope",
+        "owner": "PropertyQuarry",
+        "scope": "separate_propertyquarry_lane",
+        "receipt_consumed": False,
+        "requests_performed": 0,
+    }
     assert "first_smoke_checks" not in promotion
     assert "second_smoke_checks" not in promotion
     assert "browser_surface" not in promotion
@@ -3571,6 +4105,37 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
 
 
 @pytest.mark.parametrize(
+    "raw",
+    [
+        b'{"status":"pass","status":"pass"}\n',
+        b'{"status":NaN}\n',
+        b'{"status":Infinity}\n',
+    ],
+)
+def test_candidate_promotion_receipt_rejects_ambiguous_json(
+    release_root: Path,
+    raw: bytes,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    path = Path(lane.candidate_receipt_value)
+    path.write_bytes(raw)
+    path.chmod(0o600)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="memorial_candidate_receipt_json_invalid",
+    ):
+        lane._validate_candidate_promotion_receipt(
+            candidate={
+                "reference": runner.candidate_reference,
+                "image_id": runner.candidate_image,
+            },
+            source_revision="b" * 40,
+        )
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("image_id", "sha256:" + "d" * 64),
@@ -3626,69 +4191,13 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
         ("runtime_api_posture.ingress_attached", True),
         ("registry_recovery.state_before_launch", "registered_receipt"),
         ("registry_recovery.existing_receipt_resumed", True),
-        ("spatial_handoff.included", False),
-        ("spatial_handoff.projection_sha256", "e" * 64),
-        ("spatial_handoff.upstream_publication_authority_sha256", "e" * 64),
-        ("spatial_handoff.upstream_package_sha256", "e" * 64),
-        ("spatial_handoff.upstream_tour_manifest_sha256", "e" * 64),
-        ("spatial_handoff.pre_authority_manifest_canonical_sha256", "e" * 64),
-        ("spatial_handoff.local_release_verifier.pass", False),
-        ("spatial_handoff_runtime.included", False),
-        ("spatial_handoff_runtime.routes.html_get.status", 404),
-        ("spatial_handoff_runtime.routes.proof_only_head.status", 200),
-        (
-            "spatial_handoff_runtime.generated_viewer_release_verifier.pass",
-            False,
-        ),
-        ("spatial_handoff_runtime.candidate_browser_gate.status", "fail"),
-        (
-            "spatial_handoff_runtime.candidate_browser_gate.landing.status",
-            500,
-        ),
-        (
-            "spatial_handoff_runtime.candidate_browser_gate.viewer_path",
-            "/tours/viewer/wrong/viewer.html",
-        ),
-        (
-            "spatial_handoff_runtime.candidate_browser_gate.proof_manifest.path",
-            "/tours/viewer/wrong/reconstruction.json",
-        ),
-        (
-            "spatial_handoff_runtime.candidate_browser_gate."
-            "package_binding.local_file_count",
-            5,
-        ),
-        (
-            "spatial_handoff_runtime.candidate_browser_gate."
-            "package_binding.http_asset_count",
-            3,
-        ),
-        (
-            "spatial_handoff_runtime.candidate_browser_gate.surfaces.desktop.status",
-            500,
-        ),
-        (
-            "spatial_handoff_runtime.candidate_browser_gate.candidate_commit",
-            "a" * 40,
-        ),
-        (
-            "spatial_handoff_runtime.candidate_browser_gate."
-            "candidate_oci_image.image_id",
-            "sha256:" + "d" * 64,
-        ),
-        (
-            "spatial_handoff_runtime.candidate_browser_gate."
-            "serving_container.container_id",
-            "3" * 64,
-        ),
-        (
-            "spatial_handoff_runtime.candidate_browser_gate.package_sha256",
-            "e" * 64,
-        ),
-        (
-            "spatial_handoff_runtime.candidate_browser_gate.secret_material_recorded",
-            True,
-        ),
+        ("memorial_surface", "conversation_plus_spatial"),
+        ("spatial_scope", "embedded_memorial_tour"),
+        ("public_property_tours_packaged", True),
+        ("public_property_tours_tested", True),
+        ("memorial_spatial_receipt_generated", True),
+        ("spatial_handoff", {}),
+        ("spatial_handoff_runtime", {}),
         ("candidate_api_container_id", "different-container"),
         ("openapi_contract.retirement_policy_id", "mutable-policy"),
         ("openapi_contract.retirement_allowed_operations", []),
@@ -3702,7 +4211,9 @@ def test_candidate_promotion_receipt_is_explicit_private_and_non_symlink(
         ("openapi_contract.compatible_evolution_allowed_operations", []),
         ("openapi_contract.compatible_evolved_operation_count", 2),
         ("openapi_contract.compatible_evolution_policy_exact_match", False),
-        ("openapi_contract.candidate_preserves_live_contract", False),
+        ("openapi_contract.candidate_preserves_live_contract", True),
+        ("openapi_contract.candidate_live_contract_claim_allowed", True),
+        ("openapi_contract.live_comparison_status", "claimed_locally"),
         (
             "openapi_contract.candidate.snapshot_source",
             "public_http_openapi",
@@ -3771,6 +4282,382 @@ def test_candidate_promotion_receipt_contract_mismatch_fails_before_mutation(
     assert not any("up" in call for call in runner.calls)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("observed_at", "2026-07-20T10:30:00Z"),
+        ("vexp_candidate_mutation_authority", None),
+        (
+            "vexp_candidate_mutation_authority.cleanup_requires_positive_authority",
+            False,
+        ),
+        ("vexp_candidate_mutation_authority.entry.phase", "pre_mutation"),
+        ("vexp_candidate_mutation_authority.entry.boundary", "candidate_entry_alt"),
+        ("vexp_candidate_mutation_authority.entry.permit_sha256", "a" * 64),
+        (
+            "vexp_candidate_mutation_authority.finalization.boundary",
+            "candidate_entry",
+        ),
+    ],
+)
+def test_candidate_vexp_authority_envelope_is_required_before_promotion(
+    release_root: Path,
+    field: str,
+    value: object,
+) -> None:
+    lane = _lane(release_root, FakeRunner(release_root))
+    path = Path(lane.candidate_receipt_value)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    target = payload
+    parts = field.split(".")
+    for part in parts[:-1]:
+        target = target[part]
+    if value is None:
+        target.pop(parts[-1])
+    else:
+        target[parts[-1]] = value
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+
+    with pytest.raises(
+        deploy.DeployError, match="memorial_candidate_vexp_authority_invalid"
+    ):
+        lane._validate_candidate_promotion_receipt(
+            candidate={
+                "reference": lane.memorial_image_reference,
+                "image_id": "sha256:" + "c" * 64,
+            },
+            source_revision="b" * 40,
+        )
+
+
+def test_candidate_vexp_mutation_sequence_cannot_be_reordered(
+    release_root: Path,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    path = Path(lane.candidate_receipt_value)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    mutations = payload["vexp_candidate_mutation_authority"]["mutations"]
+    mutations[0], mutations[7] = mutations[7], mutations[0]
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+
+    with pytest.raises(
+        deploy.DeployError, match="memorial_candidate_vexp_authority_invalid"
+    ):
+        lane._validate_candidate_promotion_receipt(
+            candidate={
+                "reference": runner.candidate_reference,
+                "image_id": runner.candidate_image,
+            },
+            source_revision="b" * 40,
+        )
+
+
+def test_candidate_vexp_authority_must_bind_current_terminal_certificate(
+    release_root: Path,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    path = Path(lane.candidate_receipt_value)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    authority = payload["vexp_candidate_mutation_authority"]
+    rows = [authority["entry"], *authority["mutations"], authority["finalization"]]
+    for row in rows:
+        row["qualification_certificate_sha256"] = "a" * 64
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+
+    with pytest.raises(
+        deploy.DeployError, match="memorial_candidate_vexp_authority_invalid"
+    ):
+        lane._validate_candidate_promotion_receipt(
+            candidate={
+                "reference": runner.candidate_reference,
+                "image_id": runner.candidate_image,
+            },
+            source_revision="b" * 40,
+        )
+
+
+def test_candidate_finalization_status_requires_exact_committed_record(
+    release_root: Path,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    state, _state_sha256 = lane._read_trusted_vexp_sentinel_state()
+    receipt_path = Path(lane.candidate_receipt_value).resolve()
+    candidate_receipt_sha256 = hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+    candidate_authority = {
+        "historical_candidate_permit_sha256": "7" * 64,
+        "epoch_started_ms": state["epoch_started_ms"],
+        "qualification_certificate_sha256": (
+            runner.candidate_seal_certificate_sha256
+        ),
+        "terminal_identity_sha256": deploy._vexp_terminal_identity_sha256(state),
+    }
+    image_authority = {
+        "receipt_sha256": "6" * 64,
+        "historical_image_build_permit_sha256": (
+            runner.candidate_seal_image_build_permit_sha256
+        ),
+    }
+
+    seal = lane._validate_candidate_finalization_seal(
+        candidate_receipt_path=receipt_path,
+        candidate_receipt_sha256=candidate_receipt_sha256,
+        candidate_vexp_authority=candidate_authority,
+        candidate_image_build_authority=image_authority,
+    )
+    assert seal["commit"] == {
+        "contract_name": deploy.VEXP_CANDIDATE_FINALIZATION_COMMIT_CONTRACT_NAME,
+        "version": deploy.VEXP_CANDIDATE_FINALIZATION_COMMIT_VERSION,
+        "status": "committed",
+        "sha256": "f" * 64,
+    }
+
+    forged = dict(seal)
+    forged["commit"] = dict(seal["commit"])
+    forged["commit"]["status"] = "provisional"
+    runner.candidate_seal_stdout_override = json.dumps(forged, sort_keys=True) + "\n"
+    with pytest.raises(
+        deploy.DeployError,
+        match="memorial_candidate_finalization_seal_invalid",
+    ):
+        lane._validate_candidate_finalization_seal(
+            candidate_receipt_path=receipt_path,
+            candidate_receipt_sha256=candidate_receipt_sha256,
+            candidate_vexp_authority=candidate_authority,
+            candidate_image_build_authority=image_authority,
+        )
+
+
+def test_candidate_finalization_seal_uses_fixed_manager_and_exact_bindings(
+    release_root: Path,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    receipt_path = Path(lane.candidate_receipt_value).resolve()
+    receipt_raw = receipt_path.read_bytes()
+    receipt_payload = json.loads(receipt_raw)
+
+    evidence = lane._validate_candidate_promotion_receipt(
+        candidate={
+            "reference": runner.candidate_reference,
+            "image_id": runner.candidate_image,
+        },
+        source_revision="b" * 40,
+    )
+
+    binding = receipt_payload["image_build_authority_binding"]
+    expected_call = [
+        str(deploy.TRUSTED_VEXP_PERMIT_MANAGER_PYTHON),
+        "-I",
+        str(deploy.TRUSTED_VEXP_PERMIT_MANAGER),
+        "candidate-seal-status",
+        "--candidate-permit-sha256",
+        "8" * 64,
+        "--candidate-receipt",
+        str(receipt_path),
+        "--candidate-receipt-sha256",
+        hashlib.sha256(receipt_raw).hexdigest(),
+        "--image-build-receipt-sha256",
+        binding["receipt_sha256"],
+    ]
+    call_index = runner.calls.index(expected_call)
+    assert runner.call_envs[call_index] == {}
+    seal = evidence["candidate_finalization_seal"]
+    assert set(seal) == deploy.VEXP_CANDIDATE_FINALIZATION_STATUS_KEYS
+    assert seal["status"] == "valid"
+    assert seal["candidate_receipt_path"] == str(receipt_path)
+    assert seal["candidate_receipt_sha256"] == hashlib.sha256(
+        receipt_raw
+    ).hexdigest()
+    assert seal["image_build_receipt_sha256"] == binding["receipt_sha256"]
+    assert seal["image_build_permit_sha256"] == "8" * 64
+    assert lane._candidate_finalization_authority_identity == (
+        runner.candidate_seal_epoch_started_ms,
+        runner.candidate_seal_certificate_sha256,
+    )
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stderr"),
+    [
+        (2, "permit_error:vexp_candidate_finalization_record_unavailable\n"),
+        (2, "/usr/bin/python3: can't open file 'manager'\n"),
+    ],
+    ids=["seal-missing", "manager-missing"],
+)
+def test_candidate_finalization_seal_or_manager_missing_fails_closed(
+    release_root: Path,
+    returncode: int,
+    stderr: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.candidate_seal_returncode = returncode
+    runner.candidate_seal_stderr = stderr
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="memorial_candidate_finalization_seal_invalid",
+    ):
+        lane._validate_candidate_promotion_receipt(
+            candidate={
+                "reference": runner.candidate_reference,
+                "image_id": runner.candidate_image,
+            },
+            source_revision="b" * 40,
+        )
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        "not-json\n",
+        "{}\ntrailing-output\n",
+        '{"status":"valid","status":"valid"}\n',
+        '{"status":NaN}\n',
+    ],
+)
+def test_candidate_finalization_seal_malformed_output_fails_closed(
+    release_root: Path,
+    malformed: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.candidate_seal_stdout_override = malformed
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="memorial_candidate_finalization_seal_invalid",
+    ):
+        lane._validate_candidate_promotion_receipt(
+            candidate={
+                "reference": runner.candidate_reference,
+                "image_id": runner.candidate_image,
+            },
+            source_revision="b" * 40,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("status", "sealed"),
+        ("contract_name", "ea.vexp_candidate_finalization.v0"),
+        ("version", True),
+        ("path", "/var/lib/vexp-manfred-candidate-authority/wrong.json"),
+        ("sha256", "not-a-digest"),
+        ("sha256", int("1" * 64)),
+        ("candidate_permit_sha256", "1" * 64),
+        ("candidate_receipt_path", "/tmp/forged-candidate.json"),
+        ("candidate_receipt_sha256", "2" * 64),
+        ("image_build_receipt_sha256", "3" * 64),
+        ("image_build_permit_sha256", "4" * 64),
+        ("epoch_started_ms", 1),
+        ("qualification_certificate_sha256", "5" * 64),
+    ],
+)
+def test_candidate_finalization_seal_forged_binding_fails_closed(
+    release_root: Path,
+    field: str,
+    value: object,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.candidate_seal_overrides[field] = value
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="memorial_candidate_finalization_seal_invalid",
+    ):
+        lane._validate_candidate_promotion_receipt(
+            candidate={
+                "reference": runner.candidate_reference,
+                "image_id": runner.candidate_image,
+            },
+            source_revision="b" * 40,
+        )
+
+
+def test_candidate_finalization_seal_rejects_extra_output_fields(
+    release_root: Path,
+) -> None:
+    runner = FakeRunner(release_root)
+    runner.candidate_seal_extra_fields["untrusted"] = "forged"
+    lane = _lane(release_root, runner)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="memorial_candidate_finalization_seal_invalid",
+    ):
+        lane._validate_candidate_promotion_receipt(
+            candidate={
+                "reference": runner.candidate_reference,
+                "image_id": runner.candidate_image,
+            },
+            source_revision="b" * 40,
+        )
+
+
+def test_invalid_candidate_never_invokes_root_seal_manager(
+    release_root: Path,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    path = Path(lane.candidate_receipt_value)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["schema"] = "ea.manfred_memorial_candidate_runtime.v4"
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="memorial_candidate_receipt_contract_invalid",
+    ):
+        lane._validate_candidate_promotion_receipt(
+            candidate={
+                "reference": runner.candidate_reference,
+                "image_id": runner.candidate_image,
+            },
+            source_revision="b" * 40,
+        )
+    assert not any(
+        call[:4]
+        == [
+            str(deploy.TRUSTED_VEXP_PERMIT_MANAGER_PYTHON),
+            "-I",
+            str(deploy.TRUSTED_VEXP_PERMIT_MANAGER),
+            "candidate-seal-status",
+        ]
+        for call in runner.calls
+    )
+
+
+def test_api_authority_must_stay_bound_to_candidate_finalization_epoch(
+    release_root: Path,
+) -> None:
+    runner = FakeRunner(release_root)
+    lane = _lane(release_root, runner)
+    lane._validate_candidate_promotion_receipt(
+        candidate={
+            "reference": runner.candidate_reference,
+            "image_id": runner.candidate_image,
+        },
+        source_revision="b" * 40,
+    )
+    lane._candidate_finalization_authority_identity = (1, "f" * 64)
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="vexp_candidate_finalization_authority_changed",
+    ):
+        lane._require_vexp_mutation_permitted("before_ensure_redis")
+
+
 def test_candidate_openapi_evidence_rejects_extra_unbounded_fields(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3783,7 +4670,7 @@ def test_candidate_openapi_evidence_rejects_extra_unbounded_fields(
     lane = _lane(release_root, runner)
     path = Path(lane.candidate_receipt_value)
     payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["openapi_contract"]["live_before"]["raw_contract"] = {
+    payload["openapi_contract"]["candidate"]["raw_contract"] = {
         "unexpected": "content"
     }
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
@@ -4013,7 +4900,7 @@ def test_predeploy_requires_both_safety_retirement_operations(
         deploy.DeployError,
         match="predeploy_openapi_retirement_operations_missing",
     ):
-        lane.deploy(preflight_only=True)
+        lane.deploy()
 
     assert not any("up" in call for call in runner.calls)
 
@@ -4170,7 +5057,7 @@ def test_openapi_security_change_has_no_waiver(
     assert receipt["rollback"]["status"] == "pass"
 
 
-def test_required_tour_control_survives_unchanged(
+def test_propertyquarry_control_tour_is_not_captured_by_scoped_memorial_lane(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = FakeRunner(release_root)
@@ -4189,20 +5076,18 @@ def test_required_tour_control_survives_unchanged(
         control_tour_slug=deploy.REQUIRED_CONTROL_TOUR_SLUG,
     ).deploy()
 
-    before = receipt["predeploy_non_memorial_controls"]["tour"]
-    after = receipt["postdeploy_non_memorial_controls"]["tour"]
-    assert before["slug"] == deploy.REQUIRED_CONTROL_TOUR_SLUG
-    assert before["json"]["body_sha256"] != after["json"]["body_sha256"]
-    assert (
-        before["json"]["canonical_json_sha256"]
-        == after["json"]["canonical_json_sha256"]
-    )
-    assert "_json_payload" not in before
-    assert "_json_payload" not in after
-    assert before["html"]["status_code"] == after["html"]["status_code"] == 200
+    assert "tour" not in receipt["predeploy_non_memorial_controls"]
+    assert "tour" not in receipt["postdeploy_non_memorial_controls"]
+    assert receipt["public_spatial_tour"] == {
+        "status": "not_in_memorial_scope",
+        "owner": "PropertyQuarry",
+        "scope": "separate_propertyquarry_lane",
+        "receipt_consumed": False,
+        "requests_performed": 0,
+    }
 
 
-def test_required_tour_json_drift_rolls_back(
+def test_propertyquarry_tour_json_drift_does_not_block_scoped_memorial(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = FakeRunner(release_root)
@@ -4218,15 +5103,14 @@ def test_required_tour_json_drift_rolls_back(
         control_tour_slug=deploy.REQUIRED_CONTROL_TOUR_SLUG,
     )
 
-    with pytest.raises(deploy.DeployError, match="deployment_failed_rolled_back"):
-        lane.deploy()
+    receipt = lane.deploy()
 
-    receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
-    assert "postdeploy_control_tour_json_changed" in receipt["failure"]["reason"]
-    assert receipt["rollback"]["status"] == "pass"
+    assert receipt["status"] == "pass"
+    assert "tour" not in receipt["predeploy_non_memorial_controls"]
+    assert "tour" not in receipt["postdeploy_non_memorial_controls"]
 
 
-def test_exact_generated_viewer_tour_evolution_is_compatible(
+def test_propertyquarry_viewer_evolution_has_no_scoped_memorial_policy(
     release_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = FakeRunner(release_root)
@@ -4256,12 +5140,15 @@ def test_exact_generated_viewer_tour_evolution_is_compatible(
         control_tour_slug=slug,
     ).deploy()
 
-    tour = receipt["postdeploy_non_memorial_controls"]["tour"]
-    assert tour["compatible_evolution_policy_id"] == (
-        deploy.CONTROL_TOUR_COMPATIBLE_EVOLUTION_POLICY_ID
-    )
-    assert tour["compatible_evolution_applied"] is True
-    assert tour["compatible_evolution_policy_exact_match"] is True
+    assert receipt["status"] == "pass"
+    assert "tour" not in receipt["postdeploy_non_memorial_controls"]
+    assert receipt["candidate_promotion_evidence"]["separate_spatial_plane"] == {
+        "status": "not_in_memorial_scope",
+        "owner": "PropertyQuarry",
+        "scope": "separate_propertyquarry_lane",
+        "receipt_consumed": False,
+        "routes_tested": False,
+    }
 
 
 @pytest.mark.parametrize(
@@ -4806,6 +5693,7 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
     runner = FakeRunner(release_root)
     observed_requests: list[tuple[str, str]] = []
     observed_alias_requests: list[tuple[str, str, str]] = []
+    observed_spatial_requests: list[str] = []
 
     def recording_http(
         url: str,
@@ -4833,8 +5721,8 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
     ) -> deploy.HttpResponse:
         del timeout
         if urllib.parse.urlsplit(url).path != "/memorial/manfred":
-            assert public_authority == ""
-            return _public_spatial_response(url, method)
+            observed_spatial_requests.append(url)
+            raise AssertionError("scoped Memorial verifier requested a spatial route")
         observed_alias_requests.append((method, url, public_authority))
         return _singular_alias_response(method)
 
@@ -4887,101 +5775,22 @@ def test_deployed_surface_probes_canonical_and_singular_alias_origins(
     ]
     assert lane.receipt["alias_probes"][0]["query_preserved"] is True
     assert lane.receipt["alias_probes"][1]["query_preserved"] is True
+    assert observed_spatial_requests == []
     spatial = lane.receipt["public_spatial_tour"]
-    assert set(spatial) == {
-        "status",
-        "origin",
-        "slug",
-        "source_revision",
-        "request_count",
-        "get_count",
-        "head_count",
-        "routes",
-        "exact_byte_file_count",
-        "canonical_json_file_count",
-        "proof_only_404",
-        "redirect_count",
-        "external_request_count",
-        "provider_calls_performed",
-        "property_authority",
+    assert spatial == {
+        "status": "not_in_memorial_scope",
+        "owner": "PropertyQuarry",
+        "scope": "separate_propertyquarry_lane",
+        "receipt_consumed": False,
+        "requests_performed": 0,
     }
-    assert spatial["status"] == "pass"
-    assert spatial["request_count"] == 16
-    assert spatial["get_count"] == spatial["head_count"] == 8
-    assert spatial["provider_calls_performed"] is False
-    assert spatial["external_request_count"] == 0
-    assert set(spatial["routes"]) == {
-        f"{label}_{method}"
-        for label in (
-            "version",
-            "landing",
-            "tour_json",
-            "viewer",
-            "floorplan",
-            "three_module",
-            "orbit_controls",
-            "proof_only",
-        )
-        for method in ("get", "head")
-    }
-    base_route_fields = {
-        "path",
-        "method",
-        "status",
-        "content_type",
-        "source_revision",
-        "body_bytes",
-        "body_sha256",
-    }
-    assert set(spatial["routes"]["version_get"]) == {
-        *base_route_fields,
-        "commit_sha",
-    }
-    assert set(spatial["routes"]["tour_json_get"]) == {
-        *base_route_fields,
-        "canonical_json_sha256",
-    }
-    for label in ("viewer", "floorplan", "three_module", "orbit_controls"):
-        assert set(spatial["routes"][f"{label}_get"]) == {
-            *base_route_fields,
-            "candidate_file_identity_verified",
-        }
-    assert set(spatial["routes"]["proof_only_get"]) == {
-        *base_route_fields,
-        "candidate_file_not_disclosed",
-    }
-    assert set(spatial["routes"]["landing_get"]) == base_route_fields
-    assert all(
-        set(spatial["routes"][f"{label}_head"]) == base_route_fields
-        for label in (
-            "version",
-            "landing",
-            "tour_json",
-            "viewer",
-            "floorplan",
-            "three_module",
-            "orbit_controls",
-            "proof_only",
-        )
-    )
-    assert spatial["property_authority"]["owner"] == "PropertyQuarry"
-    assert spatial["property_authority"]["ea_public_activation_authority"] is False
 
 
-@pytest.mark.parametrize(
-    ("failure_mode", "failure_reason"),
-    [
-        ("digest", "public_spatial_asset_digest_mismatch"),
-        ("public_json", "public_spatial_tour_json_digest_mismatch"),
-        ("missing", "public_spatial_status_invalid"),
-        ("revision", "public_spatial_source_revision_mismatch"),
-    ],
-)
-def test_public_spatial_edge_failure_rolls_back(
+@pytest.mark.parametrize("failure_mode", ["digest", "public_json", "missing", "revision"])
+def test_public_spatial_edge_failures_are_not_requested_by_scoped_memorial(
     release_root: Path,
     monkeypatch: pytest.MonkeyPatch,
     failure_mode: str,
-    failure_reason: str,
 ) -> None:
     runner = FakeRunner(release_root)
     monkeypatch.setattr(
@@ -4989,14 +5798,9 @@ def test_public_spatial_edge_failure_rolls_back(
         "source_worktree_metadata",
         lambda *_args, **_kwargs: {"source_worktree_dirty": False},
     )
-    slug = deploy.REQUIRED_CONTROL_TOUR_SLUG
-    viewer_path = f"/tours/viewer/{slug}/{SPATIAL_VIEWER_RELPATH}"
-    tour_json_path = f"/tours/{slug}.json"
-    floorplan_path = (
-        f"/tours/viewer/{slug}/generated-reconstruction/source-floorplan.png"
-    )
+    observed_spatial_requests: list[tuple[str, str]] = []
 
-    def failing_public_edge(
+    def forbidden_public_spatial_edge(
         url: str,
         timeout: float,
         method: str,
@@ -5004,42 +5808,19 @@ def test_public_spatial_edge_failure_rolls_back(
         del timeout
         if urllib.parse.urlsplit(url).path == "/memorial/manfred":
             return _singular_alias_response(method)
-        if failure_mode == "digest":
-            return _public_spatial_response(
-                url,
-                method,
-                body_overrides={viewer_path: b"tampered-viewer"},
-            )
-        if failure_mode == "public_json":
-            return _public_spatial_response(
-                url,
-                method,
-                body_overrides={tour_json_path: b'{"slug":"tampered"}'},
-            )
-        if failure_mode == "missing":
-            return _public_spatial_response(
-                url,
-                method,
-                status_overrides={floorplan_path: 404},
-            )
-        return _public_spatial_response(
-            url,
-            method,
-            source_revision="a" * 40,
-        )
+        observed_spatial_requests.append((failure_mode, url))
+        raise AssertionError("scoped Memorial lane requested PropertyQuarry")
 
     lane = _lane(
         release_root,
         runner,
-        http_no_redirect=failing_public_edge,
+        http_no_redirect=forbidden_public_spatial_edge,
     )
-    with pytest.raises(deploy.DeployError, match="deployment_failed_rolled_back"):
-        lane.deploy()
+    receipt = lane.deploy()
 
-    receipt = json.loads(lane.receipt_path.read_text(encoding="utf-8"))
-    assert failure_reason in receipt["failure"]["reason"]
-    assert receipt["rollback"]["status"] == "pass"
-    assert receipt["preparation"]["api_runtime_state"] == "restored_by_rollback"
+    assert receipt["status"] == "pass"
+    assert observed_spatial_requests == []
+    assert receipt["public_spatial_tour"]["requests_performed"] == 0
 
 
 def test_deployed_surface_revalidates_public_authority_before_http(
@@ -5247,6 +6028,7 @@ def test_nonzero_candidate_verifier_records_safe_origin_after_local_evidence(
             "checks": [
                 "archive_publication_gate",
                 "browser_provider_websocket_boundary",
+                "conversation_only_public_surface",
                 "singular_memorial_alias",
                 "source_grounded_narrator_boundary",
                 "voice_provider_boundary_blocked",
@@ -5405,13 +6187,16 @@ def test_receipt_is_private_and_deployment_id_cannot_be_reused(
         duplicate.deploy(preflight_only=True)
 
 
-def test_make_target_uses_joint_lane_not_generic_deployer() -> None:
+def test_make_target_uses_scoped_conversation_lane_and_keeps_joint_explicit() -> None:
     makefile = (deploy.ROOT / "Makefile").read_text(encoding="utf-8")
     target = makefile.split("deploy-ea-memorial:", 1)[1].split("\n\n", 1)[0]
     joint = makefile.split("deploy-ea-memorial-joint:\n", 1)[1].split("\n\n", 1)[0]
     scoped = makefile.split("deploy-ea-memorial-scoped:\n", 1)[1].split("\n\n", 1)[0]
 
-    assert "deploy-ea-memorial-joint" in target
+    assert "deploy-ea-memorial-scoped" in target
+    assert "EA_DEPLOY_PRIMARY_MODE=MEMORIAL" in target
+    assert "EA_DEPLOY_ENABLED_MODES=MEMORIAL" in target
+    assert "deploy-ea-memorial-joint" not in target
     assert "scripts/deploy_ea_memorial_joint.py" in joint
     assert "EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT" in joint
     assert "scripts/deploy_ea_memorial.py" in scoped

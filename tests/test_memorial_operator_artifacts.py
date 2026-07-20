@@ -1852,15 +1852,12 @@ def test_memorial_public_gold_clean_materializer_builds_expected_commands() -> N
         browser_first_answer_ms = 4500.0
         meaningful_browser_first_answer_ms = 8000.0
         meaningful_prompt = "Was war dir bei Gerechtigkeit wichtig?"
-        spatial_deploy_receipt = Path("/private/deploy-receipt.json")
-        spatial_candidate_browser_receipt = Path("/private/candidate-browser-receipt.json")
 
     local_voice = module.build_local_voice_receipt_command(_Args())
     voice = module.build_voice_receipt_command(_Args())
     browser = module.build_browser_receipt_command(_Args())
     meaningful = module.build_meaningful_browser_receipt_command(_Args())
     room = module.build_room_receipt_command(_Args())
-    spatial = module.build_spatial_receipt_command(_Args())
 
     assert local_voice[:2] == ["python3", "scripts/materialize_memorial_voice_roundtrip_exit_gate.py"]
     assert ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json" in local_voice
@@ -1883,23 +1880,9 @@ def test_memorial_public_gold_clean_materializer_builds_expected_commands() -> N
     assert "--normal-spoken-turn-confirmed" in room
     assert "--interruption-behavior-confirmed" in room
     assert "--retry-path-confirmed" in room
-    assert spatial == [
-        "python3",
-        "scripts/materialize_memorial_spatial_tour_public_origin.py",
-        "--deploy-receipt",
-        "/private/deploy-receipt.json",
-        "--candidate-browser-receipt",
-        "/private/candidate-browser-receipt.json",
-        "--public-base-url",
-        "https://example.com",
-        "--output",
-        ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
-    ]
-    assert module.SYNC_ARTIFACTS.index(
-        Path(".codex-studio/published/memorial_spatial_tour_public_origin.generated.json")
-    ) < module.SYNC_ARTIFACTS.index(
-        Path(".codex-design/product/PROJECT_MODES.generated.json")
-    )
+    assert Path(
+        ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"
+    ) not in module.SYNC_ARTIFACTS
     assert module.SYNC_ARTIFACTS.index(
         Path(".codex-design/product/PROJECT_MODES.generated.json")
     ) < module.SYNC_ARTIFACTS.index(
@@ -1975,14 +1958,11 @@ def test_memorial_public_auto_receipts_clean_builds_expected_commands() -> None:
         browser_first_answer_ms = 4500.0
         meaningful_browser_first_answer_ms = 8000.0
         meaningful_prompt = "Was war dir bei Gerechtigkeit wichtig?"
-        spatial_deploy_receipt = Path("/private/deploy-receipt.json")
-        spatial_candidate_browser_receipt = Path("/private/candidate-browser-receipt.json")
 
     local_voice = module.build_local_voice_receipt_command(_Args())
     voice = module.build_voice_receipt_command(_Args())
     browser = module.build_browser_receipt_command(_Args())
     meaningful = module.build_meaningful_browser_receipt_command(_Args())
-    spatial = module.build_spatial_receipt_command(_Args())
 
     assert local_voice[:2] == ["python3", "scripts/materialize_memorial_voice_roundtrip_exit_gate.py"]
     assert ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json" in local_voice
@@ -1996,23 +1976,9 @@ def test_memorial_public_auto_receipts_clean_builds_expected_commands() -> None:
     assert meaningful[:2] == ["python3", "scripts/measure_memorial_live_browser.py"]
     assert "--text-prompt" in meaningful
     assert "Was war dir bei Gerechtigkeit wichtig?" in meaningful
-    assert spatial == [
-        "python3",
-        "scripts/materialize_memorial_spatial_tour_public_origin.py",
-        "--deploy-receipt",
-        "/private/deploy-receipt.json",
-        "--candidate-browser-receipt",
-        "/private/candidate-browser-receipt.json",
-        "--public-base-url",
-        "https://example.com",
-        "--output",
-        ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json",
-    ]
-    assert module.SYNC_ARTIFACTS.index(
-        Path(".codex-studio/published/memorial_spatial_tour_public_origin.generated.json")
-    ) < module.SYNC_ARTIFACTS.index(
-        Path(".codex-design/product/PROJECT_MODES.generated.json")
-    )
+    assert Path(
+        ".codex-studio/published/memorial_spatial_tour_public_origin.generated.json"
+    ) not in module.SYNC_ARTIFACTS
     assert module.SYNC_ARTIFACTS.index(
         Path(".codex-design/product/PROJECT_MODES.generated.json")
     ) < module.SYNC_ARTIFACTS.index(
@@ -2023,7 +1989,7 @@ def test_memorial_public_auto_receipts_clean_builds_expected_commands() -> None:
     )
 
 
-def test_memorial_clean_materializers_require_explicit_spatial_input_receipts() -> None:
+def test_memorial_clean_materializers_do_not_accept_spatial_input_receipts() -> None:
     root = Path(__file__).resolve().parents[1]
     scripts = (
         root / "scripts" / "materialize_memorial_public_gold_clean.py",
@@ -2032,15 +1998,15 @@ def test_memorial_clean_materializers_require_explicit_spatial_input_receipts() 
 
     for script in scripts:
         result = subprocess.run(
-            [sys.executable, str(script)],
+            [sys.executable, str(script), "--help"],
             cwd=root,
             check=False,
             capture_output=True,
             text=True,
         )
-        assert result.returncode == 2
-        assert "--spatial-deploy-receipt" in result.stderr
-        assert "--spatial-candidate-browser-receipt" in result.stderr
+        assert result.returncode == 0
+        assert "--spatial-deploy-receipt" not in result.stdout
+        assert "--spatial-candidate-browser-receipt" not in result.stdout
 
 
 def test_memorial_public_auto_receipts_clean_resolves_bare_python_from_path(monkeypatch) -> None:

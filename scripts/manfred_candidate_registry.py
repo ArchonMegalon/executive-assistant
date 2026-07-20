@@ -8,17 +8,26 @@ import pwd
 import re
 import stat
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from scripts.prepare_manfred_memorial_candidate import _validate_project_name
+from scripts.prepare_manfred_memorial_candidate import (
+    MEMORIAL_SURFACE,
+    SPATIAL_SCOPE,
+    _image_build_authority_binding,
+    _validate_project_name,
+)
 
 
 REGISTRY_SCHEMA = "ea.manfred_memorial_candidate_registry.v1"
 RUNTIME_SCHEMA_V3 = "ea.manfred_memorial_candidate_runtime.v3"
 RUNTIME_SCHEMA_V4 = "ea.manfred_memorial_candidate_runtime.v4"
-RUNTIME_SCHEMA = RUNTIME_SCHEMA_V4
-SUPPORTED_RUNTIME_SCHEMAS = frozenset({RUNTIME_SCHEMA_V3, RUNTIME_SCHEMA_V4})
+RUNTIME_SCHEMA_V5 = "ea.manfred_memorial_candidate_runtime.v5"
+RUNTIME_SCHEMA_V6 = "ea.manfred_memorial_candidate_runtime.v6"
+RUNTIME_SCHEMA = RUNTIME_SCHEMA_V6
+SUPPORTED_RUNTIME_SCHEMAS = frozenset(
+    {RUNTIME_SCHEMA_V3, RUNTIME_SCHEMA_V4, RUNTIME_SCHEMA_V5, RUNTIME_SCHEMA_V6}
+)
 MAX_REGISTRY_ENTRIES = 128
 MAX_PENDING_ENTRIES = 16
 MAX_JSON_BYTES = 1024 * 1024
@@ -34,7 +43,51 @@ CANDIDATE_ENV_MAX_BYTES = 1024 * 1024
 EXECUTION_INPUT_SCHEMA = "ea.manfred_candidate_execution_inputs.v1"
 RUNTIME_POSTURE_SCHEMA = "ea.manfred_candidate_api_runtime_posture.v1"
 RUNTIME_PROJECTION_SCHEMA = "ea.manfred_candidate_runtime_projection.v1"
-CANDIDATE_ENV_KEYS = frozenset(
+CANDIDATE_VEXP_MUTATION_PERMIT_CONTRACT_NAME = (
+    "ea.vexp_manfred_candidate_mutation_permit.v2"
+)
+CANDIDATE_VEXP_MUTATION_PERMIT_VERSION = 2
+VEXP_QUALIFICATION_CERTIFICATE_SCHEMA = "ea.vexp_qualification_certificate.v2"
+VEXP_MUTATION_PERMIT_COMMIT_CONTRACT_NAME = "ea.vexp_mutation_permit_commit.v1"
+VEXP_MUTATION_PERMIT_COMMIT_VERSION = 1
+VEXP_EPOCH_VOID_LEDGER_ROOT = Path("/var/lib/vexp-qualification-epoch-voids")
+MAX_VEXP_MUTATION_PERMIT_LIFETIME = timedelta(hours=1)
+CANDIDATE_VEXP_MUTATION_SEQUENCE = (
+    "before_candidate_up",
+    *("before_candidate_exec",) * 2,
+    "before_candidate_interaction",
+    *("before_candidate_exec",) * 5,
+    "before_candidate_restart",
+    "before_candidate_interaction",
+    *("before_candidate_exec",) * 7,
+    *("before_candidate_interaction",) * 2,
+    *("before_candidate_exec",) * 2,
+)
+CANDIDATE_VEXP_AUTHORITY_EVIDENCE_KEYS = frozenset(
+    {
+        "status",
+        "phase",
+        "boundary",
+        "contract_name",
+        "version",
+        "epoch_started_ms",
+        "qualified_at",
+        "terminal_identity_sha256",
+        "qualification_certificate_schema",
+        "qualification_certificate_sha256",
+        "qualification_certificate_identity",
+        "qualification_certificate_event_hash",
+        "permit_sha256",
+        "permit_commit",
+        "epoch_void_ledger",
+        "permit_issued_at",
+        "permit_expires_at",
+    }
+)
+CANDIDATE_VEXP_AUTHORITY_TUPLE_KEYS = (
+    CANDIDATE_VEXP_AUTHORITY_EVIDENCE_KEYS - {"status", "phase", "boundary"}
+)
+LEGACY_CANDIDATE_ENV_KEYS = frozenset(
     {
         "DATABASE_URL",
         "EA_API_TOKEN",
@@ -54,6 +107,19 @@ CANDIDATE_ENV_KEYS = frozenset(
         "EA_MANFRED_SPATIAL_SLUG",
         "EA_PUBLIC_APP_BASE_URL",
         "EA_SIGNING_SECRET",
+    }
+)
+CANDIDATE_ENV_KEYS = frozenset(
+    {
+        *LEGACY_CANDIDATE_ENV_KEYS,
+        "EA_MANFRED_MEMORIAL_SURFACE",
+        "EA_MANFRED_SPATIAL_SCOPE",
+    }
+    - {
+        "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED",
+        "EA_MANFRED_SPATIAL_RELEASE_ROOT",
+        "EA_MANFRED_SPATIAL_SHA256",
+        "EA_MANFRED_SPATIAL_SLUG",
     }
 )
 
@@ -128,9 +194,24 @@ def _read_private_json(
             raise RuntimeError("manfred_candidate_registry_file_changed")
     finally:
         os.close(descriptor)
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        decoded: dict[str, object] = {}
+        for key, value in pairs:
+            if key in decoded:
+                raise ValueError("duplicate_json_key")
+            decoded[key] = value
+        return decoded
+
+    def reject_constant(_value: str) -> None:
+        raise ValueError("non_finite_json_constant")
+
     try:
-        payload = json.loads(content)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        payload = json.loads(
+            content,
+            object_pairs_hook=unique_object,
+            parse_constant=reject_constant,
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
         raise RuntimeError("manfred_candidate_registry_json_invalid") from exc
     if not isinstance(payload, dict):
         raise RuntimeError("manfred_candidate_registry_json_invalid")
@@ -229,6 +310,146 @@ def _validated_timestamp(value: object) -> str:
     return text
 
 
+def _parsed_utc_timestamp(value: object) -> datetime:
+    text = str(value or "")
+    if not text.endswith("Z"):
+        raise RuntimeError("manfred_candidate_registry_vexp_authority_invalid")
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise RuntimeError(
+            "manfred_candidate_registry_vexp_authority_invalid"
+        ) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
+        raise RuntimeError("manfred_candidate_registry_vexp_authority_invalid")
+    return parsed.astimezone(timezone.utc)
+
+
+def _validated_vexp_candidate_authority(
+    payload: dict[str, object],
+    *,
+    observed_at: str,
+) -> dict[str, object]:
+    reason = "manfred_candidate_registry_vexp_authority_invalid"
+    envelope = payload.get("vexp_candidate_mutation_authority")
+    if not isinstance(envelope, dict) or set(envelope) != {
+        "entry",
+        "mutations",
+        "finalization",
+        "cleanup_requires_positive_authority",
+        "retention_timer_only_authority_free_cleanup",
+    }:
+        raise RuntimeError(reason)
+    entry = envelope.get("entry")
+    mutations = envelope.get("mutations")
+    finalization = envelope.get("finalization")
+    if (
+        not isinstance(entry, dict)
+        or not isinstance(mutations, list)
+        or any(not isinstance(row, dict) for row in mutations)
+        or not isinstance(finalization, dict)
+        or envelope.get("cleanup_requires_positive_authority") is not True
+        or envelope.get("retention_timer_only_authority_free_cleanup") is not True
+    ):
+        raise RuntimeError(reason)
+
+    rows = [dict(entry), *(dict(row) for row in mutations), dict(finalization)]
+    expected_phases_and_boundaries = (
+        [("entry", "candidate_entry")]
+        + [
+            ("pre_mutation", boundary)
+            for boundary in CANDIDATE_VEXP_MUTATION_SEQUENCE
+        ]
+        + [("finalization", "candidate_receipt_publication")]
+    )
+    if len(rows) != len(expected_phases_and_boundaries) or any(
+        set(row) != CANDIDATE_VEXP_AUTHORITY_EVIDENCE_KEYS for row in rows
+    ):
+        raise RuntimeError(reason)
+    immutable = {
+        key: rows[0].get(key) for key in CANDIDATE_VEXP_AUTHORITY_TUPLE_KEYS
+    }
+    for row, (phase, boundary) in zip(
+        rows, expected_phases_and_boundaries, strict=True
+    ):
+        if (
+            row.get("status") != "pass"
+            or row.get("phase") != phase
+            or row.get("boundary") != boundary
+            or {
+                key: row.get(key) for key in CANDIDATE_VEXP_AUTHORITY_TUPLE_KEYS
+            }
+            != immutable
+        ):
+            raise RuntimeError(reason)
+
+    epoch_started_ms = immutable.get("epoch_started_ms")
+    if (
+        immutable.get("contract_name")
+        != CANDIDATE_VEXP_MUTATION_PERMIT_CONTRACT_NAME
+        or immutable.get("version") != CANDIDATE_VEXP_MUTATION_PERMIT_VERSION
+        or type(epoch_started_ms) is not int
+        or epoch_started_ms <= 0
+        or immutable.get("qualification_certificate_schema")
+        != VEXP_QUALIFICATION_CERTIFICATE_SCHEMA
+        or HEX_64.fullmatch(str(immutable.get("terminal_identity_sha256") or ""))
+        is None
+        or HEX_64.fullmatch(
+            str(immutable.get("qualification_certificate_sha256") or "")
+        )
+        is None
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}",
+            str(immutable.get("qualification_certificate_identity") or ""),
+        )
+        is None
+        or HEX_64.fullmatch(
+            str(immutable.get("qualification_certificate_event_hash") or "")
+        )
+        is None
+        or HEX_64.fullmatch(str(immutable.get("permit_sha256") or "")) is None
+    ):
+        raise RuntimeError(reason)
+
+    permit_commit = immutable.get("permit_commit")
+    if (
+        not isinstance(permit_commit, dict)
+        or set(permit_commit) != {"contract_name", "version", "status", "sha256"}
+        or permit_commit.get("contract_name")
+        != VEXP_MUTATION_PERMIT_COMMIT_CONTRACT_NAME
+        or permit_commit.get("version") != VEXP_MUTATION_PERMIT_COMMIT_VERSION
+        or permit_commit.get("status") != "committed"
+        or HEX_64.fullmatch(str(permit_commit.get("sha256") or "")) is None
+    ):
+        raise RuntimeError(reason)
+    void_ledger = immutable.get("epoch_void_ledger")
+    expected_entry = VEXP_EPOCH_VOID_LEDGER_ROOT / f"{epoch_started_ms}.json"
+    if (
+        not isinstance(void_ledger, dict)
+        or set(void_ledger) != {"root", "entry", "entry_present", "root_trusted"}
+        or void_ledger.get("root") != str(VEXP_EPOCH_VOID_LEDGER_ROOT)
+        or void_ledger.get("entry") != str(expected_entry)
+        or void_ledger.get("entry_present") is not False
+        or void_ledger.get("root_trusted") is not True
+    ):
+        raise RuntimeError(reason)
+
+    qualified_at = _parsed_utc_timestamp(immutable.get("qualified_at"))
+    permit_issued_at = _parsed_utc_timestamp(immutable.get("permit_issued_at"))
+    permit_expires_at = _parsed_utc_timestamp(immutable.get("permit_expires_at"))
+    receipt_observed_at = _parsed_utc_timestamp(observed_at)
+    if (
+        permit_issued_at < qualified_at
+        or permit_expires_at <= permit_issued_at
+        or permit_expires_at - permit_issued_at
+        > MAX_VEXP_MUTATION_PERMIT_LIFETIME
+        or receipt_observed_at < permit_issued_at
+        or receipt_observed_at >= permit_expires_at
+    ):
+        raise RuntimeError(reason)
+    return dict(envelope)
+
+
 def _validated_compose_attestation(
     payload: dict[str, object],
     *,
@@ -294,6 +515,11 @@ def _validated_execution_inputs(
     environment_keys = inputs.get("environment_keys")
     compose_size = inputs.get("compose_size_bytes")
     environment_size = inputs.get("environment_size_bytes")
+    expected_environment_keys = (
+        CANDIDATE_ENV_KEYS
+        if payload.get("schema") == RUNTIME_SCHEMA_V6
+        else LEGACY_CANDIDATE_ENV_KEYS
+    )
     if (
         inputs.get("schema") != EXECUTION_INPUT_SCHEMA
         or inputs.get("compose_sha256") != compose["sha256"]
@@ -303,7 +529,7 @@ def _validated_execution_inputs(
         or HEX_64.fullmatch(str(inputs.get("environment_sha256") or "")) is None
         or type(environment_size) is not int
         or not 1 <= environment_size <= CANDIDATE_ENV_MAX_BYTES
-        or environment_keys != sorted(CANDIDATE_ENV_KEYS)
+        or environment_keys != sorted(expected_environment_keys)
         or inputs.get("compose_image_id") != payload.get("image_id")
         or inputs.get("compose_image_reference_source") != "prepared_image_id"
         or inputs.get("transport") != "sealed_memfd"
@@ -352,6 +578,11 @@ def _validated_runtime_posture(
         not isinstance(name, str) for name in environment_keys
     ):
         raise RuntimeError("manfred_candidate_registry_runtime_posture_invalid")
+    expected_candidate_env_keys = (
+        CANDIDATE_ENV_KEYS
+        if payload.get("schema") == RUNTIME_SCHEMA_V6
+        else LEGACY_CANDIDATE_ENV_KEYS
+    )
     if (
         posture.get("schema") != RUNTIME_POSTURE_SCHEMA
         or posture.get("api_container_id")
@@ -362,7 +593,7 @@ def _validated_runtime_posture(
         or posture.get("execution_environment_sha256")
         != execution_inputs["environment_sha256"]
         or environment_keys != sorted(set(environment_keys))
-        or not CANDIDATE_ENV_KEYS.issubset(set(environment_keys))
+        or not expected_candidate_env_keys.issubset(set(environment_keys))
         or any(
             name.endswith(
                 (
@@ -398,11 +629,15 @@ def _validated_runtime_posture(
         "/data/memorial/public": release_root / "public_memorials",
         "/data/memorial/private": release_root / "private_memorial_profiles",
         "/data/memorial/archive": release_root / "memorial_archive",
-        "/data/public_property_tours": release_root / "public_property_tours",
         "/data/release-authority": release_root / "release-authority",
     }
+    if payload.get("schema") != RUNTIME_SCHEMA_V6:
+        expected_release_mounts["/data/public_property_tours"] = (
+            release_root / "public_property_tours"
+        )
     mounts = posture.get("mounts")
-    if not isinstance(mounts, list) or len(mounts) != 9:
+    expected_mount_count = 8 if payload.get("schema") == RUNTIME_SCHEMA_V6 else 9
+    if not isinstance(mounts, list) or len(mounts) != expected_mount_count:
         raise RuntimeError("manfred_candidate_registry_runtime_posture_invalid")
     by_destination: dict[str, dict[str, object]] = {}
     for raw in mounts:
@@ -496,18 +731,23 @@ def _validated_runtime_projection(payload: dict[str, object]) -> dict[str, objec
     digest = hashlib.sha256(
         json.dumps(files, separators=(",", ":"), sort_keys=True).encode("utf-8")
     ).hexdigest()
+    mount_roots = [
+        "/data/memorial/public",
+        "/data/memorial/private",
+        "/data/memorial/archive",
+        *(
+            []
+            if payload.get("schema") == RUNTIME_SCHEMA_V6
+            else ["/data/public_property_tours"]
+        ),
+        "/data/release-authority",
+    ]
     expected = {
         "schema": RUNTIME_PROJECTION_SCHEMA,
         "projection_sha256": digest,
         "file_count": len(files),
         "projection_bytes": projection_bytes,
-        "mount_roots": [
-            "/data/memorial/public",
-            "/data/memorial/private",
-            "/data/memorial/archive",
-            "/data/public_property_tours",
-            "/data/release-authority",
-        ],
+        "mount_roots": mount_roots,
         "runtime_bytes_match_prepared_projection": True,
     }
     if (
@@ -558,7 +798,7 @@ def _runtime_identity(payload: dict[str, object]) -> dict[str, object]:
     ):
         raise RuntimeError("manfred_candidate_registry_receipt_invalid")
 
-    if schema == RUNTIME_SCHEMA_V4:
+    if schema in {RUNTIME_SCHEMA_V4, RUNTIME_SCHEMA_V5, RUNTIME_SCHEMA_V6}:
         execution_inputs = _validated_execution_inputs(payload, revision=revision)
         image_locator_evidence = payload.get("image_locator_evidence")
         if image_locator_evidence != {
@@ -648,6 +888,67 @@ def _runtime_identity(payload: dict[str, object]) -> dict[str, object]:
             image_id=image_id,
             execution_inputs=execution_inputs,
         )
+        if schema in {RUNTIME_SCHEMA_V5, RUNTIME_SCHEMA_V6}:
+            image_build_binding = payload.get("image_build_authority_binding")
+            if not isinstance(image_build_binding, dict):
+                raise RuntimeError(
+                    "manfred_candidate_registry_image_build_authority_invalid"
+                )
+            try:
+                verified_image_build_binding = _image_build_authority_binding(
+                    Path(str(image_build_binding.get("receipt_path") or "")),
+                    commit=revision,
+                    image=image,
+                    image_id=image_id,
+                )
+            except (OSError, RuntimeError, ValueError) as exc:
+                raise RuntimeError(
+                    "manfred_candidate_registry_image_build_authority_invalid"
+                ) from exc
+            if verified_image_build_binding != image_build_binding:
+                raise RuntimeError(
+                    "manfred_candidate_registry_image_build_authority_invalid"
+                )
+            _validated_vexp_candidate_authority(payload, observed_at=observed_at)
+
+        if schema == RUNTIME_SCHEMA_V6:
+            projection_files = payload.get("projection_files")
+            browser_surface = payload.get("browser_surface")
+            first_checks = {
+                str(item).strip()
+                for item in list(payload.get("first_smoke_checks") or [])
+                if str(item).strip()
+            }
+            second_checks = {
+                str(item).strip()
+                for item in list(payload.get("second_smoke_checks") or [])
+                if str(item).strip()
+            }
+            if (
+                payload.get("memorial_surface") != MEMORIAL_SURFACE
+                or payload.get("spatial_scope") != SPATIAL_SCOPE
+                or payload.get("public_property_tours_packaged") is not False
+                or payload.get("public_property_tours_tested") is not False
+                or payload.get("memorial_spatial_receipt_generated") is not False
+                or "spatial_handoff" in payload
+                or "spatial_handoff_runtime" in payload
+                or not isinstance(projection_files, list)
+                or any(
+                    str(dict(row).get("path") or "").startswith(
+                        "public_property_tours/"
+                    )
+                    for row in projection_files
+                    if isinstance(row, dict)
+                )
+                or not isinstance(browser_surface, dict)
+                or browser_surface.get("memorial_surface") != MEMORIAL_SURFACE
+                or browser_surface.get("spatial_scope") != SPATIAL_SCOPE
+                or "conversation_only_public_surface" not in first_checks
+                or "conversation_only_public_surface" not in second_checks
+            ):
+                raise RuntimeError(
+                    "manfred_candidate_registry_conversation_scope_invalid"
+                )
 
     return {
         "schema": schema,
@@ -657,7 +958,7 @@ def _runtime_identity(payload: dict[str, object]) -> dict[str, object]:
         "image_id": image_id,
         "revision": revision,
         "port": port,
-        "legacy": schema == RUNTIME_SCHEMA_V3,
+        "legacy": schema != RUNTIME_SCHEMA_V6,
     }
 
 
@@ -1134,7 +1435,7 @@ def register_candidate_receipt(
     require_pending: bool = False,
 ) -> dict[str, object]:
     payload, entry, identity = _receipt_entry(receipt_path)
-    if identity["schema"] != RUNTIME_SCHEMA_V4:
+    if identity["schema"] != RUNTIME_SCHEMA_V6:
         raise RuntimeError("manfred_candidate_registry_legacy_receipt_forbidden")
     path = Path(registry_path or default_registry_path())
     loaded = _read_private_json(path, missing_ok=True)
@@ -1224,6 +1525,7 @@ def registered_candidate_receipt_postures(
         if observed != entry:
             raise RuntimeError("manfred_candidate_registry_receipt_changed")
         legacy = identity["legacy"] is True
+        runtime_schema = str(identity["schema"])
         postures.append(
             {
                 **entry,
@@ -1231,7 +1533,11 @@ def registered_candidate_receipt_postures(
                 "legacy": legacy,
                 "retention_eligible": not legacy,
                 "quarantined": legacy,
-                "quarantine_reason": ("legacy_runtime_receipt_v3" if legacy else ""),
+                "quarantine_reason": (
+                    f"legacy_runtime_receipt_{runtime_schema.rsplit('.', 1)[-1]}"
+                    if legacy
+                    else ""
+                ),
                 "automatic_retirement_authorized": False,
             }
         )

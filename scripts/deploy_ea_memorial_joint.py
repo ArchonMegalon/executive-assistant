@@ -7,8 +7,9 @@ lane is intentionally read-only. This coordinator owns the one transaction
 that may compose them: capture both baselines, change and prove the API locally,
 change and prove ingress, then prove every public surface.
 
-Rollback is recovery, not a new promotion. Once a forward mutation may have
-started, rollback never waits for a fresh permit.
+Rollback is recovery, not a new promotion, but it is still a live mutation.
+Every rollback component therefore requires the same current exact-certificate
+joint permit and coordination lock immediately before it changes runtime state.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Sequence
@@ -104,9 +105,11 @@ MEMORIAL_COMPONENT_CONTRACT_NAME = "ea.memorial_scoped_deploy_receipt.v1"
 JOINT_VEXP_MUTATION_PERMIT_CONTRACT_NAME = "ea.vexp_memorial_joint_mutation_permit.v2"
 JOINT_VEXP_MUTATION_PERMIT_VERSION = 2
 INGRESS_MUTATION_BOUNDARY = "before_recreate_cloudflared"
+INGRESS_ROLLBACK_MUTATION_BOUNDARY = "before_rollback_cloudflared"
+NETWORK_ROLLBACK_MUTATION_BOUNDARY = "before_rollback_network"
 SPATIAL_DEPLOY_RECEIPT_ENV = "EA_MEMORIAL_SPATIAL_DEPLOY_RECEIPT"
 SPATIAL_BROWSER_RECEIPT_ENV = "EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT"
-CANDIDATE_RUNTIME_SCHEMA = "ea.manfred_memorial_candidate_runtime.v4"
+CANDIDATE_RUNTIME_SCHEMA = "ea.manfred_memorial_candidate_runtime.v5"
 CANDIDATE_BROWSER_SCHEMA = "ea.manfred_spatial_candidate_browser.v5"
 MAX_SPATIAL_RECEIPT_BYTES = 8 * 1024 * 1024
 JOINT_RECOVERY_JOURNAL_CONTRACT_NAME = "ea.memorial_joint_recovery_journal.v1"
@@ -150,6 +153,8 @@ MAX_JOINT_ROLLBACK_DEADLINE_SECONDS = 900.0
 JOINT_VEXP_MUTATION_BOUNDARIES = (
     *VEXP_MUTATION_BOUNDARIES,
     INGRESS_MUTATION_BOUNDARY,
+    INGRESS_ROLLBACK_MUTATION_BOUNDARY,
+    NETWORK_ROLLBACK_MUTATION_BOUNDARY,
 )
 
 
@@ -376,6 +381,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         ):
             raise DeployError("joint_rollback_deadline_invalid")
         self.rollback_deadline_seconds = rollback_deadline_seconds
+        self.vexp_transaction_rollback_seconds = rollback_deadline_seconds
         self._joint_rollback_deadline: float | None = None
         self._recovery_local_origin: str | None = None
         self.ingress_receipt_dir = (
@@ -2275,6 +2281,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "api_mutation_possible": api_possible,
             "ingress_mutation_possible": ingress_possible,
             "permit_requested": False,
+            "permit_required": True,
         }
         self._write_receipt()
         ingress_lane = dict(context["ingress"])["lane"]
@@ -2317,6 +2324,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     "api_mutation_possible": api_possible,
                     "ingress_mutation_possible": ingress_possible,
                     "permit_requested": False,
+                    "permit_required": True,
                     "completed_at": _utc_now(),
                 }
                 self._write_receipt()
@@ -2342,6 +2350,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     "api_mutation_possible": api_possible,
                     "ingress_mutation_possible": ingress_possible,
                     "permit_requested": False,
+                    "permit_required": True,
                 }
                 self._write_receipt()
                 raise DeployError(
@@ -2672,6 +2681,31 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         if self._capture_public_edge(public_origin) != first:
             raise DeployError("joint_public_snapshot_unstable")
         return first
+
+    def _verify_ingress_public_origin_bounded(
+        self,
+        ingress: PublicIngressReconciliationLane,
+    ) -> dict[str, Any]:
+        original_http_no_redirect = ingress.http_no_redirect
+
+        def bounded_http_no_redirect(
+            url: str,
+            timeout_seconds: float,
+            method: str,
+            public_authority: str,
+        ) -> HttpResponse:
+            return original_http_no_redirect(
+                url,
+                self._vexp_bounded_timeout(timeout_seconds),
+                method,
+                public_authority,
+            )
+
+        ingress.http_no_redirect = bounded_http_no_redirect
+        try:
+            return ingress._verify_public_origin()
+        finally:
+            ingress.http_no_redirect = original_http_no_redirect
 
     @staticmethod
     def _cloudflared_identity(
@@ -3298,7 +3332,12 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         if ingress_mutation_started:
             try:
                 self._remaining_vexp_mutation_seconds()
-                result["ingress"] = self._rollback_cloudflared(ingress_context)
+                with self._vexp_mutation_lease(
+                    INGRESS_ROLLBACK_MUTATION_BOUNDARY
+                ):
+                    result["ingress"] = self._rollback_cloudflared(
+                        ingress_context
+                    )
                 self._remaining_vexp_mutation_seconds()
             except BaseException as exc:  # rollback must survive a second interrupt
                 failures.append(f"ingress:{str(exc) or type(exc).__name__}")
@@ -3327,7 +3366,12 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         if api_mutation_started or ingress_mutation_started:
             try:
                 self._remaining_vexp_mutation_seconds()
-                result["network"] = self._restore_public_network(ingress_context)
+                with self._vexp_mutation_lease(
+                    NETWORK_ROLLBACK_MUTATION_BOUNDARY
+                ):
+                    result["network"] = self._restore_public_network(
+                        ingress_context
+                    )
                 self._remaining_vexp_mutation_seconds()
             except BaseException as exc:
                 failures.append(f"network:{str(exc) or type(exc).__name__}")
@@ -3407,6 +3451,10 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         active_action: str | None = None
         transaction_committed = False
         recovery_journal: dict[str, Any] | None = None
+        transaction_stack = ExitStack()
+        transaction_active = False
+        transaction_ingress: PublicIngressReconciliationLane | None = None
+        original_ingress_timeout_provider: Callable[[], float | None] | None = None
 
         def persist_preparation(
             status: str,
@@ -3454,6 +3502,20 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     *ingress_context["target_input_seals"],
                     *ingress_context["rollback_input_seals"],
                 ]
+            )
+            pending_action = "mutation_transaction"
+            persist_preparation("transaction_authorization_pending")
+            transaction_stack.enter_context(
+                self._vexp_mutation_transaction("before_ensure_redis")
+            )
+            transaction_active = True
+            transaction_ingress = ingress
+            original_ingress_timeout_provider = ingress.command_timeout_provider
+            ingress.command_timeout_provider = (
+                self._remaining_vexp_mutation_seconds
+            )
+            context["non_memorial_controls"] = self._capture_non_memorial_controls(
+                internal_openapi=True
             )
             pending_action = "ensure_redis"
             persist_preparation("authorization_pending")
@@ -3572,11 +3634,12 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 dict(context["non_memorial_controls"]),
                 internal_openapi=True,
             )
-            local_candidate = self._verify_candidate_origin(
-                label="local",
-                base_url=local_origin,
-                public_origin=str(context["public_origin"]),
-            )
+            with self._vexp_mutation_lease("before_api_interaction"):
+                local_candidate = self._verify_candidate_origin(
+                    label="local",
+                    base_url=local_origin,
+                    public_origin=str(context["public_origin"]),
+                )
             self.receipt["joint_local_api_proof"] = {
                 "probes": local_probes,
                 "candidate_verifier": local_candidate,
@@ -3641,18 +3704,19 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 source_revision=str(context["source_revision"]),
                 candidate_promotion_evidence=dict(context["candidate_promotion"]),
             )
-            public_candidate = self._verify_candidate_origin(
-                label="public",
-                base_url=str(context["public_origin"]),
-                public_origin=str(context["public_origin"]),
-            )
+            with self._vexp_mutation_lease("before_api_interaction"):
+                public_candidate = self._verify_candidate_origin(
+                    label="public",
+                    base_url=str(context["public_origin"]),
+                    public_origin=str(context["public_origin"]),
+                )
             self.receipt["candidate_verifier"] = [
                 local_candidate,
                 public_candidate,
             ]
             self._record_check("candidate_verifier_origin", "pass", origin="public")
             self._record_check("local_and_public_candidate_verifier", "pass")
-            public_edge = ingress._verify_public_origin()
+            public_edge = self._verify_ingress_public_origin_bounded(ingress)
             self.receipt["joint_public_edge"] = {
                 "status": "pass",
                 "request_count": len(public_edge),
@@ -3675,6 +3739,10 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
 
             self._require_spatial_browser_binding(context)
             self.receipt["spatial_materializer_handoff"] = spatial_materializer_handoff
+
+            self._require_vexp_mutation_transaction_current(
+                "before_api_interaction"
+            )
 
             with _defer_deployment_signals() as commit_signal_controller:
                 if recovery_journal is None:  # pragma: no cover - ordering invariant
@@ -3719,6 +3787,13 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 # This is the one durable, irrevocable transaction commit point.
                 self._write_receipt()
                 transaction_committed = True
+                if transaction_ingress is not None:
+                    transaction_ingress.command_timeout_provider = (
+                        original_ingress_timeout_provider
+                    )
+                    transaction_ingress = None
+                transaction_stack.close()
+                transaction_active = False
                 self.receipt["recovery_journal_cleanup"] = (
                     self._remove_owned_recovery_journal_best_effort(recovery_journal)
                 )
@@ -3872,6 +3947,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             if context and (api_mutation_started or ingress_mutation_started):
                 with _defer_deployment_signals() as signal_controller:
                     try:
+                        self._enter_vexp_mutation_transaction_rollback()
                         if recovery_journal is not None:
                             try:
                                 self._set_recovery_phase(
@@ -4033,7 +4109,15 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 raise
             raise DeployError(original_error) from exc
         finally:
-            self._release_lock()
+            try:
+                if transaction_ingress is not None:
+                    transaction_ingress.command_timeout_provider = (
+                        original_ingress_timeout_provider
+                    )
+                if transaction_active:
+                    transaction_stack.close()
+            finally:
+                self._release_lock()
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

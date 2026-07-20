@@ -210,15 +210,15 @@ def test_candidate_compose_is_image_pure_isolated_and_provider_free() -> None:
         "/data/release-authority/PROJECT_MODES.generated.json"
     )
     assert environment["EA_DEPLOY_PRIMARY_MODE"] == "MEMORIAL"
-    assert environment["EA_DEPLOY_ENABLED_MODES"] == "MEMORIAL,PROPERTY"
+    assert environment["EA_DEPLOY_ENABLED_MODES"] == "MEMORIAL"
     assert environment["EA_DEPLOY_COMPOSE_FILES"] == (
         "deploy/manfred-memorial/docker-compose.candidate.yml"
     )
     assert environment["EA_STORAGE_BACKEND"] == "postgres"
     assert environment["EA_ENABLE_LEGACY_RUNTIME_SURFACES"] == "1"
     assert environment["PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES"] == "1"
-    assert environment["EA_ENABLE_PUBLIC_TOURS"] == "1"
-    assert environment["PROPERTYQUARRY_ENABLE_PUBLIC_TOURS"] == "1"
+    assert environment["EA_ENABLE_PUBLIC_TOURS"] == "0"
+    assert environment["PROPERTYQUARRY_ENABLE_PUBLIC_TOURS"] == "0"
     assert environment["EA_ENABLE_PUBLIC_MEMORIALS"] == "1"
     assert environment["EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES"] == "0"
     assert environment["EA_PUBLIC_MEMORIAL_RATE_BACKEND"] == "redis"
@@ -972,7 +972,7 @@ def test_candidate_projection_rejects_unsafe_paths_and_classifies_private_audio(
     assert assets[Path("audio/private.mp3")] == 0o400
 
 
-def test_candidate_spatial_review_inputs_are_explicit_and_threaded(
+def test_candidate_spatial_review_inputs_are_rejected_from_memorial_lane(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -984,6 +984,8 @@ def test_candidate_spatial_review_inputs_are_explicit_and_threaded(
             "https://memorial.example.at",
             "--project-name",
             PROJECT,
+            "--image-build-receipt",
+            str(tmp_path / "image-build.json"),
             "--spatial-tour-bundle-dir",
             str(tmp_path / "bundle"),
             "--spatial-authority-receipt",
@@ -994,28 +996,17 @@ def test_candidate_spatial_review_inputs_are_explicit_and_threaded(
             str(tmp_path / "browser.json"),
         ]
     )
-    assert parser_args.spatial_final_review_receipt == str(tmp_path / "final.json")
-    assert parser_args.spatial_browser_review_receipt == str(tmp_path / "browser.json")
-
     monkeypatch.setattr(candidate_prep, "_commit", lambda *_args: COMMIT)
     monkeypatch.setattr(
         candidate_prep,
         "_image_revision",
         lambda _image: ("sha256:" + "1" * 64, COMMIT),
     )
-    captured: dict[str, object] = {}
-
-    def capture_spatial_inputs(**kwargs: object) -> dict[str, object]:
-        captured.update(kwargs)
-        raise RuntimeError("spatial_inputs_captured")
-
-    monkeypatch.setattr(
-        candidate_prep,
-        "_validated_spatial_handoff_input",
-        capture_spatial_inputs,
-    )
     unlocked_prepare = candidate_prep.prepare_candidate.__wrapped__
-    with pytest.raises(RuntimeError, match="spatial_inputs_captured"):
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_spatial_inputs_forbidden_in_conversation_only",
+    ):
         unlocked_prepare(
             source_root=tmp_path,
             ref="HEAD",
@@ -1024,53 +1015,36 @@ def test_candidate_spatial_review_inputs_are_explicit_and_threaded(
             public_base_url="https://memorial.example.at",
             host_port=18090,
             project_name=PROJECT,
+            image_build_receipt=tmp_path / "image-build.json",
             spatial_tour_bundle_dir=tmp_path / "bundle",
             spatial_authority_receipt=tmp_path / "authority.json",
             spatial_final_review_receipt=tmp_path / "review" / ".." / "final.json",
             spatial_browser_review_receipt=tmp_path / "browser.json",
         )
 
-    assert captured == {
-        "bundle_dir": tmp_path / "bundle",
-        "authority_receipt_path": tmp_path / "authority.json",
-        "final_review_receipt_path": tmp_path / "final.json",
-        "browser_review_receipt_path": tmp_path / "browser.json",
-        "target_origin": "https://memorial.example.at",
-    }
-
 
 @pytest.mark.parametrize(
-    ("spatial_inputs", "expected_error"),
+    "spatial_inputs",
     [
-        (
-            {
-                "spatial_tour_bundle_dir": Path("bundle"),
-                "spatial_authority_receipt": Path("authority.json"),
-            },
-            "manfred_candidate_spatial_review_evidence_required",
-        ),
-        (
-            {
-                "spatial_tour_bundle_dir": Path("bundle"),
-                "spatial_authority_receipt": Path("authority.json"),
-                "spatial_final_review_receipt": Path("final.json"),
-            },
-            "manfred_candidate_spatial_review_input_pair_required",
-        ),
-        (
-            {
-                "spatial_final_review_receipt": Path("final.json"),
-                "spatial_browser_review_receipt": Path("browser.json"),
-            },
-            "manfred_candidate_spatial_review_evidence_required",
-        ),
+        {
+            "spatial_tour_bundle_dir": Path("bundle"),
+            "spatial_authority_receipt": Path("authority.json"),
+        },
+        {
+            "spatial_tour_bundle_dir": Path("bundle"),
+            "spatial_authority_receipt": Path("authority.json"),
+            "spatial_final_review_receipt": Path("final.json"),
+        },
+        {
+            "spatial_final_review_receipt": Path("final.json"),
+            "spatial_browser_review_receipt": Path("browser.json"),
+        },
     ],
 )
-def test_candidate_spatial_review_inputs_fail_closed_as_one_set(
+def test_candidate_spatial_review_inputs_fail_closed_as_out_of_scope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     spatial_inputs: dict[str, Path],
-    expected_error: str,
 ) -> None:
     monkeypatch.setattr(candidate_prep, "_commit", lambda *_args: COMMIT)
     monkeypatch.setattr(
@@ -1079,7 +1053,10 @@ def test_candidate_spatial_review_inputs_fail_closed_as_one_set(
         lambda _image: ("sha256:" + "1" * 64, COMMIT),
     )
 
-    with pytest.raises(ValueError, match=expected_error):
+    with pytest.raises(
+        ValueError,
+        match="manfred_candidate_spatial_inputs_forbidden_in_conversation_only",
+    ):
         candidate_prep.prepare_candidate.__wrapped__(
             source_root=tmp_path,
             ref="HEAD",
@@ -1472,7 +1449,6 @@ def test_runtime_runner_rejects_live_bind_or_external_network(tmp_path: Path) ->
     env_file = (tmp_path / "candidate.env").resolve()
     release_root = (tmp_path / "release").resolve()
     runtime_root = (tmp_path / "runtime").resolve()
-    spatial_root = (release_root / "public_property_tours").resolve()
     authority_root = (
         release_root / candidate_prep.CANDIDATE_RELEASE_AUTHORITY_DIRNAME
     ).resolve()
@@ -1485,10 +1461,8 @@ def test_runtime_runner_rejects_live_bind_or_external_network(tmp_path: Path) ->
         "EA_MANFRED_RELEASE_ROOT": str(release_root),
         "EA_MANFRED_RELEASE_AUTHORITY_ROOT": str(authority_root),
         "EA_MANFRED_RUNTIME_ROOT": str(runtime_root),
-        "EA_MANFRED_SPATIAL_HANDOFF_INCLUDED": "0",
-        "EA_MANFRED_SPATIAL_RELEASE_ROOT": str(spatial_root),
-        "EA_MANFRED_SPATIAL_SHA256": candidate_prep._sha256(b"[]"),
-        "EA_MANFRED_SPATIAL_SLUG": "",
+        "EA_MANFRED_MEMORIAL_SURFACE": candidate_prep.MEMORIAL_SURFACE,
+        "EA_MANFRED_SPATIAL_SCOPE": candidate_prep.SPATIAL_SCOPE,
         "EA_PUBLIC_APP_BASE_URL": "https://myexternalbrain.com",
     }
     mounts = [
@@ -1524,12 +1498,6 @@ def test_runtime_runner_rejects_live_bind_or_external_network(tmp_path: Path) ->
             "type": "bind",
             "source": str(runtime_root / "state"),
             "target": "/data/memorial/state",
-        },
-        {
-            "type": "bind",
-            "source": str(spatial_root),
-            "target": "/data/public_property_tours",
-            "read_only": True,
         },
         {
             "type": "bind",
@@ -1645,7 +1613,7 @@ def test_page_render_prewarm_can_be_disabled_without_changing_default(
     assert calls == ["manfred"]
 
 
-def test_manfred_public_page_uses_scoped_editorial_minimal_theme() -> None:
+def test_manfred_public_page_selects_conversation_only_surface_explicitly() -> None:
     from app.api.routes import public_memorials
 
     common = {
@@ -1661,6 +1629,11 @@ def test_manfred_public_page_uses_scoped_editorial_minimal_theme() -> None:
         slug="manfred",
         **common,
     )
+    conversation_only_html = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        conversation_only=True,
+        **common,
+    )
     other_html = public_memorials._minimal_public_memorial_html(
         slug="another-memorial",
         **common,
@@ -1668,8 +1641,42 @@ def test_manfred_public_page_uses_scoped_editorial_minimal_theme() -> None:
 
     assert (
         '<body class="memorial-theme-minimal" '
-        'data-memorial-theme="editorial-minimal-v2">'
+        'data-memorial-theme="editorial-minimal-v2" '
+        'data-public-memorial-surface="legacy">'
     ) in manfred_html
+    assert (
+        '<body class="memorial-theme-minimal" '
+        'data-memorial-theme="editorial-minimal-v2" '
+        'data-public-memorial-surface="conversation-only">'
+    ) in conversation_only_html
+    assert "<section>Story</section>" in manfred_html
+    assert "<section>Story</section>" not in conversation_only_html
+    assert conversation_only_html.count("<main ") == 1
+    assert 'id="memorial-story"' not in conversation_only_html
+    assert 'id="memorial-contribution"' not in conversation_only_html
+    assert 'id="memorial-install-hint"' not in conversation_only_html
+    assert '<details class="conversation-settings">' not in conversation_only_html
+    assert 'id="memorial-conversation"' in conversation_only_html
+    assert 'id="memorial-text-turn-form"' in conversation_only_html
+    assert 'id="memorial-retry-button"' in conversation_only_html
+    assert 'id="memorial-speech-transcript" role="log"' in conversation_only_html
+    rendered_contract = candidate_verify.verify_conversation_only_page_html(
+        conversation_only_html.encode("utf-8")
+    )
+    assert rendered_contract == {
+        "status": "pass",
+        "public_surface": "conversation-only",
+        "main_count": 1,
+        "nav_count": 0,
+        "aside_count": 0,
+        "iframe_count": 0,
+        "video_count": 0,
+        "conversation_settings_count": 0,
+        "memory_room_link_count": 0,
+        "tour_link_count": 0,
+        "missing_required_ids": [],
+        "present_forbidden_ids": [],
+    }
     assert ".memorial-theme-minimal::before" in manfred_html
     assert ".memorial-theme-minimal .story-card" in manfred_html
     assert ".memorial-theme-minimal .skip-link:focus-visible" in manfred_html

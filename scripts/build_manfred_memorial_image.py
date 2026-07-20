@@ -13,12 +13,26 @@ import stat
 import subprocess
 import tempfile
 from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
+try:
+    from scripts.manfred_candidate_vexp_authority import (
+        DEFAULT_SENTINEL_STATE_PATH,
+        CandidateVexpMutationAuthority,
+        candidate_vexp_authority,
+    )
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from manfred_candidate_vexp_authority import (  # type: ignore[no-redef]
+        DEFAULT_SENTINEL_STATE_PATH,
+        CandidateVexpMutationAuthority,
+        candidate_vexp_authority,
+    )
 
-RECEIPT_SCHEMA = "ea.manfred_memorial_image_build.v2"
+
+RECEIPT_SCHEMA = "ea.manfred_memorial_image_build.v3"
 SELF_TEST_SCHEMA = "ea.manfred_memorial_image_build.self_test.v1"
 SOAK_ROOT_FREE_FLOOR_BYTES = 20 * 1024**3
 BUILD_ROOT_FREE_HEADROOM_BYTES = 15 * 1024**3
@@ -52,8 +66,100 @@ RECEIPT_CONFLICT_ERROR = "manfred_image_receipt_existing_conflict"
 RECEIPT_PATH_ERROR = "manfred_image_receipt_path_invalid"
 RECEIPT_WRITE_ERROR = "manfred_image_receipt_write_failed"
 RECEIPT_MAX_BYTES = 1024 * 1024
+IMAGE_BUILD_RECEIPT_MAX_BYTES = RECEIPT_MAX_BYTES
 RECEIPT_TEMP_BASENAME = "ea-manfred-image-receipt"
 RECEIPT_TEMP_CREATE_ATTEMPTS = 32
+IMAGE_BUILD_AUTHORITY_KEYS = frozenset(
+    {
+        "entry",
+        "operations",
+        "finalization",
+        "operation_count",
+        "operations_exact",
+        "authority_basis",
+        "receipt_publication",
+        "receipt_publication_held_under_authority",
+    }
+)
+IMAGE_BUILD_OPERATION_KEYS = frozenset(
+    {
+        "sequence",
+        "operation",
+        "resource",
+        "runner_acknowledged",
+        "authority",
+    }
+)
+OPERATION_RESOURCE_KEYS = frozenset({"argv", "target"})
+CURRENT_PREDICATE_KEYS = frozenset(
+    {
+        "contract_name",
+        "version",
+        "status",
+        "epoch_started_ms",
+        "generation",
+        "record_sha256",
+        "boot_id",
+        "monotonic_ns",
+        "sentinel_producer_sha256",
+        "root_predicate_producer_sha256",
+    }
+)
+IMAGE_BUILD_AUTHORITY_BINDING_KEYS = frozenset(
+    {
+        "receipt_schema",
+        "receipt_path",
+        "receipt_sha256",
+        "image_tag",
+        "image_id",
+        "runtime_source_revision",
+        "producer_sha256",
+        "image_reused",
+        "authority",
+    }
+)
+AUTHORITY_EVIDENCE_KEYS = frozenset(
+    {
+        "status",
+        "phase",
+        "boundary",
+        "contract_name",
+        "version",
+        "epoch_started_ms",
+        "qualified_at",
+        "terminal_identity_sha256",
+        "qualification_certificate_schema",
+        "qualification_certificate_sha256",
+        "qualification_certificate_identity",
+        "qualification_certificate_event_hash",
+        "permit_sha256",
+        "permit_commit",
+        "epoch_void_ledger",
+        "permit_issued_at",
+        "permit_expires_at",
+        "current_predicate",
+    }
+)
+AUTHORITY_TUPLE_KEYS = AUTHORITY_EVIDENCE_KEYS - {
+    "status",
+    "phase",
+    "boundary",
+    "current_predicate",
+}
+IMAGE_BUILD_OPERATIONS = frozenset(
+    {
+        "builder_create",
+        "image_build",
+        "builder_prune",
+        "verification_stale_cleanup",
+        "verification_create",
+        "verification_probe",
+        "verification_cleanup",
+        "image_cleanup",
+    }
+)
+VERIFICATION_CONTAINER_LABEL = "ea.manfred.image-verifier"
+VERIFICATION_CONTAINER_NAME_PREFIX = "ea-manfred-image-verify-"
 SUCCESS_RECEIPT_FIELDS = frozenset(
     {
         "schema",
@@ -61,6 +167,7 @@ SUCCESS_RECEIPT_FIELDS = frozenset(
         "commit",
         "image_tag",
         "image_id",
+        "producer_sha256",
         "created_at",
         "revision_label",
         "runtime_source_revision",
@@ -85,6 +192,7 @@ SUCCESS_RECEIPT_FIELDS = frozenset(
         "runtime_secrets_baked_in",
         "memorial_data_baked_in",
         "memorial_archive_baked_in",
+        "image_build_authority",
     }
 )
 SUCCESS_RECEIPT_CACHE_FIELDS = frozenset(
@@ -107,6 +215,10 @@ FORBIDDEN_CONTEXT_PATHS = (
     ".env.local",
     "memorial_data",
     "memorial_archive",
+)
+_AUTHORIZED_RUN_TIMEOUT_SECONDS: ContextVar[float | None] = ContextVar(
+    "manfred_candidate_authorized_run_timeout_seconds",
+    default=None,
 )
 
 
@@ -222,7 +334,13 @@ def _run(
     *,
     cwd: Path | None = None,
     stdout: object | None = subprocess.PIPE,
+    timeout_seconds: float | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
+    effective_timeout = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else _AUTHORIZED_RUN_TIMEOUT_SECONDS.get()
+    )
     return subprocess.run(
         argv,
         cwd=str(cwd) if cwd else None,
@@ -230,7 +348,75 @@ def _run(
         stdin=subprocess.DEVNULL,
         stdout=stdout,
         stderr=subprocess.PIPE,
+        timeout=effective_timeout,
     )
+
+
+@contextmanager
+def _authorized_run_timeout(timeout_seconds: float) -> Iterator[None]:
+    token = _AUTHORIZED_RUN_TIMEOUT_SECONDS.set(timeout_seconds)
+    try:
+        yield
+    finally:
+        _AUTHORIZED_RUN_TIMEOUT_SECONDS.reset(token)
+
+
+def _record_authorized_operation(
+    operations: list[dict[str, object]],
+    *,
+    operation: str,
+    argv: list[str],
+    target: str,
+    evidence: dict[str, object],
+) -> dict[str, object]:
+    if (
+        operation not in IMAGE_BUILD_OPERATIONS
+        or not isinstance(argv, list)
+        or not argv
+        or any(not isinstance(value, str) or not value or "\x00" in value for value in argv)
+        or not isinstance(target, str)
+        or not target
+        or "\x00" in target
+    ):
+        raise ValueError("manfred_image_authority_operation_invalid")
+    record: dict[str, object] = {
+        "sequence": len(operations) + 1,
+        "operation": operation,
+        "resource": {"argv": list(argv), "target": target},
+        "runner_acknowledged": False,
+        "authority": dict(evidence),
+    }
+    operations.append(record)
+    return record
+
+
+@contextmanager
+def _authorized_operation(
+    authority: CandidateVexpMutationAuthority,
+    operations: list[dict[str, object]],
+    *,
+    operation: str,
+    argv: list[str],
+    target: str,
+    minimum_validity_seconds: float,
+) -> Iterator[object]:
+    with authority.mutation(
+        "before_candidate_image_build",
+        minimum_validity_seconds=minimum_validity_seconds,
+    ) as lease:
+        record = _record_authorized_operation(
+            operations,
+            operation=operation,
+            argv=argv,
+            target=target,
+            evidence=dict(lease.authority_evidence),
+        )
+        try:
+            yield lease
+        except BaseException:
+            raise
+        else:
+            record["runner_acknowledged"] = True
 
 
 def _text(argv: list[str], *, cwd: Path) -> str:
@@ -370,24 +556,35 @@ def _validate_dedicated_builder() -> None:
         raise RuntimeError(BUILDX_BUILDER_MISMATCH_ERROR)
 
 
-def _ensure_dedicated_builder() -> bool:
+def _ensure_dedicated_builder(
+    authority: CandidateVexpMutationAuthority,
+    operations: list[dict[str, object]],
+) -> bool:
     if _dedicated_builder_driver() is not None:
         _validate_dedicated_builder()
         return False
-    created = _run(
-        [
-            "docker",
-            "buildx",
-            "create",
-            "--name",
-            BUILDX_BUILDER_NAME,
-            "--node",
-            BUILDX_BUILDER_NODE_NAME,
-            "--driver",
-            BUILDX_BUILDER_DRIVER,
-            BUILDX_BUILDER_ENDPOINT,
-        ]
-    ).stdout
+    create_command = [
+        "docker",
+        "buildx",
+        "create",
+        "--name",
+        BUILDX_BUILDER_NAME,
+        "--node",
+        BUILDX_BUILDER_NODE_NAME,
+        "--driver",
+        BUILDX_BUILDER_DRIVER,
+        BUILDX_BUILDER_ENDPOINT,
+    ]
+    with _authorized_operation(
+        authority,
+        operations,
+        operation="builder_create",
+        argv=create_command,
+        target=BUILDX_BUILDER_NAME,
+        minimum_validity_seconds=120,
+    ) as lease:
+        with _authorized_run_timeout(lease.command_timeout(120)):
+            created = _run(create_command).stdout
     try:
         created_name = created.decode("utf-8", errors="strict").strip()
     except UnicodeDecodeError as exc:
@@ -400,23 +597,34 @@ def _ensure_dedicated_builder() -> bool:
     return True
 
 
-def _prune_dedicated_builder_cache() -> None:
-    _run(
-        [
-            "docker",
-            "buildx",
-            "prune",
-            "--builder",
-            BUILDX_BUILDER_NAME,
-            "-f",
-            "--max-used-space",
-            BUILDX_CACHE_MAX_USED_SPACE,
-            "--reserved-space",
-            BUILDX_CACHE_RESERVED_SPACE,
-            "--min-free-space",
-            BUILDX_CACHE_MIN_FREE_SPACE,
-        ]
-    )
+def _prune_dedicated_builder_cache(
+    authority: CandidateVexpMutationAuthority,
+    operations: list[dict[str, object]],
+) -> None:
+    prune_command = [
+        "docker",
+        "buildx",
+        "prune",
+        "--builder",
+        BUILDX_BUILDER_NAME,
+        "-f",
+        "--max-used-space",
+        BUILDX_CACHE_MAX_USED_SPACE,
+        "--reserved-space",
+        BUILDX_CACHE_RESERVED_SPACE,
+        "--min-free-space",
+        BUILDX_CACHE_MIN_FREE_SPACE,
+    ]
+    with _authorized_operation(
+        authority,
+        operations,
+        operation="builder_prune",
+        argv=prune_command,
+        target=BUILDX_BUILDER_NAME,
+        minimum_validity_seconds=300,
+    ) as lease:
+        with _authorized_run_timeout(lease.command_timeout(300)):
+            _run(prune_command)
 
 
 def _listed_image_id(tag: str) -> str | None:
@@ -443,7 +651,13 @@ def _listed_image_id(tag: str) -> str | None:
     return identifier
 
 
-def _cleanup_new_image(tag: str, *, expected_image_id: str | None) -> str:
+def _cleanup_new_image(
+    tag: str,
+    *,
+    expected_image_id: str | None,
+    authority: CandidateVexpMutationAuthority,
+    operations: list[dict[str, object]],
+) -> str:
     try:
         current_image_id = _listed_image_id(tag)
     except (OSError, RuntimeError, subprocess.CalledProcessError):
@@ -453,9 +667,19 @@ def _cleanup_new_image(tag: str, *, expected_image_id: str | None) -> str:
     if expected_image_id is None or current_image_id != expected_image_id:
         return "not_removed_identity_changed"
     try:
-        _run(["docker", "image", "rm", tag])
+        cleanup_command = ["docker", "image", "rm", tag]
+        with _authorized_operation(
+            authority,
+            operations,
+            operation="image_cleanup",
+            argv=cleanup_command,
+            target=tag,
+            minimum_validity_seconds=120,
+        ) as lease:
+            with _authorized_run_timeout(lease.command_timeout(120)):
+                _run(cleanup_command)
         remaining_image_id = _listed_image_id(tag)
-    except (OSError, RuntimeError, subprocess.CalledProcessError):
+    except (OSError, RuntimeError, subprocess.SubprocessError):
         return "remove_failed"
     if remaining_image_id is None:
         return "removed"
@@ -667,6 +891,8 @@ def _success_receipt(
     image_reused: bool,
     cache_prune_status: str,
     admission: dict[str, object],
+    producer_sha256: str,
+    image_build_authority: dict[str, object],
 ) -> dict[str, object]:
     return {
         "schema": RECEIPT_SCHEMA,
@@ -674,6 +900,7 @@ def _success_receipt(
         "commit": commit,
         "image_tag": image_tag,
         "image_id": image_id,
+        "producer_sha256": producer_sha256,
         "created_at": created_at,
         "revision_label": commit,
         "runtime_source_revision": commit,
@@ -698,7 +925,204 @@ def _success_receipt(
         "runtime_secrets_baked_in": False,
         "memorial_data_baked_in": False,
         "memorial_archive_baked_in": False,
+        "image_build_authority": image_build_authority,
     }
+
+
+def _validate_operation_resource(value: object) -> dict[str, object]:
+    if not isinstance(value, dict) or set(value) != OPERATION_RESOURCE_KEYS:
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    argv = value.get("argv")
+    target = value.get("target")
+    if (
+        not isinstance(argv, list)
+        or not 0 < len(argv) <= 256
+        or any(
+            not isinstance(argument, str)
+            or not argument
+            or len(argument) > 16 * 1024
+            or "\x00" in argument
+            for argument in argv
+        )
+        or not isinstance(target, str)
+        or not target
+        or len(target) > 16 * 1024
+        or "\x00" in target
+    ):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    return {"argv": list(argv), "target": target}
+
+
+def _validate_authority_predicate(
+    value: object,
+    *,
+    epoch_started_ms: object,
+    minimum_generation: int,
+    minimum_monotonic_ns: int,
+) -> tuple[int, int]:
+    if not isinstance(value, dict) or set(value) != CURRENT_PREDICATE_KEYS:
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    generation = value.get("generation")
+    monotonic_ns = value.get("monotonic_ns")
+    digests = (
+        value.get("record_sha256"),
+        value.get("sentinel_producer_sha256"),
+        value.get("root_predicate_producer_sha256"),
+    )
+    if (
+        value.get("contract_name") != "ea.vexp_current_predicate.v1"
+        or value.get("version") != 1
+        or value.get("status") != "positive"
+        or value.get("epoch_started_ms") != epoch_started_ms
+        or type(generation) is not int
+        or generation < minimum_generation
+        or type(monotonic_ns) is not int
+        or monotonic_ns < minimum_monotonic_ns
+        or not isinstance(value.get("boot_id"), str)
+        or len(str(value["boot_id"])) != 36
+        or any(
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+            for digest in digests
+        )
+    ):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    return generation, monotonic_ns
+
+
+def _validate_image_build_authority(
+    value: object,
+    *,
+    image_reused: bool,
+    builder_created: bool,
+) -> dict[str, object]:
+    if not isinstance(value, dict) or set(value) != IMAGE_BUILD_AUTHORITY_KEYS:
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    entry = value.get("entry")
+    operations = value.get("operations")
+    finalization = value.get("finalization")
+    if (
+        not isinstance(entry, dict)
+        or not isinstance(operations, list)
+        or any(not isinstance(row, dict) for row in operations)
+        or not isinstance(finalization, dict)
+        or value.get("operation_count") != len(operations)
+        or value.get("operations_exact") is not True
+        or value.get("receipt_publication") != "exclusive_hardlink_noreplace_v1"
+        or value.get("receipt_publication_held_under_authority") is not True
+    ):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    rows = [dict(entry)] + [dict(row["authority"]) for row in operations] + [dict(finalization)]
+    if any(set(row) != AUTHORITY_EVIDENCE_KEYS for row in rows):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    immutable = {key: rows[0].get(key) for key in AUTHORITY_TUPLE_KEYS}
+    expected_phase_boundary = [
+        ("entry", "candidate_entry"),
+        *(("pre_mutation", "before_candidate_image_build") for _ in operations),
+        ("finalization", "candidate_receipt_publication"),
+    ]
+    previous_generation = 0
+    previous_monotonic_ns = 0
+    for row, (phase, boundary) in zip(rows, expected_phase_boundary, strict=True):
+        if (
+            row.get("status") != "pass"
+            or row.get("phase") != phase
+            or row.get("boundary") != boundary
+            or {key: row.get(key) for key in AUTHORITY_TUPLE_KEYS} != immutable
+        ):
+            raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+        previous_generation, previous_monotonic_ns = _validate_authority_predicate(
+            row.get("current_predicate"),
+            epoch_started_ms=immutable.get("epoch_started_ms"),
+            minimum_generation=previous_generation,
+            minimum_monotonic_ns=previous_monotonic_ns,
+        )
+    operation_names: list[str] = []
+    for index, operation in enumerate(operations, start=1):
+        if (
+            set(operation) != IMAGE_BUILD_OPERATION_KEYS
+            or operation.get("sequence") != index
+            or operation.get("operation") not in IMAGE_BUILD_OPERATIONS
+            or operation.get("runner_acknowledged") is not True
+            or not isinstance(operation.get("authority"), dict)
+        ):
+            raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+        _validate_operation_resource(operation.get("resource"))
+        operation_names.append(str(operation["operation"]))
+    optional_stale = ["verification_stale_cleanup"]
+    verification_tail_options = (
+        ["verification_create", "verification_probe", "verification_cleanup"],
+        [*optional_stale, "verification_create", "verification_probe", "verification_cleanup"],
+    )
+    if image_reused:
+        expected_basis = "preexisting_image_current_authority_probe"
+        allowed_sequences = verification_tail_options
+    else:
+        expected_basis = "new_image_build"
+        prefix = ["image_build", "builder_prune"]
+        if builder_created:
+            prefix.insert(0, "builder_create")
+        allowed_sequences = tuple([*prefix, *tail] for tail in verification_tail_options)
+    if (
+        value.get("authority_basis") != expected_basis
+        or operation_names not in allowed_sequences
+    ):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    return dict(value)
+
+
+def _require_build_authority_current(
+    value: object,
+    *,
+    current_entry: dict[str, object],
+) -> None:
+    if not isinstance(value, dict) or not isinstance(value.get("entry"), dict):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    receipt_entry = dict(value["entry"])
+    if (
+        set(current_entry) != AUTHORITY_EVIDENCE_KEYS
+        or current_entry.get("status") != "pass"
+        or current_entry.get("phase") != "entry"
+        or current_entry.get("boundary") != "candidate_entry"
+        or {key: receipt_entry.get(key) for key in AUTHORITY_TUPLE_KEYS}
+        != {key: current_entry.get(key) for key in AUTHORITY_TUPLE_KEYS}
+    ):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+
+
+def _publish_success_receipt(
+    receipt_path: Path,
+    *,
+    authority: CandidateVexpMutationAuthority,
+    entry_evidence: dict[str, object],
+    operations: list[dict[str, object]],
+    authority_basis: str,
+    receipt_fields: dict[str, object],
+) -> dict[str, object]:
+    with authority.finalization() as finalization_evidence:
+        image_build_authority = {
+            "entry": dict(entry_evidence),
+            "operations": [dict(row) for row in operations],
+            "finalization": dict(finalization_evidence),
+            "operation_count": len(operations),
+            "operations_exact": True,
+            "authority_basis": authority_basis,
+            "receipt_publication": "exclusive_hardlink_noreplace_v1",
+            "receipt_publication_held_under_authority": True,
+        }
+        receipt = _success_receipt(
+            **receipt_fields,
+            image_build_authority=image_build_authority,
+        )
+        _validate_success_receipt_shape(
+            receipt,
+            commit=str(receipt["commit"]),
+            image_tag=str(receipt["image_tag"]),
+            producer_sha256=str(receipt["producer_sha256"]),
+        )
+        _atomic_json(receipt_path, receipt)
+    return receipt
 
 
 def _materialize_tracked_context(*, source_root: Path, commit: str, destination: Path) -> None:
@@ -747,21 +1171,165 @@ def _image_inspection(tag: str, *, expected_commit: str) -> tuple[str, dict[str,
     return image_id, inspection
 
 
-def _verify_image_filesystem(tag: str) -> None:
+def _verification_container_name(image_id: str) -> str:
+    if not _valid_receipt_image_id(image_id):
+        raise RuntimeError("manfred_image_verification_image_id_invalid")
+    return f"{VERIFICATION_CONTAINER_NAME_PREFIX}{image_id[7:39]}"
+
+
+def _verification_container_identity(
+    name: str,
+    *,
+    image_id: str,
+) -> str | None:
+    try:
+        raw = _run(["docker", "container", "inspect", name]).stdout
+    except subprocess.CalledProcessError as exc:
+        stderr = bytes(exc.stderr or b"").decode("utf-8", errors="replace").lower()
+        if "no such container" in stderr or "no such object" in stderr:
+            return None
+        raise RuntimeError("manfred_image_verification_container_unverifiable") from exc
+    try:
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("manfred_image_verification_container_unverifiable") from exc
+    if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+        raise RuntimeError("manfred_image_verification_container_unverifiable")
+    row = dict(payload[0])
+    config = dict(row.get("Config") or {})
+    host_config = dict(row.get("HostConfig") or {})
+    labels = dict(config.get("Labels") or {})
+    container_id = str(row.get("Id") or "").lower()
+    if (
+        len(container_id) != 64
+        or any(character not in "0123456789abcdef" for character in container_id)
+        or row.get("Name") != f"/{name}"
+        or row.get("Image") != image_id
+        or labels != {VERIFICATION_CONTAINER_LABEL: image_id}
+        or host_config.get("NetworkMode") != "none"
+    ):
+        raise RuntimeError("manfred_image_verification_container_identity_mismatch")
+    return container_id
+
+
+def _cleanup_verification_container(
+    name: str,
+    *,
+    image_id: str,
+    authority: CandidateVexpMutationAuthority,
+    operations: list[dict[str, object]],
+    operation: str,
+) -> bool:
+    container_id = _verification_container_identity(name, image_id=image_id)
+    if container_id is None:
+        return False
+    cleanup_command = ["docker", "container", "rm", "--force", container_id]
+    with _authorized_operation(
+        authority,
+        operations,
+        operation=operation,
+        argv=cleanup_command,
+        target=f"{name}:{container_id}",
+        minimum_validity_seconds=120,
+    ) as lease:
+        with _authorized_run_timeout(lease.command_timeout(120)):
+            _run(cleanup_command)
+    if _verification_container_identity(name, image_id=image_id) is not None:
+        raise RuntimeError("manfred_image_verification_container_cleanup_failed")
+    return True
+
+
+def _verify_image_filesystem(
+    image_id: str,
+    *,
+    authority: CandidateVexpMutationAuthority,
+    operations: list[dict[str, object]],
+) -> str:
+    name = _verification_container_name(image_id)
     checks = " && ".join(f"test ! -e {path}" for path in FORBIDDEN_IMAGE_PATHS)
-    _run(
-        [
+    _cleanup_verification_container(
+        name,
+        image_id=image_id,
+        authority=authority,
+        operations=operations,
+        operation="verification_stale_cleanup",
+    )
+    probe_error: BaseException | None = None
+    try:
+        create_command = [
             "docker",
-            "run",
-            "--rm",
+            "container",
+            "create",
+            "--name",
+            name,
+            "--label",
+            f"{VERIFICATION_CONTAINER_LABEL}={image_id}",
             "--network",
             "none",
             "--entrypoint",
             "/bin/sh",
-            tag,
+            image_id,
             "-ec",
             checks,
         ]
+        with _authorized_operation(
+            authority,
+            operations,
+            operation="verification_create",
+            argv=create_command,
+            target=name,
+            minimum_validity_seconds=120,
+        ) as lease:
+            with _authorized_run_timeout(lease.command_timeout(120)):
+                created = _run(create_command).stdout.decode(
+                    "ascii", errors="strict"
+                ).strip().lower()
+        container_id = _verification_container_identity(name, image_id=image_id)
+        if container_id is None or created != container_id:
+            raise RuntimeError("manfred_image_verification_container_create_invalid")
+        probe_command = ["docker", "container", "start", "--attach", container_id]
+        with _authorized_operation(
+            authority,
+            operations,
+            operation="verification_probe",
+            argv=probe_command,
+            target=f"{name}:{container_id}",
+            minimum_validity_seconds=120,
+        ) as lease:
+            with _authorized_run_timeout(lease.command_timeout(120)):
+                _run(probe_command)
+    except BaseException as exc:
+        probe_error = exc
+    finally:
+        try:
+            _cleanup_verification_container(
+                name,
+                image_id=image_id,
+                authority=authority,
+                operations=operations,
+                operation="verification_cleanup",
+            )
+        except BaseException as cleanup_error:
+            if probe_error is not None:
+                raise RuntimeError(
+                    "manfred_image_verification_probe_and_cleanup_failed"
+                ) from cleanup_error
+            raise
+    if probe_error is not None:
+        raise probe_error
+    return name
+
+
+def _verify_image_filesystem_authorized(
+    image_id: str,
+    *,
+    authority: CandidateVexpMutationAuthority,
+    operations: list[dict[str, object]],
+) -> str:
+    return _verify_image_filesystem(
+        image_id,
+        authority=authority,
+        operations=operations,
     )
 
 
@@ -967,6 +1535,7 @@ def _validate_success_receipt_shape(
         or payload.get("commit") != commit
         or payload.get("image_tag") != image_tag
         or not _valid_receipt_image_id(payload.get("image_id"))
+        or payload.get("producer_sha256") != producer_sha256
         or not _valid_receipt_created_at(payload.get("created_at"))
         or payload.get("revision_label") != commit
         or payload.get("runtime_source_revision") != commit
@@ -1055,7 +1624,104 @@ def _validate_success_receipt_shape(
     for stage in expected_stages:
         if not _root_disk_admissible(root_free.get(stage)):
             raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    _validate_image_build_authority(
+        payload.get("image_build_authority"),
+        image_reused=image_reused,
+        builder_created=builder_created,
+    )
     return image_reused
+
+
+def validated_build_receipt_binding(
+    encoded: bytes,
+    *,
+    receipt_path: Path,
+    commit: str,
+    image_tag: str,
+    image_id: str,
+) -> dict[str, object]:
+    payload = _canonical_success_receipt(encoded)
+    producer_sha256 = payload.get("producer_sha256")
+    if (
+        not isinstance(producer_sha256, str)
+        or len(producer_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in producer_sha256)
+        or payload.get("image_id") != image_id
+    ):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    image_reused = _validate_success_receipt_shape(
+        payload,
+        commit=commit,
+        image_tag=image_tag,
+        producer_sha256=producer_sha256,
+    )
+    binding = {
+        "receipt_schema": RECEIPT_SCHEMA,
+        "receipt_path": str(receipt_path),
+        "receipt_sha256": hashlib.sha256(encoded).hexdigest(),
+        "image_tag": image_tag,
+        "image_id": image_id,
+        "runtime_source_revision": commit,
+        "producer_sha256": producer_sha256,
+        "image_reused": image_reused,
+        "authority": dict(payload["image_build_authority"]),
+    }
+    if set(binding) != IMAGE_BUILD_AUTHORITY_BINDING_KEYS:
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    return binding
+
+
+def validate_build_authority_binding(
+    value: object,
+    *,
+    commit: str,
+    image_tag: str,
+    image_id: str,
+) -> dict[str, object]:
+    if not isinstance(value, dict) or set(value) != IMAGE_BUILD_AUTHORITY_BINDING_KEYS:
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    producer_sha256 = value.get("producer_sha256")
+    image_reused = value.get("image_reused")
+    authority = value.get("authority")
+    if (
+        value.get("receipt_schema") != RECEIPT_SCHEMA
+        or not isinstance(value.get("receipt_path"), str)
+        or not Path(str(value["receipt_path"])).is_absolute()
+        or str(
+            Path(os.path.abspath(os.fspath(Path(str(value["receipt_path"])))))
+        )
+        != str(value["receipt_path"])
+        or Path(str(value["receipt_path"])).is_symlink()
+        or not isinstance(value.get("receipt_sha256"), str)
+        or len(str(value["receipt_sha256"])) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in str(value["receipt_sha256"])
+        )
+        or value.get("image_tag") != image_tag
+        or value.get("image_id") != image_id
+        or value.get("runtime_source_revision") != commit
+        or not isinstance(producer_sha256, str)
+        or len(producer_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in producer_sha256)
+        or not isinstance(image_reused, bool)
+        or not isinstance(authority, dict)
+    ):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    operations = authority.get("operations")
+    if not isinstance(operations, list):
+        raise RuntimeError(RECEIPT_CONFLICT_ERROR)
+    builder_created = bool(
+        operations
+        and isinstance(operations[0], dict)
+        and operations[0].get("operation") == "builder_create"
+    )
+    _validate_image_build_authority(
+        authority,
+        image_reused=image_reused,
+        builder_created=builder_created,
+    )
+    return dict(value)
 
 
 def _validate_replay_image_inspection(
@@ -1108,6 +1774,7 @@ def _replayed_success_receipt(
     commit: str,
     image_tag: str,
     producer_sha256: str,
+    current_entry: dict[str, object],
 ) -> dict[str, object] | None:
     encoded = _read_existing_build_receipt(receipt_path)
     if encoded is None:
@@ -1118,6 +1785,10 @@ def _replayed_success_receipt(
         commit=commit,
         image_tag=image_tag,
         producer_sha256=producer_sha256,
+    )
+    _require_build_authority_current(
+        payload.get("image_build_authority"),
+        current_entry=current_entry,
     )
     expected_image_id = str(payload.get("image_id") or "")
     try:
@@ -1134,14 +1805,13 @@ def _replayed_success_receipt(
             image_reused=image_reused,
             rootfs_layer_count=int(payload.get("rootfs_layer_count") or 0),
         )
-        _verify_image_filesystem(expected_image_id)
         if _listed_image_id(image_tag) != expected_image_id:
             raise RuntimeError(RECEIPT_CONFLICT_ERROR)
     except (
         OSError,
         ValueError,
         RuntimeError,
-        subprocess.CalledProcessError,
+        subprocess.SubprocessError,
         json.JSONDecodeError,
         UnicodeError,
     ) as exc:
@@ -1556,17 +2226,32 @@ def build_image(
     ref: str,
     tag: str,
     receipt_path: Path,
+    vexp_state_path: Path = DEFAULT_SENTINEL_STATE_PATH,
+    vexp_state_owner_uid: int | None = None,
+    vexp_authority: CandidateVexpMutationAuthority | None = None,
 ) -> dict[str, object]:
     # Enforce same-owner, single-link, non-writable producer identity before
     # even creating/acquiring a per-UID lock. This makes sudo/root invocation of
     # a tibor-owned producer fail closed before Docker or lock-file mutation.
     _producer_sha256()
+    authority = vexp_authority or candidate_vexp_authority(
+        state_path=Path(vexp_state_path),
+        state_owner_uid=(
+            os.geteuid()
+            if vexp_state_owner_uid is None
+            else vexp_state_owner_uid
+        ),
+    )
+    authority.require_current()
     with _exclusive_build_lock():
+        entry_evidence = authority.require_current()
         return _build_image_locked(
             source_root=source_root,
             ref=ref,
             tag=tag,
             receipt_path=receipt_path,
+            authority=authority,
+            entry_evidence=entry_evidence,
         )
 
 
@@ -1576,6 +2261,8 @@ def _build_image_locked(
     ref: str,
     tag: str,
     receipt_path: Path,
+    authority: CandidateVexpMutationAuthority,
+    entry_evidence: dict[str, object],
 ) -> dict[str, object]:
     source_root = source_root.expanduser().resolve()
     if not (source_root / ".git").exists():
@@ -1588,6 +2275,7 @@ def _build_image_locked(
         commit=commit,
         image_tag=safe_tag,
         producer_sha256=producer_digest,
+        current_entry=entry_evidence,
     )
     if replayed_receipt is not None:
         return replayed_receipt
@@ -1598,6 +2286,7 @@ def _build_image_locked(
         .replace("+00:00", "Z")
     )
     root_free_observations: dict[str, int] = {}
+    authority_operations: list[dict[str, object]] = []
     _record_root_free_or_deny(
         stage="after_lock",
         root_free_observations=root_free_observations,
@@ -1615,14 +2304,18 @@ def _build_image_locked(
             image_id, inspection = _image_inspection(safe_tag, expected_commit=commit)
             if image_id != preexisting_image_id:
                 raise RuntimeError(EXISTING_IMAGE_MISMATCH_ERROR)
-            _verify_image_filesystem(image_id)
+            _verify_image_filesystem_authorized(
+                image_id,
+                authority=authority,
+                operations=authority_operations,
+            )
             if _listed_image_id(safe_tag) != preexisting_image_id:
                 raise RuntimeError(EXISTING_IMAGE_MISMATCH_ERROR)
         except (
             OSError,
             ValueError,
             RuntimeError,
-            subprocess.CalledProcessError,
+            subprocess.SubprocessError,
             json.JSONDecodeError,
             UnicodeError,
         ) as exc:
@@ -1633,20 +2326,26 @@ def _build_image_locked(
             builder_created=False,
             docker_build_started=False,
         )
-        receipt = _success_receipt(
-            commit=commit,
-            image_tag=safe_tag,
-            image_id=image_id,
-            inspection=inspection,
-            created_at=created_at,
-            builder_created=False,
-            builder_validated=False,
-            image_reused=True,
-            cache_prune_status="not_run_existing_image_reused",
-            admission=admission,
+        return _publish_success_receipt(
+            receipt_path,
+            authority=authority,
+            entry_evidence=entry_evidence,
+            operations=authority_operations,
+            authority_basis="preexisting_image_current_authority_probe",
+            receipt_fields={
+                "commit": commit,
+                "image_tag": safe_tag,
+                "image_id": image_id,
+                "inspection": inspection,
+                "created_at": created_at,
+                "builder_created": False,
+                "builder_validated": False,
+                "image_reused": True,
+                "cache_prune_status": "not_run_existing_image_reused",
+                "admission": admission,
+                "producer_sha256": producer_digest,
+            },
         )
-        _atomic_json(receipt_path, receipt)
-        return receipt
 
     with tempfile.TemporaryDirectory(prefix="ea-manfred-image-") as temporary:
         context = Path(temporary) / "context"
@@ -1670,7 +2369,7 @@ def _build_image_locked(
             builder_validated=False,
             receipt_path=receipt_path,
         )
-        builder_created = _ensure_dedicated_builder()
+        builder_created = _ensure_dedicated_builder(authority, authority_operations)
         build_command = [
             "docker",
             "buildx",
@@ -1705,37 +2404,48 @@ def _build_image_locked(
             builder_validated=True,
             receipt_path=receipt_path,
         )
+        docker_build_started = False
         try:
-            _run(build_command, stdout=None)
+            with _authorized_operation(
+                authority,
+                authority_operations,
+                operation="image_build",
+                argv=build_command,
+                target=safe_tag,
+                minimum_validity_seconds=3000,
+            ) as lease:
+                with _authorized_run_timeout(lease.command_timeout(3000)):
+                    docker_build_started = True
+                    _run(build_command, stdout=None)
         except (
             OSError,
             ValueError,
             RuntimeError,
-            subprocess.CalledProcessError,
+            subprocess.SubprocessError,
             UnicodeError,
         ) as exc:
             admission = _admission_evidence(
                 producer_sha256=producer_digest,
                 root_free_observations=root_free_observations,
                 builder_created=builder_created,
-                docker_build_started=isinstance(
-                    exc, subprocess.CalledProcessError
-                ),
+                docker_build_started=docker_build_started,
             )
             cache_prune_status = "fail"
             try:
-                _prune_dedicated_builder_cache()
+                _prune_dedicated_builder_cache(authority, authority_operations)
                 cache_prune_status = "pass"
-            except (OSError, RuntimeError, subprocess.CalledProcessError):
+            except (OSError, RuntimeError, subprocess.SubprocessError):
                 pass
             try:
                 partial_image_id = _listed_image_id(safe_tag)
-            except (OSError, RuntimeError, subprocess.CalledProcessError):
+            except (OSError, RuntimeError, subprocess.SubprocessError):
                 cleanup_status = "not_removed_identity_unavailable"
             else:
                 cleanup_status = _cleanup_new_image(
                     safe_tag,
                     expected_image_id=partial_image_id,
+                    authority=authority,
+                    operations=authority_operations,
                 )
             failure_receipt = {
                 "schema": RECEIPT_SCHEMA,
@@ -1778,25 +2488,31 @@ def _build_image_locked(
         if post_build_image_id is None:
             raise RuntimeError(POST_BUILD_VERIFY_ERROR)
         cache_prune_status = "fail"
-        _prune_dedicated_builder_cache()
+        _prune_dedicated_builder_cache(authority, authority_operations)
         cache_prune_status = "pass"
         image_id, inspection = _image_inspection(safe_tag, expected_commit=commit)
         if image_id != post_build_image_id:
             raise RuntimeError(POST_BUILD_VERIFY_ERROR)
-        _verify_image_filesystem(image_id)
+        _verify_image_filesystem_authorized(
+            image_id,
+            authority=authority,
+            operations=authority_operations,
+        )
         if _listed_image_id(safe_tag) != post_build_image_id:
             raise RuntimeError(POST_BUILD_VERIFY_ERROR)
     except (
         OSError,
         ValueError,
         RuntimeError,
-        subprocess.CalledProcessError,
+        subprocess.SubprocessError,
         json.JSONDecodeError,
         UnicodeError,
     ) as exc:
         cleanup_status = _cleanup_new_image(
             safe_tag,
             expected_image_id=post_build_image_id,
+            authority=authority,
+            operations=authority_operations,
         )
         failure_receipt = {
             "schema": RECEIPT_SCHEMA,
@@ -1826,20 +2542,26 @@ def _build_image_locked(
         _atomic_json(receipt_path, failure_receipt)
         raise RuntimeError(POST_BUILD_VERIFY_ERROR) from exc
 
-    receipt = _success_receipt(
-        commit=commit,
-        image_tag=safe_tag,
-        image_id=image_id,
-        inspection=inspection,
-        created_at=created_at,
-        builder_created=builder_created,
-        builder_validated=True,
-        image_reused=False,
-        cache_prune_status=cache_prune_status,
-        admission=admission,
+    return _publish_success_receipt(
+        receipt_path,
+        authority=authority,
+        entry_evidence=entry_evidence,
+        operations=authority_operations,
+        authority_basis="new_image_build",
+        receipt_fields={
+            "commit": commit,
+            "image_tag": safe_tag,
+            "image_id": image_id,
+            "inspection": inspection,
+            "created_at": created_at,
+            "builder_created": builder_created,
+            "builder_validated": True,
+            "image_reused": False,
+            "cache_prune_status": cache_prune_status,
+            "admission": admission,
+            "producer_sha256": producer_digest,
+        },
     )
-    _atomic_json(receipt_path, receipt)
-    return receipt
 
 
 def _self_test() -> dict[str, object]:
@@ -2044,6 +2766,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(Path("~/.local/share/ea-deploy/manfred-memorial/image-build.json")),
     )
     parser.add_argument(
+        "--vexp-state-path",
+        help="Absolute schema-v6 sentinel state path validated by the root permit manager.",
+    )
+    parser.add_argument(
+        "--vexp-state-owner-uid",
+        type=int,
+        help="Expected owner UID for the schema-v6 sentinel state.",
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="Run deterministic disk and lock tests without Docker or Git.",
@@ -2058,13 +2789,23 @@ def main(argv: list[str] | None = None) -> int:
         if args.self_test:
             receipt = _self_test()
         else:
+            if args.vexp_state_path is None or args.vexp_state_owner_uid is None:
+                raise ValueError("manfred_candidate_vexp_authority_arguments_required")
             receipt = build_image(
                 source_root=Path(args.source_root),
                 ref=args.ref,
                 tag=args.tag,
                 receipt_path=Path(args.receipt),
+                vexp_state_path=Path(args.vexp_state_path),
+                vexp_state_owner_uid=args.vexp_state_owner_uid,
             )
-    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+    except (
+        OSError,
+        ValueError,
+        RuntimeError,
+        subprocess.SubprocessError,
+        json.JSONDecodeError,
+    ) as exc:
         print(
             json.dumps(
                 {

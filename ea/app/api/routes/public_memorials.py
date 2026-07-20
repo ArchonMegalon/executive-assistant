@@ -10883,6 +10883,16 @@ def _public_memorial_story_html(payload: dict[str, object], *, slug: str) -> str
     return "\n".join(sections)
 
 
+def _without_public_memorial_html_region(document: str, *, region: str) -> str:
+    start_marker = f"<!-- memorial-{region}:start -->"
+    end_marker = f"<!-- memorial-{region}:end -->"
+    before, start_found, remainder = document.partition(start_marker)
+    _, end_found, after = remainder.partition(end_marker)
+    if not start_found or not end_found:
+        raise RuntimeError(f"memorial_conversation_only_region_missing:{region}")
+    return before + after
+
+
 def _minimal_public_memorial_html(
     *,
     slug: str,
@@ -10894,6 +10904,7 @@ def _minimal_public_memorial_html(
     clickrank_html: str,
     story_html: str,
     video_call_avatar_fallback_html: str = "",
+    conversation_only: bool = False,
 ) -> str:
     safe_person_name = html.escape(person_name)
     memory_room_nav_html = (
@@ -10943,6 +10954,8 @@ def _minimal_public_memorial_html(
     voice_autostart_attributes = (
         ' hidden aria-hidden="true"' if voice_release_blocked else ""
     )
+    if conversation_only:
+        video_call_avatar_fallback_html = ""
     memorial_autostart_storage_key = _json_for_html_script(
         f"memorial_autostart_enabled_{slug}_v2"
     )
@@ -10952,7 +10965,7 @@ def _minimal_public_memorial_html(
     memorial_contribution_storage_key = _json_for_html_script(
         f"memorial_contribution_receipt_{slug}_v1"
     )
-    return f"""<!doctype html>
+    document = f"""<!doctype html>
 <html lang="de">
   <head>
     <meta charset="utf-8">
@@ -12113,8 +12126,10 @@ def _minimal_public_memorial_html(
       }}
     </style>
   </head>
-  <body{body_theme_attributes}>
+  <body{body_theme_attributes} data-public-memorial-surface="{'conversation-only' if conversation_only else 'legacy'}">
+    <!-- memorial-story-skip:start -->
     <a class="skip-link" href="#memorial-story">Zum Inhalt springen</a>
+    <!-- memorial-story-skip:end -->
     <a class="skip-link" href="#memorial-conversation-region">Zum quellengebundenen Gedenkbegleiter</a>
     <header>
       <div class="wrap hero">
@@ -12123,15 +12138,18 @@ def _minimal_public_memorial_html(
           <div class="hero-copy">
             <h1>{page_title}</h1>
             <p class="hero-subtitle">{safe_subtitle}</p>
+            <!-- memorial-public-navigation:start -->
             <nav class="hero-nav" aria-label="Bereiche der Erinnerungsseite">
               <a class="hero-story-link" href="#memorial-story">Erinnerungen ansehen</a>
               {memory_room_nav_html}
               <a class="hero-story-link" href="#memorial-conversation-region">Gedenkbegleiter</a>
             </nav>
+            <!-- memorial-public-navigation:end -->
           </div>
         </div>
       </div>
     </header>
+    <!-- memorial-public-story:start -->
     <main id="memorial-story" tabindex="-1">
       <noscript>
         <section class="wrap memorial-noscript-notice" aria-labelledby="memorial-noscript-title">
@@ -12205,9 +12223,13 @@ def _minimal_public_memorial_html(
         </details>
       </div>
     </main>
-    <aside class="conversation-dock" aria-label="Quellengebundener Gedenkbegleiter für {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-voice-release="{'blocked' if voice_release_blocked else 'available'}">
+    <!-- memorial-public-story:end -->
+    <main class="conversation-dock" aria-label="Quellengebundener Gedenkbegleiter für {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-voice-release="{'blocked' if voice_release_blocked else 'available'}">
       <div class="wrap">
       <section class="chat quiet-shell">
+        <noscript>
+          <p class="hero-guidance" role="status">Für das Sprachgespräch und die schriftliche Alternative muss JavaScript aktiviert sein. Ohne JavaScript wird nichts aufgenommen oder gesendet.</p>
+        </noscript>
         <div class="hero-actions{hero_actions_class}" id="memorial-hero-actions">
           <button type="button" id="memorial-conversation" class="hero-cta{conversation_button_class}" data-hero-action="conversation" title="{conversation_button_label}" aria-label="{conversation_button_label}" {conversation_button_state}>{conversation_button_label}</button>
         </div>
@@ -12220,10 +12242,12 @@ def _minimal_public_memorial_html(
           </div>
           <p class="status-note">Die Antwort wird synthetisch aus freigegebenen Quellen formuliert und nie als neue Aussage Manfreds ausgegeben.</p>
         </form>
+        <!-- memorial-install-upsell:start -->
         <p class="install-hint" id="memorial-install-hint" hidden>
           Optional: Am Handy/Desktop installieren.
           <button type="button" id="memorial-install-button" hidden>Installieren</button>
         </p>
+        <!-- memorial-install-upsell:end -->
         <div class="speech-status-bar speech-note is-pristine" id="memorial-speech-note">
           <strong id="memorial-speech-message" role="status" aria-live="polite" aria-atomic="true">Bereit.</strong>
           <div class="speech-live-monitor is-idle" id="memorial-speech-monitor" aria-hidden="true">
@@ -12243,6 +12267,7 @@ def _minimal_public_memorial_html(
           </div>
         </div>
         {video_call_avatar_fallback_html}
+        <!-- memorial-conversation-settings:start -->
         <details class="conversation-settings">
           <summary>Gesprächseinstellungen</summary>
           <div class="conversation-settings-copy">
@@ -12277,6 +12302,7 @@ def _minimal_public_memorial_html(
           </div>
           <p class="status-note">Die Browser-Kennung ist pseudonym; die gespeicherten Gesprächserinnerungen liegen auf unserem Server. Mit „Gesprächsgedächtnis löschen“ entfernst du sie für diesen Browser. Private Einreichungen und ihre Rücknahmebelege verwaltest du unter <a href="#memorial-contribution-management">Meine Einreichungen</a>.</p>
         </details>
+        <!-- memorial-conversation-settings:end -->
         <p class="status-note" id="memorial-voice-recovery-note">Wenn die Stimme stockt, bleibt die Antwort als Text sichtbar. Du kannst ruhig unterbrechen oder noch einmal sprechen.</p>
         <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
         <div class="chat-answer" id="memorial-chat-answer" aria-live="polite" hidden></div>
@@ -12297,8 +12323,9 @@ def _minimal_public_memorial_html(
         <audio id="memorial-speech-audio" preload="none" aria-hidden="true"></audio>
       </section>
       </div>
-    </aside>
+    </main>
     <script>
+      const memorialConversationOnly = {_json_for_html_script(conversation_only)};
       const memorialVoiceReleaseAllowed = {_json_for_html_script(voice_release_allowed)};
       const memorialPagePrewarmEnabled = {_json_for_html_script(_memorial_page_prewarm_enabled() and voice_release_allowed)};
       const installHint = document.getElementById("memorial-install-hint");
@@ -15709,8 +15736,10 @@ def _minimal_public_memorial_html(
 
       if (!window.__memorialMinimalBooted) {{
         window.__memorialMinimalBooted = true;
-        syncContributionManagement();
-        void refreshContributionManagement();
+        if (!memorialConversationOnly) {{
+          syncContributionManagement();
+          void refreshContributionManagement();
+        }}
         syncConversationButton();
         setMemorialLandingReady(
           !memorialPagePrewarmEnabled,
@@ -15718,8 +15747,10 @@ def _minimal_public_memorial_html(
             ? "Gleich kannst du mit dem Gedenkbegleiter sprechen."
             : "Das Mikrofon wird erst nach deinem Start verwendet."
         );
-        updatePersonalMemoryStatusUi();
-        void loadPersonalMemoryStatus();
+        if (!memorialConversationOnly) {{
+          updatePersonalMemoryStatusUi();
+          void loadPersonalMemoryStatus();
+        }}
         window.setTimeout(() => {{
           void retireLegacyMemorialServiceWorkers();
           if (memorialPagePrewarmEnabled) void ensureMemorialReady("page_load");
@@ -15737,6 +15768,17 @@ def _minimal_public_memorial_html(
     </script>
   </body>
 </html>"""
+    if not conversation_only:
+        return document
+    for region in (
+        "story-skip",
+        "public-navigation",
+        "public-story",
+        "install-upsell",
+        "conversation-settings",
+    ):
+        document = _without_public_memorial_html_region(document, region=region)
+    return document
 
 
 def _memorial_html(
@@ -20742,10 +20784,7 @@ def _public_memorial_page_html(
     slug = _safe_slug(_public_memorial_story_text(payload.get("slug"), max_chars=80))
     person_name = _public_memorial_story_text(payload.get("person_name"), max_chars=160) or "Manfred"
     title_text = _public_memorial_story_text(payload.get("title"), max_chars=220) or f"Erinnerungen an {person_name}"
-    subtitle = _public_memorial_story_text(payload.get("subtitle"), max_chars=420) or (
-        "Eine ruhige Seite fuer Erinnerungen, belegte Gedanken und oeffentliche Quellen."
-    )
-    video_call_avatar = _memorial_video_call_avatar(payload, slug)
+    subtitle = f"Ein ruhiger Ort für ein Gespräch über {person_name}."
     return _minimal_public_memorial_html(
         slug=slug,
         person_name=person_name,
@@ -20756,8 +20795,12 @@ def _public_memorial_page_html(
         # Keep the public memorial document free of third-party scripts because
         # contribution-management tokens live in this origin's localStorage.
         clickrank_html="",
-        story_html=_public_memorial_story_html(payload, slug=slug),
-        video_call_avatar_fallback_html=_memorial_video_call_avatar_fallback_html(video_call_avatar),
+        # Public memorials are conversation-only. Story/archive data remains
+        # available to its existing private and dedicated routes, but is not
+        # projected into this document.
+        story_html="",
+        video_call_avatar_fallback_html="",
+        conversation_only=True,
     )
 
 

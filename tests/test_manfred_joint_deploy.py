@@ -25,6 +25,13 @@ from tests.test_memorial_spatial_tour_public_origin import ORIGIN, _valid_inputs
 
 SOURCE_REVISION = "a" * 40
 NOW = datetime(2026, 7, 20, 10, 0, tzinfo=UTC)
+TEST_BOOT_ID = "12345678-1234-4234-9234-123456789abc"
+TEST_MONOTONIC_NS = (
+    1_000_000_000
+    + permit.MINIMUM_QUALIFICATION_DURATION_MS * 1_000_000
+    + 60_000_000_000
+)
+TEST_ROOT_PREDICATE_PRODUCER_SHA256 = "f" * 64
 
 
 def _cleanup_state_directory_identity(path: Path) -> dict[str, object]:
@@ -92,13 +99,29 @@ class TestAuthority(api_deploy.VexpMemorialMutationAuthority):
         certificate_root: Path,
         certificate_directory: Path,
         permit_path: Path,
+        permit_commit_path: Path,
         lock_path: Path,
+        epoch_void_ledger_root: Path,
+        current_predicate_trusted_parent: Path,
+        current_predicate_root: Path,
+        current_predicate_producer_trusted_parent: Path,
+        current_predicate_producer_path: Path,
     ) -> None:
         self._state_path = state_path
         self._certificate_root = certificate_root
         self._certificate_directory = certificate_directory
         self._permit_path = permit_path
+        self._permit_commit_path = permit_commit_path
         self._lock_path = lock_path
+        self._epoch_void_ledger_root = epoch_void_ledger_root
+        self._current_predicate_trusted_parent = (
+            current_predicate_trusted_parent
+        )
+        self._current_predicate_root = current_predicate_root
+        self._current_predicate_producer_trusted_parent = (
+            current_predicate_producer_trusted_parent
+        )
+        self._current_predicate_producer_path = current_predicate_producer_path
 
     @property
     def sentinel_state_path(self) -> Path:
@@ -107,6 +130,18 @@ class TestAuthority(api_deploy.VexpMemorialMutationAuthority):
     @property
     def mutation_permit_path(self) -> Path:
         return self._permit_path
+
+    @property
+    def mutation_permit_commit_path(self) -> Path:
+        return self._permit_commit_path
+
+    @property
+    def mutation_permit_commit_owner_uid(self) -> int:
+        return os.geteuid()
+
+    @property
+    def mutation_permit_commit_owner_gid(self) -> int:
+        return os.getegid()
 
     @property
     def qualification_certificate_root(self) -> Path:
@@ -129,12 +164,94 @@ class TestAuthority(api_deploy.VexpMemorialMutationAuthority):
         return os.geteuid()
 
     @property
+    def mutation_permit_owner_gid(self) -> int:
+        return os.getegid()
+
+    @property
     def mutation_permit_lock_path(self) -> Path:
         return self._lock_path
 
     @property
     def mutation_permit_lock_owner_uid(self) -> int:
         return os.geteuid()
+
+    @property
+    def mutation_permit_lock_owner_gid(self) -> int:
+        return os.getegid()
+
+    @property
+    def mutation_authority_trusted_parent(self) -> Path:
+        return self._permit_path.parent
+
+    @property
+    def mutation_authority_directory_owner_uid(self) -> int:
+        return os.geteuid()
+
+    @property
+    def mutation_authority_directory_owner_gid(self) -> int:
+        return os.getegid()
+
+    @property
+    def epoch_void_ledger_root(self) -> Path:
+        return self._epoch_void_ledger_root
+
+    @property
+    def epoch_void_ledger_owner_uid(self) -> int:
+        return os.geteuid()
+
+    @property
+    def epoch_void_ledger_owner_gid(self) -> int:
+        return os.getegid()
+
+    @property
+    def current_predicate_trusted_parent(self) -> Path:
+        return self._current_predicate_trusted_parent
+
+    @property
+    def current_predicate_root(self) -> Path:
+        return self._current_predicate_root
+
+    @property
+    def current_predicate_records_directory(self) -> Path:
+        return self._current_predicate_root / "records"
+
+    @property
+    def current_predicate_pointer_path(self) -> Path:
+        return self._current_predicate_root / "current.json"
+
+    @property
+    def current_predicate_producer_manifest_path(self) -> Path:
+        return self._current_predicate_root / "producer-manifest.json"
+
+    @property
+    def current_predicate_producer_path(self) -> Path:
+        return self._current_predicate_producer_path
+
+    @property
+    def current_predicate_producer_trusted_parent(self) -> Path:
+        return self._current_predicate_producer_trusted_parent
+
+    @property
+    def current_predicate_producer_owner_uid(self) -> int:
+        return os.geteuid()
+
+    @property
+    def current_predicate_producer_owner_gid(self) -> int:
+        return os.getegid()
+
+    @property
+    def current_predicate_owner_uid(self) -> int:
+        return os.geteuid()
+
+    @property
+    def current_predicate_owner_gid(self) -> int:
+        return os.getegid()
+
+    def current_boot_id(self) -> str:
+        return TEST_BOOT_ID
+
+    def monotonic_ns(self) -> int:
+        return TEST_MONOTONIC_NS
 
     def utc_now(self) -> datetime:
         return NOW
@@ -166,6 +283,26 @@ def _lane(
         durable_root_check=lambda _path: None,
     )
     return lane, runner
+
+
+def _install_positive_rollback_authority(
+    lane: joint.JointMemorialIngressDeployLane,
+    actions: list[str] | None = None,
+) -> None:
+    allowed = {
+        "before_rollback_api",
+        joint.INGRESS_ROLLBACK_MUTATION_BOUNDARY,
+        joint.NETWORK_ROLLBACK_MUTATION_BOUNDARY,
+    }
+
+    @contextmanager
+    def lease(boundary: str) -> Iterator[None]:
+        assert boundary in allowed
+        if actions is not None:
+            actions.append(f"lease:{boundary}")
+        yield
+
+    lane._vexp_mutation_lease = lease  # type: ignore[method-assign]
 
 
 def test_receipt_writer_rejects_precreated_temporary_symlink(
@@ -549,6 +686,12 @@ def _install_success_path(
     lane._require_deployment_input_seal = Mock()  # type: ignore[method-assign]
     lane._require_spatial_browser_binding = Mock()  # type: ignore[method-assign]
     lane._revalidate_ingress_input_seals = Mock()  # type: ignore[method-assign]
+    lane._capture_non_memorial_controls = Mock(  # type: ignore[method-assign]
+        side_effect=lambda **_kwargs: (
+            actions.append("capture_internal_openapi")
+            or dict(context["non_memorial_controls"])
+        )
+    )
     lane.bind_source_snapshot_sha256 = "5" * 64
     lane._revalidate_bind_source_access = Mock()  # type: ignore[method-assign]
 
@@ -557,7 +700,15 @@ def _install_success_path(
         actions.append(f"lease:{boundary}")
         yield
 
+    @contextmanager
+    def transaction(boundary: str) -> Iterator[None]:
+        actions.append(f"transaction:{boundary}")
+        yield
+
     lane._vexp_mutation_lease = lease  # type: ignore[method-assign]
+    lane._vexp_mutation_transaction = transaction  # type: ignore[method-assign]
+    lane._require_vexp_mutation_transaction_current = Mock()  # type: ignore[method-assign]
+    lane._enter_vexp_mutation_transaction_rollback = Mock()  # type: ignore[method-assign]
     lane._ensure_redis = Mock(side_effect=lambda: actions.append("ensure_redis"))
     lane._protect_previous_image = Mock(  # type: ignore[method-assign]
         side_effect=lambda _previous: (
@@ -595,12 +746,20 @@ def test_joint_permit_contract_is_exact_and_distinct() -> None:
         "before_ensure_redis",
         "before_protect_previous_image",
         "before_recreate_api",
+        "before_api_exec",
+        "before_api_interaction",
+        "before_rollback_api",
     )
     assert joint.JointMemorialIngressDeployLane.vexp_mutation_boundaries == (
         "before_ensure_redis",
         "before_protect_previous_image",
         "before_recreate_api",
+        "before_api_exec",
+        "before_api_interaction",
+        "before_rollback_api",
         "before_recreate_cloudflared",
+        "before_rollback_cloudflared",
+        "before_rollback_network",
     )
     assert (
         joint.JointMemorialIngressDeployLane.vexp_mutation_permit_contract_name
@@ -661,6 +820,12 @@ def _qualification_certificate(state: Mapping[str, object]) -> dict[str, object]
         "qualification_monotonic_duration_ms": (
             permit.MINIMUM_QUALIFICATION_DURATION_MS
         ),
+        "qualification_boot_id": "12345678-1234-4234-9234-123456789abc",
+        "qualification_monotonic_started_ns": 1_000_000_000,
+        "qualification_monotonic_qualified_ns": (
+            1_000_000_000
+            + permit.MINIMUM_QUALIFICATION_DURATION_MS * 1_000_000
+        ),
         "active_chain": {
             "anchor": {**reset_event, "source": "sentinel"},
             "qualification_event": {**event, "source": "sentinel"},
@@ -675,6 +840,12 @@ def _qualification_certificate(state: Mapping[str, object]) -> dict[str, object]
             "epoch_started_at": state["epoch_started_at"],
             "epoch_started_ms": state["epoch_started_ms"],
             "qualified_at": state["qualified_at"],
+            "qualification_boot_id": "12345678-1234-4234-9234-123456789abc",
+            "qualification_monotonic_started_ns": 1_000_000_000,
+            "qualification_monotonic_qualified_ns": (
+                1_000_000_000
+                + permit.MINIMUM_QUALIFICATION_DURATION_MS * 1_000_000
+            ),
             "qualification_phase": "qualified",
             "certification_blockers": [],
             "certification_deferments": [],
@@ -689,6 +860,7 @@ def _qualification_certificate(state: Mapping[str, object]) -> dict[str, object]
             "event_log_guard": {"status": "pass"},
             "apparmor_audit_sha256": "5" * 64,
             "apparmor_audit": {"status": "pass"},
+            "implementation_manifest_sha256": "0" * 64,
             "implementation": {
                 "sentinel_executable": {"sha256": "6" * 64},
                 "sentinel_systemd_unit": {"sha256": "7" * 64},
@@ -765,19 +937,172 @@ def _write_json(path: Path, payload: object, *, mode: int) -> None:
     path.chmod(mode)
 
 
+def _write_committed_permit(
+    lane: api_deploy.MemorialDeployLane,
+    permit_path: Path,
+    payload: Mapping[str, object],
+) -> None:
+    raw = (json.dumps(payload) + "\n").encode("utf-8")
+    permit_path.write_bytes(raw)
+    permit_path.chmod(0o644)
+    commit = {
+        "contract_name": api_deploy.VEXP_MUTATION_PERMIT_COMMIT_CONTRACT_NAME,
+        "version": api_deploy.VEXP_MUTATION_PERMIT_COMMIT_VERSION,
+        "status": "committed",
+        "permit_sha256": hashlib.sha256(raw).hexdigest(),
+        "permit_contract_name": payload["contract_name"],
+        "permit_version": payload["version"],
+        "epoch_started_at": payload["epoch_started_at"],
+        "epoch_started_ms": payload["epoch_started_ms"],
+        "terminal_identity_sha256": payload["terminal_identity_sha256"],
+        "qualification_certificate_sha256": payload[
+            "qualification_certificate_sha256"
+        ],
+        "issued_at": payload["issued_at"],
+        "expires_at": payload["expires_at"],
+    }
+    commit_path = lane._vexp_mutation_authority.mutation_permit_commit_path
+    _write_json(commit_path, commit, mode=0o644)
+    _maybe_write_current_predicate(lane)
+
+
+def _maybe_write_current_predicate(lane: api_deploy.MemorialDeployLane) -> None:
+    authority = lane._vexp_mutation_authority
+    try:
+        state_metadata = os.stat(
+            authority.sentinel_state_path, follow_symlinks=False
+        )
+    except OSError:
+        return
+    if not stat.S_ISREG(state_metadata.st_mode):
+        return
+    state_raw = authority.sentinel_state_path.read_bytes()
+    try:
+        state = json.loads(state_raw)
+        certificate_path = (
+            authority.qualification_certificate_directory
+            / f"{state['epoch_started_ms']}.json"
+        )
+        certificate_metadata = os.stat(certificate_path, follow_symlinks=False)
+    except (OSError, KeyError, TypeError, ValueError):
+        return
+    if not stat.S_ISREG(certificate_metadata.st_mode):
+        return
+    certificate_raw = certificate_path.read_bytes()
+    certificate = json.loads(certificate_raw)
+    implementation = certificate["source_attestations"]["implementation"]
+    records = authority.current_predicate_records_directory
+    pointer_path = authority.current_predicate_pointer_path
+    if pointer_path.exists():
+        previous_pointer = json.loads(pointer_path.read_bytes())
+        generation = int(previous_pointer["generation"]) + 1
+        previous_sha256 = str(previous_pointer["record_sha256"])
+    else:
+        generation = 1
+        previous_sha256 = "0" * 64
+    record = {
+        "contract_name": api_deploy.VEXP_CURRENT_PREDICATE_CONTRACT_NAME,
+        "version": api_deploy.VEXP_CURRENT_PREDICATE_VERSION,
+        "status": "positive",
+        "epoch_started_ms": state["epoch_started_ms"],
+        "generation": generation,
+        "observed_at": state["updated_at"],
+        "recorded_at": NOW.isoformat().replace("+00:00", "Z"),
+        "boot_id": TEST_BOOT_ID,
+        "monotonic_ns": TEST_MONOTONIC_NS,
+        "sentinel_state_path": str(authority.sentinel_state_path),
+        "sentinel_state_owner_uid": authority.sentinel_state_owner_uid,
+        "sentinel_state_sha256": hashlib.sha256(state_raw).hexdigest(),
+        "terminal_identity_sha256": (
+            api_deploy._vexp_terminal_identity_sha256(state)
+        ),
+        "qualification_certificate_sha256": hashlib.sha256(
+            certificate_raw
+        ).hexdigest(),
+        "predicate_contract_sha256": state["predicate_contract_sha256"],
+        "current_resources_healthy": state["current_resources_healthy"],
+        "certification_blockers": state["certification_blockers"],
+        "certification_deferments": state["certification_deferments"],
+        "sentinel_producer_sha256": implementation["sentinel_executable"][
+            "sha256"
+        ],
+        "root_predicate_producer_sha256": hashlib.sha256(
+            authority.current_predicate_producer_path.read_bytes()
+        ).hexdigest(),
+        "previous_record_sha256": previous_sha256,
+    }
+    record_path = records / f"{state['epoch_started_ms']}-{generation}.json"
+    record_raw = api_deploy._canonical_guard_json_bytes(record)
+    record_path.write_bytes(record_raw)
+    record_path.chmod(0o640)
+    pointer = {
+        "contract_name": (
+            api_deploy.VEXP_CURRENT_PREDICATE_POINTER_CONTRACT_NAME
+        ),
+        "version": api_deploy.VEXP_CURRENT_PREDICATE_POINTER_VERSION,
+        "status": "published",
+        "epoch_started_ms": state["epoch_started_ms"],
+        "generation": generation,
+        "record_path": str(record_path),
+        "record_sha256": hashlib.sha256(record_raw).hexdigest(),
+    }
+    pointer_path.write_bytes(api_deploy._canonical_guard_json_bytes(pointer))
+    pointer_path.chmod(0o640)
+
+
 def _install_authority(
     lane: api_deploy.MemorialDeployLane,
     tmp_path: Path,
 ) -> tuple[Path, Path, Path]:
+    tmp_path.chmod(0o755)
     state_path = tmp_path / "state.json"
     permit_path = tmp_path / "permit.json"
+    permit_commit_path = tmp_path / "permit.commit.json"
     lock_path = tmp_path / "permit.lock"
+    epoch_void_ledger_root = tmp_path / "epoch-voids"
+    epoch_void_ledger_root.mkdir(mode=0o750, exist_ok=True)
+    epoch_void_ledger_root.chmod(0o750)
     certificate_root = tmp_path / "qualification-certificate"
     certificate_root.mkdir(mode=0o750, exist_ok=True)
     certificate_root.chmod(0o750)
     certificate_directory = certificate_root / "certificates"
     certificate_directory.mkdir(mode=0o750, exist_ok=True)
     certificate_directory.chmod(0o750)
+    current_predicate_root = (
+        tmp_path / "vexp-qualification-current-predicate"
+    )
+    current_predicate_root.mkdir(mode=0o750, exist_ok=True)
+    current_predicate_root.chmod(0o750)
+    current_predicate_records = current_predicate_root / "records"
+    current_predicate_records.mkdir(mode=0o750, exist_ok=True)
+    current_predicate_records.chmod(0o750)
+    current_predicate_producer_parent = tmp_path / "root-producers"
+    current_predicate_producer_parent.mkdir(mode=0o755, exist_ok=True)
+    current_predicate_producer_parent.chmod(0o755)
+    current_predicate_producer_path = (
+        current_predicate_producer_parent / "current-predicate-attestor"
+    )
+    current_predicate_producer_path.write_bytes(b"joint test predicate attestor\n")
+    current_predicate_producer_path.chmod(0o555)
+    current_predicate_producer_sha256 = hashlib.sha256(
+        current_predicate_producer_path.read_bytes()
+    ).hexdigest()
+    producer_manifest = {
+        "contract_name": (
+            api_deploy.VEXP_CURRENT_PREDICATE_PRODUCER_MANIFEST_CONTRACT_NAME
+        ),
+        "version": (
+            api_deploy.VEXP_CURRENT_PREDICATE_PRODUCER_MANIFEST_VERSION
+        ),
+        "status": "reviewed",
+        "producer_path": str(current_predicate_producer_path),
+        "producer_sha256": current_predicate_producer_sha256,
+    }
+    producer_manifest_path = current_predicate_root / "producer-manifest.json"
+    producer_manifest_path.write_bytes(
+        api_deploy._canonical_guard_json_bytes(producer_manifest)
+    )
+    producer_manifest_path.chmod(0o640)
     _write_qualification_certificate(
         certificate_directory, _terminal_state()
     )
@@ -788,7 +1113,18 @@ def _install_authority(
         certificate_root=certificate_root,
         certificate_directory=certificate_directory,
         permit_path=permit_path,
+        permit_commit_path=permit_commit_path,
         lock_path=lock_path,
+        epoch_void_ledger_root=epoch_void_ledger_root,
+        current_predicate_trusted_parent=tmp_path,
+        current_predicate_root=current_predicate_root,
+        current_predicate_producer_trusted_parent=(
+            current_predicate_producer_parent
+        ),
+        current_predicate_producer_path=current_predicate_producer_path,
+    )
+    lane._require_reviewed_vexp_qualification_implementation_manifest = (  # type: ignore[method-assign]
+        lambda _certificate: None
     )
     return state_path, permit_path, lock_path
 
@@ -813,7 +1149,7 @@ def test_api_and_joint_permits_cannot_be_cross_used(tmp_path: Path) -> None:
         ttl_seconds=2700,
         permit_mode=permit.JOINT_PERMIT_MODE,
     )
-    _write_json(permit_path, joint_payload, mode=0o644)
+    _write_committed_permit(joint_lane, permit_path, joint_payload)
 
     joint_lane._read_trusted_vexp_mutation_permit()
     with pytest.raises(
@@ -827,7 +1163,7 @@ def test_api_and_joint_permits_cannot_be_cross_used(tmp_path: Path) -> None:
         now=datetime(2026, 7, 20, 9, 45, tzinfo=UTC),
         ttl_seconds=2700,
     )
-    _write_json(permit_path, api_payload, mode=0o644)
+    _write_committed_permit(api_lane, permit_path, api_payload)
     api_lane._read_trusted_vexp_mutation_permit()
     with pytest.raises(
         api_deploy.DeployError, match="vexp_mutation_permit_contract_invalid"
@@ -847,7 +1183,7 @@ def test_joint_permit_passes_all_four_exact_leases(tmp_path: Path) -> None:
         permit_mode=permit.JOINT_PERMIT_MODE,
     )
     _write_json(state_path, state, mode=0o600)
-    _write_json(permit_path, payload, mode=0o644)
+    _write_committed_permit(lane, permit_path, payload)
 
     for boundary in joint.JOINT_VEXP_MUTATION_BOUNDARIES:
         with lane._vexp_mutation_lease(boundary):
@@ -865,6 +1201,63 @@ def test_joint_permit_passes_all_four_exact_leases(tmp_path: Path) -> None:
     assert {item["status"] for item in guards} == {"pass"}
 
 
+def test_joint_transaction_reserves_exact_180_second_rollback_window(
+    tmp_path: Path,
+) -> None:
+    lane, runner = _lane(tmp_path)
+    clock = [7000.0]
+    lane.monotonic = lambda: clock[0]
+    state_path, permit_path, _lock_path = _install_authority(lane, tmp_path)
+    state = _terminal_state()
+    payload = permit._permit_payload(
+        state,
+        qualification_certificate=_certificate_evidence(state),
+        now=datetime(2026, 7, 20, 9, 45, tzinfo=UTC),
+        ttl_seconds=2700,
+        permit_mode=permit.JOINT_PERMIT_MODE,
+    )
+    _write_json(state_path, state, mode=0o600)
+    _write_committed_permit(lane, permit_path, payload)
+
+    with lane._vexp_mutation_transaction("before_ensure_redis"):
+        assert lane._vexp_transaction_forward_deadline == pytest.approx(7900.0)
+        assert lane._vexp_transaction_deadline == pytest.approx(8110.0)
+        clock[0] = 7900.0
+        lane._enter_vexp_mutation_transaction_rollback()
+        assert lane._vexp_transaction_phase == "rollback"
+        assert lane._remaining_vexp_mutation_seconds() == pytest.approx(180.0)
+
+    assert runner.commands == []
+
+
+def test_joint_transaction_denies_1109_second_permit_before_yield(
+    tmp_path: Path,
+) -> None:
+    lane, runner = _lane(tmp_path)
+    state_path, permit_path, _lock_path = _install_authority(lane, tmp_path)
+    state = _terminal_state()
+    payload = permit._permit_payload(
+        state,
+        qualification_certificate=_certificate_evidence(state),
+        now=datetime(2026, 7, 20, 9, 45, tzinfo=UTC),
+        ttl_seconds=2009,
+        permit_mode=permit.JOINT_PERMIT_MODE,
+    )
+    _write_json(state_path, state, mode=0o600)
+    _write_committed_permit(lane, permit_path, payload)
+    yielded = Mock()
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="vexp_mutation_transaction_budget_insufficient",
+    ):
+        with lane._vexp_mutation_transaction("before_ensure_redis"):
+            yielded()
+
+    yielded.assert_not_called()
+    assert runner.commands == []
+
+
 def test_enforced_soak_blocks_joint_lane_before_any_command(
     tmp_path: Path,
 ) -> None:
@@ -878,6 +1271,68 @@ def test_enforced_soak_blocks_joint_lane_before_any_command(
 
     assert runner.commands == []
     assert lane.receipt["status"] == "blocked_vexp_soak"
+
+
+@pytest.mark.parametrize(
+    ("tamper", "reason"),
+    [
+        ("missing", "producer_unavailable"),
+        ("digest", "producer_sha256_mismatch"),
+        ("inode", "current_predicate_changed_during_read"),
+    ],
+)
+def test_deploy_current_predicate_measures_actual_root_producer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tamper: str,
+    reason: str,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    state_path, permit_path, _lock_path = _install_authority(lane, tmp_path)
+    state = _terminal_state()
+    payload = permit._permit_payload(
+        state,
+        qualification_certificate=_certificate_evidence(state),
+        now=datetime(2026, 7, 20, 9, 45, tzinfo=UTC),
+        ttl_seconds=2700,
+        permit_mode=permit.JOINT_PERMIT_MODE,
+    )
+    _write_json(state_path, state, mode=0o600)
+    _write_committed_permit(lane, permit_path, payload)
+    producer_path = lane._vexp_mutation_authority.current_predicate_producer_path
+
+    if tamper == "missing":
+        producer_path.unlink()
+    elif tamper == "digest":
+        producer_path.unlink()
+        producer_path.write_bytes(b"unreviewed replacement producer\n")
+        producer_path.chmod(0o555)
+    else:
+        original = producer_path.read_bytes()
+        real_measure = lane._measure_trusted_vexp_current_predicate_producer
+        calls = 0
+
+        def replace_after_first_measurement(
+            *, expected_sha256: str
+        ) -> tuple[str, tuple[int, ...]]:
+            nonlocal calls
+            result = real_measure(expected_sha256=expected_sha256)
+            calls += 1
+            if calls == 1:
+                replacement = producer_path.with_name("replacement-attestor")
+                replacement.write_bytes(original)
+                replacement.chmod(0o555)
+                replacement.replace(producer_path)
+            return result
+
+        monkeypatch.setattr(
+            lane,
+            "_measure_trusted_vexp_current_predicate_producer",
+            replace_after_first_measurement,
+        )
+
+    with pytest.raises(api_deploy.DeployError, match=reason):
+        lane._require_vexp_mutation_permitted("before_ensure_redis")
 
 
 def test_permit_manager_default_and_explicit_joint_profiles_are_not_relabelable() -> (
@@ -972,9 +1427,13 @@ def test_permit_manager_joint_issue_status_revoke_roundtrip_and_cross_mode_denia
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    runtime = tmp_path / "permit-runtime"
-    runtime.mkdir(mode=0o755)
-    runtime.chmod(0o755)
+    runtime_parent = tmp_path / "permit-runtime"
+    runtime_parent.mkdir(mode=0o755)
+    runtime_parent.chmod(0o755)
+    runtime = runtime_parent / "ea"
+    epoch_void_ledger_root = tmp_path / "epoch-voids-manager"
+    epoch_void_ledger_root.mkdir(mode=0o750)
+    epoch_void_ledger_root.chmod(0o750)
     state_path = tmp_path / "terminal-state.json"
     state = _terminal_state()
     _write_json(state_path, state, mode=0o600)
@@ -986,7 +1445,16 @@ def test_permit_manager_joint_issue_status_revoke_roundtrip_and_cross_mode_denia
     certificate_directory.chmod(0o750)
     _write_qualification_certificate(certificate_directory, state)
     monkeypatch.setattr(permit, "PERMIT_PATH", runtime / "permit.json")
+    monkeypatch.setattr(permit, "PERMIT_COMMIT_PATH", runtime / "permit.commit.json")
     monkeypatch.setattr(permit, "LOCK_PATH", runtime / "permit.lock")
+    monkeypatch.setattr(
+        permit,
+        "RUNTIME_AUTHORITY_TRUSTED_PARENT",
+        runtime_parent,
+    )
+    monkeypatch.setattr(permit, "EPOCH_VOID_LEDGER_ROOT", epoch_void_ledger_root)
+    monkeypatch.setattr(permit, "EPOCH_VOID_LEDGER_OWNER_UID", os.geteuid())
+    monkeypatch.setattr(permit, "EPOCH_VOID_LEDGER_OWNER_GID", os.getegid())
     monkeypatch.setattr(permit, "ROOT_UID", os.geteuid())
     monkeypatch.setattr(permit, "ROOT_GID", os.getegid())
     monkeypatch.setattr(permit, "QUALIFICATION_CERTIFICATE_ROOT", certificate_root)
@@ -1001,7 +1469,57 @@ def test_permit_manager_joint_issue_status_revoke_roundtrip_and_cross_mode_denia
     )
     monkeypatch.setattr(permit, "_verify_trusted_execution_path", lambda: None)
     monkeypatch.setattr(permit, "_require_root", lambda: None)
+    monkeypatch.setattr(
+        permit,
+        "_require_reviewed_qualification_implementation_manifest",
+        lambda _certificate: None,
+    )
     monkeypatch.setattr(permit, "_utc_now_datetime", lambda: NOW)
+    monkeypatch.setattr(
+        permit,
+        "_canonical_sentinel_state_path",
+        lambda _owner_uid: state_path,
+    )
+    predicate_reads: list[str] = []
+
+    def positive_current_predicate(
+        *,
+        state: Mapping[str, object],
+        state_sha256: str,
+        state_path: Path,
+        state_owner_uid: int,
+        certificate: Mapping[str, object],
+        qualification_certificate: Mapping[str, str],
+        now: datetime,
+    ) -> dict[str, object]:
+        assert state == _terminal_state()
+        assert state_path == tmp_path / "terminal-state.json"
+        assert state_owner_uid == os.geteuid()
+        assert state_sha256 == hashlib.sha256(state_path.read_bytes()).hexdigest()
+        assert certificate["schema"] == permit.VEXP_QUALIFICATION_CERTIFICATE_SCHEMA
+        assert qualification_certificate == _certificate_evidence(state)
+        assert now == NOW
+        predicate_reads.append(state_sha256)
+        return {
+            "contract_name": permit.VEXP_CURRENT_PREDICATE_CONTRACT_NAME,
+            "version": permit.VEXP_CURRENT_PREDICATE_VERSION,
+            "status": "positive",
+            "epoch_started_ms": state["epoch_started_ms"],
+            "generation": 1,
+            "record_sha256": "1" * 64,
+            "boot_id": TEST_BOOT_ID,
+            "monotonic_ns": TEST_MONOTONIC_NS,
+            "sentinel_producer_sha256": "6" * 64,
+            "root_predicate_producer_sha256": (
+                TEST_ROOT_PREDICATE_PRODUCER_SHA256
+            ),
+        }
+
+    monkeypatch.setattr(
+        permit,
+        "_read_current_predicate_evidence",
+        positive_current_predicate,
+    )
 
     issued = permit.issue(
         state_path=state_path,
@@ -1023,14 +1541,29 @@ def test_permit_manager_joint_issue_status_revoke_roundtrip_and_cross_mode_denia
             permit_mode=permit.API_PERMIT_MODE,
         )
     with pytest.raises(permit.PermitError, match="contract_invalid"):
+        permit.revoke(permit_mode=permit.API_PERMIT_MODE)
+    with pytest.raises(permit.PermitError, match="contract_invalid"):
         permit.issue(
             state_path=state_path,
             state_owner_uid=os.geteuid(),
             ttl_seconds=900,
             permit_mode=permit.API_PERMIT_MODE,
         )
-    with pytest.raises(permit.PermitError, match="contract_invalid"):
-        permit.revoke(permit_mode=permit.API_PERMIT_MODE)
+    with pytest.raises(permit.PermitError, match="permit_commit_unavailable"):
+        permit.status(
+            state_path=state_path,
+            state_owner_uid=os.geteuid(),
+            permit_mode=permit.JOINT_PERMIT_MODE,
+        )
+    reissued = permit.issue(
+        state_path=state_path,
+        state_owner_uid=os.geteuid(),
+        ttl_seconds=900,
+        permit_mode=permit.JOINT_PERMIT_MODE,
+    )
+    assert reissued["contract_name"] == (
+        permit.JOINT_VEXP_MUTATION_PERMIT_CONTRACT_NAME
+    )
     assert permit.revoke(permit_mode=permit.JOINT_PERMIT_MODE)["status"] == "revoked"
 
     api_issued = permit.issue(
@@ -1048,6 +1581,7 @@ def test_permit_manager_joint_issue_status_revoke_roundtrip_and_cross_mode_denia
     with pytest.raises(permit.PermitError, match="contract_invalid"):
         permit.revoke(permit_mode=permit.JOINT_PERMIT_MODE)
     assert permit.revoke()["status"] == "revoked"
+    assert predicate_reads
 
 
 def test_preflight_only_never_enters_a_mutation_lease(
@@ -1059,6 +1593,7 @@ def test_preflight_only_never_enters_a_mutation_lease(
     lane._vexp_mutation_lease = Mock(  # type: ignore[method-assign]
         side_effect=AssertionError("mutation lease entered")
     )
+    lane._capture_non_memorial_controls = Mock()  # type: ignore[method-assign]
     lane._ensure_redis = Mock()
     lane._recreate_api = Mock()
     lane._recreate_cloudflared = Mock()
@@ -1068,9 +1603,41 @@ def test_preflight_only_never_enters_a_mutation_lease(
     assert receipt["status"] == "preflight_only_pass"
     assert runner.commands == []
     lane._vexp_mutation_lease.assert_not_called()
+    lane._capture_non_memorial_controls.assert_not_called()
     lane._ensure_redis.assert_not_called()
     lane._recreate_api.assert_not_called()
     lane._recreate_cloudflared.assert_not_called()
+
+
+def test_joint_internal_openapi_baseline_failure_precedes_all_mutation(
+    tmp_path: Path,
+) -> None:
+    lane, runner = _lane(tmp_path)
+    _context_value, _actions = _install_success_path(lane, tmp_path)
+    lane._capture_non_memorial_controls = Mock(  # type: ignore[method-assign]
+        side_effect=api_deploy.DeployError(
+            "deployed_api_internal_openapi_snapshot_failed"
+        )
+    )
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="deployed_api_internal_openapi_snapshot_failed",
+    ):
+        lane.deploy()
+
+    assert runner.commands == []
+    lane._capture_non_memorial_controls.assert_called_once_with(
+        internal_openapi=True
+    )
+    lane._ensure_redis.assert_not_called()
+    lane._protect_previous_image.assert_not_called()
+    lane._recreate_api.assert_not_called()
+    lane._recreate_cloudflared.assert_not_called()
+    assert lane.receipt["preparation"]["pending_action"] == "mutation_transaction"
+    assert (
+        lane.receipt["preparation"]["preparation_side_effects_possible"] is False
+    )
 
 
 def test_happy_path_orders_api_local_proof_before_ingress_and_public_proof(
@@ -1087,14 +1654,18 @@ def test_happy_path_orders_api_local_proof_before_ingress_and_public_proof(
         receipt["coordination_contract_name"] == joint.JOINT_COORDINATION_CONTRACT_NAME
     )
     assert actions == [
+        "transaction:before_ensure_redis",
+        "capture_internal_openapi",
         "lease:before_ensure_redis",
         "ensure_redis",
         "lease:before_protect_previous_image",
         "protect_api",
         "lease:before_recreate_api",
         "recreate_api",
+        "lease:before_api_interaction",
         "lease:before_recreate_cloudflared",
         "recreate_cloudflared",
+        "lease:before_api_interaction",
     ]
     assert runner.commands == []
     lane._revalidate_bind_source_access.assert_called_once_with(
@@ -1272,6 +1843,7 @@ def test_signal_between_rollback_components_is_deferred_and_all_restore(
     lane, _runner = _lane(tmp_path)
     context = _context(lane, tmp_path)
     actions: list[str] = []
+    _install_positive_rollback_authority(lane)
     lane._rollback_cloudflared = Mock(  # type: ignore[method-assign]
         side_effect=lambda _context: actions.append("ingress") or {"status": "pass"}
     )
@@ -2497,6 +3069,42 @@ def test_late_rollback_http_probe_clamps_to_remaining_joint_budget(
     assert observed_timeouts == [5.0]
 
 
+def test_ingress_public_probe_rechecks_transaction_budget_for_every_request(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    ingress_lane = _ingress_lane(lane, tmp_path)
+    observed_timeouts: list[float] = []
+
+    def http_no_redirect(
+        _url: str,
+        timeout_seconds: float,
+        _method: str,
+        _public_authority: str,
+    ) -> api_deploy.HttpResponse:
+        observed_timeouts.append(timeout_seconds)
+        return api_deploy.HttpResponse(200, "application/json", b"{}")
+
+    ingress_lane.http_no_redirect = http_no_redirect
+    lane._vexp_bounded_timeout = Mock(side_effect=[3.0, 1.0])  # type: ignore[method-assign]
+
+    def verify_two_requests() -> dict[str, object]:
+        ingress_lane.http_no_redirect("https://example.test/a", 10.0, "GET", "")
+        ingress_lane.http_no_redirect("https://example.test/b", 10.0, "HEAD", "")
+        return {"a": {}, "b": {}}
+
+    ingress_lane._verify_public_origin = Mock(  # type: ignore[method-assign]
+        side_effect=verify_two_requests
+    )
+
+    assert lane._verify_ingress_public_origin_bounded(ingress_lane) == {
+        "a": {},
+        "b": {},
+    }
+    assert observed_timeouts == [3.0, 1.0]
+    assert ingress_lane.http_no_redirect is http_no_redirect
+
+
 def test_transaction_lock_rejects_fifo_hardlink_and_path_replacement(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2572,15 +3180,13 @@ def test_failure_after_api_before_ingress_rolls_back_api_only(
     assert kwargs["ingress_mutation_started"] is False
 
 
-def test_joint_rollback_never_requests_new_mutation_authority(
+def test_joint_rollback_requires_exact_mutation_authority(
     tmp_path: Path,
 ) -> None:
     lane, _runner = _lane(tmp_path)
     context = _context(lane, tmp_path)
     actions: list[str] = []
-    lane._vexp_mutation_lease = Mock(  # type: ignore[method-assign]
-        side_effect=AssertionError("rollback requested promotion authority")
-    )
+    _install_positive_rollback_authority(lane, actions)
     lane._rollback_cloudflared = Mock(  # type: ignore[method-assign]
         side_effect=lambda _context: (
             actions.append("rollback_ingress") or {"status": "pass"}
@@ -2607,11 +3213,12 @@ def test_joint_rollback_never_requests_new_mutation_authority(
 
     assert result["status"] == "pass"
     assert actions == [
+        "lease:before_rollback_cloudflared",
         "rollback_ingress",
         "rollback_api",
+        "lease:before_rollback_network",
         "restore_network",
     ]
-    lane._vexp_mutation_lease.assert_not_called()
 
 
 def test_failed_component_rollback_receipt_preserves_every_component_result(
@@ -2655,6 +3262,7 @@ def test_second_interruption_during_rollback_does_not_skip_other_components(
 ) -> None:
     lane, _runner = _lane(tmp_path)
     context = _context(lane, tmp_path)
+    _install_positive_rollback_authority(lane)
     lane._rollback_cloudflared = Mock(  # type: ignore[method-assign]
         side_effect=joint.JointDeploySignalInterruption("joint_deployment_signal:15")
     )

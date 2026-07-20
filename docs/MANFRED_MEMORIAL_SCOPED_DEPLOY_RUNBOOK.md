@@ -2,12 +2,20 @@
 
 ## Scope notice
 
-This document preserves the API-only component contract and candidate details.
-Public promotion now uses the joint API-and-ingress lane documented in
-`MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md`. `make deploy-ea-memorial` selects
-that joint lane. The explicit `deploy-ea-memorial-scoped` target cannot repair
-or authorize ingress and must not be substituted for the joint path when the
-public edge is unhealthy.
+This is the current conversation-only Memorial contract. The public document
+contains one main conversation surface with voice, text fallback, status,
+retry, transcript, and audio controls. It contains no story/archive UI,
+contribution UI, install upsell, conversation settings, personal-memory UI,
+video avatar, memory-room navigation, PropertyQuarry tour, or 3D handoff.
+
+The current source projection is
+`ea.manfred_memorial_candidate_projection.v4`; the current runtime receipt is
+`ea.manfred_memorial_candidate_runtime.v6`. Earlier projection/runtime
+contracts remain readable only as legacy/quarantined evidence and cannot be
+registered or promoted. `make deploy-ea-memorial` selects this scoped lane.
+The joint API/ingress/PropertyQuarry lane is a separately tested legacy
+compatibility plane; it is not a Memorial candidate, deploy, receipt-set, or
+gold dependency.
 
 ## Hard stop before candidate or deploy work
 
@@ -18,8 +26,9 @@ or mutate the live ingress topology until the schema-v6 sentinel is terminal
 root-installed manager has issued a current v2 permit bound to the exact raw
 certificate SHA-256, canonical certificate identity, schema, and qualification
 event hash. `enforced_soak`; a missing or untrusted state, certificate,
-certificate sidecar, lock, or permit; unhealthy current resources; or any
-certification blocker means deny. The certificate must be the root-owned
+certificate sidecar, lock, permit body, durable permit commit marker, or
+trusted epoch-void ledger; a matching epoch-void entry; unhealthy current
+resources; or any certification blocker means deny. The certificate must be the root-owned
 mode-`0640` pair at
 `/var/lib/vexp-qualification-certificate/certificates/<epoch_ms>.json` and
 `.json.sha256`; the sidecar is exactly `sha256:<raw-file-sha256>\n`.
@@ -34,17 +43,16 @@ this runbook may continue.
 
 The only governed order is:
 
-1. finish source-only memorial and PropertyQuarry-owned 3D inputs;
+1. finish the source-only conversation surface and voice/text routes;
 2. prove terminal qualification and the exact root certificate, issue the
    first certificate-bound permit, and run state-bound `status` immediately
    before candidate creation;
-3. build and verify the isolated candidate, including the exact priority 3D
-   browser/actionability proof;
+3. build and verify the isolated runtime-v6 conversation candidate;
 4. run non-mutating production preflight;
 5. issue a fresh short-lived permit and run state-bound `status` immediately
    before promotion;
-6. deploy the public release only through `scripts/deploy_ea_memorial_joint.py`;
-7. prove the exact public memorial and priority 3D routes; and
+6. deploy only through `scripts/deploy_ea_memorial.py`;
+7. prove the exact public conversation voice/text/browser/room surface; and
 8. revoke the permit.
 
 The installation, status, lease, and incident commands are pinned under
@@ -134,6 +142,28 @@ is allowed and the root receipt must record the disposition. The durable epoch
 void remains permanent: rollback may not restore the voided epoch or any
 certificate, permit, candidate, promotion, or live authority derived from it.
 
+The fixed installed permit manager exposes `void-epoch` only for that external
+reviewed recovery. It requires the root-owned mode-`0640` manifest at
+`/var/lib/vexp-qualification-recovery/reviewed-maintenance-manifest.json`, with
+the exact reviewed revision and artifact SHA-256 list. When the trusted
+coordination lock exists, the transaction waits for it exclusively. If the lock
+is absent, it first proves the permit body and commit are also absent, then
+publishes the durable void without creating runtime plumbing. It atomically
+creates the exact-epoch record
+under `/var/lib/vexp-qualification-epoch-voids`, fsyncs it, and invalidates the
+permit commit marker and body before returning. If the canonical ledger is
+absent, this recovery-only transaction constructs a private sibling directory
+whose first exact record and final metadata are already durable, then installs
+the entire directory with atomic no-replace semantics. It never exposes an
+empty canonical ledger. If the canonical ledger already exists, record
+publication is also atomic no-replace and never uses a hard link. An exact
+retry is idempotent; a conflicting record denies recovery and is never
+overwritten. Its result always reports
+`authority_granted: false`; it does not install artifacts, restart units, open
+a new epoch, issue a certificate/permit, or authorize the caller to continue.
+The external root executor must bind that result into its separately governed
+completion receipt before the first manifest-listed plumbing change.
+
 After any external repair, the sentinel must open a strictly newer schema-v6
 epoch through its normal code path. Both wall-clock and monotonic qualification
 duration must reach at least `604800000` milliseconds with healthy resources
@@ -145,8 +175,9 @@ release authority.
 
 ## Purpose
 
-`make deploy-ea-memorial-scoped` is the API-only component lane used by the
-joint coordinator. It no longer invokes the inherited EA mega-stack deployer.
+`make deploy-ea-memorial-scoped` is the current Memorial promotion lane.
+It no longer invokes the inherited EA mega-stack deployer or the legacy joint
+PropertyQuarry coordinator.
 It may start `ea-redis`, but the only service it force-recreates is `ea-api`.
 
 All runs take the fixed host-global lock
@@ -167,7 +198,10 @@ If any API health, local memorial, public memorial, non-memorial compatibility,
 evidence-refresh, or final gate check fails after the API change begins, the
 lane restores the protected prior API image through the exact Compose project,
 working directory, and config-file list recorded on the prior container. It
-fails before mutation when that exact baseline cannot be resolved.
+fails before mutation when that exact baseline cannot be resolved. The restore
+itself uses `before_rollback_api` and therefore requires the same current
+API-mode permit; if authority is no longer current, rollback fails closed and
+the private failure receipt must be preserved for governed recovery.
 
 ## Release-root requirements
 
@@ -218,12 +252,15 @@ requires the rendered override to retain the exact reference with
 
 Promotion also requires the private `0600` receipt from a passing isolated
 candidate run. A regular, single-link, non-symlink receipt is mandatory; the
-lane rejects the older v2 and v3 contracts. Runtime v4 binds the exact image ID and
+lane rejects older contracts. Runtime v6 binds the exact image ID and
 source revision to the immutable memorial projection root/digest, isolated
 Compose project and clean preflight, held project-name and candidate-port locks, provider-free
-narrator/TTS/browser proof, live-EA before/after snapshots, and OpenAPI
-counts/digests. The deploy receipt retains only the candidate receipt path and
-hash plus bounded safe fields, never the full snapshots.
+conversation/narrator/TTS/browser proof, live-EA before/after snapshots, candidate OpenAPI
+counts/digests, and the exact candidate entry/mutation/finalization authority
+envelope. Live OpenAPI comparison is explicitly deferred to governed promotion
+and rollback; the candidate never claims it locally. The deploy receipt retains
+only the candidate receipt path and hash plus bounded safe fields, never the
+full snapshots.
 
 Build, project, and prove the candidate before preflight. The candidate runner
 leaves its isolated project running for soak and does not mutate the live `ea`
@@ -237,12 +274,11 @@ commit="$(git rev-parse HEAD)"
 image="ea-runtime:manfred-$commit"
 project_name="ea-manfred-candidate-${commit:0:12}"
 candidate_root="$HOME/.local/share/ea-deploy/manfred-memorial/candidate-${commit}-18092"
+export EA_MEMORIAL_IMAGE_BUILD_RECEIPT="$candidate_root/image-build.v3.json"
+image_build_receipt="$EA_MEMORIAL_IMAGE_BUILD_RECEIPT"
 public_origin="${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}"
-
-spatial_bundle="${EA_MEMORIAL_SPATIAL_TOUR_BUNDLE_DIR:?set the pinned six-file tour bundle}"
-spatial_authority="${EA_MEMORIAL_SPATIAL_AUTHORITY_RECEIPT:?set the publication-authority receipt}"
-spatial_final_review="${EA_MEMORIAL_SPATIAL_FINAL_REVIEW_RECEIPT:?set the final-review receipt}"
-spatial_browser_review="${EA_MEMORIAL_SPATIAL_BROWSER_REVIEW_RECEIPT:?set the exact-viewer browser receipt}"
+state_path="${VEXP_SENTINEL_STATE_PATH:?set the absolute schema-v6 state path}"
+state_owner_uid="${VEXP_SENTINEL_STATE_OWNER_UID:?set its numeric owner uid}"
 
 mkdir -p "$candidate_root"
 chmod 700 "$candidate_root"
@@ -251,47 +287,114 @@ chmod 700 "$candidate_root"
   --source-root "$RELEASE_ROOT" \
   --ref "$commit" \
   --tag "$image" \
-  --receipt "$candidate_root/image-build.v2.json"
+  --receipt "$image_build_receipt" \
+  --vexp-state-path "$state_path" \
+  --vexp-state-owner-uid "$state_owner_uid"
 
 .venv/bin/python scripts/prepare_manfred_memorial_candidate.py \
   --source-root "$RELEASE_ROOT" \
   --ref "$commit" \
   --image "$image" \
+  --image-build-receipt "$image_build_receipt" \
   --deploy-root "$candidate_root" \
   --public-base-url "$public_origin" \
   --host-port 18092 \
   --project-name "$project_name" \
   --rotate-secrets \
-  --spatial-tour-bundle-dir "$spatial_bundle" \
-  --spatial-authority-receipt "$spatial_authority" \
-  --spatial-final-review-receipt "$spatial_final_review" \
-  --spatial-browser-review-receipt "$spatial_browser_review" \
-  >"$candidate_root/prepare-output.v3.json"
+  >"$candidate_root/prepare-output.v4.json"
 
-candidate_env="$(jq -er '.env_file' "$candidate_root/prepare-output.v3.json")"
+candidate_env="$(jq -er '.env_file' "$candidate_root/prepare-output.v4.json")"
 export EA_MEMORIAL_DATA_HOST_PATH
-EA_MEMORIAL_DATA_HOST_PATH="$(jq -er '.release_root' "$candidate_root/prepare-output.v3.json")"
+EA_MEMORIAL_DATA_HOST_PATH="$(jq -er '.release_root' "$candidate_root/prepare-output.v4.json")"
 export EA_MEMORIAL_RUNTIME_HOST_PATH
-EA_MEMORIAL_RUNTIME_HOST_PATH="$(jq -er '.runtime_root' "$candidate_root/prepare-output.v3.json")"
-export EA_MEMORIAL_CANDIDATE_RECEIPT="$candidate_root/candidate-runtime.v4.json"
-export EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT="$candidate_root/candidate-browser.v5.json"
+EA_MEMORIAL_RUNTIME_HOST_PATH="$(jq -er '.runtime_root' "$candidate_root/prepare-output.v4.json")"
+export EA_MEMORIAL_CANDIDATE_RECEIPT="$candidate_root/candidate-runtime.v6.json"
 
 .venv/bin/python scripts/run_manfred_memorial_candidate.py \
   --env-file "$candidate_env" \
   --compose-file "$RELEASE_ROOT/deploy/manfred-memorial/docker-compose.candidate.yml" \
   --receipt "$EA_MEMORIAL_CANDIDATE_RECEIPT" \
-  --spatial-browser-receipt "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT" \
-  --wait-seconds 240
+  --wait-seconds 240 \
+  --vexp-state-path "$state_path" \
+  --vexp-state-owner-uid "$state_owner_uid"
 
 test "$(stat -c %a "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = 600
 test "$(jq -er '.schema' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = \
-  "ea.manfred_memorial_candidate_runtime.v4"
+  "ea.manfred_memorial_candidate_runtime.v6"
 test "$(jq -er '.status' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = "pass"
-test "$(stat -c %a "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT")" = 600
-test "$(jq -er '.schema' "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT")" = \
-  "ea.manfred_spatial_candidate_browser.v5"
-test "$(jq -er '.status' "$EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT")" = "pass"
+test "$(jq -er '.memorial_surface' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = \
+  "conversation_only"
+test "$(jq -er '.spatial_scope' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = \
+  "separate_propertyquarry_lane"
+test "$(jq -er '.public_property_tours_tested' "$EA_MEMORIAL_CANDIDATE_RECEIPT")" = false
+test "$(stat -c %a "$image_build_receipt")" = 600
+test "$(jq -er '.schema' "$image_build_receipt")" = \
+  "ea.manfred_memorial_image_build.v3"
+test "$(jq -er '.status' "$image_build_receipt")" = "pass"
+export EA_MEMORIAL_CANDIDATE_RECEIPT_SHA256
+EA_MEMORIAL_CANDIDATE_RECEIPT_SHA256="$(sha256sum "$EA_MEMORIAL_CANDIDATE_RECEIPT" | cut -d ' ' -f 1)"
+export EA_MEMORIAL_IMAGE_BUILD_RECEIPT_SHA256
+EA_MEMORIAL_IMAGE_BUILD_RECEIPT_SHA256="$(sha256sum "$image_build_receipt" | cut -d ' ' -f 1)"
 ```
+
+The governed image producer and candidate runner call the fixed installed
+manager in isolated mode and require the exact candidate-mode permit. The image
+producer revalidates it
+while holding the root coordination lock across every Buildx create/build and
+temporary image-verification runtime, cache prune, and candidate-image removal.
+The candidate runner does the same across Compose `up`, container `exec`, API
+`restart`, conversation/browser interaction, partial-project cleanup,
+and receipt finalization while the shared lock remains held through no-replace
+publication. Read-only inspection may occur between those boundaries. If
+positive authority is lost, do not run raw Docker/Compose cleanup; leave the
+bounded candidate resources for the exact governed
+`ea-manfred-candidate-retention.timer` lane.
+
+A passing runtime v6 receipt is still not promotion authority. While the exact
+candidate permit that finalized it remains current, give the reviewed root shell
+the absolute private runtime/image-build receipt paths and their raw-byte
+SHA-256 values from the release operator. The root manager must seal the exact
+runtime receipt against the durable candidate and image-build issuance records,
+then the read-only status command must validate the same four operator inputs.
+`candidate-seal-status` remains valid after revocation because it reads the
+immutable root ledger; it does not make a candidate permit into an API or joint
+permit.
+
+```bash
+manager=/usr/local/libexec/ea/manage-manfred-vexp-mutation-permit
+candidate_receipt="${EA_MEMORIAL_CANDIDATE_RECEIPT:?copy the absolute passing v6 runtime receipt path}"
+candidate_receipt_sha256="${EA_MEMORIAL_CANDIDATE_RECEIPT_SHA256:?copy its raw-byte SHA-256}"
+image_build_receipt_sha256="${EA_MEMORIAL_IMAGE_BUILD_RECEIPT_SHA256:?copy the bound v3 image-build receipt SHA-256}"
+candidate_permit_sha256="${VEXP_CANDIDATE_PERMIT_SHA256:?copy permit_sha256 from the successful candidate status}"
+
+/usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
+  /usr/bin/python3 -I "$manager" seal-candidate \
+  --state-path "$state_path" \
+  --state-owner-uid "$state_owner_uid" \
+  --candidate-receipt "$candidate_receipt" \
+  --candidate-receipt-sha256 "$candidate_receipt_sha256"
+
+/usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
+  /usr/bin/python3 -I "$manager" candidate-seal-status \
+  --candidate-permit-sha256 "$candidate_permit_sha256" \
+  --candidate-receipt "$candidate_receipt" \
+  --candidate-receipt-sha256 "$candidate_receipt_sha256" \
+  --image-build-receipt-sha256 "$image_build_receipt_sha256"
+
+/usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
+  /usr/bin/python3 -I "$manager" revoke \
+  --permit-mode candidate
+```
+
+Only after `candidate-seal-status` returns contract
+`ea.vexp_candidate_finalization.v1`, version `1`, and status `valid` may root
+accept the immutable record at
+`/var/lib/vexp-manfred-candidate-authority/finalizations/<candidate-permit-sha256>.json`,
+revoke the candidate permit, and issue an API permit. If candidate work
+aborts or never publishes a passing v6 receipt, root may revoke the unsealed
+candidate permit to end its authority, but that candidate can never promote. A
+revoked or expired candidate permit cannot be revived for late sealing; use a
+fresh governed candidate invocation and new no-replace receipt paths.
 
 ```bash
 cd "$RELEASE_ROOT"
@@ -301,7 +404,6 @@ export EA_MEMORIAL_IMAGE="ea-runtime:manfred-$commit"
 test -n "${EA_MEMORIAL_CANDIDATE_RECEIPT:?run the isolated candidate first}"
 test -n "${EA_MEMORIAL_DATA_HOST_PATH:?bind the proved projection root}"
 test -n "${EA_MEMORIAL_RUNTIME_HOST_PATH:?bind the validated runtime root}"
-export EA_MEMORIAL_CONTROL_TOUR_SLUG="360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
 export EA_PUBLIC_APP_BASE_URL="${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}"
 docker image inspect "$EA_MEMORIAL_IMAGE" --format '{{.Id}}'
 make verify-ea-memorial-scoped-deploy
@@ -326,9 +428,11 @@ Preflight is fail-closed and performs no Docker mutation. It verifies:
   reproduces the live API image reference/ID plus normalized environment,
   process (`Cmd`/`Entrypoint`/`User`), and mount-identity digests; `.env` drift
   therefore fails before forward mutation;
-- a private passing runtime-v4 candidate receipt bound to the exact image,
-  revision, memorial projection root/digest, isolated project/port, unchanged
-  live EA snapshot, and provider-free browser proof;
+- a private passing runtime-v6 conversation-only candidate receipt bound to the exact v3
+  image-build authority receipt, image, revision, memorial projection
+  root/digest, isolated project/port, unchanged live EA snapshot, and
+  provider-free browser proof, plus a valid immutable root finalization record
+  returned by `candidate-seal-status` for those exact receipt bytes;
 - a fresh preflight recomputation of the projection tree digest, file modes,
   file count, and byte count using the candidate producer's exact algorithm;
   receipt-only claims or a tree changed after candidate proof fail closed;
@@ -348,8 +452,9 @@ Preflight is fail-closed and performs no Docker mutation. It verifies:
   `.env`, and the optional `.env.local` presence/content, rechecked before and
   after evidence work and immediately before forward or rollback recreation;
 - the live local OpenAPI sorted path set/count/digest; and
-- the required priority control-tour slug, with `200` HTML plus the exact JSON
-  body digest captured for mandatory post-deploy equality.
+- explicit `memorial_surface=conversation_only` and
+  `spatial_scope=separate_propertyquarry_lane`, with no tour mount, tour
+  package, spatial receipt, or joint handoff consumed.
 
 The preflight receipt is written privately under
 `.runtime/deployments/memorial/<deployment-id>.json`. Because deployment IDs are
@@ -372,7 +477,6 @@ export EA_MEMORIAL_IMAGE="ea-runtime:manfred-$commit"
 test -n "${EA_MEMORIAL_CANDIDATE_RECEIPT:?run the isolated candidate first}"
 test -n "${EA_MEMORIAL_DATA_HOST_PATH:?bind the proved projection root}"
 test -n "${EA_MEMORIAL_RUNTIME_HOST_PATH:?bind the validated runtime root}"
-export EA_MEMORIAL_CONTROL_TOUR_SLUG="360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6"
 export EA_PUBLIC_APP_BASE_URL="${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}"
 make deploy-ea-memorial-scoped
 ```
@@ -423,9 +527,8 @@ Success requires all of the following:
 - post-deploy OpenAPI retires exactly the two fixed governed-spatial POST
   operations, preserves every retained operation/schema/security scheme, and
   permits only the allowlisted compatible `GET /version` evolution;
-- the required priority 3D control tour
-  `360-tour-balkon-wohnung-in-neustift-layout-first-0146e6f9c6` still returns
-  `200` for HTML and JSON, with the exact pre-deploy JSON digest unchanged;
+- no PropertyQuarry tour route or 3D asset is mounted, requested, or treated
+  as Memorial release evidence;
 - a distinct private `postdeploy/` evidence set is rebuilt from scratch and
   refreshed release authority and memorial deploy readiness remain `pass`,
   with the exact predeploy public origin and authority posture unchanged.
@@ -478,10 +581,9 @@ transparent-narrator contract pass at the configured production origin.
 
 ## Terminal qualification and root permit
 
-The commands in this section retain the API-only component permit contract.
-They are not public joint-promotion instructions. For public promotion, use the
-explicit `--permit-mode joint` sequence in
-`MANFRED_MEMORIAL_JOINT_DEPLOY_RUNBOOK.md`.
+The commands in this section distinguish the candidate contract from the
+scoped Memorial API promotion contract. The legacy joint/PropertyQuarry permit
+mode is outside the conversation-only Memorial release.
 
 The candidate and promotion window is closed unless the schema-v6 sentinel is
 terminal `qualified` and a short-lived root-owned permit proves that exact
@@ -494,12 +596,29 @@ must follow the commit-and-SHA-256-bound, epoch-voiding exception in
 `AGENTS.md`; its receipt never substitutes for terminal qualification,
 certificate, permit, or lock evidence.
 
-The permit manager uses the fixed files
-`/run/ea/memorial-vexp-mutation-permit.json` and
-`/run/ea/memorial-vexp-mutation-permit.lock`. The lock is a stable root-owned
-coordination inode: the deploy lane holds a shared lease across each exact
-mutation, while issue and revoke take an exclusive lease. A permit lasts at
-most one hour and is revalidated at every mutation boundary.
+The permit manager uses the fixed permit body, durable commit marker, and lock:
+`/run/ea/memorial-vexp-mutation-permit.json`,
+`/run/ea/memorial-vexp-mutation-permit.commit.json`, and
+`/run/ea/memorial-vexp-mutation-permit.lock`. It also requires the trusted
+root-owned `/var/lib/vexp-qualification-epoch-voids` ledger and denies any
+epoch with a matching entry. Candidate issue, status, sealing, and seal status
+also require the fixed root-owned
+`/var/lib/vexp-manfred-candidate-authority/{issuances,finalizations,operations,publications,revocations}`
+ledger plus its reviewed `producer-manifest.json`.
+The lock is a stable root-owned coordination
+inode: the candidate/deploy lane holds a shared lease across each exact
+mutation, while issue, revoke, and the recovery-only `void-epoch` transaction
+take an exclusive lease. A permit lasts at most one hour and is revalidated at
+every forward, cleanup, or rollback mutation boundary.
+
+The ledger provisioning commands in the installation block below are only for
+clean-host initialization before any schema-v6 qualification epoch is active.
+Never run them to create, repair, replace, or relabel a missing/untrusted ledger
+during `enforced_soak` or another active epoch. Normal `issue` and `status`
+operations always fail closed when a required canonical ledger is absent. Only an
+explicitly authorized, manifest-bound recovery may use `void-epoch`'s atomic
+first-record bootstrap described above; the durable void is the first visible
+canonical ledger state and grants no mutation authority.
 
 Install the manager once per reviewed revision from a root shell. The Git
 object is treated only as data: root does not import or execute Python from the
@@ -534,6 +653,15 @@ materialized_sha256="$(/usr/bin/sha256sum "$stage_file" | /usr/bin/cut -d ' ' -f
 /usr/bin/install -d -o root -g root -m 0755 /usr/local/libexec/ea
 /usr/bin/install -o root -g root -m 0555 "$stage_file" \
   /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit
+/usr/bin/install -d -o root -g 1000 -m 0750 \
+  /var/lib/vexp-qualification-epoch-voids
+/usr/bin/install -d -o root -g 1000 -m 0750 \
+  /var/lib/vexp-manfred-candidate-authority \
+  /var/lib/vexp-manfred-candidate-authority/issuances \
+  /var/lib/vexp-manfred-candidate-authority/finalizations \
+  /var/lib/vexp-manfred-candidate-authority/operations \
+  /var/lib/vexp-manfred-candidate-authority/publications \
+  /var/lib/vexp-manfred-candidate-authority/revocations
 /usr/bin/test "$(/usr/bin/sha256sum \
   /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit | \
   /usr/bin/cut -d ' ' -f 1)" = "$reviewed_manager_sha256"
@@ -541,6 +669,22 @@ materialized_sha256="$(/usr/bin/sha256sum "$stage_file" | /usr/bin/cut -d ' ' -f
   /usr/bin/stat -c '%a:%u:%g:%h:%F' \
   /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit)" \
   = "555:0:0:1:regular file"
+/usr/bin/test "$(/usr/bin/env -i LANG=C PATH=/usr/bin:/bin \
+  /usr/bin/stat -c '%a:%u:%g:%F' \
+  /var/lib/vexp-qualification-epoch-voids)" \
+  = "750:0:1000:directory"
+for candidate_authority_directory in \
+  /var/lib/vexp-manfred-candidate-authority \
+  /var/lib/vexp-manfred-candidate-authority/issuances \
+  /var/lib/vexp-manfred-candidate-authority/finalizations \
+  /var/lib/vexp-manfred-candidate-authority/operations \
+  /var/lib/vexp-manfred-candidate-authority/publications \
+  /var/lib/vexp-manfred-candidate-authority/revocations
+do
+  /usr/bin/test "$(/usr/bin/env -i LANG=C PATH=/usr/bin:/bin \
+    /usr/bin/stat -c '%a:%u:%g:%F' "$candidate_authority_directory")" \
+    = "750:0:1000:directory"
+done
 ```
 
 Do not replace the fixed installed file with a symlink or hardlink. Every
@@ -549,43 +693,103 @@ and an empty environment. The manager independently verifies those facts, its
 fixed path, its exact mode and ownership, and its root-owned parent before it
 reads or changes authority state.
 
+Create `/var/lib/vexp-qualification-epoch-voids` with owner `root:1000` and mode
+`0750` only during clean-host initialization before any schema-v6 epoch exists.
+Never create an empty ledger during `enforced_soak`. Reviewed recovery with an
+absent ledger uses `void-epoch`, whose first visible canonical directory already
+contains the durable exact-epoch void record.
+
+The fixed candidate-authority root and its `issuances/`, `finalizations/`,
+`operations/`, `publications/`, and `revocations/`
+subdirectories are likewise provisioned with owner `root:1000` and mode `0750`
+only during reviewed installation or maintenance before an active qualification
+epoch. Never create, repair, replace, chmod, or relabel them opportunistically
+during `enforced_soak`. Candidate issuance and finalization records are
+root-owned, group `1000`, mode `0640`, canonical JSON files published with
+atomic no-replace semantics. Candidate-mode `issue` publishes the exact permit
+issuance record before returning, and candidate-mode `status` requires that
+exact issuance; a missing or untrusted ledger, issuance, or finalization is a
+deny and is never repaired by the release operator.
+
 Use this sequence:
 
-1. Complete source-only memorial and 3D-tour authority inputs without creating
-   a candidate image/runtime.
+1. Complete the source-only conversation surface and voice/text contracts
+   without creating a candidate image/runtime.
 2. After the sentinel becomes terminal, enter a reviewed root shell and issue
-   the first exact-epoch permit. The state path and owner UID must be explicit.
-   Run state-bound `status` immediately afterward; candidate creation may start
-   only after this exact command succeeds:
+   the first exact-epoch **candidate-mode** permit. The state path and owner UID
+   must be explicit. Every manager `issue`/`status` mode and every governed
+   consumer accepts only the designated non-root release operator's
+   passwd-resolved canonical `.local/state/vexp-sentinel/state.json`, selected by
+   `state_owner_uid`, never a copied snapshot or `HOME` override. Run state-bound
+   `status` immediately afterward; candidate image or
+   runtime creation may start only after this exact command succeeds:
 
    ```bash
    state_path="${VEXP_SENTINEL_STATE_PATH:?set the absolute schema-v6 state path}"
    state_owner_uid="${VEXP_SENTINEL_STATE_OWNER_UID:?set its numeric owner uid}"
-   /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
-     /usr/bin/python3 -I \
-     /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit issue \
-     --state-path "$state_path" \
-     --state-owner-uid "$state_owner_uid" \
-     --ttl-seconds 3600
-   /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
-     /usr/bin/python3 -I \
-     /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit status \
-     --state-path "$state_path" \
-     --state-owner-uid "$state_owner_uid"
+   manager=/usr/local/libexec/ea/manage-manfred-vexp-mutation-permit
+   candidate_issue_json="$(
+     /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
+       /usr/bin/python3 -I "$manager" issue \
+       --state-path "$state_path" \
+       --state-owner-uid "$state_owner_uid" \
+       --ttl-seconds 3600 \
+       --permit-mode candidate
+   )"
+   /usr/bin/printf '%s\n' "$candidate_issue_json" | /usr/bin/python3 -I -c \
+     'import json,sys; value=json.load(sys.stdin); assert value["status"] == "issued"; assert value["candidate_issuance"]["sha256"]'
+   candidate_status_json="$(
+     /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
+       /usr/bin/python3 -I "$manager" status \
+       --state-path "$state_path" \
+       --state-owner-uid "$state_owner_uid" \
+       --permit-mode candidate
+   )"
+   export VEXP_CANDIDATE_PERMIT_SHA256="$(
+     /usr/bin/printf '%s\n' "$candidate_status_json" | /usr/bin/python3 -I -c \
+       'import json,sys; value=json.load(sys.stdin); assert value["status"] == "valid"; print(value["permit_sha256"])'
+   )"
    ```
 
-3. Start the governed candidate immediately after that state-bound status.
-   While the authority is current, prove the exact image ID, source revision,
-   projection digest, memorial routes, and priority 3D-tour HTML/JSON routes.
-   Do not replace the governed candidate scripts with raw Docker commands.
-4. Run the non-mutating scoped production preflight:
+3. Start the governed image builder immediately after that state-bound status,
+   passing the same `--vexp-state-path` and `--vexp-state-owner-uid` values.
+   Reissue and recheck a fresh candidate-mode permit if the build leaves too
+   little validity for the runner, then pass the same values to the governed
+   candidate runner and replace `VEXP_CANDIDATE_PERMIT_SHA256` with that new
+   status result. The v3 image-build receipt keeps its own exact historical
+   issuance binding; both issuances must have the same state owner/path, epoch,
+   and certificate. While the authority is current, prove the exact image ID,
+   source revision, projection digest, memorial routes, and priority 3D-tour
+   HTML/JSON routes. Do not replace the governed candidate scripts with raw
+   Docker commands.
+4. While that exact candidate permit is still current, run `seal-candidate`
+   followed by the read-only `candidate-seal-status` command shown above. Bind
+   the exact absolute runtime-v5 receipt path, its raw-byte SHA-256, the
+   image-build-v3 receipt SHA-256, and
+   `VEXP_CANDIDATE_PERMIT_SHA256`. Continue only when status is `valid` for
+   `ea.vexp_candidate_finalization.v1` version `1`.
+5. Revoke the sealed candidate permit before changing contracts. An aborted
+   candidate may also be revoked unsealed, but it cannot continue to this or any
+   later promotion step:
+
+   ```bash
+   /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
+     /usr/bin/python3 -I \
+     /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit revoke \
+     --permit-mode candidate
+   ```
+
+6. Run the non-mutating scoped production preflight:
 
    ```bash
    python3 scripts/deploy_ea_memorial.py --preflight-only
    ```
 
-5. From the root shell, issue a fresh short-lived permit for the same state and
-   run state-bound `status` again. Start deploy immediately after this succeeds:
+7. From the root shell, issue a fresh short-lived **API-mode** permit for the
+   same state and run state-bound `status` again. The governed transaction
+   reserves 900 seconds for forward work, 180 seconds for rollback, and 30
+   seconds for transition, so admission requires more than 1110 seconds of
+   remaining authority. Start deploy immediately after this succeeds:
 
    ```bash
    /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
@@ -593,30 +797,33 @@ Use this sequence:
      /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit issue \
      --state-path "$state_path" \
      --state-owner-uid "$state_owner_uid" \
-     --ttl-seconds 900
+     --ttl-seconds 1800 \
+     --permit-mode api
    /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
      /usr/bin/python3 -I \
      /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit status \
      --state-path "$state_path" \
-     --state-owner-uid "$state_owner_uid"
+     --state-owner-uid "$state_owner_uid" \
+     --permit-mode api
    ```
 
-6. In the release operator shell, deploy only through the scoped lane:
+8. In the release operator shell, deploy only through the scoped lane:
 
    ```bash
    python3 scripts/deploy_ea_memorial.py
    ```
 
-7. Prove the exact deployed revision at the credential-free HTTPS origin,
+9. Prove the exact deployed revision at the credential-free HTTPS origin,
    including `/memorials/manfred`, `/memorials/manfred.json`, and the configured
    priority `/tours/...` HTML and JSON. Preserve the private deployment/browser
    receipts.
-8. Return to the root shell and revoke immediately:
+10. Return to the root shell and revoke immediately:
 
    ```bash
    /usr/bin/env -i HOME=/root LANG=C.UTF-8 PATH=/usr/bin:/bin \
      /usr/bin/python3 -I \
-     /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit revoke
+     /usr/local/libexec/ea/manage-manfred-vexp-mutation-permit revoke \
+     --permit-mode api
    ```
 
 If revoke reports a busy lock, a governed mutation still owns the shared lease.
@@ -630,3 +837,31 @@ replace, or otherwise mutate sentinel or qualification units from this release
 or incident lane. Separate root-plumbing recovery is governed only by the
 epoch-voiding exception in `AGENTS.md` and cannot continue this deploy. A failed
 or expired permit is a deny, not an invitation to bypass the lane.
+
+## External root evidence prerequisite
+
+The operator-owned sentinel state is diagnostic input, not current-health
+authority. Before any new permit can be issued or consumed, the external Fleet
+root owner must install the reviewed current-predicate attestor at
+`/usr/local/libexec/vexp-current-predicate-attestor` and materialize the exact
+root-owned `ea.vexp_current_predicate.v1` generation chain under
+`/var/lib/vexp-qualification-current-predicate`. The atomic `current.json` head
+must bind the exact state bytes, epoch, certificate, boot ID, wall and monotonic
+sample, reviewed sentinel hash, and reviewed attestor hash. A missing manifest,
+head, generation, predecessor, or producer binding is a deny.
+
+Candidate sealing additionally requires the independently installed
+`/usr/local/libexec/vexp-candidate-boundary-attestor` to append one root-owned,
+nonce-bearing event for every exact candidate/image mutation and a
+post-publication record under
+`/var/lib/vexp-manfred-candidate-authority`. Its producer manifest must pin the
+exact reviewed builder and candidate-runner hashes. Publication deadlines use
+the same boot's monotonic clock; an expired publication or any corresponding
+root revocation record denies sealing. The attestor must coordinate append and
+revocation writes with the stable mutation lock.
+
+EA contains only the fail-closed consumer contracts and the source-only Fleet
+handoff request. It does not install or impersonate either root producer. The
+reviewed recovery manifest grants no candidate, permit, merge, Docker,
+promotion, or live authority; the old epoch must first be durably voided and a
+strictly newer full seven-day epoch must qualify normally.

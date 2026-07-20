@@ -10575,6 +10575,9 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
                 "subtitle": "Eine ruhige Seite fuer Erinnerungen und Originalstimme.",
                 "disclosure": "Originalaufnahmen sind als Original gekennzeichnet.",
                 "intro": "Neue Texte sind keine direkte Rede.",
+                "write_token": "PRIVATE_WRITE_TOKEN_CANARY",
+                "memory_principal_id": "PRIVATE_MEMORY_PRINCIPAL_CANARY",
+                "voice_clone": {"voice_id": "PRIVATE_CLONE_CANARY"},
                 "audio_clips": [
                     {
                         "public": True,
@@ -10605,24 +10608,42 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
 
     assert page.status_code == 200
     assert "Manfred" in page.text
-    assert "Originalaufnahmen" in page.text
-    assert "Stimme aus dem Archiv" in page.text
-    assert "Hanusch Gespraech" in page.text
+    assert 'id="memorial-conversation-region"' in page.text
+    assert 'id="memorial-text-turn-form"' in page.text
+    assert 'id="memorial-speech-transcript"' in page.text
+    assert 'id="memorial-chat-answer"' in page.text
+    assert "KI-gestützten, quellengebundenen Gedenkbegleiter" in page.text
+    assert "Er ist nicht Manfred und spricht nicht für ihn." in page.text
+    assert "eingesetzte Sprachdienste verarbeiten das Audio" in page.text
+    assert "Originalaufnahmen" not in page.text
+    assert "Stimme aus dem Archiv" not in page.text
+    assert "Hanusch Gespraech" not in page.text
+    assert "Originalaufnahme" not in page.text
+    assert "Schach" not in page.text
+    assert "Das Schach soll in der Familie bleiben." not in page.text
+    assert "Was ist wirklich belegt?" not in page.text
+    assert "audio/hanusch-enhanced.mp3" not in page.text
     assert "Seine Stimme hoeren" not in page.text
     assert "Quellenbasiertes Profil" not in page.text
     assert "Weitere gefundene Kandidaten" not in page.text
-    assert "Was ist wirklich belegt?" in page.text
     assert "Archiv lesen" not in page.text
     assert "Gespräch beginnen" in page.text
-    assert "Am Handy/Desktop installieren" in page.text
+    assert "Am Handy/Desktop installieren" not in page.text
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
     assert "voice clone" not in page.text.lower()
+    assert "PRIVATE_WRITE_TOKEN_CANARY" not in page.text
+    assert "PRIVATE_MEMORY_PRINCIPAL_CANARY" not in page.text
+    assert "PRIVATE_CLONE_CANARY" not in page.text
     assert "https://js.clickrank.ai/seo/" not in page.text
 
     payload = client.get(f"/memorials/{slug}.json")
     assert payload.status_code == 200
     assert payload.json()["person_name"] == "Manfred"
     assert payload.json()["audio_clips"][0]["asset_relpath"] == "audio/hanusch-enhanced.mp3"
+    assert payload.json()["suggested_prompts"] == ["Was ist wirklich belegt?"]
+    assert "PRIVATE_WRITE_TOKEN_CANARY" not in payload.text
+    assert "PRIVATE_MEMORY_PRINCIPAL_CANARY" not in payload.text
+    assert "PRIVATE_CLONE_CANARY" not in payload.text
 
     audio = client.get(f"/memorials/files/{slug}/audio/hanusch-enhanced.mp3")
     assert audio.status_code == 200
