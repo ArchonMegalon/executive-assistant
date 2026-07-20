@@ -5305,7 +5305,6 @@ def test_build_report_bare_voice_name_text_selects_pending_sample(monkeypatch, t
     jobs_root = tmp_path / "jobs"
     job_dir = jobs_root / "job-bare-name"
     job_dir.mkdir(parents=True)
-    (job_dir / "voice_audition").mkdir(parents=True)
     job = {
         "job_id": "job-bare-name",
         "status": "waiting_voice_selection",
@@ -5321,10 +5320,18 @@ def test_build_report_bare_voice_name_text_selects_pending_sample(monkeypatch, t
             }
         },
     }
+    florian_voice_id = "provider-florian-id"
+    seraphina_voice_id = "provider-seraphina-id"
     private_payload = {
+        "contract_name": module.audiobook_epub_pipeline.VOICE_AUDITION_CONTRACT_NAME,
+        "job_id": "job-bare-name",
         "candidates": {
             "sample-token-florian": {
                 "candidate_key": "voice-florian",
+                "voice_id": florian_voice_id,
+                "voice_id_sha256": module.audiobook_epub_pipeline._sha256_bytes(
+                    florian_voice_id.encode("utf-8")
+                ),
                 "public": {
                     "label": "Florian",
                     "preset_key": "voice-florian",
@@ -5335,6 +5342,10 @@ def test_build_report_bare_voice_name_text_selects_pending_sample(monkeypatch, t
             },
             "sample-token-seraphina": {
                 "candidate_key": "voice-seraphina",
+                "voice_id": seraphina_voice_id,
+                "voice_id_sha256": module.audiobook_epub_pipeline._sha256_bytes(
+                    seraphina_voice_id.encode("utf-8")
+                ),
                 "public": {
                     "label": "Seraphina",
                     "preset_key": "voice-seraphina",
@@ -5346,7 +5357,10 @@ def test_build_report_bare_voice_name_text_selects_pending_sample(monkeypatch, t
         }
     }
     (job_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")
-    (job_dir / "voice_audition" / "private.json").write_text(json.dumps(private_payload), encoding="utf-8")
+    module.audiobook_epub_pipeline._write_voice_audition_private(
+        job_dir,
+        private_payload,
+    )
 
     def _fake_request_json(**kwargs: object) -> dict[str, object]:
         requests.append(dict(kwargs))

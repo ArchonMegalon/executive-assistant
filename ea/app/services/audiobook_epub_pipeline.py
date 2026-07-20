@@ -19,6 +19,7 @@ import posixpath
 import re
 import shutil
 import shlex
+import stat
 import subprocess
 import tempfile
 import threading
@@ -3967,21 +3968,148 @@ def _voice_audition_private_path(job_dir: Path) -> Path:
     return _voice_audition_dir(job_dir) / "private.json"
 
 
+def _empty_voice_audition_private() -> dict[str, object]:
+    return {
+        "contract_name": VOICE_AUDITION_CONTRACT_NAME,
+        "candidates": {},
+    }
+
+
+def _voice_audition_expected_job_id(job_dir: Path) -> str:
+    try:
+        job_payload = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        job_payload = {}
+    if not isinstance(job_payload, dict):
+        job_payload = {}
+    return str(job_payload.get("job_id") or job_dir.name).strip()
+
+
+def _voice_audition_private_bindings_valid(
+    *,
+    job_dir: Path,
+    payload: dict[str, object],
+) -> bool:
+    if payload.get("contract_name") != VOICE_AUDITION_CONTRACT_NAME:
+        return False
+    expected_job_id = _voice_audition_expected_job_id(job_dir)
+    recorded_job_id = str(payload.get("job_id") or "").strip()
+    if not recorded_job_id or recorded_job_id != expected_job_id:
+        return False
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, dict):
+        return False
+    for raw_token, raw_candidate in candidates.items():
+        token = str(raw_token or "").strip()
+        if not token or not isinstance(raw_candidate, dict):
+            return False
+        candidate = dict(raw_candidate)
+        raw_public = candidate.get("public")
+        if raw_public is not None and not isinstance(raw_public, dict):
+            return False
+        public = dict(raw_public or {})
+        voice_id = str(candidate.get("voice_id") or "").strip()
+        recorded_voice_hash = str(
+            candidate.get("voice_id_sha256")
+            or public.get("voice_id_sha256")
+            or ""
+        ).strip()
+        if (
+            not voice_id
+            or recorded_voice_hash != _sha256_bytes(voice_id.encode("utf-8"))
+        ):
+            return False
+        public_token = str(public.get("callback_token") or "").strip()
+        if public_token and public_token != token:
+            return False
+        candidate_key = str(candidate.get("candidate_key") or "").strip()
+        public_key = str(public.get("preset_key") or "").strip()
+        if candidate_key and public_key and candidate_key != public_key:
+            return False
+    selected_token = str(payload.get("selected_callback_token") or "").strip()
+    if selected_token:
+        selected_candidate = candidates.get(selected_token)
+        if not isinstance(selected_candidate, dict):
+            return False
+        selected_key = str(payload.get("selected_candidate_key") or "").strip()
+        candidate_key = str(selected_candidate.get("candidate_key") or "").strip()
+        if selected_key and candidate_key and selected_key != candidate_key:
+            return False
+    return True
+
+
 def _load_voice_audition_private(job_dir: Path) -> dict[str, object]:
     path = _voice_audition_private_path(job_dir)
+    empty = _empty_voice_audition_private()
+    parent_descriptor = -1
+    file_descriptor = -1
     try:
-        if not path.is_file():
-            return {
-                "contract_name": VOICE_AUDITION_CONTRACT_NAME,
-                "candidates": {},
-            }
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        parent_path_stat = path.parent.lstat()
+        if (
+            stat.S_ISLNK(parent_path_stat.st_mode)
+            or not stat.S_ISDIR(parent_path_stat.st_mode)
+        ):
+            return empty
+        parent_descriptor = os.open(
+            path.parent,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+        )
+        parent_stat = os.fstat(parent_descriptor)
+        job_stat = job_dir.stat()
+        parent_mode = stat.S_IMODE(parent_stat.st_mode)
+        if (
+            not stat.S_ISDIR(parent_stat.st_mode)
+            or (parent_stat.st_dev, parent_stat.st_ino)
+            != (parent_path_stat.st_dev, parent_path_stat.st_ino)
+            or parent_mode & 0o077
+            or not parent_mode & stat.S_IXUSR
+            or parent_stat.st_uid != job_stat.st_uid
+        ):
+            return empty
+        file_path_stat = path.lstat()
+        if (
+            stat.S_ISLNK(file_path_stat.st_mode)
+            or not stat.S_ISREG(file_path_stat.st_mode)
+        ):
+            return empty
+        file_descriptor = os.open(
+            path.name,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=parent_descriptor,
+        )
+        file_stat = os.fstat(file_descriptor)
+        file_mode = stat.S_IMODE(file_stat.st_mode)
+        if (
+            not stat.S_ISREG(file_stat.st_mode)
+            or (file_stat.st_dev, file_stat.st_ino)
+            != (file_path_stat.st_dev, file_path_stat.st_ino)
+            or file_mode not in {0o400, 0o600}
+            or file_stat.st_uid != job_stat.st_uid
+            or file_stat.st_uid != parent_stat.st_uid
+        ):
+            return empty
+        with os.fdopen(file_descriptor, "r", encoding="utf-8") as handle:
+            file_descriptor = -1
+            payload = json.load(handle)
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        return {"contract_name": VOICE_AUDITION_CONTRACT_NAME, "candidates": {}}
-    if not isinstance(payload, dict):
-        return {"contract_name": VOICE_AUDITION_CONTRACT_NAME, "candidates": {}}
-    payload.setdefault("contract_name", VOICE_AUDITION_CONTRACT_NAME)
-    payload.setdefault("candidates", {})
+        return empty
+    finally:
+        if file_descriptor >= 0:
+            with contextlib.suppress(OSError):
+                os.close(file_descriptor)
+        if parent_descriptor >= 0:
+            with contextlib.suppress(OSError):
+                os.close(parent_descriptor)
+    if not isinstance(payload, dict) or not _voice_audition_private_bindings_valid(
+        job_dir=job_dir,
+        payload=payload,
+    ):
+        return empty
     return payload
 
 
@@ -4075,7 +4203,11 @@ def _write_atomic_private_text(path: Path, value: str) -> None:
 
 def _write_voice_audition_private(job_dir: Path, payload: dict[str, object]) -> None:
     path = _voice_audition_private_path(job_dir)
-    _write_private_json(path, payload, private_parent=True)
+    persisted = dict(payload)
+    persisted["contract_name"] = VOICE_AUDITION_CONTRACT_NAME
+    if not str(persisted.get("job_id") or "").strip():
+        persisted["job_id"] = _voice_audition_expected_job_id(job_dir)
+    _write_private_json(path, persisted, private_parent=True)
 
 
 def _clear_voice_audition_private_selection(job_dir: Path) -> None:
@@ -12241,7 +12373,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
                     total_reused_passage_count += 1
                     segment_paths.append(existing_segment)
                     merge_paths.append(existing_segment)
-                    if bool(segment_row.get("paragraph_break_after")) and len(segment_rows) > 1:
+                    if bool(segment_row.get("paragraph_break_after")):
                         pause_kind = str(segment_row.get("pause_kind") or "paragraph")
                         pause_seconds_after = float(
                             segment_row.get("pause_seconds_after") or paragraph_pause_seconds
@@ -12380,7 +12512,7 @@ def _render_unmixr_chapter_audio_locked(*, job_dir: Path, chapters: tuple[EpubCh
             total_regenerated_passage_count += 1
             segment_paths.append(rendered_segment)
             merge_paths.append(rendered_segment)
-            if bool(segment_row.get("paragraph_break_after")) and len(segment_rows) > 1:
+            if bool(segment_row.get("paragraph_break_after")):
                 pause_kind = str(segment_row.get("pause_kind") or "paragraph")
                 pause_seconds_after = float(
                     segment_row.get("pause_seconds_after") or paragraph_pause_seconds

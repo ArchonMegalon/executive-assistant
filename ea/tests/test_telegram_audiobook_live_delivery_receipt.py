@@ -155,8 +155,13 @@ def test_build_receipt_keeps_explicit_telegram_source_kind_in_scope_without_boun
     )
 
     assert receipt["candidate_count"] == 1
-    assert receipt["live_delivery_claim_allowed"] is True
-    assert receipt["status"] == "pass"
+    assert receipt["ignored_non_telegram_audiobook_candidate_count"] == 0
+    assert receipt["selected_delivery"]["job_id_sha256"] == hashlib.sha256(
+        b"explicit-telegram-kind"
+    ).hexdigest()
+    assert receipt["live_delivery_claim_allowed"] is False
+    assert receipt["status"] == "blocked"
+    assert "current_v5_narration_plan_missing" in receipt["failed_codes"]
 
 
 def test_build_receipt_routes_sent_replacement_voice_sample_to_precise_operator_action(tmp_path: Path) -> None:

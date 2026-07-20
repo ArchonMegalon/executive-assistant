@@ -265,9 +265,16 @@ def _run_shadow_text_fallback_proof(shadow_job_dir: Path) -> dict[str, object]:
         )
         or ""
     ).strip()
-    source = (ROOT / "scripts" / "process_whatsapp_web_session_actions.py").read_text(encoding="utf-8")
-    prompt_mentions_fallback = (
-        "If the buttons do not work, reply 'use " in source and "'dismiss all'" in source
+    prompt = str(processor._voice_sample_choice_prompt(chosen) or "")  # type: ignore[attr-defined]
+    normalized_prompt = " ".join(prompt.lower().split())
+    prompt_mentions_fallback = all(
+        marker in normalized_prompt
+        for marker in (
+            "if the buttons do not work",
+            f"'use {label.lower()}'",
+            "'use automatic cast'",
+            "'dismiss all'",
+        )
     )
     status = (
         "pass"

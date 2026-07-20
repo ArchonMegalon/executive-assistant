@@ -18,8 +18,11 @@ def _load_script() -> ModuleType:
 
 
 def _write_waiting_voice_job(job_dir: Path) -> dict[str, object]:
+    from app.services import audiobook_epub_pipeline as pipeline
+
     job_dir.mkdir(parents=True)
-    voice_sha = "a" * 64
+    voice_id = "secret-provider-voice-id"
+    voice_sha = pipeline._sha256_bytes(voice_id.encode("utf-8"))
     job = {
         "job_id": "job-wa-shadow-proof",
         "status": "waiting_voice_selection",
@@ -55,34 +58,28 @@ def _write_waiting_voice_job(job_dir: Path) -> dict[str, object]:
         },
     }
     (job_dir / "job.json").write_text(json.dumps(job, indent=2, sort_keys=True), encoding="utf-8")
-    audition_dir = job_dir / "voice_audition"
-    audition_dir.mkdir()
-    (audition_dir / "private.json").write_text(
-        json.dumps(
-            {
-                "contract_name": "ea.telegram_epub_audiobook_voice_audition.v1",
-                "job_id": "job-wa-shadow-proof",
-                "candidates": {
-                    "voice-token-one": {
-                        "candidate_key": "voice-one",
-                        "voice_id": "secret-provider-voice-id",
+    pipeline._write_voice_audition_private(
+        job_dir,
+        {
+            "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
+            "job_id": "job-wa-shadow-proof",
+            "candidates": {
+                "voice-token-one": {
+                    "candidate_key": "voice-one",
+                    "voice_id": voice_id,
+                    "voice_id_sha256": voice_sha,
+                    "public": {
+                        "preset_key": "voice-one",
+                        "callback_token": "voice-token-one",
+                        "label": "Voice One",
+                        "language": "de-DE",
                         "voice_id_sha256": voice_sha,
-                        "public": {
-                            "preset_key": "voice-one",
-                            "callback_token": "voice-token-one",
-                            "label": "Voice One",
-                            "language": "de-DE",
-                            "voice_id_sha256": voice_sha,
-                            "sample_audio_ready": True,
-                            "sample_file": "voice-token-one.wav",
-                        },
-                    }
-                },
+                        "sample_audio_ready": True,
+                        "sample_file": "voice-token-one.wav",
+                    },
+                }
             },
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
+        },
     )
     return job
 

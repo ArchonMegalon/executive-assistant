@@ -1700,15 +1700,14 @@ def test_configured_dialogue_default_rechecks_exact_current_approval(
             "provider": {"dialogue_voice_selection": selection},
         },
     )
-    pipeline._write_private_json(
-        job_dir / "voice_audition" / "private.json",
+    pipeline._write_voice_audition_private(
+        job_dir,
         {
             "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
             "candidates": {
                 "approved-dialogue-token": candidate,
             },
         },
-        private_parent=True,
     )
 
     assert pipeline._configured_dialogue_voice_selection(job_dir) == {}
@@ -2156,8 +2155,8 @@ def test_explicit_speaker_voice_must_match_all_reviewed_sensitive_traits(
             "speaker_profiles": {"Maria": profile},
         },
     )
-    pipeline._write_private_json(
-        job_dir / "voice_audition" / "private.json",
+    pipeline._write_voice_audition_private(
+        job_dir,
         {
             "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
             "candidates": {
@@ -2170,7 +2169,6 @@ def test_explicit_speaker_voice_must_match_all_reviewed_sensitive_traits(
                 }
             },
         },
-        private_parent=True,
     )
 
     result = pipeline._resolve_audiobook_speaker_cast(
@@ -2922,8 +2920,8 @@ def test_speaker_cast_approved_private_choice_wins_without_public_voice_id(
         ),
         encoding="utf-8",
     )
-    pipeline._write_private_json(
-        job_dir / "voice_audition" / "private.json",
+    pipeline._write_voice_audition_private(
+        job_dir,
         {
             "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
             "candidates": {
@@ -2934,7 +2932,6 @@ def test_speaker_cast_approved_private_choice_wins_without_public_voice_id(
                 }
             },
         },
-        private_parent=True,
     )
 
     result = pipeline._resolve_audiobook_speaker_cast(
@@ -3413,8 +3410,8 @@ def test_speaker_cast_snapshot_survives_catalog_change_on_resume(
             },
         },
     )
-    pipeline._write_private_json(
-        job_dir / "voice_audition" / "private.json",
+    pipeline._write_voice_audition_private(
+        job_dir,
         {
             "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
             "candidates": {
@@ -3428,7 +3425,6 @@ def test_speaker_cast_snapshot_survives_catalog_change_on_resume(
                 }
             },
         },
-        private_parent=True,
     )
     overridden = pipeline._resolve_speaker_cast_for_narration_plan(
         job_dir=job_dir,
@@ -3521,8 +3517,8 @@ def test_invalid_exact_voice_selection_changes_snapshot_and_is_not_reused(
             },
         },
     )
-    pipeline._write_private_json(
-        job_dir / "voice_audition" / "private.json",
+    pipeline._write_voice_audition_private(
+        job_dir,
         {
             "contract_name": pipeline.VOICE_AUDITION_CONTRACT_NAME,
             "candidates": {
@@ -3536,7 +3532,6 @@ def test_invalid_exact_voice_selection_changes_snapshot_and_is_not_reused(
                 }
             },
         },
-        private_parent=True,
     )
     plan = {
         "contract_name": pipeline.NARRATION_PLAN_CONTRACT_NAME,
@@ -4204,14 +4199,14 @@ def test_voice_audition_action_respects_job_transaction_lock(
             "callback-token": {
                 "candidate_key": "candidate-a",
                 "voice_id": "private-id",
+                "voice_id_sha256": pipeline._sha256_bytes(b"private-id"),
                 "public": {"preset_key": "candidate-a"},
             }
         },
     }
-    pipeline._write_private_json(
-        tmp_path / "voice_audition" / "private.json",
+    pipeline._write_voice_audition_private(
+        tmp_path,
         private_payload,
-        private_parent=True,
     )
     monkeypatch.setattr(
         pipeline,
