@@ -41,6 +41,28 @@ DISCOVERY_ENV_VARS = {
     },
 }
 REQUIRED_READY_VOICE_KEYS = {"unmixr_cinematic_narration_enabled"}
+VOICE_ITEM_KEYS = (
+    "telegram_audiobook_enabled",
+    "jobs_root_durable",
+    "jobs_root_writable",
+    "external_tts_enabled",
+    "unmixr_cinematic_narration_enabled",
+    "unmixr_auto_render_enabled",
+    "voice_catalog_configured",
+    "voice_catalog_audition_ready",
+    "unmixr_api_key_slot_present",
+)
+DELIVERY_ITEM_KEYS = (
+    "m4b_assembly_available",
+    "audiobookshelf_auto_import_enabled",
+    "audiobookshelf_import_root_durable",
+    "audiobookshelf_import_root_writable",
+    "audiobookshelf_public_share_enabled",
+    "audiobookshelf_public_share_configured",
+    "player_access_signing_secret_present",
+    "player_access_base_url_present",
+    "scheduler_resume_enabled",
+)
 
 
 Runner = Callable[..., object]
@@ -98,6 +120,116 @@ def _privacy_issues(receipt: dict[str, object]) -> list[str]:
         if privacy.get(key) is not False:
             issues.append(f"live_readiness_privacy_flag_not_false:{key}")
     return issues
+
+
+def _string_list(
+    receipt: dict[str, object],
+    key: str,
+    issues: list[str],
+) -> list[str] | None:
+    value = receipt.get(key)
+    if (
+        not isinstance(value, list)
+        or any(not isinstance(item, str) or not item for item in value)
+        or len(value) != len(set(value))
+    ):
+        issues.append(f"live_readiness_{key}_invalid")
+        return None
+    return value
+
+
+def _section_blockers(
+    receipt: dict[str, object],
+    section: str,
+    expected_keys: Sequence[str],
+    issues: list[str],
+) -> list[str]:
+    section_obj = receipt.get(section)
+    if not isinstance(section_obj, dict):
+        issues.append(f"live_readiness_section_missing:{section}")
+        return list(expected_keys)
+    items = section_obj.get("items")
+    if not isinstance(items, list):
+        issues.append(f"live_readiness_section_items_invalid:{section}")
+        return list(expected_keys)
+
+    rows: dict[str, dict[str, object]] = {}
+    observed_keys: list[str] = []
+    for row in items:
+        if not isinstance(row, dict):
+            issues.append(f"live_readiness_item_invalid:{section}")
+            continue
+        key = row.get("key")
+        if not isinstance(key, str) or not key:
+            issues.append(f"live_readiness_item_key_invalid:{section}")
+            continue
+        observed_keys.append(key)
+        if key in rows:
+            issues.append(f"live_readiness_item_key_duplicate:{section}:{key}")
+            continue
+        rows[key] = row
+
+    if set(observed_keys) != set(expected_keys) or len(observed_keys) != len(expected_keys):
+        issues.append(f"live_readiness_item_keys_mismatch:{section}")
+
+    blockers: list[str] = []
+    for key in expected_keys:
+        row = rows.get(key)
+        if row is None:
+            blockers.append(key)
+            continue
+        status = row.get("status")
+        if status not in {"ready", "blocked"}:
+            issues.append(f"live_readiness_item_status_invalid:{section}:{key}")
+            blockers.append(key)
+        elif status != "ready":
+            blockers.append(key)
+        if row.get("env_values_exposed") is not False:
+            issues.append(f"live_readiness_item_env_values_exposed:{section}:{key}")
+
+    expected_status = "blocked" if blockers else "ready"
+    if section_obj.get("status") != expected_status:
+        issues.append(f"live_readiness_section_status_mismatch:{section}")
+    return blockers
+
+
+def _expected_next_action(sample_blockers: Sequence[str], delivery_blockers: Sequence[str]) -> str:
+    sample = set(sample_blockers)
+    delivery = set(delivery_blockers)
+    if "external_tts_enabled" in sample:
+        return "Approve raw owned audiobook source text leaving EA for governed external audiobook TTS."
+    if "unmixr_api_key_slot_present" in sample:
+        return "Configure at least one owned Unmixr API-key slot."
+    if "voice_catalog_configured" in sample or "voice_catalog_audition_ready" in sample:
+        return "Configure or discover at least three audiobook voices."
+    job_storage = sample.intersection({"jobs_root_durable", "jobs_root_writable"})
+    import_storage = delivery.intersection(
+        {
+            "audiobookshelf_import_root_durable",
+            "audiobookshelf_import_root_writable",
+        }
+    )
+    if job_storage and import_storage:
+        return (
+            "Configure durable, writable audiobook job and Audiobookshelf import "
+            "storage, then rerun readiness."
+        )
+    if job_storage:
+        return "Configure durable, writable audiobook job storage and rerun readiness."
+    if import_storage:
+        return "Configure durable, writable Audiobookshelf import storage and rerun readiness."
+    if (
+        "audiobookshelf_public_share_enabled" in delivery
+        or "audiobookshelf_public_share_configured" in delivery
+    ):
+        return "Configure Audiobookshelf public-share creation and rerun readiness."
+    if delivery.intersection({"player_access_signing_secret_present", "player_access_base_url_present"}):
+        return "Configure player-scoped audiobook link prerequisites and rerun readiness."
+    if sample:
+        return "Fix the remaining audiobook voice-sample prerequisites and rerun readiness."
+    if delivery:
+        return "Fix the remaining audiobook delivery prerequisites and rerun readiness."
+    return "run_real_telegram_epub_audiobook_delivery_test"
 
 
 def _run_text_probe(command: Sequence[str], runner: Runner | None) -> tuple[int, str, str]:
@@ -188,6 +320,8 @@ def verify_telegram_audiobook_live_readiness(
         issues.append("live_readiness_delivery_claim_overclaim")
     if receipt.get("goal_completion_claim_allowed") is not False:
         issues.append("live_readiness_goal_completion_overclaim")
+    if receipt.get("real_user_playback_acceptance_verified") is not False:
+        issues.append("live_readiness_human_acceptance_overclaim")
     issues.extend(_privacy_issues(receipt))
     required = set(str(item) for item in list(receipt.get("required_live_proof_after_readiness") or []))
     if not REQUIRED_LIVE_PROOF.issubset(required):
@@ -199,14 +333,39 @@ def verify_telegram_audiobook_live_readiness(
             issues.append(f"live_readiness_discovery_env_vars_missing:{key}")
         if key in REQUIRED_READY_VOICE_KEYS and item and str(item.get("status") or "") != "ready":
             issues.append(f"live_readiness_critical_voice_item_blocked:{key}")
-    for section in ("voice_samples", "delivery"):
-        section_obj = receipt.get(section)
-        if not isinstance(section_obj, dict):
-            issues.append(f"live_readiness_section_missing:{section}")
-            continue
-        for row in list(section_obj.get("items") or []):
-            if isinstance(row, dict) and row.get("env_values_exposed") is not False:
-                issues.append(f"live_readiness_item_env_values_exposed:{section}:{row.get('key')}")
+
+    sample_blockers = _section_blockers(receipt, "voice_samples", VOICE_ITEM_KEYS, issues)
+    delivery_blockers = _section_blockers(receipt, "delivery", DELIVERY_ITEM_KEYS, issues)
+    claimed_sample_blockers = _string_list(receipt, "sample_blockers", issues)
+    claimed_delivery_blockers = _string_list(receipt, "delivery_blockers", issues)
+    if claimed_sample_blockers is not None and claimed_sample_blockers != sample_blockers:
+        issues.append("live_readiness_sample_blockers_mismatch")
+    if claimed_delivery_blockers is not None and claimed_delivery_blockers != delivery_blockers:
+        issues.append("live_readiness_delivery_blockers_mismatch")
+
+    voice_ready = not sample_blockers
+    delivery_ready = not delivery_blockers
+    can_run = voice_ready and delivery_ready
+    if receipt.get("voice_sample_prereqs_ready") is not voice_ready:
+        issues.append("live_readiness_voice_sample_prereqs_mismatch")
+    if receipt.get("public_share_delivery_prereqs_ready") is not delivery_ready:
+        issues.append("live_readiness_delivery_prereqs_mismatch")
+    if receipt.get("can_run_live_epub_delivery_test") is not can_run:
+        issues.append("live_readiness_can_run_mismatch")
+    expected_status = "ready_for_live_epub_delivery_test" if can_run else "blocked_live_prerequisites"
+    if receipt.get("status") != expected_status:
+        issues.append("live_readiness_status_mismatch")
+    if receipt.get("next_action") != _expected_next_action(sample_blockers, delivery_blockers):
+        issues.append("live_readiness_next_action_mismatch")
+
+    preflight_failed = _string_list(receipt, "preflight_failed_checks", issues)
+    preflight_warned = _string_list(receipt, "preflight_warned_checks", issues)
+    if preflight_failed is not None and preflight_warned is not None:
+        if set(preflight_failed).intersection(preflight_warned):
+            issues.append("live_readiness_preflight_checks_overlap")
+        expected_preflight_status = "fail" if preflight_failed else "warn" if preflight_warned else "pass"
+        if receipt.get("preflight_status") != expected_preflight_status:
+            issues.append("live_readiness_preflight_status_mismatch")
 
     deployed_runtime: dict[str, object] = {"status": "skipped"}
     if require_deployed_runtime:
