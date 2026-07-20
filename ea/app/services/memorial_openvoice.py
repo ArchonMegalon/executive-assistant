@@ -71,6 +71,9 @@ _UNMIXR_RETRY_AFTER_RE = re.compile(
     re.IGNORECASE,
 )
 _UNMIXR_PUBLIC_ERROR_OPERATIONS = frozenset({"clone", "clone_delete", "request", "tts", "voice_lookup"})
+_UNMIXR_ACCOUNT_FAILOVER_STATES = frozenset(
+    {"depleted", "invalid", "cooling_down", "transient_error"}
+)
 
 
 def openvoice_base_url() -> str:
@@ -187,6 +190,7 @@ def _write_unmixr_slot_state(state: dict[str, object]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
         tmp_path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        tmp_path.chmod(0o600)
         tmp_path.replace(path)
     except OSError:
         return
@@ -218,16 +222,12 @@ def _unmixr_slot_cooldown_seconds(response: requests.Response | None = None, *, 
         retry_after = _unmixr_retry_after_seconds_from_response(response)
         if retry_after > 0:
             return max(1, min(retry_after, max_seconds))
-        status_code = int(getattr(response, "status_code", 0) or 0)
-        detail = _unmixr_response_error_detail(response).lower()
-        if status_code == 429 or "throttle" in detail or "rate" in detail:
+        account_state = _unmixr_response_account_state(response)
+        if account_state == "cooling_down":
             return min(_env_int(_UNMIXR_SLOT_COOLDOWN_DEFAULT_SECONDS_ENV, 900, minimum=1, maximum=max_seconds), max_seconds)
-        if status_code in {401, 402, 403} or any(
-            marker in detail
-            for marker in ("insufficient", "balance", "quota", "credit", "billing", "payment")
-        ):
+        if account_state in {"depleted", "invalid"}:
             return min(_env_int(_UNMIXR_SLOT_COOLDOWN_DEFAULT_SECONDS_ENV, 900, minimum=1, maximum=max_seconds), max_seconds)
-        if status_code in {500, 502, 503, 504}:
+        if account_state == "transient_error":
             return min(60, max_seconds)
     if exception is not None:
         return min(60, max_seconds)
@@ -289,6 +289,8 @@ def _record_unmixr_slot_result(
         item.pop("last_error", None)
         item.pop("last_error_body_sha256", None)
         item.pop("last_error_code", None)
+        item.pop("last_status_code", None)
+        item["account_state"] = "ready"
         item["last_status"] = "ok"
         state["last_slot_name"] = slot_name
     else:
@@ -297,6 +299,10 @@ def _record_unmixr_slot_result(
             cooldown_until = now + cooldown_seconds
             item["cooldown_until_epoch"] = cooldown_until
             item["cooldown_until"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(cooldown_until))
+        item["account_state"] = _unmixr_account_state(
+            response=response,
+            exception=exception,
+        )
         item["last_status"] = "error"
         if response is not None:
             item["last_status_code"] = int(getattr(response, "status_code", 0) or 0)
@@ -310,6 +316,8 @@ def _record_unmixr_slot_result(
             item.pop("last_error_body_sha256", None)
             item["last_error_code"] = "unmixr_upstream_unreachable"
     slots[slot_name] = item
+    state["contract_name"] = "ea.unmixr_account_slot_selector.v2"
+    state["secrets_exposed"] = False
     state["slots"] = slots
     state["updated_at"] = item["updated_at"]
     _write_unmixr_slot_state(state)
@@ -530,6 +538,20 @@ def _unmixr_response_error_sha256(response: requests.Response) -> str:
 def _unmixr_response_error_class(response: requests.Response) -> str:
     status_code = int(getattr(response, "status_code", 0) or 0)
     detail = _unmixr_response_error_detail(response).lower()
+    if status_code == 401 or any(
+        marker in detail
+        for marker in (
+            "api key invalid",
+            "authentication failed",
+            "invalid api key",
+            "invalid bearer",
+            "invalid credentials",
+            "invalid token",
+            "username or password incorrect",
+            "unauthorized",
+        )
+    ):
+        return "authentication_failed"
     if status_code == 429 or any(
         marker in detail
         for marker in ("rate limit", "rate-limit", "too many requests", "throttl")
@@ -541,6 +563,7 @@ def _unmixr_response_error_class(response: requests.Response) -> str:
             "insufficient api balance",
             "insufficient balance",
             "not enough credit",
+            "prebuilt character",
             "credit balance",
             "quota exceeded",
             "billing required",
@@ -565,8 +588,6 @@ def _unmixr_response_error_class(response: requests.Response) -> str:
         )
     ):
         return "input_too_long"
-    if status_code == 401:
-        return "authentication_failed"
     if status_code == 403:
         return "access_denied"
     if status_code in {400, 404, 409, 422}:
@@ -576,29 +597,39 @@ def _unmixr_response_error_class(response: requests.Response) -> str:
     return "failed"
 
 
+def _unmixr_response_account_state(response: requests.Response) -> str:
+    error_class = _unmixr_response_error_class(response)
+    if error_class == "balance_exhausted":
+        return "depleted"
+    if error_class in {"authentication_failed", "access_denied"}:
+        return "invalid"
+    if error_class == "rate_limited":
+        return "cooling_down"
+    if error_class == "upstream_unavailable":
+        return "transient_error"
+    return "request_error"
+
+
+def _unmixr_account_state(
+    *,
+    response: requests.Response | None = None,
+    exception: BaseException | None = None,
+) -> str:
+    if response is not None:
+        return _unmixr_response_account_state(response)
+    if exception is not None:
+        return "transient_error"
+    return "unknown"
+
+
 def _unmixr_should_try_next_slot(response: requests.Response) -> bool:
-    status_code = int(response.status_code or 0)
-    if status_code in {401, 402, 403, 429, 500, 502, 503, 504}:
-        return True
     try:
         payload = response.json()
     except Exception:
         payload = {}
     if response.ok and isinstance(payload, dict) and str(payload.get("audio_url") or "").strip():
         return False
-    detail = _unmixr_response_error_detail(response).lower()
-    return any(
-        marker in detail
-        for marker in (
-            "insufficient api balance",
-            "insufficient balance",
-            "prebuilt character",
-            "quota",
-            "credit",
-            "billing",
-            "payment",
-        )
-    )
+    return _unmixr_response_account_state(response) in _UNMIXR_ACCOUNT_FAILOVER_STATES
 
 
 def _unmixr_response_public_error(response: requests.Response, *, operation: str = "request") -> str:
@@ -646,14 +677,10 @@ def _unmixr_request(
         last_response = response
         if _unmixr_should_try_next_slot(response):
             _record_unmixr_slot_result(slot_name, ok=False, response=response)
-            if index < len(selected_slots):
-                continue
-            return response
+            continue
         if response.ok:
             _record_unmixr_slot_result(slot_name, ok=True, response=response)
             return response
-        if index < len(selected_slots) and _unmixr_should_try_next_slot(response):
-            continue
         return response
     if last_response is not None:
         return last_response
