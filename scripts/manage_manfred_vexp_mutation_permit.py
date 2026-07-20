@@ -39,19 +39,30 @@ MAX_TTL_SECONDS = 3600
 MAX_STATE_AGE = timedelta(minutes=5)
 MAX_STATE_FUTURE_SKEW = timedelta(seconds=30)
 MAX_VEXP_SENTINEL_STATE_BYTES = 1024 * 1024
+MAX_VEXP_QUALIFICATION_CERTIFICATE_BYTES = 2 * 1024 * 1024
+MAX_VEXP_QUALIFICATION_CERTIFICATE_SIDECAR_BYTES = 72
 MAX_VEXP_MUTATION_PERMIT_BYTES = 16 * 1024
 PERMIT_PATH = Path("/run/ea/memorial-vexp-mutation-permit.json")
 LOCK_PATH = Path("/run/ea/memorial-vexp-mutation-permit.lock")
+QUALIFICATION_CERTIFICATE_ROOT = Path("/var/lib/vexp-qualification-certificate")
+QUALIFICATION_CERTIFICATE_DIRECTORY = (
+    QUALIFICATION_CERTIFICATE_ROOT / "certificates"
+)
+QUALIFICATION_CERTIFICATE_OWNER_UID = 0
+QUALIFICATION_CERTIFICATE_OWNER_GID = 1000
+QUALIFICATION_CERTIFICATE_MODE = 0o640
+QUALIFICATION_CERTIFICATE_DIRECTORY_MODE = 0o750
+VEXP_QUALIFICATION_CERTIFICATE_SCHEMA = "ea.vexp_qualification_certificate.v2"
 VEXP_SENTINEL_STATE_VERSION = 6
-VEXP_MUTATION_PERMIT_CONTRACT_NAME = "ea.vexp_memorial_mutation_permit.v1"
-VEXP_MUTATION_PERMIT_VERSION = 1
+VEXP_MUTATION_PERMIT_CONTRACT_NAME = "ea.vexp_memorial_mutation_permit.v2"
+VEXP_MUTATION_PERMIT_VERSION = 2
 VEXP_MUTATION_BOUNDARIES = (
     "before_ensure_redis",
     "before_protect_previous_image",
     "before_recreate_api",
 )
-JOINT_VEXP_MUTATION_PERMIT_CONTRACT_NAME = "ea.vexp_memorial_joint_mutation_permit.v1"
-JOINT_VEXP_MUTATION_PERMIT_VERSION = 1
+JOINT_VEXP_MUTATION_PERMIT_CONTRACT_NAME = "ea.vexp_memorial_joint_mutation_permit.v2"
+JOINT_VEXP_MUTATION_PERMIT_VERSION = 2
 JOINT_VEXP_MUTATION_BOUNDARIES = (
     *VEXP_MUTATION_BOUNDARIES,
     "before_recreate_cloudflared",
@@ -69,6 +80,10 @@ VEXP_MUTATION_PERMIT_KEYS = frozenset(
         "qualification_earliest_completion_at",
         "qualified_at",
         "terminal_identity_sha256",
+        "qualification_certificate_schema",
+        "qualification_certificate_sha256",
+        "qualification_certificate_identity",
+        "qualification_certificate_event_hash",
         "issued_at",
         "expires_at",
         "mutation_boundaries",
@@ -78,7 +93,56 @@ VEXP_UTC_TIMESTAMP_PATTERN = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$"
 )
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+SHA256_IDENTITY_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+MINIMUM_QUALIFICATION_DURATION_MS = 7 * 24 * 60 * 60 * 1000
 MINIMUM_VEXP_QUALIFICATION_AT = datetime(2026, 7, 20, 9, 43, 56, 206_000, tzinfo=UTC)
+
+ACTIVE_CHAIN_KEYS = frozenset(
+    {
+        "anchor",
+        "qualification_event",
+        "tail_sequence",
+        "tail_hash",
+        "event_count",
+        "index",
+        "index_sha256",
+    }
+)
+CHAIN_INDEX_ROW_KEYS = frozenset(
+    {"at", "event", "sequence", "previous_hash", "hash"}
+)
+SOURCE_ATTESTATION_KEYS = frozenset(
+    {
+        "sentinel_state_sha256",
+        "event_generations",
+        "event_log_guard_sha256",
+        "event_log_guard",
+        "apparmor_audit_sha256",
+        "apparmor_audit",
+        "implementation",
+    }
+)
+IMPLEMENTATION_ATTESTATION_KEYS = frozenset(
+    {
+        "sentinel_executable",
+        "sentinel_systemd_unit",
+        "predicate_contract",
+        "finalizer_executable",
+        "finalizer_checksum_manifest",
+        "finalizer_checksum_binding",
+        "finalizer_systemd_unit",
+        "systemd_runtime",
+        "apparmor_policy",
+    }
+)
+SEAL_KEYS = frozenset(
+    {
+        "writer",
+        "write_policy",
+        "telegram_sent_by_finalizer",
+        "docker_socket_used",
+    }
+)
 
 
 class PermitError(RuntimeError):
@@ -176,6 +240,304 @@ def _terminal_identity_sha256(state: Mapping[str, Any]) -> str:
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _canonical_json_sha256(value: object) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _qualification_certificate_paths(epoch_started_ms: int) -> tuple[Path, Path]:
+    if type(epoch_started_ms) is not int or epoch_started_ms <= 0:
+        raise PermitError("vexp_qualification_certificate_epoch_invalid")
+    certificate_path = QUALIFICATION_CERTIFICATE_DIRECTORY / f"{epoch_started_ms}.json"
+    return certificate_path, certificate_path.with_suffix(".json.sha256")
+
+
+def _validate_qualification_certificate_directory(path: Path, *, reason: str) -> None:
+    try:
+        metadata = os.stat(path, follow_symlinks=False)
+    except OSError as exc:
+        raise PermitError(reason) from exc
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or stat.S_IMODE(metadata.st_mode)
+        != QUALIFICATION_CERTIFICATE_DIRECTORY_MODE
+        or metadata.st_uid != QUALIFICATION_CERTIFICATE_OWNER_UID
+        or metadata.st_gid != QUALIFICATION_CERTIFICATE_OWNER_GID
+    ):
+        raise PermitError(reason)
+
+
+def _require_sha256(value: object, *, reason: str) -> str:
+    if not isinstance(value, str) or not SHA256_PATTERN.fullmatch(value):
+        raise PermitError(reason)
+    return value
+
+
+def _validate_qualification_certificate(
+    certificate: Mapping[str, Any],
+    *,
+    state: Mapping[str, Any],
+) -> dict[str, str]:
+    reason = "vexp_qualification_certificate_contract_invalid"
+    if certificate.get("schema") != VEXP_QUALIFICATION_CERTIFICATE_SCHEMA:
+        raise PermitError(reason)
+    if (
+        type(certificate.get("sentinel_version")) is not int
+        or certificate["sentinel_version"] != VEXP_SENTINEL_STATE_VERSION
+    ):
+        raise PermitError("vexp_qualification_certificate_sentinel_version_invalid")
+
+    epoch_started_ms = state.get("epoch_started_ms")
+    if (
+        type(epoch_started_ms) is not int
+        or certificate.get("epoch_started_ms") != epoch_started_ms
+        or certificate.get("epoch_started_at") != state.get("epoch_started_at")
+        or certificate.get("qualified_at") != state.get("qualified_at")
+    ):
+        raise PermitError("vexp_qualification_certificate_terminal_binding_invalid")
+    epoch_started_at = _parse_utc_timestamp(
+        certificate.get("epoch_started_at"),
+        reason="vexp_qualification_certificate_terminal_binding_invalid",
+    )
+    qualified_at = _parse_utc_timestamp(
+        certificate.get("qualified_at"),
+        reason="vexp_qualification_certificate_terminal_binding_invalid",
+    )
+    if (
+        epoch_started_at.microsecond % 1_000 != 0
+        or _datetime_epoch_ms(epoch_started_at) != epoch_started_ms
+    ):
+        raise PermitError("vexp_qualification_certificate_terminal_binding_invalid")
+    wall_duration_ms = _datetime_epoch_ms(qualified_at) - epoch_started_ms
+    qualification_duration_ms = certificate.get("qualification_duration_ms")
+    monotonic_duration_ms = certificate.get("qualification_monotonic_duration_ms")
+    if (
+        type(qualification_duration_ms) is not int
+        or qualification_duration_ms != wall_duration_ms
+        or qualification_duration_ms < MINIMUM_QUALIFICATION_DURATION_MS
+        or type(monotonic_duration_ms) is not int
+        or monotonic_duration_ms < MINIMUM_QUALIFICATION_DURATION_MS
+    ):
+        raise PermitError("vexp_qualification_certificate_duration_invalid")
+
+    active_chain = certificate.get("active_chain")
+    if not isinstance(active_chain, dict) or set(active_chain) != ACTIVE_CHAIN_KEYS:
+        raise PermitError("vexp_qualification_certificate_chain_invalid")
+    anchor = active_chain.get("anchor")
+    if not isinstance(anchor, dict) or anchor.get("event") != "qualification_reset":
+        raise PermitError("vexp_qualification_certificate_chain_invalid")
+    try:
+        anchor_row = {key: anchor[key] for key in CHAIN_INDEX_ROW_KEYS}
+    except KeyError as exc:
+        raise PermitError("vexp_qualification_certificate_chain_invalid") from exc
+    index = active_chain.get("index")
+    event_count = active_chain.get("event_count")
+    if (
+        not isinstance(index, list)
+        or not index
+        or type(event_count) is not int
+        or event_count != len(index)
+    ):
+        raise PermitError("vexp_qualification_certificate_chain_invalid")
+    normalized_rows: list[dict[str, Any]] = []
+    previous_hash: str | None = None
+    previous_sequence: int | None = None
+    for row_index, row in enumerate(index):
+        if not isinstance(row, dict) or set(row) != CHAIN_INDEX_ROW_KEYS:
+            raise PermitError("vexp_qualification_certificate_chain_invalid")
+        sequence = row.get("sequence")
+        row_previous_hash = _require_sha256(
+            row.get("previous_hash"),
+            reason="vexp_qualification_certificate_chain_invalid",
+        )
+        if (
+            type(sequence) is not int
+            or sequence < 0
+            or (previous_sequence is not None and sequence != previous_sequence + 1)
+            or (row_index > 0 and row_previous_hash != previous_hash)
+            or not isinstance(row.get("event"), str)
+            or not row["event"]
+        ):
+            raise PermitError("vexp_qualification_certificate_chain_invalid")
+        _parse_utc_timestamp(
+            row.get("at"), reason="vexp_qualification_certificate_chain_invalid"
+        )
+        row_hash = _require_sha256(
+            row.get("hash"), reason="vexp_qualification_certificate_chain_invalid"
+        )
+        normalized_rows.append(dict(row))
+        previous_hash = row_hash
+        previous_sequence = sequence
+    if (
+        anchor_row != normalized_rows[0]
+        or active_chain.get("tail_sequence") != previous_sequence
+        or active_chain.get("tail_hash") != previous_hash
+        or _require_sha256(
+            active_chain.get("index_sha256"),
+            reason="vexp_qualification_certificate_chain_invalid",
+        )
+        != _canonical_json_sha256(normalized_rows)
+    ):
+        raise PermitError("vexp_qualification_certificate_chain_invalid")
+    qualification_event = active_chain.get("qualification_event")
+    if not isinstance(qualification_event, dict):
+        raise PermitError("vexp_qualification_certificate_chain_invalid")
+    try:
+        qualification_row = {
+            key: qualification_event[key] for key in CHAIN_INDEX_ROW_KEYS
+        }
+    except KeyError as exc:
+        raise PermitError("vexp_qualification_certificate_chain_invalid") from exc
+    if (
+        qualification_event.get("event") != "seven_day_qualification_achieved"
+        or qualification_event.get("at") != certificate.get("qualified_at")
+        or sum(row == qualification_row for row in normalized_rows) != 1
+    ):
+        raise PermitError("vexp_qualification_certificate_chain_invalid")
+    qualification_event_hash = _require_sha256(
+        qualification_event.get("hash"),
+        reason="vexp_qualification_certificate_chain_invalid",
+    )
+
+    terminal_state = certificate.get("terminal_state")
+    if not isinstance(terminal_state, dict):
+        raise PermitError("vexp_qualification_certificate_terminal_state_invalid")
+    if (
+        terminal_state.get("version") != VEXP_SENTINEL_STATE_VERSION
+        or terminal_state.get("epoch_started_at") != state.get("epoch_started_at")
+        or terminal_state.get("epoch_started_ms") != epoch_started_ms
+        or terminal_state.get("qualified_at") != state.get("qualified_at")
+        or terminal_state.get("qualification_phase") != "qualified"
+        or terminal_state.get("certification_blockers") != []
+        or terminal_state.get("certification_deferments") != []
+        or terminal_state.get("last_event_hash") != previous_hash
+    ):
+        raise PermitError("vexp_qualification_certificate_terminal_state_invalid")
+
+    attestations = certificate.get("source_attestations")
+    if not isinstance(attestations, dict) or set(attestations) != SOURCE_ATTESTATION_KEYS:
+        raise PermitError("vexp_qualification_certificate_attestations_invalid")
+    for key in (
+        "sentinel_state_sha256",
+        "event_log_guard_sha256",
+        "apparmor_audit_sha256",
+    ):
+        _require_sha256(
+            attestations.get(key),
+            reason="vexp_qualification_certificate_attestations_invalid",
+        )
+    if (
+        not isinstance(attestations.get("event_generations"), (list, dict))
+        or not attestations["event_generations"]
+        or not isinstance(attestations.get("event_log_guard"), dict)
+        or not attestations["event_log_guard"]
+        or not isinstance(attestations.get("apparmor_audit"), dict)
+        or not attestations["apparmor_audit"]
+    ):
+        raise PermitError("vexp_qualification_certificate_attestations_invalid")
+    implementation = attestations.get("implementation")
+    if (
+        not isinstance(implementation, dict)
+        or set(implementation) != IMPLEMENTATION_ATTESTATION_KEYS
+        or any(value in (None, "", [], {}) for value in implementation.values())
+    ):
+        raise PermitError("vexp_qualification_certificate_attestations_invalid")
+    predicate_contract = implementation.get("predicate_contract")
+    if (
+        not isinstance(predicate_contract, dict)
+        or set(predicate_contract) != {"value", "sha256"}
+        or predicate_contract.get("value") in (None, "", [], {})
+    ):
+        raise PermitError("vexp_qualification_certificate_attestations_invalid")
+    _require_sha256(
+        predicate_contract.get("sha256"),
+        reason="vexp_qualification_certificate_attestations_invalid",
+    )
+    if (
+        terminal_state.get("predicate_contract") != predicate_contract["value"]
+        or terminal_state.get("predicate_contract_sha256")
+        != predicate_contract["sha256"]
+        or state.get("predicate_contract") != predicate_contract["value"]
+        or state.get("predicate_contract_sha256") != predicate_contract["sha256"]
+    ):
+        raise PermitError(
+            "vexp_qualification_certificate_predicate_contract_binding_invalid"
+        )
+
+    seal = certificate.get("seal")
+    if (
+        not isinstance(seal, dict)
+        or set(seal) != SEAL_KEYS
+        or seal.get("writer") != "root_owned_systemd_oneshot"
+        or seal.get("write_policy") != "create_exclusive_never_overwrite"
+        or seal.get("telegram_sent_by_finalizer") is not False
+        or seal.get("docker_socket_used") is not False
+    ):
+        raise PermitError("vexp_qualification_certificate_seal_invalid")
+
+    identity = certificate.get("identity")
+    if not isinstance(identity, str) or not SHA256_IDENTITY_PATTERN.fullmatch(identity):
+        raise PermitError("vexp_qualification_certificate_identity_invalid")
+    identity_payload = dict(certificate)
+    identity_payload.pop("identity", None)
+    if identity != f"sha256:{_canonical_json_sha256(identity_payload)}":
+        raise PermitError("vexp_qualification_certificate_identity_invalid")
+    return {
+        "schema": VEXP_QUALIFICATION_CERTIFICATE_SCHEMA,
+        "identity": identity,
+        "event_hash": qualification_event_hash,
+    }
+
+
+def _read_qualification_certificate(
+    state: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, str]]:
+    epoch_started_ms = state.get("epoch_started_ms")
+    if type(epoch_started_ms) is not int or epoch_started_ms <= 0:
+        raise PermitError("vexp_qualification_certificate_epoch_invalid")
+    _validate_qualification_certificate_directory(
+        QUALIFICATION_CERTIFICATE_ROOT,
+        reason="vexp_qualification_certificate_root_untrusted",
+    )
+    _validate_qualification_certificate_directory(
+        QUALIFICATION_CERTIFICATE_DIRECTORY,
+        reason="vexp_qualification_certificate_directory_untrusted",
+    )
+    certificate_path, sidecar_path = _qualification_certificate_paths(
+        epoch_started_ms
+    )
+    raw, _metadata = _trusted_read(
+        certificate_path,
+        expected_mode=QUALIFICATION_CERTIFICATE_MODE,
+        expected_uid=QUALIFICATION_CERTIFICATE_OWNER_UID,
+        expected_gid=QUALIFICATION_CERTIFICATE_OWNER_GID,
+        max_bytes=MAX_VEXP_QUALIFICATION_CERTIFICATE_BYTES,
+        reason_prefix="vexp_qualification_certificate",
+    )
+    sidecar, _sidecar_metadata = _trusted_read(
+        sidecar_path,
+        expected_mode=QUALIFICATION_CERTIFICATE_MODE,
+        expected_uid=QUALIFICATION_CERTIFICATE_OWNER_UID,
+        expected_gid=QUALIFICATION_CERTIFICATE_OWNER_GID,
+        max_bytes=MAX_VEXP_QUALIFICATION_CERTIFICATE_SIDECAR_BYTES,
+        reason_prefix="vexp_qualification_certificate_sidecar",
+    )
+    raw_sha256 = hashlib.sha256(raw).hexdigest()
+    if sidecar != f"sha256:{raw_sha256}\n".encode("ascii"):
+        raise PermitError("vexp_qualification_certificate_sidecar_invalid")
+    certificate = _decode_guard_json(
+        raw, reason="vexp_qualification_certificate_json_invalid"
+    )
+    evidence = _validate_qualification_certificate(certificate, state=state)
+    evidence["sha256"] = raw_sha256
+    return certificate, evidence
 
 
 def _current_executable_path() -> Path:
@@ -370,6 +732,8 @@ def _validate_terminal_state(state: Mapping[str, Any], *, now: datetime) -> date
         or state["certification_blockers"] != []
     ):
         raise PermitError("vexp_sentinel_certification_blockers_present")
+    if state.get("certification_deferments") != []:
+        raise PermitError("vexp_sentinel_certification_deferments_present")
     return qualified_at
 
 
@@ -392,6 +756,7 @@ def _permit_contract(permit_mode: str) -> tuple[str, int, tuple[str, ...]]:
 def _permit_payload(
     state: Mapping[str, Any],
     *,
+    qualification_certificate: Mapping[str, str],
     now: datetime,
     ttl_seconds: int,
     permit_mode: str = API_PERMIT_MODE,
@@ -403,6 +768,12 @@ def _permit_payload(
         "status": "allow",
         **_terminal_identity(state),
         "terminal_identity_sha256": _terminal_identity_sha256(state),
+        "qualification_certificate_schema": qualification_certificate["schema"],
+        "qualification_certificate_sha256": qualification_certificate["sha256"],
+        "qualification_certificate_identity": qualification_certificate["identity"],
+        "qualification_certificate_event_hash": qualification_certificate[
+            "event_hash"
+        ],
         "issued_at": _format_utc_timestamp(now),
         "expires_at": _format_utc_timestamp(now + timedelta(seconds=ttl_seconds)),
         "mutation_boundaries": list(boundaries),
@@ -428,6 +799,23 @@ def _validate_permit(
         raise PermitError("vexp_mutation_permit_not_positive")
     if permit.get("mutation_boundaries") != list(boundaries):
         raise PermitError("vexp_mutation_permit_boundaries_invalid")
+    if (
+        permit.get("qualification_certificate_schema")
+        != VEXP_QUALIFICATION_CERTIFICATE_SCHEMA
+        or not isinstance(permit.get("qualification_certificate_sha256"), str)
+        or not SHA256_PATTERN.fullmatch(permit["qualification_certificate_sha256"])
+        or not isinstance(permit.get("qualification_certificate_identity"), str)
+        or not SHA256_IDENTITY_PATTERN.fullmatch(
+            permit["qualification_certificate_identity"]
+        )
+        or not isinstance(
+            permit.get("qualification_certificate_event_hash"), str
+        )
+        or not SHA256_PATTERN.fullmatch(
+            permit["qualification_certificate_event_hash"]
+        )
+    ):
+        raise PermitError("vexp_mutation_permit_certificate_binding_invalid")
     if (
         type(permit.get("epoch_started_ms")) is not int
         or permit["epoch_started_ms"] <= 0
@@ -493,6 +881,22 @@ def _validate_permit(
         raise PermitError("vexp_mutation_permit_validity_invalid")
     if require_current and (now < issued_at or now >= expires_at):
         raise PermitError("vexp_mutation_permit_not_current")
+
+
+def _validate_permit_certificate_binding(
+    permit: Mapping[str, Any],
+    qualification_certificate: Mapping[str, str],
+) -> None:
+    expected = {
+        "qualification_certificate_schema": qualification_certificate["schema"],
+        "qualification_certificate_sha256": qualification_certificate["sha256"],
+        "qualification_certificate_identity": qualification_certificate["identity"],
+        "qualification_certificate_event_hash": qualification_certificate[
+            "event_hash"
+        ],
+    }
+    if any(permit.get(key) != value for key, value in expected.items()):
+        raise PermitError("vexp_mutation_permit_certificate_binding_mismatch")
 
 
 def _read_permit(
@@ -790,12 +1194,16 @@ def issue(
         now = _utc_now_datetime()
         state = _read_state(state_path, owner_uid=state_owner_uid)
         qualified_at = _validate_terminal_state(state, now=now)
+        _certificate, qualification_certificate = (
+            _read_qualification_certificate(state)
+        )
         prewrite_state = _read_state(state_path, owner_uid=state_owner_uid)
         _validate_terminal_state(prewrite_state, now=now)
         if _terminal_identity(prewrite_state) != _terminal_identity(state):
             raise PermitError("vexp_sentinel_terminal_identity_changed")
         payload = _permit_payload(
             prewrite_state,
+            qualification_certificate=qualification_certificate,
             now=now,
             ttl_seconds=ttl_seconds,
             permit_mode=permit_mode,
@@ -806,6 +1214,7 @@ def issue(
             require_current=True,
             permit_mode=permit_mode,
         )
+        _validate_permit_certificate_binding(payload, qualification_certificate)
         permit_sha256 = _atomic_write_permit(
             payload,
             now=now,
@@ -819,6 +1228,12 @@ def issue(
                 prewrite_state
             ):
                 raise PermitError("vexp_sentinel_terminal_identity_changed")
+            _postwrite_certificate, postwrite_certificate = (
+                _read_qualification_certificate(postwrite_state)
+            )
+            if postwrite_certificate != qualification_certificate:
+                raise PermitError("vexp_qualification_certificate_changed")
+            _validate_permit_certificate_binding(payload, postwrite_certificate)
         except PermitError:
             _remove_just_written_permit(
                 expected_sha256=permit_sha256,
@@ -833,6 +1248,12 @@ def issue(
         "qualified_at": _format_utc_timestamp(qualified_at),
         "expires_at": payload["expires_at"],
         "terminal_identity_sha256": payload["terminal_identity_sha256"],
+        "qualification_certificate_schema": qualification_certificate["schema"],
+        "qualification_certificate_sha256": qualification_certificate["sha256"],
+        "qualification_certificate_identity": qualification_certificate["identity"],
+        "qualification_certificate_event_hash": qualification_certificate[
+            "event_hash"
+        ],
         "permit_sha256": permit_sha256,
     }
 
@@ -855,19 +1276,33 @@ def status(
             require_current=True,
             permit_mode=permit_mode,
         )
+        if _terminal_identity(permit) != _terminal_identity(state):
+            raise PermitError("vexp_mutation_permit_state_binding_mismatch")
+        _certificate, qualification_certificate = (
+            _read_qualification_certificate(state)
+        )
+        _validate_permit_certificate_binding(permit, qualification_certificate)
         final_now = _utc_now_datetime()
         final_state = _read_state(state_path, owner_uid=state_owner_uid)
         _validate_terminal_state(final_state, now=final_now)
+        if _terminal_identity(final_state) != _terminal_identity(state):
+            raise PermitError("vexp_sentinel_terminal_identity_changed")
+        _final_certificate, final_qualification_certificate = (
+            _read_qualification_certificate(final_state)
+        )
         _validate_permit(
             permit,
             now=final_now,
             require_current=True,
             permit_mode=permit_mode,
         )
-        if _terminal_identity(final_state) != _terminal_identity(state):
-            raise PermitError("vexp_sentinel_terminal_identity_changed")
         if _terminal_identity(permit) != _terminal_identity(final_state):
             raise PermitError("vexp_mutation_permit_state_binding_mismatch")
+        if final_qualification_certificate != qualification_certificate:
+            raise PermitError("vexp_qualification_certificate_changed")
+        _validate_permit_certificate_binding(
+            permit, final_qualification_certificate
+        )
     return {
         "status": "valid",
         "contract_name": permit["contract_name"],
@@ -876,6 +1311,18 @@ def status(
         "issued_at": permit["issued_at"],
         "expires_at": permit["expires_at"],
         "terminal_identity_sha256": permit["terminal_identity_sha256"],
+        "qualification_certificate_schema": permit[
+            "qualification_certificate_schema"
+        ],
+        "qualification_certificate_sha256": permit[
+            "qualification_certificate_sha256"
+        ],
+        "qualification_certificate_identity": permit[
+            "qualification_certificate_identity"
+        ],
+        "qualification_certificate_event_hash": permit[
+            "qualification_certificate_event_hash"
+        ],
         "permit_sha256": permit_sha256,
         "mutation_boundaries": permit["mutation_boundaries"],
     }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import signal
@@ -88,10 +89,14 @@ class TestAuthority(api_deploy.VexpMemorialMutationAuthority):
         self,
         *,
         state_path: Path,
+        certificate_root: Path,
+        certificate_directory: Path,
         permit_path: Path,
         lock_path: Path,
     ) -> None:
         self._state_path = state_path
+        self._certificate_root = certificate_root
+        self._certificate_directory = certificate_directory
         self._permit_path = permit_path
         self._lock_path = lock_path
 
@@ -102,6 +107,22 @@ class TestAuthority(api_deploy.VexpMemorialMutationAuthority):
     @property
     def mutation_permit_path(self) -> Path:
         return self._permit_path
+
+    @property
+    def qualification_certificate_root(self) -> Path:
+        return self._certificate_root
+
+    @property
+    def qualification_certificate_directory(self) -> Path:
+        return self._certificate_directory
+
+    @property
+    def qualification_certificate_owner_uid(self) -> int:
+        return os.geteuid()
+
+    @property
+    def qualification_certificate_owner_gid(self) -> int:
+        return os.getegid()
 
     @property
     def mutation_permit_owner_uid(self) -> int:
@@ -598,7 +619,145 @@ def _terminal_state(*, terminal: bool = True) -> dict[str, object]:
         "updated_at": "2026-07-20T09:59:00.000Z",
         "current_resources_healthy": True,
         "certification_blockers": [],
+        "certification_deferments": [],
+        "predicate_contract": "v6",
+        "predicate_contract_sha256": "8" * 64,
     }
+
+
+def _qualification_certificate(state: Mapping[str, object]) -> dict[str, object]:
+    reset_hash = "1" * 64
+    event_hash = "2" * 64
+    tail_hash = "f" * 64
+    reset_event = {
+        "at": state["epoch_started_at"],
+        "event": "qualification_reset",
+        "sequence": 41,
+        "previous_hash": "0" * 64,
+        "hash": reset_hash,
+    }
+    event = {
+        "at": state["qualified_at"],
+        "event": "seven_day_qualification_achieved",
+        "sequence": 42,
+        "previous_hash": reset_hash,
+        "hash": event_hash,
+    }
+    tail_event = {
+        "at": "2026-07-20T09:44:56.206Z",
+        "event": "resource_sample",
+        "sequence": 43,
+        "previous_hash": event_hash,
+        "hash": tail_hash,
+    }
+    index = [reset_event, event, tail_event]
+    certificate: dict[str, object] = {
+        "schema": permit.VEXP_QUALIFICATION_CERTIFICATE_SCHEMA,
+        "sentinel_version": permit.VEXP_SENTINEL_STATE_VERSION,
+        "epoch_started_at": state["epoch_started_at"],
+        "epoch_started_ms": state["epoch_started_ms"],
+        "qualified_at": state["qualified_at"],
+        "qualification_duration_ms": permit.MINIMUM_QUALIFICATION_DURATION_MS,
+        "qualification_monotonic_duration_ms": (
+            permit.MINIMUM_QUALIFICATION_DURATION_MS
+        ),
+        "active_chain": {
+            "anchor": {**reset_event, "source": "sentinel"},
+            "qualification_event": {**event, "source": "sentinel"},
+            "tail_sequence": tail_event["sequence"],
+            "tail_hash": tail_hash,
+            "event_count": len(index),
+            "index": index,
+            "index_sha256": permit._canonical_json_sha256(index),
+        },
+        "terminal_state": {
+            "version": permit.VEXP_SENTINEL_STATE_VERSION,
+            "epoch_started_at": state["epoch_started_at"],
+            "epoch_started_ms": state["epoch_started_ms"],
+            "qualified_at": state["qualified_at"],
+            "qualification_phase": "qualified",
+            "certification_blockers": [],
+            "certification_deferments": [],
+            "predicate_contract": state["predicate_contract"],
+            "predicate_contract_sha256": state["predicate_contract_sha256"],
+            "last_event_hash": tail_hash,
+        },
+        "source_attestations": {
+            "sentinel_state_sha256": "3" * 64,
+            "event_generations": {"qualification": 1},
+            "event_log_guard_sha256": "4" * 64,
+            "event_log_guard": {"status": "pass"},
+            "apparmor_audit_sha256": "5" * 64,
+            "apparmor_audit": {"status": "pass"},
+            "implementation": {
+                "sentinel_executable": {"sha256": "6" * 64},
+                "sentinel_systemd_unit": {"sha256": "7" * 64},
+                "predicate_contract": {"value": "v6", "sha256": "8" * 64},
+                "finalizer_executable": {"sha256": "9" * 64},
+                "finalizer_checksum_manifest": {"sha256": "a" * 64},
+                "finalizer_checksum_binding": {"sha256": "b" * 64},
+                "finalizer_systemd_unit": {"sha256": "c" * 64},
+                "systemd_runtime": {"sha256": "d" * 64},
+                "apparmor_policy": {"sha256": "e" * 64},
+            },
+        },
+        "seal": {
+            "writer": "root_owned_systemd_oneshot",
+            "write_policy": "create_exclusive_never_overwrite",
+            "telegram_sent_by_finalizer": False,
+            "docker_socket_used": False,
+        },
+    }
+    certificate["identity"] = (
+        f"sha256:{permit._canonical_json_sha256(certificate)}"
+    )
+    return certificate
+
+
+def _certificate_evidence(state: Mapping[str, object]) -> dict[str, str]:
+    certificate = _qualification_certificate(state)
+    raw = (
+        json.dumps(
+            certificate,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    active_chain = certificate["active_chain"]
+    assert isinstance(active_chain, dict)
+    qualification_event = active_chain["qualification_event"]
+    assert isinstance(qualification_event, dict)
+    return {
+        "schema": str(certificate["schema"]),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "identity": str(certificate["identity"]),
+        "event_hash": str(qualification_event["hash"]),
+    }
+
+
+def _write_qualification_certificate(
+    directory: Path, state: Mapping[str, object]
+) -> None:
+    certificate = _qualification_certificate(state)
+    raw = (
+        json.dumps(
+            certificate,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    path = directory / f"{state['epoch_started_ms']}.json"
+    path.write_bytes(raw)
+    path.chmod(0o640)
+    sidecar = path.with_suffix(".json.sha256")
+    sidecar.write_bytes(
+        f"sha256:{hashlib.sha256(raw).hexdigest()}\n".encode("ascii")
+    )
+    sidecar.chmod(0o640)
 
 
 def _write_json(path: Path, payload: object, *, mode: int) -> None:
@@ -613,10 +772,21 @@ def _install_authority(
     state_path = tmp_path / "state.json"
     permit_path = tmp_path / "permit.json"
     lock_path = tmp_path / "permit.lock"
+    certificate_root = tmp_path / "qualification-certificate"
+    certificate_root.mkdir(mode=0o750, exist_ok=True)
+    certificate_root.chmod(0o750)
+    certificate_directory = certificate_root / "certificates"
+    certificate_directory.mkdir(mode=0o750, exist_ok=True)
+    certificate_directory.chmod(0o750)
+    _write_qualification_certificate(
+        certificate_directory, _terminal_state()
+    )
     lock_path.touch()
     lock_path.chmod(0o644)
     lane._vexp_mutation_authority = TestAuthority(
         state_path=state_path,
+        certificate_root=certificate_root,
+        certificate_directory=certificate_directory,
         permit_path=permit_path,
         lock_path=lock_path,
     )
@@ -638,6 +808,7 @@ def test_api_and_joint_permits_cannot_be_cross_used(tmp_path: Path) -> None:
     state = _terminal_state()
     joint_payload = permit._permit_payload(
         state,
+        qualification_certificate=_certificate_evidence(state),
         now=datetime(2026, 7, 20, 9, 45, tzinfo=UTC),
         ttl_seconds=2700,
         permit_mode=permit.JOINT_PERMIT_MODE,
@@ -652,6 +823,7 @@ def test_api_and_joint_permits_cannot_be_cross_used(tmp_path: Path) -> None:
 
     api_payload = permit._permit_payload(
         state,
+        qualification_certificate=_certificate_evidence(state),
         now=datetime(2026, 7, 20, 9, 45, tzinfo=UTC),
         ttl_seconds=2700,
     )
@@ -669,6 +841,7 @@ def test_joint_permit_passes_all_four_exact_leases(tmp_path: Path) -> None:
     state = _terminal_state()
     payload = permit._permit_payload(
         state,
+        qualification_certificate=_certificate_evidence(state),
         now=datetime(2026, 7, 20, 9, 45, tzinfo=UTC),
         ttl_seconds=2700,
         permit_mode=permit.JOINT_PERMIT_MODE,
@@ -712,16 +885,23 @@ def test_permit_manager_default_and_explicit_joint_profiles_are_not_relabelable(
 ):
     state = _terminal_state()
     issued_at = datetime(2026, 7, 20, 9, 45, tzinfo=UTC)
-    api_payload = permit._permit_payload(state, now=issued_at, ttl_seconds=2700)
+    certificate = _certificate_evidence(state)
+    api_payload = permit._permit_payload(
+        state,
+        qualification_certificate=certificate,
+        now=issued_at,
+        ttl_seconds=2700,
+    )
     joint_payload = permit._permit_payload(
         state,
+        qualification_certificate=certificate,
         now=issued_at,
         ttl_seconds=2700,
         permit_mode=permit.JOINT_PERMIT_MODE,
     )
-    assert api_payload["contract_name"] == ("ea.vexp_memorial_mutation_permit.v1")
+    assert api_payload["contract_name"] == ("ea.vexp_memorial_mutation_permit.v2")
     assert joint_payload["contract_name"] == (
-        "ea.vexp_memorial_joint_mutation_permit.v1"
+        "ea.vexp_memorial_joint_mutation_permit.v2"
     )
     assert api_payload["mutation_boundaries"] == list(
         api_deploy.VEXP_MUTATION_BOUNDARIES
@@ -796,11 +976,29 @@ def test_permit_manager_joint_issue_status_revoke_roundtrip_and_cross_mode_denia
     runtime.mkdir(mode=0o755)
     runtime.chmod(0o755)
     state_path = tmp_path / "terminal-state.json"
-    _write_json(state_path, _terminal_state(), mode=0o600)
+    state = _terminal_state()
+    _write_json(state_path, state, mode=0o600)
+    certificate_root = tmp_path / "qualification-certificate-manager"
+    certificate_root.mkdir(mode=0o750)
+    certificate_root.chmod(0o750)
+    certificate_directory = certificate_root / "certificates"
+    certificate_directory.mkdir(mode=0o750)
+    certificate_directory.chmod(0o750)
+    _write_qualification_certificate(certificate_directory, state)
     monkeypatch.setattr(permit, "PERMIT_PATH", runtime / "permit.json")
     monkeypatch.setattr(permit, "LOCK_PATH", runtime / "permit.lock")
     monkeypatch.setattr(permit, "ROOT_UID", os.geteuid())
     monkeypatch.setattr(permit, "ROOT_GID", os.getegid())
+    monkeypatch.setattr(permit, "QUALIFICATION_CERTIFICATE_ROOT", certificate_root)
+    monkeypatch.setattr(
+        permit, "QUALIFICATION_CERTIFICATE_DIRECTORY", certificate_directory
+    )
+    monkeypatch.setattr(
+        permit, "QUALIFICATION_CERTIFICATE_OWNER_UID", os.geteuid()
+    )
+    monkeypatch.setattr(
+        permit, "QUALIFICATION_CERTIFICATE_OWNER_GID", os.getegid()
+    )
     monkeypatch.setattr(permit, "_verify_trusted_execution_path", lambda: None)
     monkeypatch.setattr(permit, "_require_root", lambda: None)
     monkeypatch.setattr(permit, "_utc_now_datetime", lambda: NOW)

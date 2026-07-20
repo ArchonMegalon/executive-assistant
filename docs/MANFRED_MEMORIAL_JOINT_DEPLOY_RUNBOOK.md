@@ -5,13 +5,16 @@
 This is the only lane that may change both `ea-api` and `ea-cloudflared`. It is
 not authorized while schema-v6 qualification is `enforced_soak`, resources are
 unhealthy, any certification blocker remains, or the exact root-owned joint
-permit/lock is absent or untrusted. Never manufacture the permit, relabel the
-API-only contract, invoke raw Compose, or change sentinel, qualification,
-AppArmor, certificate, event-guard, or mutation-gate state.
+permit/lock or exact-epoch `ea.vexp_qualification_certificate.v2` certificate
+pair is absent or untrusted. The v2 permit must bind the certificate's exact raw
+SHA-256, canonical identity, schema, and qualification event hash. Never
+manufacture the permit, relabel the API-only contract, invoke raw Compose, or
+change sentinel, qualification, AppArmor, certificate, event-guard, or
+mutation-gate state.
 
 The joint receipt has contract
 `ea.memorial_joint_api_ingress_deploy.v1`. Its permit has contract
-`ea.vexp_memorial_joint_mutation_permit.v1` and exactly these boundaries:
+`ea.vexp_memorial_joint_mutation_permit.v2` and exactly these boundaries:
 
 1. `before_ensure_redis`
 2. `before_protect_previous_image`

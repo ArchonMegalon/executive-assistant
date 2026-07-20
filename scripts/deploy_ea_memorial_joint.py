@@ -101,8 +101,8 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
 ROOT = Path(__file__).resolve().parents[1]
 JOINT_COORDINATION_CONTRACT_NAME = "ea.memorial_joint_api_ingress_deploy.v1"
 MEMORIAL_COMPONENT_CONTRACT_NAME = "ea.memorial_scoped_deploy_receipt.v1"
-JOINT_VEXP_MUTATION_PERMIT_CONTRACT_NAME = "ea.vexp_memorial_joint_mutation_permit.v1"
-JOINT_VEXP_MUTATION_PERMIT_VERSION = 1
+JOINT_VEXP_MUTATION_PERMIT_CONTRACT_NAME = "ea.vexp_memorial_joint_mutation_permit.v2"
+JOINT_VEXP_MUTATION_PERMIT_VERSION = 2
 INGRESS_MUTATION_BOUNDARY = "before_recreate_cloudflared"
 SPATIAL_DEPLOY_RECEIPT_ENV = "EA_MEMORIAL_SPATIAL_DEPLOY_RECEIPT"
 SPATIAL_BROWSER_RECEIPT_ENV = "EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT"

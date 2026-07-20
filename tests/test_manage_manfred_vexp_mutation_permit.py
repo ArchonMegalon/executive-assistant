@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import stat
@@ -31,7 +32,125 @@ def _state(*, terminal: bool = True) -> dict[str, object]:
         "qualified_at": "2026-07-20T09:43:56.206Z" if terminal else None,
         "current_resources_healthy": True,
         "certification_blockers": [],
+        "certification_deferments": [],
+        "predicate_contract": "v6",
+        "predicate_contract_sha256": "3" * 64,
     }
+
+
+def _certificate(state: dict[str, object]) -> dict[str, object]:
+    reset_hash = "a" * 64
+    event_hash = "b" * 64
+    tail_hash = "f" * 64
+    reset_event = {
+        "at": state["epoch_started_at"],
+        "event": "qualification_reset",
+        "sequence": 41,
+        "previous_hash": "0" * 64,
+        "hash": reset_hash,
+    }
+    event = {
+        "at": state["qualified_at"],
+        "event": "seven_day_qualification_achieved",
+        "sequence": 42,
+        "previous_hash": reset_hash,
+        "hash": event_hash,
+    }
+    tail_event = {
+        "at": "2026-07-20T09:44:56.206Z",
+        "event": "resource_sample",
+        "sequence": 43,
+        "previous_hash": event_hash,
+        "hash": tail_hash,
+    }
+    index = [reset_event, event, tail_event]
+    certificate: dict[str, object] = {
+        "schema": manager.VEXP_QUALIFICATION_CERTIFICATE_SCHEMA,
+        "sentinel_version": manager.VEXP_SENTINEL_STATE_VERSION,
+        "epoch_started_at": state["epoch_started_at"],
+        "epoch_started_ms": state["epoch_started_ms"],
+        "qualified_at": state["qualified_at"],
+        "qualification_duration_ms": manager.MINIMUM_QUALIFICATION_DURATION_MS,
+        "qualification_monotonic_duration_ms": (
+            manager.MINIMUM_QUALIFICATION_DURATION_MS
+        ),
+        "active_chain": {
+            "anchor": {**reset_event, "source": "sentinel"},
+            "qualification_event": {**event, "source": "sentinel"},
+            "tail_sequence": tail_event["sequence"],
+            "tail_hash": tail_hash,
+            "event_count": len(index),
+            "index": index,
+            "index_sha256": manager._canonical_json_sha256(index),
+        },
+        "terminal_state": {
+            "version": manager.VEXP_SENTINEL_STATE_VERSION,
+            "epoch_started_at": state["epoch_started_at"],
+            "epoch_started_ms": state["epoch_started_ms"],
+            "qualified_at": state["qualified_at"],
+            "qualification_phase": "qualified",
+            "certification_blockers": [],
+            "certification_deferments": [],
+            "predicate_contract": state["predicate_contract"],
+            "predicate_contract_sha256": state["predicate_contract_sha256"],
+            "last_event_hash": tail_hash,
+            "probes_passed": 42,
+        },
+        "source_attestations": {
+            "sentinel_state_sha256": "c" * 64,
+            "event_generations": {"qualification": 1},
+            "event_log_guard_sha256": "d" * 64,
+            "event_log_guard": {"status": "pass"},
+            "apparmor_audit_sha256": "e" * 64,
+            "apparmor_audit": {"status": "pass"},
+            "implementation": {
+                "sentinel_executable": {"sha256": "1" * 64},
+                "sentinel_systemd_unit": {"sha256": "2" * 64},
+                "predicate_contract": {"value": "v6", "sha256": "3" * 64},
+                "finalizer_executable": {"sha256": "4" * 64},
+                "finalizer_checksum_manifest": {"sha256": "5" * 64},
+                "finalizer_checksum_binding": {"sha256": "6" * 64},
+                "finalizer_systemd_unit": {"sha256": "7" * 64},
+                "systemd_runtime": {"sha256": "8" * 64},
+                "apparmor_policy": {"sha256": "9" * 64},
+            },
+        },
+        "seal": {
+            "writer": "root_owned_systemd_oneshot",
+            "write_policy": "create_exclusive_never_overwrite",
+            "telegram_sent_by_finalizer": False,
+            "docker_socket_used": False,
+        },
+    }
+    certificate["identity"] = f"sha256:{manager._canonical_json_sha256(certificate)}"
+    return certificate
+
+
+def _write_certificate(
+    state: dict[str, object], *, certificate: dict[str, object] | None = None
+) -> tuple[Path, Path]:
+    payload = certificate or _certificate(state)
+    raw = (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    certificate_path = (
+        manager.QUALIFICATION_CERTIFICATE_DIRECTORY
+        / f"{state['epoch_started_ms']}.json"
+    )
+    sidecar_path = certificate_path.with_suffix(".json.sha256")
+    certificate_path.write_bytes(raw)
+    certificate_path.chmod(manager.QUALIFICATION_CERTIFICATE_MODE)
+    sidecar_path.write_bytes(
+        f"sha256:{hashlib.sha256(raw).hexdigest()}\n".encode("ascii")
+    )
+    sidecar_path.chmod(manager.QUALIFICATION_CERTIFICATE_MODE)
+    return certificate_path, sidecar_path
 
 
 def _write_state(path: Path, payload: object, *, mode: int = 0o600) -> None:
@@ -44,13 +163,32 @@ def authority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pa
     authority_parent = tmp_path / "run"
     authority_parent.mkdir()
     permit_parent = authority_parent / "ea"
+    certificate_root = tmp_path / "qualification-certificate"
+    certificate_root.mkdir(mode=manager.QUALIFICATION_CERTIFICATE_DIRECTORY_MODE)
+    certificate_root.chmod(manager.QUALIFICATION_CERTIFICATE_DIRECTORY_MODE)
+    certificate_directory = certificate_root / "certificates"
+    certificate_directory.mkdir(
+        mode=manager.QUALIFICATION_CERTIFICATE_DIRECTORY_MODE
+    )
+    certificate_directory.chmod(manager.QUALIFICATION_CERTIFICATE_DIRECTORY_MODE)
     monkeypatch.setattr(manager, "ROOT_UID", os.geteuid())
     monkeypatch.setattr(manager, "ROOT_GID", os.getegid())
+    monkeypatch.setattr(manager, "QUALIFICATION_CERTIFICATE_ROOT", certificate_root)
+    monkeypatch.setattr(
+        manager, "QUALIFICATION_CERTIFICATE_DIRECTORY", certificate_directory
+    )
+    monkeypatch.setattr(
+        manager, "QUALIFICATION_CERTIFICATE_OWNER_UID", os.geteuid()
+    )
+    monkeypatch.setattr(
+        manager, "QUALIFICATION_CERTIFICATE_OWNER_GID", os.getegid()
+    )
     monkeypatch.setattr(manager, "PERMIT_PATH", permit_parent / "permit.json")
     monkeypatch.setattr(manager, "LOCK_PATH", permit_parent / "permit.lock")
     monkeypatch.setattr(manager, "_utc_now_datetime", lambda: NOW)
     monkeypatch.setattr(manager, "_verify_trusted_execution_path", lambda: None)
     state_path = tmp_path / "state.json"
+    _write_certificate(_state())
     return state_path, permit_parent
 
 
@@ -174,6 +312,26 @@ def test_duplicated_contract_matches_non_root_deploy_consumer() -> None:
     assert manager.VEXP_MUTATION_BOUNDARIES == consumer.VEXP_MUTATION_BOUNDARIES
     assert manager.VEXP_MUTATION_PERMIT_KEYS == consumer.VEXP_MUTATION_PERMIT_KEYS
     assert (
+        manager.VEXP_QUALIFICATION_CERTIFICATE_SCHEMA
+        == consumer.VEXP_QUALIFICATION_CERTIFICATE_SCHEMA
+    )
+    assert (
+        manager.QUALIFICATION_CERTIFICATE_ROOT
+        == consumer.DEFAULT_VEXP_QUALIFICATION_CERTIFICATE_ROOT
+    )
+    assert (
+        manager.QUALIFICATION_CERTIFICATE_DIRECTORY
+        == consumer.DEFAULT_VEXP_QUALIFICATION_CERTIFICATE_DIRECTORY
+    )
+    assert (
+        manager.QUALIFICATION_CERTIFICATE_MODE
+        == consumer.VEXP_QUALIFICATION_CERTIFICATE_MODE
+    )
+    assert (
+        manager.QUALIFICATION_CERTIFICATE_DIRECTORY_MODE
+        == consumer.VEXP_QUALIFICATION_CERTIFICATE_DIRECTORY_MODE
+    )
+    assert (
         manager.MINIMUM_VEXP_QUALIFICATION_AT == consumer.MINIMUM_VEXP_QUALIFICATION_AT
     )
     assert manager.MAX_TTL_SECONDS == int(
@@ -201,6 +359,18 @@ def test_issue_status_and_revoke_round_trip(
     permit = json.loads(manager.PERMIT_PATH.read_text(encoding="utf-8"))
     assert set(permit) == manager.VEXP_MUTATION_PERMIT_KEYS
     assert permit["terminal_identity_sha256"] == issued["terminal_identity_sha256"]
+    assert permit["qualification_certificate_schema"] == (
+        manager.VEXP_QUALIFICATION_CERTIFICATE_SCHEMA
+    )
+    assert permit["qualification_certificate_sha256"] == (
+        issued["qualification_certificate_sha256"]
+    )
+    assert permit["qualification_certificate_identity"] == (
+        issued["qualification_certificate_identity"]
+    )
+    assert permit["qualification_certificate_event_hash"] == (
+        issued["qualification_certificate_event_hash"]
+    )
 
     permit_status = _status(state_path)
     assert permit_status["status"] == "valid"
@@ -617,3 +787,100 @@ def test_cli_status_emits_bounded_non_secret_json(
     assert payload["status"] == "valid"
     assert "state_path" not in payload
     assert "token" not in output.lower()
+
+
+def test_issue_requires_exact_epoch_root_certificate_before_writing_permit(
+    authority: tuple[Path, Path],
+) -> None:
+    state_path, _permit_parent = authority
+    state = _state()
+    _write_state(state_path, state)
+    certificate_path, sidecar_path = manager._qualification_certificate_paths(
+        int(state["epoch_started_ms"])
+    )
+    certificate_path.unlink()
+    sidecar_path.unlink()
+
+    with pytest.raises(
+        manager.PermitError, match="vexp_qualification_certificate_unavailable"
+    ):
+        manager.issue(
+            state_path=state_path,
+            state_owner_uid=os.geteuid(),
+            ttl_seconds=900,
+        )
+
+    assert not manager.PERMIT_PATH.exists()
+
+
+@pytest.mark.parametrize(
+    ("target", "mode"),
+    [
+        ("root", 0o755),
+        ("directory", 0o755),
+        ("certificate", 0o644),
+        ("sidecar", 0o644),
+    ],
+)
+def test_issue_rejects_untrusted_certificate_authority_metadata(
+    authority: tuple[Path, Path], target: str, mode: int
+) -> None:
+    state_path, _permit_parent = authority
+    state = _state()
+    _write_state(state_path, state)
+    certificate_path, sidecar_path = manager._qualification_certificate_paths(
+        int(state["epoch_started_ms"])
+    )
+    selected = {
+        "root": manager.QUALIFICATION_CERTIFICATE_ROOT,
+        "directory": manager.QUALIFICATION_CERTIFICATE_DIRECTORY,
+        "certificate": certificate_path,
+        "sidecar": sidecar_path,
+    }[target]
+    selected.chmod(mode)
+
+    with pytest.raises(manager.PermitError, match="qualification_certificate"):
+        manager.issue(
+            state_path=state_path,
+            state_owner_uid=os.geteuid(),
+            ttl_seconds=900,
+        )
+
+    assert not manager.PERMIT_PATH.exists()
+
+
+def test_status_rejects_certificate_removed_after_permit_issue(
+    authority: tuple[Path, Path],
+) -> None:
+    state_path, _permit_parent = authority
+    _issue(state_path)
+    state = _state()
+    certificate_path, _sidecar_path = manager._qualification_certificate_paths(
+        int(state["epoch_started_ms"])
+    )
+    certificate_path.unlink()
+
+    with pytest.raises(
+        manager.PermitError, match="vexp_qualification_certificate_unavailable"
+    ):
+        _status(state_path)
+
+
+def test_status_rejects_well_formed_permit_with_wrong_certificate_binding(
+    authority: tuple[Path, Path],
+) -> None:
+    state_path, _permit_parent = authority
+    _issue(state_path)
+    permit = json.loads(manager.PERMIT_PATH.read_text(encoding="utf-8"))
+    permit["qualification_certificate_sha256"] = "0" * 64
+    raw = (
+        json.dumps(permit, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        + "\n"
+    )
+    manager.PERMIT_PATH.write_text(raw, encoding="utf-8")
+    manager.PERMIT_PATH.chmod(manager.PERMIT_MODE)
+
+    with pytest.raises(
+        manager.PermitError, match="certificate_binding_mismatch"
+    ):
+        _status(state_path)

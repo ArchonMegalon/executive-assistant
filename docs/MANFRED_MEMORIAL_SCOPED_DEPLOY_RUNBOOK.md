@@ -13,17 +13,25 @@ public edge is unhealthy.
 
 Do not create a Manfred candidate image/runtime, run the memorial deploy lane,
 or mutate the live ingress topology until the schema-v6 sentinel is terminal
-`qualified` and the fixed root-installed manager has issued a current permit
-for that exact epoch. `enforced_soak`; a missing or untrusted state, lock, or
-permit; unhealthy current resources; or any certification blocker means deny.
+`qualified`, the root finalizer has sealed
+`ea.vexp_qualification_certificate.v2` for that exact epoch, and the fixed
+root-installed manager has issued a current v2 permit bound to the exact raw
+certificate SHA-256, canonical certificate identity, schema, and qualification
+event hash. `enforced_soak`; a missing or untrusted state, certificate,
+certificate sidecar, lock, or permit; unhealthy current resources; or any
+certification blocker means deny. The certificate must be the root-owned
+mode-`0640` pair at
+`/var/lib/vexp-qualification-certificate/certificates/<epoch_ms>.json` and
+`.json.sha256`; the sidecar is exactly `sha256:<raw-file-sha256>\n`.
 Source-only preparation may continue, but none of the candidate or deployment
 commands later in this runbook are authorized.
 
 The only governed order is:
 
 1. finish source-only memorial and PropertyQuarry-owned 3D inputs;
-2. prove terminal qualification, issue the first permit, and run state-bound
-   `status` immediately before candidate creation;
+2. prove terminal qualification and the exact root certificate, issue the
+   first certificate-bound permit, and run state-bound `status` immediately
+   before candidate creation;
 3. build and verify the isolated candidate, including the exact priority 3D
    browser/actionability proof;
 4. run non-mutating production preflight;

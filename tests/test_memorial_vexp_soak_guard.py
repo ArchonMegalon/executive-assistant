@@ -31,6 +31,10 @@ class TestVexpMemorialMutationAuthority(deploy.VexpMemorialMutationAuthority):
         self,
         *,
         state_path: Path,
+        certificate_root: Path,
+        certificate_directory: Path,
+        certificate_owner_uid: int,
+        certificate_owner_gid: int,
         permit_path: Path,
         lock_path: Path,
         permit_owner_uid: int,
@@ -38,6 +42,10 @@ class TestVexpMemorialMutationAuthority(deploy.VexpMemorialMutationAuthority):
         utc_now: Callable[[], datetime],
     ) -> None:
         self._state_path = state_path
+        self._certificate_root = certificate_root
+        self._certificate_directory = certificate_directory
+        self._certificate_owner_uid = certificate_owner_uid
+        self._certificate_owner_gid = certificate_owner_gid
         self._permit_path = permit_path
         self._lock_path = lock_path
         self._permit_owner_uid = permit_owner_uid
@@ -51,6 +59,22 @@ class TestVexpMemorialMutationAuthority(deploy.VexpMemorialMutationAuthority):
     @property
     def mutation_permit_path(self) -> Path:
         return self._permit_path
+
+    @property
+    def qualification_certificate_root(self) -> Path:
+        return self._certificate_root
+
+    @property
+    def qualification_certificate_directory(self) -> Path:
+        return self._certificate_directory
+
+    @property
+    def qualification_certificate_owner_uid(self) -> int:
+        return self._certificate_owner_uid
+
+    @property
+    def qualification_certificate_owner_gid(self) -> int:
+        return self._certificate_owner_gid
 
     @property
     def mutation_permit_owner_uid(self) -> int:
@@ -97,11 +121,138 @@ def _state(*, terminal: bool = False) -> dict[str, object]:
         "updated_at": "2026-07-20T09:59:00.000Z",
         "current_resources_healthy": True,
         "certification_blockers": [],
+        "certification_deferments": [],
+        "predicate_contract": "v6",
+        "predicate_contract_sha256": "3" * 64,
         "probes_passed": 42,
     }
 
 
+def _certificate(state: Mapping[str, object]) -> dict[str, object]:
+    reset_hash = "a" * 64
+    event_hash = "b" * 64
+    tail_hash = "f" * 64
+    reset_event = {
+        "at": state["epoch_started_at"],
+        "event": "qualification_reset",
+        "sequence": 41,
+        "previous_hash": "0" * 64,
+        "hash": reset_hash,
+    }
+    event = {
+        "at": state["qualified_at"],
+        "event": "seven_day_qualification_achieved",
+        "sequence": 42,
+        "previous_hash": reset_hash,
+        "hash": event_hash,
+    }
+    tail_event = {
+        "at": "2026-07-20T09:44:56.206Z",
+        "event": "resource_sample",
+        "sequence": 43,
+        "previous_hash": event_hash,
+        "hash": tail_hash,
+    }
+    index = [reset_event, event, tail_event]
+    certificate: dict[str, object] = {
+        "schema": deploy.VEXP_QUALIFICATION_CERTIFICATE_SCHEMA,
+        "sentinel_version": deploy.VEXP_SENTINEL_STATE_VERSION,
+        "epoch_started_at": state["epoch_started_at"],
+        "epoch_started_ms": state["epoch_started_ms"],
+        "qualified_at": state["qualified_at"],
+        "qualification_duration_ms": deploy.MINIMUM_VEXP_QUALIFICATION_DURATION_MS,
+        "qualification_monotonic_duration_ms": (
+            deploy.MINIMUM_VEXP_QUALIFICATION_DURATION_MS
+        ),
+        "active_chain": {
+            "anchor": {**reset_event, "source": "sentinel"},
+            "qualification_event": {**event, "source": "sentinel"},
+            "tail_sequence": tail_event["sequence"],
+            "tail_hash": tail_hash,
+            "event_count": len(index),
+            "index": index,
+            "index_sha256": deploy._canonical_json_sha256(index),
+        },
+        "terminal_state": {
+            "version": deploy.VEXP_SENTINEL_STATE_VERSION,
+            "epoch_started_at": state["epoch_started_at"],
+            "epoch_started_ms": state["epoch_started_ms"],
+            "qualified_at": state["qualified_at"],
+            "qualification_phase": "qualified",
+            "certification_blockers": [],
+            "certification_deferments": [],
+            "predicate_contract": state["predicate_contract"],
+            "predicate_contract_sha256": state["predicate_contract_sha256"],
+            "last_event_hash": tail_hash,
+            "probes_passed": 42,
+        },
+        "source_attestations": {
+            "sentinel_state_sha256": "c" * 64,
+            "event_generations": {"qualification": 1},
+            "event_log_guard_sha256": "d" * 64,
+            "event_log_guard": {"status": "pass"},
+            "apparmor_audit_sha256": "e" * 64,
+            "apparmor_audit": {"status": "pass"},
+            "implementation": {
+                "sentinel_executable": {"sha256": "1" * 64},
+                "sentinel_systemd_unit": {"sha256": "2" * 64},
+                "predicate_contract": {"value": "v6", "sha256": "3" * 64},
+                "finalizer_executable": {"sha256": "4" * 64},
+                "finalizer_checksum_manifest": {"sha256": "5" * 64},
+                "finalizer_checksum_binding": {"sha256": "6" * 64},
+                "finalizer_systemd_unit": {"sha256": "7" * 64},
+                "systemd_runtime": {"sha256": "8" * 64},
+                "apparmor_policy": {"sha256": "9" * 64},
+            },
+        },
+        "seal": {
+            "writer": "root_owned_systemd_oneshot",
+            "write_policy": "create_exclusive_never_overwrite",
+            "telegram_sent_by_finalizer": False,
+            "docker_socket_used": False,
+        },
+    }
+    certificate["identity"] = (
+        f"sha256:{deploy._canonical_json_sha256(certificate)}"
+    )
+    return certificate
+
+
+def _certificate_raw(state: Mapping[str, object]) -> bytes:
+    return (
+        json.dumps(
+            _certificate(state),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _reseal_certificate(certificate: dict[str, object]) -> dict[str, object]:
+    certificate.pop("identity", None)
+    certificate["identity"] = (
+        f"sha256:{deploy._canonical_json_sha256(certificate)}"
+    )
+    return certificate
+
+
+def _certificate_evidence(state: Mapping[str, object]) -> dict[str, str]:
+    certificate = _certificate(state)
+    raw = _certificate_raw(state)
+    return {
+        "schema": str(certificate["schema"]),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "identity": str(certificate["identity"]),
+        "event_hash": str(
+            dict(dict(certificate["active_chain"])["qualification_event"])["hash"]
+        ),
+    }
+
+
 def _permit(state: Mapping[str, object]) -> dict[str, object]:
+    certificate = _certificate_evidence(state)
     return {
         "contract_name": deploy.VEXP_MUTATION_PERMIT_CONTRACT_NAME,
         "version": deploy.VEXP_MUTATION_PERMIT_VERSION,
@@ -113,6 +264,10 @@ def _permit(state: Mapping[str, object]) -> dict[str, object]:
         ],
         "qualified_at": state["qualified_at"],
         "terminal_identity_sha256": deploy._vexp_terminal_identity_sha256(state),
+        "qualification_certificate_schema": certificate["schema"],
+        "qualification_certificate_sha256": certificate["sha256"],
+        "qualification_certificate_identity": certificate["identity"],
+        "qualification_certificate_event_hash": certificate["event_hash"],
         "issued_at": "2026-07-20T09:45:00.000Z",
         "expires_at": "2026-07-20T10:30:00.000Z",
         "mutation_boundaries": list(deploy.VEXP_MUTATION_BOUNDARIES),
@@ -123,6 +278,40 @@ def _write_json(path: Path, payload: object, *, mode: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
     path.chmod(mode)
+
+
+def _write_certificate(
+    directory: Path,
+    state: Mapping[str, object],
+    *,
+    certificate: Mapping[str, object] | None = None,
+    mode: int = 0o640,
+    sidecar: bytes | None = None,
+) -> tuple[Path, Path]:
+    raw = (
+        (
+            json.dumps(
+                dict(certificate),
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+        if certificate is not None
+        else _certificate_raw(state)
+    )
+    certificate_path = directory / f"{state['epoch_started_ms']}.json"
+    sidecar_path = certificate_path.with_suffix(".json.sha256")
+    certificate_path.write_bytes(raw)
+    certificate_path.chmod(mode)
+    sidecar_path.write_bytes(
+        sidecar
+        if sidecar is not None
+        else f"sha256:{hashlib.sha256(raw).hexdigest()}\n".encode("ascii")
+    )
+    sidecar_path.chmod(mode)
+    return certificate_path, sidecar_path
 
 
 def _assert_fifo_rejected_immediately(
@@ -167,10 +356,13 @@ def _lane(
     lock_path: Path | None = None,
     permit_owner_uid: int | None = None,
     lock_owner_uid: int | None = None,
+    certificate_owner_uid: int | None = None,
+    certificate_owner_gid: int | None = None,
     utc_now: Callable[[], datetime] = lambda: NOW,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
     create_lock: bool = True,
+    create_certificate: bool = True,
 ) -> tuple[MemorialDeployLane, NoCommandRunner, Path, Path]:
     root = tmp_path / "release"
     root.mkdir(exist_ok=True)
@@ -178,6 +370,14 @@ def _lane(
     resolved_state_path = state_path or tmp_path / "sentinel-state.json"
     resolved_permit_path = permit_path or tmp_path / "mutation-permit.json"
     resolved_lock_path = lock_path or tmp_path / "mutation-permit.lock"
+    certificate_root = tmp_path / "qualification-certificate"
+    certificate_root.mkdir(exist_ok=True)
+    certificate_root.chmod(0o750)
+    certificate_directory = certificate_root / "certificates"
+    certificate_directory.mkdir(exist_ok=True)
+    certificate_directory.chmod(0o750)
+    if create_certificate:
+        _write_certificate(certificate_directory, _state(terminal=True))
     if create_lock:
         resolved_lock_path.touch()
         resolved_lock_path.chmod(0o644)
@@ -193,6 +393,18 @@ def _lane(
     )
     lane._vexp_mutation_authority = TestVexpMemorialMutationAuthority(
         state_path=resolved_state_path,
+        certificate_root=certificate_root,
+        certificate_directory=certificate_directory,
+        certificate_owner_uid=(
+            os.geteuid()
+            if certificate_owner_uid is None
+            else certificate_owner_uid
+        ),
+        certificate_owner_gid=(
+            os.getegid()
+            if certificate_owner_gid is None
+            else certificate_owner_gid
+        ),
         permit_path=resolved_permit_path,
         lock_path=resolved_lock_path,
         permit_owner_uid=(
@@ -274,6 +486,15 @@ def test_default_permit_is_root_owned_public_read_only_path_under_run(
     assert authority.sentinel_state_path == (
         Path.home() / ".local" / "state" / "vexp-sentinel" / "state.json"
     )
+    assert authority.qualification_certificate_root == Path(
+        "/var/lib/vexp-qualification-certificate"
+    )
+    assert authority.qualification_certificate_directory == Path(
+        "/var/lib/vexp-qualification-certificate/certificates"
+    )
+    assert authority.qualification_certificate_owner_uid == 0
+    assert authority.qualification_certificate_owner_gid == 1000
+    assert deploy.VEXP_MUTATION_PERMIT_VERSION == 2
 
 
 def test_deploy_lane_constructor_rejects_authority_overrides(tmp_path: Path) -> None:
@@ -449,6 +670,16 @@ def test_terminal_state_and_positive_permit_pass_all_three_mutation_boundaries(
     )
     assert all(
         re.fullmatch(r"[0-9a-f]{64}", str(guard["permit_sha256"])) for guard in guards
+    )
+    assert {guard["qualification_certificate_schema"] for guard in guards} == {
+        deploy.VEXP_QUALIFICATION_CERTIFICATE_SCHEMA
+    }
+    assert all(
+        re.fullmatch(
+            r"[0-9a-f]{64}",
+            str(guard["qualification_certificate_sha256"]),
+        )
+        for guard in guards
     )
 
 
@@ -1112,6 +1343,233 @@ def test_terminal_state_without_positive_permit_fails_closed(tmp_path: Path) -> 
     assert _receipt(lane)["checks"][-1]["status"] == "fail"
 
 
+def test_terminal_state_and_permit_without_root_certificate_fail_closed(
+    tmp_path: Path,
+) -> None:
+    lane, runner, state_path, permit_path = _lane(
+        tmp_path, create_certificate=False
+    )
+    state = _state(terminal=True)
+    _write_json(state_path, state, mode=0o600)
+    _write_json(permit_path, _permit(state), mode=0o644)
+
+    with pytest.raises(
+        DeployError, match="vexp_qualification_certificate_unavailable"
+    ):
+        lane._require_vexp_mutation_permitted("before_ensure_redis")
+
+    assert runner.commands == []
+    guard = _receipt(lane)["checks"][-1]
+    assert guard["status"] == "fail"
+    assert guard["reason"] == "vexp_qualification_certificate_unavailable"
+    assert "permit_sha256" not in guard
+
+
+def test_exact_root_certificate_and_sidecar_are_independently_accepted(
+    tmp_path: Path,
+) -> None:
+    lane, _runner, _state_path, _permit_path = _lane(tmp_path)
+    state = _state(terminal=True)
+
+    certificate, evidence = lane._read_trusted_vexp_qualification_certificate(
+        state
+    )
+
+    assert certificate["schema"] == deploy.VEXP_QUALIFICATION_CERTIFICATE_SCHEMA
+    assert evidence == _certificate_evidence(state)
+
+
+def test_post_qualification_nonfatal_tail_preserves_qualification_event_binding(
+    tmp_path: Path,
+) -> None:
+    lane, _runner, _state_path, _permit_path = _lane(tmp_path)
+    state = _state(terminal=True)
+
+    certificate, evidence = lane._read_trusted_vexp_qualification_certificate(
+        state
+    )
+
+    active_chain = certificate["active_chain"]
+    assert isinstance(active_chain, dict)
+    qualification_event = active_chain["qualification_event"]
+    assert isinstance(qualification_event, dict)
+    terminal_state = certificate["terminal_state"]
+    assert isinstance(terminal_state, dict)
+    assert evidence["event_hash"] == qualification_event["hash"]
+    assert evidence["event_hash"] != active_chain["tail_hash"]
+    assert terminal_state["last_event_hash"] == active_chain["tail_hash"]
+
+
+def test_current_state_predicate_contract_must_match_root_certificate(
+    tmp_path: Path,
+) -> None:
+    lane, _runner, _state_path, _permit_path = _lane(tmp_path)
+    state = _state(terminal=True)
+    state["predicate_contract_sha256"] = "0" * 64
+
+    with pytest.raises(
+        DeployError, match="predicate_contract_binding_invalid"
+    ):
+        lane._read_trusted_vexp_qualification_certificate(state)
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ("schema", "contract_invalid"),
+        ("duration", "duration_invalid"),
+        ("monotonic", "duration_invalid"),
+        ("event", "chain_invalid"),
+        ("index", "chain_invalid"),
+        ("terminal", "terminal_state_invalid"),
+        ("predicate", "predicate_contract_binding_invalid"),
+        ("attestation", "attestations_invalid"),
+        ("seal", "seal_invalid"),
+    ],
+)
+def test_certificate_v2_critical_contract_fails_closed(
+    tmp_path: Path, change: str, reason: str
+) -> None:
+    lane, runner, _state_path, _permit_path = _lane(
+        tmp_path, create_certificate=False
+    )
+    state = _state(terminal=True)
+    certificate = _certificate(state)
+    if change == "schema":
+        certificate["schema"] = "ea.vexp_qualification_certificate.v1"
+    elif change == "duration":
+        certificate["qualification_duration_ms"] = (
+            deploy.MINIMUM_VEXP_QUALIFICATION_DURATION_MS - 1
+        )
+    elif change == "monotonic":
+        certificate["qualification_monotonic_duration_ms"] = (
+            deploy.MINIMUM_VEXP_QUALIFICATION_DURATION_MS - 1
+        )
+    elif change == "event":
+        active_chain = certificate["active_chain"]
+        assert isinstance(active_chain, dict)
+        qualification_event = active_chain["qualification_event"]
+        assert isinstance(qualification_event, dict)
+        qualification_event["event"] = "wrong_event"
+    elif change == "index":
+        active_chain = certificate["active_chain"]
+        assert isinstance(active_chain, dict)
+        active_chain["index_sha256"] = "0" * 64
+    elif change == "terminal":
+        terminal_state = certificate["terminal_state"]
+        assert isinstance(terminal_state, dict)
+        terminal_state["certification_blockers"] = ["blocked"]
+    elif change == "predicate":
+        terminal_state = certificate["terminal_state"]
+        assert isinstance(terminal_state, dict)
+        terminal_state["predicate_contract_sha256"] = "0" * 64
+    elif change == "attestation":
+        attestations = certificate["source_attestations"]
+        assert isinstance(attestations, dict)
+        attestations["implementation"] = {}
+    else:
+        seal = certificate["seal"]
+        assert isinstance(seal, dict)
+        seal["docker_socket_used"] = True
+    _reseal_certificate(certificate)
+    directory = lane._vexp_mutation_authority.qualification_certificate_directory
+    _write_certificate(directory, state, certificate=certificate)
+
+    with pytest.raises(DeployError, match=reason):
+        lane._read_trusted_vexp_qualification_certificate(state)
+
+    assert runner.commands == []
+
+
+@pytest.mark.parametrize(
+    "sidecar",
+    [
+        b"0" * 64 + b"\n",
+        b"sha256:" + b"0" * 64,
+        b"SHA256:" + b"0" * 64 + b"\n",
+        b"sha256:" + b"0" * 64 + b"\n",
+    ],
+)
+def test_certificate_sidecar_is_exact_and_content_bound(
+    tmp_path: Path, sidecar: bytes
+) -> None:
+    lane, _runner, _state_path, _permit_path = _lane(
+        tmp_path, create_certificate=False
+    )
+    state = _state(terminal=True)
+    _write_certificate(
+        lane._vexp_mutation_authority.qualification_certificate_directory,
+        state,
+        sidecar=sidecar,
+    )
+
+    with pytest.raises(
+        DeployError, match="vexp_qualification_certificate_sidecar_invalid"
+    ):
+        lane._read_trusted_vexp_qualification_certificate(state)
+
+
+@pytest.mark.parametrize("target", ["root", "directory", "certificate", "sidecar"])
+def test_certificate_authority_metadata_is_fail_closed(
+    tmp_path: Path, target: str
+) -> None:
+    lane, _runner, _state_path, _permit_path = _lane(tmp_path)
+    state = _state(terminal=True)
+    authority = lane._vexp_mutation_authority
+    certificate_path = (
+        authority.qualification_certificate_directory
+        / f"{state['epoch_started_ms']}.json"
+    )
+    selected = {
+        "root": authority.qualification_certificate_root,
+        "directory": authority.qualification_certificate_directory,
+        "certificate": certificate_path,
+        "sidecar": certificate_path.with_suffix(".json.sha256"),
+    }[target]
+    selected.chmod(0o755 if target in {"root", "directory"} else 0o644)
+
+    with pytest.raises(DeployError, match="vexp_qualification_certificate_"):
+        lane._read_trusted_vexp_qualification_certificate(state)
+
+
+def test_certificate_change_between_independent_reads_denies_before_mutation(
+    tmp_path: Path,
+) -> None:
+    lane, runner, state_path, permit_path = _lane(tmp_path)
+    state = _state(terminal=True)
+    _write_json(state_path, state, mode=0o600)
+    _write_json(permit_path, _permit(state), mode=0o644)
+    real_read = lane._read_trusted_vexp_qualification_certificate
+    reads = 0
+
+    def read_then_remove(
+        selected_state: Mapping[str, object],
+    ) -> tuple[dict[str, object], dict[str, str]]:
+        nonlocal reads
+        result = real_read(selected_state)
+        reads += 1
+        if reads == 1:
+            certificate_path = (
+                lane._vexp_mutation_authority.qualification_certificate_directory
+                / f"{state['epoch_started_ms']}.json"
+            )
+            certificate_path.unlink()
+        return result
+
+    lane._read_trusted_vexp_qualification_certificate = (  # type: ignore[method-assign]
+        read_then_remove
+    )
+
+    with pytest.raises(
+        DeployError, match="vexp_qualification_certificate_unavailable"
+    ):
+        with lane._vexp_mutation_lease("before_ensure_redis"):
+            raise AssertionError("mutation body must not run")
+
+    assert reads == 1
+    assert runner.commands == []
+
+
 @pytest.mark.parametrize("untrusted_kind", ["mode", "symlink", "hardlink"])
 def test_sentinel_requires_0600_regular_single_link_nofollow_file(
     tmp_path: Path, untrusted_kind: str
@@ -1324,7 +1782,7 @@ def test_permit_atomic_read_rejects_path_identity_change(
     ("changes", "reason"),
     [
         ({"contract_name": "wrong"}, "contract_invalid"),
-        ({"version": 2}, "version_invalid"),
+        ({"version": 1}, "version_invalid"),
         ({"version": True}, "version_invalid"),
         ({"status": "deny"}, "not_positive"),
         ({"mutation_boundaries": []}, "boundaries_invalid"),
@@ -1336,6 +1794,22 @@ def test_permit_atomic_read_rejects_path_identity_change(
         ),
         ({"qualified_at": "2026-07-20T09:43:57.206Z"}, "terminal_binding"),
         ({"terminal_identity_sha256": "0" * 64}, "identity_digest"),
+        (
+            {"qualification_certificate_schema": "ea.vexp_qualification_certificate.v1"},
+            "certificate_binding_invalid",
+        ),
+        (
+            {"qualification_certificate_sha256": "0" * 64},
+            "certificate_binding_mismatch",
+        ),
+        (
+            {"qualification_certificate_identity": f"sha256:{'0' * 64}"},
+            "certificate_binding_mismatch",
+        ),
+        (
+            {"qualification_certificate_event_hash": "0" * 64},
+            "certificate_binding_mismatch",
+        ),
         ({"issued_at": "not-a-time"}, "issued_at_invalid"),
         ({"expires_at": "not-a-time"}, "expires_at_invalid"),
         (
