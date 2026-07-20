@@ -52,6 +52,48 @@ def _verification_failure(issue: str) -> dict[str, Any]:
     }
 
 
+def _expected_source_binding(
+    *,
+    expected_source_git_head: str | None,
+    expected_source_state_fingerprint: str | None,
+) -> tuple[str, str] | None:
+    """Validate an optional exact source pair without resolving global state."""
+    if (
+        expected_source_git_head is None
+        and expected_source_state_fingerprint is None
+    ):
+        return None
+    if (
+        expected_source_git_head is None
+        or expected_source_state_fingerprint is None
+    ):
+        raise ValueError("manfred_realtime_expected_source_binding_incomplete")
+    if not (
+        isinstance(expected_source_git_head, str)
+        and len(expected_source_git_head) == 40
+        and expected_source_git_head == expected_source_git_head.lower()
+        and all(
+            character in "0123456789abcdef"
+            for character in expected_source_git_head
+        )
+    ):
+        raise ValueError("manfred_realtime_expected_source_git_head_invalid")
+    if not (
+        isinstance(expected_source_state_fingerprint, str)
+        and len(expected_source_state_fingerprint) == 64
+        and expected_source_state_fingerprint
+        == expected_source_state_fingerprint.lower()
+        and all(
+            character in "0123456789abcdef"
+            for character in expected_source_state_fingerprint
+        )
+    ):
+        raise ValueError(
+            "manfred_realtime_expected_source_state_fingerprint_invalid"
+        )
+    return expected_source_git_head, expected_source_state_fingerprint
+
+
 def _open_explicit_evidence_root_fd(
     evidence_root: str | Path,
     *,
@@ -66,7 +108,18 @@ def verify_manfred_realtime_conversation_readiness(
     receipt_path: str | Path,
     *,
     evidence_root: str | Path | None = None,
+    expected_source_git_head: str | None = None,
+    expected_source_state_fingerprint: str | None = None,
 ) -> dict[str, Any]:
+    try:
+        _expected_source_binding(
+            expected_source_git_head=expected_source_git_head,
+            expected_source_state_fingerprint=(
+                expected_source_state_fingerprint
+            ),
+        )
+    except ValueError as exc:
+        return _verification_failure(str(exc))
     anchor_fd = -1
     receipt_parent_fd = -1
     evidence_root_fd = -1
@@ -107,6 +160,10 @@ def verify_manfred_realtime_conversation_readiness(
             result = _verify_bound_realtime_readiness(
                 raw_receipt,
                 evidence_root_fd=evidence_root_fd,
+                expected_source_git_head=expected_source_git_head,
+                expected_source_state_fingerprint=(
+                    expected_source_state_fingerprint
+                ),
             )
             if _directory_fd_snapshot(evidence_root_fd) != initial_evidence_snapshot:
                 return _verification_failure(
@@ -128,7 +185,18 @@ def _verify_bound_realtime_readiness(
     raw_receipt: bytes,
     *,
     evidence_root_fd: int,
+    expected_source_git_head: str | None = None,
+    expected_source_state_fingerprint: str | None = None,
 ) -> dict[str, Any]:
+    try:
+        explicit_source_binding = _expected_source_binding(
+            expected_source_git_head=expected_source_git_head,
+            expected_source_state_fingerprint=(
+                expected_source_state_fingerprint
+            ),
+        )
+    except ValueError as exc:
+        return _verification_failure(str(exc))
     try:
         parsed_receipt = json.loads(raw_receipt.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -174,8 +242,11 @@ def _verify_bound_realtime_readiness(
         issues.append("manfred_realtime_top_level_fields_unexpected")
     if allowed_top_level_fields - set(receipt):
         issues.append("manfred_realtime_top_level_fields_missing")
-    current_head = resolve_source_state_head(REPO_ROOT)
-    current_fingerprint = resolve_source_worktree_fingerprint(REPO_ROOT)
+    if explicit_source_binding is None:
+        current_head = resolve_source_state_head(REPO_ROOT)
+        current_fingerprint = resolve_source_worktree_fingerprint(REPO_ROOT)
+    else:
+        current_head, current_fingerprint = explicit_source_binding
     recorded_head = str(receipt.get("source_git_head") or "").strip()
     recorded_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
     fingerprint_matches = bool(current_fingerprint and recorded_fingerprint and current_fingerprint == recorded_fingerprint)
@@ -196,6 +267,11 @@ def _verify_bound_realtime_readiness(
         issues.append("manfred_realtime_source_fingerprint_semantics_missing")
     if not recorded_head:
         issues.append("manfred_realtime_source_git_head_missing")
+    elif (
+        explicit_source_binding is not None
+        and recorded_head != current_head
+    ):
+        issues.append("manfred_realtime_source_head_stale")
     elif current_head and recorded_head != current_head and not fingerprint_matches:
         issues.append("manfred_realtime_source_head_stale")
     if not recorded_fingerprint:
@@ -274,8 +350,8 @@ def _verify_bound_realtime_readiness(
                 root_fd=evidence_root_fd,
                 receipt_name=expected_name,
                 expected_contract=expected_contract,
-                current_head=current_head,
-                current_fingerprint=current_fingerprint,
+                expected_source_git_head=current_head,
+                expected_source_state_fingerprint=current_fingerprint,
                 max_age_seconds=EVIDENCE_MAX_AGE_SECONDS[key],
             )
             if any(row.get(field) != actual_evidence.get(field) for field in allowed_evidence_fields):
@@ -302,7 +378,9 @@ def _verify_bound_realtime_readiness(
     )
     if evidence_source == "receipt_aggregation":
         authoritative_status = _operator_status_from_receipts(
-            receipt_root_fd=evidence_root_fd
+            receipt_root_fd=evidence_root_fd,
+            expected_source_git_head=current_head,
+            expected_source_state_fingerprint=current_fingerprint,
         )
         if stt != dict(authoritative_status.get("spoken_conversation_stt") or {}):
             issues.append("manfred_realtime_stt_derivation_mismatch")
@@ -675,10 +753,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify Manfred realtime conversation readiness.")
     parser.add_argument("--receipt", default=str(DEFAULT_RECEIPT))
     parser.add_argument("--evidence-root")
+    parser.add_argument("--expected-source-git-head")
+    parser.add_argument("--expected-source-state-fingerprint")
     args = parser.parse_args(argv)
     result = verify_manfred_realtime_conversation_readiness(
         args.receipt,
         evidence_root=args.evidence_root,
+        expected_source_git_head=args.expected_source_git_head,
+        expected_source_state_fingerprint=(
+            args.expected_source_state_fingerprint
+        ),
     )
     print(json.dumps(result, sort_keys=True))
     return 0 if result["status"] == "pass" else 1

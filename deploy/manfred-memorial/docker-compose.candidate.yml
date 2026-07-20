@@ -53,6 +53,12 @@ services:
       EA_DEPLOY_CONTEXT_PATH: /data/release-authority/deploy_context.generated.json
       EA_PROJECT_MODES_MANIFEST_PATH: /data/release-authority/PROJECT_MODES.generated.json
       EA_DEPLOYMENT_ID: ${EA_MANFRED_DEPLOYMENT_ID:?candidate deployment id is required}
+      EA_MEMORIAL_DEPLOYMENT_ID: ${EA_MEMORIAL_DEPLOYMENT_ID:?candidate memorial deployment id is required}
+      EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH: /data/memorial_data/conversation-release/manfred_realtime_conversation_release.generated.json
+      # Candidate proof is always provider-free and never activates either
+      # public speech or the operator preview, even for a final bundle.
+      EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION: "0"
+      EA_MEMORIAL_VOICE_PREVIEW_ENABLED: "0"
       EA_DEPLOYMENT_ID_SOURCE: explicit
       EA_DEPLOY_REPOSITORY: EA
       EA_DEPLOY_BRANCH: main
@@ -103,6 +109,7 @@ services:
       - ${EA_MANFRED_RELEASE_ROOT:?prepared release root is required}/public_memorials:/data/memorial/public:ro
       - ${EA_MANFRED_RELEASE_ROOT:?prepared release root is required}/private_memorial_profiles:/data/memorial/private:ro
       - ${EA_MANFRED_RELEASE_ROOT:?prepared release root is required}/memorial_archive:/data/memorial/archive:ro
+      - ${EA_MANFRED_RELEASE_ROOT:?prepared release root is required}/conversation-release:/data/memorial_data/conversation-release:ro
       - ${EA_MANFRED_RUNTIME_ROOT:?prepared runtime root is required}/public-contributions:/data/memorial/public-contributions
       - ${EA_MANFRED_RUNTIME_ROOT:?prepared runtime root is required}/private-contributions:/data/memorial/private-contributions
       - ${EA_MANFRED_RUNTIME_ROOT:?prepared runtime root is required}/state:/data/memorial/state

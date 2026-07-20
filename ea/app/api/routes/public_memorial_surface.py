@@ -26,6 +26,7 @@ from app.api.routes.public_memorial_surface_support import (
     _memorial_bundle,
     _memorial_https_redirect,
     _memorial_transport_rejection,
+    _memorial_voice_access_decision,
     _memorial_archive_publication_html_path,
     _memorial_pwa_icon_file,
     _memorial_pwa_icon_svg,
@@ -560,12 +561,24 @@ def public_memorial_page(slug: str, request: Request) -> Response:
         payload = _load_public_surface_memorial(slug)
         private_profile = _load_private_profile(slug)
         hostname = request_hostname(request)
-        _prime_memorial_live_warmup_on_page_render(slug)
+        voice_access = _memorial_voice_access_decision(
+            slug,
+            request=request,
+            require_origin=False,
+        )
+        operator_preview_allowed = (
+            voice_access.get("access_allowed") is True
+            and voice_access.get("access_mode") == "operator_preview"
+            and voice_access.get("public_release_allowed") is False
+        )
+        if voice_access.get("access_allowed") is True:
+            _prime_memorial_live_warmup_on_page_render(slug)
         response = HTMLResponse(
             _public_memorial_page_html(
                 payload,
                 private_profile=private_profile,
                 hostname=hostname,
+                operator_preview_allowed=operator_preview_allowed,
             ),
             headers=dict(_PUBLIC_MEMORIAL_HTML_HEADERS),
         )
@@ -588,11 +601,22 @@ def public_memorial_head(slug: str, request: Request) -> Response:
         payload = _load_public_surface_memorial(slug)
         private_profile = _load_private_profile(slug)
         hostname = request_hostname(request)
+        voice_access = _memorial_voice_access_decision(
+            slug,
+            request=request,
+            require_origin=False,
+        )
+        operator_preview_allowed = (
+            voice_access.get("access_allowed") is True
+            and voice_access.get("access_mode") == "operator_preview"
+            and voice_access.get("public_release_allowed") is False
+        )
         response = HTMLResponse(
             _public_memorial_page_html(
                 payload,
                 private_profile=private_profile,
                 hostname=hostname,
+                operator_preview_allowed=operator_preview_allowed,
             ),
             headers=dict(_PUBLIC_MEMORIAL_HTML_HEADERS),
         )

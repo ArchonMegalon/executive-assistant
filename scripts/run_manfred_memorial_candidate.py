@@ -29,6 +29,12 @@ if str(ROOT) not in sys.path:
 
 from scripts.prepare_manfred_memorial_candidate import (  # noqa: E402
     CANDIDATE_RELEASE_AUTHORITY_DIRNAME,
+    CONVERSATION_EVIDENCE_FILENAMES,
+    CONVERSATION_PREREQUISITES_CONTAINER_PATH,
+    CONVERSATION_PREREQUISITES_FILENAME,
+    CONVERSATION_READINESS_FILENAME,
+    CONVERSATION_RELEASE_DIRNAME,
+    CONVERSATION_ROOM_FILENAME,
     PROPERTY_AUTHORITY_SHA256,
     PROPERTY_PUBLICATION_AUTHORITY_SCHEMA,
     IMAGE_BUILD_RECEIPT_MAX_BYTES,
@@ -106,6 +112,11 @@ ALLOWED_ENV_KEYS = {
     "EA_MANFRED_RELEASE_AUTHORITY_ROOT",
     "EA_MANFRED_RUNTIME_ROOT",
     "EA_MANFRED_SPATIAL_SCOPE",
+    "EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH",
+    "EA_MEMORIAL_DEPLOYMENT_ID",
+    "EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION",
+    "EA_MEMORIAL_VOICE_PREVIEW_ENABLED",
+    "EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES",
     "EA_PUBLIC_APP_BASE_URL",
     "EA_SIGNING_SECRET",
 }
@@ -660,20 +671,22 @@ sys.stdout.buffer.write(raw)
 
 RUNTIME_PROJECTION_SCHEMA = "ea.manfred_candidate_runtime_projection.v1"
 MAX_RUNTIME_PROJECTION_SNAPSHOT_BYTES = 4 * 1024 * 1024
-RUNTIME_PROJECTION_SNAPSHOT_SCRIPT = r"""
+RUNTIME_PROJECTION_ROOTS = (
+    ("/data/memorial/public", "public_memorials"),
+    ("/data/memorial/private", "private_memorial_profiles"),
+    ("/data/memorial/archive", "memorial_archive"),
+    ("/data/memorial_data/conversation-release", "conversation-release"),
+    ("/data/release-authority", "release-authority"),
+)
+_RUNTIME_PROJECTION_ROOTS_TOKEN = "__EA_RUNTIME_PROJECTION_ROOTS__"
+_RUNTIME_PROJECTION_SNAPSHOT_TEMPLATE = r"""
 import hashlib
 import json
 import os
 import stat
 import sys
 
-ROOTS = (
-    ("/data/memorial/public", "public_memorials"),
-    ("/data/memorial/private", "private_memorial_profiles"),
-    ("/data/memorial/archive", "memorial_archive"),
-    ("/data/public_property_tours", "public_property_tours"),
-    ("/data/release-authority", "release-authority"),
-)
+ROOTS = __EA_RUNTIME_PROJECTION_ROOTS__
 
 def identity(metadata):
     return (
@@ -773,6 +786,14 @@ sys.stdout.buffer.write(
     json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
 )
 """.strip()
+if _RUNTIME_PROJECTION_SNAPSHOT_TEMPLATE.count(
+    _RUNTIME_PROJECTION_ROOTS_TOKEN
+) != 1:
+    raise RuntimeError("manfred_candidate_runtime_projection_template_invalid")
+RUNTIME_PROJECTION_SNAPSHOT_SCRIPT = _RUNTIME_PROJECTION_SNAPSHOT_TEMPLATE.replace(
+    _RUNTIME_PROJECTION_ROOTS_TOKEN,
+    repr(RUNTIME_PROJECTION_ROOTS),
+)
 
 
 def _resolve_openapi_ref(document: dict[str, object], ref: str) -> object:
@@ -1447,6 +1468,94 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         != sum(int(row["size_bytes"]) for row in observed_files)
     ):
         raise RuntimeError("manfred_candidate_projection_tree_digest_mismatch")
+    conversation_included = payload.get("conversation_prerequisites_included")
+    public_voice_intended = payload.get("public_voice_activation_intended")
+    conversation_rows = [
+        dict(row)
+        for row in observed_files
+        if str(row.get("path") or "").startswith(
+            f"{CONVERSATION_RELEASE_DIRNAME}/"
+        )
+    ]
+    expected_conversation_paths = {
+        f"{CONVERSATION_RELEASE_DIRNAME}/{CONVERSATION_PREREQUISITES_FILENAME}",
+        f"{CONVERSATION_RELEASE_DIRNAME}/{CONVERSATION_READINESS_FILENAME}",
+        *{
+            f"{CONVERSATION_RELEASE_DIRNAME}/{filename}"
+            for filename in CONVERSATION_EVIDENCE_FILENAMES.values()
+        },
+    }
+    conversation_rows_by_path = {
+        str(row.get("path") or ""): row for row in conversation_rows
+    }
+    env_phase = (
+        env["EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION"],
+        env["EA_MEMORIAL_VOICE_PREVIEW_ENABLED"],
+        env["EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES"],
+    )
+    expected_phase = (
+        ("1", "0", "0") if conversation_included is True else ("0", "1", "1")
+    )
+    conversation_release_files = payload.get("conversation_release_files")
+    if (
+        type(conversation_included) is not bool
+        or public_voice_intended is not conversation_included
+        or env_phase != expected_phase
+        or conversation_release_files != conversation_rows
+    ):
+        raise RuntimeError("manfred_candidate_conversation_projection_mismatch")
+    if conversation_included:
+        evidence_hashes = payload.get("conversation_evidence_sha256")
+        packet_path = (
+            f"{CONVERSATION_RELEASE_DIRNAME}/"
+            f"{CONVERSATION_PREREQUISITES_FILENAME}"
+        )
+        readiness_path = (
+            f"{CONVERSATION_RELEASE_DIRNAME}/{CONVERSATION_READINESS_FILENAME}"
+        )
+        room_path = f"{CONVERSATION_RELEASE_DIRNAME}/{CONVERSATION_ROOM_FILENAME}"
+        if (
+            set(conversation_rows_by_path) != expected_conversation_paths
+            or any(row.get("mode") != "440" for row in conversation_rows)
+            or not isinstance(evidence_hashes, dict)
+            or set(evidence_hashes) != set(CONVERSATION_EVIDENCE_FILENAMES)
+            or payload.get("conversation_prerequisites_sha256")
+            != conversation_rows_by_path[packet_path].get("sha256")
+            or payload.get("conversation_readiness_receipt_sha256")
+            != conversation_rows_by_path[readiness_path].get("sha256")
+            or payload.get("conversation_room_audio_receipt_sha256")
+            != conversation_rows_by_path[room_path].get("sha256")
+            or any(
+                evidence_hashes.get(key)
+                != conversation_rows_by_path[
+                    f"{CONVERSATION_RELEASE_DIRNAME}/{filename}"
+                ].get("sha256")
+                for key, filename in CONVERSATION_EVIDENCE_FILENAMES.items()
+            )
+            or not str(
+                payload.get("conversation_prerequisites_effective_expires_at")
+                or ""
+            ).strip()
+            or len(str(payload.get("conversation_source_state_fingerprint") or ""))
+            != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in str(
+                    payload.get("conversation_source_state_fingerprint") or ""
+                )
+            )
+        ):
+            raise RuntimeError("manfred_candidate_conversation_projection_mismatch")
+    elif (
+        conversation_rows
+        or payload.get("conversation_prerequisites_effective_expires_at") != ""
+        or payload.get("conversation_prerequisites_sha256") != ""
+        or payload.get("conversation_readiness_receipt_sha256") != ""
+        or payload.get("conversation_room_audio_receipt_sha256") != ""
+        or payload.get("conversation_evidence_sha256") != {}
+        or payload.get("conversation_source_state_fingerprint") != ""
+    ):
+        raise RuntimeError("manfred_candidate_conversation_projection_mismatch")
     if any(
         str(row.get("path") or "").startswith("public_property_tours/")
         for row in observed_files
@@ -1481,6 +1590,15 @@ def _projection_evidence(env: dict[str, str]) -> dict[str, object]:
         "spatial_scope": SPATIAL_SCOPE,
         "public_property_tours_packaged": False,
         "memorial_spatial_receipt_generated": False,
+        "conversation_prerequisites_included": conversation_included,
+        "public_voice_activation_intended": public_voice_intended,
+        "conversation_release_files": conversation_rows,
+        "conversation_prerequisites_sha256": payload.get(
+            "conversation_prerequisites_sha256"
+        ),
+        "conversation_prerequisites_effective_expires_at": payload.get(
+            "conversation_prerequisites_effective_expires_at"
+        ),
         "release_authority": release_authority,
     }
 
@@ -1742,6 +1860,11 @@ def _candidate_api_runtime_posture(
             str((release_root / "memorial_archive").resolve()),
             False,
         ),
+        "/data/memorial_data/conversation-release": (
+            "bind",
+            str((release_root / CONVERSATION_RELEASE_DIRNAME).resolve()),
+            False,
+        ),
         "/data/memorial/public-contributions": (
             "bind",
             str((runtime_root / "public-contributions").resolve()),
@@ -1914,12 +2037,7 @@ def _candidate_runtime_projection_evidence(
         "projection_sha256": digest,
         "file_count": len(expected_files),
         "projection_bytes": projection_bytes,
-        "mount_roots": [
-            "/data/memorial/public",
-            "/data/memorial/private",
-            "/data/memorial/archive",
-            "/data/release-authority",
-        ],
+        "mount_roots": [source for source, _prefix in RUNTIME_PROJECTION_ROOTS],
         "runtime_bytes_match_prepared_projection": True,
     }
 
@@ -2716,6 +2834,12 @@ def _expected_candidate_api_environment(env: dict[str, str]) -> dict[str, str]:
             "/data/release-authority/PROJECT_MODES.generated.json"
         ),
         "EA_DEPLOYMENT_ID": env["EA_MANFRED_DEPLOYMENT_ID"],
+        "EA_MEMORIAL_DEPLOYMENT_ID": env["EA_MEMORIAL_DEPLOYMENT_ID"],
+        "EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH": (
+            CONVERSATION_PREREQUISITES_CONTAINER_PATH
+        ),
+        "EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION": "0",
+        "EA_MEMORIAL_VOICE_PREVIEW_ENABLED": "0",
         "EA_DEPLOYMENT_ID_SOURCE": "explicit",
         "EA_DEPLOY_REPOSITORY": "EA",
         "EA_DEPLOY_BRANCH": "main",
@@ -2903,6 +3027,15 @@ def _assert_compose_isolation(
             str((Path(env["EA_MANFRED_RELEASE_ROOT"]) / "memorial_archive").resolve()),
             True,
         ),
+        "/data/memorial_data/conversation-release": (
+            str(
+                (
+                    Path(env["EA_MANFRED_RELEASE_ROOT"])
+                    / CONVERSATION_RELEASE_DIRNAME
+                ).resolve()
+            ),
+            True,
+        ),
         "/data/memorial/public-contributions": (
             str(
                 (
@@ -3026,8 +3159,21 @@ def _assert_env_allowlist(
         or any(character not in "0123456789abcdef" for character in commit)
         or env["EA_MANFRED_DEPLOYMENT_ID"]
         != f"{env['EA_MANFRED_COMPOSE_PROJECT']}-{commit[:12]}"
+        or env["EA_MEMORIAL_DEPLOYMENT_ID"]
+        != env["EA_MANFRED_DEPLOYMENT_ID"]
     ):
         raise RuntimeError("manfred_candidate_release_identity_invalid")
+    conversation_modes = (
+        env["EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION"],
+        env["EA_MEMORIAL_VOICE_PREVIEW_ENABLED"],
+        env["EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES"],
+    )
+    if (
+        env["EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH"]
+        != CONVERSATION_PREREQUISITES_CONTAINER_PATH
+        or conversation_modes not in {("0", "1", "1"), ("1", "0", "0")}
+    ):
+        raise RuntimeError("manfred_candidate_conversation_release_env_invalid")
     if (
         env["EA_MANFRED_MEMORIAL_SURFACE"] != MEMORIAL_SURFACE
         or env["EA_MANFRED_SPATIAL_SCOPE"] != SPATIAL_SCOPE

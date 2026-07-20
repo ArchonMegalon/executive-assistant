@@ -6,10 +6,10 @@ services:
     environment:
       - EA_SOURCE_REVISION=${EA_SOURCE_REVISION:?set EA_SOURCE_REVISION for memorial deployments}
       - EA_DEPLOY_PRIMARY_MODE=MEMORIAL
-      - EA_DEPLOY_ENABLED_MODES=MEMORIAL,PROPERTY
+      - EA_DEPLOY_ENABLED_MODES=MEMORIAL
       - EA_ENABLE_PUBLIC_MEMORIALS=${EA_ENABLE_PUBLIC_MEMORIALS:-1}
-      - EA_ENABLE_PUBLIC_TOURS=1
-      - PROPERTYQUARRY_ENABLE_PUBLIC_TOURS=1
+      - EA_ENABLE_PUBLIC_TOURS=0
+      - PROPERTYQUARRY_ENABLE_PUBLIC_TOURS=0
       - EA_HEALTHCHECK_MEMORIAL_SLUG=${EA_HEALTHCHECK_MEMORIAL_SLUG:-manfred}
       - EA_PUBLIC_MEMORIAL_RATE_BACKEND=${EA_PUBLIC_MEMORIAL_RATE_BACKEND:-redis}
       - EA_PUBLIC_MEMORIAL_REDIS_URL=${EA_PUBLIC_MEMORIAL_REDIS_URL:-redis://ea-redis:6379/0}
@@ -27,7 +27,13 @@ services:
       - EA_RELEASE_MANIFEST_PATH=/data/memorial_data/release-authority/release_manifest.generated.json
       - EA_DEPLOY_CONTEXT_PATH=/data/memorial_data/release-authority/deploy_context.generated.json
       - EA_PROJECT_MODES_MANIFEST_PATH=/data/memorial_data/release-authority/PROJECT_MODES.generated.json
+      - EA_MEMORIAL_DEPLOYMENT_ID=${EA_MEMORIAL_DEPLOYMENT_ID:?set the exact sealed memorial deployment id}
+      - EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH=${EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH:?set the sealed Manfred conversation-prerequisites path}
+      - EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION=${EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION:?set the sealed public voice activation decision}
+      - EA_MEMORIAL_VOICE_PREVIEW_ENABLED=${EA_MEMORIAL_VOICE_PREVIEW_ENABLED:?set the sealed operator preview decision}
+      - EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES=${EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES:?set the sealed memorial operator-surface decision}
       - EA_MEMORIAL_LIVE_TTS_PLUGIN=${EA_MEMORIAL_LIVE_TTS_PLUGIN:-unmixr_clone}
+      - EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH=/data/memorial-writable/state/gemini-oauth/oauth_creds.json
       - EA_TRUST_API_TOKEN_PRINCIPAL_HEADER=0
       - EA_TRUST_PROXY_HEADERS=1
       - EA_TRUSTED_PROXY_CIDRS=${EA_MEMORIAL_TRUSTED_PROXY_CIDRS:?set the exact trusted memorial proxy CIDR}

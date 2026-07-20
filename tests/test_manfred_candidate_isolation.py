@@ -67,7 +67,11 @@ class _FakeCandidateVexpAuthority:
         }
 
 
-def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+def _candidate_env(
+    tmp_path: Path,
+    *,
+    conversation_prerequisites_included: bool = False,
+) -> tuple[Path, dict[str, str]]:
     env_file = (tmp_path / "candidate.env").resolve()
     release_root = (tmp_path / "releases" / "release-a").resolve()
     runtime_root = (tmp_path / "runtime").resolve()
@@ -75,10 +79,16 @@ def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     authority_root = release_root / prepare.CANDIDATE_RELEASE_AUTHORITY_DIRNAME
     authority_root.mkdir()
     runtime_root.mkdir(parents=True)
+    conversation_modes = (
+        ("1", "0", "0")
+        if conversation_prerequisites_included
+        else ("0", "1", "1")
+    )
+    deployment_id = f"{PROJECT}-{COMMIT[:12]}"
     values = {
         "EA_MANFRED_COMPOSE_PROJECT": PROJECT,
         "EA_MANFRED_COMMIT": COMMIT,
-        "EA_MANFRED_DEPLOYMENT_ID": f"{PROJECT}-{COMMIT[:12]}",
+        "EA_MANFRED_DEPLOYMENT_ID": deployment_id,
         "EA_MANFRED_IMAGE": f"ea-runtime:manfred-{COMMIT}",
         "EA_MANFRED_ENV_FILE": str(env_file),
         "EA_MANFRED_RELEASE_ROOT": str(release_root),
@@ -87,6 +97,13 @@ def _candidate_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         "EA_MANFRED_MEMORIAL_SURFACE": prepare.MEMORIAL_SURFACE,
         "EA_MANFRED_SPATIAL_SCOPE": prepare.SPATIAL_SCOPE,
         "EA_MANFRED_HOST_PORT": "18091",
+        "EA_MEMORIAL_DEPLOYMENT_ID": deployment_id,
+        "EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH": (
+            prepare.CONVERSATION_PREREQUISITES_CONTAINER_PATH
+        ),
+        "EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION": conversation_modes[0],
+        "EA_MEMORIAL_VOICE_PREVIEW_ENABLED": conversation_modes[1],
+        "EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES": conversation_modes[2],
         "EA_MANFRED_POSTGRES_PASSWORD": "p" * 64,
         "DATABASE_URL": "postgresql://ea:private@postgres:5432/ea",
         "EA_API_TOKEN": "a" * 64,
@@ -121,6 +138,12 @@ def _compose_payloads(env_file: Path, env: dict[str, str]) -> tuple[dict, dict]:
             "type": "bind",
             "source": str(release_root / "memorial_archive"),
             "target": "/data/memorial/archive",
+            "read_only": True,
+        },
+        {
+            "type": "bind",
+            "source": str(release_root / prepare.CONVERSATION_RELEASE_DIRNAME),
+            "target": "/data/memorial_data/conversation-release",
             "read_only": True,
         },
         {
@@ -2004,6 +2027,15 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
                 "spatial_scope": prepare.SPATIAL_SCOPE,
                 "public_property_tours_packaged": False,
                 "memorial_spatial_receipt_generated": False,
+                "conversation_prerequisites_included": False,
+                "public_voice_activation_intended": False,
+                "conversation_release_files": [],
+                "conversation_prerequisites_effective_expires_at": "",
+                "conversation_prerequisites_sha256": "",
+                "conversation_readiness_receipt_sha256": "",
+                "conversation_room_audio_receipt_sha256": "",
+                "conversation_evidence_sha256": {},
+                "conversation_source_state_fingerprint": "",
                 "image_build_authority_binding": image_build_authority_binding,
             }
         ),
@@ -2042,6 +2074,11 @@ def test_projection_receipt_binds_safe_release_root_digest_image_and_project(
         "spatial_scope": prepare.SPATIAL_SCOPE,
         "public_property_tours_packaged": False,
         "memorial_spatial_receipt_generated": False,
+        "conversation_prerequisites_included": False,
+        "public_voice_activation_intended": False,
+        "conversation_release_files": [],
+        "conversation_prerequisites_sha256": "",
+        "conversation_prerequisites_effective_expires_at": "",
         "release_authority": release_authority_evidence,
     }
 

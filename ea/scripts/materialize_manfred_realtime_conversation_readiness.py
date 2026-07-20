@@ -600,6 +600,42 @@ def _valid_sha256(value: object) -> bool:
     )
 
 
+def _resolved_source_binding(
+    *,
+    expected_source_git_head: str | None = None,
+    expected_source_state_fingerprint: str | None = None,
+) -> tuple[str, str]:
+    """Resolve the legacy worktree binding or validate an explicit pair."""
+    if (
+        expected_source_git_head is None
+        and expected_source_state_fingerprint is None
+    ):
+        return (
+            resolve_source_state_head(REPO_ROOT),
+            resolve_source_worktree_fingerprint(REPO_ROOT),
+        )
+    if (
+        expected_source_git_head is None
+        or expected_source_state_fingerprint is None
+    ):
+        raise UnsafeLocalFileError("local_expected_source_binding_incomplete")
+    if not (
+        isinstance(expected_source_git_head, str)
+        and len(expected_source_git_head) == 40
+        and expected_source_git_head == expected_source_git_head.lower()
+        and all(
+            character in "0123456789abcdef"
+            for character in expected_source_git_head
+        )
+    ):
+        raise UnsafeLocalFileError("local_expected_source_git_head_invalid")
+    if not _valid_sha256(expected_source_state_fingerprint):
+        raise UnsafeLocalFileError(
+            "local_expected_source_state_fingerprint_invalid"
+        )
+    return expected_source_git_head, expected_source_state_fingerprint
+
+
 def _strict_nonnegative_int(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
@@ -1514,8 +1550,8 @@ def _load_evidence_receipt(
     root_missing: bool = False,
     receipt_name: str,
     expected_contract: str,
-    current_head: str,
-    current_fingerprint: str,
+    expected_source_git_head: str,
+    expected_source_state_fingerprint: str,
     max_age_seconds: int,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     evidence: dict[str, Any] = {
@@ -1594,13 +1630,16 @@ def _load_evidence_receipt(
             ),
             "source_git_head_present": bool(recorded_head),
             "source_git_head_matches_current": bool(
-                recorded_head and current_head and recorded_head == current_head
+                recorded_head
+                and expected_source_git_head
+                and recorded_head == expected_source_git_head
             ),
             "source_state_fingerprint_present": bool(recorded_fingerprint),
             "source_state_matches_current": bool(
                 recorded_fingerprint
-                and current_fingerprint
-                and recorded_fingerprint == current_fingerprint
+                and expected_source_state_fingerprint
+                and recorded_fingerprint
+                == expected_source_state_fingerprint
                 and payload.get("source_state_fingerprint_semantics")
                 == "worktree_source_files_sha256_excluding_generated_only_paths"
             ),
@@ -1642,9 +1681,17 @@ def _operator_status_from_receipts(
     receipt_root: str | Path = DEFAULT_EVIDENCE_ROOT,
     *,
     receipt_root_fd: int | None = None,
+    expected_source_git_head: str | None = None,
+    expected_source_state_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     if receipt_root_fd is None and not str(receipt_root).strip():
         raise UnsafeLocalFileError("local_evidence_root_empty")
+    current_head, current_fingerprint = _resolved_source_binding(
+        expected_source_git_head=expected_source_git_head,
+        expected_source_state_fingerprint=(
+            expected_source_state_fingerprint
+        ),
+    )
     try:
         opened_root_fd = (
             _open_directory_fd(receipt_root)
@@ -1652,10 +1699,18 @@ def _operator_status_from_receipts(
             else _duplicate_directory_fd(receipt_root_fd)
         )
     except FileNotFoundError:
-        return _operator_status_from_open_receipts(None)
+        return _operator_status_from_open_receipts(
+            None,
+            expected_source_git_head=current_head,
+            expected_source_state_fingerprint=current_fingerprint,
+        )
     try:
         initial_root_snapshot = _directory_fd_snapshot(opened_root_fd)
-        result = _operator_status_from_open_receipts(opened_root_fd)
+        result = _operator_status_from_open_receipts(
+            opened_root_fd,
+            expected_source_git_head=current_head,
+            expected_source_state_fingerprint=current_fingerprint,
+        )
         if _directory_fd_snapshot(opened_root_fd) != initial_root_snapshot:
             raise UnsafeLocalFileError(
                 "local_evidence_root_changed_during_aggregation"
@@ -1667,9 +1722,16 @@ def _operator_status_from_receipts(
 
 def _operator_status_from_open_receipts(
     receipt_root_fd: int | None,
+    *,
+    expected_source_git_head: str | None = None,
+    expected_source_state_fingerprint: str | None = None,
 ) -> dict[str, Any]:
-    current_head = resolve_source_state_head(REPO_ROOT)
-    current_fingerprint = resolve_source_worktree_fingerprint(REPO_ROOT)
+    current_head, current_fingerprint = _resolved_source_binding(
+        expected_source_git_head=expected_source_git_head,
+        expected_source_state_fingerprint=(
+            expected_source_state_fingerprint
+        ),
+    )
     receipts: dict[str, dict[str, Any]] = {}
     evidence: dict[str, dict[str, Any]] = {}
     for key, (receipt_name, expected_contract) in EVIDENCE_RECEIPTS.items():
@@ -1678,8 +1740,8 @@ def _operator_status_from_open_receipts(
             root_missing=receipt_root_fd is None,
             receipt_name=receipt_name,
             expected_contract=expected_contract,
-            current_head=current_head,
-            current_fingerprint=current_fingerprint,
+            expected_source_git_head=current_head,
+            expected_source_state_fingerprint=current_fingerprint,
             max_age_seconds=EVIDENCE_MAX_AGE_SECONDS[key],
         )
         receipts[key] = payload

@@ -32,6 +32,7 @@ try:
     )
     from scripts.manfred_candidate_fleet_lock import hold_candidate_fleet_lock
     from scripts.materialize_release_authority_status import build_status
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
     from scripts.verify_deploy_context import verify as verify_deploy_context
     from scripts.verify_release_authority import validate_release_authority
     from scripts.verify_release_manifest_runtime_mode import (
@@ -46,6 +47,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
     )
     from manfred_candidate_fleet_lock import hold_candidate_fleet_lock
     from materialize_release_authority_status import build_status
+    from source_state_head import resolve_source_worktree_fingerprint
     from verify_deploy_context import verify as verify_deploy_context
     from verify_release_authority import validate_release_authority
     from verify_release_manifest_runtime_mode import (
@@ -199,6 +201,44 @@ OFFICIAL_EA_REMOTE_ORIGIN = "https://github.com/ArchonMegalon/executive-assistan
 OFFICIAL_EA_REMOTE_ORIGINS = frozenset({OFFICIAL_EA_REMOTE_ORIGIN})
 LIVE_REMOTE_REF_EVIDENCE = "isolated_git_ls_remote_exact_https_ref"
 PRIVATE_OUTPUT_MAX_BYTES = 8 * 1024 * 1024
+CONVERSATION_RELEASE_DIRNAME = "conversation-release"
+CONVERSATION_PREREQUISITES_FILENAME = (
+    "manfred_realtime_conversation_release.generated.json"
+)
+CONVERSATION_READINESS_FILENAME = (
+    "manfred_realtime_conversation_readiness.generated.json"
+)
+CONVERSATION_ROOM_FILENAME = (
+    "memorial_room_audio_public_origin.generated.json"
+)
+CONVERSATION_PREREQUISITES_CONTAINER_PATH = (
+    "/data/memorial_data/conversation-release/"
+    + CONVERSATION_PREREQUISITES_FILENAME
+)
+CONVERSATION_EVIDENCE_FILENAMES = {
+    "captured_candidate_diagnostic": (
+        "memorial_stt_captured_candidate_diagnostic.generated.json"
+    ),
+    "realtime_browser": (
+        "memorial_realtime_browser_public_origin.generated.json"
+    ),
+    "room_audio": CONVERSATION_ROOM_FILENAME,
+    "room_audio_attestation_packet": (
+        "memorial_room_audio_attestation_packet.generated.json"
+    ),
+    "stt_benchmark": "memorial_stt_provider_benchmark.generated.json",
+    "stt_candidate": "memorial_stt_fixture_candidate.generated.json",
+    "stt_captured_benchmark": (
+        "memorial_stt_provider_benchmark_captured_candidate.generated.json"
+    ),
+    "voice_roundtrip": (
+        "memorial_voice_roundtrip_public_origin.generated.json"
+    ),
+}
+CONVERSATION_VERIFY_CONTRACT = (
+    "ea.manfred_realtime_conversation_release.verify.v1"
+)
+MEMORIAL_ENABLED_PROJECT_MODES = ("MEMORIAL",)
 
 
 def _validate_project_name(value: object) -> str:
@@ -2297,7 +2337,7 @@ def _materialize_candidate_release_authority(
         raise ValueError("manfred_candidate_release_identity_mismatch")
     remote = _candidate_remote_main_evidence(source_root, commit=commit)
     deployment_id = f"{project_name}-{commit[:12]}"
-    enabled_modes = ["MEMORIAL", "PROPERTY"]
+    enabled_modes = list(MEMORIAL_ENABLED_PROJECT_MODES)
     compose_files = ["deploy/manfred-memorial/docker-compose.candidate.yml"]
     paths = _candidate_release_authority_paths(root)
     container_paths = _candidate_release_authority_container_paths()
@@ -2546,7 +2586,7 @@ def _validate_candidate_release_authority_bundle(
             release_manifest=manifest,
             project_modes=project_modes,
             requested_mode="MEMORIAL",
-            enabled_modes=["MEMORIAL", "PROPERTY"],
+            enabled_modes=list(MEMORIAL_ENABLED_PROJECT_MODES),
             compose_overrides=[],
             manfred_composite_candidate_observed=True,
         )
@@ -2561,7 +2601,8 @@ def _validate_candidate_release_authority_bundle(
         or manifest.get("deployment_id") != expected_deployment_id
         or manifest.get("public_origin") != expected_public_origin
         or manifest.get("project_mode") != "MEMORIAL"
-        or manifest.get("enabled_project_modes") != ["MEMORIAL", "PROPERTY"]
+        or manifest.get("enabled_project_modes")
+        != list(MEMORIAL_ENABLED_PROJECT_MODES)
         or manifest.get("compose_files")
         != ["deploy/manfred-memorial/docker-compose.candidate.yml"]
         or manifest.get("compose_overrides") != []
@@ -2613,7 +2654,7 @@ def _validate_candidate_release_authority_bundle(
         "live_remote_ref_commit_sha": expected_commit,
         "live_remote_ref_evidence": LIVE_REMOTE_REF_EVIDENCE,
         "project_mode": "MEMORIAL",
-        "enabled_project_modes": ["MEMORIAL", "PROPERTY"],
+        "enabled_project_modes": list(MEMORIAL_ENABLED_PROJECT_MODES),
         "container_paths": container_paths,
         "documents": document_evidence,
         "runtime_authority_state": "clear",
@@ -3176,6 +3217,183 @@ def _parse_env(path: Path) -> dict[str, str]:
     return _parse_env_bytes(content)
 
 
+def _canonical_conversation_prerequisites_verification(
+    *,
+    receipt_path: Path,
+    readiness_receipt_path: Path,
+    readiness_evidence_root: Path,
+    room_receipt_path: Path,
+    tts_voice_path: Path,
+    release_manifest_path: Path,
+    release_authority_status_path: Path,
+    project_modes_path: Path,
+    expected_source_git_head: str,
+    expected_source_state_fingerprint: str,
+) -> dict[str, object]:
+    try:
+        module_root = Path(__file__).resolve().parents[1]
+        if str(module_root) not in sys.path:
+            sys.path.insert(0, str(module_root))
+        from ea.scripts.manfred_realtime_conversation_release import (  # noqa: PLC0415
+            verify_manfred_realtime_conversation_release,
+        )
+
+        result = verify_manfred_realtime_conversation_release(
+            receipt_path=receipt_path,
+            readiness_receipt_path=readiness_receipt_path,
+            readiness_evidence_root=readiness_evidence_root,
+            room_receipt_path=room_receipt_path,
+            tts_voice_path=tts_voice_path,
+            release_manifest_path=release_manifest_path,
+            release_authority_status_path=release_authority_status_path,
+            project_modes_path=project_modes_path,
+            expected_source_git_head=expected_source_git_head,
+            expected_source_state_fingerprint=(
+                expected_source_state_fingerprint
+            ),
+        )
+    except (ImportError, OSError, RuntimeError, ValueError) as exc:
+        raise ValueError(
+            "manfred_candidate_conversation_prerequisites_unverifiable"
+        ) from exc
+    expected = {
+        "contract_name": CONVERSATION_VERIFY_CONTRACT,
+        "status": "pass",
+        "issues": [],
+    }
+    if result != expected:
+        raise ValueError("manfred_candidate_conversation_prerequisites_not_pass")
+    return dict(result)
+
+
+def _stage_conversation_prerequisites(
+    *,
+    receipt_path: Path,
+    evidence_root: Path,
+    destination_root: Path,
+    source_tts_voice_path: Path,
+    staged_tts_voice_path: Path,
+    authority_root: Path,
+    expected_source_git_head: str,
+    expected_source_state_fingerprint: str,
+) -> dict[str, object]:
+    if (
+        not COMMIT_RE.fullmatch(expected_source_git_head)
+        or not SHA256_RE.fullmatch(expected_source_state_fingerprint)
+    ):
+        raise ValueError("manfred_candidate_conversation_source_binding_invalid")
+    normalized_receipt = Path(
+        os.path.abspath(os.fspath(receipt_path.expanduser()))
+    )
+    normalized_evidence_root = Path(
+        os.path.abspath(os.fspath(evidence_root.expanduser()))
+    )
+    readiness_path = normalized_evidence_root / CONVERSATION_READINESS_FILENAME
+    room_path = normalized_evidence_root / CONVERSATION_ROOM_FILENAME
+    authority_paths = _candidate_release_authority_paths(authority_root)
+    verification_arguments = {
+        "readiness_receipt_path": readiness_path,
+        "readiness_evidence_root": normalized_evidence_root,
+        "room_receipt_path": room_path,
+        "release_manifest_path": authority_paths["release_manifest"],
+        "release_authority_status_path": authority_paths["release_status"],
+        "project_modes_path": authority_paths["project_modes"],
+        "expected_source_git_head": expected_source_git_head,
+        "expected_source_state_fingerprint": (
+            expected_source_state_fingerprint
+        ),
+    }
+    _canonical_conversation_prerequisites_verification(
+        receipt_path=normalized_receipt,
+        tts_voice_path=source_tts_voice_path,
+        **verification_arguments,
+    )
+
+    source_files = {
+        CONVERSATION_PREREQUISITES_FILENAME: normalized_receipt,
+        CONVERSATION_READINESS_FILENAME: readiness_path,
+        **{
+            filename: normalized_evidence_root / filename
+            for filename in CONVERSATION_EVIDENCE_FILENAMES.values()
+        },
+    }
+    copied: dict[str, dict[str, object]] = {}
+    for filename, source_path in sorted(source_files.items()):
+        content = _read_regular_source(
+            source_path,
+            maximum=PRIVATE_OUTPUT_MAX_BYTES,
+        )
+        if content is None:  # pragma: no cover - missing_ok is false
+            raise ValueError("manfred_candidate_source_asset_missing")
+        copied[filename] = _write_bytes(
+            destination_root / filename,
+            content,
+            mode=0o400,
+        )
+
+    staged_arguments = {
+        **verification_arguments,
+        "readiness_receipt_path": (
+            destination_root / CONVERSATION_READINESS_FILENAME
+        ),
+        "readiness_evidence_root": destination_root,
+        "room_receipt_path": destination_root / CONVERSATION_ROOM_FILENAME,
+    }
+    _canonical_conversation_prerequisites_verification(
+        receipt_path=(
+            destination_root / CONVERSATION_PREREQUISITES_FILENAME
+        ),
+        tts_voice_path=staged_tts_voice_path,
+        **staged_arguments,
+    )
+    packet_bytes = _read_regular_source(
+        destination_root / CONVERSATION_PREREQUISITES_FILENAME,
+        maximum=PRIVATE_OUTPUT_MAX_BYTES,
+    )
+    if packet_bytes is None:  # pragma: no cover - missing_ok is false
+        raise ValueError("manfred_candidate_source_asset_missing")
+    packet = _strict_json_object(
+        packet_bytes,
+        error="manfred_candidate_conversation_prerequisites_invalid",
+    )
+    effective_expires_at = str(packet.get("effective_expires_at") or "").strip()
+    if (
+        packet.get("status") != "pass"
+        or packet.get("conversation_prerequisites_pass") is not True
+        or packet.get("source_git_head") != expected_source_git_head
+        or packet.get("source_state_fingerprint")
+        != expected_source_state_fingerprint
+        or not effective_expires_at
+    ):
+        raise ValueError("manfred_candidate_conversation_prerequisites_invalid")
+    return {
+        "effective_expires_at": effective_expires_at,
+        "packet_sha256": copied[CONVERSATION_PREREQUISITES_FILENAME][
+            "sha256"
+        ],
+        "readiness_receipt_sha256": copied[CONVERSATION_READINESS_FILENAME][
+            "sha256"
+        ],
+        "room_audio_receipt_sha256": copied[CONVERSATION_ROOM_FILENAME][
+            "sha256"
+        ],
+        "evidence_sha256": {
+            key: copied[filename]["sha256"]
+            for key, filename in sorted(
+                CONVERSATION_EVIDENCE_FILENAMES.items()
+            )
+        },
+        "source_state_fingerprint": expected_source_state_fingerprint,
+        "files": [
+            {
+                "path": f"{CONVERSATION_RELEASE_DIRNAME}/{filename}",
+                **copied[filename],
+            }
+            for filename in sorted(copied)
+        ],
+    }
+
+
 def _write_env(
     *,
     path: Path,
@@ -3186,6 +3404,7 @@ def _write_env(
     host_port: int,
     project_name: str,
     commit: str,
+    conversation_prerequisites_included: bool = False,
     rotate_secrets: bool = False,
 ) -> None:
     if not COMMIT_RE.fullmatch(commit):
@@ -3215,6 +3434,19 @@ def _write_env(
         "EA_MANFRED_RUNTIME_ROOT": str(runtime_root.resolve()),
         "EA_MANFRED_MEMORIAL_SURFACE": MEMORIAL_SURFACE,
         "EA_MANFRED_SPATIAL_SCOPE": SPATIAL_SCOPE,
+        "EA_MEMORIAL_DEPLOYMENT_ID": deployment_id,
+        "EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH": (
+            CONVERSATION_PREREQUISITES_CONTAINER_PATH
+        ),
+        "EA_MEMORIAL_PUBLIC_VOICE_ACTIVATION": (
+            "1" if conversation_prerequisites_included else "0"
+        ),
+        "EA_MEMORIAL_VOICE_PREVIEW_ENABLED": (
+            "0" if conversation_prerequisites_included else "1"
+        ),
+        "EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES": (
+            "0" if conversation_prerequisites_included else "1"
+        ),
         "EA_MANFRED_HOST_PORT": str(host_port),
         "EA_MANFRED_POSTGRES_PASSWORD": postgres_password,
         "DATABASE_URL": f"postgresql://ea:{postgres_password}@postgres:5432/ea",
@@ -3266,6 +3498,8 @@ def prepare_candidate(
     spatial_authority_receipt: Path | None = None,
     spatial_final_review_receipt: Path | None = None,
     spatial_browser_review_receipt: Path | None = None,
+    conversation_prerequisites_receipt: Path | None = None,
+    conversation_evidence_root: Path | None = None,
     runtime_uid: int = 10001,
     runtime_gid: int = 10001,
     rotate_secrets: bool = False,
@@ -3276,6 +3510,12 @@ def prepare_candidate(
         raise ValueError("manfred_candidate_host_port_invalid")
     project_name = _validate_project_name(project_name)
     public_base_url = _validate_public_base_url(public_base_url)
+    if (conversation_prerequisites_receipt is None) != (
+        conversation_evidence_root is None
+    ):
+        raise ValueError(
+            "manfred_candidate_conversation_prerequisites_inputs_incomplete"
+        )
     if any(
         value is not None
         for value in (
@@ -3444,6 +3684,38 @@ def prepare_candidate(
             generated_at=authority_generated_at,
             public_artifacts=public_release_artifacts,
         )
+        conversation_prerequisites_included = (
+            conversation_prerequisites_receipt is not None
+        )
+        conversation_prerequisites: dict[str, object] = {
+            "effective_expires_at": "",
+            "evidence_sha256": {},
+            "files": [],
+            "packet_sha256": "",
+            "readiness_receipt_sha256": "",
+            "room_audio_receipt_sha256": "",
+            "source_state_fingerprint": "",
+        }
+        conversation_release_root = staging / CONVERSATION_RELEASE_DIRNAME
+        conversation_release_root.mkdir(mode=0o700)
+        if conversation_prerequisites_included:
+            source_state_fingerprint = resolve_source_worktree_fingerprint(
+                source_root
+            )
+            if not SHA256_RE.fullmatch(source_state_fingerprint):
+                raise ValueError(
+                    "manfred_candidate_conversation_source_fingerprint_invalid"
+                )
+            conversation_prerequisites = _stage_conversation_prerequisites(
+                receipt_path=conversation_prerequisites_receipt,
+                evidence_root=conversation_evidence_root,
+                destination_root=conversation_release_root,
+                source_tts_voice_path=private_source / "tts_voice.json",
+                staged_tts_voice_path=private_root / "tts_voice.json",
+                authority_root=authority_root,
+                expected_source_git_head=commit,
+                expected_source_state_fingerprint=source_state_fingerprint,
+            )
         _set_modes(staging)
         _authority_digest, authority_files = _tree_digest(authority_root)
         file_receipts.extend(
@@ -3455,6 +3727,46 @@ def prepare_candidate(
             for row in authority_files
         )
         projection_sha256, projected_files = _tree_digest(staging)
+        conversation_projection_files = [
+            dict(row)
+            for row in projected_files
+            if str(row.get("path") or "").startswith(
+                f"{CONVERSATION_RELEASE_DIRNAME}/"
+            )
+        ]
+        expected_conversation_files = list(
+            conversation_prerequisites.get("files") or []
+        )
+        if conversation_prerequisites_included:
+            expected_by_path = {
+                str(row.get("path") or ""): {
+                    "sha256": row.get("sha256"),
+                    "size_bytes": row.get("size_bytes"),
+                }
+                for row in expected_conversation_files
+                if isinstance(row, dict)
+            }
+            observed_by_path = {
+                str(row.get("path") or ""): {
+                    "sha256": row.get("sha256"),
+                    "size_bytes": row.get("size_bytes"),
+                }
+                for row in conversation_projection_files
+            }
+            if (
+                expected_by_path != observed_by_path
+                or any(
+                    row.get("mode") != "440"
+                    for row in conversation_projection_files
+                )
+            ):
+                raise ValueError(
+                    "manfred_candidate_conversation_projection_mismatch"
+                )
+        elif conversation_projection_files:
+            raise ValueError(
+                "manfred_candidate_conversation_projection_unexpected"
+            )
         release_id = f"{commit[:12]}-{projection_sha256[:12]}"
         release_root = releases_root / release_id
         _install_or_verify_release(
@@ -3493,6 +3805,9 @@ def prepare_candidate(
             host_port=host_port,
             project_name=project_name,
             commit=commit,
+            conversation_prerequisites_included=(
+                conversation_prerequisites_included
+            ),
             rotate_secrets=rotate_secrets,
         )
         release_authority = _validate_candidate_release_authority_bundle(
@@ -3532,6 +3847,31 @@ def prepare_candidate(
             "spatial_scope": SPATIAL_SCOPE,
             "public_property_tours_packaged": False,
             "memorial_spatial_receipt_generated": False,
+            "conversation_prerequisites_included": (
+                conversation_prerequisites_included
+            ),
+            "public_voice_activation_intended": (
+                conversation_prerequisites_included
+            ),
+            "conversation_prerequisites_effective_expires_at": (
+                conversation_prerequisites["effective_expires_at"]
+            ),
+            "conversation_prerequisites_sha256": (
+                conversation_prerequisites["packet_sha256"]
+            ),
+            "conversation_readiness_receipt_sha256": (
+                conversation_prerequisites["readiness_receipt_sha256"]
+            ),
+            "conversation_room_audio_receipt_sha256": (
+                conversation_prerequisites["room_audio_receipt_sha256"]
+            ),
+            "conversation_evidence_sha256": (
+                conversation_prerequisites["evidence_sha256"]
+            ),
+            "conversation_source_state_fingerprint": (
+                conversation_prerequisites["source_state_fingerprint"]
+            ),
+            "conversation_release_files": conversation_projection_files,
             "release_authority": release_authority,
             "release_authority_runtime_clear": True,
             "release_authority_promotion_authority": False,
@@ -3586,6 +3926,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--spatial-browser-review-receipt",
         help="Rejected for the conversation-only Memorial contract.",
     )
+    parser.add_argument(
+        "--conversation-prerequisites-receipt",
+        help=(
+            "Optional private canonical Manfred conversation-prerequisites "
+            "packet; requires --conversation-evidence-root."
+        ),
+    )
+    parser.add_argument(
+        "--conversation-evidence-root",
+        help=(
+            "Trusted directory containing the exact readiness, room, and "
+            "eight evidence receipts bound by the prerequisites packet."
+        ),
+    )
     return parser
 
 
@@ -3619,6 +3973,16 @@ def main(argv: list[str] | None = None) -> int:
             spatial_browser_review_receipt=(
                 Path(args.spatial_browser_review_receipt)
                 if args.spatial_browser_review_receipt
+                else None
+            ),
+            conversation_prerequisites_receipt=(
+                Path(args.conversation_prerequisites_receipt)
+                if args.conversation_prerequisites_receipt
+                else None
+            ),
+            conversation_evidence_root=(
+                Path(args.conversation_evidence_root)
+                if args.conversation_evidence_root
                 else None
             ),
             rotate_secrets=args.rotate_secrets,

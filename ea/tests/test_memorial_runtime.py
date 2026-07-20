@@ -15,6 +15,25 @@ from app.api.routes import public_memorials
 from app.services.memorial_turn_runtime import runtime_from_shared
 
 
+def _gemini_connect_unavailable(
+    reason: str = "",
+    *,
+    state: str = "unavailable",
+    cooldown_remaining_seconds: float = 0.0,
+) -> tuple[str, dict[str, str], str, dict[str, object]]:
+    return (
+        "",
+        {},
+        "",
+        {
+            "mode": "",
+            "state": state,
+            "reason": reason,
+            "cooldown_remaining_seconds": cooldown_remaining_seconds,
+        },
+    )
+
+
 class MemorialRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
         public_memorials._MEMORIAL_RUNTIME_READINESS_CACHE_STATE.clear()
@@ -812,7 +831,15 @@ class MemorialRuntimeTests(unittest.TestCase):
             patch.object(public_memorials, "_resolve_server_tts_plugin", return_value=("unmixr", {"tts_plugin_enabled": True})),
             patch.object(public_memorials, "_load_private_profile", return_value={}),
             patch.object(public_memorials, "_resolve_memorial_voice_chat_model", return_value="gemini-2.5-flash"),
-            patch.object(public_memorials, "_gemini_live_available", return_value=False),
+            patch.object(
+                public_memorials,
+                "_gemini_live_connect_target_with_status",
+                return_value=_gemini_connect_unavailable(
+                    "credential_state_write_failed",
+                    state="cooldown",
+                    cooldown_remaining_seconds=120.0,
+                ),
+            ),
         ):
             readiness = public_memorials._memorial_runtime_readiness("manfred")
 
@@ -822,7 +849,15 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertFalse(readiness["realtime_ready"])
         self.assertTrue(readiness["ready"])
         self.assertIn("realtime_backend_unavailable", readiness["degraded_reasons"])
+        self.assertIn(
+            "gemini_oauth_refresh_cooldown",
+            readiness["degraded_reasons"],
+        )
         self.assertIn("check_memorial_realtime_backend", readiness["next_actions"])
+        self.assertIn(
+            "repair_or_force_refresh_memorial_gemini_oauth",
+            readiness["next_actions"],
+        )
         self.assertIn("continue_with_spoken_turn_fallback", readiness["next_actions"])
         self.assertTrue(readiness["operator_attention_recommended"])
         self.assertFalse(readiness["operator_action_required"])
@@ -831,6 +866,15 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertEqual(readiness["readiness_ttl_state"], "refresh_soon")
         self.assertTrue(readiness["readiness_refresh_recommended"])
         self.assertEqual(readiness["operator_action_state"], "refresh_recommended")
+        self.assertEqual(
+            readiness["models"]["realtime_auth"],
+            {
+                "mode": "",
+                "state": "cooldown",
+                "reason": "credential_state_write_failed",
+                "cooldown_remaining_seconds": 120.0,
+            },
+        )
 
     def test_memorial_runtime_readiness_exposes_operator_recovery_actions_when_not_ready(self) -> None:
         with (
@@ -861,7 +905,11 @@ class MemorialRuntimeTests(unittest.TestCase):
             patch.object(public_memorials, "_resolve_server_tts_plugin", return_value=("unmixr", {"tts_plugin_enabled": False})),
             patch.object(public_memorials, "_load_private_profile", return_value={}),
             patch.object(public_memorials, "_resolve_memorial_voice_chat_model", return_value=""),
-            patch.object(public_memorials, "_gemini_live_available", return_value=False),
+            patch.object(
+                public_memorials,
+                "_gemini_live_connect_target_with_status",
+                return_value=_gemini_connect_unavailable(),
+            ),
         ):
             readiness = public_memorials._memorial_runtime_readiness("manfred")
 
@@ -1094,7 +1142,11 @@ class MemorialRuntimeTests(unittest.TestCase):
             patch.object(public_memorials, "_resolve_server_tts_plugin", return_value=("unmixr", {"tts_plugin_enabled": True})),
             patch.object(public_memorials, "_load_private_profile", return_value={}),
             patch.object(public_memorials, "_resolve_memorial_voice_chat_model", return_value="gemini-2.5-flash"),
-            patch.object(public_memorials, "_gemini_live_available", return_value=False),
+            patch.object(
+                public_memorials,
+                "_gemini_live_connect_target_with_status",
+                return_value=_gemini_connect_unavailable(),
+            ),
         ):
             readiness = public_memorials._memorial_runtime_readiness("manfred")
 
@@ -1139,7 +1191,11 @@ class MemorialRuntimeTests(unittest.TestCase):
             patch.object(public_memorials, "_resolve_server_tts_plugin", return_value=("unmixr", {"tts_plugin_enabled": True})),
             patch.object(public_memorials, "_load_private_profile", return_value={}),
             patch.object(public_memorials, "_resolve_memorial_voice_chat_model", return_value="gemini-2.5-flash"),
-            patch.object(public_memorials, "_gemini_live_available", return_value=False),
+            patch.object(
+                public_memorials,
+                "_gemini_live_connect_target_with_status",
+                return_value=_gemini_connect_unavailable(),
+            ),
         ):
             readiness = public_memorials._memorial_runtime_readiness("manfred")
 
@@ -1202,8 +1258,13 @@ class MemorialRuntimeTests(unittest.TestCase):
             patch.object(public_memorials, "_load_memorial", return_value={"slug": "manfred"}),
             patch.object(public_memorials, "_memorial_live_warmup_snapshot", return_value=snapshot),
             patch.object(public_memorials, "_memorial_runtime_readiness", return_value=readiness),
+            patch.object(public_memorials, "_memorial_voice_release_enforced", return_value=False),
+            patch.object(public_memorials, "_enforce_public_memorial_rate_limit", return_value=None),
         ):
-            response = public_memorials.public_memorial_warmup_status("manfred")
+            response = public_memorials.public_memorial_warmup_status(
+                "manfred",
+                SimpleNamespace(),
+            )
 
         payload = json.loads(response.body)
         self.assertEqual(response.status_code, 200)
@@ -1298,8 +1359,13 @@ class MemorialRuntimeTests(unittest.TestCase):
             ),
             patch.object(public_memorials, "_schedule_missing_memorial_voice_prewarm", return_value=True) as schedule_voice,
             patch.object(public_memorials, "_memorial_runtime_readiness", return_value=readiness),
+            patch.object(public_memorials, "_memorial_voice_release_enforced", return_value=False),
+            patch.object(public_memorials, "_enforce_public_memorial_rate_limit", return_value=None),
         ):
-            response = public_memorials.public_memorial_warmup_status("manfred")
+            response = public_memorials.public_memorial_warmup_status(
+                "manfred",
+                SimpleNamespace(),
+            )
 
         payload = json.loads(response.body)
         self.assertEqual(response.status_code, 200)
@@ -1369,19 +1435,27 @@ class MemorialRuntimeTests(unittest.TestCase):
         invalidate.assert_called_once_with("manfred")
 
     def test_public_memorial_readiness_returns_503_when_not_ready(self) -> None:
-        with patch.object(
-            public_memorials,
-            "_memorial_runtime_readiness",
-            return_value={
-                "slug": "manfred",
-                "ready": False,
-                "status": "warming",
-                "degraded_reasons": ["warmup_cold"],
-                "next_actions": ["run_memorial_warmup"],
-                "operator_action_required": True,
-            },
+        with (
+            patch.object(public_memorials, "_load_memorial", return_value={"slug": "manfred"}),
+            patch.object(
+                public_memorials,
+                "_memorial_runtime_readiness",
+                return_value={
+                    "slug": "manfred",
+                    "ready": False,
+                    "status": "warming",
+                    "degraded_reasons": ["warmup_cold"],
+                    "next_actions": ["run_memorial_warmup"],
+                    "operator_action_required": True,
+                },
+            ),
+            patch.object(public_memorials, "_memorial_voice_release_enforced", return_value=False),
+            patch.object(public_memorials, "_enforce_public_memorial_rate_limit", return_value=None),
         ):
-            response = public_memorials.public_memorial_readiness("manfred")
+            response = public_memorials.public_memorial_readiness(
+                "manfred",
+                SimpleNamespace(),
+            )
 
         self.assertEqual(response.status_code, 503)
         payload = json.loads(response.body)

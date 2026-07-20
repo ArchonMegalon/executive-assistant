@@ -20,6 +20,7 @@ import re
 import stat
 import subprocess  # nosec B404 - commands are fixed below
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -28,12 +29,19 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
+from typing import Any, BinaryIO, Callable, Iterator, Mapping, Protocol, Sequence
 
 try:
     from scripts.source_state_head import source_worktree_metadata
 except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from source_state_head import source_worktree_metadata
+
+try:
+    from scripts import verify_memorial_deploy_readiness as readiness_verifier
+    from scripts import verify_release_authority as release_authority_verifier
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    import verify_memorial_deploy_readiness as readiness_verifier  # type: ignore[no-redef]
+    import verify_release_authority as release_authority_verifier  # type: ignore[no-redef]
 
 try:
     from scripts.memorial_bind_source_guard import (
@@ -44,6 +52,27 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from memorial_bind_source_guard import (  # type: ignore[no-redef]
         BindSourceGuardError,
         validate_memorial_bind_sources,
+    )
+
+try:
+    from scripts.provision_memorial_gemini_oauth import (
+        CONTRACT as GEMINI_OAUTH_PROVISION_CONTRACT,
+        MAX_CREDENTIAL_BYTES as GEMINI_OAUTH_MAX_CREDENTIAL_BYTES,
+        TARGET_RELATIVE_PARTS as GEMINI_OAUTH_TARGET_RELATIVE_PARTS,
+        TARGET_UID as GEMINI_OAUTH_TARGET_UID,
+        CredentialSnapshot,
+        ProvisioningError as GeminiOAuthProvisioningError,
+        snapshot_source_credentials,
+    )
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from provision_memorial_gemini_oauth import (  # type: ignore[no-redef]
+        CONTRACT as GEMINI_OAUTH_PROVISION_CONTRACT,
+        MAX_CREDENTIAL_BYTES as GEMINI_OAUTH_MAX_CREDENTIAL_BYTES,
+        TARGET_RELATIVE_PARTS as GEMINI_OAUTH_TARGET_RELATIVE_PARTS,
+        TARGET_UID as GEMINI_OAUTH_TARGET_UID,
+        CredentialSnapshot,
+        ProvisioningError as GeminiOAuthProvisioningError,
+        snapshot_source_credentials,
     )
 
 try:
@@ -105,6 +134,37 @@ except ModuleNotFoundError as exc:  # pragma: no cover - direct script execution
 
 
 ROOT = Path(__file__).resolve().parents[1]
+GEMINI_OAUTH_SOURCE_PATH = Path("/home/tibor/.gemini/oauth_creds.json")
+GEMINI_OAUTH_SOURCE_TRUSTED_ROOT = Path("/home/tibor")
+GEMINI_OAUTH_INSTALL_ROOT = "/runtime"
+GEMINI_OAUTH_INSTALL_TARGET = (
+    f"{GEMINI_OAUTH_INSTALL_ROOT}/"
+    + "/".join(GEMINI_OAUTH_TARGET_RELATIVE_PARTS)
+)
+GEMINI_OAUTH_API_TARGET = (
+    "/data/memorial-writable/" + "/".join(GEMINI_OAUTH_TARGET_RELATIVE_PARTS)
+)
+GEMINI_OAUTH_BINDING_SCHEMA = "ea.memorial_gemini_oauth_binding.v1"
+GEMINI_OAUTH_PROVISION_STDOUT_MAX_BYTES = 4096
+GEMINI_OAUTH_PROVISION_TIMEOUT_SECONDS = 30.0
+GEMINI_OAUTH_PROVISION_PIDS_LIMIT = 32
+GEMINI_OAUTH_HELPER_IDENTITY_SCHEMA = "ea.memorial_gemini_oauth_helper_identity.v1"
+GEMINI_OAUTH_HELPER_NAME_READABLE_MAX_CHARS = 40
+GEMINI_OAUTH_HELPER_NAME_MAX_CHARS = 128
+GEMINI_OAUTH_DOCKER_ENV_ALLOWLIST = frozenset(
+    {
+        "DOCKER_CONFIG",
+        "DOCKER_CONTEXT",
+        "DOCKER_HOST",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "PATH",
+        "TMPDIR",
+        "USER",
+        "XDG_RUNTIME_DIR",
+    }
+)
 MEMORIAL_COMPOSE_FILE = "docker-compose.memorial.yml"
 PROJECT_NAME = "ea"
 API_SERVICE = "ea-api"
@@ -229,6 +289,7 @@ MAX_HTTP_BODY_BYTES = 2 * 1024 * 1024
 MAX_INTERNAL_OPENAPI_BYTES = 8 * 1024 * 1024
 MAX_FIXED_JSON_SCRIPT_OUTPUT_BYTES = 64 * 1024
 MAX_PRIVATE_RELEASE_EVIDENCE_BYTES = 2 * 1024 * 1024
+MAX_DEPLOYMENT_RECEIPT_BYTES = 8 * 1024 * 1024
 MAX_DEPLOYMENT_INPUT_BYTES = 8 * 1024 * 1024
 MAX_GIT_INDEX_LIST_BYTES = 16 * 1024 * 1024
 MAX_RECEIPT_CONTENT_TYPE_CHARS = 160
@@ -927,6 +988,18 @@ class DeployError(RuntimeError):
     """A fail-closed deployment or verification error."""
 
 
+class GeminiOAuthHelperExitUnconfirmed(DeployError):
+    """The one-shot helper may still own the credential mutation target."""
+
+
+class GeminiOAuthHelperNeverStarted(DeployError):
+    """A pre-run check denied the helper before Docker run was invoked."""
+
+
+class GeminiOAuthHelperNameCollision(GeminiOAuthHelperNeverStarted):
+    """The exact governed helper name was already present before invocation."""
+
+
 @dataclass(frozen=True)
 class HttpResponse:
     status: int
@@ -945,6 +1018,18 @@ class Runner(Protocol):
         env: Mapping[str, str],
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]: ...
+
+    def run_secret_stdin(
+        self,
+        args: Sequence[str],
+        *,
+        cwd: Path,
+        env: Mapping[str, str],
+        write_stdin: Callable[[BinaryIO], None],
+        timeout_seconds: float,
+        container_name: str,
+        max_output_bytes: int,
+    ) -> subprocess.CompletedProcess[bytes]: ...
 
 
 class SubprocessRunner:
@@ -975,6 +1060,217 @@ class SubprocessRunner:
         if check and completed.returncode != 0:
             raise DeployError(f"command_failed:{completed.returncode}:{executable}")
         return completed
+
+    def run_secret_stdin(
+        self,
+        args: Sequence[str],
+        *,
+        cwd: Path,
+        env: Mapping[str, str],
+        write_stdin: Callable[[BinaryIO], None],
+        timeout_seconds: float,
+        container_name: str,
+        max_output_bytes: int,
+    ) -> subprocess.CompletedProcess[bytes]:
+        """Stream a secret through a bounded anonymous pipe and prove exit."""
+
+        executable = Path(str(args[0] or "command")).name or "command"
+        if (
+            executable != "docker"
+            or re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,127}", container_name)
+            is None
+            or type(max_output_bytes) is not int
+            or not 0 < max_output_bytes <= 1024 * 1024
+            or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(float(timeout_seconds))
+            or timeout_seconds <= 0
+        ):
+            raise DeployError("secret_stdin_command_invalid")
+        process: subprocess.Popen[bytes] | None = None
+        try:
+            process = subprocess.Popen(  # nosec B603 - fixed executable/arguments
+                list(args),
+                cwd=cwd,
+                env=dict(env),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+            )
+        except OSError:
+            raise DeployError(
+                f"secret_stdin_command_unavailable:{executable}"
+            ) from None
+
+        if process.stdin is None or process.stdout is None or process.stderr is None:
+            process.kill()
+            process.wait()
+            raise DeployError(f"secret_stdin_stream_failed:{executable}")
+
+        stdin_stream = process.stdin
+        stdout_stream = process.stdout
+        stderr_stream = process.stderr
+        process.stdin = None
+        process.stdout = None
+        process.stderr = None
+        writer_failed = threading.Event()
+        reader_failed = threading.Event()
+        stdout_capture = bytearray()
+        stderr_capture = bytearray()
+
+        def write_secret() -> None:
+            try:
+                write_stdin(stdin_stream)
+            except BaseException:
+                writer_failed.set()
+            finally:
+                try:
+                    stdin_stream.close()
+                except OSError:
+                    pass
+
+        def read_bounded(stream: BinaryIO, target: bytearray) -> None:
+            try:
+                while True:
+                    chunk = stream.read(64 * 1024)
+                    if not chunk:
+                        break
+                    remaining = max_output_bytes + 1 - len(target)
+                    if remaining > 0:
+                        target.extend(chunk[:remaining])
+            except BaseException:
+                reader_failed.set()
+            finally:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
+        threads = [
+            threading.Thread(target=write_secret, daemon=True),
+            threading.Thread(
+                target=read_bounded,
+                args=(stdout_stream, stdout_capture),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=read_bounded,
+                args=(stderr_stream, stderr_capture),
+                daemon=True,
+            ),
+        ]
+        started_threads: list[threading.Thread] = []
+
+        def helper_container_absent() -> bool:
+            try:
+                observed = subprocess.run(  # nosec B603 - fixed Docker query
+                    [
+                        str(args[0]),
+                        "container",
+                        "ls",
+                        "--all",
+                        "--quiet",
+                        "--filter",
+                        f"name=^/{container_name}$",
+                    ],
+                    cwd=cwd,
+                    env=dict(env),
+                    check=False,
+                    capture_output=True,
+                    timeout=5.0,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return False
+            return observed.returncode == 0 and not observed.stdout.strip()
+
+        def stop_local_client() -> None:
+            if process.poll() is not None:
+                return
+            try:
+                process.terminate()
+            except OSError:
+                pass
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+                process.wait()
+
+        def join_streams() -> bool:
+            for thread in started_threads:
+                thread.join(timeout=2.0)
+            return len(started_threads) == len(threads) and not any(
+                thread.is_alive() for thread in started_threads
+            )
+
+        def wipe_captures() -> None:
+            for capture in (stdout_capture, stderr_capture):
+                for index in range(len(capture)):
+                    capture[index] = 0
+                capture.clear()
+
+        try:
+            for thread in threads:
+                thread.start()
+                started_threads.append(thread)
+            process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            stop_local_client()
+            streams_closed = join_streams()
+            absent = helper_container_absent()
+            wipe_captures()
+            if not streams_closed or not absent:
+                raise GeminiOAuthHelperExitUnconfirmed(
+                    "gemini_oauth_helper_exit_unconfirmed"
+                ) from None
+            raise DeployError(f"secret_stdin_command_timeout:{executable}") from None
+        except KeyboardInterrupt:
+            stop_local_client()
+            streams_closed = join_streams()
+            absent = helper_container_absent()
+            wipe_captures()
+            if not streams_closed or not absent:
+                raise GeminiOAuthHelperExitUnconfirmed(
+                    "gemini_oauth_helper_exit_unconfirmed"
+                ) from None
+            raise
+        except BaseException:
+            stop_local_client()
+            streams_closed = join_streams()
+            absent = helper_container_absent()
+            wipe_captures()
+            if not streams_closed or not absent:
+                raise GeminiOAuthHelperExitUnconfirmed(
+                    "gemini_oauth_helper_exit_unconfirmed"
+                ) from None
+            raise DeployError(f"secret_stdin_stream_failed:{executable}") from None
+
+        streams_closed = join_streams()
+        absent = helper_container_absent()
+        if (
+            not streams_closed
+            or not absent
+            or writer_failed.is_set()
+            or reader_failed.is_set()
+        ):
+            wipe_captures()
+            if not streams_closed or not absent:
+                raise GeminiOAuthHelperExitUnconfirmed(
+                    "gemini_oauth_helper_exit_unconfirmed"
+                )
+            raise DeployError(f"secret_stdin_stream_failed:{executable}")
+        stdout = bytes(stdout_capture)
+        stderr = bytes(stderr_capture)
+        wipe_captures()
+        return subprocess.CompletedProcess(
+            list(args),
+            process.returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )
 
 
 def _utc_now() -> str:
@@ -2263,6 +2559,13 @@ class MemorialDeployLane:
         bind_source_validator: Callable[..., dict[str, object]] = (
             validate_memorial_bind_sources
         ),
+        release_evidence_verifier: Callable[
+            [Mapping[str, bytes]],
+            tuple[Mapping[str, Any], Mapping[str, Any]],
+        ]
+        | None = None,
+        gemini_oauth_snapshot_factory: Callable[[], CredentialSnapshot]
+        | None = None,
     ) -> None:
         self.root = root.resolve()
         self.env = dict(os.environ if env is None else env)
@@ -2277,6 +2580,8 @@ class MemorialDeployLane:
         self.internal_openapi_snapshot = internal_openapi_snapshot
         self.durable_root_check = durable_root_check
         self.bind_source_validator = bind_source_validator
+        self.release_evidence_verifier = release_evidence_verifier
+        self.gemini_oauth_snapshot_factory = gemini_oauth_snapshot_factory
         self.env_file_values = _parse_env_file(self.root / ".env")
         self.deployment_id = _safe_deployment_id(self.env)
         self.memorial_image_reference = str(
@@ -2355,6 +2660,7 @@ class MemorialDeployLane:
             "project_name": PROJECT_NAME,
             "service_scope": [API_SERVICE, REDIS_SERVICE],
             "api_mutation_scope": [API_SERVICE],
+            "credential_mutation_scope": [GEMINI_OAUTH_API_TARGET],
             "memorial_surface": MEMORIAL_SURFACE,
             "spatial_scope": SPATIAL_SCOPE,
             "legacy_control_tour_configured_but_not_consumed": bool(
@@ -4491,6 +4797,11 @@ class MemorialDeployLane:
                         try:
                             require_postconditions()
                         except BaseException as postcheck_error:
+                            if isinstance(
+                                action_error,
+                                GeminiOAuthHelperExitUnconfirmed,
+                            ):
+                                raise action_error from postcheck_error
                             raise postcheck_error from action_error
                         raise
                     else:
@@ -4881,6 +5192,580 @@ class MemorialDeployLane:
                 timeout_seconds=remaining_seconds,
             )
         return self.runner.run(list(args), **run_kwargs)
+
+    def _run_secret_stdin(
+        self,
+        args: Sequence[str],
+        *,
+        env: Mapping[str, str],
+        write_stdin: Callable[[BinaryIO], None],
+        timeout_seconds: float,
+        container_name: str,
+        max_output_bytes: int,
+    ) -> subprocess.CompletedProcess[bytes]:
+        run_secret_stdin = getattr(self.runner, "run_secret_stdin", None)
+        if not callable(run_secret_stdin):
+            raise DeployError("gemini_oauth_secret_stdin_runner_unsupported")
+        try:
+            completed = run_secret_stdin(
+                list(args),
+                cwd=self.root,
+                env=dict(env),
+                write_stdin=write_stdin,
+                timeout_seconds=timeout_seconds,
+                container_name=container_name,
+                max_output_bytes=max_output_bytes,
+            )
+        except KeyboardInterrupt:
+            raise
+        except GeminiOAuthHelperExitUnconfirmed:
+            raise
+        except Exception:
+            raise DeployError("gemini_oauth_provision_transport_failed") from None
+        if not isinstance(completed, subprocess.CompletedProcess):
+            raise DeployError("gemini_oauth_provision_transport_failed")
+        return completed
+
+    def _gemini_oauth_docker_environment(self) -> dict[str, str]:
+        return {
+            key: str(self.env[key])
+            for key in sorted(GEMINI_OAUTH_DOCKER_ENV_ALLOWLIST)
+            if key in self.env and str(self.env[key])
+        }
+
+    def _open_gemini_oauth_snapshot(self) -> CredentialSnapshot:
+        try:
+            snapshot = (
+                self.gemini_oauth_snapshot_factory()
+                if self.gemini_oauth_snapshot_factory is not None
+                else snapshot_source_credentials(
+                    GEMINI_OAUTH_SOURCE_PATH,
+                    trusted_root=GEMINI_OAUTH_SOURCE_TRUSTED_ROOT,
+                )
+            )
+        except KeyboardInterrupt:
+            raise
+        except Exception:
+            raise DeployError("gemini_oauth_source_snapshot_failed") from None
+        if not isinstance(snapshot, CredentialSnapshot):
+            raise DeployError("gemini_oauth_source_snapshot_failed")
+        return snapshot
+
+    @staticmethod
+    def _gemini_oauth_binding_from_snapshot(
+        snapshot: CredentialSnapshot,
+    ) -> dict[str, object]:
+        metadata = snapshot.metadata
+        if (
+            metadata.schema != GEMINI_OAUTH_PROVISION_CONTRACT
+            or metadata.status != "snapshotted"
+            or SHA256_HEX_PATTERN.fullmatch(metadata.sha256) is None
+            or type(metadata.size_bytes) is not int
+            or not 0 < metadata.size_bytes <= GEMINI_OAUTH_MAX_CREDENTIAL_BYTES
+            or type(metadata.uid) is not int
+            or metadata.uid < 0
+            or type(metadata.gid) is not int
+            or metadata.gid < 0
+            or metadata.mode != "0600"
+            or type(metadata.device) is not int
+            or metadata.device < 0
+            or type(metadata.inode) is not int
+            or metadata.inode <= 0
+        ):
+            raise DeployError("gemini_oauth_source_snapshot_metadata_invalid")
+        return {
+            "schema": GEMINI_OAUTH_BINDING_SCHEMA,
+            "source": {
+                "alias": "canonical_user_gemini_oauth",
+                "schema": metadata.schema,
+                "sha256": metadata.sha256,
+                "size_bytes": metadata.size_bytes,
+                "uid": metadata.uid,
+                "gid": metadata.gid,
+                "mode": metadata.mode,
+                "device": metadata.device,
+                "inode": metadata.inode,
+            },
+            "runtime": {
+                "installer_root": GEMINI_OAUTH_INSTALL_ROOT,
+                "installer_target": GEMINI_OAUTH_INSTALL_TARGET,
+                "api_target": GEMINI_OAUTH_API_TARGET,
+            },
+        }
+
+    def _gemini_oauth_source_binding(self) -> dict[str, object]:
+        try:
+            with self._open_gemini_oauth_snapshot() as snapshot:
+                return self._gemini_oauth_binding_from_snapshot(snapshot)
+        except KeyboardInterrupt:
+            raise
+        except DeployError:
+            raise
+        except Exception:
+            raise DeployError("gemini_oauth_source_snapshot_failed") from None
+
+    def _gemini_oauth_helper_container_name(
+        self, deployment_context: Mapping[str, Any]
+    ) -> str:
+        normalized = re.sub(
+            r"[^a-z0-9_.-]+", "-", self.deployment_id.lower()
+        ).strip("-.")
+        readable_prefix = (
+            normalized[:GEMINI_OAUTH_HELPER_NAME_READABLE_MAX_CHARS]
+            or "unknown"
+        )
+        try:
+            identity_sha256 = _canonical_json_sha256(
+                {
+                    "schema": GEMINI_OAUTH_HELPER_IDENTITY_SCHEMA,
+                    "deployment_id": self.deployment_id,
+                    "release_root": str(self.root),
+                    "deployment_context": dict(deployment_context),
+                }
+            )
+        except (TypeError, ValueError):
+            raise DeployError("gemini_oauth_helper_identity_invalid") from None
+        name = f"ea-memorial-oauth-{readable_prefix}-{identity_sha256}"
+        if (
+            len(name) > GEMINI_OAUTH_HELPER_NAME_MAX_CHARS
+            or len(name.encode("ascii")) != len(name)
+            or re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,127}", name) is None
+            or not name.endswith(identity_sha256)
+        ):
+            raise DeployError("gemini_oauth_helper_container_name_invalid")
+        return name
+
+    @staticmethod
+    def _expected_gemini_oauth_install_command(
+        *, candidate_image_id: str, runtime_root: Path, container_name: str
+    ) -> list[str]:
+        if IMAGE_ID_PATTERN.fullmatch(candidate_image_id) is None:
+            raise DeployError("gemini_oauth_candidate_image_id_invalid")
+        if (
+            len(container_name) > GEMINI_OAUTH_HELPER_NAME_MAX_CHARS
+            or len(container_name.encode("ascii")) != len(container_name)
+            or re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,127}", container_name)
+            is None
+        ):
+            raise DeployError("gemini_oauth_helper_container_name_invalid")
+        selected_root = runtime_root.resolve()
+        selected_root_text = os.fspath(selected_root)
+        if (
+            not selected_root.is_absolute()
+            or selected_root == Path("/")
+            or ".." in selected_root.parts
+            or any(
+                character in selected_root_text
+                for character in ("\x00", "\n", "\r", ",")
+            )
+        ):
+            raise DeployError("gemini_oauth_runtime_root_invalid")
+        return [
+            "docker",
+            "run",
+            "--rm",
+            "--interactive",
+            "--name",
+            container_name,
+            "--network",
+            "none",
+            "--user",
+            f"{GEMINI_OAUTH_TARGET_UID}:{GEMINI_OAUTH_TARGET_UID}",
+            "--read-only",
+            "--pull",
+            "never",
+            "--log-driver",
+            "none",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+            "--pids-limit",
+            str(GEMINI_OAUTH_PROVISION_PIDS_LIMIT),
+            "--sig-proxy",
+            "true",
+            "--mount",
+            f"type=bind,src={selected_root_text},dst={GEMINI_OAUTH_INSTALL_ROOT}",
+            "--entrypoint",
+            "python3",
+            candidate_image_id,
+            "/app/scripts/provision_memorial_gemini_oauth.py",
+            "install",
+            "--runtime-root",
+            GEMINI_OAUTH_INSTALL_ROOT,
+        ]
+
+    def _gemini_oauth_install_command(
+        self,
+        *,
+        candidate_image_id: str,
+        runtime_root: Path,
+        container_name: str,
+    ) -> list[str]:
+        return self._expected_gemini_oauth_install_command(
+            candidate_image_id=candidate_image_id,
+            runtime_root=runtime_root,
+            container_name=container_name,
+        )
+
+    def _validate_gemini_oauth_install_command(
+        self,
+        command: Sequence[str],
+        *,
+        candidate_image_id: str,
+        runtime_root: Path,
+        container_name: str,
+    ) -> None:
+        expected = self._expected_gemini_oauth_install_command(
+            candidate_image_id=candidate_image_id,
+            runtime_root=runtime_root,
+            container_name=container_name,
+        )
+        if list(command) != expected:
+            raise DeployError("gemini_oauth_provision_command_invalid")
+
+    def _gemini_oauth_helper_name_absence_evidence(
+        self,
+        container_name: str,
+        *,
+        boundary: str,
+    ) -> dict[str, object]:
+        if (
+            not SAFE_SCRIPT_ORIGIN_PATTERN.fullmatch(boundary)
+            or len(container_name) > GEMINI_OAUTH_HELPER_NAME_MAX_CHARS
+            or re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,127}", container_name)
+            is None
+        ):
+            raise DeployError("gemini_oauth_helper_name_check_invalid")
+        command = [
+            "docker",
+            "container",
+            "ls",
+            "--all",
+            "--filter",
+            f"name=^/{re.escape(container_name)}$",
+            "--format",
+            "{{.Names}}",
+        ]
+        checked_at = ""
+        try:
+            completed = self._run(
+                command,
+                env=self._gemini_oauth_docker_environment(),
+                check=False,
+            )
+            checked_at = _utc_now()
+        except DeployError:
+            if not checked_at:
+                checked_at = _utc_now()
+            return {
+                "status": "unverified",
+                "boundary": boundary,
+                "checked_at": checked_at,
+                "container_name": container_name,
+                "exact_name_absent": None,
+                "helper_invocation_state": "not_started",
+                "error_code": "gemini_oauth_helper_name_check_failed",
+            }
+        if (
+            not isinstance(completed.stdout, str)
+            or not isinstance(completed.stderr, str)
+            or completed.returncode != 0
+            or completed.stderr
+            or len(completed.stdout.encode("utf-8")) > 4096
+        ):
+            return {
+                "status": "unverified",
+                "boundary": boundary,
+                "checked_at": checked_at,
+                "container_name": container_name,
+                "exact_name_absent": None,
+                "helper_invocation_state": "not_started",
+                "error_code": "gemini_oauth_helper_name_check_failed",
+            }
+        observed_names = [
+            line.strip() for line in completed.stdout.splitlines() if line.strip()
+        ]
+        if any(name != container_name for name in observed_names):
+            return {
+                "status": "unverified",
+                "boundary": boundary,
+                "checked_at": checked_at,
+                "container_name": container_name,
+                "exact_name_absent": None,
+                "helper_invocation_state": "not_started",
+                "error_code": "gemini_oauth_helper_name_check_invalid",
+            }
+        exact_name_absent = not observed_names
+        return {
+            "status": "pass" if exact_name_absent else "collision",
+            "boundary": boundary,
+            "checked_at": checked_at,
+            "container_name": container_name,
+            "exact_name_absent": exact_name_absent,
+            "helper_invocation_state": "not_started",
+        }
+
+    def _record_gemini_oauth_helper_name_check(
+        self, evidence: Mapping[str, object]
+    ) -> None:
+        checks = list(self.receipt.get("gemini_oauth_helper_name_checks") or [])
+        checks.append(dict(evidence))
+        self.receipt["gemini_oauth_helper_name_checks"] = checks
+        detail = dict(evidence)
+        evidence_status = str(detail.pop("status", ""))
+        self._record_check(
+            "gemini_oauth_helper_name_absence",
+            "pass" if evidence_status == "pass" else "fail",
+            evidence_status=evidence_status,
+            **detail,
+        )
+
+    def _require_gemini_oauth_helper_name_absent(
+        self,
+        container_name: str,
+        *,
+        boundary: str,
+    ) -> dict[str, object]:
+        evidence = self._gemini_oauth_helper_name_absence_evidence(
+            container_name,
+            boundary=boundary,
+        )
+        self._record_gemini_oauth_helper_name_check(evidence)
+        if evidence.get("status") == "collision":
+            raise GeminiOAuthHelperNameCollision(
+                "gemini_oauth_helper_name_collision"
+            )
+        if evidence.get("status") != "pass":
+            raise GeminiOAuthHelperNeverStarted(
+                "gemini_oauth_helper_name_absence_unverified"
+            )
+        return evidence
+
+    def _record_gemini_oauth_pre_run_point_checks(
+        self,
+        *,
+        api_stopped: Mapping[str, object],
+        helper_name_absence: Mapping[str, object],
+        helper_invocation_state: str,
+    ) -> None:
+        self._record_gemini_oauth_api_stopped_check(api_stopped)
+        self._record_gemini_oauth_helper_name_check(helper_name_absence)
+        status = (
+            "pass"
+            if api_stopped.get("status") == "pass"
+            and helper_name_absence.get("status") == "pass"
+            else "fail"
+        )
+        evidence = {
+            "status": status,
+            "release_context_guard_boundary": "before_gemini_oauth_install",
+            "api_stopped": dict(api_stopped),
+            "helper_name_absence": dict(helper_name_absence),
+            "helper_invocation_state": helper_invocation_state,
+            "continuous_absence_claimed": False,
+        }
+        self.receipt["gemini_oauth_pre_run_point_checks"] = evidence
+        self._record_check(
+            "gemini_oauth_pre_run_point_checks",
+            status,
+            api_checked_at=api_stopped.get("checked_at"),
+            helper_name_checked_at=helper_name_absence.get("checked_at"),
+            helper_invocation_state=helper_invocation_state,
+            continuous_absence_claimed=False,
+        )
+
+    def _provision_gemini_oauth(
+        self,
+        *,
+        candidate: Mapping[str, Any],
+        previous: Mapping[str, Any],
+        expected_binding: Mapping[str, object],
+        command: Sequence[str],
+        helper_container_name: str,
+        runtime_root: Path,
+        before_mutation: Callable[[str], None],
+    ) -> None:
+        candidate_image_id = str(candidate.get("image_id") or "")
+        helper_command = list(command)
+        self._validate_gemini_oauth_install_command(
+            helper_command,
+            candidate_image_id=candidate_image_id,
+            runtime_root=runtime_root,
+            container_name=helper_container_name,
+        )
+        docker_environment = self._gemini_oauth_docker_environment()
+        timeout_seconds = self._vexp_bounded_timeout(
+            GEMINI_OAUTH_PROVISION_TIMEOUT_SECONDS
+        )
+
+        try:
+            with self._open_gemini_oauth_snapshot() as snapshot:
+                current_binding = self._gemini_oauth_binding_from_snapshot(snapshot)
+                if current_binding != dict(expected_binding):
+                    raise DeployError("gemini_oauth_source_changed")
+                before_mutation("before_gemini_oauth_install")
+                api_stopped = self._gemini_oauth_api_stopped_evidence(
+                    previous,
+                    boundary="after_release_guard_before_helper_run",
+                )
+                if api_stopped.get("status") != "pass":
+                    helper_name_absence: dict[str, object] = {
+                        "status": "not_checked",
+                        "boundary": "after_release_guard_before_helper_run",
+                        "checked_at": None,
+                        "container_name": helper_container_name,
+                        "exact_name_absent": None,
+                        "helper_invocation_state": "not_started",
+                        "reason": "api_stopped_recheck_failed",
+                    }
+                    self._record_gemini_oauth_pre_run_point_checks(
+                        api_stopped=api_stopped,
+                        helper_name_absence=helper_name_absence,
+                        helper_invocation_state="not_started",
+                    )
+                    raise DeployError("gemini_oauth_api_stop_not_confirmed")
+                helper_name_absence = (
+                    self._gemini_oauth_helper_name_absence_evidence(
+                        helper_container_name,
+                        boundary="after_release_guard_before_helper_run",
+                    )
+                )
+                if helper_name_absence.get("status") != "pass":
+                    self._record_gemini_oauth_pre_run_point_checks(
+                        api_stopped=api_stopped,
+                        helper_name_absence=helper_name_absence,
+                        helper_invocation_state="not_started",
+                    )
+                    if helper_name_absence.get("status") == "collision":
+                        raise GeminiOAuthHelperNameCollision(
+                            "gemini_oauth_helper_name_collision"
+                        )
+                    raise GeminiOAuthHelperNeverStarted(
+                        "gemini_oauth_helper_name_absence_unverified"
+                    )
+                try:
+                    completed = self._run_secret_stdin(
+                        helper_command,
+                        env=docker_environment,
+                        write_stdin=snapshot.write_secret_to,
+                        timeout_seconds=timeout_seconds,
+                        container_name=helper_container_name,
+                        max_output_bytes=GEMINI_OAUTH_PROVISION_STDOUT_MAX_BYTES,
+                    )
+                except BaseException:
+                    self._record_gemini_oauth_pre_run_point_checks(
+                        api_stopped=api_stopped,
+                        helper_name_absence=helper_name_absence,
+                        helper_invocation_state="invocation_attempted",
+                    )
+                    raise
+                self._record_gemini_oauth_pre_run_point_checks(
+                    api_stopped=api_stopped,
+                    helper_name_absence=helper_name_absence,
+                    helper_invocation_state="completed",
+                )
+        except KeyboardInterrupt:
+            raise
+        except DeployError:
+            raise
+        except GeminiOAuthProvisioningError:
+            raise DeployError("gemini_oauth_provision_transport_failed") from None
+        except Exception:
+            raise DeployError("gemini_oauth_provision_transport_failed") from None
+
+        if completed.returncode != 0:
+            self._record_check(
+                "gemini_oauth_provisioning",
+                "fail",
+                error_code="gemini_oauth_provision_failed",
+                return_code=int(completed.returncode),
+            )
+            raise DeployError("gemini_oauth_provision_failed")
+        stdout = completed.stdout
+        stderr = completed.stderr
+        if (
+            not isinstance(stdout, bytes)
+            or not isinstance(stderr, bytes)
+            or stderr
+            or not 0 < len(stdout) <= GEMINI_OAUTH_PROVISION_STDOUT_MAX_BYTES
+        ):
+            raise DeployError("gemini_oauth_provision_receipt_invalid")
+        try:
+            provision_receipt = _decode_guard_json(
+                stdout,
+                reason="gemini_oauth_provision_receipt_invalid",
+            )
+        except DeployError:
+            raise DeployError("gemini_oauth_provision_receipt_invalid") from None
+        source_binding_value = expected_binding.get("source")
+        source_binding = (
+            dict(source_binding_value)
+            if isinstance(source_binding_value, dict)
+            else {}
+        )
+        expected_receipt = {
+            "schema": GEMINI_OAUTH_PROVISION_CONTRACT,
+            "status": "provisioned",
+            "sha256": source_binding.get("sha256"),
+            "size_bytes": source_binding.get("size_bytes"),
+            "uid": GEMINI_OAUTH_TARGET_UID,
+            "gid": GEMINI_OAUTH_TARGET_UID,
+            "mode": "0600",
+        }
+        if (
+            provision_receipt != expected_receipt
+            or stdout != _canonical_guard_json_bytes(provision_receipt)
+        ):
+            raise DeployError("gemini_oauth_provision_receipt_invalid")
+
+        self.receipt["gemini_oauth_provisioning"] = {
+            "schema": GEMINI_OAUTH_BINDING_SCHEMA,
+            "status": "pass",
+            "candidate_image_id": candidate_image_id,
+            "source_binding_sha256": _canonical_json_sha256(
+                dict(expected_binding)
+            ),
+            "source": {
+                "sha256": source_binding["sha256"],
+                "size_bytes": source_binding["size_bytes"],
+            },
+            "runtime": dict(expected_binding.get("runtime") or {}),
+            "installed": provision_receipt,
+            "secret_transport": {
+                "transport": "anonymous_stdin_pipe",
+                "argv_contains_secret": False,
+                "environment_contains_secret": False,
+                "temporary_file_created": False,
+            },
+            "container_hardening": {
+                "immutable_candidate_image_id": True,
+                "remove_after_exit": True,
+                "interactive_stdin": True,
+                "container_name": helper_container_name,
+                "network": "none",
+                "user": f"{GEMINI_OAUTH_TARGET_UID}:{GEMINI_OAUTH_TARGET_UID}",
+                "read_only_rootfs": True,
+                "pull_policy": "never",
+                "log_driver": "none",
+                "capabilities": "all_dropped",
+                "no_new_privileges": True,
+                "pids_limit": GEMINI_OAUTH_PROVISION_PIDS_LIMIT,
+                "signal_proxy": True,
+                "writable_mount_count": 1,
+                "writable_mount_target": GEMINI_OAUTH_INSTALL_ROOT,
+            },
+        }
+        self._record_check(
+            "gemini_oauth_provisioning",
+            "pass",
+            sha256=str(provision_receipt["sha256"]),
+            size_bytes=int(provision_receipt["size_bytes"]),
+            uid=int(provision_receipt["uid"]),
+            gid=int(provision_receipt["gid"]),
+            mode=str(provision_receipt["mode"]),
+            runtime_target=GEMINI_OAUTH_API_TARGET,
+        )
 
     def _detect_compose(self) -> None:
         docker_compose = self._run(["docker", "compose", "version"], check=False)
@@ -5547,65 +6432,234 @@ class MemorialDeployLane:
         return phase_directory
 
     @staticmethod
-    def _private_evidence_metadata(path: Path) -> dict[str, object]:
-        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
+    def _trusted_file_snapshot(
+        path: Path,
+        *,
+        max_bytes: int,
+        expected_uid: int,
+        force_mode: int | None,
+        reason_prefix: str,
+    ) -> tuple[bytes, dict[str, object]]:
+        """Read and identify one regular file through the same trusted descriptor."""
+
+        if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_NONBLOCK"):
+            raise DeployError(f"{reason_prefix}_nofollow_unavailable:{path.name}")
+        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK | os.O_NOFOLLOW
         try:
             descriptor = os.open(path, flags)
         except OSError as exc:
-            raise DeployError(f"release_evidence_file_unavailable:{path.name}") from exc
+            raise DeployError(f"{reason_prefix}_unavailable:{path.name}") from exc
         try:
             before = os.fstat(descriptor)
             if (
                 not stat.S_ISREG(before.st_mode)
                 or before.st_nlink != 1
-                or before.st_uid != os.geteuid()
+                or before.st_uid != expected_uid
             ):
-                raise DeployError(f"release_evidence_file_invalid:{path.name}")
-            if before.st_size > MAX_PRIVATE_RELEASE_EVIDENCE_BYTES:
-                raise DeployError(f"release_evidence_file_too_large:{path.name}")
-            os.fchmod(descriptor, 0o600)
-            os.fsync(descriptor)
-            before = os.fstat(descriptor)
-            identity = (
-                before.st_dev,
-                before.st_ino,
-                before.st_mode,
-                before.st_size,
-                before.st_nlink,
-                before.st_mtime_ns,
-                before.st_ctime_ns,
-            )
-            digest = hashlib.sha256()
+                raise DeployError(f"{reason_prefix}_invalid:{path.name}")
+            if not 0 < before.st_size <= max_bytes:
+                raise DeployError(f"{reason_prefix}_size_invalid:{path.name}")
+            if force_mode is not None:
+                if stat.S_IMODE(before.st_mode) != force_mode:
+                    os.fchmod(descriptor, force_mode)
+                    os.fsync(descriptor)
+                    before = os.fstat(descriptor)
+                if stat.S_IMODE(before.st_mode) != force_mode:
+                    raise DeployError(
+                        f"{reason_prefix}_permissions_invalid:{path.name}"
+                    )
+            identity = _trusted_file_identity(before)
+            chunks: list[bytes] = []
             total = 0
             while True:
-                chunk = os.read(descriptor, 1024 * 1024)
+                chunk = os.read(descriptor, min(1024 * 1024, max_bytes + 1 - total))
                 if not chunk:
                     break
+                chunks.append(chunk)
                 total += len(chunk)
-                if total > MAX_PRIVATE_RELEASE_EVIDENCE_BYTES:
-                    raise DeployError(f"release_evidence_file_too_large:{path.name}")
-                digest.update(chunk)
+                if total > max_bytes:
+                    raise DeployError(f"{reason_prefix}_size_invalid:{path.name}")
             after = os.fstat(descriptor)
-            after_identity = (
-                after.st_dev,
-                after.st_ino,
-                after.st_mode,
-                after.st_size,
-                after.st_nlink,
-                after.st_mtime_ns,
-                after.st_ctime_ns,
-            )
-            if identity != after_identity or total != after.st_size:
-                raise DeployError(f"release_evidence_file_changed:{path.name}")
-            return {
-                "sha256": digest.hexdigest(),
+            try:
+                path_metadata = os.stat(path, follow_symlinks=False)
+            except OSError as exc:
+                raise DeployError(f"{reason_prefix}_changed:{path.name}") from exc
+            if (
+                identity != _trusted_file_identity(after)
+                or identity != _trusted_file_identity(path_metadata)
+                or total != after.st_size
+            ):
+                raise DeployError(f"{reason_prefix}_changed:{path.name}")
+            raw = b"".join(chunks)
+            return raw, {
+                "sha256": hashlib.sha256(raw).hexdigest(),
                 "size_bytes": total,
-                "mode": "0600",
+                "mode": f"{stat.S_IMODE(after.st_mode):04o}",
+                "device": after.st_dev,
+                "inode": after.st_ino,
+                "uid": after.st_uid,
+                "gid": after.st_gid,
+                "link_count": after.st_nlink,
+                "mtime_ns": after.st_mtime_ns,
+                "ctime_ns": after.st_ctime_ns,
             }
+        except OSError as exc:
+            raise DeployError(f"{reason_prefix}_unreadable:{path.name}") from exc
         finally:
             os.close(descriptor)
+
+    @classmethod
+    def _private_evidence_snapshot(
+        cls, path: Path
+    ) -> tuple[bytes, dict[str, object]]:
+        return cls._trusted_file_snapshot(
+            path,
+            max_bytes=MAX_PRIVATE_RELEASE_EVIDENCE_BYTES,
+            expected_uid=os.geteuid(),
+            force_mode=0o600,
+            reason_prefix="release_evidence_file",
+        )
+
+    @classmethod
+    def _private_evidence_metadata(cls, path: Path) -> dict[str, object]:
+        _raw, metadata = cls._private_evidence_snapshot(path)
+        return metadata
+
+    def _project_modes_snapshot(self) -> tuple[bytes, dict[str, object]]:
+        return self._trusted_file_snapshot(
+            self.root / ".codex-design/product/PROJECT_MODES.generated.json",
+            max_bytes=MAX_DEPLOYMENT_INPUT_BYTES,
+            expected_uid=os.geteuid(),
+            force_mode=None,
+            reason_prefix="release_evidence_project_modes",
+        )
+
+    def _release_evidence_snapshots(
+        self, paths: Mapping[str, Path]
+    ) -> tuple[dict[str, bytes], dict[str, dict[str, object]]]:
+        snapshots: dict[str, bytes] = {}
+        metadata: dict[str, dict[str, object]] = {}
+        for name in (
+            "deploy_context",
+            "release_manifest",
+            "release_authority_status",
+            "memorial_operator_status",
+        ):
+            raw, file_metadata = self._private_evidence_snapshot(paths[name])
+            snapshots[name] = raw
+            metadata[name] = file_metadata
+        return snapshots, metadata
+
+    def _verify_release_evidence_snapshots(
+        self, snapshots: Mapping[str, bytes]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        expected_names = {
+            "deploy_context",
+            "release_manifest",
+            "release_authority_status",
+            "memorial_operator_status",
+            "project_modes",
+        }
+        if set(snapshots) != expected_names:
+            raise DeployError("release_evidence_verifier_inputs_invalid")
+        if self.release_evidence_verifier is not None:
+            result = self.release_evidence_verifier(dict(snapshots))
+            if (
+                not isinstance(result, tuple)
+                or len(result) != 2
+                or not isinstance(result[0], Mapping)
+                or not isinstance(result[1], Mapping)
+            ):
+                raise DeployError("release_evidence_verifier_result_invalid")
+            return dict(result[0]), dict(result[1])
+
+        release_manifest = _decode_guard_json(
+            snapshots["release_manifest"],
+            reason="release_manifest_snapshot_invalid",
+        )
+        project_modes = _decode_guard_json(
+            snapshots["project_modes"],
+            reason="release_project_modes_snapshot_invalid",
+        )
+        release_authority_status = _decode_guard_json(
+            snapshots["release_authority_status"],
+            reason="release_authority_status_snapshot_invalid",
+        )
+        memorial_operator_status = _decode_guard_json(
+            snapshots["memorial_operator_status"],
+            reason="memorial_operator_status_snapshot_invalid",
+        )
+        issues = release_authority_verifier.validate_release_authority(
+            release_manifest=release_manifest,
+            project_modes=project_modes,
+            require_public_origin=True,
+            require_explicit_deployment=True,
+            require_clean_worktree=True,
+            require_tracking_branch=True,
+            require_source_remote_ref=True,
+            require_compose_files=True,
+        )
+        authority = {
+            "contract_name": "ea.release_authority_gate.v1",
+            "status": "pass" if not issues else "fail",
+            "authority_posture": release_authority_verifier._derive_authority_posture(
+                issues
+            ),
+            "issues": list(issues),
+            "source_worktree_dirty": bool(
+                release_manifest.get(
+                    "source_worktree_dirty", release_manifest.get("dirty_worktree")
+                )
+            ),
+            "deployment_id": str(release_manifest.get("deployment_id") or "").strip(),
+            "commit_sha": str(release_manifest.get("commit_sha") or "").strip(),
+            "project_mode": release_authority_verifier._normalize_mode(
+                str(release_manifest.get("project_mode") or "")
+            ),
+            "public_origin": str(release_manifest.get("public_origin") or "").strip(),
+        }
+
+        # The deploy-wide lock serializes this short adapter. It lets the canonical
+        # readiness builder consume the already-opened bytes instead of reopening
+        # caller-swappable paths after their metadata was sealed.
+        memorial_token = Path(
+            "/__ea_memorial_snapshot__/memorial-operator-status.json"
+        )
+        authority_token = Path(
+            "/__ea_memorial_snapshot__/release-authority-status.json"
+        )
+        original_load_json = readiness_verifier._load_json
+        original_release_authority_payload = (
+            readiness_verifier._release_authority_payload
+        )
+
+        def snapshot_load(path: Path) -> dict[str, object]:
+            if path == memorial_token:
+                return dict(memorial_operator_status)
+            raise DeployError("release_evidence_readiness_snapshot_path_invalid")
+
+        def snapshot_authority(
+            *, release_authority_status_path: Path
+        ) -> dict[str, object]:
+            if release_authority_status_path != authority_token:
+                raise DeployError("release_evidence_readiness_snapshot_path_invalid")
+            return dict(release_authority_status)
+
+        try:
+            readiness_verifier._load_json = snapshot_load
+            readiness_verifier._release_authority_payload = snapshot_authority
+            readiness = readiness_verifier.build_payload(
+                memorial_status_path=memorial_token,
+                release_authority_status_path=authority_token,
+            )
+        finally:
+            readiness_verifier._load_json = original_load_json
+            readiness_verifier._release_authority_payload = (
+                original_release_authority_payload
+            )
+        if not isinstance(readiness, dict):
+            raise DeployError("release_evidence_verifier_result_invalid")
+        return authority, dict(readiness)
 
     @staticmethod
     def _write_private_evidence_json(path: Path, payload: Mapping[str, object]) -> None:
@@ -5676,7 +6730,6 @@ class MemorialDeployLane:
                 / "memorial-operator-status.json",
                 "phase_manifest": evidence_directory / "phase-manifest.json",
             }
-            evidence_files: dict[str, dict[str, object]] = {}
             evidence_env = self._release_evidence_environment()
 
             self._run_release_evidence_materializer(
@@ -5686,9 +6739,6 @@ class MemorialDeployLane:
                 expected_source_seal=source_seal,
                 label=f"{phase}_deploy_context",
                 env=evidence_env,
-            )
-            evidence_files["deploy_context"] = self._private_evidence_metadata(
-                paths["deploy_context"]
             )
             self._require_deployment_input_seal(deployment_input_seal)
 
@@ -5701,9 +6751,6 @@ class MemorialDeployLane:
                 expected_source_seal=source_seal,
                 label=f"{phase}_release_manifest",
                 env=manifest_env,
-            )
-            evidence_files["release_manifest"] = self._private_evidence_metadata(
-                paths["release_manifest"]
             )
             self._require_deployment_input_seal(deployment_input_seal)
 
@@ -5718,9 +6765,6 @@ class MemorialDeployLane:
                 expected_source_seal=source_seal,
                 label=f"{phase}_authority_status",
                 env=evidence_env,
-            )
-            evidence_files["release_authority_status"] = (
-                self._private_evidence_metadata(paths["release_authority_status"])
             )
             self._require_deployment_input_seal(deployment_input_seal)
 
@@ -5738,31 +6782,17 @@ class MemorialDeployLane:
                 label=f"{phase}_operator_status",
                 env=evidence_env,
             )
-            evidence_files["memorial_operator_status"] = (
-                self._private_evidence_metadata(paths["memorial_operator_status"])
-            )
             self._require_deployment_input_seal(deployment_input_seal)
 
-            authority = self._run_json_script(
-                "scripts/verify_release_authority.py",
-                "--release-manifest",
-                str(paths["release_manifest"]),
-                "--pretty",
-                origin=f"{phase}_release_authority",
-                expected_source_seal=source_seal,
-                env=evidence_env,
+            verifier_snapshots, evidence_files = self._release_evidence_snapshots(
+                paths
             )
-            self._require_deployment_input_seal(deployment_input_seal)
-            readiness = self._run_json_script(
-                "scripts/verify_memorial_deploy_readiness.py",
-                "--memorial-status",
-                str(paths["memorial_operator_status"]),
-                "--release-authority-status",
-                str(paths["release_authority_status"]),
-                "--pretty",
-                origin=f"{phase}_memorial_readiness",
-                expected_source_seal=source_seal,
-                env=evidence_env,
+            project_modes_raw, project_modes_metadata = (
+                self._project_modes_snapshot()
+            )
+            verifier_snapshots["project_modes"] = project_modes_raw
+            authority, readiness = self._verify_release_evidence_snapshots(
+                verifier_snapshots
             )
             self._require_deployment_input_seal(deployment_input_seal)
 
@@ -5806,11 +6836,19 @@ class MemorialDeployLane:
             if str(readiness.get("status") or "").lower() != "pass":
                 raise DeployError("memorial_deploy_readiness_not_pass")
 
-            for name, path in paths.items():
-                if name == "phase_manifest":
-                    continue
-                if self._private_evidence_metadata(path) != evidence_files[name]:
-                    raise DeployError(f"release_evidence_file_rehashed_mismatch:{name}")
+            _verified_snapshots, verified_metadata = (
+                self._release_evidence_snapshots(paths)
+            )
+            for name, metadata in evidence_files.items():
+                if verified_metadata[name] != metadata:
+                    raise DeployError(
+                        f"release_evidence_file_rehashed_mismatch:{name}"
+                    )
+            _project_modes_verified, verified_project_modes_metadata = (
+                self._project_modes_snapshot()
+            )
+            if verified_project_modes_metadata != project_modes_metadata:
+                raise DeployError("release_evidence_project_modes_rehashed_mismatch")
 
             relative_directory = Path(f"{self.deployment_id}.evidence") / phase
             receipt_files = {
@@ -5864,6 +6902,12 @@ class MemorialDeployLane:
                 },
                 "projection_sha256": str(projection.get("projection_sha256") or ""),
                 "evidence_files": receipt_files,
+                "verifier_inputs": {
+                    "project_modes": {
+                        "path": ".codex-design/product/PROJECT_MODES.generated.json",
+                        **project_modes_metadata,
+                    }
+                },
                 "authority": authority_projection,
                 "readiness": readiness_projection,
             }
@@ -5891,6 +6935,12 @@ class MemorialDeployLane:
                 "source_seal": source_seal,
                 "deployment_input_sha256": deployment_input_sha256,
                 "files": receipt_files,
+                "verifier_inputs": {
+                    "project_modes": {
+                        "path": ".codex-design/product/PROJECT_MODES.generated.json",
+                        **project_modes_metadata,
+                    }
+                },
                 "authority": authority_projection,
                 "readiness": readiness_projection,
             }
@@ -5921,6 +6971,342 @@ class MemorialDeployLane:
         if final_seal_error is not None:
             raise final_seal_error
         return authority
+
+    def _require_receipt_matches_memory(self) -> None:
+        expected = (json.dumps(self.receipt, indent=2, sort_keys=True) + "\n").encode(
+            "utf-8"
+        )
+        if len(expected) > MAX_DEPLOYMENT_RECEIPT_BYTES:
+            raise DeployError("deployment_receipt_too_large")
+        current = self._read_trusted_guard_file(
+            self.receipt_path,
+            expected_mode=0o600,
+            expected_uid=os.geteuid(),
+            max_bytes=MAX_DEPLOYMENT_RECEIPT_BYTES,
+            reason_prefix="deployment_receipt",
+        )
+        if current != expected:
+            raise DeployError("deployment_receipt_memory_mismatch")
+
+    @staticmethod
+    def _stable_predeploy_receipt_binding(
+        receipt: Mapping[str, Any],
+    ) -> dict[str, object]:
+        promotion = dict(receipt.get("candidate_promotion_evidence") or {})
+        release_evidence = dict(receipt.get("release_evidence") or {})
+        return {
+            "contract_name": str(receipt.get("contract_name") or ""),
+            "deployment_id": str(receipt.get("deployment_id") or ""),
+            "project_name": str(receipt.get("project_name") or ""),
+            "service_scope": list(receipt.get("service_scope") or []),
+            "api_mutation_scope": list(receipt.get("api_mutation_scope") or []),
+            "credential_mutation_scope": list(
+                receipt.get("credential_mutation_scope") or []
+            ),
+            "memorial_surface": str(receipt.get("memorial_surface") or ""),
+            "spatial_scope": str(receipt.get("spatial_scope") or ""),
+            "target_compose_files": list(receipt.get("target_compose_files") or []),
+            "release_source": dict(receipt.get("release_source") or {}),
+            "source_revision": str(receipt.get("source_revision") or ""),
+            "public_origin": str(receipt.get("public_origin") or ""),
+            "previous_api": dict(receipt.get("previous_api") or {}),
+            "rollback_compose_files": list(
+                receipt.get("rollback_compose_files") or []
+            ),
+            "candidate_image": dict(receipt.get("candidate_image") or {}),
+            "gemini_oauth_source_binding": dict(
+                receipt.get("gemini_oauth_source_binding") or {}
+            ),
+            "candidate_promotion_sha256": _canonical_json_sha256(promotion),
+            "predeploy_release_evidence_sha256": _canonical_json_sha256(
+                dict(release_evidence.get("predeploy") or {})
+            ),
+        }
+
+    def _capture_predeploy_release_context_seal(
+        self,
+        *,
+        release_source: Mapping[str, str],
+        authority: Mapping[str, Any],
+        previous: Mapping[str, Any],
+        rollback_render: Mapping[str, Any],
+        public_origin: str,
+        candidate: Mapping[str, Any],
+        candidate_promotion: Mapping[str, Any],
+        deployment_input_seal: Mapping[str, Sequence[Mapping[str, object]]],
+        target_mounts: Sequence[Mapping[str, object]],
+        gemini_oauth_binding: Mapping[str, object],
+    ) -> dict[str, object]:
+        release_evidence = dict(self.receipt.get("release_evidence") or {})
+        predeploy = release_evidence.get("predeploy")
+        if not isinstance(predeploy, dict):
+            raise DeployError("predeploy_release_evidence_missing")
+        source_seal = predeploy.get("source_seal")
+        if not isinstance(source_seal, dict):
+            raise DeployError("predeploy_release_source_seal_missing")
+        seal: dict[str, object] = {
+            "release_source": dict(release_source),
+            "authority_sha256": _canonical_json_sha256(dict(authority)),
+            "previous_sha256": _canonical_json_sha256(dict(previous)),
+            "rollback_render_sha256": _canonical_json_sha256(
+                dict(rollback_render)
+            ),
+            "public_origin": public_origin,
+            "source_seal": dict(source_seal),
+            "release_evidence": json.loads(
+                json.dumps(predeploy, ensure_ascii=True, sort_keys=True)
+            ),
+            "candidate": dict(candidate),
+            "candidate_promotion_sha256": _canonical_json_sha256(
+                dict(candidate_promotion)
+            ),
+            "target_mounts_sha256": _canonical_json_sha256(
+                [dict(item) for item in target_mounts]
+            ),
+            "gemini_oauth": json.loads(
+                json.dumps(gemini_oauth_binding, ensure_ascii=True, sort_keys=True)
+            ),
+            "deployment_input_sha256": _canonical_json_sha256(
+                {
+                    key: [dict(item) for item in value]
+                    for key, value in deployment_input_seal.items()
+                }
+            ),
+            "receipt_binding": self._stable_predeploy_receipt_binding(self.receipt),
+        }
+        return seal
+
+    def _require_predeploy_release_evidence_current(
+        self,
+        expected: Mapping[str, Any],
+        *,
+        expected_source_seal: Mapping[str, str],
+    ) -> None:
+        expected_directory = f"{self.deployment_id}.evidence/predeploy"
+        if (
+            str(expected.get("directory") or "") != expected_directory
+            or expected.get("directory_mode") != "0700"
+        ):
+            raise DeployError("predeploy_release_evidence_identity_invalid")
+        evidence_directory = self.receipt_dir / expected_directory
+        try:
+            directory_metadata = evidence_directory.lstat()
+        except OSError as exc:
+            raise DeployError("predeploy_release_evidence_directory_missing") from exc
+        if (
+            not stat.S_ISDIR(directory_metadata.st_mode)
+            or stat.S_ISLNK(directory_metadata.st_mode)
+            or directory_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(directory_metadata.st_mode) != 0o700
+        ):
+            raise DeployError("predeploy_release_evidence_directory_invalid")
+
+        expected_names = {
+            "deploy_context": "deploy-context.json",
+            "release_manifest": "release-manifest.json",
+            "release_authority_status": "release-authority-status.json",
+            "memorial_operator_status": "memorial-operator-status.json",
+            "phase_manifest": "phase-manifest.json",
+        }
+        metadata_keys = (
+            "sha256",
+            "size_bytes",
+            "mode",
+            "device",
+            "inode",
+            "uid",
+            "gid",
+            "link_count",
+            "mtime_ns",
+            "ctime_ns",
+        )
+        files_value = expected.get("files")
+        files = dict(files_value) if isinstance(files_value, dict) else {}
+        if set(files) != set(expected_names):
+            raise DeployError("predeploy_release_evidence_files_invalid")
+        paths: dict[str, Path] = {}
+        expected_metadata: dict[str, dict[str, object]] = {}
+        for name, filename in expected_names.items():
+            entry_value = files.get(name)
+            entry = dict(entry_value) if isinstance(entry_value, dict) else {}
+            if (
+                set(entry) != {"path", *metadata_keys}
+                or entry.get("path") != f"{expected_directory}/{filename}"
+            ):
+                raise DeployError("predeploy_release_evidence_file_identity_invalid")
+            path = evidence_directory / filename
+            paths[name] = path
+            expected_metadata[name] = {key: entry[key] for key in metadata_keys}
+
+        verifier_snapshots, current_metadata = self._release_evidence_snapshots(paths)
+        _phase_manifest_raw, phase_manifest_metadata = (
+            self._private_evidence_snapshot(paths["phase_manifest"])
+        )
+        current_metadata["phase_manifest"] = phase_manifest_metadata
+        for name, metadata in current_metadata.items():
+            if metadata != expected_metadata[name]:
+                raise DeployError(f"predeploy_release_evidence_file_changed:{name}")
+
+        verifier_inputs_value = expected.get("verifier_inputs")
+        verifier_inputs = (
+            dict(verifier_inputs_value)
+            if isinstance(verifier_inputs_value, dict)
+            else {}
+        )
+        if set(verifier_inputs) != {"project_modes"}:
+            raise DeployError("predeploy_release_verifier_inputs_invalid")
+        project_modes_value = verifier_inputs.get("project_modes")
+        project_modes_entry = (
+            dict(project_modes_value)
+            if isinstance(project_modes_value, dict)
+            else {}
+        )
+        if (
+            set(project_modes_entry) != {"path", *metadata_keys}
+            or project_modes_entry.get("path")
+            != ".codex-design/product/PROJECT_MODES.generated.json"
+        ):
+            raise DeployError("predeploy_release_project_modes_identity_invalid")
+        expected_project_modes_metadata = {
+            key: project_modes_entry[key] for key in metadata_keys
+        }
+        project_modes_raw, project_modes_metadata = self._project_modes_snapshot()
+        if project_modes_metadata != expected_project_modes_metadata:
+            raise DeployError("predeploy_release_project_modes_changed")
+        verifier_snapshots["project_modes"] = project_modes_raw
+        authority, readiness = self._verify_release_evidence_snapshots(
+            verifier_snapshots
+        )
+        authority_projection = {
+            "contract_name": str(authority.get("contract_name") or ""),
+            "status": str(authority.get("status") or ""),
+            "authority_posture": str(authority.get("authority_posture") or ""),
+            "deployment_id": str(authority.get("deployment_id") or ""),
+            "commit_sha": str(authority.get("commit_sha") or ""),
+            "project_mode": str(authority.get("project_mode") or ""),
+            "public_origin": str(authority.get("public_origin") or ""),
+            "source_worktree_dirty": bool(authority.get("source_worktree_dirty")),
+        }
+        readiness_projection = {
+            "contract_name": str(readiness.get("contract_name") or ""),
+            "status": str(readiness.get("status") or ""),
+            "issues": [
+                str(item)
+                for item in list(readiness.get("issues") or [])
+                if str(item)
+            ],
+        }
+        if (
+            authority_projection != expected.get("authority")
+            or authority_projection.get("contract_name")
+            != "ea.release_authority_gate.v1"
+            or str(authority_projection.get("status") or "").lower() != "pass"
+            or authority_projection.get("source_worktree_dirty") is not False
+            or authority_projection.get("deployment_id") != self.deployment_id
+            or authority_projection.get("commit_sha")
+            != expected_source_seal.get("head")
+            or str(authority_projection.get("project_mode") or "").upper()
+            != "MEMORIAL"
+            or readiness_projection != expected.get("readiness")
+            or readiness_projection.get("contract_name")
+            != "ea.memorial_deploy_readiness.v1"
+            or str(readiness_projection.get("status") or "").lower() != "pass"
+        ):
+            raise DeployError("predeploy_release_authority_changed")
+        _verified_snapshots, verified_metadata = self._release_evidence_snapshots(
+            paths
+        )
+        _phase_manifest_verified, verified_phase_manifest_metadata = (
+            self._private_evidence_snapshot(paths["phase_manifest"])
+        )
+        verified_metadata["phase_manifest"] = verified_phase_manifest_metadata
+        for name, metadata in verified_metadata.items():
+            if metadata != expected_metadata[name]:
+                raise DeployError(f"predeploy_release_evidence_file_changed:{name}")
+        _project_modes_verified, verified_project_modes_metadata = (
+            self._project_modes_snapshot()
+        )
+        if verified_project_modes_metadata != expected_project_modes_metadata:
+            raise DeployError("predeploy_release_project_modes_changed")
+
+    def _require_predeploy_release_context_current(
+        self,
+        expected: Mapping[str, Any],
+        *,
+        boundary: str,
+        deployment_input_seal: Mapping[
+            str, Sequence[Mapping[str, object]]
+        ],
+    ) -> None:
+        if not SAFE_SCRIPT_ORIGIN_PATTERN.fullmatch(boundary):
+            raise DeployError("predeploy_release_context_boundary_invalid")
+        self._require_receipt_matches_memory()
+        release_source_value = expected.get("release_source")
+        release_source = (
+            dict(release_source_value)
+            if isinstance(release_source_value, dict)
+            else {}
+        )
+        if self._current_release_source_metadata() != release_source:
+            raise DeployError("predeploy_release_source_changed")
+        gemini_oauth_value = expected.get("gemini_oauth")
+        gemini_oauth = (
+            dict(gemini_oauth_value)
+            if isinstance(gemini_oauth_value, dict)
+            else {}
+        )
+        if self._gemini_oauth_source_binding() != gemini_oauth:
+            raise DeployError("gemini_oauth_source_changed")
+        source_seal_value = expected.get("source_seal")
+        source_seal = (
+            dict(source_seal_value) if isinstance(source_seal_value, dict) else {}
+        )
+        self._require_release_evidence_source_seal(source_seal)
+        self._require_deployment_input_seal(deployment_input_seal)
+        if _canonical_json_sha256(
+            {
+                key: [dict(item) for item in value]
+                for key, value in deployment_input_seal.items()
+            }
+        ) != str(expected.get("deployment_input_sha256") or ""):
+            raise DeployError("predeploy_deployment_input_identity_changed")
+        evidence_value = expected.get("release_evidence")
+        evidence = dict(evidence_value) if isinstance(evidence_value, dict) else {}
+        self._require_predeploy_release_evidence_current(
+            evidence,
+            expected_source_seal=source_seal,
+        )
+        source_revision = str(release_source.get("source_revision") or "")
+        reference = _safe_candidate_image_reference(
+            self.memorial_image_reference,
+            source_revision=source_revision,
+        )
+        candidate = self._inspect_image(reference)
+        if candidate != expected.get("candidate"):
+            raise DeployError("predeploy_candidate_image_changed")
+        candidate_promotion = self._validate_candidate_promotion_receipt(
+            candidate=candidate,
+            source_revision=source_revision,
+        )
+        if _canonical_json_sha256(candidate_promotion) != str(
+            expected.get("candidate_promotion_sha256") or ""
+        ):
+            raise DeployError("predeploy_candidate_promotion_changed")
+        if self._stable_predeploy_receipt_binding(self.receipt) != expected.get(
+            "receipt_binding"
+        ):
+            raise DeployError("predeploy_deployment_receipt_binding_changed")
+        self._require_release_evidence_source_seal(source_seal)
+        if self._current_release_source_metadata() != release_source:
+            raise DeployError("predeploy_release_source_changed")
+        self._require_deployment_input_seal(deployment_input_seal)
+        self._require_receipt_matches_memory()
+        self._record_check(
+            "predeploy_release_context_revalidation",
+            "pass",
+            boundary=boundary,
+            seal_sha256=_canonical_json_sha256(dict(expected)),
+        )
 
     def _bind_source_access(
         self,
@@ -8230,7 +9616,7 @@ class MemorialDeployLane:
         self._record_check("candidate_promotion_evidence", "pass")
         return evidence
 
-    def _release_source_metadata(self) -> dict[str, str]:
+    def _current_release_source_metadata(self) -> dict[str, str]:
         self.durable_root_check(self.root)
         branch_result = self._run(
             ["git", "symbolic-ref", "--quiet", "--short", "HEAD"], check=False
@@ -8258,6 +9644,10 @@ class MemorialDeployLane:
             "source_revision": source_revision,
             "release_root": str(self.root),
         }
+        return metadata
+
+    def _release_source_metadata(self) -> dict[str, str]:
+        metadata = self._current_release_source_metadata()
         self.receipt["release_source"] = metadata
         self._write_receipt()
         return metadata
@@ -8519,11 +9909,15 @@ class MemorialDeployLane:
                 raise DeployError("vexp_mutation_action_deadline_exceeded")
             self.sleep(sleep_seconds)
 
-    def _ensure_redis(self) -> None:
+    def _ensure_redis(
+        self, *, before_mutation: Callable[[str], None] | None = None
+    ) -> None:
         inspection = self._inspect_container_optional(REDIS_SERVICE)
         action = "already_healthy"
         if inspection is None:
             action = "created_missing"
+            if before_mutation is not None:
+                before_mutation("before_redis_create")
             self._run(
                 self._target_compose(
                     "up", "-d", "--no-build", "--no-deps", REDIS_SERVICE
@@ -8542,6 +9936,8 @@ class MemorialDeployLane:
                 return
             if not running and not restarting:
                 action = "started_existing"
+                if before_mutation is not None:
+                    before_mutation("before_redis_start")
                 self._run(["docker", "start", REDIS_SERVICE])
             else:
                 action = "waited_for_existing"
@@ -8566,25 +9962,171 @@ class MemorialDeployLane:
         self._write_receipt()
         return source_revision
 
-    def _protect_previous_image(self, previous: Mapping[str, Any]) -> str:
+    def _protect_previous_image(
+        self,
+        previous: Mapping[str, Any],
+        *,
+        before_mutation: Callable[[str], None] | None = None,
+    ) -> str:
         rollback_tag = _safe_rollback_tag(self.deployment_id)
+        if before_mutation is not None:
+            before_mutation("before_protect_previous_image_tag")
         self._run(["docker", "image", "tag", str(previous["image_id"]), rollback_tag])
         protected = self._inspect_image(rollback_tag)
         if protected["image_id"] != str(previous["image_id"]):
             raise DeployError("rollback_image_protection_mismatch")
         return rollback_tag
 
-    def _recreate_api(self) -> None:
-        self._run(
-            self._target_compose(
-                "up",
-                "-d",
-                "--no-build",
-                "--no-deps",
-                "--force-recreate",
-                API_SERVICE,
-            )
+    def _stop_api_for_gemini_oauth(
+        self,
+        previous: Mapping[str, Any],
+        *,
+        before_mutation: Callable[[str], None],
+    ) -> None:
+        rollback_root = Path(str(previous.get("working_dir") or "")).resolve()
+        rollback_files = [
+            str(item)
+            for item in list(previous.get("compose_config_files") or [])
+            if str(item).strip()
+        ]
+        if not rollback_files:
+            raise DeployError("gemini_oauth_api_stop_topology_missing")
+        current = self._inspect_container(API_SERVICE)
+        self._require_compose_identity(
+            current,
+            service=API_SERVICE,
+            reason_prefix="gemini_oauth_api_stop",
         )
+        if (
+            str(current.get("Id") or "") != str(previous.get("container_id") or "")
+            or str(current.get("Image") or "") != str(previous.get("image_id") or "")
+            or not bool(dict(current.get("State") or {}).get("Running"))
+        ):
+            raise DeployError("gemini_oauth_api_stop_identity_changed")
+        command = self._rollback_compose(
+            rollback_root,
+            rollback_files,
+            "stop",
+            "--timeout",
+            "30",
+            API_SERVICE,
+        )
+        before_mutation("before_stop_api_for_gemini_oauth")
+        self._run(
+            command,
+            cwd=rollback_root,
+            env=self._rollback_environment(previous),
+        )
+        initial_api_stopped = self._require_api_stopped_for_gemini_oauth(
+            previous,
+            boundary="after_api_stop_confirmation",
+            record_pass=True,
+        )
+        self.receipt["gemini_oauth_runtime_lock_exclusion"] = {
+            "status": "initial_point_check_pass",
+            "initial_api_stopped": initial_api_stopped,
+            "helper_invocation_state_at_initial_check": "not_started",
+            "lock_protocol_compatibility_assumed": False,
+            "rollback_requires_confirmed_helper_exit": True,
+            "future_helper_requires_api_stop": True,
+            "continuous_absence_claimed": False,
+        }
+
+    def _gemini_oauth_api_stopped_evidence(
+        self,
+        previous: Mapping[str, Any],
+        *,
+        boundary: str,
+    ) -> dict[str, object]:
+        if not SAFE_SCRIPT_ORIGIN_PATTERN.fullmatch(boundary):
+            raise DeployError("gemini_oauth_api_stop_boundary_invalid")
+        try:
+            stopped = self._inspect_container(API_SERVICE)
+            self._require_compose_identity(
+                stopped,
+                service=API_SERVICE,
+                reason_prefix="gemini_oauth_api_stopped",
+            )
+        except DeployError:
+            return {
+                "status": "fail",
+                "boundary": boundary,
+                "checked_at": _utc_now(),
+                "container_id": "",
+                "image_id": "",
+                "running": None,
+                "restarting": None,
+                "error_code": "gemini_oauth_api_stop_not_confirmed",
+            }
+        stopped_state = dict(stopped.get("State") or {})
+        container_id = str(stopped.get("Id") or "")
+        image_id = str(stopped.get("Image") or "")
+        running = bool(stopped_state.get("Running"))
+        restarting = bool(stopped_state.get("Restarting"))
+        exact_stopped = (
+            container_id == str(previous.get("container_id") or "")
+            and image_id == str(previous.get("image_id") or "")
+            and not running
+            and not restarting
+        )
+        return {
+            "status": "pass" if exact_stopped else "fail",
+            "boundary": boundary,
+            "checked_at": _utc_now(),
+            "container_id": container_id,
+            "image_id": image_id,
+            "running": running,
+            "restarting": restarting,
+            **(
+                {}
+                if exact_stopped
+                else {"error_code": "gemini_oauth_api_stop_not_confirmed"}
+            ),
+        }
+
+    def _record_gemini_oauth_api_stopped_check(
+        self, evidence: Mapping[str, object]
+    ) -> None:
+        detail = dict(evidence)
+        evidence_status = str(detail.pop("status", ""))
+        self._record_check(
+            "gemini_oauth_api_stopped_point_check",
+            "pass" if evidence_status == "pass" else "fail",
+            evidence_status=evidence_status,
+            **detail,
+        )
+
+    def _require_api_stopped_for_gemini_oauth(
+        self,
+        previous: Mapping[str, Any],
+        *,
+        boundary: str = "gemini_oauth_api_stopped",
+        record_pass: bool = False,
+    ) -> dict[str, object]:
+        evidence = self._gemini_oauth_api_stopped_evidence(
+            previous,
+            boundary=boundary,
+        )
+        if record_pass or evidence.get("status") != "pass":
+            self._record_gemini_oauth_api_stopped_check(evidence)
+        if evidence.get("status") != "pass":
+            raise DeployError("gemini_oauth_api_stop_not_confirmed")
+        return evidence
+
+    def _recreate_api(
+        self, *, before_mutation: Callable[[str], None] | None = None
+    ) -> None:
+        command = self._target_compose(
+            "up",
+            "-d",
+            "--no-build",
+            "--no-deps",
+            "--force-recreate",
+            API_SERVICE,
+        )
+        if before_mutation is not None:
+            before_mutation("before_recreate_api_up")
+        self._run(command)
 
     def _local_origin(self) -> str:
         host_port = _first_nonempty(
@@ -8781,7 +10323,8 @@ class MemorialDeployLane:
         }
 
     def _capture_internal_openapi_control(self) -> dict[str, Any]:
-        if self.internal_openapi_snapshot is None:
+        docker_exec_performed = self.internal_openapi_snapshot is None
+        if docker_exec_performed:
             with self._vexp_mutation_lease("before_api_exec"):
                 completed = self._run(
                     [
@@ -8833,6 +10376,15 @@ class MemorialDeployLane:
                 probe={
                     "source": "deployed_api_container_app.openapi",
                     "container": API_SERVICE,
+                    "transport": (
+                        "docker_exec"
+                        if docker_exec_performed
+                        else "in_process_snapshot"
+                    ),
+                    "docker_exec_performed": docker_exec_performed,
+                    "live_action_performed": docker_exec_performed,
+                    "action_class": "read_only_non_mutating_probe",
+                    "live_mutation_performed": False,
                     "public_docs_config_retired": True,
                     "document_bytes": len(encoded_document),
                     "document_sha256": hashlib.sha256(encoded_document).hexdigest(),
@@ -9493,6 +11045,8 @@ class MemorialDeployLane:
         rollback_tag: str,
         baseline: Mapping[str, Any],
         deployment_input_seal: Mapping[str, Sequence[Mapping[str, object]]],
+        *,
+        before_mutation: Callable[[str], None] | None = None,
     ) -> dict[str, Any]:
         self._require_deployment_input_seal(deployment_input_seal, scope="rollback")
         prior_openapi_value = baseline.get("openapi")
@@ -9530,30 +11084,33 @@ class MemorialDeployLane:
             reason="rollback_image_reference_unrestorable",
         )
         rollback_env = self._rollback_environment(previous)
+        rollback_tag_command = [
+            "docker",
+            "image",
+            "tag",
+            str(previous["image_id"]),
+            prior_reference,
+        ]
         with self._vexp_mutation_lease("before_rollback_api"):
-            self._run(
-                [
-                    "docker",
-                    "image",
-                    "tag",
-                    str(previous["image_id"]),
-                    prior_reference,
-                ],
-                env=rollback_env,
-            )
+            if before_mutation is not None:
+                before_mutation("before_rollback_image_tag")
+            self._run(rollback_tag_command, env=rollback_env)
         self._require_deployment_input_seal(deployment_input_seal, scope="rollback")
+        rollback_api_command = self._rollback_compose(
+            rollback_root,
+            rollback_files,
+            "up",
+            "-d",
+            "--no-build",
+            "--no-deps",
+            "--force-recreate",
+            API_SERVICE,
+        )
         with self._vexp_mutation_lease("before_rollback_api"):
+            if before_mutation is not None:
+                before_mutation("before_rollback_api_up")
             self._run(
-                self._rollback_compose(
-                    rollback_root,
-                    rollback_files,
-                    "up",
-                    "-d",
-                    "--no-build",
-                    "--no-deps",
-                    "--force-recreate",
-                    API_SERVICE,
-                ),
+                rollback_api_command,
                 cwd=rollback_root,
                 env=rollback_env,
             )
@@ -9665,17 +11222,21 @@ class MemorialDeployLane:
             str(authority.get("public_origin") or ""),
             allowed_hosts=self.allowed_public_hosts,
         )
+        gemini_oauth_binding = self._gemini_oauth_source_binding()
         non_memorial_controls: dict[str, Any] = {}
         self.receipt["predeploy_non_memorial_controls"] = {
             "status": "deferred_to_authorized_transaction",
             "openapi_source": "deployed_api_container_app.openapi",
             "docker_exec_performed": False,
+            "action_class": "deferred_read_only_non_mutating_probe",
+            "live_mutation_performed": False,
         }
         self.receipt.update(
             {
                 "status": "preflight_pass",
                 "source_revision": source_revision,
                 "public_origin": public_origin,
+                "gemini_oauth_source_binding": gemini_oauth_binding,
                 "previous_api": self._sanitized_previous_api(previous),
                 "rollback_compose_files": previous["compose_config_files"],
                 "rollback": {
@@ -9685,6 +11246,26 @@ class MemorialDeployLane:
                 },
             }
         )
+        self._write_receipt()
+        predeploy_release_context_seal = (
+            self._capture_predeploy_release_context_seal(
+                release_source=release_source,
+                authority=authority,
+                previous=previous,
+                rollback_render=rollback_render,
+                public_origin=public_origin,
+                candidate=candidate,
+                candidate_promotion=candidate_promotion,
+                deployment_input_seal=deployment_input_seal,
+                target_mounts=target_mounts,
+                gemini_oauth_binding=gemini_oauth_binding,
+            )
+        )
+        self.receipt["predeploy_release_context_seal"] = {
+            "status": "sealed",
+            "sha256": _canonical_json_sha256(predeploy_release_context_seal),
+            "preimage": predeploy_release_context_seal,
+        }
         self._write_receipt()
         return {
             "authority": authority,
@@ -9697,6 +11278,8 @@ class MemorialDeployLane:
             "deployment_input_seal": deployment_input_seal,
             "non_memorial_controls": non_memorial_controls,
             "target_mounts": target_mounts,
+            "gemini_oauth_binding": gemini_oauth_binding,
+            "predeploy_release_context_seal": predeploy_release_context_seal,
         }
 
     def deploy(self, *, preflight_only: bool = False) -> dict[str, Any]:
@@ -9710,6 +11293,66 @@ class MemorialDeployLane:
         non_memorial_controls: dict[str, Any] = {}
         transaction_stack = ExitStack()
         transaction_active = False
+
+        def require_predeploy_release_context(boundary: str) -> None:
+            recorded = dict(
+                self.receipt.get("predeploy_release_context_seal") or {}
+            )
+            preimage_value = recorded.get("preimage")
+            expected = (
+                dict(preimage_value) if isinstance(preimage_value, dict) else {}
+            )
+            if (
+                set(recorded) != {"status", "sha256", "preimage"}
+                or recorded.get("status") != "sealed"
+                or recorded.get("sha256") != _canonical_json_sha256(expected)
+                or dict(context.get("predeploy_release_context_seal") or {})
+                != expected
+            ):
+                raise DeployError("predeploy_release_context_seal_changed")
+            if (
+                str(context.get("source_revision") or "")
+                != dict(expected.get("release_source") or {}).get(
+                    "source_revision"
+                )
+                or str(context.get("public_origin") or "")
+                != expected.get("public_origin")
+                or dict(context.get("candidate") or {})
+                != expected.get("candidate")
+                or _canonical_json_sha256(
+                    dict(context.get("authority") or {})
+                )
+                != expected.get("authority_sha256")
+                or _canonical_json_sha256(
+                    dict(context.get("previous") or {})
+                )
+                != expected.get("previous_sha256")
+                or _canonical_json_sha256(
+                    dict(context.get("rollback_render") or {})
+                )
+                != expected.get("rollback_render_sha256")
+                or _canonical_json_sha256(
+                    dict(context.get("candidate_promotion") or {})
+                )
+                != expected.get("candidate_promotion_sha256")
+                or _canonical_json_sha256(
+                    [dict(item) for item in list(context.get("target_mounts") or [])]
+                )
+                != expected.get("target_mounts_sha256")
+                or dict(context.get("gemini_oauth_binding") or {})
+                != expected.get("gemini_oauth")
+            ):
+                raise DeployError("predeploy_release_context_changed")
+            self._require_predeploy_release_context_current(
+                expected,
+                boundary=boundary,
+                deployment_input_seal=context["deployment_input_seal"],
+            )
+
+        def begin_api_mutation(boundary: str) -> None:
+            nonlocal mutation_started
+            require_predeploy_release_context(boundary)
+            mutation_started = True
 
         def persist_preparation(
             status: str,
@@ -9762,7 +11405,7 @@ class MemorialDeployLane:
                 active_action = "ensure_redis"
                 preparation_attempted.append("ensure_redis")
                 persist_preparation("in_progress")
-                self._ensure_redis()
+                self._ensure_redis(before_mutation=require_predeploy_release_context)
             preparation_completed.append("ensure_redis")
             active_action = None
             persist_preparation("in_progress")
@@ -9773,7 +11416,10 @@ class MemorialDeployLane:
                 active_action = "protect_previous_image"
                 preparation_attempted.append("protect_previous_image")
                 persist_preparation("in_progress")
-                rollback_tag = self._protect_previous_image(previous)
+                rollback_tag = self._protect_previous_image(
+                    previous,
+                    before_mutation=require_predeploy_release_context,
+                )
             preparation_completed.append("protect_previous_image")
             active_action = None
             self.receipt["rollback"] = {
@@ -9782,8 +11428,88 @@ class MemorialDeployLane:
                 "image_id": previous["image_id"],
                 "image_tag": rollback_tag,
             }
+            gemini_oauth_candidate_image_id = str(
+                dict(context["candidate"]).get("image_id") or ""
+            )
+            gemini_oauth_runtime_root = self._configured_memorial_runtime_root()
+            gemini_oauth_helper_container_name = (
+                self._gemini_oauth_helper_container_name(context)
+            )
+            gemini_oauth_install_command = self._gemini_oauth_install_command(
+                candidate_image_id=gemini_oauth_candidate_image_id,
+                runtime_root=gemini_oauth_runtime_root,
+                container_name=gemini_oauth_helper_container_name,
+            )
+            self._validate_gemini_oauth_install_command(
+                gemini_oauth_install_command,
+                candidate_image_id=gemini_oauth_candidate_image_id,
+                runtime_root=gemini_oauth_runtime_root,
+                container_name=gemini_oauth_helper_container_name,
+            )
+            self._require_gemini_oauth_helper_name_absent(
+                gemini_oauth_helper_container_name,
+                boundary="before_api_stop",
+            )
+            self.receipt["status"] = "stopping_api_for_gemini_oauth"
+            pending_action = "stop_api_for_gemini_oauth"
+            persist_preparation("api_stop_authorization_pending")
+            with self._vexp_mutation_lease("before_recreate_api"):
+                pending_action = None
+                active_action = "stop_api_for_gemini_oauth"
+                preparation_attempted.append("stop_api_for_gemini_oauth")
+                persist_preparation(
+                    "in_progress",
+                    api_mutation_started=True,
+                    api_runtime_state="stop_mutation_possible",
+                )
+                self._stop_api_for_gemini_oauth(
+                    previous,
+                    before_mutation=begin_api_mutation,
+                )
+            preparation_completed.append("stop_api_for_gemini_oauth")
+            active_action = None
+            persist_preparation(
+                "in_progress",
+                api_mutation_started=True,
+                api_runtime_state="stopped_for_credential_provisioning",
+            )
+
+            self.receipt["status"] = "provisioning_gemini_oauth"
+            pending_action = "provision_gemini_oauth"
+            persist_preparation(
+                "authorization_pending",
+                api_mutation_started=True,
+                api_runtime_state="stopped_for_credential_provisioning",
+            )
+            with self._vexp_mutation_lease("before_recreate_api"):
+                self._revalidate_bind_source_access(
+                    boundary="before_gemini_oauth_install"
+                )
+                pending_action = None
+                active_action = "provision_gemini_oauth"
+                preparation_attempted.append("provision_gemini_oauth")
+                persist_preparation(
+                    "in_progress",
+                    api_mutation_started=True,
+                    api_runtime_state="stopped_for_credential_provisioning",
+                )
+                self._provision_gemini_oauth(
+                    candidate=dict(context["candidate"]),
+                    previous=previous,
+                    expected_binding=dict(context["gemini_oauth_binding"]),
+                    command=gemini_oauth_install_command,
+                    helper_container_name=gemini_oauth_helper_container_name,
+                    runtime_root=gemini_oauth_runtime_root,
+                    before_mutation=require_predeploy_release_context,
+                )
+            preparation_completed.append("provision_gemini_oauth")
+            active_action = None
             self.receipt["status"] = "changing_api"
-            persist_preparation("complete")
+            persist_preparation(
+                "complete",
+                api_mutation_started=True,
+                api_runtime_state="stopped_after_credential_provisioning",
+            )
 
             self._require_deployment_input_seal(context["deployment_input_seal"])
             pending_action = "recreate_api"
@@ -9798,8 +11524,7 @@ class MemorialDeployLane:
                     api_mutation_started=True,
                     api_runtime_state="mutation_possible",
                 )
-                mutation_started = True
-                self._recreate_api()
+                self._recreate_api(before_mutation=begin_api_mutation)
             persist_preparation(
                 "complete",
                 api_mutation_started=True,
@@ -9866,6 +11591,24 @@ class MemorialDeployLane:
                 "reason": original_error,
                 "type": type(exc).__name__,
             }
+            if isinstance(exc, GeminiOAuthHelperExitUnconfirmed):
+                self.receipt["status"] = "rollback_denied_helper_exit_unconfirmed"
+                self.receipt["rollback"] = {
+                    "status": "denied",
+                    "reason": "gemini_oauth_helper_exit_unconfirmed",
+                }
+                self.receipt["preparation"].update(
+                    {
+                        "status": "helper_exit_unconfirmed",
+                        "api_mutation_started": True,
+                        "api_runtime_state": "stopped_or_unknown_no_rollback",
+                        "rollback_required": True,
+                        "rollback_performed": False,
+                    }
+                )
+                self.receipt["completed_at"] = _utc_now()
+                self._write_receipt()
+                raise
             if mutation_started and previous and rollback_tag:
                 try:
                     self._enter_vexp_mutation_transaction_rollback()
@@ -9874,6 +11617,7 @@ class MemorialDeployLane:
                         rollback_tag,
                         non_memorial_controls,
                         context["deployment_input_seal"],
+                        before_mutation=require_predeploy_release_context,
                     )
                     self.receipt["status"] = "failed_rolled_back"
                     self.receipt["rollback"] = rollback
@@ -9977,7 +11721,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--preflight-only",
         action="store_true",
-        help="Run evidence, Compose, rollback-input, and origin checks without Docker mutations.",
+        help=(
+            "Run checks; Docker inspect/exec probes may run, but no Docker mutation "
+            "is allowed."
+        ),
     )
     parser.add_argument("--wait-seconds", type=float, default=90.0)
     parser.add_argument("--poll-seconds", type=float, default=2.0)

@@ -20,6 +20,7 @@ from unittest.mock import Mock
 import pytest
 
 from scripts import deploy_ea_memorial as deploy
+from scripts import provision_memorial_gemini_oauth as oauth_provision
 from scripts.deploy_ea_memorial import DeployError, MemorialDeployLane
 
 
@@ -30,6 +31,40 @@ TEST_ROOT_PREDICATE_PRODUCER_BYTES = b"test root predicate producer\n"
 TEST_ROOT_PREDICATE_PRODUCER_SHA256 = hashlib.sha256(
     TEST_ROOT_PREDICATE_PRODUCER_BYTES
 ).hexdigest()
+TEST_GEMINI_OAUTH_BYTES = (
+    json.dumps(
+        {
+            "refresh_token": "soak-guard-oauth-secret",
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "token_type": "Bearer",
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    + "\n"
+).encode("utf-8")
+
+
+def _gemini_oauth_snapshot() -> oauth_provision.CredentialSnapshot:
+    return oauth_provision.CredentialSnapshot(
+        TEST_GEMINI_OAUTH_BYTES,
+        oauth_provision.CredentialMetadata(
+            schema=oauth_provision.CONTRACT,
+            status="snapshotted",
+            sha256=hashlib.sha256(TEST_GEMINI_OAUTH_BYTES).hexdigest(),
+            size_bytes=len(TEST_GEMINI_OAUTH_BYTES),
+            uid=os.geteuid(),
+            gid=os.getegid(),
+            mode="0600",
+            device=1,
+            inode=1,
+        ),
+    )
+
+
+def _gemini_oauth_binding() -> dict[str, object]:
+    with _gemini_oauth_snapshot() as snapshot:
+        return MemorialDeployLane._gemini_oauth_binding_from_snapshot(snapshot)
 
 
 class TestVexpMemorialMutationAuthority(deploy.VexpMemorialMutationAuthority):
@@ -732,13 +767,19 @@ def _lane(
         resolved_lock_path.chmod(0o644)
     lane = MemorialDeployLane(
         root=root,
-        env={"EA_DEPLOYMENT_ID": "guard-test-001"},
+        env={
+            "EA_DEPLOYMENT_ID": "guard-test-001",
+            "EA_MEMORIAL_RUNTIME_HOST_PATH": str(
+                root / ".runtime" / "candidate-data"
+            ),
+        },
         runner=runner,
         monotonic=monotonic,
         sleep=sleep,
         receipt_dir=tmp_path / "receipts",
         global_lock_path=tmp_path / "global.lock",
         durable_root_check=lambda _path: None,
+        gemini_oauth_snapshot_factory=_gemini_oauth_snapshot,
     )
     lane._vexp_mutation_authority = TestVexpMemorialMutationAuthority(
         state_path=resolved_state_path,
@@ -804,20 +845,68 @@ def _preflight_context(tmp_path: Path) -> dict[str, object]:
             "image_id": f"sha256:{'2' * 64}",
         },
         "candidate_promotion": {"projection": {}},
+        "rollback_render": {},
         "deployment_input_seal": {"seal_sha256": "4" * 64},
         "source_revision": "3" * 40,
         "public_origin": "https://myexternalbrain.com",
         "non_memorial_controls": {},
         "target_mounts": [],
+        "gemini_oauth_binding": _gemini_oauth_binding(),
     }
 
 
 def _install_preflight(lane: MemorialDeployLane, tmp_path: Path) -> None:
-    lane.preflight = Mock(return_value=_preflight_context(tmp_path))  # type: ignore[method-assign]
+    context = _preflight_context(tmp_path)
+    seal = {
+        "release_source": {"source_revision": context["source_revision"]},
+        "authority_sha256": deploy._canonical_json_sha256(context["authority"]),
+        "previous_sha256": deploy._canonical_json_sha256(context["previous"]),
+        "rollback_render_sha256": deploy._canonical_json_sha256(
+            context["rollback_render"]
+        ),
+        "public_origin": context["public_origin"],
+        "candidate": context["candidate"],
+        "candidate_promotion_sha256": deploy._canonical_json_sha256(
+            context["candidate_promotion"]
+        ),
+        "target_mounts_sha256": deploy._canonical_json_sha256(
+            context["target_mounts"]
+        ),
+        "gemini_oauth": context["gemini_oauth_binding"],
+    }
+    context["predeploy_release_context_seal"] = seal
+    lane.receipt["predeploy_release_context_seal"] = {
+        "status": "sealed",
+        "sha256": deploy._canonical_json_sha256(seal),
+        "preimage": seal,
+    }
+    lane.preflight = Mock(return_value=context)  # type: ignore[method-assign]
     lane._require_deployment_input_seal = Mock()  # type: ignore[method-assign]
+    lane._require_predeploy_release_context_current = Mock()  # type: ignore[method-assign]
     lane._capture_non_memorial_controls = Mock(return_value={})  # type: ignore[method-assign]
     lane.bind_source_snapshot_sha256 = "5" * 64
     lane._revalidate_bind_source_access = Mock()  # type: ignore[method-assign]
+    lane._require_gemini_oauth_helper_name_absent = Mock(  # type: ignore[method-assign]
+        return_value={
+            "status": "pass",
+            "boundary": "before_api_stop",
+            "checked_at": "2026-07-20T00:00:00Z",
+            "container_name": "mocked",
+            "exact_name_absent": True,
+            "helper_invocation_state": "not_started",
+        }
+    )
+    lane._stop_api_for_gemini_oauth = Mock(  # type: ignore[method-assign]
+        side_effect=lambda _previous, *, before_mutation: before_mutation(
+            "before_stop_api_for_gemini_oauth"
+        )
+    )
+    lane._provision_gemini_oauth = Mock(  # type: ignore[method-assign]
+        side_effect=lambda *, candidate, previous, expected_binding, command,
+        helper_container_name, runtime_root, before_mutation: (
+            before_mutation("before_gemini_oauth_install")
+        )
+    )
 
 
 def _install_postdeploy_success(lane: MemorialDeployLane) -> None:
@@ -1146,6 +1235,9 @@ def test_preflight_defers_live_openapi_baseline_without_api_exec(
         return_value={"public_origin": "https://myexternalbrain.com"}
     )
     lane._validate_compose = Mock(return_value=[])  # type: ignore[method-assign]
+    lane._capture_predeploy_release_context_seal = Mock(  # type: ignore[method-assign]
+        return_value={"schema": "test.predeploy.release-context.v1"}
+    )
     lane._capture_openapi_control = Mock(  # type: ignore[method-assign]
         side_effect=AssertionError("public openapi must not be read in preflight")
     )
@@ -1157,10 +1249,13 @@ def test_preflight_defers_live_openapi_baseline_without_api_exec(
 
     assert runner.commands == []
     assert context["non_memorial_controls"] == {}
+    assert context["gemini_oauth_binding"] == _gemini_oauth_binding()
     assert lane.receipt["predeploy_non_memorial_controls"] == {
         "status": "deferred_to_authorized_transaction",
         "openapi_source": "deployed_api_container_app.openapi",
         "docker_exec_performed": False,
+        "action_class": "deferred_read_only_non_mutating_probe",
+        "live_mutation_performed": False,
     }
     lane._capture_openapi_control.assert_not_called()
     lane._capture_internal_openapi_control.assert_not_called()
@@ -1187,16 +1282,40 @@ def test_terminal_state_and_positive_permit_pass_all_forward_mutation_boundaries
         )
     )
     lane._ensure_redis = Mock(  # type: ignore[method-assign]
-        side_effect=lambda: actions.append("ensure_redis")
+        side_effect=lambda *, before_mutation: (
+            before_mutation("before_redis_create"),
+            actions.append("ensure_redis"),
+        )
     )
 
-    def protect(_previous: Mapping[str, object]) -> str:
+    def protect(
+        _previous: Mapping[str, object],
+        *,
+        before_mutation: Callable[[str], None],
+    ) -> str:
+        before_mutation("before_protect_previous_image_tag")
         actions.append("protect_previous_image")
         return "ea-runtime:rollback-guard-test"
 
     lane._protect_previous_image = protect  # type: ignore[method-assign]
+    lane._stop_api_for_gemini_oauth = Mock(  # type: ignore[method-assign]
+        side_effect=lambda _previous, *, before_mutation: (
+            before_mutation("before_stop_api_for_gemini_oauth"),
+            actions.append("stop_api_for_gemini_oauth"),
+        )
+    )
+    lane._provision_gemini_oauth = Mock(  # type: ignore[method-assign]
+        side_effect=lambda *, candidate, previous, expected_binding, command,
+        helper_container_name, runtime_root, before_mutation: (
+            before_mutation("before_gemini_oauth_install"),
+            actions.append("provision_gemini_oauth"),
+        )
+    )
     lane._recreate_api = Mock(  # type: ignore[method-assign]
-        side_effect=lambda: actions.append("recreate_api")
+        side_effect=lambda *, before_mutation: (
+            before_mutation("before_recreate_api_up"),
+            actions.append("recreate_api"),
+        )
     )
 
     receipt = lane.deploy()
@@ -1206,6 +1325,8 @@ def test_terminal_state_and_positive_permit_pass_all_forward_mutation_boundaries
         "capture_internal_openapi",
         "ensure_redis",
         "protect_previous_image",
+        "stop_api_for_gemini_oauth",
+        "provision_gemini_oauth",
         "recreate_api",
     ]
     assert runner.commands == []
@@ -1217,6 +1338,8 @@ def test_terminal_state_and_positive_permit_pass_all_forward_mutation_boundaries
     assert [guard["boundary"] for guard in guards] == [
         "before_ensure_redis",
         "before_protect_previous_image",
+        "before_recreate_api",
+        "before_recreate_api",
         "before_recreate_api",
     ]
     assert {guard["status"] for guard in guards} == {"pass"}
@@ -1327,16 +1450,40 @@ def test_shared_authorization_lease_is_held_across_each_exact_mutation(
         lease_observations.append(action)
 
     lane._ensure_redis = Mock(  # type: ignore[method-assign]
-        side_effect=lambda: require_shared_lease("ensure_redis")
+        side_effect=lambda *, before_mutation: (
+            before_mutation("before_redis_create"),
+            require_shared_lease("ensure_redis"),
+        )
     )
 
-    def protect(_previous: Mapping[str, object]) -> str:
+    def protect(
+        _previous: Mapping[str, object],
+        *,
+        before_mutation: Callable[[str], None],
+    ) -> str:
+        before_mutation("before_protect_previous_image_tag")
         require_shared_lease("protect_previous_image")
         return "ea-runtime:rollback-guard-test"
 
     lane._protect_previous_image = protect  # type: ignore[method-assign]
+    lane._stop_api_for_gemini_oauth = Mock(  # type: ignore[method-assign]
+        side_effect=lambda _previous, *, before_mutation: (
+            before_mutation("before_stop_api_for_gemini_oauth"),
+            require_shared_lease("stop_api_for_gemini_oauth"),
+        )
+    )
+    lane._provision_gemini_oauth = Mock(  # type: ignore[method-assign]
+        side_effect=lambda *, candidate, previous, expected_binding, command,
+        helper_container_name, runtime_root, before_mutation: (
+            before_mutation("before_gemini_oauth_install"),
+            require_shared_lease("provision_gemini_oauth"),
+        )
+    )
     lane._recreate_api = Mock(  # type: ignore[method-assign]
-        side_effect=lambda: require_shared_lease("recreate_api")
+        side_effect=lambda *, before_mutation: (
+            before_mutation("before_recreate_api_up"),
+            require_shared_lease("recreate_api"),
+        )
     )
 
     receipt = lane.deploy()
@@ -1345,6 +1492,8 @@ def test_shared_authorization_lease_is_held_across_each_exact_mutation(
     assert lease_observations == [
         "ensure_redis",
         "protect_previous_image",
+        "stop_api_for_gemini_oauth",
+        "provision_gemini_oauth",
         "recreate_api",
     ]
     descriptor = os.open(lock_path, os.O_RDONLY | os.O_CLOEXEC)
@@ -1505,7 +1654,8 @@ def test_action_crossing_permit_expiry_is_not_accepted_as_complete(
     _install_preflight(lane, tmp_path)
     actions: list[str] = []
 
-    def ensure() -> None:
+    def ensure(*, before_mutation: Callable[[str], None]) -> None:
+        before_mutation("before_redis_create")
         actions.append("ensure_redis")
         clock[0] = datetime(2026, 7, 20, 10, 31, tzinfo=UTC)
 
@@ -1792,7 +1942,8 @@ def test_api_mutation_start_is_persisted_before_recreate_and_rollback_preserved(
     )
     observed_before_recreate: dict[str, object] = {}
 
-    def fail_recreate() -> None:
+    def fail_recreate(*, before_mutation: Callable[[str], None]) -> None:
+        before_mutation("before_recreate_api_up")
         observed_before_recreate.update(_receipt(lane)["preparation"])
         raise DeployError("api_recreate_partial_failure")
 
@@ -1812,10 +1963,14 @@ def test_api_mutation_start_is_persisted_before_recreate_and_rollback_preserved(
     assert observed_before_recreate["attempted_actions"] == [
         "ensure_redis",
         "protect_previous_image",
+        "stop_api_for_gemini_oauth",
+        "provision_gemini_oauth",
     ]
     assert observed_before_recreate["completed_actions"] == [
         "ensure_redis",
         "protect_previous_image",
+        "stop_api_for_gemini_oauth",
+        "provision_gemini_oauth",
     ]
     lane._rollback.assert_called_once()
     receipt = _receipt(lane)
@@ -1831,6 +1986,8 @@ def test_api_mutation_start_is_persisted_before_recreate_and_rollback_preserved(
         "before_ensure_redis",
         "before_protect_previous_image",
         "before_recreate_api",
+        "before_recreate_api",
+        "before_recreate_api",
     ]
 
 
@@ -1845,12 +2002,18 @@ def test_permit_is_re_read_at_each_boundary_before_api_mutation(
     _install_preflight(lane, tmp_path)
     actions: list[str] = []
 
-    def ensure() -> None:
+    def ensure(*, before_mutation: Callable[[str], None]) -> None:
+        before_mutation("before_redis_create")
         actions.append("ensure_redis")
         if remove_after == "ensure_redis":
             permit_path.unlink()
 
-    def protect(_previous: Mapping[str, object]) -> str:
+    def protect(
+        _previous: Mapping[str, object],
+        *,
+        before_mutation: Callable[[str], None],
+    ) -> str:
+        before_mutation("before_protect_previous_image_tag")
         actions.append("protect_previous_image")
         if remove_after == "protect_previous_image":
             permit_path.unlink()

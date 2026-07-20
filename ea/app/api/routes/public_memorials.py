@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import concurrent.futures
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import html
 import io
@@ -21,11 +23,12 @@ import time
 import wave
 import shutil
 from datetime import datetime, timezone
-from functools import lru_cache
+from functools import lru_cache, wraps
 from http.cookies import SimpleCookie
 import pathlib
 from pathlib import Path, PurePosixPath
 import sqlite3
+import stat
 import threading
 from urllib.error import HTTPError, URLError
 import urllib.parse
@@ -91,6 +94,17 @@ from app.services.hedy_meeting_evidence import verify_hedy_webhook_signature
 from app.services.memorial_voice_profile import build_memorial_voice_profile, load_memorial_voice_profile
 from app.services.memorial_stt_error_log import classify_memorial_stt_issue, log_memorial_stt_issue
 from app.services.memorial_release_policy import evaluate_memorial_voice_release
+from app.services.memorial_voice_preview import (
+    VOICE_PREVIEW_MAX_TTL_SECONDS,
+    VoicePreviewSessionError,
+    issue_memorial_voice_preview_session,
+    verify_memorial_voice_preview_session,
+)
+from app.services.memorial_voice_preview_authority import (
+    MemorialVoicePreviewAuthorityError,
+    MemorialVoicePreviewReleaseContext,
+    validated_memorial_voice_preview_release_context,
+)
 from app.services.memorial_paths import (
     MEMORIAL_PRESENT_WORLD_CACHE_ROOT as _MEMORIAL_PRESENT_WORLD_CACHE_ROOT,
     MEMORIAL_TTS_RENDER_CACHE_ROOT as _MEMORIAL_TTS_RENDER_CACHE_ROOT,
@@ -173,6 +187,8 @@ _VOICE_AB_ROUND_RECEIPT_SCHEMA = "ea.memorial_voice_ab_round_receipt.v1"
 _VOICE_AB_RETIREMENT_RECEIPT_SCHEMA = "ea.memorial_voice_ab_retirement_receipt.v1"
 _MEMORIAL_PWA_VERSION = "20260609a"
 _MEMORIAL_GUEST_COOKIE = "ea_memorial_guest"
+_MEMORIAL_VOICE_PREVIEW_COOKIE = "ea_manfred_voice_preview"
+_MEMORIAL_VOICE_PREVIEW_TTL_SECONDS = min(10 * 60, VOICE_PREVIEW_MAX_TTL_SECONDS)
 _MAX_REALTIME_AUDIO_BYTES = _MAX_SPEECH_UPLOAD_BYTES
 _MAX_REALTIME_TEXT_CHARS = 600
 _MAX_REALTIME_CONCURRENT_TURNS = 2
@@ -216,6 +232,21 @@ _MEMORIAL_VERTEX_GEMINI_LIVE_MODEL = "gemini-live-2.5-flash-native-audio"
 _MEMORIAL_GEMINI_LIVE_VOICE = "Kore"
 _GEMINI_CLI_OAUTH_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
 _MEMORIAL_GEMINI_OAUTH_FAILURE_COOLDOWN_SECONDS = 600
+_MEMORIAL_GEMINI_OAUTH_CREDS_MAX_BYTES = 128 * 1024
+_MEMORIAL_GEMINI_OAUTH_LOCK_FILE_NAME = ".oauth_creds.lock"
+_MEMORIAL_GEMINI_OAUTH_DEFAULT_CREDS_PATH = Path(
+    "/data/memorial-writable/state/gemini-oauth/oauth_creds.json"
+)
+_MEMORIAL_GEMINI_OAUTH_CLOUD_PLATFORM_SCOPE = (
+    "https://www.googleapis.com/auth/cloud-platform"
+)
+_MEMORIAL_GEMINI_OAUTH_MIN_EXPIRY_EPOCH_MS = 946_684_800_000
+_MEMORIAL_GEMINI_OAUTH_MAX_EXPIRY_EPOCH_MS = 4_102_444_800_000
+_MEMORIAL_GEMINI_OAUTH_REFRESH_LOCK = threading.RLock()
+_MEMORIAL_GEMINI_OAUTH_FILE_LOCK_STATE = threading.local()
+_MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_UNTIL = 0.0
+_MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_IDENTITY: tuple[object, ...] | None = None
+_MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_REASON = ""
 _MEMORIAL_LIVE_WARMUP_TTL_SECONDS = 600
 _MEMORIAL_LIVE_WARMUP_MAX_CONCURRENCY_DEFAULT = 2
 _MEMORIAL_LIVE_WARMUP_FAILURE_BACKOFF_SECONDS_DEFAULT = 30.0
@@ -232,6 +263,9 @@ _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "realtime_connect": (6, 60),
     "realtime_turn": (16, 60),
     "warmup": (3, 60),
+    "voice_preview_issue": (6, 60),
+    "voice_preview_delete": (12, 60),
+    "voice_readiness": (120, 60),
     "playback_telemetry": (30, 60),
     "voice_ab_rate": (10, 60),
     "family_contribution_submit": (6, 60),
@@ -1253,19 +1287,30 @@ def _resolved_voice_consent(payload: dict[str, object]) -> dict[str, object]:
     return _support_resolved_voice_consent(payload, text=_text, load_voice_config=_load_voice_config)
 
 
-def _memorial_voice_release_receipt_path() -> Path:
-    return (
-        _repo_root()
-        / ".codex-studio"
-        / "published"
-        / "manfred_realtime_conversation_readiness.generated.json"
-    )
+def _memorial_voice_release_receipt_path() -> Path | None:
+    configured = str(
+        os.environ.get("EA_MEMORIAL_CONVERSATION_PREREQUISITES_PATH") or ""
+    ).strip()
+    if not configured:
+        return None
+    path = Path(configured)
+    if not path.is_absolute():
+        return None
+    return path
 
 
 def _memorial_voice_release_decision(slug: str) -> dict[str, object]:
+    receipt_path = _memorial_voice_release_receipt_path()
+    if receipt_path is None:
+        return {
+            "allowed": False,
+            "status": "blocked",
+            "reason": "conversation_prerequisites_path_unconfigured",
+            "receipt_status": "",
+        }
     return evaluate_memorial_voice_release(
         slug=_safe_slug(slug),
-        receipt_path=_memorial_voice_release_receipt_path(),
+        receipt_path=receipt_path,
     )
 
 
@@ -1273,7 +1318,14 @@ def _memorial_voice_release_enforced() -> bool:
     return is_prod_mode(get_settings().runtime.mode)
 
 
-def _require_voice_consent(payload: dict[str, object], action: str) -> None:
+def _require_voice_consent(
+    payload: dict[str, object],
+    action: str,
+    *,
+    request: Request | None = None,
+    websocket: WebSocket | None = None,
+    require_origin: bool | None = None,
+) -> None:
     _support_require_voice_consent(
         payload,
         action,
@@ -1281,9 +1333,24 @@ def _require_voice_consent(payload: dict[str, object], action: str) -> None:
         http_exception_cls=HTTPException,
     )
     if _memorial_voice_release_enforced():
-        decision = _memorial_voice_release_decision(_text(payload.get("slug"), ""))
-        if decision.get("allowed") is not True:
-            raise HTTPException(status_code=409, detail="memorial_voice_release_not_verified")
+        decision = _memorial_voice_access_decision(
+            _text(payload.get("slug"), ""),
+            request=request,
+            websocket=websocket,
+            require_origin=(
+                request is not None or websocket is not None
+                if require_origin is None
+                else require_origin
+            ),
+        )
+        if decision.get("access_allowed") is not True:
+            raise HTTPException(
+                status_code=int(decision.get("status_code") or 409),
+                detail=_text(
+                    decision.get("reason"),
+                    "memorial_voice_release_not_verified",
+                ),
+            )
 
 
 def _payload_with_slug(slug: str, payload: dict[str, object]) -> dict[str, object]:
@@ -3111,21 +3178,41 @@ def _collect_memorial_write_tokens(payload: dict[str, object]) -> list[str]:
     return tokens
 
 
-def _require_public_memorial_write_access(*, slug: str, request: Request, memorial: dict[str, object] | None = None) -> None:
+def _require_public_memorial_write_access(
+    *,
+    slug: str,
+    request: Request,
+    memorial: dict[str, object] | None = None,
+) -> str:
     payload = memorial or _load_memorial(slug)
     allowed_tokens = _collect_memorial_write_tokens(payload)
     if not allowed_tokens:
         raise HTTPException(status_code=503, detail="memorial_write_unconfigured")
-    provided = str(
-        request.headers.get("x-memorial-write-token")
-        or request.headers.get("x-memorial-admin-token")
-        or ""
-    ).strip()
-    if not provided:
+    provided_values = [
+        str(value or "").strip()
+        for name in ("x-memorial-write-token", "x-memorial-admin-token")
+        for value in request.headers.getlist(name)
+    ]
+    if (
+        len(provided_values) != 1
+        or not provided_values[0]
+        or any(
+            ord(character) < 32 or ord(character) == 127
+            for character in provided_values[0]
+        )
+    ):
         raise HTTPException(status_code=403, detail="memorial_write_unauthorized")
+    provided = provided_values[0]
+    matched = ""
     for candidate in allowed_tokens:
-        if len(provided) == len(candidate) and hmac.compare_digest(provided, candidate):
-            return
+        candidate_matches = len(provided) == len(candidate) and hmac.compare_digest(
+            provided,
+            candidate,
+        )
+        if candidate_matches and not matched:
+            matched = candidate
+    if matched:
+        return matched
     raise HTTPException(status_code=403, detail="memorial_write_unauthorized")
 
 
@@ -3878,6 +3965,261 @@ def _require_public_memorial_operator_surface_enabled() -> None:
 
 def _env_flag(name: str) -> bool:
     return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _memorial_voice_preview_enabled() -> bool:
+    return _env_flag("EA_MEMORIAL_VOICE_PREVIEW_ENABLED")
+
+
+def _memorial_voice_preview_signing_secret() -> str:
+    return resolve_signing_secret(
+        get_settings(),
+        purpose="manfred-voice-preview-session",
+    )
+
+
+def _memorial_voice_preview_release_context() -> MemorialVoicePreviewReleaseContext:
+    return validated_memorial_voice_preview_release_context()
+
+
+def _memorial_voice_transport_matches(
+    connection: Request | WebSocket,
+    *,
+    public_origin: str,
+    require_origin: bool,
+) -> bool:
+    try:
+        configured = urllib.parse.urlsplit(public_origin)
+        configured_port = configured.port
+    except (TypeError, ValueError):
+        return False
+    configured_host = str(configured.hostname or "").lower()
+    expected_origin = f"https://{configured_host}"
+    if (
+        not configured_host
+        or configured.scheme != "https"
+        or configured.username is not None
+        or configured.password is not None
+        or configured_port not in {None, 443}
+        or configured.path not in {"", "/"}
+        or configured.query
+        or configured.fragment
+        or public_origin != expected_origin
+    ):
+        return False
+    expected_authority = (configured_host, 443)
+    host_present, raw_host = _single_memorial_request_header(connection, "host")
+    if not host_present:
+        return False
+    supplied_authority = _memorial_authority(raw_host)
+    if supplied_authority is None:
+        return False
+    supplied_host, supplied_port = supplied_authority
+    if (supplied_host, supplied_port or 443) != expected_authority:
+        return False
+
+    scheme = str(connection.url.scheme or "").strip().lower()
+    secure_transport = scheme in {"https", "wss"}
+    if not secure_transport and trust_forwarded_ip():
+        secure_transport = _forwarded_transport_scheme(connection) == "https"
+    if not secure_transport:
+        return False
+
+    origin_present, raw_origin = _single_memorial_request_header(connection, "origin")
+    if require_origin:
+        return origin_present and raw_origin == expected_origin
+    return not origin_present or raw_origin == expected_origin
+
+
+def _memorial_voice_preview_transport_matches(
+    connection: Request | WebSocket,
+    *,
+    context: MemorialVoicePreviewReleaseContext,
+    require_origin: bool,
+) -> bool:
+    return _memorial_voice_transport_matches(
+        connection,
+        public_origin=context.public_origin,
+        require_origin=require_origin,
+    )
+
+
+def _memorial_voice_preview_cookie_value(connection: Request | WebSocket) -> str:
+    return _cookie_value_from_header(
+        connection.headers.get("cookie"),
+        _MEMORIAL_VOICE_PREVIEW_COOKIE,
+    )
+
+
+def _blocked_memorial_voice_access(
+    reason: str,
+    *,
+    status_code: int = 409,
+) -> dict[str, object]:
+    return {
+        "access_allowed": False,
+        "access_mode": "blocked",
+        "operator_preview": False,
+        "public_release_allowed": False,
+        "reason": reason,
+        "status_code": status_code,
+    }
+
+
+def _memorial_voice_access_decision(
+    slug: str,
+    *,
+    request: Request | None = None,
+    websocket: WebSocket | None = None,
+    require_origin: bool = True,
+) -> dict[str, object]:
+    safe_slug = _safe_slug(slug)
+    if not _memorial_voice_release_enforced():
+        return {
+            "access_allowed": True,
+            "access_mode": "development",
+            "operator_preview": False,
+            "public_release_allowed": True,
+            "reason": "",
+            "status_code": 200,
+        }
+
+    release_decision = _memorial_voice_release_decision(safe_slug)
+    public_release_allowed = release_decision.get("allowed") is True
+    connection = request if request is not None else websocket
+    if connection is None:
+        if public_release_allowed:
+            return {
+                "access_allowed": True,
+                "access_mode": "public_release",
+                "operator_preview": False,
+                "public_release_allowed": True,
+                "reason": "",
+                "status_code": 200,
+            }
+        return _blocked_memorial_voice_access(
+            "memorial_voice_release_not_verified"
+        )
+
+    if public_release_allowed:
+        if not _memorial_voice_transport_matches(
+            connection,
+            public_origin=str(os.getenv("EA_PUBLIC_APP_BASE_URL") or ""),
+            require_origin=require_origin,
+        ):
+            return _blocked_memorial_voice_access(
+                "memorial_voice_origin_invalid",
+                status_code=403,
+            )
+        return {
+            "access_allowed": True,
+            "access_mode": "public_release",
+            "operator_preview": False,
+            "public_release_allowed": True,
+            "reason": "",
+            "status_code": 200,
+        }
+
+    try:
+        context = _memorial_voice_preview_release_context()
+    except (MemorialVoicePreviewAuthorityError, OSError, ValueError):
+        return _blocked_memorial_voice_access(
+            "memorial_voice_release_authority_unavailable",
+            status_code=503,
+        )
+    if not _memorial_voice_preview_transport_matches(
+        connection,
+        context=context,
+        require_origin=require_origin,
+    ):
+        return _blocked_memorial_voice_access(
+            "memorial_voice_origin_invalid",
+            status_code=403,
+        )
+    if (
+        safe_slug != "manfred"
+        or not _memorial_voice_preview_enabled()
+        or not _public_memorial_operator_surfaces_enabled()
+    ):
+        return _blocked_memorial_voice_access(
+            "memorial_voice_release_not_verified"
+        )
+    try:
+        signing_secret = _memorial_voice_preview_signing_secret()
+        current_tokens = _collect_memorial_write_tokens(_load_memorial(safe_slug))
+        preview = verify_memorial_voice_preview_session(
+            _memorial_voice_preview_cookie_value(connection),
+            source_revision=context.source_revision,
+            deployment_id=context.deployment_id,
+            current_write_tokens=current_tokens,
+            signing_secret=signing_secret,
+            memorial_slug=safe_slug,
+        )
+    except (VoicePreviewSessionError, OSError, ValueError):
+        return _blocked_memorial_voice_access(
+            "memorial_voice_preview_invalid"
+        )
+    if preview.get("preview_session_valid") is not True:
+        return _blocked_memorial_voice_access(
+            str(preview.get("reason") or "memorial_voice_preview_invalid")
+        )
+    return {
+        "access_allowed": True,
+        "access_mode": "operator_preview",
+        "operator_preview": True,
+        "public_release_allowed": False,
+        "reason": "",
+        "status_code": 200,
+    }
+
+
+def _memorial_voice_preview_page_allowed(slug: str, request: Request) -> bool:
+    decision = _memorial_voice_access_decision(
+        slug,
+        request=request,
+        require_origin=False,
+    )
+    return (
+        decision.get("access_allowed") is True
+        and decision.get("access_mode") == "operator_preview"
+        and decision.get("public_release_allowed") is False
+    )
+
+
+def _set_memorial_voice_preview_cookie(
+    response: Response,
+    *,
+    value: str,
+    max_age: int,
+) -> None:
+    cookie = SimpleCookie()
+    cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE] = value
+    cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE]["httponly"] = True
+    cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE]["secure"] = True
+    cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE]["samesite"] = "Strict"
+    cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE]["path"] = "/memorials/manfred"
+    cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE]["max-age"] = max_age
+    response.headers.append(
+        "set-cookie",
+        cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE].OutputString(),
+    )
+
+
+def _clear_memorial_voice_preview_cookie(response: Response) -> None:
+    cookie = SimpleCookie()
+    cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE] = ""
+    cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE]["httponly"] = True
+    cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE]["secure"] = True
+    cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE]["samesite"] = "Strict"
+    cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE]["path"] = "/memorials/manfred"
+    cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE]["max-age"] = 0
+    cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE]["expires"] = (
+        "Thu, 01 Jan 1970 00:00:00 GMT"
+    )
+    response.headers.append(
+        "set-cookie",
+        cookie[_MEMORIAL_VOICE_PREVIEW_COOKIE].OutputString(),
+    )
 
 
 def _memorial_pwa_install_enabled() -> bool:
@@ -8384,6 +8726,9 @@ def _memorial_readiness_next_actions(degraded_reasons: list[str], *, ready: bool
         "tts_plugin_disabled": "configure_memorial_tts_provider",
         "chat_model_unresolved": "configure_memorial_conversation_model",
         "realtime_backend_unavailable": "check_memorial_realtime_backend",
+        "gemini_oauth_credentials_unavailable": "provision_memorial_gemini_oauth_credentials",
+        "gemini_oauth_refresh_cooldown": "repair_or_force_refresh_memorial_gemini_oauth",
+        "gemini_oauth_refresh_failed": "repair_memorial_gemini_oauth",
         "memorial_voice_release_not_verified": "complete_memorial_voice_release_review",
     }
     for reason in degraded_reasons:
@@ -8504,9 +8849,30 @@ def _memorial_runtime_readiness(slug: str) -> dict[str, object]:
         degraded_reasons.append("tts_plugin_disabled")
     if not str(selected_model or "").strip():
         degraded_reasons.append("chat_model_unresolved")
-    gemini_live_available = _gemini_live_available()
+    (
+        gemini_live_uri,
+        _,
+        _,
+        gemini_live_auth_status,
+    ) = _gemini_live_connect_target_with_status()
+    gemini_live_available = bool(gemini_live_uri)
     if not gemini_live_available:
         degraded_reasons.append("realtime_backend_unavailable")
+        oauth_state = str(gemini_live_auth_status.get("state") or "")
+        oauth_reason = str(gemini_live_auth_status.get("reason") or "")
+        if oauth_state == "cooldown":
+            degraded_reasons.append("gemini_oauth_refresh_cooldown")
+        elif oauth_reason in {
+            "missing_access_token",
+            "missing_client_config",
+            "request_exception",
+            "response_json_invalid",
+            "response_payload_invalid",
+            "refresh_failed",
+        } or re.fullmatch(r"http_[1-5][0-9]{2}", oauth_reason):
+            degraded_reasons.append("gemini_oauth_refresh_failed")
+        elif oauth_reason:
+            degraded_reasons.append("gemini_oauth_credentials_unavailable")
     if release_gate_enforced and not voice_release_allowed:
         degraded_reasons.append("memorial_voice_release_not_verified")
     surface_ready = bool(probe.get("slug")) and bool(probe.get("person_name"))
@@ -8591,6 +8957,7 @@ def _memorial_runtime_readiness(slug: str) -> dict[str, object]:
         "models": {
             "conversation_model": str(selected_model or "").strip(),
             "realtime_backend": "gemini_live" if gemini_live_available else "",
+            "realtime_auth": dict(gemini_live_auth_status),
         },
         "operator_write_configured": bool(_collect_memorial_write_tokens(payload)),
         "release": {
@@ -10905,6 +11272,7 @@ def _minimal_public_memorial_html(
     story_html: str,
     video_call_avatar_fallback_html: str = "",
     conversation_only: bool = False,
+    operator_preview_allowed: bool = False,
 ) -> str:
     safe_person_name = html.escape(person_name)
     memory_room_nav_html = (
@@ -10921,22 +11289,41 @@ def _minimal_public_memorial_html(
     safe_person_first_name = html.escape(person_first_name)
     safe_subtitle = html.escape(subtitle)
     voice_release_enforced = _memorial_voice_release_enforced()
-    voice_release_allowed = True
+    public_voice_release_allowed = True
     if voice_release_enforced:
-        voice_release_allowed = bool(_memorial_voice_release_decision(slug).get("allowed"))
-    voice_release_blocked = voice_release_enforced and not voice_release_allowed
-    hero_actions_class = "" if voice_release_blocked else " is-readying"
-    conversation_button_class = "" if voice_release_blocked else " is-readying"
-    conversation_button_label = "Frage schreiben" if voice_release_blocked else "Gespräch starten"
-    text_turn_label = "Frage schreiben" if voice_release_blocked else "Oder schreiben"
+        public_voice_release_allowed = bool(
+            _memorial_voice_release_decision(slug).get("allowed")
+        )
+    operator_preview_allowed = bool(
+        operator_preview_allowed
+        and slug == "manfred"
+        and voice_release_enforced
+        and not public_voice_release_allowed
+    )
+    voice_access_allowed = public_voice_release_allowed or operator_preview_allowed
+    # The legacy client-side guard name remains as a compatibility alias only;
+    # server authorization always uses _memorial_voice_access_decision.
+    voice_release_allowed = voice_access_allowed
+    voice_release_blocked = voice_release_enforced and not public_voice_release_allowed
+    voice_access_blocked = voice_release_enforced and not voice_access_allowed
+    hero_actions_class = "" if voice_access_blocked else " is-readying"
+    conversation_button_class = "" if voice_access_blocked else " is-readying"
+    conversation_button_label = "Frage schreiben" if voice_access_blocked else "Gespräch starten"
+    text_turn_label = "Frage schreiben" if voice_access_blocked else "Oder schreiben"
     # The server-rendered control always fails closed. JavaScript enables it only
     # after the release decision and runtime readiness are known in this document.
     conversation_button_state = 'aria-disabled="true" disabled'
     voice_guidance = (
+        "Operator-Vorschau: Die öffentliche Sprachfreigabe bleibt blockiert. "
+        "Dieser kurzlebige Zugang dient nur der geprüften Gesprächsabnahme. "
+        "Die KI antwortet anhand freigegebener Erinnerungen und Quellen, ist nicht Manfred "
+        "und spricht nicht für ihn. Die Stimme ist künstlich erzeugt."
+        if operator_preview_allowed
+        else
         "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen. "
         "Sie ist nicht Manfred und spricht nicht für ihn. "
         "Sprechen ist derzeit nicht verfügbar; du kannst deine Frage schreiben."
-        if voice_release_blocked
+        if voice_access_blocked
         else
         "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen. "
         "Sie ist nicht Manfred und spricht nicht für ihn. Die Stimme ist künstlich erzeugt. "
@@ -10945,13 +11332,18 @@ def _minimal_public_memorial_html(
     )
     conversation_processing_guidance = (
         "Im schriftlichen Modus wird kein Mikrofon verwendet. Die Sprachfunktion bleibt bis zu ihrer getrennten Freigabe ausgeschaltet."
-        if voice_release_blocked
+        if voice_access_blocked
         else
         f"Bei Gesprächen mit der KI-gestützten, synthetischen {safe_person_first_name}-Stimme gilt: "
         "eingesetzte Sprachdienste verarbeiten das Audio erst nach deinem ausdrücklichen Start."
     )
     voice_autostart_attributes = (
-        ' hidden aria-hidden="true"' if voice_release_blocked else ""
+        ' hidden aria-hidden="true"' if voice_access_blocked else ""
+    )
+    operator_preview_body_attribute = (
+        ' data-operator-voice-preview="allowed"'
+        if operator_preview_allowed
+        else ""
     )
     if conversation_only:
         video_call_avatar_fallback_html = ""
@@ -12264,7 +12656,7 @@ def _minimal_public_memorial_html(
       }}
     </style>
   </head>
-  <body{body_theme_attributes} data-public-memorial-surface="{'conversation-only' if conversation_only else 'legacy'}">
+  <body{body_theme_attributes} data-public-memorial-surface="{'conversation-only' if conversation_only else 'legacy'}"{operator_preview_body_attribute}>
     <!-- memorial-story-skip:start -->
     <a class="skip-link" href="#memorial-story">Zum Inhalt springen</a>
     <!-- memorial-story-skip:end -->
@@ -12362,7 +12754,7 @@ def _minimal_public_memorial_html(
       </div>
     </main>
     <!-- memorial-public-story:end -->
-    <main class="conversation-dock" aria-label="KI-Gespräch über {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-voice-release="{'blocked' if voice_release_blocked else 'available'}">
+    <main class="conversation-dock" aria-label="KI-Gespräch über {safe_person_name}" id="memorial-conversation-region" tabindex="-1" data-voice-release="{'blocked' if voice_release_blocked else 'available'}" data-voice-access="{'operator-preview' if operator_preview_allowed else ('public-release' if public_voice_release_allowed else 'text-only')}">
       <div class="wrap">
       <section class="chat quiet-shell">
         <noscript>
@@ -12464,6 +12856,11 @@ def _minimal_public_memorial_html(
     </main>
     <script>
       const memorialConversationOnly = {_json_for_html_script(conversation_only)};
+      const memorialPublicVoiceReleaseAllowed = {_json_for_html_script(public_voice_release_allowed)};
+      const memorialOperatorPreviewAllowed = {_json_for_html_script(operator_preview_allowed)};
+      const memorialVoiceAccessAllowed = {_json_for_html_script(voice_access_allowed)};
+      // Compatibility alias for the existing client guards; this is never a
+      // release receipt and server endpoints independently reverify access.
       const memorialVoiceReleaseAllowed = {_json_for_html_script(voice_release_allowed)};
       const memorialPagePrewarmEnabled = {_json_for_html_script(_memorial_page_prewarm_enabled() and voice_release_allowed)};
       const installHint = document.getElementById("memorial-install-hint");
@@ -20934,6 +21331,19 @@ def _memorial_html(
     </script>
   </body>
 </html>"""
+    if conversation_only:
+        for region in (
+            "story-skip",
+            "public-navigation",
+            "public-story",
+            "install-upsell",
+            "conversation-settings",
+        ):
+            document = _without_public_memorial_html_region(
+                document,
+                region=region,
+            )
+    return document
 
 
 def _public_memorial_page_html(
@@ -20941,6 +21351,7 @@ def _public_memorial_page_html(
     *,
     hostname: str = "",
     private_profile: dict[str, object] | None = None,
+    operator_preview_allowed: bool = False,
 ) -> str:
     slug = _safe_slug(_public_memorial_story_text(payload.get("slug"), max_chars=80))
     person_name = _public_memorial_story_text(payload.get("person_name"), max_chars=160) or "Manfred"
@@ -20962,13 +21373,160 @@ def _public_memorial_page_html(
         story_html="",
         video_call_avatar_fallback_html="",
         conversation_only=True,
+        operator_preview_allowed=operator_preview_allowed,
     )
+
+
+@router.post("/memorials/{slug}/voice-preview/session")
+async def public_memorial_voice_preview_session(
+    slug: str,
+    request: Request,
+) -> JSONResponse:
+    try:
+        _require_public_memorial_operator_surface_enabled()
+        if (
+            not _memorial_voice_preview_enabled()
+            or not _memorial_voice_release_enforced()
+            or _safe_slug(slug) != "manfred"
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail="memorial_voice_preview_disabled",
+            )
+        memorial = _load_memorial(slug)
+        context = _memorial_voice_preview_release_context()
+        if not _memorial_voice_preview_transport_matches(
+            request,
+            context=context,
+            require_origin=True,
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="memorial_voice_origin_invalid",
+            )
+        _enforce_public_memorial_rate_limit(
+            "voice_preview_issue",
+            request=request,
+            context={"scope": "operator-preview"},
+        )
+        matched_write_token = _require_public_memorial_write_access(
+            slug=slug,
+            request=request,
+            memorial=memorial,
+        )
+        if _memorial_voice_release_decision("manfred").get("allowed") is True:
+            raise HTTPException(
+                status_code=409,
+                detail="memorial_voice_preview_not_required",
+            )
+        signing_secret = _memorial_voice_preview_signing_secret()
+        issued_at = int(time.time())
+        preview_token = issue_memorial_voice_preview_session(
+            source_revision=context.source_revision,
+            deployment_id=context.deployment_id,
+            write_token=matched_write_token,
+            signing_secret=signing_secret,
+            memorial_slug="manfred",
+            ttl_seconds=_MEMORIAL_VOICE_PREVIEW_TTL_SECONDS,
+            now=issued_at,
+        )
+        response = JSONResponse(
+            {
+                "status": "operator_preview",
+                "memorial_slug": "manfred",
+                "expires_at": issued_at + _MEMORIAL_VOICE_PREVIEW_TTL_SECONDS,
+                "public_release_allowed": False,
+            },
+            headers=dict(_PUBLIC_MEMORIAL_RUNTIME_JSON_HEADERS),
+        )
+        _set_memorial_voice_preview_cookie(
+            response,
+            value=preview_token,
+            max_age=_MEMORIAL_VOICE_PREVIEW_TTL_SECONDS,
+        )
+        return response
+    except HTTPException as exc:
+        return _public_memorial_error_response(
+            exc.status_code,
+            _text(exc.detail, "request_failed"),
+        )
+    except (
+        MemorialVoicePreviewAuthorityError,
+        VoicePreviewSessionError,
+        OSError,
+        ValueError,
+    ):
+        return _public_memorial_error_response(
+            503,
+            "memorial_voice_preview_authority_unavailable",
+        )
+
+
+@router.delete("/memorials/{slug}/voice-preview/session")
+async def public_memorial_voice_preview_session_delete(
+    slug: str,
+    request: Request,
+) -> JSONResponse:
+    try:
+        _require_public_memorial_operator_surface_enabled()
+        if not _memorial_voice_preview_enabled() or _safe_slug(slug) != "manfred":
+            raise HTTPException(
+                status_code=404,
+                detail="memorial_voice_preview_disabled",
+            )
+        memorial = _load_memorial(slug)
+        context = _memorial_voice_preview_release_context()
+        if not _memorial_voice_preview_transport_matches(
+            request,
+            context=context,
+            require_origin=True,
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="memorial_voice_origin_invalid",
+            )
+        _enforce_public_memorial_rate_limit(
+            "voice_preview_delete",
+            request=request,
+            context={"scope": "operator-preview"},
+        )
+        _require_public_memorial_write_access(
+            slug=slug,
+            request=request,
+            memorial=memorial,
+        )
+        response = JSONResponse(
+            {
+                "status": "deleted",
+                "memorial_slug": "manfred",
+                "public_release_allowed": False,
+            },
+            headers=dict(_PUBLIC_MEMORIAL_RUNTIME_JSON_HEADERS),
+        )
+        _clear_memorial_voice_preview_cookie(response)
+        return response
+    except HTTPException as exc:
+        return _public_memorial_error_response(
+            exc.status_code,
+            _text(exc.detail, "request_failed"),
+        )
+    except (MemorialVoicePreviewAuthorityError, OSError, ValueError):
+        return _public_memorial_error_response(
+            503,
+            "memorial_voice_preview_authority_unavailable",
+        )
 
 
 @router.post("/memorials/{slug}/warmup")
 async def public_memorial_warmup(slug: str, request: Request) -> JSONResponse:
     try:
-        _load_memorial(slug)
+        memorial = _load_memorial(slug)
+        if _memorial_voice_release_enforced():
+            _require_voice_consent(
+                _payload_with_slug(slug, memorial),
+                "realtime",
+                request=request,
+            )
         _enforce_public_memorial_rate_limit("warmup", request=request)
         result = _schedule_memorial_live_warmup(slug)
         return JSONResponse(
@@ -20986,9 +21544,24 @@ async def public_memorial_warmup(slug: str, request: Request) -> JSONResponse:
 
 
 @router.get("/memorials/{slug}/warmup-status")
-def public_memorial_warmup_status(slug: str) -> JSONResponse:
+def public_memorial_warmup_status(slug: str, request: Request) -> JSONResponse:
     try:
-        _load_memorial(slug)
+        memorial = _load_memorial(slug)
+        if _memorial_voice_release_enforced():
+            # Same-origin GET requests do not reliably carry Origin.  The
+            # access decision still requires the exact HTTPS Host and either
+            # a sealed public release or a valid operator-preview cookie.
+            _require_voice_consent(
+                _payload_with_slug(slug, memorial),
+                "realtime",
+                request=request,
+                require_origin=False,
+            )
+        _enforce_public_memorial_rate_limit(
+            "voice_readiness",
+            request=request,
+            context={"surface": "warmup-status"},
+        )
         safe_slug = _safe_slug(slug)
         snapshot, recovery = _recover_stale_memorial_voice_prewarm_for_status(
             safe_slug,
@@ -21047,8 +21620,21 @@ def public_memorial_warmup_status(slug: str) -> JSONResponse:
 
 
 @router.get("/memorials/{slug}/readiness")
-def public_memorial_readiness(slug: str) -> JSONResponse:
+def public_memorial_readiness(slug: str, request: Request) -> JSONResponse:
     try:
+        memorial = _load_memorial(slug)
+        if _memorial_voice_release_enforced():
+            _require_voice_consent(
+                _payload_with_slug(slug, memorial),
+                "realtime",
+                request=request,
+                require_origin=False,
+            )
+        _enforce_public_memorial_rate_limit(
+            "voice_readiness",
+            request=request,
+            context={"surface": "readiness"},
+        )
         readiness = _memorial_runtime_readiness(slug)
         status_code = 200 if bool(readiness["ready"]) else 503
         return JSONResponse(readiness, headers=dict(_PUBLIC_MEMORIAL_RUNTIME_JSON_HEADERS), status_code=status_code)
@@ -21314,7 +21900,268 @@ def _gemini_live_oauth_creds_path() -> Path:
     configured = str(os.environ.get("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH") or os.environ.get("EA_GEMINI_OAUTH_CREDS_PATH") or "").strip()
     if configured:
         return Path(configured).expanduser()
-    return Path.home() / ".gemini" / "oauth_creds.json"
+    # The operator's ~/.gemini file is provisioning input only. Runtime code
+    # must never adopt host-home credentials implicitly; the governed deploy
+    # copies an exact snapshot into this private container path.
+    return _MEMORIAL_GEMINI_OAUTH_DEFAULT_CREDS_PATH
+
+
+class _GeminiLiveOAuthCredentialError(RuntimeError):
+    """Secret-free credential persistence failure."""
+
+
+def _gemini_live_oauth_lock_is_private(metadata: os.stat_result) -> bool:
+    return bool(
+        stat.S_ISREG(metadata.st_mode)
+        and metadata.st_nlink == 1
+        and metadata.st_size == 0
+        and stat.S_IMODE(metadata.st_mode) == 0o600
+        and metadata.st_uid == os.geteuid()
+        and metadata.st_gid == os.getegid()
+    )
+
+
+@contextmanager
+def _gemini_live_oauth_file_lock():
+    """Hold the provider helper's persistent lock across one credential transaction."""
+
+    depth = int(
+        getattr(_MEMORIAL_GEMINI_OAUTH_FILE_LOCK_STATE, "depth", 0) or 0
+    )
+    if depth > 0:
+        _MEMORIAL_GEMINI_OAUTH_FILE_LOCK_STATE.depth = depth + 1
+        try:
+            yield
+        finally:
+            _MEMORIAL_GEMINI_OAUTH_FILE_LOCK_STATE.depth = depth
+        return
+
+    target = _gemini_live_oauth_creds_path()
+    if not target.is_absolute() or target.name in {"", ".", ".."}:
+        raise _GeminiLiveOAuthCredentialError("credential_lock_unavailable")
+    required_flags = ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK", "O_PATH")
+    if any(not hasattr(os, name) for name in required_flags):
+        raise _GeminiLiveOAuthCredentialError("credential_lock_unavailable")
+
+    parent_descriptor = -1
+    preflight_descriptor = -1
+    lock_descriptor = -1
+    lock_held = False
+    try:
+        initial_parent = os.lstat(target.parent)
+        if not _gemini_live_oauth_directory_is_private(initial_parent):
+            raise _GeminiLiveOAuthCredentialError(
+                "gemini_oauth_credential_directory_insecure"
+            )
+        parent_descriptor = os.open(
+            target.parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        )
+        opened_parent = os.fstat(parent_descriptor)
+        if (
+            _gemini_live_oauth_file_identity(initial_parent)
+            != _gemini_live_oauth_file_identity(opened_parent)
+        ):
+            raise _GeminiLiveOAuthCredentialError("credential_lock_insecure")
+
+        try:
+            preflight_descriptor = os.open(
+                _MEMORIAL_GEMINI_OAUTH_LOCK_FILE_NAME,
+                os.O_PATH | os.O_CLOEXEC | os.O_NOFOLLOW,
+                dir_fd=parent_descriptor,
+            )
+        except FileNotFoundError:
+            lock_descriptor = os.open(
+                _MEMORIAL_GEMINI_OAUTH_LOCK_FILE_NAME,
+                os.O_RDWR
+                | os.O_CREAT
+                | os.O_EXCL
+                | os.O_CLOEXEC
+                | os.O_NOFOLLOW
+                | os.O_NONBLOCK,
+                0o600,
+                dir_fd=parent_descriptor,
+            )
+            os.fchmod(lock_descriptor, 0o600)
+            os.fsync(lock_descriptor)
+            os.fsync(parent_descriptor)
+            initial_parent = os.fstat(parent_descriptor)
+            if not _gemini_live_oauth_directory_is_private(initial_parent):
+                raise _GeminiLiveOAuthCredentialError(
+                    "gemini_oauth_credential_directory_insecure"
+                )
+        else:
+            preflight = os.fstat(preflight_descriptor)
+            if not _gemini_live_oauth_lock_is_private(preflight):
+                raise _GeminiLiveOAuthCredentialError(
+                    "credential_lock_insecure"
+                )
+            lock_descriptor = os.open(
+                _MEMORIAL_GEMINI_OAUTH_LOCK_FILE_NAME,
+                os.O_RDWR
+                | os.O_CLOEXEC
+                | os.O_NOFOLLOW
+                | os.O_NONBLOCK,
+                dir_fd=parent_descriptor,
+            )
+            opened_lock = os.fstat(lock_descriptor)
+            if (
+                _gemini_live_oauth_file_identity(preflight)
+                != _gemini_live_oauth_file_identity(opened_lock)
+            ):
+                raise _GeminiLiveOAuthCredentialError(
+                    "credential_lock_insecure"
+                )
+
+        lock_metadata = os.fstat(lock_descriptor)
+        if not _gemini_live_oauth_lock_is_private(lock_metadata):
+            raise _GeminiLiveOAuthCredentialError("credential_lock_insecure")
+        try:
+            fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise _GeminiLiveOAuthCredentialError(
+                "credential_lock_busy"
+            ) from None
+        lock_held = True
+        named_lock = os.stat(
+            _MEMORIAL_GEMINI_OAUTH_LOCK_FILE_NAME,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not _gemini_live_oauth_lock_is_private(named_lock)
+            or (named_lock.st_dev, named_lock.st_ino)
+            != (lock_metadata.st_dev, lock_metadata.st_ino)
+            or _gemini_live_oauth_file_identity(initial_parent)
+            != _gemini_live_oauth_file_identity(os.fstat(parent_descriptor))
+        ):
+            raise _GeminiLiveOAuthCredentialError("credential_lock_insecure")
+
+        _MEMORIAL_GEMINI_OAUTH_FILE_LOCK_STATE.depth = 1
+        try:
+            yield
+        finally:
+            _MEMORIAL_GEMINI_OAUTH_FILE_LOCK_STATE.depth = 0
+    except _GeminiLiveOAuthCredentialError:
+        raise
+    except OSError:
+        raise _GeminiLiveOAuthCredentialError(
+            "credential_lock_unavailable"
+        ) from None
+    finally:
+        if lock_held and lock_descriptor >= 0:
+            try:
+                fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
+            except OSError:
+                pass
+        if lock_descriptor >= 0:
+            os.close(lock_descriptor)
+        if preflight_descriptor >= 0:
+            os.close(preflight_descriptor)
+        if parent_descriptor >= 0:
+            os.close(parent_descriptor)
+
+
+def _gemini_live_oauth_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _gemini_live_oauth_file_is_private(metadata: os.stat_result) -> bool:
+    return bool(
+        stat.S_ISREG(metadata.st_mode)
+        and metadata.st_nlink == 1
+        and 0 < metadata.st_size <= _MEMORIAL_GEMINI_OAUTH_CREDS_MAX_BYTES
+        and stat.S_IMODE(metadata.st_mode) == 0o600
+        and metadata.st_uid == os.geteuid()
+        and metadata.st_gid == os.getegid()
+    )
+
+
+def _gemini_live_oauth_directory_is_private(metadata: os.stat_result) -> bool:
+    return bool(
+        stat.S_ISDIR(metadata.st_mode)
+        and stat.S_IMODE(metadata.st_mode) == 0o700
+        and metadata.st_uid == os.geteuid()
+        and metadata.st_gid == os.getegid()
+    )
+
+
+def _gemini_live_oauth_file_privacy_reason(metadata: os.stat_result) -> str:
+    if not stat.S_ISREG(metadata.st_mode):
+        return "credential_not_regular"
+    if metadata.st_nlink != 1:
+        return "credential_link_count_invalid"
+    if not (0 < metadata.st_size <= _MEMORIAL_GEMINI_OAUTH_CREDS_MAX_BYTES):
+        return "credential_size_invalid"
+    if stat.S_IMODE(metadata.st_mode) != 0o600:
+        return "credential_mode_insecure"
+    if metadata.st_uid != os.geteuid():
+        return "credential_owner_invalid"
+    if metadata.st_gid != os.getegid():
+        return "credential_group_invalid"
+    return ""
+
+
+def _gemini_live_oauth_current_identity() -> tuple[object, ...]:
+    target = _gemini_live_oauth_creds_path()
+    rendered = str(target)
+    try:
+        metadata = os.lstat(target)
+    except FileNotFoundError:
+        return (rendered, "missing")
+    except OSError as exc:
+        return (rendered, "unavailable", int(exc.errno or 0))
+    return (rendered, *_gemini_live_oauth_file_identity(metadata))
+
+
+def _gemini_live_oauth_status_payload(
+    *,
+    state: str,
+    reason: str = "",
+    mode: str = "",
+    cooldown_remaining_seconds: float = 0.0,
+) -> dict[str, object]:
+    return {
+        "mode": str(mode or ""),
+        "state": str(state or "unavailable"),
+        "reason": str(reason or ""),
+        "cooldown_remaining_seconds": round(
+            max(0.0, float(cooldown_remaining_seconds)),
+            3,
+        ),
+    }
+
+
+def _gemini_live_oauth_safe_failure_reason(value: object) -> str:
+    candidate = str(value or "").strip()
+    allowed = {
+        "credential_state_write_failed",
+        "credential_lock_busy",
+        "credential_lock_insecure",
+        "credential_lock_unavailable",
+        "missing_access_token",
+        "missing_client_config",
+        "missing_refresh_token",
+        "request_exception",
+        "response_json_invalid",
+        "response_payload_invalid",
+        "response_scope_invalid",
+        "response_token_type_invalid",
+        "refreshed_credential_invalid",
+    }
+    if candidate in allowed or re.fullmatch(r"http_[1-5][0-9]{2}", candidate):
+        return candidate
+    return "refresh_failed"
 
 
 def _gemini_live_vertex_project() -> str:
@@ -21344,24 +22191,293 @@ def _memorial_vertex_gemini_live_model() -> str:
     ).strip() or _MEMORIAL_VERTEX_GEMINI_LIVE_MODEL
 
 
-def _load_gemini_live_oauth_creds() -> dict[str, object]:
+def _gemini_live_oauth_credential_contract_reason(
+    creds: dict[str, object],
+) -> str:
+    refresh_token = creds.get("refresh_token")
+    if not isinstance(refresh_token, str) or not refresh_token.strip():
+        return "credential_refresh_token_invalid"
+    if creds.get("token_type") != "Bearer":
+        return "credential_token_type_invalid"
+    scope = creds.get("scope")
+    if (
+        not isinstance(scope, str)
+        or _MEMORIAL_GEMINI_OAUTH_CLOUD_PLATFORM_SCOPE not in scope.split()
+    ):
+        return "credential_scope_invalid"
+    if "access_token" in creds:
+        access_token = creds.get("access_token")
+        if not isinstance(access_token, str) or not access_token.strip():
+            return "credential_access_token_invalid"
+    if "expiry_date" in creds:
+        expiry = creds.get("expiry_date")
+        if (
+            isinstance(expiry, bool)
+            or not isinstance(expiry, int)
+            or expiry < _MEMORIAL_GEMINI_OAUTH_MIN_EXPIRY_EPOCH_MS
+            or expiry > _MEMORIAL_GEMINI_OAUTH_MAX_EXPIRY_EPOCH_MS
+        ):
+            return "credential_expiry_invalid"
+    return ""
+
+
+def _load_gemini_live_oauth_creds_with_reason_locked(
+) -> tuple[dict[str, object], str]:
     if not _gemini_live_oauth_enabled():
-        return {}
+        return {}, "oauth_disabled"
     target = _gemini_live_oauth_creds_path()
+    if not target.is_absolute() or target.name in {"", ".", ".."}:
+        return {}, "credential_path_invalid"
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+        return {}, "credential_nofollow_unavailable"
+    parent_descriptor = -1
+    descriptor = -1
     try:
-        loaded = json.loads(target.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return dict(loaded) if isinstance(loaded, dict) else {}
+        initial_parent = os.lstat(target.parent)
+        if not _gemini_live_oauth_directory_is_private(initial_parent):
+            return {}, "credential_directory_insecure"
+        parent_descriptor = os.open(
+            target.parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        )
+        opened_parent = os.fstat(parent_descriptor)
+        if (
+            _gemini_live_oauth_file_identity(initial_parent)
+            != _gemini_live_oauth_file_identity(opened_parent)
+        ):
+            return {}, "credential_directory_changed"
+        descriptor = os.open(
+            target.name,
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+            dir_fd=parent_descriptor,
+        )
+        before = os.fstat(descriptor)
+        privacy_reason = _gemini_live_oauth_file_privacy_reason(before)
+        if privacy_reason:
+            return {}, privacy_reason
+        raw = bytearray()
+        while len(raw) <= _MEMORIAL_GEMINI_OAUTH_CREDS_MAX_BYTES:
+            remaining = _MEMORIAL_GEMINI_OAUTH_CREDS_MAX_BYTES + 1 - len(raw)
+            chunk = os.read(descriptor, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            raw.extend(chunk)
+        after = os.fstat(descriptor)
+        if (
+            len(raw) > _MEMORIAL_GEMINI_OAUTH_CREDS_MAX_BYTES
+            or _gemini_live_oauth_file_identity(before)
+            != _gemini_live_oauth_file_identity(after)
+        ):
+            return {}, "credential_changed_during_read"
+        try:
+            decoded = bytes(raw).decode("utf-8")
+        except UnicodeError:
+            return {}, "credential_encoding_invalid"
+        try:
+            loaded = json.loads(decoded)
+        except (TypeError, ValueError):
+            return {}, "credential_json_invalid"
+    except FileNotFoundError:
+        return {}, "credential_missing"
+    except OSError:
+        return {}, "credential_open_failed"
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if parent_descriptor >= 0:
+            os.close(parent_descriptor)
+    if not isinstance(loaded, dict):
+        return {}, "credential_payload_invalid"
+    normalized = dict(loaded)
+    contract_reason = _gemini_live_oauth_credential_contract_reason(normalized)
+    if contract_reason:
+        return {}, contract_reason
+    return normalized, ""
+
+
+def _load_gemini_live_oauth_creds_with_reason(
+) -> tuple[dict[str, object], str]:
+    try:
+        with _MEMORIAL_GEMINI_OAUTH_REFRESH_LOCK, _gemini_live_oauth_file_lock():
+            return _load_gemini_live_oauth_creds_with_reason_locked()
+    except _GeminiLiveOAuthCredentialError as exc:
+        reason = str(exc)
+        if reason not in {
+            "credential_lock_busy",
+            "credential_lock_insecure",
+            "credential_lock_unavailable",
+        }:
+            reason = "credential_lock_unavailable"
+        return {}, reason
+
+
+def _load_gemini_live_oauth_creds() -> dict[str, object]:
+    loaded, _ = _load_gemini_live_oauth_creds_with_reason()
+    return loaded
+
+
+def _save_gemini_live_oauth_creds_locked(creds: dict[str, object]) -> None:
+    target = _gemini_live_oauth_creds_path()
+    if not target.is_absolute() or target.name in {"", ".", ".."}:
+        raise _GeminiLiveOAuthCredentialError("gemini_oauth_credential_path_invalid")
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+        raise _GeminiLiveOAuthCredentialError("gemini_oauth_nofollow_unavailable")
+    contract_reason = _gemini_live_oauth_credential_contract_reason(creds)
+    if contract_reason:
+        raise _GeminiLiveOAuthCredentialError(contract_reason)
+    try:
+        payload = (
+            json.dumps(
+                dict(creds),
+                ensure_ascii=True,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise _GeminiLiveOAuthCredentialError(
+            "gemini_oauth_credential_payload_invalid"
+        ) from exc
+    if not payload or len(payload) > _MEMORIAL_GEMINI_OAUTH_CREDS_MAX_BYTES:
+        raise _GeminiLiveOAuthCredentialError(
+            "gemini_oauth_credential_payload_oversized"
+        )
+    payload_sha256 = hashlib.sha256(payload).digest()
+
+    parent_descriptor = -1
+    temporary_descriptor = -1
+    persisted_descriptor = -1
+    temporary_name = f".{target.name}.{uuid.uuid4().hex}.tmp"
+    temporary_created = False
+    try:
+        initial_parent = os.lstat(target.parent)
+        if not _gemini_live_oauth_directory_is_private(initial_parent):
+            raise _GeminiLiveOAuthCredentialError(
+                "gemini_oauth_credential_directory_insecure"
+            )
+        parent_descriptor = os.open(
+            target.parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        )
+        opened_parent = os.fstat(parent_descriptor)
+        if (
+            _gemini_live_oauth_file_identity(initial_parent)
+            != _gemini_live_oauth_file_identity(opened_parent)
+        ):
+            raise _GeminiLiveOAuthCredentialError(
+                "gemini_oauth_credential_directory_changed"
+            )
+
+        try:
+            current = os.stat(
+                target.name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            current = None
+        if current is not None and not _gemini_live_oauth_file_is_private(current):
+            raise _GeminiLiveOAuthCredentialError(
+                "gemini_oauth_credential_target_insecure"
+            )
+
+        temporary_descriptor = os.open(
+            temporary_name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | os.O_CLOEXEC
+            | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=parent_descriptor,
+        )
+        temporary_created = True
+        os.fchmod(temporary_descriptor, 0o600)
+        view = memoryview(payload)
+        while view:
+            written = os.write(temporary_descriptor, view)
+            if written <= 0:
+                raise OSError("credential write made no progress")
+            view = view[written:]
+        os.fsync(temporary_descriptor)
+        written_metadata = os.fstat(temporary_descriptor)
+        if not _gemini_live_oauth_file_is_private(written_metadata):
+            raise _GeminiLiveOAuthCredentialError(
+                "gemini_oauth_credential_temporary_file_insecure"
+            )
+        os.close(temporary_descriptor)
+        temporary_descriptor = -1
+        os.replace(
+            temporary_name,
+            target.name,
+            src_dir_fd=parent_descriptor,
+            dst_dir_fd=parent_descriptor,
+        )
+        temporary_created = False
+        os.fsync(parent_descriptor)
+        persisted_descriptor = os.open(
+            target.name,
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+            dir_fd=parent_descriptor,
+        )
+        persisted = os.fstat(persisted_descriptor)
+        if not _gemini_live_oauth_file_is_private(persisted):
+            raise _GeminiLiveOAuthCredentialError(
+                "gemini_oauth_credential_persisted_file_insecure"
+            )
+        if (persisted.st_dev, persisted.st_ino) != (
+            written_metadata.st_dev,
+            written_metadata.st_ino,
+        ):
+            raise _GeminiLiveOAuthCredentialError(
+                "gemini_oauth_credential_persisted_identity_changed"
+            )
+        persisted_payload = bytearray()
+        while len(persisted_payload) <= _MEMORIAL_GEMINI_OAUTH_CREDS_MAX_BYTES:
+            remaining = (
+                _MEMORIAL_GEMINI_OAUTH_CREDS_MAX_BYTES
+                + 1
+                - len(persisted_payload)
+            )
+            chunk = os.read(persisted_descriptor, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            persisted_payload.extend(chunk)
+        persisted_after = os.fstat(persisted_descriptor)
+        if (
+            len(persisted_payload) > _MEMORIAL_GEMINI_OAUTH_CREDS_MAX_BYTES
+            or _gemini_live_oauth_file_identity(persisted)
+            != _gemini_live_oauth_file_identity(persisted_after)
+            or hashlib.sha256(bytes(persisted_payload)).digest() != payload_sha256
+            or bytes(persisted_payload) != payload
+        ):
+            raise _GeminiLiveOAuthCredentialError(
+                "gemini_oauth_credential_persisted_content_changed"
+            )
+    except _GeminiLiveOAuthCredentialError:
+        raise
+    except OSError as exc:
+        raise _GeminiLiveOAuthCredentialError(
+            "gemini_oauth_credential_write_failed"
+        ) from exc
+    finally:
+        if temporary_descriptor >= 0:
+            os.close(temporary_descriptor)
+        if persisted_descriptor >= 0:
+            os.close(persisted_descriptor)
+        if temporary_created and parent_descriptor >= 0:
+            try:
+                os.unlink(temporary_name, dir_fd=parent_descriptor)
+            except OSError:
+                pass
+        if parent_descriptor >= 0:
+            os.close(parent_descriptor)
 
 
 def _save_gemini_live_oauth_creds(creds: dict[str, object]) -> None:
-    try:
-        target = _gemini_live_oauth_creds_path()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(dict(creds), ensure_ascii=True, indent=2, sort_keys=True), encoding="utf-8")
-    except Exception:
-        pass
+    with _MEMORIAL_GEMINI_OAUTH_REFRESH_LOCK, _gemini_live_oauth_file_lock():
+        _save_gemini_live_oauth_creds_locked(creds)
 
 
 def _gemini_live_oauth_client_config() -> tuple[str, str]:
@@ -21402,123 +22518,417 @@ def _gemini_live_oauth_client_config() -> tuple[str, str]:
     return file_client_id or client_id, file_client_secret
 
 
-def _gemini_live_oauth_access_token() -> str:
-    creds = _load_gemini_live_oauth_creds()
-    token = str(creds.get("access_token") or "").strip()
-    if not token:
-        return ""
-    now = time.time()
+def _gemini_live_oauth_expiry_ms(creds: dict[str, object]) -> int:
     try:
-        expires_at_ms = int(float(creds.get("expiry_date") or 0))
-    except Exception:
-        expires_at_ms = 0
-    force_refresh = str(os.environ.get("EA_MEMORIAL_GEMINI_OAUTH_FORCE_REFRESH") or "").strip().lower() in {"1", "true", "yes", "on"}
+        return int(float(creds.get("expiry_date") or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _gemini_live_oauth_failure_active(
+    creds: dict[str, object],
+    *,
+    now: float,
+) -> bool:
+    return _gemini_live_oauth_failure_cooldown_remaining(creds, now=now) > 0.0
+
+
+def _gemini_live_oauth_failure_cooldown_remaining(
+    creds: dict[str, object],
+    *,
+    now: float,
+) -> float:
     try:
-        last_failed_at = float(creds.get("ea_memorial_live_refresh_failed_at") or 0.0)
+        failed_at = float(creds.get("ea_memorial_live_refresh_failed_at") or 0.0)
+    except (TypeError, ValueError, OverflowError):
+        failed_at = 0.0
+    if not failed_at:
+        return 0.0
+    return max(
+        0.0,
+        _MEMORIAL_GEMINI_OAUTH_FAILURE_COOLDOWN_SECONDS - (now - failed_at),
+    )
+
+
+def _gemini_live_oauth_set_process_failure_cooldown(*, reason: str) -> None:
+    global _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_IDENTITY
+    global _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_REASON
+    global _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_UNTIL
+
+    _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_UNTIL = max(
+        _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_UNTIL,
+        time.monotonic() + _MEMORIAL_GEMINI_OAUTH_FAILURE_COOLDOWN_SECONDS,
+    )
+    _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_IDENTITY = (
+        _gemini_live_oauth_current_identity()
+    )
+    _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_REASON = (
+        _gemini_live_oauth_safe_failure_reason(reason)
+    )
+
+
+def _gemini_live_oauth_clear_process_failure_cooldown() -> None:
+    global _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_IDENTITY
+    global _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_REASON
+    global _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_UNTIL
+
+    _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_UNTIL = 0.0
+    _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_IDENTITY = None
+    _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_REASON = ""
+
+
+def _gemini_live_oauth_process_failure_cooldown_remaining() -> float:
+    if _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_UNTIL <= 0.0:
+        return 0.0
+    if (
+        _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_IDENTITY
+        != _gemini_live_oauth_current_identity()
+    ):
+        _gemini_live_oauth_clear_process_failure_cooldown()
+        return 0.0
+    remaining = (
+        _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_UNTIL - time.monotonic()
+    )
+    if remaining <= 0.0:
+        _gemini_live_oauth_clear_process_failure_cooldown()
+        return 0.0
+    return remaining
+
+
+def _gemini_live_oauth_failed_creds(
+    creds: dict[str, object],
+    *,
+    reason: str,
+) -> dict[str, object]:
+    failed = dict(creds)
+    failed["ea_memorial_live_refresh_failed_at"] = time.time()
+    failed["ea_memorial_live_refresh_failed_reason"] = reason
+    try:
+        _save_gemini_live_oauth_creds(failed)
     except Exception:
-        last_failed_at = 0.0
-    if not force_refresh and last_failed_at and now - last_failed_at < _MEMORIAL_GEMINI_OAUTH_FAILURE_COOLDOWN_SECONDS:
-        return ""
-    needs_first_memorial_refresh = bool(str(creds.get("refresh_token") or "").strip()) and not bool(creds.get("ea_memorial_live_refreshed_at"))
-    if force_refresh or needs_first_memorial_refresh or (expires_at_ms and expires_at_ms <= int((now + 90) * 1000)):
+        failed["ea_memorial_live_refresh_persistence_failed"] = True
+        _gemini_live_oauth_set_process_failure_cooldown(
+            reason="credential_state_write_failed"
+        )
+        logger.warning(
+            "gemini live oauth credential state persistence failed"
+        )
+    else:
+        _gemini_live_oauth_clear_process_failure_cooldown()
+    return failed
+
+
+def _gemini_live_oauth_force_refresh_enabled() -> bool:
+    return str(
+        os.environ.get("EA_MEMORIAL_GEMINI_OAUTH_FORCE_REFRESH") or ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _with_gemini_live_oauth_file_lock(function):
+    @wraps(function)
+    def locked(*args, **kwargs):
+        try:
+            with (
+                _MEMORIAL_GEMINI_OAUTH_REFRESH_LOCK,
+                _gemini_live_oauth_file_lock(),
+            ):
+                return function(*args, **kwargs)
+        except _GeminiLiveOAuthCredentialError as exc:
+            return "", _gemini_live_oauth_status_payload(
+                state="unavailable",
+                reason=_gemini_live_oauth_safe_failure_reason(str(exc)),
+            )
+
+    return locked
+
+
+@_with_gemini_live_oauth_file_lock
+def _gemini_live_oauth_access_token_with_status(
+) -> tuple[str, dict[str, object]]:
+    with _MEMORIAL_GEMINI_OAUTH_REFRESH_LOCK:
+        force_refresh = _gemini_live_oauth_force_refresh_enabled()
+        if force_refresh:
+            _gemini_live_oauth_clear_process_failure_cooldown()
+        else:
+            process_cooldown = (
+                _gemini_live_oauth_process_failure_cooldown_remaining()
+            )
+            if process_cooldown > 0.0:
+                return "", _gemini_live_oauth_status_payload(
+                    state="cooldown",
+                    reason=(
+                        _MEMORIAL_GEMINI_OAUTH_PROCESS_FAILURE_REASON
+                        or "credential_state_write_failed"
+                    ),
+                    cooldown_remaining_seconds=process_cooldown,
+                )
+
+        creds, load_reason = _load_gemini_live_oauth_creds_with_reason()
+        if not creds:
+            return "", _gemini_live_oauth_status_payload(
+                state=("disabled" if load_reason == "oauth_disabled" else "unavailable"),
+                reason=load_reason,
+            )
+        token = str(creds.get("access_token") or "").strip()
+        refresh_token = str(creds.get("refresh_token") or "").strip()
+        if not token and not refresh_token:
+            return "", _gemini_live_oauth_status_payload(
+                state="unavailable",
+                reason="credential_token_missing",
+            )
+
+        now = time.time()
+        durable_cooldown = _gemini_live_oauth_failure_cooldown_remaining(
+            creds,
+            now=now,
+        )
+        if not force_refresh and durable_cooldown > 0.0:
+            return "", _gemini_live_oauth_status_payload(
+                state="cooldown",
+                reason=_gemini_live_oauth_safe_failure_reason(
+                    creds.get("ea_memorial_live_refresh_failed_reason")
+                ),
+                cooldown_remaining_seconds=durable_cooldown,
+            )
+        expires_at_ms = _gemini_live_oauth_expiry_ms(creds)
+        needs_first_memorial_refresh = bool(refresh_token) and not bool(
+            creds.get("ea_memorial_live_refreshed_at")
+        )
+        needs_refresh = bool(
+            force_refresh
+            or not token
+            or not expires_at_ms
+            or expires_at_ms <= int((now + 90) * 1000)
+            or needs_first_memorial_refresh
+        )
+        if not needs_refresh:
+            return token, _gemini_live_oauth_status_payload(
+                state="ready",
+                mode="oauth",
+            )
+        if not refresh_token:
+            reason = (
+                "credential_expired"
+                if expires_at_ms and expires_at_ms <= int((now + 90) * 1000)
+                else "credential_expiry_missing"
+            )
+            return "", _gemini_live_oauth_status_payload(
+                state="unavailable",
+                reason=reason,
+            )
+
         refreshed = _refresh_gemini_live_oauth_creds(creds)
-        if not refreshed.get("ea_memorial_live_refreshed_at"):
-            return ""
+        now = time.time()
+        if refreshed.get("ea_memorial_live_refresh_persistence_failed") is True:
+            return "", _gemini_live_oauth_status_payload(
+                state="cooldown",
+                reason="credential_state_write_failed",
+                cooldown_remaining_seconds=(
+                    _gemini_live_oauth_process_failure_cooldown_remaining()
+                ),
+            )
+        durable_cooldown = _gemini_live_oauth_failure_cooldown_remaining(
+            refreshed,
+            now=now,
+        )
+        if durable_cooldown > 0.0:
+            return "", _gemini_live_oauth_status_payload(
+                state="cooldown",
+                reason=_gemini_live_oauth_safe_failure_reason(
+                    refreshed.get("ea_memorial_live_refresh_failed_reason")
+                ),
+                cooldown_remaining_seconds=durable_cooldown,
+            )
         token = str(refreshed.get("access_token") or "").strip()
+        expires_at_ms = _gemini_live_oauth_expiry_ms(refreshed)
+        if not token or expires_at_ms <= int(now * 1000):
+            return "", _gemini_live_oauth_status_payload(
+                state="unavailable",
+                reason="refreshed_token_invalid",
+            )
+        return token, _gemini_live_oauth_status_payload(
+            state="ready",
+            mode="oauth",
+        )
+
+
+def _gemini_live_oauth_access_token() -> str:
+    token, _ = _gemini_live_oauth_access_token_with_status()
     return token
 
 
 def _refresh_gemini_live_oauth_creds(creds: dict[str, object]) -> dict[str, object]:
-    refresh_token = str(creds.get("refresh_token") or "").strip()
-    if not refresh_token:
-        return creds
-    client_id, client_secret = _gemini_live_oauth_client_config()
-    if not client_id or not client_secret:
-        logger.warning("gemini live oauth refresh skipped: missing oauth client config")
-        return creds
-    try:
-        response = requests.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token",
-            },
-            timeout=15,
+    with _MEMORIAL_GEMINI_OAUTH_REFRESH_LOCK:
+        refresh_token = str(creds.get("refresh_token") or "").strip()
+        if not refresh_token:
+            return _gemini_live_oauth_failed_creds(
+                creds,
+                reason="missing_refresh_token",
+            )
+        client_id, client_secret = _gemini_live_oauth_client_config()
+        if not client_id or not client_secret:
+            logger.warning(
+                "gemini live oauth refresh skipped: missing oauth client config"
+            )
+            return _gemini_live_oauth_failed_creds(
+                creds,
+                reason="missing_client_config",
+            )
+        try:
+            response = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                timeout=15,
+            )
+        except requests.RequestException:
+            return _gemini_live_oauth_failed_creds(
+                creds,
+                reason="request_exception",
+            )
+        if response.status_code >= 400:
+            logger.warning(
+                "gemini live oauth refresh failed status=%s",
+                response.status_code,
+            )
+            return _gemini_live_oauth_failed_creds(
+                creds,
+                reason=f"http_{response.status_code}",
+            )
+        try:
+            payload = response.json()
+        except ValueError:
+            return _gemini_live_oauth_failed_creds(
+                creds,
+                reason="response_json_invalid",
+            )
+        if not isinstance(payload, dict):
+            return _gemini_live_oauth_failed_creds(
+                creds,
+                reason="response_payload_invalid",
+            )
+        response_token_type = payload.get("token_type")
+        if response_token_type is not None and response_token_type != "Bearer":
+            return _gemini_live_oauth_failed_creds(
+                creds,
+                reason="response_token_type_invalid",
+            )
+        response_scope = payload.get("scope")
+        if response_scope is not None and (
+            not isinstance(response_scope, str)
+            or _MEMORIAL_GEMINI_OAUTH_CLOUD_PLATFORM_SCOPE
+            not in response_scope.split()
+        ):
+            return _gemini_live_oauth_failed_creds(
+                creds,
+                reason="response_scope_invalid",
+            )
+        access_token = str(payload.get("access_token") or "").strip()
+        if not access_token:
+            return _gemini_live_oauth_failed_creds(
+                creds,
+                reason="missing_access_token",
+            )
+        try:
+            expires_in = max(60, int(payload.get("expires_in") or 0))
+        except (TypeError, ValueError, OverflowError):
+            expires_in = 3600
+        refreshed = dict(creds)
+        refreshed["access_token"] = access_token
+        refreshed["token_type"] = str(
+            payload.get("token_type")
+            or refreshed.get("token_type")
+            or "Bearer"
         )
-    except requests.RequestException:
-        failed = dict(creds)
-        failed["ea_memorial_live_refresh_failed_at"] = time.time()
-        failed["ea_memorial_live_refresh_failed_reason"] = "request_exception"
-        _save_gemini_live_oauth_creds(failed)
-        return failed
-    if response.status_code >= 400:
-        logger.warning("gemini live oauth refresh failed status=%s detail=%s", response.status_code, response.text[:240])
-        failed = dict(creds)
-        failed["ea_memorial_live_refresh_failed_at"] = time.time()
-        failed["ea_memorial_live_refresh_failed_reason"] = f"http_{response.status_code}"
-        _save_gemini_live_oauth_creds(failed)
-        return failed
-    try:
-        payload = response.json()
-    except ValueError:
-        return creds
-    access_token = str(payload.get("access_token") or "").strip()
-    if not access_token:
-        failed = dict(creds)
-        failed["ea_memorial_live_refresh_failed_at"] = time.time()
-        failed["ea_memorial_live_refresh_failed_reason"] = "missing_access_token"
-        _save_gemini_live_oauth_creds(failed)
-        return failed
-    expires_in = 0
-    try:
-        expires_in = max(60, int(payload.get("expires_in") or 0))
-    except Exception:
-        expires_in = 3600
-    refreshed = dict(creds)
-    refreshed["access_token"] = access_token
-    refreshed["token_type"] = str(payload.get("token_type") or refreshed.get("token_type") or "Bearer")
-    refreshed["expiry_date"] = int((time.time() + expires_in) * 1000)
-    refreshed["ea_memorial_live_refreshed_at"] = datetime.now(timezone.utc).isoformat()
-    refreshed.pop("ea_memorial_live_refresh_failed_at", None)
-    refreshed.pop("ea_memorial_live_refresh_failed_reason", None)
-    if payload.get("scope"):
-        refreshed["scope"] = str(payload.get("scope"))
-    if payload.get("id_token"):
-        refreshed["id_token"] = str(payload.get("id_token"))
-    try:
-        _save_gemini_live_oauth_creds(refreshed)
-    except Exception:
-        pass
-    return refreshed
+        refreshed["expiry_date"] = int((time.time() + expires_in) * 1000)
+        refreshed["ea_memorial_live_refreshed_at"] = datetime.now(
+            timezone.utc
+        ).isoformat()
+        refreshed.pop("ea_memorial_live_refresh_failed_at", None)
+        refreshed.pop("ea_memorial_live_refresh_failed_reason", None)
+        refreshed.pop("ea_memorial_live_refresh_persistence_failed", None)
+        if payload.get("scope"):
+            refreshed["scope"] = str(payload.get("scope"))
+        if payload.get("id_token"):
+            refreshed["id_token"] = str(payload.get("id_token"))
+        if _gemini_live_oauth_credential_contract_reason(refreshed):
+            return _gemini_live_oauth_failed_creds(
+                creds,
+                reason="refreshed_credential_invalid",
+            )
+        try:
+            _save_gemini_live_oauth_creds(refreshed)
+        except Exception:
+            failed = dict(refreshed)
+            failed["ea_memorial_live_refresh_failed_at"] = time.time()
+            failed["ea_memorial_live_refresh_failed_reason"] = (
+                "credential_state_write_failed"
+            )
+            failed["ea_memorial_live_refresh_persistence_failed"] = True
+            _gemini_live_oauth_set_process_failure_cooldown(
+                reason="credential_state_write_failed"
+            )
+            logger.warning(
+                "gemini live oauth refreshed credential persistence failed"
+            )
+            return failed
+        _gemini_live_oauth_clear_process_failure_cooldown()
+        return refreshed
 
 
-def _gemini_live_connect_target() -> tuple[str, dict[str, str], str]:
+def _gemini_live_connect_target_with_status(
+) -> tuple[str, dict[str, str], str, dict[str, object]]:
     public_base_uri = (
         "wss://generativelanguage.googleapis.com/ws/"
         "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
     )
     api_key = _gemini_live_api_key()
     if api_key:
-        return (f"{public_base_uri}?key={urllib.parse.quote(api_key, safe='')}", {}, "api_key")
-    access_token = _gemini_live_oauth_access_token()
+        return (
+            f"{public_base_uri}?key={urllib.parse.quote(api_key, safe='')}",
+            {},
+            "api_key",
+            _gemini_live_oauth_status_payload(
+                state="ready",
+                mode="api_key",
+            ),
+        )
+    access_token, oauth_status = _gemini_live_oauth_access_token_with_status()
     vertex_project = _gemini_live_vertex_project()
     if access_token and vertex_project:
         location = _gemini_live_vertex_location()
         api_host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
+        resolved_status = dict(oauth_status)
+        resolved_status["mode"] = "vertex_oauth"
         return (
             f"wss://{api_host}/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent",
             {"Authorization": f"Bearer {access_token}"},
             "vertex_oauth",
+            resolved_status,
         )
     if access_token:
-        return (public_base_uri, {"Authorization": f"Bearer {access_token}"}, "oauth")
-    return ("", {}, "")
+        resolved_status = dict(oauth_status)
+        resolved_status["mode"] = "oauth"
+        return (
+            public_base_uri,
+            {"Authorization": f"Bearer {access_token}"},
+            "oauth",
+            resolved_status,
+        )
+    return ("", {}, "", oauth_status)
+
+
+def _gemini_live_connect_target() -> tuple[str, dict[str, str], str]:
+    uri, headers, mode, _ = _gemini_live_connect_target_with_status()
+    return uri, headers, mode
 
 
 def _gemini_live_available() -> bool:
-    uri, _, _ = _gemini_live_connect_target()
+    uri, _, _, _ = _gemini_live_connect_target_with_status()
     return bool(uri)
 
 
@@ -21792,7 +23202,11 @@ def _build_memorial_gemini_live_setup(
 async def public_memorial_realtime_webrtc(slug: str, request: Request) -> Response:
     try:
         memorial = _load_memorial(slug)
-        _require_voice_consent(_payload_with_slug(slug, memorial), "realtime")
+        _require_voice_consent(
+            _payload_with_slug(slug, memorial),
+            "realtime",
+            request=request,
+        )
         personal_memory_context = _extract_personal_memory_request_context(request=request)
         _enforce_public_memorial_rate_limit("realtime_connect", request=request, context=personal_memory_context)
         if not _gemini_live_available():
@@ -21804,8 +23218,16 @@ async def public_memorial_realtime_webrtc(slug: str, request: Request) -> Respon
 
 @router.websocket("/memorials/{slug}/realtime")
 async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
-    memorial = _load_memorial(slug)
-    _require_voice_consent(_payload_with_slug(slug, memorial), "realtime")
+    try:
+        memorial = _load_memorial(slug)
+        _require_voice_consent(
+            _payload_with_slug(slug, memorial),
+            "realtime",
+            websocket=websocket,
+        )
+    except HTTPException:
+        await websocket.close(code=4403)
+        return
     await websocket.accept()
     container = getattr(websocket.app.state, "container", None)
     memory_runtime = getattr(container, "memory_runtime", None)

@@ -2161,7 +2161,7 @@ def test_manfred_realtime_atomic_local_receipt_roundtrip(tmp_path: Path) -> None
         slug="manfred",
         receipt_path=receipt_path,
     )
-    assert release_decision["reason"] == "release_receipt_evidence_unverified"
+    assert release_decision["reason"] == "release_activation_disabled"
     assert release_decision["reason"] != "release_receipt_slug_unbound"
 
 
@@ -2321,8 +2321,8 @@ def test_manfred_realtime_evidence_reader_rejects_symlink_oversize_and_short_rea
         root=tmp_path,
         receipt_name=receipt_name,
         expected_contract=expected_contract,
-        current_head=current_head,
-        current_fingerprint=current_fingerprint,
+        expected_source_git_head=current_head,
+        expected_source_state_fingerprint=current_fingerprint,
         max_age_seconds=60,
     )
     assert payload == {}
@@ -2335,8 +2335,8 @@ def test_manfred_realtime_evidence_reader_rejects_symlink_oversize_and_short_rea
         root=tmp_path,
         receipt_name=receipt_name,
         expected_contract=expected_contract,
-        current_head=current_head,
-        current_fingerprint=current_fingerprint,
+        expected_source_git_head=current_head,
+        expected_source_state_fingerprint=current_fingerprint,
         max_age_seconds=60,
     )
     assert payload == {}
@@ -2367,6 +2367,77 @@ def test_manfred_realtime_readiness_verifier_rejects_stale_source_state(tmp_path
     assert verification["status"] == "fail"
     assert "manfred_realtime_source_head_stale" in verification["issues"]
     assert "manfred_realtime_source_fingerprint_stale" in verification["issues"]
+
+
+def test_manfred_realtime_readiness_explicit_source_binding_is_paired_and_exact(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script(
+        "materialize_manfred_realtime_conversation_readiness"
+    )
+    verifier = _load_script(
+        "verify_manfred_realtime_conversation_readiness"
+    )
+    receipt_path = tmp_path / "explicit-source.generated.json"
+    receipt = materializer.materialize_manfred_realtime_conversation_readiness(
+        receipt_path=receipt_path,
+        generated_at=materializer._now(),
+        operator_status=_operator_status(ready=False),
+    )
+    source_head = receipt["source_git_head"]
+    fingerprint = receipt["source_state_fingerprint"]
+    assert len(source_head) == 40
+    assert len(fingerprint) == 64
+
+    assert verifier.verify_manfred_realtime_conversation_readiness(
+        receipt_path,
+        expected_source_git_head=source_head,
+        expected_source_state_fingerprint=fingerprint,
+    )["status"] == "pass"
+    assert verifier.verify_manfred_realtime_conversation_readiness(
+        receipt_path,
+        expected_source_git_head=source_head,
+    )["issues"] == [
+        "manfred_realtime_expected_source_binding_incomplete"
+    ]
+    assert verifier.verify_manfred_realtime_conversation_readiness(
+        receipt_path,
+        expected_source_git_head="A" + source_head[1:],
+        expected_source_state_fingerprint=fingerprint,
+    )["issues"] == [
+        "manfred_realtime_expected_source_git_head_invalid"
+    ]
+    assert verifier.verify_manfred_realtime_conversation_readiness(
+        receipt_path,
+        expected_source_git_head=source_head,
+        expected_source_state_fingerprint="B" + fingerprint[1:],
+    )["issues"] == [
+        "manfred_realtime_expected_source_state_fingerprint_invalid"
+    ]
+
+    wrong_head = ("0" if source_head[0] != "0" else "1") + source_head[1:]
+    wrong_fingerprint = (
+        ("0" if fingerprint[0] != "0" else "1") + fingerprint[1:]
+    )
+    head_mismatch = verifier.verify_manfred_realtime_conversation_readiness(
+        receipt_path,
+        expected_source_git_head=wrong_head,
+        expected_source_state_fingerprint=fingerprint,
+    )
+    fingerprint_mismatch = (
+        verifier.verify_manfred_realtime_conversation_readiness(
+            receipt_path,
+            expected_source_git_head=source_head,
+            expected_source_state_fingerprint=wrong_fingerprint,
+        )
+    )
+    assert head_mismatch["status"] == "fail"
+    assert "manfred_realtime_source_head_stale" in head_mismatch["issues"]
+    assert fingerprint_mismatch["status"] == "fail"
+    assert (
+        "manfred_realtime_source_fingerprint_stale"
+        in fingerprint_mismatch["issues"]
+    )
 
 
 def test_manfred_realtime_readiness_verifier_rejects_missing_source_stamp(tmp_path: Path) -> None:
@@ -2437,6 +2508,10 @@ def test_manfred_realtime_readiness_clis_work(tmp_path: Path) -> None:
             str(receipt_path),
             "--evidence-root",
             str(evidence_root),
+            "--expected-source-git-head",
+            materialized_receipt["source_git_head"],
+            "--expected-source-state-fingerprint",
+            materialized_receipt["source_state_fingerprint"],
         ],
         cwd=Path(__file__).resolve().parents[1] / "ea",
         text=True,
