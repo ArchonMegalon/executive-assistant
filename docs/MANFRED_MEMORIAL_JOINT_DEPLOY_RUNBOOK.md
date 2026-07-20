@@ -13,7 +13,16 @@ change sentinel, qualification, AppArmor, certificate, event-guard, or
 mutation-gate state from this release lane. Missing or incompatible authority
 plumbing is handled only by the separate commit-and-SHA-256-bound,
 epoch-voiding recovery exception in `AGENTS.md`; that recovery cannot create or
-resume joint promotion authority.
+resume joint promotion authority. The source-only request and verifier are
+documented in `MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md`; they remain blocked
+until a Fleet-owned, signed, root-owned receipt binds both the durable
+pre-change void evidence and the external exact-artifact manifest, and binds
+the operator snapshot's claimed immutable epoch identity plus the independently
+captured actual trusted sentinel-owned pre-change state SHA-256. The operator
+snapshot is not live-state evidence and ordinary same-epoch sentinel rewrites
+do not grant or revoke authority. A guarded-plumbing failure may restore only
+artifacts from the sealed pre-change artifact manifest; the epoch void and
+authority denial remain permanent.
 
 The joint receipt has contract
 `ea.memorial_joint_api_ingress_deploy.v1`. Its permit has contract

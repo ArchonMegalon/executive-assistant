@@ -50,6 +50,99 @@ The only governed order is:
 The installation, status, lease, and incident commands are pinned under
 [Terminal qualification and root permit](#terminal-qualification-and-root-permit).
 
+## Source-only qualification-plumbing recovery request
+
+An explicit operator authorization to repair missing or incompatible schema-v6
+qualification plumbing may be converted into a non-authoritative handoff
+request. This is source preparation only. It does not void an epoch, install or
+restart a unit, invoke Docker, create a candidate, issue a certificate or
+permit, or authorize deployment.
+
+Materialize only from an exact reviewed commit containing the tracked request
+manifest and scripts. The authorization file is hashed but not copied into the
+request; its reference must identify the explicit recovery instruction.
+It must be a regular, single-link JSON file with contract
+`ea.vexp_root_maintenance_operator_authorization.v1`, version `1`, scope
+`schema_v6_qualification_plumbing_recovery`, the exact reviewed commit and
+tracked manifest path, `source_request_only: true`,
+`root_execution_authority: false`, and
+`external_root_receipt_required: true`. Its `authorization_id` must equal the
+CLI reference. This artifact authorizes preparation of the external handoff,
+not root execution.
+
+The materializer also requires a private operator-supplied schema-v6 state
+snapshot. It reads that snapshot through a stable no-follow regular-file handle
+and requires a current-operator-owned mode-`0600` file. The request binds the
+snapshot's raw SHA-256 and size plus its claimed immutable epoch identity and
+observed phase, floor, health, and predicate projection; it does not embed
+blocker or deferment content. This snapshot has the explicit trust model
+`untrusted_operator_supplied_snapshot` and does **not** establish live-state
+truth. Successful local verification checks only request/source consistency and
+never converts the snapshot into authority.
+
+Known recovery defects such as a sub-seven-day observed floor or nullable
+deferment/predicate fields are recorded as stable observation codes instead of
+being relabeled as valid. They do not weaken the strict post-recovery contract.
+
+The external root actor must independently perform a stable no-follow read of
+the actual trusted sentinel-owned state, verify its configured owner, require
+its immutable epoch identity to match the request, and atomically capture its
+then-current raw SHA-256 in the durable void receipt immediately before the
+first guarded change. Ordinary same-epoch sentinel rewrites therefore do not
+stale the source request. An epoch-identity mismatch denies execution and
+requires a new reviewed request; it must never be repaired by editing the
+request or trusted state.
+
+```bash
+reviewed_commit="${EA_REVIEWED_EA_COMMIT:?set the exact reviewed 40-character commit}"
+operator_authorization="${VEXP_RECOVERY_OPERATOR_AUTHORIZATION:?set the local authorization artifact}"
+operator_state_snapshot="${VEXP_RECOVERY_OPERATOR_STATE_SNAPSHOT:?set the private operator state snapshot}"
+request_dir="${VEXP_RECOVERY_REQUEST_DIR:?set a private mode-0700 directory}"
+request="$request_dir/vexp-root-maintenance-recovery-request.v1.json"
+
+python3 scripts/materialize_vexp_root_maintenance_recovery_request.py \
+  --repo-root "$PWD" \
+  --reviewed-commit "$reviewed_commit" \
+  --operator-authorization "$operator_authorization" \
+  --operator-authorization-reference "operator-approval/schema-v6-recovery" \
+  --operator-state-snapshot "$operator_state_snapshot" \
+  --output "$request"
+
+python3 scripts/verify_vexp_root_maintenance_recovery_request.py \
+  --repo-root "$PWD" \
+  --request "$request"
+```
+
+Successful verification means only `valid_non_authoritative_request`; the
+request itself remains `blocked_external_root_receipt_required` with every
+authority flag false. It never grants root execution authority. EA cannot own
+the compatible v2 certificate finalizer without violating its mirrored
+implementation scope, so an independently governed Fleet lane must establish
+its own pre-change authorization and later emit a signed, root-owned completion
+receipt. That post-execution receipt must bind the operator snapshot's claimed
+epoch identity, the atomically captured
+actual pre-change state SHA-256, a durable pre-change epoch-void receipt, and
+the exact reviewed root-artifact manifest before the first guarded change.
+The source request cannot start that maintenance before or after the receipt;
+without the receipt no downstream recovery-complete claim is allowed. Candidate
+creation, merge, and live work remain denied throughout this recovery lane.
+
+Before the void, the external actor must also seal a pre-change artifact
+manifest for every guarded plumbing target. If a reviewed plumbing change
+fails, only restoration of those manifest-bound pre-change plumbing artifacts
+is allowed and the root receipt must record the disposition. The durable epoch
+void remains permanent: rollback may not restore the voided epoch or any
+certificate, permit, candidate, promotion, or live authority derived from it.
+
+After any external repair, the sentinel must open a strictly newer schema-v6
+epoch through its normal code path. Both wall-clock and monotonic qualification
+duration must reach at least `604800000` milliseconds with healthy resources
+and exactly empty blocker and deferment lists. Only the independent root
+finalizer may then seal the exact-epoch v2 certificate; only afterward may the
+separate root permit manager issue a certificate-bound v2 permit and stable
+coordination lock. Neither this request nor the external recovery receipt is
+release authority.
+
 ## Purpose
 
 `make deploy-ea-memorial-scoped` is the API-only component lane used by the
