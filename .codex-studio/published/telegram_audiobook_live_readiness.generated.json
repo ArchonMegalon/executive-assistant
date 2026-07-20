@@ -112,11 +112,11 @@
     "audiobookshelf_import_root_durable",
     "audiobookshelf_import_root_writable"
   ],
-  "generated_at": "2026-07-20T17:21:01.318118Z",
+  "generated_at": "2026-07-20T17:24:09.035074Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "live_delivery_claim_allowed": false,
-  "next_action": "Fix Audiobookshelf import/player-link prerequisites and rerun readiness.",
+  "next_action": "Configure durable, writable audiobook job and Audiobookshelf import storage, then rerun readiness.",
   "observation_source": "runtime_container",
   "operator_commands": [
     "make verify-telegram-audiobook-live-readiness",
@@ -135,7 +135,7 @@
   ],
   "privacy": {
     "env_values_exposed": false,
-    "preflight_contract_sha256": "c3535f0348d5d474d10d895c189c35f12d01386ca604122aead38f5b665cec89",
+    "preflight_contract_sha256": "bc872ea691ef326d67508aef23a030365f1cd1d6aed768df4edf9a1379bc325e",
     "raw_provider_voice_ids_exposed": false,
     "raw_public_share_url_included": false,
     "raw_storage_paths_included": false,
@@ -158,8 +158,8 @@
     "jobs_root_durable",
     "jobs_root_writable"
   ],
-  "source_git_head": "5441554cd5d74d22c16169f14a0c184d8a9765d1",
-  "source_state_fingerprint": "3eb5a31e9a8b65d4c923cd7f34f735d38db43c38798bb0bf06c01244c2ecde4b",
+  "source_git_head": "69fcc6f37cf703302aac83bdaa85f4e5a41d2d2f",
+  "source_state_fingerprint": "914614517b410d5cb8e0d290c036659bfe232cdc0b72236691c755261964b0ff",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_live_prerequisites",
   "voice_sample_prereqs_ready": false,
