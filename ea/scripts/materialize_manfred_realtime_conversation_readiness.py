@@ -87,6 +87,7 @@ EVIDENCE_MAX_AGE_SECONDS = {
 }
 READINESS_MAX_AGE_SECONDS = 24 * 60 * 60
 MAX_FUTURE_SKEW_SECONDS = 5 * 60
+MEMORIAL_SLUG = "manfred"
 MANFRED_VOICE_GOLD_PATH = "/admin/memorials/manfred/gold"
 MANFRED_VOICE_GOLD_LABEL = "Open voice gold"
 MANFRED_PROOF_PATH = "/memorials/manfred/voice-config"
@@ -2410,6 +2411,7 @@ def materialize_manfred_realtime_conversation_readiness(
     receipt = {
         "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
         "generated_by": "ea/scripts/materialize_manfred_realtime_conversation_readiness.py",
+        "memorial_slug": MEMORIAL_SLUG,
         "status": "ready_for_realtime_conversation_review" if ready else "blocked_realtime_prerequisites",
         "generated_at": _validated_generated_at(generated_at),
         **_source_state(),

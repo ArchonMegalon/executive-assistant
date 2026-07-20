@@ -14,6 +14,8 @@ from types import ModuleType
 
 import pytest
 
+from app.services.memorial_release_policy import evaluate_memorial_voice_release
+
 
 GENERATED_AT = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 ROOM_CHECK_IDS = [
@@ -2150,10 +2152,46 @@ def test_manfred_realtime_atomic_local_receipt_roundtrip(tmp_path: Path) -> None
     )
 
     assert first["contract_name"] == second["contract_name"]
+    assert first["memorial_slug"] == second["memorial_slug"] == "manfred"
     assert stat.S_ISREG(os.lstat(receipt_path).st_mode)
     assert all(".tmp-" not in child.name for child in receipt_path.parent.iterdir())
     verification = verifier.verify_manfred_realtime_conversation_readiness(receipt_path)
     assert verification["status"] == "pass", verification
+    release_decision = evaluate_memorial_voice_release(
+        slug="manfred",
+        receipt_path=receipt_path,
+    )
+    assert release_decision["reason"] == "release_receipt_evidence_unverified"
+    assert release_decision["reason"] != "release_receipt_slug_unbound"
+
+
+@pytest.mark.parametrize("memorial_slug", [None, "other"])
+def test_manfred_realtime_verifier_rejects_unbound_memorial_slug(
+    tmp_path: Path,
+    memorial_slug: str | None,
+) -> None:
+    materializer = _load_script("materialize_manfred_realtime_conversation_readiness")
+    verifier = _load_script("verify_manfred_realtime_conversation_readiness")
+    receipt_path = tmp_path / "unbound-slug.generated.json"
+    materializer.materialize_manfred_realtime_conversation_readiness(
+        receipt_path=receipt_path,
+        generated_at=materializer._now(),
+        operator_status=_operator_status(ready=False),
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if memorial_slug is None:
+        receipt.pop("memorial_slug")
+    else:
+        receipt["memorial_slug"] = memorial_slug
+    receipt_path.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    verification = verifier.verify_manfred_realtime_conversation_readiness(receipt_path)
+
+    assert verification["status"] == "fail"
+    assert "manfred_realtime_memorial_slug_mismatch" in verification["issues"]
 
 
 def test_manfred_realtime_atomic_writer_preserves_unsafe_targets_and_parents(

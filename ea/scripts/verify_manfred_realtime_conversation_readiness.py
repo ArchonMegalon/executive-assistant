@@ -20,6 +20,7 @@ from materialize_manfred_realtime_conversation_readiness import MANFRED_PROOF_LA
 from materialize_manfred_realtime_conversation_readiness import MANFRED_PROOF_PATH
 from materialize_manfred_realtime_conversation_readiness import MANFRED_REVIEW_LABEL
 from materialize_manfred_realtime_conversation_readiness import MANFRED_OPERATOR_ACTION_KEY
+from materialize_manfred_realtime_conversation_readiness import MEMORIAL_SLUG
 from materialize_manfred_realtime_conversation_readiness import MANFRED_VOICE_GOLD_LABEL
 from materialize_manfred_realtime_conversation_readiness import MANFRED_VOICE_GOLD_PATH
 from materialize_manfred_realtime_conversation_readiness import _directory_fd_snapshot
@@ -148,6 +149,7 @@ def _verify_bound_realtime_readiness(
         "head_semantics",
         "input_evidence",
         "interaction_acceptance",
+        "memorial_slug",
         "next_action",
         "next_action_href",
         "next_action_label",
@@ -179,6 +181,8 @@ def _verify_bound_realtime_readiness(
     fingerprint_matches = bool(current_fingerprint and recorded_fingerprint and current_fingerprint == recorded_fingerprint)
     if receipt.get("contract_name") != "ea.manfred_realtime_conversation_readiness.v1":
         issues.append("manfred_realtime_contract_name_mismatch")
+    if str(receipt.get("memorial_slug") or "").strip().lower() != MEMORIAL_SLUG:
+        issues.append("manfred_realtime_memorial_slug_mismatch")
     try:
         normalized_generated_at = _validated_generated_at(receipt.get("generated_at"))
     except ValueError:
