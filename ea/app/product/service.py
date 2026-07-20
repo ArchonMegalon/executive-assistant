@@ -9849,10 +9849,9 @@ def _onemin_asset_upload(*, api_key: str, filename: str, content_type: str, payl
         with urllib.request.urlopen(request, timeout=180) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")
-        raise RuntimeError(f"onemin_asset_http_{exc.code}:{detail[:200]}") from exc
+        raise RuntimeError(f"onemin_asset_http_{exc.code}") from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"onemin_asset_unreachable:{exc.reason}") from exc
+        raise RuntimeError("onemin_asset_unreachable") from exc
 
 
 def _extract_transcript_text(value: object) -> str:
@@ -9887,13 +9886,69 @@ def _extract_transcript_segments(value: object) -> list[dict[str, object]]:
     return []
 
 
+def _onemin_transcript_text(
+    value: object,
+    *,
+    allow_provider_envelope: bool = True,
+) -> str:
+    """Extract only an explicit 1min transcript, never adjacent metadata."""
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return ""
+        if candidate.startswith(("{", "[")):
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                return ""
+            return _onemin_transcript_text(
+                parsed,
+                allow_provider_envelope=allow_provider_envelope,
+            )
+        return candidate
+    if isinstance(value, list):
+        # The feature API documents resultObject as an array. A text-format
+        # Whisper result is authoritative only when that array contains one
+        # unambiguous result; joining multiple values can fold metadata or
+        # alternate provider outputs into the transcript.
+        if len(value) != 1:
+            return ""
+        return _onemin_transcript_text(
+            value[0],
+            allow_provider_envelope=False,
+        )
+    if not isinstance(value, dict):
+        return ""
+    for key in ("text", "transcript"):
+        if key not in value:
+            continue
+        transcript = _onemin_transcript_text(
+            value.get(key),
+            allow_provider_envelope=False,
+        )
+        if transcript:
+            return transcript
+    if allow_provider_envelope:
+        for key in ("output", "content"):
+            nested = value.get(key)
+            if isinstance(nested, str) and not nested.strip().startswith(("{", "[")):
+                continue
+            transcript = _onemin_transcript_text(
+                nested,
+                allow_provider_envelope=False,
+            )
+            if transcript:
+                return transcript
+    return ""
+
+
 def _onemin_speech_to_text(*, api_key: str, audio_path: str, language: str) -> dict[str, object]:
     body = {
         "type": "SPEECH_TO_TEXT",
         "model": "whisper-1",
         "promptObject": {
             "audioUrl": str(audio_path or "").strip(),
-            "response_format": "verbose_json",
+            "response_format": "text",
         },
     }
     if str(language or "").strip():
@@ -9913,10 +9968,9 @@ def _onemin_speech_to_text(*, api_key: str, audio_path: str, language: str) -> d
         with urllib.request.urlopen(request, timeout=180) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")
-        raise RuntimeError(f"onemin_transcribe_http_{exc.code}:{detail[:200]}") from exc
+        raise RuntimeError(f"onemin_transcribe_http_{exc.code}") from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"onemin_transcribe_unreachable:{exc.reason}") from exc
+        raise RuntimeError("onemin_transcribe_unreachable") from exc
 
 
 def _pocket_retranscribe_with_onemin(
@@ -9954,19 +10008,33 @@ def _pocket_retranscribe_with_onemin(
                 audio_path=audio_path,
                 language=str(language or "").strip(),
             )
+            ai_record = (
+                dict(transcribed.get("aiRecord") or {})
+                if isinstance(transcribed.get("aiRecord"), dict)
+                else {}
+            )
+            ai_detail = (
+                dict(ai_record.get("aiRecordDetail") or {})
+                if isinstance(ai_record.get("aiRecordDetail"), dict)
+                else {}
+            )
+            record_status = str(ai_record.get("status") or "").strip().upper()
+            if record_status != "SUCCESS":
+                safe_status = (
+                    record_status.lower()
+                    if record_status in {"PROCESSING", "FAILURE"}
+                    else "missing" if not record_status else "other"
+                )
+                raise RuntimeError(f"onemin_transcribe_status_{safe_status}")
+            result_object = ai_detail.get("resultObject")
+            response_object = ai_detail.get("responseObject")
+            text = _onemin_transcript_text(response_object) or _onemin_transcript_text(result_object)
+            segments = _extract_transcript_segments(response_object) or _extract_transcript_segments(result_object)
+            if not text:
+                raise RuntimeError("onemin_transcribe_empty")
         except RuntimeError as exc:
             last_error = exc
             continue
-        ai_record = dict(transcribed.get("aiRecord") or {}) if isinstance(transcribed.get("aiRecord"), dict) else {}
-        ai_detail = dict(ai_record.get("aiRecordDetail") or {}) if isinstance(ai_record.get("aiRecordDetail"), dict) else {}
-        result_object = ai_detail.get("resultObject")
-        response_object = ai_detail.get("responseObject")
-        text = _extract_transcript_text(response_object) or _extract_transcript_text(result_object)
-        segments = _extract_transcript_segments(response_object) or _extract_transcript_segments(result_object)
-        if not text and isinstance(response_object, dict) and response_object.get("text"):
-            text = str(response_object.get("text") or "").strip()
-        if not text:
-            raise RuntimeError("onemin_transcribe_empty")
         return {
             "transcript_text": text,
             "transcript_segment_count": len(segments),

@@ -987,7 +987,16 @@ def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcri
     monkeypatch.setattr(
         product_service,
         "_onemin_speech_to_text",
-        lambda **kwargs: {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Hallo Manfred, kannst du jetzt mit mir brechen?"}}}},
+        lambda **kwargs: {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {
+                        "text": "Hallo Manfred, kannst du jetzt mit mir brechen?"
+                    }
+                },
+            }
+        },
     )
     monkeypatch.setattr(
         public_memorials,
@@ -1256,7 +1265,14 @@ def test_memorial_transcribe_ignores_fast_shadow_stt_junk_and_falls_back_to_prim
     monkeypatch.setattr(
         product_service,
         "_onemin_speech_to_text",
-        lambda **kwargs: {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}},
+        lambda **kwargs: {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Wie ist das Wetter heute in Wien?"}
+                },
+            }
+        },
     )
     monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
 
@@ -1297,7 +1313,14 @@ def test_memorial_transcribe_falls_back_to_onemin_when_cartesia_fails(
     monkeypatch.setattr(
         product_service,
         "_onemin_speech_to_text",
-        lambda **kwargs: {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}},
+        lambda **kwargs: {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Wie ist das Wetter heute in Wien?"}
+                },
+            }
+        },
     )
     monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
 
@@ -1387,8 +1410,15 @@ def test_memorial_transcribe_skips_depleted_onemin_key_and_uses_next_key(
 
     def _fake_onemin_speech_to_text(**kwargs):
         if kwargs.get("api_key") == "key-1":
-            raise RuntimeError('onemin_transcribe_http_406:{"errorCode":"INSUFFICIENT_CREDITS","message":"credits low"}')
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}}
+            raise RuntimeError("onemin_transcribe_http_406")
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Wie ist das Wetter heute in Wien?"}
+                },
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_onemin_speech_to_text)
 
@@ -1457,6 +1487,7 @@ def test_memorial_transcribe_rejects_known_bad_onemin_subtitle_and_uses_next_key
         if kwargs.get("api_key") == "key-1":
             return {
                 "aiRecord": {
+                    "status": "SUCCESS",
                     "aiRecordDetail": {
                         "responseObject": {
                             "text": '{"task":"transcribe","text":"Untertitel der Amara.org-Community","segments":[]}'
@@ -1464,7 +1495,16 @@ def test_memorial_transcribe_rejects_known_bad_onemin_subtitle_and_uses_next_key
                     }
                 }
             }
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Würdest du dich gegen Covid impfen lassen?"}}}}
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {
+                        "text": "Würdest du dich gegen Covid impfen lassen?"
+                    }
+                },
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_onemin_speech_to_text)
 
@@ -1695,7 +1735,12 @@ def test_memorial_transcribe_prefers_best_provider_variant_over_first_garbage_re
             text = "Untertitel der Amara.org-Community"
         else:
             text = "Wie ist das Wetter heute in Wien?"
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": text}}}}
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {"responseObject": {"text": text}},
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_stt)
 
@@ -1746,7 +1791,12 @@ def test_memorial_transcribe_prefers_question_candidate_over_early_contact_openi
             text = "Wie ist das Wetter heute in Wien?"
         else:
             text = "Hallo Manfred, kannst du jetzt mit mir sprechen?"
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": text}}}}
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {"responseObject": {"text": text}},
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_stt)
 
@@ -1788,7 +1838,14 @@ def test_memorial_transcribe_prefers_enhanced_wav_before_original_for_strong_res
     def _fake_stt(**kwargs):
         audio_path = str(kwargs.get("audio_path") or "")
         seen_paths.append(audio_path)
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}}
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Wie ist das Wetter heute in Wien?"}
+                },
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_asset_upload", _fake_upload)
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_stt)
@@ -1831,6 +1888,7 @@ def test_memorial_transcribe_prefers_enhanced_wav_for_hostile_captured_audio(
         seen_paths.append(audio_path)
         return {
             "aiRecord": {
+                "status": "SUCCESS",
                 "aiRecordDetail": {
                     "responseObject": {"text": "Hallo Manfred, kannst du jetzt mit mir sprechen?"}
                 }
@@ -1877,7 +1935,14 @@ def test_memorial_transcribe_early_accepts_strong_non_contact_question(
     monkeypatch.setattr(product_service, "_onemin_asset_upload", _fake_upload)
 
     def _fake_stt(**kwargs):
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}}
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Wie ist das Wetter heute in Wien?"}
+                },
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_stt)
 
@@ -6204,12 +6269,24 @@ def test_memorial_speech_transcribe_route_accepts_hostile_captured_contact_clip(
         audio_path = str(kwargs.get("audio_path") or "")
         seen_paths.append(audio_path)
         if len(seen_paths) == 1:
-            return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Untertitel der Amara.org-Community"}}}}
+            return {
+                "aiRecord": {
+                    "status": "SUCCESS",
+                    "aiRecordDetail": {
+                        "responseObject": {
+                            "text": "Untertitel der Amara.org-Community"
+                        }
+                    },
+                }
+            }
         return {
             "aiRecord": {
+                "status": "SUCCESS",
                 "aiRecordDetail": {
-                    "responseObject": {"text": "Hallo Manfred, kannst du jetzt mit mir sprechen?"}
-                }
+                    "responseObject": {
+                        "text": "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+                    }
+                },
             }
         }
 
@@ -8650,3 +8727,672 @@ def test_memorial_voicewave_prewarm_unexpected_failure_is_not_success(
         "voicewave_prewarm:unexpected"
     ]
     assert "voice_prewarm_reservation_id" not in current
+
+
+def _configure_isolated_onemin_transcription_test(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    response: dict[str, object],
+    observed_languages: list[str],
+    add_success_status: bool = True,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    _clear_cartesia_env(monkeypatch)
+    public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_convert_audio_to_wav",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("skip_enhanced")),
+    )
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}},
+    )
+
+    response_payload = dict(response)
+    if add_success_status and isinstance(response_payload.get("aiRecord"), dict):
+        ai_record = dict(response_payload["aiRecord"])
+        ai_record.setdefault("status", "SUCCESS")
+        response_payload["aiRecord"] = ai_record
+
+    def _fake_onemin_speech_to_text(**kwargs):
+        observed_languages.append(str(kwargs.get("language") or ""))
+        return response_payload
+
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_onemin_speech_to_text)
+
+
+@pytest.mark.parametrize(
+    ("source_language", "provider_language", "transcript"),
+    (
+        ("en-US", "en", "Anna opens the lantern while Ben reads the first page aloud."),
+        ("de-AT", "de", "Anna öffnet die Laterne, während Ben die erste Seite laut liest."),
+    ),
+)
+def test_memorial_transcribe_forwards_source_language_and_extracts_only_verbose_text(
+    monkeypatch: pytest.MonkeyPatch,
+    source_language: str,
+    provider_language: str,
+    transcript: str,
+) -> None:
+    from app.api.routes import public_memorials
+
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "responseObject": {
+                        "content": json.dumps(
+                            {
+                                "task": "transcribe",
+                                "language": "provider metadata",
+                                "duration": 20.4,
+                                "text": transcript,
+                                "segments": [{"text": "verbose metadata must not be appended"}],
+                            }
+                        )
+                    }
+                }
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed=transcript),
+        content_type="audio/wav",
+        language=source_language,
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert result["transcript_text"] == transcript
+    assert observed_languages == [provider_language]
+
+
+def test_memorial_transcribe_fails_closed_when_onemin_response_has_no_transcript_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "responseObject": {
+                        "content": json.dumps(
+                            {
+                                "task": "transcribe",
+                                "duration": 20.4,
+                                "segments": [
+                                    {"text": "segment metadata is not an authoritative transcript"}
+                                ],
+                            }
+                        )
+                    },
+                    "resultObject": {"output": "plain provider metadata"},
+                }
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Anna and Ben"),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert result["transcript_text"] == ""
+    assert result["retryable"] is True
+    assert observed_languages == ["en"]
+
+
+def test_audiobook_publication_stt_forwards_source_language_to_runtime_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.services import audiobook_epub_pipeline
+
+    monkeypatch.delenv("EA_AUDIOBOOK_PUBLICATION_STT_COMMAND", raising=False)
+    monkeypatch.setattr(
+        audiobook_epub_pipeline,
+        "_transcribe_audiobook_publication_stt_sample_with_cartesia",
+        lambda **kwargs: {"status": "failed", "reason": "cartesia_api_key_missing"},
+    )
+    observed: dict[str, object] = {}
+
+    def _fake_runtime_transcribe(**kwargs):
+        observed.update(kwargs)
+        return {
+            "transcription_status": "transcribed",
+            "transcript_text": "Anna opens the lantern.",
+            "transcriber": "1min.ai/whisper-1",
+        }
+
+    monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", _fake_runtime_transcribe)
+    sample_path = tmp_path / "sample.wav"
+    sample_path.write_bytes(b"rights-safe-audio-fixture")
+
+    result = audiobook_epub_pipeline._transcribe_audiobook_publication_stt_sample(
+        sample_path=sample_path,
+        language="en-US",
+    )
+
+    assert result["status"] == "transcribed"
+    assert result["transcriber"] == "1min.ai/whisper-1"
+    assert observed["language"] == "en-US"
+
+
+def test_memorial_onemin_top_level_plaintext_response_object_remains_supported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    transcript = "Anna opens the lantern while Ben reads the first page aloud."
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "responseObject": transcript,
+                }
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed=transcript),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert result["transcript_text"] == transcript
+    assert observed_languages == ["en"]
+
+
+@pytest.mark.parametrize(
+    ("source_language", "provider_language"),
+    (("en-US", "en"), ("de-AT", "de")),
+)
+def test_memorial_cartesia_fallback_uses_primary_language(
+    monkeypatch: pytest.MonkeyPatch,
+    source_language: str,
+    provider_language: str,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setenv("CARTESIA_API_KEY", "cartesia-test-key")
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    observed_languages: list[str] = []
+
+    def _fake_cartesia(**kwargs):
+        observed_languages.append(str(kwargs.get("language") or ""))
+        return {"text": "Anna opens the lantern while Ben reads the first page aloud."}
+
+    monkeypatch.setattr(public_memorials, "_cartesia_transcribe_audio", _fake_cartesia)
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ())
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Anna and Ben"),
+        content_type="audio/wav",
+        language=source_language,
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert observed_languages
+    assert set(observed_languages) == {provider_language}
+    assert public_memorials._memorial_cartesia_language(source_language) == provider_language
+
+
+@pytest.mark.parametrize(
+    ("source_language", "provider_language"),
+    (("en-US", "en"), ("de-AT", "de")),
+)
+def test_audiobook_cartesia_request_uses_primary_language(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    source_language: str,
+    provider_language: str,
+) -> None:
+    import requests
+
+    from app.services import audiobook_epub_pipeline
+
+    monkeypatch.setattr(audiobook_epub_pipeline, "_audiobook_cartesia_api_key", lambda: "cartesia-test-key")
+    observed: dict[str, object] = {}
+
+    class _Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"text": "Anna opens the lantern while Ben reads the first page aloud."}
+
+    def _fake_post(*args, **kwargs):
+        observed.update(kwargs)
+        return _Response()
+
+    monkeypatch.setattr(requests, "post", _fake_post)
+    sample_path = tmp_path / "sample.wav"
+    sample_path.write_bytes(b"rights-safe-audio-fixture")
+
+    result = audiobook_epub_pipeline._transcribe_audiobook_publication_stt_sample_with_cartesia(
+        sample_path=sample_path,
+        language=source_language,
+    )
+
+    assert result["status"] == "transcribed"
+    assert dict(observed["data"])["language"] == provider_language
+    assert audiobook_epub_pipeline._audiobook_cartesia_language(source_language) == provider_language
+
+
+@pytest.mark.parametrize("invalid_language", ("eng-US", "eng", "e-US", "english"))
+def test_cartesia_language_normalizers_reject_non_iso_639_1_primaries(
+    invalid_language: str,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.services import audiobook_epub_pipeline
+
+    assert public_memorials._memorial_cartesia_language(invalid_language) == "de"
+    assert audiobook_epub_pipeline._audiobook_cartesia_language(invalid_language) == "de"
+
+
+def test_onemin_whisper_request_uses_documented_plain_text_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.product import service as product_service
+
+    observed: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        @staticmethod
+        def read() -> bytes:
+            return b'{"aiRecord":{"status":"SUCCESS"}}'
+
+    def _fake_urlopen(request, timeout=180):
+        observed["url"] = request.full_url
+        observed["body"] = json.loads(request.data.decode("utf-8"))
+        observed["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(product_service.urllib.request, "urlopen", _fake_urlopen)
+
+    result = product_service._onemin_speech_to_text(
+        api_key="private-test-key",
+        audio_path="audios/private-test.wav",
+        language="en",
+    )
+
+    assert result["aiRecord"]["status"] == "SUCCESS"
+    assert observed["url"] == "https://api.1min.ai/api/features"
+    assert observed["timeout"] == 180
+    assert observed["body"] == {
+        "type": "SPEECH_TO_TEXT",
+        "model": "whisper-1",
+        "promptObject": {
+            "audioUrl": "audios/private-test.wav",
+            "response_format": "text",
+            "language": "en",
+        },
+    }
+
+
+def test_onemin_transcript_parser_accepts_only_one_unambiguous_result() -> None:
+    from app.product import service as product_service
+
+    transcript = "Anna opens the lantern while Ben reads the first page aloud."
+
+    assert product_service._onemin_transcript_text([transcript]) == transcript
+    assert product_service._onemin_transcript_text([{"text": transcript}]) == transcript
+    assert product_service._onemin_transcript_text([transcript, "provider metadata"]) == ""
+    assert product_service._onemin_transcript_text({"output": "provider metadata"}) == ""
+
+
+def test_pocket_onemin_retranscription_uses_safe_single_result_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.product import service as product_service
+
+    transcript = "Anna opens the lantern while Ben reads the first page aloud."
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_download_audio_blob",
+        lambda **kwargs: (b"audio", "audio/wav", "https://example.invalid/audio.wav"),
+    )
+    monkeypatch.setattr(product_service, "_pocket_guess_audio_filename", lambda **kwargs: "audio.wav")
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: {"fileContent": {"path": "audios/private.wav"}},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_speech_to_text",
+        lambda **kwargs: {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {"resultObject": [transcript]},
+            }
+        },
+    )
+
+    result = product_service._pocket_retranscribe_with_onemin(
+        recording_id="recording-1",
+        title="Private title",
+        language="en",
+        audio_download_url="https://example.invalid/audio.wav",
+    )
+
+    assert result is not None
+    assert result["transcript_text"] == transcript
+    assert result["transcript_segment_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "record_status",
+    ("PROCESSING", "FAILURE", "unexpected-private-status", ""),
+)
+def test_pocket_onemin_retranscription_requires_success_status(
+    monkeypatch: pytest.MonkeyPatch,
+    record_status: str,
+) -> None:
+    from app.product import service as product_service
+
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_download_audio_blob",
+        lambda **kwargs: (b"audio", "audio/wav", "https://example.invalid/audio.wav"),
+    )
+    monkeypatch.setattr(product_service, "_pocket_guess_audio_filename", lambda **kwargs: "audio.wav")
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: {"fileContent": {"path": "audios/private.wav"}},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_speech_to_text",
+        lambda **kwargs: {
+            "aiRecord": {
+                "status": record_status,
+                "aiRecordDetail": {"resultObject": ["private result must be ignored"]},
+            }
+        },
+    )
+
+    safe_status = (
+        record_status.lower()
+        if record_status in {"PROCESSING", "FAILURE"}
+        else "missing" if not record_status else "other"
+    )
+    with pytest.raises(RuntimeError, match=f"^onemin_transcribe_status_{safe_status}$"):
+        product_service._pocket_retranscribe_with_onemin(
+            recording_id="recording-1",
+            title="Private title",
+            language="en",
+            audio_download_url="https://example.invalid/audio.wav",
+        )
+
+
+def test_pocket_onemin_retranscription_continues_to_next_bounded_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.product import service as product_service
+
+    transcript = "Anna opens the lantern while Ben reads the first page aloud."
+    calls: list[str] = []
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1", "key-2"))
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_download_audio_blob",
+        lambda **kwargs: (b"audio", "audio/wav", "https://example.invalid/audio.wav"),
+    )
+    monkeypatch.setattr(product_service, "_pocket_guess_audio_filename", lambda **kwargs: "audio.wav")
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: {"fileContent": {"path": "audios/private.wav"}},
+    )
+
+    def _fake_transcribe(**kwargs):
+        api_key = str(kwargs.get("api_key") or "")
+        calls.append(api_key)
+        if api_key == "key-1":
+            return {"aiRecord": {"status": "FAILURE", "aiRecordDetail": {}}}
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {"resultObject": [transcript]},
+            }
+        }
+
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_transcribe)
+
+    result = product_service._pocket_retranscribe_with_onemin(
+        recording_id="recording-1",
+        title="Private title",
+        language="en",
+        audio_download_url="https://example.invalid/audio.wav",
+    )
+
+    assert result is not None
+    assert result["transcript_text"] == transcript
+    assert calls == ["key-1", "key-2"]
+
+
+def test_onemin_http_failures_never_expose_provider_response_bodies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from io import BytesIO
+
+    from app.product import service as product_service
+
+    private_body = b"PRIVATE_TRANSCRIPT_AND_PROVIDER_ID"
+
+    def _raise_http_error(request, timeout=180):
+        raise product_service.urllib.error.HTTPError(
+            request.full_url,
+            502,
+            "private provider error",
+            {},
+            BytesIO(private_body),
+        )
+
+    monkeypatch.setattr(product_service.urllib.request, "urlopen", _raise_http_error)
+
+    with pytest.raises(RuntimeError, match="^onemin_transcribe_http_502$") as transcribe_error:
+        product_service._onemin_speech_to_text(
+            api_key="private-test-key",
+            audio_path="audios/private.wav",
+            language="en",
+        )
+    with pytest.raises(RuntimeError, match="^onemin_asset_http_502$") as asset_error:
+        product_service._onemin_asset_upload(
+            api_key="private-test-key",
+            filename="private.wav",
+            content_type="audio/wav",
+            payload=b"private audio",
+        )
+
+    assert private_body.decode("ascii") not in str(transcribe_error.value)
+    assert private_body.decode("ascii") not in str(asset_error.value)
+    assert "private provider error" not in str(transcribe_error.value)
+
+
+def test_memorial_onemin_rejects_non_success_record_even_with_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    private_text = "PRIVATE failed provider output"
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "status": "FAILURE",
+                "aiRecordDetail": {"resultObject": [private_text]},
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Anna and Ben"),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert result["detail"] == (
+        "speech_transcribe_not_success:original:status_failure:"
+        "response_missing:result_array_1_string_plain"
+    )
+    assert private_text not in json.dumps(result, sort_keys=True)
+
+
+def test_memorial_onemin_rejects_missing_record_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    private_text = "PRIVATE missing-status provider output"
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        add_success_status=False,
+        response={
+            "aiRecord": {
+                "aiRecordDetail": {"resultObject": [private_text]},
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Anna and Ben"),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert result["detail"] == (
+        "speech_transcribe_not_success:original:status_missing:"
+        "response_missing:result_array_1_string_plain"
+    )
+    assert private_text not in json.dumps(result, sort_keys=True)
+
+
+def test_memorial_transcribe_accepts_documented_single_result_text_array(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    transcript = "Anna opens the lantern while Ben reads the first page aloud."
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {"resultObject": [transcript]},
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed=transcript),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert result["transcript_text"] == transcript
+    assert observed_languages == ["en"]
+
+
+def test_memorial_empty_transcript_reports_only_content_free_provider_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    private_text = "PRIVATE BOOK TEXT must never enter a failure receipt"
+    observed_languages: list[str] = []
+    _configure_isolated_onemin_transcription_test(
+        monkeypatch,
+        observed_languages=observed_languages,
+        response={
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"content": private_text},
+                    "resultObject": [
+                        {"text": private_text},
+                        {"text": "alternate provider output"},
+                    ],
+                },
+            }
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Anna and Ben"),
+        content_type="audio/wav",
+        language="en-US",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert result["transcript_text"] == ""
+    assert result["detail"] == (
+        "speech_transcript_empty:original:status_success:"
+        "response_object_content:result_array_2_object_text"
+    )
+    assert private_text not in json.dumps(result, sort_keys=True)
+    assert "alternate provider output" not in json.dumps(result, sort_keys=True)
+    assert observed_languages == ["en"]
