@@ -170,6 +170,8 @@ def _reset_shared_runtime_state() -> None:
         with public_memorials._MEMORIAL_LIVE_WARMUP_LOCK:
             public_memorials._MEMORIAL_LIVE_WARMUP_STATE.clear()
             public_memorials._MEMORIAL_LIVE_WARMUP_ACTIVE_RESERVATIONS.clear()
+        public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+        public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
         public_memorials._MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS.clear()
         public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE.clear()
         with public_memorials._MEMORIAL_KNOWN_AUDIO_LOCK:
