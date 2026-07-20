@@ -112,7 +112,7 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertNotIn("<aside ", rendered)
         self.assertIn(
             '<main class="conversation-dock" '
-            'aria-label="Quellengebundener Gedenkbegleiter für Manfred" '
+            'aria-label="KI-Gespräch über Manfred" '
             'id="memorial-conversation-region" tabindex="-1"',
             rendered,
         )
@@ -159,7 +159,8 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertNotIn('id="memorial-speech-transcript-shell" aria-live=', rendered)
         self.assertIn('id="memorial-speech-audio" preload="none" aria-hidden="true"', rendered)
         self.assertNotIn(" autoplay", rendered)
-        self.assertIn("Du sprichst mit einem KI-gestützten, quellengebundenen Gedenkbegleiter.", rendered)
+        self.assertIn("Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen.", rendered)
+        self.assertIn("Die Stimme ist künstlich erzeugt.", rendered)
         self.assertIn("Das Mikrofon wird erst nach deinem Start verwendet.", rendered)
         self.assertIn("Gespräch wird vorbereitet …", rendered)
 

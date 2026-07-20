@@ -4306,14 +4306,25 @@ def test_blocked_voice_release_renders_polished_text_only_memorial_guide(
         pwa_short_name="Manfred",
         clickrank_html="",
         story_html="<section>Erinnerungen</section>",
+        conversation_only=True,
     )
 
+    assert 'data-public-memorial-surface="conversation-only"' in page
     assert 'data-voice-release="blocked"' in page
-    assert "Schriftliche Frage stellen" in page
-    assert "Zum quellengebundenen Gedenkbegleiter" in page
+    assert "Frage schreiben" in page
+    assert "Zum Gespräch" in page
+    assert "Sprechen ist derzeit nicht verfügbar; du kannst deine Frage schreiben." in page
     assert "ist nicht Manfred und spricht nicht für ihn" in page
+    assert 'id="memorial-conversation"' in page
+    assert 'aria-disabled="true" disabled' in page
+    assert '[data-voice-release="blocked"] .hero-actions' in page
+    assert "<section>Erinnerungen</section>" not in page
     assert "Was möchtest du Manfred fragen?" not in page
     assert "KI-gestützten, synthetischen Manfred-Stimme" not in page
+    assert "Gemini Live verbunden" not in page
+    assert "Direkte Kontaktantwort aus der Phrase-Bank" not in page
+    assert 'statusBits.push("Pfad:' not in page
+    assert 'statusBits.push("Policy:' not in page
     assert "const memorialVoiceReleaseAllowed = false;" in page
     assert "const memorialPagePrewarmEnabled = false;" in page
     assert 'if (!memorialVoiceReleaseAllowed) return null;' in page
@@ -6355,9 +6366,9 @@ def test_memorial_landing_does_not_enable_conversation_on_warmup_timeout() -> No
     assert 'let contactAcknowledgementReady = false;' in source
     assert 'contactAcknowledgementReady = true;' in source
     assert "if (completedConversationTurns === 0 && contactAcknowledgementReady)" in source
-    assert "Die kurze Begrüßung ist nicht vorgeladen; das Gespräch bleibt verfügbar." in source
+    assert 'setMemorialLandingReady(true, "Das Gespräch ist bereit.")' in source
     assert 'retryButton.dataset.action = "voice-readiness";' in source
-    assert 'retryButton.textContent = "Stimme erneut prüfen";' in source
+    assert 'retryButton.textContent = "Sprachfunktion erneut versuchen";' in source
     assert "memorialWarmupPollDelayMs" in source
     assert "memorialLastWarmupStatus" in source
     assert "memorialLastWarmupStatus = payload;" in source
@@ -6681,7 +6692,7 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "playFastContactAcknowledgement" in source
     assert "if (completedConversationTurns === 0 && contactAcknowledgementReady)" in source
     assert "await playFastContactAcknowledgement(generation);" in source
-    assert 'const contactAcknowledgementText = "Worum geht es?";' in source
+    assert 'const contactAcknowledgementText = "Worüber möchtest du sprechen?";' in source
     assert 'id="memorial-read-answer"' in source
     assert 'id="memorial-replay-answer"' in source
     assert 'id="memorial-toggle-status"' in source
@@ -6695,7 +6706,8 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "activeRealtimeAudioTurn.sendBlob(event.data)" not in source
     assert "blob.arrayBuffer().then" in source
     assert "pcmChunksToWavBlob" in source
-    assert "Ich sichere die Antwort lokal." in source
+    assert 'setSpeechStatus("Antwort wird vorbereitet …", "working", "")' in source
+    assert "Ich sichere die Antwort lokal." not in source
     assert "await finishConversationTurn(fallbackBlob, generation, null);" in source
     assert "const maxActiveSpeechMs = 3400;" in source
     assert "if (liveAnswerEventAt > 0) return;" in source
@@ -6704,11 +6716,11 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert 'if (type === "answer")' in source
     assert 'if (type === "audio_complete")' in source
     assert 'message.effective_text || payload.transcript_text || ""' in source
-    assert 'Verstanden als: ' in source
+    assert 'So habe ich dich verstanden: ' in source
     assert "showAnswerText(liveAnswerTranscript);" in source
     assert "turn_complete" in source
     assert "activeRecordingHadSpeech" in source
-    assert "Ich habe kaum Stimme gehört" in source
+    assert "Ich konnte dich nicht hören." in source
     assert "now - lastVoiceAt > 920" in source
     assert 'ensureMemorialReady("page_load")' in source
     assert 'requestMemorialWarmup("conversation_start")' not in source
@@ -6717,7 +6729,7 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "finishConversationTurn" in source
     assert "window.__memorialMinimalBooted" in source
     assert "startConversation();" not in source
-    assert "Gespräch stoppen" in source
+    assert "Gespräch beenden" in source
     assert "captureTurnAudio" not in source
     assert "ontouchstart=" not in source
     assert 'if (window.speechSynthesis) window.speechSynthesis.cancel();' in source

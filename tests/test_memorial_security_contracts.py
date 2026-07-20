@@ -472,7 +472,7 @@ def test_public_memorial_pwa_install_is_disabled_by_default(
     assert "cache.addAll" not in worker.text
     page = client.get(f"/memorials/{slug}")
     assert page.status_code == 200
-    assert "Gespräch beginnen" in page.text
+    assert "Gespräch starten" in page.text
     assert 'id="memorial-video-call"' not in page.text
     assert "Am Handy/Desktop installieren" not in page.text
     assert "memorialPwaInstallEnabled = false" in page.text
@@ -2149,12 +2149,12 @@ def test_public_memorial_page_removes_archive_voice_feedback_install_and_contrib
     assert 'id="memorial-speech-transcript-live"' in body
     assert 'id="memorial-speech-transcript"' in body
     assert 'id="memorial-voice-recovery-note"' in body
-    assert "Wenn die Stimme stockt, bleibt die Antwort als Text sichtbar." in body
-    assert "Du kannst ruhig unterbrechen oder noch einmal sprechen." in body
-    assert "Gespräch beginnen" in body
+    assert "Wenn die Sprachausgabe stockt, bleibt die Antwort als Text sichtbar." in body
+    assert "Du kannst jederzeit noch einmal sprechen oder schreiben." in body
+    assert "Gespräch starten" in body
     assert "Am Handy/Desktop installieren" not in body
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in body
-    assert "Bitte noch einmal sprechen" in body
+    assert "Sprachfunktion erneut versuchen" in body
     assert 'id="memorial-contribution"' not in body
     assert "Eine private Erinnerung beitragen" not in body
     assert 'id="memorial-contribution" open' not in body
@@ -2218,7 +2218,7 @@ def test_public_memorial_page_removes_conversation_settings_and_personal_memory_
     assert 'conversationButton.setAttribute("aria-label", label)' in body
     assert 'conversationButton.setAttribute("title", label)' in body
     assert 'id="memorial-text-turn-form"' in body
-    assert 'for="memorial-text-turn-input">Oder ohne Mikrofon schreiben</label>' in body
+    assert 'for="memorial-text-turn-input">Oder schreiben</label>' in body
     assert 'type: "user_text_turn"' in body
     assert "setMicrophoneFailureStatus" in body
     assert "Der Mikrofonzugriff ist blockiert." in body

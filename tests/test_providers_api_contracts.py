@@ -10612,9 +10612,9 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
     assert 'id="memorial-text-turn-form"' in page.text
     assert 'id="memorial-speech-transcript"' in page.text
     assert 'id="memorial-chat-answer"' in page.text
-    assert "KI-gestützten, quellengebundenen Gedenkbegleiter" in page.text
-    assert "Er ist nicht Manfred und spricht nicht für ihn." in page.text
-    assert "eingesetzte Sprachdienste verarbeiten das Audio" in page.text
+    assert "Hier antwortet eine KI anhand freigegebener Erinnerungen und Quellen." in page.text
+    assert "Sie ist nicht Manfred und spricht nicht für ihn." in page.text
+    assert "für Spracherkennung und Wiedergabe wird dein Audio verarbeitet" in page.text
     assert "Originalaufnahmen" not in page.text
     assert "Stimme aus dem Archiv" not in page.text
     assert "Hanusch Gespraech" not in page.text
@@ -10627,7 +10627,7 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
     assert "Quellenbasiertes Profil" not in page.text
     assert "Weitere gefundene Kandidaten" not in page.text
     assert "Archiv lesen" not in page.text
-    assert "Gespräch beginnen" in page.text
+    assert "Gespräch starten" in page.text
     assert "Am Handy/Desktop installieren" not in page.text
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
     assert "voice clone" not in page.text.lower()
@@ -10778,7 +10778,7 @@ def test_public_memorial_chat_excludes_private_context_and_public_diagnosis_leak
     assert "speechHadError" not in page.text
     assert "Die Verbindung zum Mikrofon war gerade instabil. Bitte versuche es noch einmal." not in page.text
     assert "readJsonResponse" not in page.text
-    assert "Bereit." in page.text
+    assert "Bereit für deine Frage." in page.text
     assert "recorder.start(250)" in page.text
     assert "x-memorial-visitor-id" not in page.text
     assert "visitor_id:" not in page.text
