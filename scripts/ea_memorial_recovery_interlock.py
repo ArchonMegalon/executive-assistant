@@ -19,6 +19,8 @@ NORMALIZATION_RECOVERY_STATE_DIRECTORY = ".ea-memorial-deploy-state"
 NORMALIZATION_RECOVERY_JOURNAL_FILENAME = (
     "api-baseline-normalization-active-recovery.json"
 )
+JOINT_RECOVERY_STATE_DIRECTORY = ".ea-memorial-deploy-state"
+JOINT_RECOVERY_JOURNAL_FILENAME = "joint-active-recovery.json"
 
 
 class MemorialRecoveryInterlockError(RuntimeError):
@@ -58,6 +60,14 @@ def default_normalization_recovery_journal_path(
         / NORMALIZATION_RECOVERY_STATE_DIRECTORY
         / NORMALIZATION_RECOVERY_JOURNAL_FILENAME
     )
+
+
+def default_joint_recovery_journal_path(*, operator_anchor: Path) -> Path:
+    """Return the fixed joint journal path for a trusted release-root owner."""
+    normalization_path = default_normalization_recovery_journal_path(
+        operator_anchor=operator_anchor
+    )
+    return normalization_path.parent / JOINT_RECOVERY_JOURNAL_FILENAME
 
 
 def _path_is_absolute_normal(path: Path) -> bool:
@@ -156,21 +166,18 @@ def _revalidate_absence_from_root(
                 pass
 
 
-def require_normalization_recovery_absent(path: Path | None = None) -> None:
-    """Prove the private normalization journal is absent, or fail closed.
-
-    The walk starts from an already-open root directory and opens every
-    descendant with ``O_NOFOLLOW``.  The final state directory must be private
-    and owned by this process.  The journal itself is deliberately not read or
-    parsed: any filesystem entry with its canonical name is active recovery
-    state and must remain byte-for-byte untouched for the normalizer.
-    """
+def _require_recovery_absent(
+    path: Path | None,
+    *,
+    state_directory: str,
+    journal_filename: str,
+) -> None:
     selected = path
     if (
         not isinstance(selected, Path)
         or not _path_is_absolute_normal(selected)
-        or selected.name != NORMALIZATION_RECOVERY_JOURNAL_FILENAME
-        or selected.parent.name != NORMALIZATION_RECOVERY_STATE_DIRECTORY
+        or selected.name != journal_filename
+        or selected.parent.name != state_directory
     ):
         _raise_active_or_indeterminate()
     required_flags = ("O_CLOEXEC", "O_DIRECTORY", "O_NOFOLLOW")
@@ -265,3 +272,33 @@ def require_normalization_recovery_absent(path: Path | None = None) -> None:
                 os.close(descriptor)
             except OSError:
                 pass
+
+
+def require_normalization_recovery_absent(path: Path | None = None) -> None:
+    """Prove the private normalization journal is absent, or fail closed.
+
+    The walk starts from an already-open root directory and opens every
+    descendant with ``O_NOFOLLOW``.  The final state directory must be private
+    and owned by this process.  The journal itself is deliberately not read or
+    parsed: any filesystem entry with its canonical name is active recovery
+    state and must remain byte-for-byte untouched for the normalizer.
+    """
+    _require_recovery_absent(
+        path,
+        state_directory=NORMALIZATION_RECOVERY_STATE_DIRECTORY,
+        journal_filename=NORMALIZATION_RECOVERY_JOURNAL_FILENAME,
+    )
+
+
+def require_joint_recovery_absent(path: Path | None = None) -> None:
+    """Prove the canonical joint recovery journal is safely absent.
+
+    Any present entry is active recovery state.  Its type, ownership, link
+    count, or contents cannot make it safe for a concurrent normalizer, so the
+    entry is never opened, read, followed, or changed.
+    """
+    _require_recovery_absent(
+        path,
+        state_directory=JOINT_RECOVERY_STATE_DIRECTORY,
+        journal_filename=JOINT_RECOVERY_JOURNAL_FILENAME,
+    )
