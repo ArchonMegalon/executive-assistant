@@ -1,12 +1,12 @@
 {
   "action_processor_enabled": true,
-  "api_callback_secret_present": true,
+  "api_callback_secret_present": false,
   "callback_secret_present": true,
   "canonical_output_path": "/home/tibor/.local/share/ea-releases/ea-manfred-main-integration-20260714/.codex-studio/published/whatsapp_web_action_processor_readiness.generated.json",
   "claim": "This receipt proves only that the WhatsApp Web action processor runtime is ready to receive and process live audiobook actions, including degraded voice-selection text commands when button transport falls back. It does not prove a live EPUB arrived or that a share link was delivered.",
   "compose_file_present": true,
   "configured_processor_container": "ea-whatsapp-web-action-processor",
-  "configured_session_ref": "default-wa-web",
+  "configured_session_ref": "tibor-wa-web",
   "containers_checked": true,
   "contract_name": "ea.whatsapp_web_action_processor_readiness.v1",
   "effective_processor_container": "ea-whatsapp-web-action-processor",
@@ -28,7 +28,8 @@
   "ready": false,
   "reason": "sidecar_not_ready",
   "reasons": [
-    "sidecar_not_ready"
+    "sidecar_not_ready",
+    "api_container_callback_secret_missing"
   ],
   "rules": [
     "A ready runtime receipt does not prove a live audiobook delivery happened.",

@@ -1,0 +1,12 @@
+[Unit]
+Description=Back up EA audiobook jobs every ten minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+RandomizedDelaySec=45s
+Persistent=true
+Unit=ea-audiobook-jobs-backup.service
+
+[Install]
+WantedBy=timers.target

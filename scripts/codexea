@@ -361,6 +361,9 @@ Probe controls:
   --timeout-seconds N
   --max-workers N
   --probe-limit N
+  --refresh-backend provider_api|scheduler
+  --refresh-all-accounts
+  --refresh-max-accounts N
   CODEXEA_ONEMIN_TIMEOUT_SECONDS=${CODEXEA_ONEMIN_TIMEOUT_SECONDS:-300}
 
 Use --json only when you explicitly need the full payload.

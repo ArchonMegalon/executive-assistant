@@ -8016,6 +8016,7 @@ def test_onemin_billing_refresh_fans_out_browseract_jobs_in_parallel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv("ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH", "3")
     monkeypatch.setenv("ONEMIN_BROWSERACT_PARALLELISM", "3")
     for index, account_label in enumerate(
         [
@@ -10897,6 +10898,7 @@ def test_public_memorial_speech_transcribe_normalizes_json_text_payload(
         "_onemin_speech_to_text",
         lambda **kwargs: {
             "aiRecord": {
+                "status": "SUCCESS",
                 "aiRecordDetail": {
                     "responseObject": {
                         "text": json.dumps({"text": "Was war ihm bei Familie wichtig?", "language": "german"})
@@ -10950,6 +10952,7 @@ def test_public_memorial_speech_transcribe_converts_browser_webm_before_upload(
         "_onemin_speech_to_text",
         lambda **kwargs: {
             "aiRecord": {
+                "status": "SUCCESS",
                 "aiRecordDetail": {
                     "responseObject": {"text": "Was war ihm bei Familie wichtig?"}
                 }
@@ -11008,8 +11011,20 @@ def test_public_memorial_speech_transcribe_retries_with_enhanced_wav_after_empty
     def _fake_transcribe(**kwargs):
         transcribe_calls["count"] += 1
         if transcribe_calls["count"] == 1:
-            return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": ""}}}}
-        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Was war ihm bei Familie wichtig?"}}}}
+            return {
+                "aiRecord": {
+                    "status": "SUCCESS",
+                    "aiRecordDetail": {"responseObject": {"text": ""}},
+                }
+            }
+        return {
+            "aiRecord": {
+                "status": "SUCCESS",
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Was war ihm bei Familie wichtig?"}
+                },
+            }
+        }
 
     monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_transcribe)
     client = _client(principal_id="exec-public-memorial-speech-enhanced-retry")
@@ -11068,6 +11083,7 @@ def test_public_memorial_speech_transcribe_reads_onemin_keys_from_manifest_slots
         "_onemin_speech_to_text",
         lambda **kwargs: {
             "aiRecord": {
+                "status": "SUCCESS",
                 "aiRecordDetail": {
                     "responseObject": {"text": "Was war ihm bei Familie wichtig?"}
                 }

@@ -200,6 +200,89 @@ def _fake_provider_cost_pressure_probe_pending_probe(**_kwargs: object) -> dict[
     return payload
 
 
+def _fake_onemin_direct_refresh_posture_probe(**_kwargs: object) -> dict[str, object]:
+    return {
+        "checked": True,
+        "probe_ok": True,
+        "status": "rate_limited",
+        "source": "private_receipt:onemin_direct_refresh_live.json",
+        "observed_at": "2026-07-10T02:10:57Z",
+        "reason": "cloudflare_rate_limited",
+        "next_action": "resume_onemin_direct_refresh_after_cooldown",
+        "ready": False,
+        "receipt_name": "onemin_direct_refresh_live.json",
+        "selected_account_count": 1,
+        "pending_account_count": 1,
+        "owner_row_count": 74,
+        "attempted_count": 1,
+        "current_run_refreshed_count": 0,
+        "refreshed_count": 0,
+        "error_count": 1,
+        "error_code_counts": {"onemin_login_http_429": 1},
+        "rate_limited": True,
+        "controls": {
+            "batch_size": 1,
+            "batch_backoff_seconds": 1.0,
+            "max_rate_limit_sleep_seconds": 120.0,
+            "continue_on_rate_limit": True,
+            "refresh_transport": "direct_provider_api",
+            "proxy_mode": "direct_no_ui_proxy",
+            "controls_inferred_from_defaults": False,
+            "single_account_batch_mode": True,
+        },
+        "telegram_delivery": {
+            "checked": True,
+            "sent": True,
+            "reason": "sent",
+            "ready": False,
+            "message_count": 1,
+            "observed_at": "2026-07-10T02:10:57Z",
+            "source": "runtime_container_exec:telegram_delivery.send_telegram_message_for_principal",
+            "dry_run": False,
+        },
+        "privacy": {
+            "raw_owner_email_exposed": False,
+            "raw_login_secret_exposed": False,
+            "raw_telegram_chat_ref_exposed": False,
+        },
+    }
+
+
+def test_materialize_proactive_ooda_operator_status_humanizes_host_disk_pressure_deferral() -> None:
+    module = _load_script()
+    report = {
+        "delivery_route": {
+            "ready": True,
+            "route_error": "",
+            "recovery_hint": "",
+            "next_action": "",
+        },
+        "delivery_guard": {
+            "delivery_state": "deferred",
+            "deferred_reason": "deferred_by_host_disk_pressure",
+            "host_resource_guard": {
+                "usage_percent": 97.0,
+                "available_gb": 3.0,
+            },
+        },
+        "stage_packets": {"ready": True, "errors": []},
+        "safe_work_results": {"ready": True, "errors": []},
+        "errors": [],
+    }
+
+    summary = module._summary(  # noqa: SLF001
+        "deferred",
+        report,
+        live_receipt={},
+        live_receipt_checked=False,
+    )
+    next_action = module._next_action(report, live_receipt={}, live_receipt_checked=False)  # noqa: SLF001
+
+    assert "disk pressure" in summary
+    assert "97.0% used" in summary
+    assert next_action == "recover_runtime_artifact_volume_pressure"
+
+
 def _fake_source_coverage_gap_probe(**_kwargs: object) -> dict[str, object]:
     return {
         "probe_ok": True,
@@ -964,6 +1047,7 @@ def test_materialize_proactive_ooda_operator_status_projects_provider_cost_press
     )
     monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
     monkeypatch.setattr(module.ea_live_ops, "probe_provider_cost_pressure", _fake_provider_cost_pressure_probe)
+    monkeypatch.setattr(module.ea_live_ops, "probe_onemin_direct_refresh_posture", _fake_onemin_direct_refresh_posture_probe)
 
     receipt = module.build_proactive_ooda_operator_status(
         output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
@@ -984,6 +1068,103 @@ def test_materialize_proactive_ooda_operator_status_projects_provider_cost_press
     assert receipt["provider_cost_pressure"]["hard_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
     assert receipt["provider_cost_pressure"]["gemini_token_tracking"]["24h"]["total_tokens"] == 0
     assert receipt["provider_cost_pressure"]["privacy"]["raw_provider_secret_exposed"] is False
+    assert receipt["onemin_direct_refresh_posture"]["checked"] is True
+    assert receipt["onemin_direct_refresh_posture"]["status"] == "rate_limited"
+    assert receipt["onemin_direct_refresh_posture"]["next_action"] == "resume_onemin_direct_refresh_after_cooldown"
+    assert receipt["onemin_direct_refresh_posture"]["next_action_href"] == "https://myexternalbrain.com/admin/goals"
+    assert receipt["onemin_direct_refresh_posture"]["next_action_label"] == "Open goals"
+    assert receipt["onemin_direct_refresh_posture"]["next_action_method"] == "get"
+    assert receipt["onemin_direct_refresh_posture"]["controls"]["batch_size"] == 1
+    assert receipt["onemin_direct_refresh_posture"]["controls"]["single_account_batch_mode"] is True
+    assert receipt["onemin_direct_refresh_posture"]["telegram_delivery"]["sent"] is True
+    assert receipt["onemin_direct_refresh_posture"]["privacy"]["raw_login_secret_exposed"] is False
+
+
+def test_preserve_higher_authority_existing_receipt_reuses_checked_provider_cost_when_candidate_omits_probe(
+    tmp_path: Path,
+) -> None:
+    module = _load_script()
+
+    output = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
+    existing = {
+        "status": "ready_with_live_receipt",
+        "generated_at": "2026-07-10T00:49:53Z",
+        "source_git_head": "source-head-123",
+        "source_state_fingerprint": "source-fingerprint-123",
+        "route_probe_source": "docker_compose_exec",
+        "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
+        "provider_cost_pressure": {
+            **_fake_provider_cost_pressure_probe(),
+            "checked": True,
+            "requires_recovery": False,
+            "blocking_reason": "",
+            "next_action": "",
+            "onemin_probe_pending": False,
+            "onemin_unknown_slots": 0,
+        },
+    }
+    output.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+
+    candidate = {
+        "status": "ready_with_live_receipt",
+        "generated_at": "2026-07-10T01:00:58Z",
+        "source_git_head": "source-head-123",
+        "source_state_fingerprint": "source-fingerprint-123",
+        "route_probe_source": "docker_compose_exec",
+        "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/runtime-sent.json"},
+        "provider_cost_pressure": {
+            "checked": False,
+            "probe_ok": False,
+            "status": "not_checked",
+            "source": "",
+            "observed_at": "",
+            "window": "",
+            "blocking_reason": "",
+            "next_action": "",
+            "primary_background_provider": "",
+            "provider_order": [],
+            "fast_provider_order": [],
+            "cheap_provider_order": [],
+            "groundwork_provider_order": [],
+            "hard_provider_order": [],
+            "cost_sensitive_lanes": [],
+            "onemin_preferred_when_speed_is_not_critical": False,
+            "onemin_preferred_whenever_usable": False,
+            "onemin_usable": False,
+            "onemin_probe_pending": False,
+            "onemin_ready_slots": 0,
+            "onemin_configured_slots": 0,
+            "onemin_unknown_slots": 0,
+            "gemini_provider_key": "gemini_vortex",
+            "gemini_token_tracking": {
+                "billing_truth_boundary": "",
+                "selected_window": {},
+                "24h": {},
+                "soft_cap_percent_24h": None,
+                "background_cost_gate": "",
+                "explicit_gemini_requests_allowed": False,
+            },
+            "routing_decision": "",
+            "requires_recovery": False,
+            "privacy": {
+                "raw_prompt_or_response_text_exposed": False,
+                "raw_provider_secret_exposed": False,
+                "raw_google_cloud_billing_account_exposed": False,
+                "raw_provider_slots_exposed": False,
+            },
+        },
+    }
+
+    preserved = module._preserve_higher_authority_existing_receipt(  # noqa: SLF001
+        output_path=output,
+        candidate_receipt=candidate,
+    )
+
+    assert preserved["generated_at"] == candidate["generated_at"]
+    assert preserved["live_receipt"]["receipt_path"] == "/data/provider-ledger/proactive_ooda_run_receipts/runtime-sent.json"
+    assert preserved["provider_cost_pressure"]["checked"] is True
+    assert preserved["provider_cost_pressure"]["status"] == "active_cost_control"
+    assert preserved["provider_cost_pressure"]["primary_background_provider"] == "onemin"
 
 
 def test_materialize_proactive_ooda_operator_status_backfills_provider_cost_pressure_with_explicit_live_receipt_path(
@@ -1277,6 +1458,100 @@ def test_materialize_proactive_ooda_operator_status_recovers_on_source_coverage_
     assert receipt["source_coverage"]["checked"] is False
     assert receipt["source_coverage"]["status"] == "probe_failed"
     assert receipt["source_coverage"]["blocking_reason"] == "TimeoutExpired:30s"
+
+
+def test_materialize_proactive_ooda_operator_status_retries_transient_source_coverage_timeout(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", lambda **_kwargs: {
+        "probe_ok": True,
+        "source": "docker_compose_exec",
+        "runtime_service": "ea-proactive-ooda",
+        "observed_at": "2026-07-01T21:24:00Z",
+        "live_receipt_checked": True,
+        "live_receipt": {
+            "ok": True,
+            "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "errors": [],
+        },
+        "route_report": {
+            "ok": True,
+            "delivery_route": {
+                "ready": True,
+                "route_error": "",
+                "recovery_hint": "",
+                "next_action": "",
+                "selected_channel": "telegram",
+                "selected_by": "tool_runtime_binding",
+            },
+            "delivery_guard": {"delivery_state": "no_actionable_items"},
+            "stage_packets": {"ready": True, "errors": []},
+            "safe_work_results": {"ready": True, "errors": []},
+            "receipt_observation_count": 1,
+            "actionable_count": 0,
+        },
+    })
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "run_receipt": {
+                "generated_at": "2026-07-01T21:24:10Z",
+                "notification_status": "skipped_no_items",
+                "error_code": "",
+                "item_count": 0,
+                "teable_sync": {
+                    "status": "synced",
+                    "projection_summary": {
+                        "record_count": 1,
+                        "suppressed_item_count": 0,
+                        "suppressed_safe_work_review_count": 0,
+                        "suppressed_projection_reasons": [],
+                        "suppressed_safe_work_issue_codes": [],
+                        "tables": {
+                            "proactive_ooda_runs": {"record_count": 1},
+                            "proactive_ooda_items": {"record_count": 0},
+                            "proactive_ooda_safe_work": {"record_count": 0},
+                        },
+                    },
+                },
+            },
+            "action_required_only_quiet_receipt": {},
+        },
+    )
+    captured_timeouts: list[float] = []
+
+    def _fake_source_coverage(**kwargs: object) -> dict[str, object]:
+        captured_timeouts.append(float(kwargs.get("timeout_seconds") or 0))
+        if len(captured_timeouts) == 1:
+            return _fake_source_coverage_probe_failure(**kwargs)
+        return _fake_source_coverage_probe(**kwargs)
+
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_approval_capture", _fake_approval_capture_probe)
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-01T21:24:30Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert captured_timeouts == [120.0, 180.0]
+    assert receipt["status"] == "ready_with_live_receipt"
+    assert receipt["reason"] == "ready"
+    assert receipt["operator_action_state"] == "clear"
+    assert receipt["source_coverage"]["checked"] is True
+    assert receipt["source_coverage"]["status"] == "ready"
+    assert receipt["source_coverage"]["blocking_reason"] == ""
 
 
 def test_build_operator_status_uses_configured_live_probe_timeout(tmp_path: Path, monkeypatch) -> None:
@@ -1727,6 +2002,92 @@ def test_materialize_proactive_ooda_operator_status_blocks_current_safe_work_aud
     assert receipt["safe_work_audit"]["privacy"]["raw_issue_details_exposed"] is False
 
 
+def test_materialize_proactive_ooda_operator_status_treats_non_material_safe_work_review_as_quiet(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-06-29T08:00:00Z",
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": True,
+                "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                "errors": [],
+            },
+            "route_report": {
+                "ok": True,
+                "delivery_route": {"ready": True, "selected_channel": "telegram", "selected_by": "tool_runtime_binding"},
+                "delivery_guard": {"delivery_state": "eligible"},
+                "stage_packets": {"ready": True, "errors": []},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 1,
+                "actionable_count": 0,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "safe_work_result": {
+                "schema": "proactive_ooda.safe_work_result.v1",
+                "status": "blocked_needs_research_input",
+                "audit": {
+                    "status": "review",
+                    "issues": [
+                        {
+                            "code": "no_decision_ready_material",
+                            "severity": "warn",
+                            "detail": "Suppressed quiet packet remains non-material.",
+                        }
+                    ],
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_approval_capture",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("non-material quiet packets should not probe approval capture")
+        ),
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-06-29T08:01:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "ready_with_live_receipt"
+    assert receipt["reason"] == "ready"
+    assert receipt["next_action"] == "maintain_proactive_ooda_runtime"
+    assert receipt["operator_action_state"] == "clear"
+    assert receipt["safe_work_audit"]["present"] is True
+    assert receipt["safe_work_audit"]["audit_status"] == "review"
+    assert receipt["safe_work_audit"]["delivery_allowed"] is False
+    assert receipt["safe_work_audit"]["filtered_non_material"] is True
+    assert receipt["safe_work_audit"]["blocks_operator_followthrough"] is False
+    assert receipt["safe_work_audit"]["blocking_reason"] == ""
+    assert receipt["safe_work_audit"]["issue_codes"] == ["no_decision_ready_material"]
+
+
 def test_materialize_proactive_ooda_operator_status_surfaces_redacted_browser_handoff_recovery(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -2030,6 +2391,103 @@ def test_materialize_proactive_ooda_operator_status_records_filtered_current_art
     assert receipt["current_artifact_filter"]["next_action"] == ""
     assert receipt["current_artifact_filter"]["issue_codes"] == ["single_official_info_link_not_decision_ready"]
     assert receipt["current_artifact_filter"]["privacy"]["raw_candidate_exposed"] is False
+
+
+def test_materialize_proactive_ooda_operator_status_treats_low_intent_transcript_filter_as_non_material(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-07-09T20:01:39Z",
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": True,
+                "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                "errors": [],
+                "generated_at": "2026-07-09T20:01:39Z",
+                "notification_status": "deferred",
+            },
+            "route_report": {
+                "ok": True,
+                "delivery_route": {"ready": True, "selected_channel": "telegram", "selected_by": "tool_runtime_binding"},
+                "delivery_guard": {"delivery_state": "no_actionable_items"},
+                "stage_packets": {"ready": True, "errors": []},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 1,
+                "actionable_count": 0,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "artifact_filter_reason": "transcript_signal_lacks_action_intent",
+            "current_packet": {"present": False, "status": "missing"},
+            "run_receipt": {
+                "generated_at": "2026-07-09T20:01:39Z",
+                "notification_status": "deferred",
+                "error_code": "no_decision_ready_safe_work",
+                "item_count": 4,
+                "teable_sync": {
+                    "status": "synced",
+                    "projection_summary": {
+                        "record_count": 1,
+                        "suppressed_item_count": 4,
+                        "suppressed_safe_work_review_count": 4,
+                        "suppressed_projection_reasons": ["safe_work_quality_gate_review"],
+                        "suppressed_safe_work_issue_codes": ["no_decision_ready_material"],
+                        "tables": {
+                            "proactive_ooda_runs": {"record_count": 1},
+                            "proactive_ooda_items": {"record_count": 0},
+                            "proactive_ooda_safe_work": {"record_count": 0},
+                        },
+                    },
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_approval_capture",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("non-material transcript filters should not probe approval capture")),
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-09T20:02:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "ready_with_live_receipt"
+    assert receipt["reason"] == "ready"
+    assert receipt["next_action"] == "maintain_proactive_ooda_runtime"
+    assert receipt["operator_action_state"] == "clear"
+    assert receipt["safe_work_audit"]["present"] is False
+    assert receipt["current_artifact_filter"]["present"] is True
+    assert receipt["current_artifact_filter"]["filter_status"] == "suppressed_non_material"
+    assert receipt["current_artifact_filter"]["requires_recovery"] is False
+    assert receipt["current_artifact_filter"]["blocking_reason"] == ""
+    assert receipt["current_artifact_filter"]["next_action"] == ""
+    assert receipt["current_artifact_filter"]["issue_codes"] == ["transcript_signal_lacks_action_intent"]
+    assert receipt["suppressed_projection"]["status"] == "suppressed_non_material"
+    assert receipt["suppressed_projection"]["requires_recovery"] is False
 
 
 def test_materialize_proactive_ooda_operator_status_recovers_on_internal_action_packet(
@@ -2761,6 +3219,110 @@ def test_materialize_proactive_ooda_operator_status_records_non_material_suppres
     assert receipt["suppressed_projection"]["packet_projection_record_count"] == 0
     assert receipt["suppressed_projection"]["privacy"]["raw_candidate_exposed"] is False
     assert "ready for operator follow-through" in receipt["summary"]
+
+
+def test_materialize_proactive_ooda_operator_status_preserves_existing_live_route_receipt_over_host_fallback(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module, "_source_fingerprint", lambda path=module.ROOT: "source-fingerprint-123")
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_route",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("route probe unavailable")),
+    )
+    monkeypatch.setattr(
+        module.proactive_verifier,
+        "_build_report",
+        lambda _args: {
+            "ok": True,
+            "delivery_route": {
+                "ready": True,
+                "route_error": "",
+                "recovery_hint": "",
+                "next_action": "",
+                "selected_channel": "telegram",
+                "selected_by": "tool_runtime_binding",
+            },
+            "delivery_guard": {"delivery_state": "eligible"},
+            "stage_packets": {"ready": True, "errors": []},
+            "safe_work_results": {"ready": True, "errors": []},
+            "receipt_observation_count": 1,
+            "actionable_count": 1,
+            "source_mode": "postgres_observations",
+        },
+    )
+    monkeypatch.setattr(
+        module.live_receipt_verifier,
+        "verify_receipt",
+        lambda _path: {
+            "ok": True,
+            "errors": [],
+            "receipt_path": str(_path),
+            "notification_status": "sent",
+            "delivery_channel": "telegram",
+            "delivery_message_count": 1,
+            "telegram_message_count": 1,
+            "delivery_route_error": "",
+            "delivery_recovery_hint": "",
+            "delivery_next_action": "",
+            "generated_at": "2026-07-09T20:17:00Z",
+        },
+    )
+    monkeypatch.setattr(module, "_default_live_receipt_path", lambda: tmp_path / "live-receipt.json")
+    monkeypatch.setattr(
+        module,
+        "_local_artifact_probe",
+        lambda **_kwargs: {
+            "source": "local_filesystem",
+            "safe_work_result": {
+                "schema": "proactive_ooda.safe_work_result.v1",
+                "status": "blocked_needs_research_input",
+                "audit": {
+                    "status": "review",
+                    "issues": [{"code": "no_decision_ready_material", "severity": "warn"}],
+                },
+            },
+            "run_receipt": {},
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+
+    output = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
+    existing = {
+        "contract_name": "ea.proactive_ooda_operator_status.v1",
+        "generated_at": "2026-07-09T20:17:38Z",
+        "generated_by": "scripts/materialize_proactive_ooda_operator_status.py",
+        "source_git_head": "source-head-123",
+        "head_semantics": "source_state",
+        "source_state_fingerprint": "source-fingerprint-123",
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+        "status": "ready_with_live_receipt",
+        "reason": "ready",
+        "next_action": "maintain_proactive_ooda_runtime",
+        "route_probe_source": "docker_compose_exec",
+        "live_receipt": {"ok": True},
+    }
+    output.write_text(json.dumps(existing, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=output,
+        generated_at="2026-07-09T20:18:23Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "ready_with_live_receipt"
+    assert receipt["reason"] == "ready"
+    assert receipt["route_probe_source"] == "docker_compose_exec"
+    persisted = json.loads(output.read_text(encoding="utf-8"))
+    assert persisted["status"] == "ready_with_live_receipt"
+    assert persisted["generated_at"] == "2026-07-09T20:17:38Z"
 
 
 def test_suppressed_projection_prefers_current_run_over_stale_quiet_receipt() -> None:

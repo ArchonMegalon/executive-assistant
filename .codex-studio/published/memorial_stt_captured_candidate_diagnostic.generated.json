@@ -328,7 +328,9 @@
   ],
   "contract_name": "ea.memorial_stt_captured_candidate_diagnostic",
   "diagnostic_status": "ready",
-  "generated_at": "2026-06-20T06:10:52Z",
+  "generated_at": "2026-07-11T01:31:08Z",
+  "generated_by": "scripts/materialize_memorial_stt_captured_candidate_diagnostic.py",
+  "head_semantics": "source_state",
   "issues": [
     "captured_candidate_full_runtime_failed"
   ],
@@ -348,5 +350,8 @@
     "text_mode": "redacted"
   },
   "promotion_allowed": false,
+  "source_git_head": "034e126744c03969a30404bb3478ef16180baf8a",
+  "source_state_fingerprint": "2c30ca4cb62a3c628d7480ffeebb7eaecf0fed0724d42a4a96a1c890ec5023d7",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked"
 }

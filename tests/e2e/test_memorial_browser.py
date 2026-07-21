@@ -595,9 +595,17 @@ def test_memorial_public_page_is_source_first_accessible_and_private_by_default(
         assert page.locator("a.skip-link").evaluate_all(
             "links => links.map((link) => link.getAttribute('href'))"
         ) == ["#memorial-story", "#memorial-conversation-region"]
+        contribution_disclosure = page.locator("#memorial-contribution")
+        contribution_form = page.locator("#memorial-contribution-form")
+        contribution_summary = contribution_disclosure.locator("> summary")
+        assert contribution_disclosure.get_attribute("open") is None
+        assert contribution_summary.is_visible()
+        assert not contribution_form.is_visible()
+        contribution_summary.click()
+        assert contribution_disclosure.get_attribute("open") is not None
         protected_forms = (
             (
-                page.locator("#memorial-contribution-form"),
+                contribution_form,
                 f"/memorials/{slug}/contributions",
             ),
             (page.locator("#memorial-text-turn-form"), f"/memorials/{slug}/chat"),
@@ -1065,6 +1073,7 @@ def test_memorial_browser_family_contributions_have_portable_exact_review_contro
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
+        page.locator("#memorial-contribution > summary").click()
 
         def submit(title: str, body: str) -> None:
             page.locator("#memorial-contribution-title-input").fill(title)
@@ -1238,6 +1247,7 @@ def test_memorial_browser_recovery_import_and_storage_failure_keep_token_portabl
     try:
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded", timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS)
         assert response is not None and response.ok
+        page.locator("#memorial-contribution > summary").click()
         page.locator("#memorial-contribution-recovery-import > summary").click()
         code_input = page.locator("#memorial-contribution-recovery-code")
         import_button = page.locator("#memorial-contribution-recovery-import-button")
@@ -1352,6 +1362,7 @@ def test_memorial_browser_recovery_import_and_storage_failure_keep_token_portabl
             timeout=MEMORIAL_NAVIGATION_TIMEOUT_MS,
         )
         assert response is not None and response.ok
+        volatile_page.locator("#memorial-contribution > summary").click()
         volatile_page.locator("#memorial-contribution-title-input").fill(
             "Beleg ohne Browserspeicher"
         )

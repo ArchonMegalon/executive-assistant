@@ -13,12 +13,12 @@ It does not imply that every owned tool must be integrated.
 ## Promoted
 
 * `1min.AI` - low-cost governed reasoning fallback in `chummer6-hub`
-* `AI Magicx` - structured AI provider and visual/media assistance lane
 * `Prompting Systems` - prompt, style, and persona support for guide, horizon, and media workflows
 * `Prompt Architects` - prompt, style, and persona support for guide, horizon, media, and live runtime planning workflows
 * `BrowserAct` - no-API automation fallback, account verification, capture, and ops bridge
 * `ApproveThis` - approval inbox bridge
 * `ClickRank` - public site visibility, crawl-health, technical SEO, schema, metadata, and AI-search audit lane
+* `vexp.dev` - cross-repo opportunity index and missed-opportunity detector
 * `Rybbit` - bounded public analytics, CTA telemetry, and opt-in desktop shell event lane for first-party journeys only
 * `Icanpreneur` - bounded discovery interview and validation lane
 * `Katteb` - public-guide and public-content optimization lane downstream of approved source packets
@@ -57,10 +57,13 @@ It does not imply that every owned tool must be integrated.
 * `NeuronWriter` - bounded source-packet SEO optimization lane downstream of Chummer-owned copy and approval
 * `Nonverbia` - post-session coaching and social-dynamics analysis lane for `TABLE PULSE AFTERMATH`
 * `Unmixr AI` - candidate voice lane until proven
+* `AI Magicx` - staged interactive overflow/support drafts while key and health gates are live; no release/rules/product-truth ownership
 
 ## Research / Parked
 
 * `ChatPlayground AI` - provider comparison and evaluation lab only
+* `OMagic` - capacity/slot discovery candidate pending capability receipts
+* `YouBooks` - discovery lane for approved source transformation only after provider contract and export safety proofs
 
 ## Non-product
 

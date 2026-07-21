@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-07-10
+Updated: 2026-07-11
 
 ## Workspace Integration Tier Guide
 
@@ -15,7 +15,7 @@ Updated: 2026-07-10
 
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
-| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts / 74 restored runtime slots` | `Owned` |  | `Tier 1` | Local `.env` key rotation pool plus restored `config/onemin_api_keys.local.json` and `config/onemin_slot_owners*.json` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Latest credit refresh on `2026-07-10T02:46:35.357066+00:00` for `ONEMIN_AI_API_KEY` confirmed `15025` remaining credits with the next top-up projected for `2026-07-11T00:59:12.982000Z` (`15000` credits). |
+| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts / 74 restored runtime slots` | `Owned` |  | `Tier 1` | Local `.env` key rotation pool plus restored `config/onemin_api_keys.local.json` and `config/onemin_slot_owners*.json` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Latest credit refresh on `2026-07-11T12:48:59.492926+00:00` for `ONEMIN_AI_API_KEY` confirmed `15025` remaining credits with the next top-up projected for `2026-07-14T04:24:31.840000Z` (`15000` credits). |
 | `AI Magicx` | `Rune Plan` | `1 account` | `Owned` |  | `Tier 2` | `AI_MAGICX_API_KEY` slot plus `ea/app/services/responses_upstream.py` fallback lane and `ea/app/api/routes/responses.py` `/v1/codex` selectors | Distinct from `OMagic`. Runtime routing and `EA_RESPONSES_MAGICX_*` health checks exist locally, but the current `.env` still has an empty `AI_MAGICX_API_KEY`, so this remains a staged fallback lane rather than a verified live provider. |
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `Deftform` | `No tier recorded` | `1 account` | `Owned` |  | `Tier 4` | Local `.env` username/password only | Newly tracked account with shared local credentials; plan/tier and structured verification are still pending. |
@@ -91,7 +91,7 @@ Use this section to track missing tier/email/account facts discovered through th
 
 | Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
 |---|---|---|---|---|---|
-| `1min.AI` |  | `manual_seeded` | `cross_base_teable_recovery + local_env + operator_status_provider_ledger` | 2026-07-10T02:46:35.357066+00:00 | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-07-10T02:46:35.357066+00:00` for `ONEMIN_AI_API_KEY` confirmed `15025` remaining credits with the next top-up projected for `2026-07-11T00:59:12.982000Z` (`15000` credits). |
+| `1min.AI` |  | `manual_seeded` | `cross_base_teable_recovery + local_env + operator_status_provider_ledger` | 2026-07-11T12:48:59.492926+00:00 | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-07-11T12:48:59.492926+00:00` for `ONEMIN_AI_API_KEY` confirmed `15025` remaining credits with the next top-up projected for `2026-07-14T04:24:31.840000Z` (`15000` credits). |
 | `PayFunnels` |  | `manual_seeded` | `payfunnels_test_billing_receipts` | 2026-06-01T00:00:00Z | Tier 3 is tracked as a test-only billing adapter. Receipts verify the $1 no-benefit checkout copy, acknowledgement gate, webhook signature/idempotency checks, receipt ledger, no-op entitlement ledger, refund path, and security review. |
 | `PayPal API` | `primary.account@example.test` | `manual_seeded` | `local_env` | 2026-06-02T00:00:00Z | Client ID, secret, and account email are now stored locally. Checkout, webhook verification, and entitlement mapping still need implementation. |
 | `Prompt Architects` |  | `manual_seeded` | `local_env + prompt_foundry_receipts` | 2026-06-01T20:54:48.618432+00:00 | Local `.env` contains the AppSumo API key slot for `PROMPTING_SYSTEMS_API_KEY`; Prompt Foundry integration receipts verify Tier 4 capability capture, template seed/operator assist, usage metering, privacy boundaries, MagicFit bridge, and runtime GM assist disabled pending API/MCP/privacy/export proof. |

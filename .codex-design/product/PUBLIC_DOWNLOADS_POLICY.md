@@ -18,6 +18,12 @@ The downloads surface is a download shelf first:
 
 Build artifacts, installers, archives, update payloads, and preview clients must not be published directly to GitHub releases, repository automation artifacts, repo attachments, or other repo-hosted binary shelves as an end-user download path. GitHub may host source, issues, and development records, but public acquisition must route through `chummer.run` download or install handoff surfaces backed by the release registry.
 
+## Canonical artifact truth
+
+Public artifact identity comes from `chummer6-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json` only.
+
+Public copy may format those facts for humans, but it must not invent or override artifact filenames, sizes, hashes, URLs, channel IDs, release versions, or rollout state. Repo-local download mirrors must either match that manifest or declare themselves as non-public fixtures.
+
 ## CTA labels
 
 Allowed primary CTA labels include:

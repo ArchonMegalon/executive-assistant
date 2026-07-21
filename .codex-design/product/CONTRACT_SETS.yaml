@@ -1,5 +1,5 @@
 group_id: chummer-vnext
-last_reviewed: 2026-04-23
+last_reviewed: 2026-06-29
 
 packages:
   - id: Chummer.Engine.Contracts
@@ -19,7 +19,7 @@ packages:
 
   - id: Chummer.Play.Contracts
     owner_repo: chummer6-hub
-    purpose: Play/mobile/service seam for hosted play APIs, role-shell transport DTOs, replay checkpoints, and play-safe projections.
+    purpose: Play/mobile/service seam for hosted play APIs, role-shell transport DTOs, replay checkpoints, play-safe projections, and the `Chummer.Play.Contracts.Interop` namespace family for round-trip portability DTOs.
     status: complete
     versioning_policy: SemVer. Breaking play-shell API or transport semantics is major; additive projections or request fields are minor; compatible clarifications are patch.
     deprecation_policy: Deprecations must be announced in design and hub first, keep replay-safe compatibility for at least one promoted release cycle, and update blockers before semantic removal.
@@ -414,7 +414,7 @@ contract_sets:
       - import mode and import result
       - compatibility annotations for dossier and campaign package handoff
       - play-surface export targets for runner, opposition, handout, and run packets
-    rule: "Interop package semantics are first-class product truth. `Chummer.Play.Contracts.Interop` owns the active round-trip package family, `Chummer.Campaign.Contracts` owns long-lived dossier and campaign meaning, and registry/media metadata may annotate the package without redefining the semantic object being moved."
+    rule: "Interop package semantics are first-class product truth. The canonical published package id remains `Chummer.Play.Contracts`, and it carries the active round-trip portability namespace family under `Chummer.Play.Contracts.Interop`; `Chummer.Campaign.Contracts` owns long-lived dossier and campaign meaning, and registry/media metadata may annotate the package without redefining the semantic object being moved."
 
   - id: support_intake_vnext
     canonical_package: Chummer.Control.Contracts
@@ -548,6 +548,198 @@ contract_sets:
       - preview and thumbnail refs
       - asset lifecycle
       - media receipts
+
+  - id: governed_spatial_render_v1
+    canonical_package: Chummer.Media.Contracts
+    canonical_contract_name: governed_spatial_render_v1
+    semantic_owner: chummer6-media-factory
+    status: pending
+    amendment_state: proposed_for_independent_re_review
+    disposition: revise
+    implementation_state: blocked
+    implementation_authorized: false
+    provider_execution_authorized: false
+    quota_authorized: false
+    release_scope_widened: false
+    consumers:
+      - chummer6-hub
+      - chummer6-hub-registry
+      - chummer6-ui
+      - chummer6-mobile
+      - executive-assistant
+      - propertyquarry_external_boundary_mapper_recorded_authority
+    consumer_roles:
+      chummer6-hub: Chummer bridge, orchestration, approved truth refs, audience and consumer authorization, and provider-redacted product presentation.
+      chummer6-hub-registry: Immutable output-manifest intake plus publication, renewal, revocation, and public-ref tombstones; never provider execution.
+      chummer6-ui: Hub-authorized provider-redacted artifact projection only.
+      chummer6-mobile: Hub-authorized provider-redacted artifact projection only.
+      executive-assistant: Derived provider-redacted telemetry and synthetic zero-burn compose assistance only; never authoritative compose acceptance or readiness.
+      propertyquarry_external_boundary_mapper_recorded_authority: External product mapping governed by the hash-bound PropertyQuarry decision; not a Chummer-owned bridge or direct package dependency, and implementation remains blocked pending PropertyQuarry numeric product policy and independent re-review.
+    propertyquarry_external_authority:
+      decision_path: /docker/property/PROPERTYQUARRY_GOVERNED_SPATIAL_RENDER_AUTHORITY_DECISION.md
+      decision_sha256: 401fe42211e2d8283ea9ca2a7cfc1a1eaffc80ff13c63fdf9e6158a116eff50a
+      product_bridge:
+        repo: /docker/property
+        package: app.product
+        module: app.product.property_tour_hosting
+      privacy_lifecycle_intake_and_closeout:
+        repo: /docker/property
+        package: app.api.routes
+        module: app.api.routes.landing
+      enforcement_dependency: public_tour_payloads
+      revocation_and_deletion_execution_dependency: property_tour_hosting
+      chummer_authority: record_only_cannot_assign_implement_authorize_or_act_for_external_owner
+      propertyquarry_implementation_state: blocked_pending_numeric_product_policy_and_independent_re_review
+    forbidden_source_copies:
+      - chummer6-hub
+      - chummer6-hub-registry
+      - chummer6-ui
+      - chummer6-mobile
+      - executive-assistant
+      - propertyquarry
+      - any_other_consumer_repo
+    versioning_policy: >-
+      SemVer. A required-field, state-machine, authorization, quota, receipt,
+      deletion, capability-evidence, or semantic meaning change is major. A
+      backward-compatible optional field or projection is minor only when
+      existing consumers must tolerate it. Compatible corrections and
+      clarifications are patch.
+    deprecation_policy: >-
+      Announce deprecation in design and media-factory, provide a migration and
+      rollback path, dual-serve the old and replacement major versions for at
+      least 180 days and two promoted release cycles (whichever is longer), and
+      remove only after all consumers and active artifact leases have migrated.
+    minimum_deprecation_window_days: 180
+    minimum_deprecation_release_cycles: 2
+    operations:
+      compose:
+        authoritative_owner: chummer6-media-factory
+        purpose: Deterministically normalize and validate approved provider-neutral inputs and issue a composition receipt.
+        enqueue_provider_job: false
+        reserve_quota: false
+        consume_quota: false
+        provider_execution_receipt: false
+        readiness_projection: forbidden
+        synthetic_assistance:
+          allowed_owner: executive-assistant
+          data_posture: synthetic_only
+          authority: non_authoritative
+      build:
+        authoritative_owner: chummer6-media-factory
+        requires_accepted_composition_digest: true
+        requires_consumer_authorization_ref: true
+        requires_current_capability_evidence: true
+        requires_current_quota_evidence: true
+        requires_consume_quota_true: true
+        requires_bounded_attempts: true
+        current_state: blocked
+    idempotency:
+      ledger_owner: chummer6-media-factory
+      scope: consumer_artifact_family_source_style_and_normalized_request_digest
+      same_key_same_digest: return_existing_compose_or_build_state
+      same_key_different_digest: reject_conflict
+      concurrent_duplicate: one_job_one_reservation_one_provider_attempt
+      retry_token: job_id_and_attempt_number
+      default_maximum_provider_attempts: 1
+      absolute_maximum_provider_attempts: 2
+    authorization:
+      chummer_owner: chummer6-hub
+      required_fields:
+        - authorization_ref
+        - consumer_subject_ref
+        - artifact_family
+        - audience_scope
+        - purpose
+        - issued_at
+        - expires_at
+        - maximum_provider_attempts
+        - quota_limit
+      rule: The hash-bound PropertyQuarry decision records its external product and privacy owners. Any future authorized PropertyQuarry request uses its own provider-neutral product contract and an explicit boundary mapper; Chummer records but cannot assign, implement, authorize, or act for those owners.
+    quota:
+      compose_posture: audit_only_zero_burn
+      reservation_owner: chummer6-media-factory
+      consumption_owner: chummer6-media-factory
+      retry_owner: chummer6-media-factory
+      cancellation_owner: chummer6-media-factory
+      compensation_owner: chummer6-media-factory
+      provider_route_kill_switch_owner: chummer6-media-factory
+      execution_budget_and_landing_control: fleet
+      freeze_and_reroute_authority: product_governor
+      executive_assistant_authority: read_only_none
+    private_execution_receipt:
+      owner: chummer6-media-factory
+      encryption_required: true
+      provider_private: true
+      required_fields:
+        - request_digest
+        - source_packet_digest
+        - style_pack_digest
+        - composition_digest
+        - provider_route_digest
+        - provider_task_and_account_refs
+        - attempt_lineage
+        - quota_mutation_lineage
+        - cancellation_retry_and_compensation_state
+        - output_hashes
+        - deletion_and_provider_deletion_refs
+    provider_redacted_projection:
+      emitted_by: chummer6-media-factory
+      product_meaning_owner: chummer6-hub
+      allowed_fields:
+        - artifact_family
+        - safe_state
+        - bounded_progress
+        - safe_reason
+        - retry_posture
+        - immutable_output_manifest_ref
+      forbidden_fields:
+        - provider_name
+        - provider_url
+        - provider_task_id
+        - provider_account_id
+        - credentials
+        - balances
+        - raw_provider_trace
+    immutable_output_manifest:
+      owner: chummer6-media-factory
+      rule: The manifest is append-only provenance and lifecycle truth; deletion tombstones remain inspectable while deleted artifact bytes and derivatives are purged by policy.
+    deletion:
+      policy: GOVERNED_SPATIAL_RENDER_PRIVACY_RETENTION_POLICY
+      execution_owner: chummer6-media-factory
+      public_withdrawal_owner: chummer6-hub-registry
+      chummer_closeout_owner: chummer6-hub
+      propertyquarry_external_closeout_record:
+        repo: /docker/property
+        package: app.api.routes
+        module: app.api.routes.landing
+        enforcement_dependency: public_tour_payloads
+        revocation_and_deletion_execution_dependency: property_tour_hosting
+        authority_limit: Chummer records this external decision but cannot execute or close PropertyQuarry lifecycle work.
+        implementation_state: blocked_pending_numeric_product_policy_and_independent_re_review
+    capability_evidence:
+      schema: GOVERNED_SPATIAL_RENDER_CAPABILITY_QUOTA_EVIDENCE.schema.yaml
+      issuer: chummer6-media-factory
+      verifier: fleet
+      required_projection_when_missing_stale_revoked_or_mismatched: unverified_or_blocked
+      compose_evidence_posture: audit_only_zero_burn
+      current_projection: unverified_or_blocked
+    includes:
+      - provider-neutral source and immutable truth refs
+      - separate compose and authorized build requests
+      - deterministic composition and idempotency digests
+      - consumer authorization and audience scope
+      - atomic quota reservation, consumption, cancellation, retry, and compensation state
+      - encrypted private execution receipts
+      - provider-redacted product projections
+      - immutable output manifests and lifecycle/deletion receipts
+      - artifact-family and environment-specific capability evidence
+    rules:
+      - "The ea.* prototype name is not Chummer contract canon and may not be registered as an alias."
+      - "Hub bridges approved Chummer truth into this package; it does not call providers or own jobs, quota accounting, manifests, lifecycle, or private execution receipts."
+      - "Media-factory may consume immutable Chummer refs but may not calculate or mutate mechanics, campaign truth, audience truth, approval truth, or publication truth."
+      - "The PropertyQuarry decision records `/docker/property` package `app.product` module `app.product.property_tour_hosting` as product bridge owner and package `app.api.routes` module `app.api.routes.landing` as privacy lifecycle, intake, and closeout owner; Chummer records but cannot assign, implement, authorize, or act for them."
+      - "PropertyQuarry private encounter-preview fields remain forbidden, and PropertyQuarry implementation remains blocked pending its numeric product policy and independent re-review."
+      - "No prose, provider name, environment variable, historical handoff, or compose receipt can establish provider or artifact readiness."
 
 compatibility_rules:
   - Contract packages must version independently.

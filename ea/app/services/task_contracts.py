@@ -295,7 +295,7 @@ class TaskContractService:
                         "memory_reads": list(memory_reads),
                         "memory_writes": [memory_write_key] if memory_write_key else [],
                         "provider_hints_json": {
-                            "primary": ["1min.AI", "AI Magicx", "Gemini Vortex", "BrowserAct"],
+                            "primary": ["Gemini Vortex", "AI Magicx", "BrowserAct"],
                         },
                         "output_schema_json": {
                             "type": "object",

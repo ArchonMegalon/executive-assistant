@@ -1,0 +1,48 @@
+product: chummer
+version: 1
+last_reviewed: 2026-05-12
+purpose: Versioned whole-product scoring rubric for release readiness at campaign-operability level.
+
+score_scale:
+  0: unusable_or_deceptive
+  1: bounded_but_not_ready
+  2: trustworthy_preview
+  3: flagship_ready
+
+dimensions:
+  - id: route_clarity
+    label: Route clarity
+    question: Can the user find the primary route and understand the bounded fallback?
+  - id: rules_and_continuity_truth
+    label: Rules and continuity truth
+    question: Are numbers, campaign state, and restore behavior trustworthy and explainable?
+  - id: recovery_confidence
+    label: Recovery confidence
+    question: Does the route expose an honest next safe action when things break?
+  - id: closure_honesty
+    label: Closure honesty
+    question: Do support, public status, and product copy mean the same thing?
+  - id: responsiveness
+    label: Responsiveness
+    question: Does the route stay inside the flagship responsiveness budgets or honestly degrade?
+  - id: design_authorship
+    label: Design authorship
+    question: Does the route feel intentionally authored, accessible, and coherent across surfaces?
+
+gating_rules:
+  - Whole-product flagship readiness requires every dimension to score `3` on every promoted flagship surface.
+  - A surface may be preview-promoted only when every dimension scores at least `2` and any `2` has a bounded owner and next action.
+  - Any dimension scored `0` forces `flagship_ready` to stay non-ready.
+  - Clean queues, green tests, or empty blocker lists do not replace this rubric.
+
+required_surfaces:
+  - desktop_workbench
+  - public_front_door_and_support
+  - install_claim_restore_continue
+  - build_explain_publish
+  - run_and_rejoin
+  - improve_and_close_the_loop
+
+closeout_rule:
+  - Each flagship closeout slice must attach one owner and one score entry per dimension.
+  - Promotion posture may not say `ready` unless this rubric is attached to the release decision.

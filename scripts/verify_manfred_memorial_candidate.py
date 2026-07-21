@@ -556,6 +556,7 @@ def audit_browser_surface(
             accessibility = page.evaluate(
                 """() => {
                   const visible = (element) => {
+                    if (!element || element.getClientRects().length === 0) return false;
                     const style = getComputedStyle(element);
                     return !element.hidden && style.display !== "none" && style.visibility !== "hidden";
                   };
@@ -563,7 +564,7 @@ def audit_browser_surface(
                     .filter((element) => visible(element) && String(element.type || "") !== "hidden");
                   const unlabeled = controls.filter((element) => {
                     if (element.tagName === "BUTTON") {
-                      return !String(element.innerText || element.getAttribute("aria-label") || element.title || "").trim();
+                      return !String(element.innerText || element.textContent || element.getAttribute("aria-label") || element.title || "").trim();
                     }
                     return !(element.labels && element.labels.length) && !String(element.getAttribute("aria-label") || "").trim();
                   }).map((element) => element.id || element.name || element.tagName);

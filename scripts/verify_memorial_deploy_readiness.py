@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 try:
@@ -128,6 +129,14 @@ def build_payload(
 
 
 def main(argv: list[str] | None = None) -> int:
+    arguments = list(argv) if argv is not None else sys.argv[1:]
+    if any(flag in arguments for flag in ("--help", "-h")):
+        print(
+            "Usage:\n"
+            "  python scripts/verify_memorial_deploy_readiness.py [options]\n\n"
+            "Verify Memorial deployment readiness."
+        )
+        return 0
     parser = argparse.ArgumentParser(
         description="Verify memorial deploy readiness before running deploy-ea-memorial."
     )
@@ -144,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Release-authority status artifact to verify.",
     )
     parser.add_argument("--pretty", action="store_true", help="Print indented JSON.")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     payload = build_payload(
         memorial_status_path=args.memorial_status.expanduser().resolve(),
         release_authority_status_path=args.release_authority_status.expanduser().resolve(),

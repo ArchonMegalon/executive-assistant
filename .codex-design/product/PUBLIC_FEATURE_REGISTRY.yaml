@@ -24,7 +24,7 @@ cards:
     audience: public
     image_family: simulation_bench
     asset_slot: capability_check_rules
-    action_label: See a rules explanation
+    action_label: See the explanation trail
     status_note: "Modifiers, sources, and repeated results stay visible together."
     pain: Follow the sources and modifiers instead of arguing from vibes.
     payoff: The answer stays inspectable when somebody asks where the number came from.
@@ -136,7 +136,7 @@ cards:
     badge: Live now
     audience: public
     image_family: simulation_bench
-    action_label: See the explanation
+    action_label: See the explanation trail
   - id: real_public_guide
     bucket: supporting_reads
     title: Product guide and roadmap
@@ -159,15 +159,15 @@ cards:
     audience: public
     image_family: streetfront
     action_label: See continuity in preview
-  - id: real_mobile_projection
+  - id: real_app_entry
     bucket: whats_real_now
-    title: Mobile projection
-    summary: Inspect the mobile and PWA preview without treating it as a replacement for desktop rules math.
-    href: /mobile
+    title: Build in Chummer
+    summary: Open the browser app. Mobile-specific surfaces return when they have real product content.
+    href: /build
     badge: Live now
     audience: public
     image_family: streetfront
-    action_label: Open mobile projection
+    action_label: Open Chummer
   - id: real_package_browser
     bucket: whats_real_now
     title: Package browser
@@ -227,7 +227,7 @@ cards:
   - id: horizon_origin_dossier
     bucket: coming_next
     title: ORIGIN DOSSIER
-    summary: Turn an approved origin into contacts, debts, scars, secrets, media, and later build-help context.
+    summary: Turn an approved runner origin into a private full-story ebook with fitted cover art, shared-history link codes, portrait choice, optional audiobook, and one cinematic scene.
     href: https://chummer.run/media/horizons/origin-dossier-90s-deepdive.mp4
     badge: Shipped MVP
     audience: public
@@ -239,10 +239,10 @@ cards:
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/origin-dossier.md
     fallback_label: Read the horizon brief
     external_ok: true
-    pain: A runner can be legal and still feel unfinished.
-    payoff: The table gets approved identity canon without letting story prose rewrite the sheet.
-    status_note: "Origin Dossier keeps reviewed story and media separate from character mechanics."
-    status_chips: Accepted story|Media bundle|No silent mechanics
+    pain: A runner can be legal and still feel like math instead of a person.
+    payoff: The player gets a real origin edition while Chummer keeps story, media, and mechanics truth separated.
+    status_note: "Origin Dossier is ebook-first: full approved story, fitted cover, runner link codes, three portraits, chosen voice request, and one character-visible cinematic scene."
+    status_chips: Full story ebook|Runner links|Scoped audio and cinema
   - id: horizon_table_pulse
     bucket: coming_next
     title: TABLE PULSE
@@ -719,11 +719,11 @@ cards:
     bucket: participate
     title: Report a problem
     summary: Use the public support path when you want to flag a bug, confusing copy, or a concrete improvement.
-    href: /contact#support-intake
+    href: /contact
     badge: Public
     audience: public
     image_family: archive_stair
-    action_label: Open support intake
+    action_label: Open contact
   - id: participate_future
     bucket: participate
     title: Start KARMA FORGE discovery

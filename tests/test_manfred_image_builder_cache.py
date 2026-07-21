@@ -70,8 +70,8 @@ def test_candidate_build_uses_exact_scoped_buildx_and_prune_argv(
     monkeypatch.setattr(builder, "_commit_for_ref", lambda _root, _ref: commit)
     monkeypatch.setattr(
         builder,
-        "_require_root_disk_capacity",
-        lambda: None,
+        "_root_free_bytes",
+        lambda: builder.MINIMUM_ROOT_FREE_BYTES,
     )
 
     def materialize_context(
@@ -651,8 +651,8 @@ def test_valid_preexisting_full_revision_image_is_reused_without_overwrite(
     monkeypatch.setattr(builder, "_commit_for_ref", lambda _root, _ref: commit)
     monkeypatch.setattr(
         builder,
-        "_require_root_disk_capacity",
-        lambda: pytest.fail("zero-build reuse reached the disk build gate"),
+        "_root_free_bytes",
+        lambda: builder.MINIMUM_ROOT_FREE_BYTES,
     )
 
     def image_only_run(
@@ -713,7 +713,11 @@ def test_mismatched_preexisting_tag_fails_without_overwrite_or_delete(
 
     monkeypatch.setattr(builder, "_exclusive_build_lock", lambda: _acquired_lock())
     monkeypatch.setattr(builder, "_commit_for_ref", lambda _root, _ref: commit)
-    monkeypatch.setattr(builder, "_require_root_disk_capacity", lambda: None)
+    monkeypatch.setattr(
+        builder,
+        "_root_free_bytes",
+        lambda: builder.MINIMUM_ROOT_FREE_BYTES,
+    )
 
     def image_only_run(
         argv: list[str],
@@ -759,7 +763,11 @@ def test_failed_buildx_build_prunes_scoped_cache_and_writes_failure_receipt(
 
     monkeypatch.setattr(builder, "_exclusive_build_lock", lambda: _acquired_lock())
     monkeypatch.setattr(builder, "_commit_for_ref", lambda _root, _ref: commit)
-    monkeypatch.setattr(builder, "_require_root_disk_capacity", lambda: None)
+    monkeypatch.setattr(
+        builder,
+        "_root_free_bytes",
+        lambda: builder.MINIMUM_ROOT_FREE_BYTES,
+    )
 
     def materialize_context(
         *, source_root: Path, commit: str, destination: Path
@@ -824,7 +832,11 @@ def test_post_build_verification_failure_prunes_cache_and_removes_only_new_tag(
 
     monkeypatch.setattr(builder, "_exclusive_build_lock", lambda: _acquired_lock())
     monkeypatch.setattr(builder, "_commit_for_ref", lambda _root, _ref: commit)
-    monkeypatch.setattr(builder, "_require_root_disk_capacity", lambda: None)
+    monkeypatch.setattr(
+        builder,
+        "_root_free_bytes",
+        lambda: builder.MINIMUM_ROOT_FREE_BYTES,
+    )
 
     def materialize_context(
         *, source_root: Path, commit: str, destination: Path

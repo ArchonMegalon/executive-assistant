@@ -1,0 +1,37 @@
+[Unit]
+Description=Mirror EA audiobook jobs from private local storage to pCloud
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ea-audiobook-backup
+Group=ea-audiobook-backup
+UMask=0077
+TimeoutStartSec=15min
+Environment=HOME=/docker/EA/data/audiobooks/backup-state
+Environment=EA_AUDIOBOOK_BACKUP_RCLONE_CONFIG=/docker/EA/data/audiobooks/backup-state/pcloud.conf
+ExecStart=/docker/EA/scripts/backup_audiobook_jobs.sh
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ReadOnlyPaths=/docker/EA/data/audiobooks/jobs /docker/EA/scripts /docker/EA/data/audiobooks/backup-state/pcloud.conf
+ReadWritePaths=/docker/EA/data/audiobooks/backup-state
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryDenyWriteExecute=true

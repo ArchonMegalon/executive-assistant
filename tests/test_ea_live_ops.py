@@ -40,6 +40,74 @@ def _args(**overrides: object) -> Namespace:
     return Namespace(**values)
 
 
+def _patch_onemin_direct_refresh_ready(monkeypatch, module) -> None:
+    monkeypatch.setattr(
+        module,
+        "probe_onemin_direct_refresh_posture",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "checked": True,
+            "ready": True,
+            "status": "already_refreshed",
+            "reason": "all_selected_accounts_already_refreshed",
+            "next_action": "",
+            "receipt_name": "onemin_direct_refresh_live_guardrails.json",
+            "selected_account_count": 1,
+            "pending_account_count": 0,
+            "owner_row_count": 74,
+            "attempted_count": 1,
+            "current_run_refreshed_count": 0,
+            "refreshed_count": 1,
+            "error_count": 0,
+            "rate_limited": False,
+            "controls": {
+                "batch_size": 1,
+                "batch_backoff_seconds": 1.0,
+                "max_rate_limit_sleep_seconds": 120.0,
+                "continue_on_rate_limit": True,
+                "refresh_transport": "direct_provider_api",
+                "proxy_mode": "direct_no_ui_proxy",
+                "controls_inferred_from_defaults": False,
+                "single_account_batch_mode": True,
+            },
+            "telegram_delivery": {
+                "checked": False,
+                "sent": False,
+                "reason": "",
+                "ready": False,
+                "message_count": 0,
+            },
+            "observed_at": "2026-07-05T15:07:20Z",
+            "source": "private_receipt:onemin_direct_refresh_live_guardrails.json",
+        },
+    )
+
+
+def _ready_unmixr_preflight(*, slot_count: int = 3) -> dict[str, object]:
+    return {
+        "contract_name": "ea.telegram_epub_audiobook_runtime_preflight.v1",
+        "observed_at": "2026-06-23T10:00:00Z",
+        "status": "pass",
+        "failed_checks": [],
+        "warned_checks": [],
+        "checks": [
+            {"key": "telegram_audiobook_enabled", "status": "pass"},
+            {"key": "jobs_root_durable", "status": "pass"},
+            {"key": "jobs_root_writable", "status": "pass"},
+            {"key": "external_tts_enabled", "status": "pass"},
+            {"key": "unmixr_auto_render_enabled", "status": "pass"},
+            {"key": "voice_catalog_configured", "status": "pass"},
+        ],
+        "provider": {
+            "api_key_slot_count": slot_count,
+            "voice_catalog_count": 292,
+            "voice_discovery_enabled": True,
+            "unmixr_auto_render_enabled": True,
+            "voice_audition_min_candidates": 3,
+        },
+    }
+
+
 def test_runtime_container_exec_json_wraps_python_with_in_container_timeout(monkeypatch) -> None:
     module = _module()
     monkeypatch.setattr(module, "_runtime_container_name", lambda: "ea-api")
@@ -68,6 +136,116 @@ def test_runtime_container_exec_json_wraps_python_with_in_container_timeout(monk
         "-c",
     ]
     assert observed["timeout"] == 12.0
+
+
+def test_runtime_container_unmixr_credit_balance_uses_sanitized_runtime_receipt(monkeypatch) -> None:
+    module = _module()
+    observed: dict[str, object] = {}
+    receipt = {
+        "contract_name": "ea.unmixr_credit_balance.v1",
+        "status": "pass",
+        "observed_at": "2026-07-10T21:55:00Z",
+        "configured_slot_count": 3,
+        "successful_slot_count": 3,
+        "positive_prebuilt_slot_count": 3,
+        "prebuilt_credits_min": 480000,
+        "prebuilt_credits_max": 500000,
+        "cloned_credits_min": 80000,
+        "cloned_credits_max": 100000,
+        "rows": [
+            {
+                "slot": 1,
+                "http_status": 200,
+                "prebuilt_credits": 500000,
+                "cloned_credits": 100000,
+                "cloned_profile": 4,
+            },
+            {
+                "slot": 2,
+                "http_status": 200,
+                "prebuilt_credits": 490000,
+                "cloned_credits": 90000,
+                "cloned_profile": 4,
+            },
+            {
+                "slot": 3,
+                "http_status": 200,
+                "prebuilt_credits": 480000,
+                "cloned_credits": 80000,
+                "cloned_profile": 4,
+            },
+        ],
+        "raw_credentials_exposed": False,
+        "raw_response_bodies_exposed": False,
+    }
+
+    def _fake_exec_json(*, code: str, timeout_seconds: float):
+        observed["code"] = code
+        observed["timeout_seconds"] = timeout_seconds
+        return 0, dict(receipt), "ea-api"
+
+    monkeypatch.setattr(module, "_runtime_container_exec_json", _fake_exec_json)
+
+    report = module._runtime_container_unmixr_credit_balance(timeout_seconds=31.0)
+
+    runtime_code = str(observed["code"])
+    assert "https://unmixr.com/api/v1/credit-balance/" in runtime_code
+    assert "_unmixr_api_key_slots" in runtime_code
+    assert 'method="GET"' in runtime_code
+    assert observed["timeout_seconds"] == 31.0
+    assert report == receipt
+    assert report["raw_credentials_exposed"] is False
+    assert report["raw_response_bodies_exposed"] is False
+
+
+def test_runtime_container_unmixr_credit_balance_strictly_sanitizes_runtime_payload(monkeypatch) -> None:
+    module = _module()
+    secret = "super-secret-api-key"
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_exec_json",
+        lambda **_kwargs: (
+            0,
+            {
+                "contract_name": "attacker-controlled",
+                "status": "pass",
+                "observed_at": secret,
+                "api_key": secret,
+                "rows": [
+                    {
+                        "slot": 99,
+                        "http_status": 200,
+                        "prebuilt_credits": secret,
+                        "cloned_credits": 12,
+                        "cloned_profile": 4,
+                        "raw_response": secret,
+                    },
+                    {
+                        "slot": 100,
+                        "http_status": 503,
+                        "error_type": secret,
+                        "api_key": secret,
+                    },
+                ],
+            },
+            "ea-api",
+        ),
+    )
+
+    report = module._runtime_container_unmixr_credit_balance()
+
+    assert report["contract_name"] == "ea.unmixr_credit_balance.v1"
+    assert report["configured_slot_count"] == 2
+    assert report["successful_slot_count"] == 1
+    assert report["rows"][0] == {
+        "slot": 1,
+        "http_status": 200,
+        "prebuilt_credits": 0,
+        "cloned_credits": 12,
+        "cloned_profile": 4,
+    }
+    assert report["rows"][1] == {"slot": 2, "http_status": 503, "error_type": "Exception"}
+    assert secret not in json.dumps(report, sort_keys=True)
 
 
 def test_docker_compose_exec_json_defaults_to_ea_project(monkeypatch) -> None:
@@ -210,7 +388,7 @@ def test_proactive_source_coverage_report_classifies_sources_without_raw_payload
 
 def test_probe_provider_unmixr_operator_format_uses_runtime_preflight(monkeypatch) -> None:
     module = _module()
-    monkeypatch.setattr(module, "_runtime_container_preflight", lambda: {})
+    monkeypatch.setattr(module, "_runtime_container_preflight", lambda **_kwargs: {})
     monkeypatch.setattr(
         module,
         "audiobook_runtime_preflight",
@@ -232,39 +410,54 @@ def test_probe_provider_unmixr_operator_format_uses_runtime_preflight(monkeypatc
     report = module.probe_provider("unmixr", output_format="operator")
 
     assert report["provider_key"] == "unmixr"
+    assert report["status"] == "warn"
     assert report["remaining"] == 3
     assert report["unit"] == "configured_api_key_slots"
+    assert report["source"] == "ea.telegram_epub_audiobook_runtime_preflight.v1"
+    assert report["raw"]["preflight_execution_source"] == "host_fallback"
+    assert report["raw"]["runtime_preflight_available"] is False
+    assert "state=warn" in str(report["operator_text"])
     assert "remaining=3 configured_api_key_slots" in str(report["operator_text"])
     assert "observed_at=2026-06-23T10:00:00Z" in str(report["operator_text"])
 
 
 def test_probe_provider_unmixr_treats_optional_preflight_warnings_as_operationally_pass(monkeypatch) -> None:
     module = _module()
-    monkeypatch.setattr(module, "_runtime_container_preflight", lambda: {})
+    preflight = {
+        "contract_name": "ea.telegram_epub_audiobook_runtime_preflight.v1",
+        "observed_at": "2026-06-23T10:00:00Z",
+        "status": "warn",
+        "failed_checks": [],
+        "warned_checks": ["player_access_base_url_present", "unmixr_bulk_pacing_configured"],
+        "checks": [
+            {"key": "telegram_audiobook_enabled", "status": "pass"},
+            {"key": "jobs_root_durable", "status": "pass"},
+            {"key": "jobs_root_writable", "status": "pass"},
+            {"key": "external_tts_enabled", "status": "pass"},
+            {"key": "unmixr_auto_render_enabled", "status": "pass"},
+            {"key": "voice_catalog_configured", "status": "pass"},
+        ],
+        "provider": {
+            "api_key_slot_count": 3,
+            "voice_catalog_count": 11,
+            "voice_discovery_enabled": True,
+            "unmixr_auto_render_enabled": True,
+            "voice_audition_min_candidates": 3,
+        },
+    }
+    monkeypatch.setattr(module, "_runtime_container_preflight", lambda **_kwargs: dict(preflight))
+    monkeypatch.setattr(module, "audiobook_runtime_preflight", lambda: {"status": "fail"})
     monkeypatch.setattr(
         module,
-        "audiobook_runtime_preflight",
-        lambda: {
-            "contract_name": "ea.telegram_epub_audiobook_runtime_preflight.v1",
-            "observed_at": "2026-06-23T10:00:00Z",
-            "status": "warn",
-            "failed_checks": [],
-            "warned_checks": ["player_access_base_url_present", "unmixr_bulk_pacing_configured"],
-            "checks": [
-                {"key": "telegram_audiobook_enabled", "status": "pass"},
-                {"key": "jobs_root_durable", "status": "pass"},
-                {"key": "jobs_root_writable", "status": "pass"},
-                {"key": "external_tts_enabled", "status": "pass"},
-                {"key": "unmixr_auto_render_enabled", "status": "pass"},
-                {"key": "voice_catalog_configured", "status": "pass"},
-            ],
-            "provider": {
-                "api_key_slot_count": 3,
-                "voice_catalog_count": 11,
-                "voice_discovery_enabled": True,
-                "unmixr_auto_render_enabled": True,
-                "voice_audition_min_candidates": 3,
-            },
+        "_runtime_container_unmixr_credit_balance",
+        lambda **_kwargs: {
+            "contract_name": "ea.unmixr_credit_balance.v1",
+            "status": "pass",
+            "observed_at": "2026-06-23T10:00:01Z",
+            "configured_slot_count": 3,
+            "successful_slot_count": 3,
+            "positive_prebuilt_slot_count": 3,
+            "prebuilt_credits_min": 480000,
         },
     )
     monkeypatch.setattr(module, "_provider_display_name", lambda _provider_key: "Unmixr AI")
@@ -281,10 +474,11 @@ def test_probe_provider_unmixr_treats_optional_preflight_warnings_as_operational
 
 def test_probe_provider_unmixr_prefers_runtime_container_preflight(monkeypatch) -> None:
     module = _module()
-    monkeypatch.setattr(
-        module,
-        "_runtime_container_preflight",
-        lambda: {
+    runtime_calls: list[float] = []
+
+    def fake_runtime_preflight(*, timeout_seconds: float) -> dict[str, object]:
+        runtime_calls.append(timeout_seconds)
+        return {
             "contract_name": "ea.telegram_epub_audiobook_runtime_preflight.v1",
             "observed_at": "2026-06-23T10:00:00Z",
             "status": "warn",
@@ -305,6 +499,29 @@ def test_probe_provider_unmixr_prefers_runtime_container_preflight(monkeypatch) 
                 "unmixr_auto_render_enabled": True,
                 "voice_audition_min_candidates": 3,
             },
+        }
+
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_preflight",
+        fake_runtime_preflight,
+    )
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_unmixr_credit_balance",
+        lambda **_kwargs: {
+            "contract_name": "ea.unmixr_credit_balance.v1",
+            "status": "pass",
+            "observed_at": "2026-06-23T10:00:01Z",
+            "configured_slot_count": 3,
+            "successful_slot_count": 3,
+            "positive_prebuilt_slot_count": 3,
+            "prebuilt_credits_min": 480000,
+            "prebuilt_credits_max": 500000,
+            "cloned_credits_min": 80000,
+            "cloned_credits_max": 100000,
+            "raw_credentials_exposed": False,
+            "raw_response_bodies_exposed": False,
         },
     )
     monkeypatch.setattr(module, "audiobook_runtime_preflight", lambda: {"status": "fail", "provider": {"api_key_slot_count": 0, "voice_catalog_count": 0}})
@@ -314,9 +531,89 @@ def test_probe_provider_unmixr_prefers_runtime_container_preflight(monkeypatch) 
     report = module.probe_provider("unmixr", output_format="json")
 
     assert report["status"] == "pass"
-    assert report["remaining"] == 3
+    assert report["remaining"] == 480000
+    assert report["unit"] == "prebuilt_character_credits_min_per_slot"
+    assert report["source"] == "ea.unmixr_credit_balance.v1"
+    assert runtime_calls == [45.0]
     assert report["raw"]["runtime_container"] == "ea-api"
+    assert report["raw"]["preflight_execution_source"] == "runtime_container"
+    assert report["raw"]["runtime_preflight_available"] is True
     assert report["raw"]["preflight_status"] == "warn"
+    assert report["raw"]["credit_balance"]["raw_credentials_exposed"] is False
+
+
+def test_probe_provider_unmixr_failed_balance_uses_preflight_fallback_fields(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_runtime_container_preflight", lambda **_kwargs: _ready_unmixr_preflight())
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_unmixr_credit_balance",
+        lambda **_kwargs: {
+            "contract_name": "ea.unmixr_credit_balance.v1",
+            "status": "probe_failed",
+            "observed_at": "2026-06-23T10:00:01Z",
+            "reason": "runtime_container_timeout",
+            "raw_credentials_exposed": False,
+            "raw_response_bodies_exposed": False,
+        },
+    )
+    monkeypatch.setattr(module, "_provider_display_name", lambda _provider_key: "Unmixr AI")
+
+    report = module.probe_provider("unmixr", output_format="json")
+
+    assert report["status"] == "warn"
+    assert report["remaining"] == 3
+    assert report["unit"] == "configured_api_key_slots"
+    assert report["observed_at"] == "2026-06-23T10:00:00Z"
+    assert report["source"] == "ea.telegram_epub_audiobook_runtime_preflight.v1"
+
+
+def test_probe_provider_unmixr_balance_coverage_controls_operational_status(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_runtime_container_preflight", lambda **_kwargs: _ready_unmixr_preflight())
+    monkeypatch.setattr(module, "_provider_display_name", lambda _provider_key: "Unmixr AI")
+    cases = (
+        (
+            {
+                "contract_name": "ea.unmixr_credit_balance.v1",
+                "status": "pass",
+                "observed_at": "2026-06-23T10:00:01Z",
+                "configured_slot_count": 3,
+                "successful_slot_count": 2,
+                "positive_prebuilt_slot_count": 2,
+                "prebuilt_credits_min": 480000,
+            },
+            "warn",
+            480000,
+        ),
+        (
+            {
+                "contract_name": "ea.unmixr_credit_balance.v1",
+                "status": "pass",
+                "observed_at": "2026-06-23T10:00:01Z",
+                "configured_slot_count": 3,
+                "successful_slot_count": 3,
+                "positive_prebuilt_slot_count": 0,
+                "prebuilt_credits_min": 0,
+            },
+            "fail",
+            0,
+        ),
+    )
+
+    for balance, expected_status, expected_remaining in cases:
+        monkeypatch.setattr(
+            module,
+            "_runtime_container_unmixr_credit_balance",
+            lambda balance=balance, **_kwargs: dict(balance),
+        )
+
+        report = module.probe_provider("unmixr", output_format="json")
+
+        assert report["status"] == expected_status
+        assert report["remaining"] == expected_remaining
+        assert report["unit"] == "prebuilt_character_credits_min_per_slot"
+        assert report["source"] == "ea.unmixr_credit_balance.v1"
 
 
 def test_probe_provider_pushbullet_reports_missing_setup_without_raw_secrets(monkeypatch) -> None:
@@ -1880,6 +2177,68 @@ def test_probe_mymedia_alexa_reports_pairing_required_and_scan_blocked_by_pairin
     assert "/datadir" not in serialized
     assert (pairing_dir / "storage_state.json").exists()
     assert (pairing_dir / "session.json").exists()
+
+
+def test_probe_mymedia_alexa_surfaces_host_disk_pressure_without_leaking_raw_docker_error(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-10T03:26:00Z")
+    data_dir = tmp_path / "mymedia-data"
+    data_dir.mkdir()
+    monkeypatch.setattr(
+        module,
+        "_docker_inspect_container_json",
+        lambda *_args, **_kwargs: {
+            "State": {
+                "Running": False,
+                "Status": "exited",
+                "ExitCode": 137,
+                "OOMKilled": False,
+                "Error": (
+                    "failed to set up container networking: write "
+                    "/var/lib/docker/containers/demo/.tmp-hostconfig.json: no space left on device"
+                ),
+            },
+            "Mounts": [
+                {"Destination": "/datadir", "Source": str(data_dir)},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_host_root_disk_posture",
+        lambda: {
+            "usage_percent": 97.0,
+            "available_bytes": 22 * 1024**3,
+            "available_gb": 22.0,
+        },
+    )
+    monkeypatch.setattr(module, "_mymedia_api_json", lambda *_args, **_kwargs: (False, {}, 0, "URLError"))
+
+    report = module.probe_mymedia_alexa(
+        container_name="mymediaalexa",
+        web_base_url="http://127.0.0.1:52051",
+        output_format="operator",
+    )
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["probe_ok"] is True
+    assert report["ready"] is False
+    assert report["status"] == "blocked_runtime_unavailable"
+    assert report["reason"] == "host_disk_pressure_prevented_container_start"
+    assert report["next_action"] == "recover_host_disk_pressure_then_start_mymedia_alexa"
+    assert report["container_exit_code"] == 137
+    assert report["container_oom_killed"] is False
+    assert report["container_error_kind"] == "host_disk_pressure"
+    assert report["host_disk_pressure_detected"] is True
+    assert report["host_root_usage_percent"] == 97.0
+    assert report["host_root_available_gb"] == 22.0
+    assert "container_error=host_disk_pressure" in str(report["operator_text"])
+    assert "host_disk_pressure=true" in str(report["operator_text"])
+    assert "no space left on device" not in serialized
+    assert ".tmp-hostconfig.json" not in serialized
 
 
 def test_probe_mymedia_alexa_reports_ready_without_leaking_pairing_material(
@@ -4598,6 +4957,46 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
     )
     monkeypatch.setattr(
         module,
+        "probe_onemin_direct_refresh_posture",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "checked": True,
+            "ready": False,
+            "status": "rate_limited",
+            "reason": "cloudflare_rate_limited",
+            "next_action": "resume_onemin_direct_refresh_after_cooldown",
+            "receipt_name": "onemin_direct_refresh_live_guardrails.json",
+            "selected_account_count": 1,
+            "pending_account_count": 1,
+            "owner_row_count": 74,
+            "attempted_count": 1,
+            "current_run_refreshed_count": 0,
+            "refreshed_count": 0,
+            "error_count": 1,
+            "rate_limited": True,
+            "controls": {
+                "batch_size": 1,
+                "batch_backoff_seconds": 1.0,
+                "max_rate_limit_sleep_seconds": 120.0,
+                "continue_on_rate_limit": True,
+                "refresh_transport": "direct_provider_api",
+                "proxy_mode": "direct_no_ui_proxy",
+                "controls_inferred_from_defaults": False,
+                "single_account_batch_mode": True,
+            },
+            "telegram_delivery": {
+                "checked": False,
+                "sent": False,
+                "reason": "",
+                "ready": False,
+                "message_count": 0,
+            },
+            "observed_at": "2026-06-29T14:55:00Z",
+            "source": "private_receipt:onemin_direct_refresh_live_guardrails.json",
+        },
+    )
+    monkeypatch.setattr(
+        module,
         "probe_whatsapp_readiness",
         lambda **_kwargs: {
             "probe_ok": True,
@@ -4691,10 +5090,10 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
             "source": "mymedia_probe",
         },
     )
-    monkeypatch.setattr(
-        module,
-        "probe_proactive_route",
-        lambda **_kwargs: {
+    proactive_artifact_probe_calls = {"count": 0}
+    def _probe_proactive_route(**kwargs):
+        assert kwargs["include_artifact_probe"] is False
+        return {
             "probe_ok": True,
             "status": "ready_with_recovery_action",
             "next_action": "scan_whatsapp_web_qr",
@@ -4708,32 +5107,35 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
             "blocking_reason": "whatsapp_web_session_not_ready:qr_required",
             "approval_capture_surface_ready": False,
             "approval_capture_surface_pending_count": 0,
+            "artifact_probe": {
+                "probe_ok": True,
+                "status": "ok",
+                "runtime_service": "ea-proactive-ooda",
+                "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                "approval_callback_dir_exists": True,
+                "approval_callback_dir_writable": True,
+                "approval_callback_record_count": 1,
+                "approval_callback_live_pending_count": 0,
+                "approval_callback_stale_pending_count": 0,
+                "current_packet_live_pending_count": 0,
+                "current_packet_callback_latest_status": "",
+                "approval_outcome_matches_current_packet": False,
+                "stage_packet": {"private": "large-private-payload"},
+                "observed_at": "2026-06-29T14:55:05Z",
+                "source": "proactive_artifacts_probe",
+            },
             "route_report": {"raw": "large-private-payload"},
             "observed_at": "2026-06-29T14:55:04Z",
             "source": "proactive_route_probe",
-        },
-    )
-    monkeypatch.setattr(
-        module,
-        "probe_proactive_artifacts",
-        lambda **_kwargs: {
-            "probe_ok": True,
-            "status": "ok",
-            "runtime_service": "ea-proactive-ooda",
-            "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
-            "approval_callback_dir_exists": True,
-            "approval_callback_dir_writable": True,
-            "approval_callback_record_count": 1,
-            "approval_callback_live_pending_count": 0,
-            "approval_callback_stale_pending_count": 0,
-            "current_packet_live_pending_count": 0,
-            "current_packet_callback_latest_status": "",
-            "approval_outcome_matches_current_packet": False,
-            "stage_packet": {"private": "large-private-payload"},
-            "observed_at": "2026-06-29T14:55:05Z",
-            "source": "proactive_artifacts_probe",
-        },
-    )
+        }
+
+    monkeypatch.setattr(module, "probe_proactive_route", _probe_proactive_route)
+
+    def _unexpected_proactive_artifacts_probe(**_kwargs):
+        proactive_artifact_probe_calls["count"] += 1
+        raise AssertionError("probe_proactive_artifacts should be reused from proactive_route")
+
+    monkeypatch.setattr(module, "probe_proactive_artifacts", _unexpected_proactive_artifacts_probe)
 
     report = module.probe_operator_readiness(
         args=_args(session_ref="tibor-wa-web"),
@@ -4747,21 +5149,23 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
     )
     serialized = json.dumps(report, sort_keys=True)
 
+    assert proactive_artifact_probe_calls["count"] == 0
     assert report["contract_name"] == "ea.operator_readiness.v1"
     assert report["probe_ok"] is True
     assert report["ready"] is False
     assert report["status"] == "ready_with_actions"
-    assert report["component_count"] == 9
+    assert report["component_count"] == 10
     assert [item["key"] for item in report["components"]] == [
         "telegram",
         "google_workspace_oauth",
         "pushbullet",
-        "whatsapp",
-        "whatsapp_pairing",
         "teable_recovery",
         "mymedia_alexa",
         "proactive_route",
         "proactive_artifacts",
+        "onemin_direct_refresh",
+        "whatsapp",
+        "whatsapp_pairing",
     ]
     assert report["blocked_count"] == 2
     assert report["attention_required_count"] == 3
@@ -4774,6 +5178,12 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
     assert pushbullet_component["details"]["required_client_count"] == 2
     assert pushbullet_component["details"]["missing_client_count"] == 1
     assert pushbullet_component["details"]["missing_token_count"] == 1
+    onemin_component = next(item for item in report["components"] if item["key"] == "onemin_direct_refresh")
+    assert onemin_component["details"]["receipt_name"] == "onemin_direct_refresh_live_guardrails.json"
+    assert onemin_component["details"]["control_batch_size"] == 1
+    assert onemin_component["details"]["control_refresh_transport"] == "direct_provider_api"
+    assert onemin_component["details"]["control_proxy_mode"] == "direct_no_ui_proxy"
+    assert onemin_component["details"]["rate_limited"] is True
     whatsapp_component = next(item for item in report["components"] if item["key"] == "whatsapp")
     assert whatsapp_component["details"]["effective_session_ref_present"] is True
     whatsapp_pairing_component = next(item for item in report["components"] if item["key"] == "whatsapp_pairing")
@@ -4809,6 +5219,16 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
         and item["reason"] == "amazon_account_not_paired"
         for item in report["next_actions"]
     )
+    assert any(
+        item["component_key"] == "onemin_direct_refresh"
+        and item["component_label"] == "1min.AI direct refresh posture"
+        and item["action"] == "resume_onemin_direct_refresh_after_cooldown"
+        and item["reason"] == "cloudflare_rate_limited"
+        and item["href"] == "https://myexternalbrain.com/admin/goals"
+        and item["label"] == "Open goals"
+        and item["method"] == "get"
+        for item in report["supplemental_next_actions"]
+    )
     assert not any(
         item["component_key"] == "whatsapp" and item["action"] == "scan_whatsapp_web_qr"
         for item in report["next_actions"]
@@ -4819,7 +5239,11 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
         "mymedia_alexa:blocked_pairing_required,proactive_route:ready,proactive_artifacts:ok"
         in str(report["operator_text"])
     )
-    assert "supplemental_states=pushbullet:blocked_setup_required,whatsapp_pairing:available" in str(report["operator_text"])
+    assert (
+        "supplemental_states=pushbullet:blocked_setup_required,onemin_direct_refresh:rate_limited,"
+        "whatsapp_pairing:available"
+        in str(report["operator_text"])
+    )
     assert "next=google_workspace_oauth:retry_full_workspace_auth_with_approved_account" in str(report["operator_text"])
     assert "raw-secret-qr" not in serialized
     assert "123456789" not in serialized
@@ -4835,8 +5259,144 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
     assert "large-private-payload" not in serialized
 
 
+def test_probe_operator_readiness_falls_back_to_direct_artifacts_probe_when_route_omits_artifact_probe(monkeypatch) -> None:
+    module = _module()
+    _patch_onemin_direct_refresh_ready(monkeypatch, module)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-10T03:10:00Z")
+    monkeypatch.setattr(
+        module,
+        "probe_telegram_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-10T03:09:50Z",
+            "source": "telegram_probe",
+        },
+    )
+    monkeypatch.setattr(module, "_default_google_workspace_expected_email", lambda: "work.tibor.girschele@gmail.com")
+    monkeypatch.setattr(
+        module,
+        "probe_google_workspace_oauth",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "pass",
+            "observed_at": "2026-07-10T03:09:50Z",
+            "source": "google_oauth_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_pushbullet_delivery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready_live_verified",
+            "observed_at": "2026-07-10T03:09:50Z",
+            "source": "pushbullet_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_whatsapp_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-10T03:09:51Z",
+            "source": "whatsapp_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_teable_recovery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-10T03:09:51Z",
+            "source": "teable_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_mymedia_alexa",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-10T03:09:51Z",
+            "source": "mymedia_probe",
+        },
+    )
+    def _probe_proactive_route(**kwargs):
+        assert kwargs["include_artifact_probe"] is False
+        return {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "principal_id": "principal-1",
+            "runtime_service": "ea-proactive-ooda",
+            "delivery_route_ready": True,
+            "selected_channel": "telegram",
+            "selected_transport": "telegram",
+            "selected_by": "tool_runtime_binding",
+            "available_channels": ["telegram"],
+            "approval_capture_surface_ready": True,
+            "approval_capture_surface_pending_count": 0,
+            "observed_at": "2026-07-10T03:09:52Z",
+            "source": "proactive_route_probe",
+        }
+
+    monkeypatch.setattr(module, "probe_proactive_route", _probe_proactive_route)
+    proactive_artifact_probe_calls = {"count": 0}
+
+    def _probe_proactive_artifacts(**_kwargs):
+        assert _kwargs["prefer_host_runtime"] is True
+        proactive_artifact_probe_calls["count"] += 1
+        return {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ok",
+            "runtime_service": "ea-proactive-ooda",
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 2,
+            "approval_callback_live_pending_count": 0,
+            "approval_callback_stale_pending_count": 0,
+            "current_packet_live_pending_count": 0,
+            "current_packet_callback_latest_status": "approved",
+            "approval_outcome_matches_current_packet": True,
+            "observed_at": "2026-07-10T03:09:53Z",
+            "source": "proactive_artifacts_probe",
+        }
+
+    monkeypatch.setattr(module, "probe_proactive_artifacts", _probe_proactive_artifacts)
+
+    report = module.probe_operator_readiness(
+        args=_args(session_ref="tibor-wa-web"),
+        telegram_principal_id="principal-1",
+        proactive_principal_id="principal-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        receipt_path="/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+        timeout_seconds=7.0,
+        include_pairing=False,
+        output_format="json",
+    )
+
+    assert proactive_artifact_probe_calls["count"] == 1
+    proactive_artifacts = next(item for item in report["components"] if item["key"] == "proactive_artifacts")
+    assert proactive_artifacts["status"] == "ok"
+    assert proactive_artifacts["details"]["approval_callback_record_count"] == 2
+    assert proactive_artifacts["source"] == "proactive_artifacts_probe"
+
+
 def test_probe_operator_readiness_includes_optional_sonarr_target(monkeypatch) -> None:
     module = _module()
+    _patch_onemin_direct_refresh_ready(monkeypatch, module)
     monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T15:07:30Z")
     monkeypatch.setattr(
         module,
@@ -4974,12 +5534,13 @@ def test_probe_operator_readiness_includes_optional_sonarr_target(monkeypatch) -
         "telegram",
         "google_workspace_oauth",
         "pushbullet",
-        "whatsapp",
         "teable_recovery",
         "mymedia_alexa",
         "sonarr_tv_season",
         "proactive_route",
         "proactive_artifacts",
+        "onemin_direct_refresh",
+        "whatsapp",
     ]
     assert report["sonarr_target_enabled"] is True
     assert report["sonarr_target_series_id"] == 36
@@ -5004,6 +5565,7 @@ def test_probe_operator_readiness_includes_mymedia_pairing_telegram_component_wh
     monkeypatch,
 ) -> None:
     module = _module()
+    _patch_onemin_direct_refresh_ready(monkeypatch, module)
     monkeypatch.setattr(
         module,
         "probe_telegram_readiness",
@@ -5151,12 +5713,13 @@ def test_probe_operator_readiness_includes_mymedia_pairing_telegram_component_wh
         "telegram",
         "google_workspace_oauth",
         "pushbullet",
-        "whatsapp",
         "teable_recovery",
         "mymedia_alexa",
-        "mymedia_pairing_telegram",
         "proactive_route",
         "proactive_artifacts",
+        "onemin_direct_refresh",
+        "whatsapp",
+        "mymedia_pairing_telegram",
     ]
     pairing_component = next(item for item in report["components"] if item["key"] == "mymedia_pairing_telegram")
     assert pairing_component["ready"] is True
@@ -5182,10 +5745,22 @@ def test_operator_readiness_component_counts_stream_suppressed_mymedia_handoff_a
         )
         is False
     )
+    assert (
+        module._operator_readiness_component_counts_as_blocked(
+            {
+                "key": "onemin_direct_refresh",
+                "probe_ok": True,
+                "ready": False,
+                "status": "rate_limited",
+            }
+        )
+        is False
+    )
 
 
 def test_probe_operator_readiness_skips_mymedia_pairing_telegram_when_pairing_disabled(monkeypatch) -> None:
     module = _module()
+    _patch_onemin_direct_refresh_ready(monkeypatch, module)
     monkeypatch.setattr(
         module,
         "probe_telegram_readiness",
@@ -5315,11 +5890,12 @@ def test_probe_operator_readiness_skips_mymedia_pairing_telegram_when_pairing_di
         "telegram",
         "google_workspace_oauth",
         "pushbullet",
-        "whatsapp",
         "teable_recovery",
         "mymedia_alexa",
         "proactive_route",
         "proactive_artifacts",
+        "onemin_direct_refresh",
+        "whatsapp",
     ]
     assert not any(item["component_key"] == "mymedia_pairing_telegram" for item in report["next_actions"])
     assert any(item["component_key"] == "mymedia_alexa" for item in report["next_actions"])
@@ -5327,6 +5903,7 @@ def test_probe_operator_readiness_skips_mymedia_pairing_telegram_when_pairing_di
 
 def test_probe_operator_readiness_suppresses_next_action_noise_from_ready_proactive_route(monkeypatch) -> None:
     module = _module()
+    _patch_onemin_direct_refresh_ready(monkeypatch, module)
     monkeypatch.setattr(
         module,
         "probe_telegram_readiness",
@@ -5457,6 +6034,7 @@ def test_probe_operator_readiness_suppresses_next_action_noise_from_ready_proact
 
 def test_probe_operator_readiness_suppresses_next_action_noise_from_ready_mymedia_background_scan(monkeypatch) -> None:
     module = _module()
+    _patch_onemin_direct_refresh_ready(monkeypatch, module)
     monkeypatch.setattr(
         module,
         "probe_telegram_readiness",
@@ -5599,6 +6177,7 @@ def test_probe_operator_readiness_suppresses_next_action_noise_from_ready_mymedi
 
 def test_probe_operator_readiness_reports_google_runtime_config_gap_without_replaying_stale_receipt(monkeypatch) -> None:
     module = _module()
+    _patch_onemin_direct_refresh_ready(monkeypatch, module)
     monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-02T21:00:00Z")
     monkeypatch.setattr(module, "_default_google_workspace_expected_email", lambda: "")
     monkeypatch.setattr(
@@ -7184,6 +7763,85 @@ def test_probe_proactive_artifacts_can_explicitly_prefer_host_runtime(monkeypatc
     assert report["probe_ok"] is True
     assert report["source"] == "in_process_runtime"
     assert report["current_packet_live_pending_count"] == 1
+
+
+def test_probe_proactive_artifacts_can_prefer_host_runtime_via_argument(monkeypatch) -> None:
+    module = _module()
+
+    def _unexpected_exec_json(**_kwargs):
+        raise AssertionError("docker compose exec should not run when host runtime probing is requested by argument")
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://ea:test@localhost/ea")
+    monkeypatch.delenv("EA_LIVE_OPS_FORCE_DOCKER_COMPOSE_EXEC", raising=False)
+    monkeypatch.delenv("EA_LIVE_OPS_PREFER_HOST_RUNTIME_PROACTIVE_PROBE", raising=False)
+    monkeypatch.setattr(module, "_docker_cli_available", lambda: True)
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _unexpected_exec_json)
+    monkeypatch.setattr(
+        module,
+        "_probe_proactive_artifacts_in_process_payload",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "state_path": "/data/provider-ledger/proactive_ooda_notified.json",
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "action_required_only_quiet_receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/quiet.json",
+            "stage_packet_dir": "/data/provider-ledger/proactive_ooda_stage_packets",
+            "safe_work_result_dir": "/data/provider-ledger/proactive_ooda_safe_work_results",
+            "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
+            "approval_callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 1,
+            "approval_callback_pending_count": 0,
+            "approval_callback_raw_pending_count": 0,
+            "approval_callback_live_pending_count": 0,
+            "approval_callback_unexpired_pending_count": 0,
+            "approval_callback_noncurrent_pending_count": 0,
+            "approval_callback_expired_pending_count": 0,
+            "approval_callback_stale_pending_count": 0,
+            "approval_callback_recorded_count": 1,
+            "approval_callback_expired_count": 0,
+            "approval_callback_superseded_count": 0,
+            "approval_callback_terminal_count": 1,
+            "current_packet_callback_record_count": 1,
+            "current_packet_callback_pending_count": 0,
+            "current_packet_callback_raw_pending_count": 0,
+            "current_packet_callback_expired_pending_count": 0,
+            "current_packet_callback_stale_pending_count": 0,
+            "current_packet_callback_recorded_count": 1,
+            "current_packet_callback_expired_count": 0,
+            "current_packet_callback_superseded_count": 0,
+            "current_packet_live_callback_record_count": 1,
+            "current_packet_live_pending_count": 0,
+            "current_packet_callback_latest_status": "approved",
+            "current_packet_callback_latest_expired": False,
+            "current_packet_callback_latest_created_at": "2026-07-05T11:03:00Z",
+            "current_packet_callback_latest_expires_at": "2099-01-01T00:00:00Z",
+            "current_packet_callback_latest_age_seconds": 60,
+            "current_packet_callback_latest_seconds_until_expiry": 999999,
+            "current_packet_callback_outcome": {},
+            "stage_packet_path": "/data/provider-ledger/proactive_ooda_stage_packets/pkt-live.json",
+            "safe_work_result_path": "/data/provider-ledger/proactive_ooda_safe_work_results/res-live.json",
+            "artifact_filter_reason": "",
+            "flat_search_enabled": False,
+            "run_receipt": {"notification_status": "sent"},
+            "action_required_only_quiet_receipt": {"notification_status": "deferred"},
+            "stage_packet": {"packet_ref": "stage_packet:pkt-live"},
+            "safe_work_result": {"result_ref": "safe_work_result:res-live"},
+            "approval_outcome": {},
+        },
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-05T11:04:00Z")
+
+    report = module.probe_proactive_artifacts(
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        output_format="json",
+        prefer_host_runtime=True,
+    )
+
+    assert report["probe_ok"] is True
+    assert report["source"] == "in_process_runtime"
+    assert report["current_packet_live_pending_count"] == 0
 
 
 def test_probe_proactive_action_required_quiet_creates_sanitized_report(monkeypatch) -> None:
@@ -10326,6 +10984,42 @@ def test_send_telegram_falls_back_to_in_process_delivery_when_runtime_exec_is_un
     assert "1354554303" not in serialized
 
 
+def test_send_telegram_in_process_only_never_touches_runtime_container(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_LIVE_OPS_TELEGRAM_IN_PROCESS_ONLY", "1")
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_exec_json",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("runtime-container transport must stay unreachable")
+        ),
+    )
+
+    class _Receipt:
+        principal_id = "principal-1"
+        chat_id = "1354554303"
+        bot_key = "default"
+        bot_handle = "ea_concierge_bot"
+        message_ids = ("1003",)
+
+    monkeypatch.setattr(module, "get_settings", lambda: object())
+    monkeypatch.setattr(module, "build_tool_runtime", lambda _settings: "tool-runtime")
+    monkeypatch.setattr(
+        module,
+        "send_telegram_message_for_principal",
+        lambda *_args, **_kwargs: _Receipt(),
+    )
+
+    report = module.send_telegram(
+        principal_id="principal-1", text="status update", dry_run=False,
+    )
+
+    assert report["sent"] is True
+    assert report["source"] == "in_process:telegram_delivery.send_telegram_message_for_principal"
+    assert report["runtime_container"] == ""
+    assert report["message_ids"] == ["1003"]
+
+
 def test_send_telegram_document_dry_run_reuses_readiness_without_exposing_document(monkeypatch) -> None:
     module = _module()
     monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T14:02:00Z")
@@ -10471,6 +11165,104 @@ def test_send_telegram_document_stages_local_file_into_runtime_container(monkeyp
     assert report["local_file_staged"] is True
     assert removed == [("ea-api", "/tmp/ea-live-ops-document.svg")]
     assert str(document) not in serialized
+
+
+def test_send_telegram_video_dry_run_reuses_readiness_without_exposing_video(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-10T11:52:00Z")
+    monkeypatch.setattr(
+        module,
+        "probe_telegram_readiness",
+        lambda principal_id, timeout_seconds=None, output_format="json": {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "reason": "",
+            "principal_id": principal_id,
+            "binding_id": "binding-1",
+            "chat_ref_present": True,
+            "chat_ref_sha256": "a" * 64,
+            "bot_key": "default",
+            "bot_handle": "ea_concierge_bot",
+            "bot_token_present": True,
+            "runtime_container": "ea-api",
+        },
+    )
+
+    report = module.send_telegram_video(
+        principal_id="principal-1",
+        video_ref="/tmp/private-walkthrough.mp4",
+        caption="PropertyQuarry walkthrough",
+        dry_run=True,
+    )
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["sent"] is False
+    assert report["reason"] == "dry_run"
+    assert report["ready"] is True
+    assert report["video_ref_present"] is True
+    assert report["caption_present"] is True
+    assert "/tmp/private-walkthrough.mp4" not in serialized
+
+
+def test_send_telegram_video_stages_local_file_into_runtime_container(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    video = tmp_path / "walkthrough.mp4"
+    video.write_bytes(b"video")
+    removed: list[tuple[str, str]] = []
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-10T11:53:00Z")
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_stage_file",
+        lambda path, timeout_seconds=20.0: (True, "ea-api", "/tmp/ea-live-ops-video.mp4", ""),
+    )
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_remove_file",
+        lambda container, remote_path, timeout_seconds=10.0: removed.append((container, remote_path)),
+    )
+
+    def _fake_exec_json(*, code: str, timeout_seconds: float):
+        assert str(video) not in code
+        assert "/tmp/ea-live-ops-video.mp4" in code
+        assert "send_telegram_video_for_principal" in code
+        assert "fallback_audio_text" in code
+        assert "build_tool_runtime" in code
+        assert timeout_seconds == 120.0
+        return (
+            0,
+            {
+                "ok": True,
+                "sent": True,
+                "reason": "sent",
+                "principal_id": "principal-1",
+                "chat_ref_present": True,
+                "chat_ref_sha256": "f" * 64,
+                "bot_key": "default",
+                "bot_handle": "ea_concierge_bot",
+                "message_ids": ["3001"],
+            },
+            "ea-api",
+        )
+
+    monkeypatch.setattr(module, "_runtime_container_exec_json", _fake_exec_json)
+
+    report = module.send_telegram_video(
+        principal_id="principal-1",
+        video_ref=str(video),
+        caption="PropertyQuarry walkthrough",
+        fallback_audio_text="PropertyQuarry walkthrough preview.",
+        fallback_audio_language="en",
+        dry_run=False,
+    )
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["sent"] is True
+    assert report["reason"] == "sent"
+    assert report["message_ids"] == ["3001"]
+    assert report["local_file_staged"] is True
+    assert removed == [("ea-api", "/tmp/ea-live-ops-video.mp4")]
+    assert str(video) not in serialized
 
 
 def test_main_send_telegram_emits_json(monkeypatch, capsys) -> None:
@@ -10665,3 +11457,276 @@ def test_main_probe_provider_operator_prints_plain_text(monkeypatch, capsys) -> 
 
     assert exit_code == 0
     assert capsys.readouterr().out.strip() == "unmixr:operator:9.0"
+
+
+def test_refresh_onemin_direct_api_dry_run_writes_resume_ready_receipt(monkeypatch, tmp_path) -> None:
+    module = _module()
+    output_path = tmp_path / "onemin-direct-refresh.json"
+    monkeypatch.setattr(
+        module,
+        "_load_onemin_owner_rows_for_live_ops",
+        lambda owner_ledger_path="": (
+            Path("/tmp/onemin_slot_owners.local.json"),
+            [
+                {"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner@example.com", "owner_name": "Owner", "slot": "primary"},
+                {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "owner_email": "owner2@example.com", "owner_name": "Owner 2", "slot": "fallback_1"},
+            ],
+            "",
+        ),
+    )
+
+    report = module.refresh_onemin_direct_api(
+        dry_run=True,
+        output_json=str(output_path),
+        account_labels=["ONEMIN_AI_API_KEY"],
+        output_format="json",
+    )
+
+    assert report["status"] == "dry_run"
+    assert report["selected_account_count"] == 1
+    assert report["pending_account_count"] == 1
+    assert report["next_action"] == "resume_onemin_direct_refresh"
+    persisted = json.loads(output_path.read_text(encoding="utf-8"))
+    assert persisted["status"] == "dry_run"
+    assert persisted["output_json"] == str(output_path)
+    assert persisted["batch_size"] == 1
+    assert persisted["refresh_transport"] == "direct_provider_api"
+
+
+def test_probe_onemin_direct_refresh_posture_prefers_latest_non_dry_run_receipt(monkeypatch, tmp_path) -> None:
+    module = _module()
+    root = tmp_path / "repo"
+    ea_root = root / "ea"
+    state_dir = root / ".state" / "onemin-direct-refresh"
+    ea_state_dir = ea_root / "state"
+    state_dir.mkdir(parents=True)
+    ea_state_dir.mkdir(parents=True)
+    live_receipt = state_dir / "onemin_direct_refresh_live.json"
+    dry_run_receipt = ea_state_dir / "onemin_direct_refresh_dryrun.json"
+    live_receipt.write_text(
+        json.dumps(
+            {
+                "status": "rate_limited",
+                "reason": "cloudflare_rate_limited",
+                "observed_at": "2026-07-10T02:10:57Z",
+                "next_action": "resume_onemin_direct_refresh_after_cooldown",
+                "ready": False,
+                "selected_account_count": 1,
+                "pending_account_count": 1,
+                "owner_row_count": 74,
+                "attempted_count": 1,
+                "current_run_refreshed_count": 0,
+                "refreshed_count": 0,
+                "error_count": 1,
+                "error_code_counts": {"onemin_login_http_429": 1},
+                "rate_limited": True,
+                "batch_size": 1,
+                "batch_backoff_seconds": 1.0,
+                "max_rate_limit_sleep_seconds": 120.0,
+                "continue_on_rate_limit": True,
+                "refresh_transport": "direct_provider_api",
+                "proxy_mode": "direct_no_ui_proxy",
+                "telegram_delivery": {
+                    "sent": True,
+                    "reason": "sent",
+                    "message_ids": ["3694"],
+                    "source": "runtime_container_exec:telegram_delivery.send_telegram_message_for_principal",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    dry_run_receipt.write_text(
+        json.dumps(
+            {
+                "status": "dry_run",
+                "reason": "dry_run",
+                "observed_at": "2026-07-10T02:13:04Z",
+                "selected_account_count": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "ROOT", root)
+    monkeypatch.setattr(module, "EA_ROOT", ea_root)
+    monkeypatch.setattr(module, "DEFAULT_ONEMIN_DIRECT_REFRESH_STATE_DIR", state_dir)
+
+    report = module.probe_onemin_direct_refresh_posture()
+
+    assert report["checked"] is True
+    assert report["probe_ok"] is True
+    assert report["status"] == "rate_limited"
+    assert report["receipt_name"] == "onemin_direct_refresh_live.json"
+    assert report["next_action_href"] == "https://myexternalbrain.com/admin/goals"
+    assert report["next_action_label"] == "Open goals"
+    assert report["next_action_method"] == "get"
+    assert report["controls"]["batch_size"] == 1
+    assert report["controls"]["single_account_batch_mode"] is True
+    assert report["controls"]["refresh_transport"] == "direct_provider_api"
+    assert report["telegram_delivery"]["sent"] is True
+    assert report["telegram_delivery"]["message_count"] == 1
+
+
+def test_refresh_onemin_direct_api_persists_telegram_delivery_receipt(monkeypatch, tmp_path) -> None:
+    module = _module()
+    output_path = tmp_path / "onemin-direct-refresh.json"
+    monkeypatch.setattr(
+        module,
+        "_load_onemin_owner_rows_for_live_ops",
+        lambda owner_ledger_path="": (
+            Path("/tmp/onemin_slot_owners.local.json"),
+            [{"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner@example.com", "owner_name": "Owner", "slot": "primary"}],
+            "",
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "send_telegram",
+        lambda **_kwargs: {
+            "sent": True,
+            "reason": "sent",
+            "message_ids": ["3694"],
+            "source": "runtime_container_exec:telegram_delivery.send_telegram_message_for_principal",
+        },
+    )
+
+    report = module.refresh_onemin_direct_api(
+        dry_run=True,
+        output_json=str(output_path),
+        send_telegram_to_principal="principal-1",
+        output_format="json",
+    )
+
+    assert report["telegram_delivery"]["sent"] is True
+    persisted = json.loads(output_path.read_text(encoding="utf-8"))
+    assert persisted["telegram_delivery"]["sent"] is True
+    assert persisted["telegram_delivery"]["message_ids"] == ["3694"]
+
+
+def test_refresh_onemin_direct_api_reports_partial_rate_limit_and_merges_resume_receipt(monkeypatch, tmp_path) -> None:
+    module = _module()
+    output_path = tmp_path / "onemin-direct-refresh.json"
+    output_path.write_text(
+        json.dumps(
+            {
+                "results": [
+                    {
+                        "account_label": "ONEMIN_AI_API_KEY",
+                        "remaining_credits": 15025.0,
+                        "next_topup_at": "2026-07-11T00:59:12Z",
+                        "refresh_backend": "onemin_api",
+                        "observed_at": "2026-07-10T01:00:00Z",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        module,
+        "_load_onemin_owner_rows_for_live_ops",
+        lambda owner_ledger_path="": (
+            Path("/tmp/onemin_slot_owners.local.json"),
+            [
+                {"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner@example.com", "owner_name": "Owner", "slot": "primary"},
+                {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "owner_email": "owner2@example.com", "owner_name": "Owner 2", "slot": "fallback_1"},
+                {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_2", "owner_email": "owner3@example.com", "owner_name": "Owner 3", "slot": "fallback_2"},
+            ],
+            "",
+        ),
+    )
+    monkeypatch.setenv("ONEMIN_DEFAULT_PASSWORD", "secret")
+    monkeypatch.setattr(
+        module,
+        "_run_onemin_direct_api_refresh",
+        lambda **_kwargs: (
+            [
+                {
+                    "account_label": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                    "remaining_credits": 4041342.0,
+                    "next_topup_at": "2026-07-10T11:45:01Z",
+                    "refresh_backend": "onemin_api",
+                    "observed_at": "2026-07-10T01:45:50Z",
+                }
+            ],
+            [],
+            [
+                {
+                    "account_label": "ONEMIN_AI_API_KEY_FALLBACK_2",
+                    "error": 'onemin_login_http_429:{"status":429}',
+                }
+            ],
+            2,
+            0,
+            True,
+        ),
+    )
+
+    report = module.refresh_onemin_direct_api(
+        dry_run=False,
+        output_json=str(output_path),
+        output_format="json",
+    )
+
+    assert report["status"] == "partial_rate_limited"
+    assert report["resume_success_count"] == 1
+    assert report["current_run_refreshed_count"] == 1
+    assert report["refreshed_count"] == 2
+    assert report["rate_limited"] is True
+    assert report["error_code_counts"] == {"onemin_login_http_429": 1}
+    assert report["remaining_credits_total"] == 4056367.0
+    assert report["next_action"] == "resume_onemin_direct_refresh_after_cooldown"
+    persisted = json.loads(output_path.read_text(encoding="utf-8"))
+    assert len(persisted["results"]) == 2
+
+
+def test_refresh_onemin_direct_api_blocks_when_owner_ledger_missing(monkeypatch, tmp_path) -> None:
+    module = _module()
+    output_path = tmp_path / "onemin-direct-refresh.json"
+    monkeypatch.setattr(module, "_load_onemin_owner_rows_for_live_ops", lambda owner_ledger_path="": (None, [], "owner_ledger_missing"))
+
+    report = module.refresh_onemin_direct_api(output_json=str(output_path))
+
+    assert report["probe_ok"] is False
+    assert report["status"] == "blocked_owner_ledger_missing"
+    assert report["next_action"] == "repair_onemin_owner_ledger_projection"
+
+
+def test_main_refresh_onemin_direct_api_returns_zero_for_partial_rate_limit(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="refresh-onemin-direct-api",
+            account_labels=[],
+            max_accounts=0,
+            owner_ledger_path="",
+            output_json="",
+            batch_size=1,
+            batch_backoff_seconds=1.0,
+            max_rate_limit_sleep_seconds=120.0,
+            continue_on_rate_limit=True,
+            telegram_principal_id="principal-1",
+            send_telegram=False,
+            dry_run=False,
+            timeout_seconds=180.0,
+            format="json",
+            telegram_operator_streams="",
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "refresh_onemin_direct_api",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "status": "partial_rate_limited",
+            "ready": False,
+            "reason": "cloudflare_rate_limited",
+            "output_json": "/tmp/onemin-direct-refresh.json",
+        },
+    )
+
+    assert module.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "partial_rate_limited"

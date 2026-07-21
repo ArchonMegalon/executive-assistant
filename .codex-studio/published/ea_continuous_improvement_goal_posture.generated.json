@@ -149,8 +149,8 @@
         "callback_tokens_exposed": false,
         "console_deep_link": "",
         "delivery_policy": "queue_only",
-        "gold_status": "blocked_operator_runtime_posture",
-        "instruction": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored.",
+        "gold_status": "blocked_missing_proactive_packet_evidence",
+        "instruction": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing.",
         "interruption_budget": "none",
         "irreversible_actions_consent_gated": true,
         "kind": "proactive_ooda_acceptance_followthrough",
@@ -461,74 +461,92 @@
     },
     {
       "action_context": {
-        "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E",
         "callback_tokens_exposed": false,
-        "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
-        "expected_google_domain": "gmail.com",
-        "expected_google_email_present": true,
-        "expected_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
-        "instruction": "Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work Google account. A bounded recovery cooldown is active until 2026-07-08T21:31:26.402518Z.",
+        "delivery_policy": "action_required_only",
+        "echo_playback_claim_allowed": false,
+        "external_setup_url": "host-local:///index.html",
+        "instruction": "Inspect the My Media/Amazon connection state, repair the blocked step, then rerun the readiness receipt.",
+        "interruption_budget": "action_required",
+        "irreversible_actions_consent_gated": true,
+        "kind": "mymedia_alexa_setup",
         "missing_setup": [
-          "oauth_access_retry_or_account_selection_required"
+          "amazon_connection_not_ready"
         ],
-        "next_action_form_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-        "next_action_form_label": "Retry Google auth",
+        "next_action_form_href": "host-local:///index.html",
+        "next_action_form_label": "Open My Media console",
         "next_action_form_method": "get",
-        "next_action_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-        "next_action_label": "Retry Google auth",
+        "next_action_href": "host-local:///index.html",
+        "next_action_label": "Open My Media console",
         "next_action_method": "get",
-        "observed_google_account_matches_expected": false,
-        "observed_google_domain": "",
-        "observed_google_email_present": false,
-        "observed_google_email_sha256": "",
+        "non_action_progress_push_allowed": false,
+        "pairing_resume_ready": false,
+        "public_console_surface_ready": true,
+        "public_console_surface_status": "access_protected",
+        "quiet_hours_respected": true,
         "raw_chat_ids_exposed": false,
-        "raw_client_id_exposed": false,
-        "raw_client_secret_exposed": false,
-        "raw_error_description_exposed": false,
-        "raw_expected_google_email_exposed": false,
-        "raw_observed_google_email_exposed": false,
+        "raw_email_exposed": false,
+        "raw_paired_user_exposed": false,
+        "raw_pairing_resume_url_exposed": false,
+        "raw_private_context_exposed": false,
+        "raw_public_ip_exposed": false,
+        "raw_refresh_token_exposed": false,
         "raw_secret_exposed": false,
         "raw_token_exposed": false,
         "raw_voice_ids_exposed": false,
-        "scope_bundle": "full_workspace",
+        "raw_watch_folder_paths_exposed": false,
+        "repair_commands": [
+          "make materialize-mymedia-alexa-readiness",
+          "make verify-mymedia-alexa-readiness",
+          "python3 scripts/materialize_continuous_improvement_goal_posture.py",
+          "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty"
+        ],
         "setup_checklist": [
           {
-            "how": "Open https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E, explicitly choose the approved work Google account, finish consent, and if Google still denies access reopen https://console.cloud.google.com/auth/audience?project=propertyquarry-498318 to confirm the Audience save and selected OAuth project.",
-            "key": "oauth_access_retry_or_account_selection_required",
-            "label": "Retry Full Workspace auth with the approved Google account"
+            "how": "make verify-mymedia-alexa-readiness",
+            "key": "refresh_mymedia_runtime_receipt",
+            "label": "Refresh My Media runtime posture"
+          },
+          {
+            "how": "no_operator_action_required",
+            "key": "repair_mymedia_pairing_telegram_handoff",
+            "label": "Repair My Media Telegram handoff delivery"
           }
         ],
-        "telegram_message": "Action needed: Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work account. If Google still blocks it, re-open the Audience page and confirm the tester/project setup. Cooldown active until 2026-07-08T21:31:26.402518Z. Console: https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+        "telegram_delivery_ready": false,
+        "telegram_delivery_reason": "no_operator_action_required",
+        "telegram_delivery_transport": "telegram_bot",
+        "telegram_message": "Action needed: My Media for Alexa is not ready. Current blocker: amazon_connection_not_ready. Finish the blocked setup step, then rerun the My Media readiness receipt.",
+        "telegram_push_allowed": true,
         "user_action_required": true
       },
       "capture_surfaces": [
-        ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json"
+        ".codex-studio/published/mymedia_alexa_readiness.generated.json"
       ],
-      "claim_boundary": "does_not_prove_google_workspace_signal_ingest_until_full_workspace_oauth_can_complete_for_the_requested_account",
-      "evidence_kind": "google_workspace_oauth_test_user_setup",
-      "key": "google_workspace_oauth_setup",
-      "lens": "detect",
-      "next_action": "retry_full_workspace_auth_with_approved_account",
-      "next_action_form_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-      "next_action_form_label": "Retry Google auth",
+      "claim_boundary": "does_not_prove_real_echo_playback_until_mymedia_pairing_is_complete_and_a_real_device_playback_receipt_exists",
+      "evidence_kind": "delivery_channel_setup",
+      "key": "mymedia_alexa_setup",
+      "lens": "deliver",
+      "next_action": "inspect_mymedia_amazon_connection",
+      "next_action_form_href": "host-local:///index.html",
+      "next_action_form_label": "Open My Media console",
       "next_action_form_method": "get",
-      "next_action_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-      "next_action_label": "Retry Google auth",
+      "next_action_href": "host-local:///index.html",
+      "next_action_label": "Open My Media console",
       "next_action_method": "get",
-      "required_next_receipt": "Google Workspace OAuth test-user or verified app access for Full Workspace auth",
+      "required_next_receipt": "passing My Media for Alexa readiness receipt with pairing complete, watch-folder posture repaired, and no blocked runtime state",
       "source_receipts": [
         {
-          "contract_name": "ea.google_workspace_oauth_readiness.v1",
-          "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
+          "contract_name": "ea.mymedia_alexa_readiness.v1",
+          "path": ".codex-studio/published/mymedia_alexa_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": false,
-          "source_git_head": "7b63159d1033dae27debdf3520143f78b53014b9",
-          "source_state_fingerprint": "190654acf27285a544710e351d09b25faf8929f8a57befb863052e53f7d2216f",
-          "status": "ready_retry_required"
+          "source_git_head": "74dfbc65083fd1979e92833671b1ba49341cc0a1",
+          "source_state_fingerprint": "84b83a31838681a6227d16695d2aa8e7b146310682ec6ec5125b45b500a3a430",
+          "status": "blocked_connection_not_ready"
         }
       ],
       "status": "pending_real_world_evidence",
-      "title": "Google Workspace OAuth test-user setup"
+      "title": "My Media for Alexa setup"
     },
     {
       "action_context": {
@@ -587,8 +605,8 @@
           "path": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": false,
-          "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
-          "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
+          "source_git_head": "034e126744c03969a30404bb3478ef16180baf8a",
+          "source_state_fingerprint": "2c30ca4cb62a3c628d7480ffeebb7eaecf0fed0724d42a4a96a1c890ec5023d7",
           "status": "blocked_realtime_prerequisites"
         }
       ],
@@ -794,10 +812,10 @@
     }
   ],
   "blocking_reasons": [
-    "detect:google_workspace_oauth=ready_retry_required",
     "deliver:manfred_speech=blocked_realtime_prerequisites",
     "deliver:telegram_audiobook=blocked",
     "deliver:whatsapp_audiobook=blocked",
+    "deliver:mymedia_alexa=blocked_connection_not_ready",
     "prove=blocked_real_world_acceptance"
   ],
   "contract_name": "ea.continuous_improvement_goal_posture.v1",
@@ -818,15 +836,15 @@
     {
       "components": [],
       "google_workspace_oauth_readiness": {
-        "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E",
+        "auth_link_template": "",
         "blocker_kind": "",
-        "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
-        "expected_google_email_present": true,
-        "expected_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
+        "console_deep_link": "",
+        "expected_google_email_present": false,
+        "expected_google_email_sha256": "",
         "key": "google_workspace_full_workspace_oauth",
-        "next_action": "retry_full_workspace_auth_with_approved_account",
-        "oauth_project_id": "propertyquarry-498318",
-        "oauth_project_number": "95627800296",
+        "next_action": "add_google_oauth_test_user_and_retry_full_workspace_auth",
+        "oauth_project_id": "",
+        "oauth_project_number": "",
         "observed_google_account_matches_expected": false,
         "observed_google_email_present": false,
         "observed_google_email_sha256": "",
@@ -836,31 +854,31 @@
         "raw_expected_google_email_exposed": false,
         "raw_observed_google_email_exposed": false,
         "raw_refresh_token_exposed": false,
-        "scope_bundle": "full_workspace",
-        "status": "ready_retry_required"
+        "scope_bundle": "",
+        "status": "missing_receipt"
       },
       "key": "detect",
       "next_action": "record_redacted_signal_review_acceptance",
       "operator_readiness_aggregate": {
         "attention_component_keys": [
-          "google_workspace_oauth",
-          "teable_recovery"
+          "mymedia_alexa"
         ],
-        "blocked_count": 2,
-        "component_count": 9,
+        "blocked_count": 1,
+        "component_count": 10,
         "component_keys": [
           "telegram",
           "google_workspace_oauth",
           "pushbullet",
-          "whatsapp",
-          "whatsapp_pairing",
           "teable_recovery",
           "mymedia_alexa",
           "proactive_route",
-          "proactive_artifacts"
+          "proactive_artifacts",
+          "onemin_direct_refresh",
+          "whatsapp",
+          "whatsapp_pairing"
         ],
         "key": "ea_operator_readiness_aggregate",
-        "next_action": "retry_full_workspace_auth_with_approved_account",
+        "next_action": "inspect_mymedia_amazon_connection",
         "pairing_probe_mode": "active",
         "probe_failed_count": 0,
         "raw_chat_ref_exposed": false,
@@ -877,13 +895,22 @@
           "proactive_route",
           "proactive_artifacts"
         ],
-        "summary": "operator_readiness status=ready_with_actions; ready=false; components=9; attention=2; blocked=2; probe_failed=0; supplemental_attention=1; supplemental_blocked=1; supplemental_probe_failed=0; states=telegram:ready,google_workspace_oauth:ready_retry_required,mymedia_alexa:ready,proactive_route:ready,proactive_artifacts:ok; supplemental_states=pushbullet:ready_live_verified,whatsapp_pairing:available; next=google_workspace_oauth:retry_full_workspace_auth_with_approved_account; supplemental_next=whatsapp_pairing:scan_whatsapp_web_qr; observed_at=2026-07-07T12:34:57Z; source=ea_live_ops.aggregate",
+        "summary": "operator_readiness status=ready_with_actions; ready=false; components=10; attention=1; blocked=1; probe_failed=0; supplemental_attention=2; supplemental_blocked=1; supplemental_probe_failed=0; states=telegram:ready,google_workspace_oauth:ready_manual_console_check,mymedia_alexa:blocked_connection_not_ready,proactive_route:ready,proactive_artifacts:ok; supplemental_states=pushbullet:ready_live_verified,onemin_direct_refresh:rate_limited,whatsapp_pairing:available; next=mymedia_alexa:inspect_mymedia_amazon_connection; supplemental_next=onemin_direct_refresh:resume_onemin_direct_refresh_after_cooldown; observed_at=2026-07-10T03:31:09Z; source=ea_live_ops.aggregate",
         "supplemental_attention_component_keys": [
+          "onemin_direct_refresh",
           "whatsapp_pairing"
         ],
-        "supplemental_attention_count": 1,
+        "supplemental_attention_count": 2,
         "supplemental_blocked_count": 1,
         "supplemental_next_actions": [
+          {
+            "action": "resume_onemin_direct_refresh_after_cooldown",
+            "component_key": "onemin_direct_refresh",
+            "href": "https://myexternalbrain.com/admin/goals",
+            "label": "Open goals",
+            "method": "get",
+            "reason": "cloudflare_rate_limited"
+          },
           {
             "action": "scan_whatsapp_web_qr",
             "component_key": "whatsapp_pairing",
@@ -924,21 +951,19 @@
           "status": "pass"
         },
         {
-          "contract_name": "ea.google_workspace_oauth_readiness.v1",
+          "contract_name": "missing",
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
-          "present": true,
+          "present": false,
           "source_fresh_to_current_source": false,
-          "source_git_head": "7b63159d1033dae27debdf3520143f78b53014b9",
-          "source_state_fingerprint": "190654acf27285a544710e351d09b25faf8929f8a57befb863052e53f7d2216f",
-          "status": "ready_retry_required"
+          "status": "missing_receipt"
         },
         {
           "contract_name": "ea.operator_readiness.v1",
           "path": ".codex-studio/published/ea_operator_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": false,
-          "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
-          "source_state_fingerprint": "52e853e2e581b1dcf0a2c3171bf2e76df05a0184ec6a46b81a8efac46e6d9346",
+          "source_git_head": "74dfbc65083fd1979e92833671b1ba49341cc0a1",
+          "source_state_fingerprint": "84b83a31838681a6227d16695d2aa8e7b146310682ec6ec5125b45b500a3a430",
           "status": "ready_with_actions"
         }
       ],
@@ -1157,8 +1182,8 @@
               "path": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
               "present": true,
               "source_fresh_to_current_source": false,
-              "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
-              "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
+              "source_git_head": "034e126744c03969a30404bb3478ef16180baf8a",
+              "source_state_fingerprint": "2c30ca4cb62a3c628d7480ffeebb7eaecf0fed0724d42a4a96a1c890ec5023d7",
               "status": "blocked_realtime_prerequisites"
             }
           ],
@@ -1273,7 +1298,7 @@
         {
           "echo_playback_claim_allowed": false,
           "key": "mymedia_alexa",
-          "next_action": "complete_amazon_pairing_for_mymedia",
+          "next_action": "inspect_mymedia_amazon_connection",
           "pairing_resume_command": "",
           "pairing_resume_ready": false,
           "raw_paired_user_exposed": false,
@@ -1292,9 +1317,9 @@
               "status": "ready"
             }
           ],
-          "status": "ready",
-          "status_class": "progress",
-          "summary": "My Media runtime ready; pairing resume not_ready.",
+          "status": "blocked_connection_not_ready",
+          "status_class": "blocking",
+          "summary": "My Media runtime blocked_connection_not_ready; pairing resume not_ready.",
           "telegram_delivery_ready": false,
           "telegram_delivery_reason": "no_operator_action_required",
           "telegram_delivery_transport": "telegram_bot",
@@ -1384,69 +1409,81 @@
       ]
     }
   ],
-  "next_action": "retry_full_workspace_auth_with_approved_account",
-  "next_action_form_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-  "next_action_form_label": "Retry Google auth",
+  "next_action": "inspect_mymedia_amazon_connection",
+  "next_action_form_href": "host-local:///index.html",
+  "next_action_form_label": "Open My Media console",
   "next_action_form_method": "get",
-  "next_action_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-  "next_action_instruction": "Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work Google account. A bounded recovery cooldown is active until 2026-07-08T21:31:26.402518Z.",
-  "next_action_key": "google_workspace_oauth_setup",
-  "next_action_label": "Retry Google auth",
+  "next_action_href": "host-local:///index.html",
+  "next_action_instruction": "Inspect the My Media/Amazon connection state, repair the blocked step, then rerun the readiness receipt.",
+  "next_action_key": "mymedia_alexa_setup",
+  "next_action_label": "Open My Media console",
   "next_action_method": "get",
   "operator_action_queue": [
     {
-      "action_digest_eligible": true,
-      "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E",
+      "action_digest_eligible": false,
       "callback_tokens_exposed": false,
-      "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+      "default_action_digest_suppressed_reason": "operator_stream_not_in_default_action_digest",
       "delivery_policy": "action_required_only",
-      "evidence_kind": "google_workspace_oauth_test_user_setup",
-      "expected_google_domain": "gmail.com",
-      "expected_google_email_present": true,
-      "expected_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
-      "instruction": "Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work Google account. A bounded recovery cooldown is active until 2026-07-08T21:31:26.402518Z.",
+      "echo_playback_claim_allowed": false,
+      "evidence_kind": "delivery_channel_setup",
+      "external_setup_url": "host-local:///index.html",
+      "instruction": "Inspect the My Media/Amazon connection state, repair the blocked step, then rerun the readiness receipt.",
       "interruption_budget": "action_required",
       "irreversible_actions_consent_gated": true,
-      "key": "google_workspace_oauth_setup",
-      "lens": "detect",
+      "key": "mymedia_alexa_setup",
+      "kind": "mymedia_alexa_setup",
+      "lens": "deliver",
       "missing_setup": [
-        "oauth_access_retry_or_account_selection_required"
+        "amazon_connection_not_ready"
       ],
-      "next_action": "retry_full_workspace_auth_with_approved_account",
-      "next_action_form_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-      "next_action_form_label": "Retry Google auth",
+      "next_action": "inspect_mymedia_amazon_connection",
+      "next_action_form_href": "host-local:///index.html",
+      "next_action_form_label": "Open My Media console",
       "next_action_form_method": "get",
-      "next_action_href": "/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace",
-      "next_action_label": "Retry Google auth",
+      "next_action_href": "host-local:///index.html",
+      "next_action_label": "Open My Media console",
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
-      "observed_google_account_matches_expected": false,
-      "observed_google_email_present": false,
-      "operator_stream": "office_setup",
-      "proactive_signal_allowed": true,
+      "operator_stream": "media_memorial",
+      "pairing_resume_ready": false,
+      "proactive_signal_allowed": false,
       "quiet_hours_respected": true,
       "raw_chat_ids_exposed": false,
-      "raw_client_id_exposed": false,
-      "raw_client_secret_exposed": false,
-      "raw_error_description_exposed": false,
-      "raw_expected_google_email_exposed": false,
-      "raw_observed_google_email_exposed": false,
+      "raw_email_exposed": false,
+      "raw_paired_user_exposed": false,
+      "raw_pairing_resume_url_exposed": false,
       "raw_private_context_exposed": false,
+      "raw_public_ip_exposed": false,
+      "raw_refresh_token_exposed": false,
       "raw_secret_exposed": false,
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
-      "required_next_receipt": "Google Workspace OAuth test-user or verified app access for Full Workspace auth",
-      "scope_bundle": "full_workspace",
+      "raw_watch_folder_paths_exposed": false,
+      "repair_commands": [
+        "make materialize-mymedia-alexa-readiness",
+        "make verify-mymedia-alexa-readiness",
+        "python3 scripts/materialize_continuous_improvement_goal_posture.py",
+        "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty"
+      ],
+      "required_next_receipt": "passing My Media for Alexa readiness receipt with pairing complete, watch-folder posture repaired, and no blocked runtime state",
       "setup_checklist": [
         {
-          "how": "Open https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E, explicitly choose the approved work Google account, finish consent, and if Google still denies access reopen https://console.cloud.google.com/auth/audience?project=propertyquarry-498318 to confirm the Audience save and selected OAuth project.",
-          "key": "oauth_access_retry_or_account_selection_required",
-          "label": "Retry Full Workspace auth with the approved Google account"
+          "how": "make verify-mymedia-alexa-readiness",
+          "key": "refresh_mymedia_runtime_receipt",
+          "label": "Refresh My Media runtime posture"
+        },
+        {
+          "how": "no_operator_action_required",
+          "key": "repair_mymedia_pairing_telegram_handoff",
+          "label": "Repair My Media Telegram handoff delivery"
         }
       ],
-      "telegram_message": "Action needed: Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work account. If Google still blocks it, re-open the Audience page and confirm the tester/project setup. Cooldown active until 2026-07-08T21:31:26.402518Z. Console: https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+      "telegram_delivery_ready": false,
+      "telegram_delivery_reason": "no_operator_action_required",
+      "telegram_delivery_transport": "telegram_bot",
+      "telegram_message": "Action needed: My Media for Alexa is not ready. Current blocker: amazon_connection_not_ready. Finish the blocked setup step, then rerun the My Media readiness receipt.",
       "telegram_push_allowed": true,
-      "title": "Google Workspace OAuth test-user setup",
+      "title": "My Media for Alexa setup",
       "user_action_required": true
     },
     {
@@ -1719,7 +1756,7 @@
       "default_action_digest_suppressed_reason": "not_user_action_required",
       "delivery_policy": "queue_only",
       "evidence_kind": "approval_outcome",
-      "instruction": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored.",
+      "instruction": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing.",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
       "key": "proactive_ooda_packet_acceptance",
@@ -1753,16 +1790,16 @@
   ],
   "operator_delivery_policy": {
     "action_required_only": true,
-    "default_action_digest_eligible_count": 1,
+    "default_action_digest_eligible_count": 0,
     "default_action_digest_streams": [
       "office_loop",
       "office_setup",
       "recovery"
     ],
-    "default_action_digest_suppressed_count": 4,
+    "default_action_digest_suppressed_count": 5,
     "irreversible_actions_consent_gated": true,
     "next_action_delivery_policy": "action_required_only",
-    "next_action_digest_eligible": true,
+    "next_action_digest_eligible": false,
     "next_action_requires_user": true,
     "non_action_progress_push_allowed": false,
     "quiet_hours_respected": true,
@@ -1892,7 +1929,7 @@
     "real weekly signal-to-decision review acceptance receipt",
     "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
     "fresh-host Teable recovery drill receipt mirrored into the repo",
-    "Google Workspace OAuth test-user or verified app access for Full Workspace auth",
+    "passing My Media for Alexa readiness receipt with pairing complete, watch-folder posture repaired, and no blocked runtime state",
     "consented Manfred STT/TTS realtime conversation proof",
     "passing Telegram audiobook live delivery receipt",
     "passing WhatsApp audiobook live delivery receipt"

@@ -45,6 +45,7 @@ def test_verify_proactive_ooda_accepts_static_signal_source(tmp_path, monkeypatc
             observation_lookback_hours=24,
             observation_limit=50,
             skip_observation_source=True,
+            host_resource_guard=False,
             armed_send=True,
             require_source=True,
             require_telegram=False,
@@ -107,6 +108,7 @@ def test_verify_proactive_ooda_prefers_live_delivery_guard_state_over_stale_pers
             observation_limit=50,
             skip_observation_source=True,
             skip_workspace_source=True,
+            host_resource_guard=False,
             armed_send=True,
             paused=False,
             pause_reason="",
@@ -514,6 +516,72 @@ def test_runner_notification_approval_request_marks_approval_gated_shortlist_as_
         "operator_action_required": False,
     }
     assert runner._notification_requires_user_action(approval_request) is True
+
+
+def test_runner_notification_approval_request_suppresses_low_intent_transcript_packet(
+    tmp_path,
+) -> None:
+    stage_path = tmp_path / "packet-low-intent-transcript.json"
+    safe_path = tmp_path / "result-low-intent-transcript.json"
+    packet_ref = "stage_packet:pkt-low-intent-transcript"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema": "proactive_ooda.stage_packet.v1",
+                "packet_ref": packet_ref,
+                "item_index": 1,
+                "approval": {"required": True},
+                "stage": {
+                    "payload": {
+                        "adapter_hint": "transcript_signal",
+                        "kind": "research_packet",
+                        "work_type": "compare_options",
+                        "research_query": "Cooking with Kids and Shopping",
+                        "search_queries": ["Cooking with Kids and Shopping"],
+                    }
+                },
+                "safe_work_order": {"work_type": "compare_options"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    safe_path.write_text(
+        json.dumps(
+            {
+                "schema": "proactive_ooda.safe_work_result.v1",
+                "result_ref": "safe_work_result:res-low-intent-transcript",
+                "source_packet_ref_hash": runner._hash_value(packet_ref),
+                "status": "staged_for_user_decision",
+                "work_type": "compare_options",
+                "audit": {"status": "pass", "issues": []},
+                "approval_prompt": "Approve whether EA should proceed with this staged shortlist candidate.",
+                "staged_action_url": "https://maps.google.com/",
+                "recommended_option_or_draft": {
+                    "kind": "shortlist_candidate",
+                    "value": {"label": "Google Maps", "url": "https://maps.google.com/"},
+                },
+                "shortlist": [{"label": "Google Maps", "url": "https://maps.google.com/"}],
+                "execution_receipt": {
+                    "search_queries_used": ["Cooking with Kids and Shopping 1200 Wien"],
+                    "irreversible_actions_attempted": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        runner.safe_work_decision_materiality_issue(
+            safe_work_result=json.loads(safe_path.read_text(encoding="utf-8")),
+            stage_packet=json.loads(stage_path.read_text(encoding="utf-8")),
+        )
+        == "transcript_signal_lacks_action_intent"
+    )
+    assert runner._notification_approval_request(
+        stage_packet_paths=(stage_path,),
+        safe_work_result_paths=(safe_path,),
+        auto_execute_results=(),
+    ) is None
 
 
 def test_runner_notification_requires_user_action_rejects_internal_proof_packets() -> None:
@@ -1043,15 +1111,17 @@ def test_verify_proactive_ooda_reports_operator_pause_guard(tmp_path, monkeypatc
             discovery_json="",
             opportunity_rules_json="",
             state_path=str(tmp_path / "state.json"),
-            max_items=5,
-            observation_lookback_hours=24,
-            observation_limit=50,
-            skip_observation_source=True,
-            skip_workspace_source=True,
-            paused=True,
-            pause_reason="maintenance window",
-            require_source=True,
-            require_telegram=False,
+                max_items=5,
+                observation_lookback_hours=24,
+                observation_limit=50,
+                skip_observation_source=True,
+                skip_workspace_source=True,
+                allow_operator_status_receipt_fallback=False,
+                host_resource_guard=False,
+                paused=True,
+                pause_reason="maintenance window",
+                require_source=True,
+                require_telegram=False,
             require_receipt_observation=False,
         )
     )
@@ -1335,6 +1405,7 @@ def test_verify_proactive_ooda_reports_budget_guard(tmp_path, monkeypatch) -> No
         quiet_hours_end="",
         quiet_hours_timezone="UTC",
         quiet_hours_allow_high_priority=True,
+        host_resource_guard=False,
         interruption_budget_limit=1,
         interruption_budget_window_hours=24,
         interruption_budget_allow_high_priority=False,
@@ -1399,6 +1470,7 @@ def test_verify_proactive_ooda_reports_notification_cooldown_guard(tmp_path, mon
         quiet_hours_end="",
         quiet_hours_timezone="UTC",
         quiet_hours_allow_high_priority=True,
+        host_resource_guard=False,
         interruption_budget_limit=0,
         interruption_budget_window_hours=24,
         interruption_budget_allow_high_priority=True,
@@ -1425,7 +1497,81 @@ def test_verify_proactive_ooda_reports_notification_cooldown_guard(tmp_path, mon
     assert guard["deferred_reason"] == "deferred_by_notification_cooldown"
     assert guard["notification_cooldown_active"] is True
     assert guard["notification_cooldown_seconds_remaining"] == 600
-    assert "delivery guard: deferred (deferred_by_notification_cooldown), cooldown 600s" in verifier._format_report(
+
+
+def test_verify_proactive_ooda_reports_host_disk_pressure_guard(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "operator:approval",
+                    "title": "Review provider renewal",
+                    "summary": "Review the provider renewal notes.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    host_guard = {
+        "checked": True,
+        "enabled": True,
+        "scope": "runtime_artifact_volume",
+        "status": "disk_pressure",
+        "pressure_detected": True,
+        "blocking_reason": "runtime_artifact_volume_usage_threshold_exceeded",
+        "triggered_thresholds": ["usage_percent_threshold_exceeded"],
+        "deferred_reason": "deferred_by_host_disk_pressure",
+        "next_action": "recover_runtime_artifact_volume_pressure",
+        "usage_percent": 97.0,
+        "available_bytes": 3 * 1024 ** 3,
+        "available_gb": 3.0,
+        "max_usage_percent_threshold": 95.0,
+        "min_free_gb_threshold": 10.0,
+        "privacy": {"raw_private_path_exposed": False},
+    }
+    monkeypatch.setattr(runner, "_host_resource_guard_snapshot", lambda *args, **kwargs: dict(host_guard))
+
+    report = verifier._build_report(
+        Namespace(
+            principal_id="exec",
+            signals_json=str(signal_file),
+            discovery_json="",
+            opportunity_rules_json="",
+            state_path=str(tmp_path / "state.json"),
+            receipt_path="",
+            max_items=5,
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            skip_workspace_source=True,
+            allow_operator_status_receipt_fallback=False,
+            paused=False,
+            armed_send=True,
+            pause_reason="",
+            quiet_hours_start="",
+            quiet_hours_end="",
+            quiet_hours_timezone="UTC",
+            quiet_hours_allow_high_priority=True,
+            interruption_budget_limit=0,
+            interruption_budget_window_hours=24,
+            interruption_budget_allow_high_priority=True,
+            notification_cooldown_seconds=0,
+            notification_cooldown_allow_high_priority=True,
+            require_source=True,
+            require_telegram=False,
+            require_receipt_observation=False,
+        )
+    )
+
+    guard = dict(report.get("delivery_guard") or {})
+    assert report["ok"] is True
+    assert guard["delivery_state"] == "deferred"
+    assert guard["deferred_reason"] == "deferred_by_host_disk_pressure"
+    assert dict(guard.get("host_resource_guard") or {})["pressure_detected"] is True
+    assert "deferred_by_host_disk_pressure" in verifier._format_report(
         {
             **report,
             "delivery_guard": guard,

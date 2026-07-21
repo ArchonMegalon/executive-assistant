@@ -29,7 +29,7 @@
   },
   "claim": "A local generated EPUB can pass through the WhatsApp action processor into the audiobook pipeline, create a WhatsApp-bound job, send three voice samples, accept a WhatsApp Use voice callback, render/import the audiobook, and send the Audiobookshelf public share link through WhatsApp. This is not a live WhatsApp delivery claim.",
   "contract_name": "ea.whatsapp_audiobook_local_epub_intake_proof.v1",
-  "generated_at": "2026-07-02T08:47:55.893093Z",
+  "generated_at": "2026-07-19T12:17:40.758739Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_local_intake_proof.py",
   "intake_summary": {
     "pending_voice_sample_count": 3,
@@ -67,7 +67,7 @@
     }
   },
   "player_http_probe_summary": {
-    "download_bytes": 31874,
+    "download_bytes": 33500,
     "download_cache_control": "no-store",
     "download_content_type": "audio/mp4",
     "download_status_code": 200,
@@ -83,11 +83,11 @@
   },
   "player_probe_summary": {
     "audio_streams": 1,
-    "chapter_count": 1,
+    "chapter_count": 2,
     "content_type": "audio/mp4",
-    "duration_seconds": 0.12,
+    "duration_seconds": 1.74,
     "file_ready": true,
-    "file_sha256": "9dfd60d792ae8432d25e46679c23028abc09c0dbefdecb87f778f64128516644",
+    "file_sha256": "0bf361643cfc711b7eec4347eb4b15c499e8c1d5fc9ca6c27b95e6fe636c4279",
     "metadata_status": "ready",
     "raw_path_exposed": false,
     "raw_token_exposed": false,

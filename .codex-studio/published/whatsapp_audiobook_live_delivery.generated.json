@@ -36,41 +36,70 @@
   "historical_evidence": {
     "historical_live_path_proven": false,
     "local_intake": {
-      "generated_at": "2026-07-02T08:47:55.893093Z",
-      "local_path_proven": true,
-      "receipt_present": true,
-      "share_link_sent": 1,
-      "status": "pass",
-      "voice_sample_sent": 3
+      "generated_at": "",
+      "local_path_proven": false,
+      "receipt_present": false,
+      "share_link_sent": 0,
+      "status": "",
+      "voice_sample_sent": 0
     },
     "operator_bundle": {
       "generated_at": "2026-07-02T08:47:55.590167Z",
       "live_delivery_claim_allowed": false,
-      "live_delivery_status": "blocked",
+      "live_delivery_status": "",
       "live_path_proven": false,
       "receipt_present": true,
       "recommended_action": "fix_whatsapp_action_processor_readiness",
       "status": "blocked",
       "voice_selection_text_fallback_ready": true
     },
-    "present": true,
+    "present": false,
     "public_share_playback": {
       "attempted": 0,
-      "generated_at": "2026-07-02T08:47:33.671884Z",
+      "generated_at": "",
       "passed": 0,
       "passed_result_count": 0,
       "playback_path_proven": false,
       "public_share_hosts": [],
-      "receipt_present": true,
-      "status": "waiting"
+      "receipt_present": false,
+      "status": ""
     },
-    "requires_fresh_live_job_receipt": true
+    "requires_fresh_live_job_receipt": false
   },
   "historical_or_shadow_proof_only": true,
   "human_listened_canary_contract": "ea.audiobook_human_listened_canary_acceptance.v1",
   "human_playback_acceptance_claim_allowed": false,
   "human_playback_acceptance_evidence": {
     "accepted": false,
+    "artifact_sha256": "",
+    "canary_blocked_fields": [
+      "current_canary_acceptance_contract",
+      "human_listened_acceptance",
+      "channel_binding",
+      "callback_acceptance_source",
+      "perceptual_attestation",
+      "acceptance_freshness",
+      "artifact_sha256",
+      "source_sha256",
+      "source_aggregate_sha256",
+      "narration_plan_sha256",
+      "render_signature_sha256",
+      "cast_map_sha256",
+      "mastering_signature_set_sha256",
+      "publication_gate_sha256",
+      "channel_public_share_message_id_sha256",
+      "public_share_url_sha256",
+      "listener_reference_sha256",
+      "language",
+      "dialogue_turn_count",
+      "chapter_count_binding",
+      "receipt_sha256",
+      "receipt_hmac_sha256"
+    ],
+    "canary_contract_name": "ea.telegram_epub_audiobook_playback_acceptance.v1",
+    "canary_receipt_digest_valid": false,
+    "canary_receipt_sha256": "",
+    "cast_map_sha256": "",
     "claim_allowed": false,
     "evidence_grade": "not_operator_evidence",
     "feedback_sha256_present": false,
@@ -145,6 +174,6 @@
     "counts": {},
     "latest_by_stage": {}
   },
-  "status": "blocked",
+  "status": "waiting_voice_choice",
   "voice_selection_text_fallback_ready": false
 }

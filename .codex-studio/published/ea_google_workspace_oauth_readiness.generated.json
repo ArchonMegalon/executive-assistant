@@ -15,7 +15,7 @@
     "raw_gcloud_account_exposed": false,
     "raw_gcloud_token_exposed": false
   },
-  "generated_at": "2026-07-08T21:17:51Z",
+  "generated_at": "2026-07-21T10:38:11Z",
   "generated_by": "scripts/materialize_google_workspace_oauth_readiness.py",
   "google_auth_platform_path": "Google Auth Platform > Audience > Test users",
   "google_workspace_apis": {
@@ -70,7 +70,7 @@
     "expected_google_domain": "gmail.com",
     "expected_google_email_present": true,
     "expected_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
-    "instruction": "Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work Google account. A bounded recovery cooldown is active until 2026-07-08T21:31:26.402518Z.",
+    "instruction": "Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work Google account. A bounded recovery cooldown is active until 2026-07-21T11:39:05.987428Z.",
     "interruption_budget": "action_required",
     "irreversible_actions_consent_gated": true,
     "missing_setup": [
@@ -97,9 +97,9 @@
     "reauth_required_reason": "google_oauth_invalid_grant",
     "runtime_recovery": {
       "active": true,
-      "blocked_until": "2026-07-08T21:31:26.402518Z",
-      "cooldown_seconds_remaining": 915,
-      "last_observed_at": "2026-07-08T17:31:26.503442+02:00",
+      "blocked_until": "2026-07-21T11:39:05.987428Z",
+      "cooldown_seconds_remaining": 3723,
+      "last_observed_at": "2026-07-21T07:39:05.995500+02:00",
       "mode": "scheduler_cooldown",
       "raw_private_state_exposed": false,
       "reason": "google_oauth_invalid_grant",
@@ -113,7 +113,7 @@
         "label": "Retry Full Workspace auth with the approved Google account"
       }
     ],
-    "telegram_message": "Action needed: Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work account. If Google still blocks it, re-open the Audience page and confirm the tester/project setup. Cooldown active until 2026-07-08T21:31:26.402518Z. Console: https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+    "telegram_message": "Action needed: Google Workspace auth needs reauthorization before EA can rely on that source. Retry the Full Workspace auth link with the approved work account. If Google still blocks it, re-open the Audience page and confirm the tester/project setup. Cooldown active until 2026-07-21T11:39:05.987428Z. Console: https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
     "telegram_push_allowed": true,
     "user_action_required": true
   },
@@ -139,9 +139,9 @@
   ],
   "runtime_recovery": {
     "active": true,
-    "blocked_until": "2026-07-08T21:31:26.402518Z",
-    "cooldown_seconds_remaining": 915,
-    "last_observed_at": "2026-07-08T17:31:26.503442+02:00",
+    "blocked_until": "2026-07-21T11:39:05.987428Z",
+    "cooldown_seconds_remaining": 3723,
+    "last_observed_at": "2026-07-21T07:39:05.995500+02:00",
     "mode": "scheduler_cooldown",
     "raw_private_state_exposed": false,
     "reason": "google_oauth_invalid_grant",
@@ -155,8 +155,8 @@
     "python3 scripts/materialize_google_workspace_oauth_readiness.py --observed-error access_denied --observed-google-email <redacted-email> --probe-gcloud",
     "python3 scripts/verify_google_workspace_oauth_readiness.py"
   ],
-  "source_git_head": "7b63159d1033dae27debdf3520143f78b53014b9",
-  "source_state_fingerprint": "190654acf27285a544710e351d09b25faf8929f8a57befb863052e53f7d2216f",
+  "source_git_head": "",
+  "source_state_fingerprint": "75f1f654afefd566ad8db1173024897713fae80cb59de0eaa926a060535a251f",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_retry_required",
   "telegram_notification": {

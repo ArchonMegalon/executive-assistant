@@ -41,7 +41,7 @@
   "next_action_href": "/integrations/telegram",
   "next_action_label": "Open Telegram",
   "next_action_method": "get",
-  "observation_source": "job_discovery_roots",
+  "observation_source": "read_only_runtime_audit",
   "operator_action_packet": {
     "callback_tokens_exposed": false,
     "raw_voice_ids_exposed": false,

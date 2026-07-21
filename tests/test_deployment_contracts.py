@@ -12,8 +12,25 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class _ComposeLoader(yaml.SafeLoader):
+    pass
+
+
+def _construct_compose_override(
+    loader: yaml.SafeLoader, node: yaml.Node
+) -> object:
+    if isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node)
+    if isinstance(node, yaml.MappingNode):
+        return loader.construct_mapping(node)
+    return loader.construct_scalar(node)
+
+
+_ComposeLoader.add_constructor("!override", _construct_compose_override)
+
+
 def _load_yaml(path: Path) -> dict[str, object]:
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    loaded = yaml.load(path.read_text(encoding="utf-8"), Loader=_ComposeLoader)
     return loaded if isinstance(loaded, dict) else {}
 
 
@@ -64,7 +81,7 @@ def test_base_compose_keeps_core_runtime_ports_loopback_only() -> None:
         assert all(item.startswith("127.0.0.1:") for item in ports), service_name
 
 
-def test_base_compose_trusts_token_authenticated_principal_header_on_loopback_api() -> (
+def test_base_compose_binds_token_auth_to_server_identity_on_loopback_api() -> (
     None
 ):
     compose = _load_yaml(ROOT / "docker-compose.yml")
@@ -73,7 +90,11 @@ def test_base_compose_trusts_token_authenticated_principal_header_on_loopback_ap
     environment = [str(item) for item in list(service.get("environment") or [])]
 
     assert (
-        "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER=${EA_TRUST_API_TOKEN_PRINCIPAL_HEADER:-1}"
+        "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER=${EA_TRUST_API_TOKEN_PRINCIPAL_HEADER:-0}"
+        in environment
+    )
+    assert (
+        "EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID=${EA_DEFAULT_PRINCIPAL_ID:-}"
         in environment
     )
     assert "EA_ALLOW_LOOPBACK_NO_AUTH=${EA_ALLOW_LOOPBACK_NO_AUTH:-0}" in environment
@@ -632,7 +653,7 @@ def test_memorial_override_restores_memorial_runtime_contract() -> None:
         item.startswith("EA_PRIVATE_MEMORIAL_PROFILE_DIR=") for item in environment
     )
     assert (
-        "${EA_MEMORIAL_DATA_HOST_PATH:-./memorial_data}:/data/memorial_data:ro"
+        "${EA_MEMORIAL_DATA_HOST_PATH:?set the receipt-validated Manfred release root}:/data/memorial_data:ro"
         in volumes
     )
     assert "ea_memorial_data" not in set(
@@ -747,6 +768,17 @@ def test_release_manifest_materializer_emits_authority_fields(
 ) -> None:
     module = _load_script("materialize_release_manifest")
     output_path = tmp_path / "release_manifest.generated.json"
+    deploy_context_path = tmp_path / "deploy_context.generated.json"
+    deploy_context_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.deploy_context.v1",
+                "repository": "EA",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_DEPLOY_CONTEXT_PATH", str(deploy_context_path))
     monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "EA_CORE")
     monkeypatch.setenv("EA_DEPLOY_ENABLED_MODES", "EA_CORE")
 

@@ -41,6 +41,7 @@ from app.services.proactive_ooda_runtime_artifacts import (
     load_runtime_artifact_bundle,
     resolve_runtime_artifact_paths,
 )
+from app.services.proactive_ooda_safe_work import safe_work_decision_materiality_issue
 from app.services.proactive_signal_discovery import (
     _ascii_fold_text as _signal_ascii_fold_text,
     _clean_text as _signal_clean_text,
@@ -2007,6 +2008,25 @@ def _safe_work_audit_issue_codes(audit: Mapping[str, Any]) -> list[str]:
     return codes
 
 
+def _prioritized_quality_issues(issues: list[str]) -> list[str]:
+    priority = {
+        "packet_artifacts_do_not_match_run_receipt": 10,
+        "internal_action_not_assistant_grade": 20,
+        "safe_work_audit_not_pass": 30,
+        "single_official_info_link_not_decision_ready": 40,
+        "transcript_signal_lacks_action_intent": 50,
+        "transcript_signal_noise_like_query": 60,
+        "candidate_reference_page_not_aligned_with_request": 70,
+    }
+    return [
+        issue
+        for _, issue in sorted(
+            enumerate(issues),
+            key=lambda item: (priority.get(item[1], 1000), item[0]),
+        )
+    ]
+
+
 def _assistant_grade_packet_quality_proof(
     *,
     stage_packet: Mapping[str, Any],
@@ -2030,14 +2050,11 @@ def _assistant_grade_packet_quality_proof(
     if work_type in {"record_internal_action", "internal_action", "operator_action"}:
         issues.append("internal_action_not_assistant_grade")
     if transcript_signal:
-        has_action_intent = any(_transcript_has_action_intent(_folded_text(text)) for text in (*request_texts, *safe_work_texts))
         raw_noise_like = any(_text_is_noise_like(text) for text in request_texts)
         safe_work_noise_like = any(_text_is_noise_like(text) for text in safe_work_texts)
         safe_work_clean_action_text_present = bool(safe_work_texts) and not safe_work_noise_like and any(
             _transcript_has_action_intent(_folded_text(text)) for text in safe_work_texts
         )
-        if not has_action_intent:
-            issues.append("transcript_signal_lacks_action_intent")
         if raw_noise_like and not safe_work_clean_action_text_present:
             issues.append("transcript_signal_noise_like_query")
     audit = _as_mapping(safe_work_result.get("audit"))
@@ -2061,6 +2078,13 @@ def _assistant_grade_packet_quality_proof(
     )
     if materiality_issue:
         issues.append(materiality_issue)
+    shared_materiality_issue = safe_work_decision_materiality_issue(
+        safe_work_result=safe_work_result,
+        stage_packet=stage_packet,
+    )
+    if shared_materiality_issue and shared_materiality_issue not in issues:
+        issues.append(shared_materiality_issue)
+    issues = _prioritized_quality_issues(issues)
     quality_present = bool(stage_packet and safe_work_result and packet_artifacts_match_run_receipt and not issues)
     proof = _proof_row(
         present=quality_present,
@@ -2561,6 +2585,31 @@ def _packet_requires_context_grounding(
     return False, ""
 
 
+def _context_grounding_snapshot_is_empty(context: Mapping[str, Any]) -> bool:
+    row = dict(context or {})
+    if not row:
+        return True
+    if bool(row.get("grounded")):
+        return False
+    for key in (
+        "item_count",
+        "grounded_item_count",
+        "ungrounded_item_count",
+        "applied_context_count",
+        "preference_count",
+        "requirement_count",
+        "deadline_count",
+        "candidate_assessment_count",
+        "recipient_context_count",
+        "recipient_location_count",
+        "notes_count",
+        "exclusion_count",
+    ):
+        if int(row.get(key) or 0) > 0:
+            return False
+    return True
+
+
 def _operator_runtime_context_grounding_posture_for_packet(
     operator_status: Mapping[str, Any],
     *,
@@ -2569,7 +2618,8 @@ def _operator_runtime_context_grounding_posture_for_packet(
 ) -> tuple[bool, dict[str, Any]]:
     overall_context = dict(operator_status.get("context_grounding") or {})
     current_packet_context = dict(overall_context.get("current_packet_context_grounding") or {})
-    context = current_packet_context or overall_context
+    use_current_packet_context = bool(current_packet_context) and not _context_grounding_snapshot_is_empty(current_packet_context)
+    context = current_packet_context if use_current_packet_context else overall_context
     required, requirement_reason = _packet_requires_context_grounding(
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
@@ -2598,7 +2648,7 @@ def _operator_runtime_context_grounding_posture_for_packet(
     ready = grounded if required else (item_count <= 0 or grounded)
     return ready, {
         "context_grounding_recorded": True,
-        "context_grounding_source": "current_packet_context_grounding" if current_packet_context else "context_grounding",
+        "context_grounding_source": "current_packet_context_grounding" if use_current_packet_context else "context_grounding",
         "context_grounding_grounded": grounded,
         "context_grounding_required_for_packet": required,
         "context_grounding_requirement_reason": requirement_reason,
@@ -3304,10 +3354,14 @@ def _approval_capture_surface_receipt(
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
     )
-    operator_current_packet_ref_sha256 = str(operator_capture.get("current_packet_ref_sha256") or "").strip()
-    operator_current_staged_artifact_ref_sha256 = str(
-        operator_capture.get("current_staged_artifact_ref_sha256") or ""
-    ).strip()
+    operator_current_packet_ref_sha256 = _first_text(
+        operator_surface.get("current_packet_ref_sha256"),
+        operator_capture.get("current_packet_ref_sha256"),
+    )
+    operator_current_staged_artifact_ref_sha256 = _first_text(
+        operator_surface.get("current_staged_artifact_ref_sha256"),
+        operator_capture.get("current_staged_artifact_ref_sha256"),
+    )
     if used_live_runtime_probe:
         callback_dir_exists = bool(bundle.get("approval_callback_dir_exists"))
         callback_dir_writable = bool(bundle.get("approval_callback_dir_writable"))
@@ -4919,6 +4973,13 @@ def materialize_proactive_ooda_gold_acceptance(
 
 
 def main() -> int:
+    if any(flag in sys.argv[1:] for flag in ("--help", "-h")):
+        print(
+            "Usage:\n"
+            "  python scripts/materialize_proactive_ooda_gold_acceptance.py [options]\n\n"
+            "Materialize the proactive OODA gold-acceptance receipt."
+        )
+        return 0
     parser = argparse.ArgumentParser(description="Materialize the proactive OODA gold-acceptance receipt.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--operator-status-receipt", type=Path, default=DEFAULT_OPERATOR_STATUS)
