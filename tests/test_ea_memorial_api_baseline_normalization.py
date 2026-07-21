@@ -22,6 +22,48 @@ MANIFEST_SHA256 = "4" * 64
 PLAN_SHA256 = "5" * 64
 
 
+def _live_api_render_input() -> dict[str, Any]:
+    return {
+        "Config": {
+            "Image": "ea-runtime:memorial-main-111111111111",
+            "Env": [
+                f"EA_SOURCE_REVISION={REVISION}",
+                "EA_ENABLE_PUBLIC_MEMORIALS=1",
+                "EA_HEALTHCHECK_MEMORIAL_SLUG=manfred",
+                "EA_PUBLIC_MEMORIAL_RATE_BACKEND=redis",
+                "EA_PUBLIC_MEMORIAL_REDIS_URL=redis://private.invalid:6379/0",
+                "EA_PUBLIC_MEMORIAL_DIR=/data/memorial_data/public_memorials",
+                "EA_PRIVATE_MEMORIAL_PROFILE_DIR=/data/memorial_data/private_memorial_profiles",
+                "EA_MEMORIAL_LIVE_TTS_PLUGIN=unmixr_clone",
+                "EA_TRUSTED_PROXY_CIDRS=172.30.0.0/16,127.0.0.1/32",
+                "EA_TRUSTED_PUBLIC_ORIGIN_ALIASES=origin.example.invalid",
+                "EA_ALLOWED_PUBLIC_HOSTS=example.invalid,www.example.invalid",
+            ],
+        },
+        "Mounts": [
+            {
+                "Type": "bind",
+                "Source": "/srv/memorial/release",
+                "Destination": "/data/memorial_data",
+                "RW": False,
+            },
+            *[
+                {
+                    "Type": "bind",
+                    "Source": f"/srv/memorial/runtime/{leaf}",
+                    "Destination": f"/data/memorial-writable/{leaf}",
+                    "RW": True,
+                }
+                for leaf in (
+                    "public-contributions",
+                    "private-contributions",
+                    "state",
+                )
+            ],
+        ],
+    }
+
+
 class StaticJournal:
     def __init__(self, active: Mapping[str, Any] | None = None) -> None:
         self.active = None if active is None else dict(active)
@@ -221,6 +263,81 @@ def _bundle(bundle_root: Path) -> dict[str, Any]:
     }
 
 
+@pytest.mark.parametrize(
+    ("contract_name", "version", "local_present", "accepted"),
+    [
+        ("ea.memorial_api_baseline_bundle.v1", 1, False, False),
+        ("ea.memorial_api_baseline_bundle.v2", 2, True, True),
+        ("ea.memorial_api_baseline_bundle.v1", 2, True, False),
+        ("ea.memorial_api_baseline_bundle.v2", 1, False, False),
+    ],
+)
+def test_recovery_bundle_loader_accepts_only_exact_current_contract_pair(
+    lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
+    tmp_path: Path,
+    contract_name: str,
+    version: int,
+    local_present: bool,
+    accepted: bool,
+) -> None:
+    bundle_root = tmp_path / f"recovery-bundle-{version}-{local_present}"
+    compose_files = [
+        str(bundle_root / name) for name in normalization.NORMALIZATION_COMPOSE_FILES
+    ]
+    environment_files = [str(bundle_root / ".env")]
+    local_file = bundle_root / ".env.local"
+    if local_present:
+        environment_files.append(str(local_file))
+    seal = {
+        "contract_name": ("ea.memorial_api_baseline_bundle_recovery_seal.v1"),
+        "manifest_sha256": MANIFEST_SHA256,
+        "plan_sha256": PLAN_SHA256,
+    }
+    info = {
+        "bundle_path": str(bundle_root),
+        "compose_files": compose_files,
+        "contract_name": contract_name,
+        "environment_files": environment_files,
+        "manifest_path": str(bundle_root / "baseline-bundle-manifest.json"),
+        "manifest_sha256": MANIFEST_SHA256,
+        "origin_main_commit": REVISION,
+        "plan_sha256": PLAN_SHA256,
+        "source_revision": REVISION,
+        "version": version,
+    }
+    validator_calls: list[dict[str, Any]] = []
+
+    def validator(**kwargs: Any) -> dict[str, Any]:
+        validator_calls.append(dict(kwargs))
+        return dict(info)
+
+    lane = lane_factory(recovery_bundle_validator=validator)
+    payload = {
+        "source_revision": REVISION,
+        "retained_bundle": {
+            "path": str(bundle_root),
+            "manifest_path": info["manifest_path"],
+            "recovery_seal": seal,
+            "ordered_compose_files": compose_files,
+            "environment_file": environment_files[0],
+            "environment_local_file": (str(local_file) if local_present else None),
+        },
+    }
+
+    if accepted:
+        loaded, reseal = lane._load_recovery_bundle(payload)
+        assert loaded == info
+        assert reseal() == info
+        assert len(validator_calls) == 2
+    else:
+        with pytest.raises(
+            deploy.DeployError,
+            match="normalization_recovery_bundle_binding_mismatch",
+        ):
+            lane._load_recovery_bundle(payload)
+        assert len(validator_calls) == 1
+
+
 def test_constructor_skips_release_env_and_sanitizes_process_environment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -276,6 +393,155 @@ def test_constructor_skips_release_env_and_sanitizes_process_environment(
         key.startswith(("EA_", "COMPOSE_")) for key in lane.compose_process_env
     )
     assert "DOCKER_DEFAULT_PLATFORM" not in lane.compose_process_env
+
+
+def test_live_bundle_render_environment_is_exact_and_excludes_runtime_secret(
+    lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
+) -> None:
+    lane = lane_factory()
+    inspection = _live_api_render_input()
+    image_reference = str(inspection["Config"]["Image"])
+
+    rendered = lane._live_bundle_render_environment(
+        {
+            "api_raw": inspection,
+            "expected_revision": REVISION,
+            "expected_image_reference": image_reference,
+        }
+    )
+
+    assert set(rendered) == normalization.BASELINE_RENDER_ENV_KEYS
+    assert rendered == {
+        "EA_MEMORIAL_DATA_HOST_PATH": "/srv/memorial/release",
+        "EA_MEMORIAL_IMAGE": image_reference,
+        "EA_MEMORIAL_RUNTIME_HOST_PATH": "/srv/memorial/runtime",
+        "EA_MEMORIAL_TRUSTED_PROXY_CIDRS": ("172.30.0.0/16,127.0.0.1/32"),
+        "EA_SOURCE_REVISION": REVISION,
+    }
+    assert "EA_PUBLIC_MEMORIAL_REDIS_URL" not in rendered
+
+
+def test_live_bundle_render_environment_fails_closed_on_mount_or_source_drift(
+    lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
+) -> None:
+    lane = lane_factory()
+    inspection = _live_api_render_input()
+    image_reference = str(inspection["Config"]["Image"])
+    inspection["Mounts"] = list(inspection["Mounts"])[1:]
+
+    with pytest.raises(
+        deploy.DeployError, match="rollback_memorial_mount_identity_invalid"
+    ):
+        lane._live_bundle_render_environment(
+            {
+                "api_raw": inspection,
+                "expected_revision": REVISION,
+                "expected_image_reference": image_reference,
+            }
+        )
+
+    inspection = _live_api_render_input()
+    with pytest.raises(
+        deploy.DeployError,
+        match="normalization_live_render_environment_invalid",
+    ):
+        lane._live_bundle_render_environment(
+            {
+                "api_raw": inspection,
+                "expected_revision": "9" * 40,
+                "expected_image_reference": image_reference,
+            }
+        )
+
+
+@pytest.mark.parametrize("render_drift", [False, True])
+def test_fresh_preparation_seals_live_render_inputs_and_rechecks_drift(
+    lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
+    render_drift: bool,
+) -> None:
+    lane = lane_factory()
+    before_api = _live_api_render_input()
+    after_api = json.loads(json.dumps(before_api))
+    if render_drift:
+        after_api["Config"]["Env"] = [
+            (
+                "EA_TRUSTED_PROXY_CIDRS=10.0.0.0/8"
+                if entry.startswith("EA_TRUSTED_PROXY_CIDRS=")
+                else entry
+            )
+            for entry in after_api["Config"]["Env"]
+        ]
+    image_reference = str(before_api["Config"]["Image"])
+    repository = {
+        "branch": "main",
+        "upstream": "origin/main",
+        "head": REVISION,
+        "origin_main": REVISION,
+    }
+    plan = {"source_requirements": {"expected_revision": REVISION}}
+
+    def validated_live(api_raw: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        return {
+            "api_raw": dict(api_raw or before_api),
+            "config_hash": CONFIG_HASH,
+            "expected_revision": REVISION,
+            "expected_image_id": IMAGE_ID,
+            "expected_image_reference": image_reference,
+            "recorded_working_dir": "/srv/recorded",
+            "recorded_environment_label": "/srv/recorded/.env",
+            "ordered_external_config_files": ["/srv/a", "/srv/b"],
+        }
+
+    runtime_values = iter(
+        [
+            {"api_raw": before_api, "identity": "before"},
+            {"api_raw": after_api, "identity": "after"},
+        ]
+    )
+    captured: dict[str, str] = {}
+    bundle = {
+        "bundle_path": str(lane.bundle_parent / "api-baseline-v2-plan"),
+        "origin_main_commit": REVISION,
+        "source_revision": REVISION,
+    }
+    lane._fresh_public_origin = lambda: "https://example.invalid"
+    lane._private_fresh_bundle_parent = lambda: lane.bundle_parent
+    lane._clean_current_main = lambda: dict(repository)
+    lane._read_plan = lambda: dict(plan)
+    lane._validate_live_split_baseline = lambda **kwargs: validated_live(
+        kwargs.get("api_raw")
+    )
+    lane._require_rollback_tag_absent = lambda: "ea-runtime:rollback-test"
+    lane._capture_runtime_evidence = lambda _origin: next(runtime_values)
+
+    def materialize(
+        _plan: Mapping[str, Any],
+        _parent: Path,
+        _repository: Mapping[str, str],
+        render_environment: Mapping[str, str],
+    ) -> dict[str, Any]:
+        captured.update(render_environment)
+        return dict(bundle)
+
+    lane._materialize_fresh_bundle = materialize
+    lane._render_bundle_compose = lambda *_args, **_kwargs: {"hash": CONFIG_HASH}
+    lane._reseal_bundle = lambda value: dict(value)
+    lane._require_fresh_bundle_parent = lambda _value: None
+    lane._require_bundle_repository_binding = lambda *_args: None
+    lane._compare_runtime_evidence = lambda *_args: {"status": "match"}
+
+    if render_drift:
+        with pytest.raises(
+            deploy.DeployError,
+            match="normalization_live_render_environment_changed",
+        ):
+            lane._prepare_fresh()
+    else:
+        prepared = lane._prepare_fresh()
+        assert prepared["bundle"] == bundle
+        assert "render_environment" not in prepared
+    assert set(captured) == normalization.BASELINE_RENDER_ENV_KEYS
+    assert "EA_PUBLIC_MEMORIAL_REDIS_URL" not in captured
 
 
 def test_operational_receipt_namespace_is_reserved(

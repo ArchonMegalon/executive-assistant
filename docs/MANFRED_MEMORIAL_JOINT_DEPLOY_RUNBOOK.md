@@ -9,6 +9,12 @@ permit/lock is absent or untrusted. Never manufacture the permit, relabel the
 API-only contract, invoke raw Compose, or change sentinel, qualification,
 AppArmor, certificate, event-guard, or mutation-gate state.
 
+The current operator EUID, its private bundle parent, and the selected Docker
+transport are the execution trust boundary. Do not run concurrent same-EUID
+filesystem or Docker mutations during preflight, normalization, recovery, or
+promotion; possession of that account and Docker transport already grants the
+ability to replace the governed inputs or mutate the runtime directly.
+
 The joint receipt has contract
 `ea.memorial_joint_api_ingress_deploy.v1`. Its permit has contract
 `ea.vexp_memorial_joint_mutation_permit.v1` and exactly these boundaries:
@@ -105,10 +111,25 @@ make verify-ea-memorial-api-baseline-normalization
 Preflight requires clean current `main`, exact agreement among the plan, live
 container, immutable image, and Git source revision, and an exact reconstruction
 of the live API Compose hash. It creates a private sealed, tamper-evident
-Git-object/config/environment bundle, captures the API, cloudflared, Docker
-daemon, public-network, and twice-stable 12-probe public identities, and writes
-an operational preflight receipt. It does not create the recovery journal,
-protect or retag an image, consume a permit, or invoke `compose up`.
+Git-object/config/environment bundle. Bundle v2 reserves exactly five render
+inputs reconstructed from the already-validated live API: its immutable image,
+source revision, read-only Memorial data bind root, writable Memorial runtime
+bind root, and trusted proxy CIDRs. Those values are appended to the bundle's
+private mode-`0600` `.env.local`, covered by the manifest and recovery seal, and
+never accepted from the caller environment. The two public source bindings
+(image reference and revision) remain in receipts and the recovery journal as
+required evidence; the two private host roots and proxy CIDRs do not. Any
+same-named entry in the trusted environment is an ambiguity and fails closed.
+The preflight also captures the API, cloudflared, Docker daemon, public-network,
+and twice-stable 12-probe public identities, and writes an operational preflight
+receipt. It does not create the recovery journal, protect or retag an image,
+consume a permit, or invoke `compose up`.
+
+Bundle v1 is deliberately not recovery-compatible: it did not guarantee these
+five render values were retained and therefore cannot prove a caller-free
+restart after API mutation. Upgrade only while the canonical normalization
+journal is securely absent, retain any old bundle for audit, and create the
+distinct immutable v2 bundle. Never relabel or rewrite a v1 artifact as v2.
 
 Do not execute while schema-v6 qualification is in soak, stale, unhealthy, or
 blocked. Once the root authority procedure below reports a fresh qualified

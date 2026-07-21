@@ -25,6 +25,13 @@ MEMORIAL = b"""services:
     environment:
       - EA_SOURCE_REVISION=fixed
 """
+RENDER_ENVIRONMENT = {
+    "EA_MEMORIAL_DATA_HOST_PATH": "/srv/ea/memorial-data",
+    "EA_MEMORIAL_IMAGE": "ea-runtime:memorial-main-2e5b40f9",
+    "EA_MEMORIAL_RUNTIME_HOST_PATH": "/srv/ea/memorial-runtime",
+    "EA_MEMORIAL_TRUSTED_PROXY_CIDRS": "127.0.0.1/32,::1/128",
+    "EA_SOURCE_REVISION": REVISION,
+}
 
 
 def _object_id(raw: bytes) -> str:
@@ -39,9 +46,7 @@ class FakeRunner:
             "docker-compose.yml": base,
             "docker-compose.memorial.yml": MEMORIAL,
         }
-        self.object_ids = {
-            path: _object_id(raw) for path, raw in self.blobs.items()
-        }
+        self.object_ids = {path: _object_id(raw) for path, raw in self.blobs.items()}
         self.calls: list[tuple[str, ...]] = []
 
     def run(
@@ -140,9 +145,7 @@ def _inputs(tmp_path: Path) -> dict[str, Any]:
     (repository / "docker-compose.memorial.yml").write_text(
         "POISONED_WORKTREE", encoding="utf-8"
     )
-    (external / "docker-compose.yml").write_text(
-        "POISONED_EXTERNAL", encoding="utf-8"
-    )
+    (external / "docker-compose.yml").write_text("POISONED_EXTERNAL", encoding="utf-8")
     (external / "docker-compose.memorial.yml").write_text(
         "POISONED_EXTERNAL", encoding="utf-8"
     )
@@ -179,6 +182,14 @@ def _rebuild_plan(inputs: dict[str, Any], revision: str) -> None:
     )
 
 
+def _render_environment(inputs: Mapping[str, Any]) -> dict[str, str]:
+    result = dict(RENDER_ENVIRONMENT)
+    requirements = inputs["plan"]["source_requirements"]
+    result["EA_SOURCE_REVISION"] = requirements["expected_revision"]
+    result["EA_MEMORIAL_IMAGE"] = requirements["expected_image_reference"]
+    return result
+
+
 def _real_git(repository: Path, *args: str) -> bytes:
     result = subprocess.run(
         ["/usr/bin/git", "--no-replace-objects", *args],
@@ -213,11 +224,17 @@ def _real_repository(inputs: dict[str, Any]) -> str:
     return revision
 
 
-def _materialize(inputs: Mapping[str, Any], runner: FakeRunner) -> dict[str, Any]:
+def _materialize(
+    inputs: Mapping[str, Any],
+    runner: FakeRunner,
+    *,
+    render_environment: Mapping[str, str] | None = RENDER_ENVIRONMENT,
+) -> dict[str, Any]:
     return bundle._materialize_baseline_bundle_for_test(
         plan=inputs["plan"],
         repository_root=inputs["repository_root"],
         bundle_parent=inputs["bundle_parent"],
+        render_environment=render_environment,
         test_runner=runner,
         durable_root_check=lambda _path: None,
     )
@@ -252,7 +269,9 @@ def test_materializes_exact_git_blobs_and_value_free_override(
     info = _materialize(inputs, runner)
 
     root = Path(info["bundle_path"])
-    assert root.name == "api-baseline-baseline-plan-001"
+    assert root.name == "api-baseline-v2-baseline-plan-001"
+    assert info["contract_name"] == "ea.memorial_api_baseline_bundle.v2"
+    assert info["version"] == 2
     assert info["origin_main_commit"] == REVISION
     assert stat.S_IMODE(root.stat().st_mode) == 0o700
     assert Path(info["compose_files"][0]).read_bytes() == BASE
@@ -266,21 +285,214 @@ def test_materializes_exact_git_blobs_and_value_free_override(
     assert "ENV_ONLY=" + dollar + "{ENV_ONLY}" in override
     assert "LOCAL_ONLY=" + dollar + "{LOCAL_ONLY}" in override
     assert "EXPLICIT=" + dollar + "{EXPLICIT}" not in override
+    assert not any(name in override for name in bundle.BASELINE_RENDER_ENV_KEYS)
     assert "super-secret-value" not in override
     assert "another-secret" not in override
+    assert Path(info["environment_files"][0]).read_bytes() == (
+        b"EXPLICIT=must-not-enter-override\nENV_ONLY=super-secret-value\n"
+    )
+    expected_local = (
+        b"LOCAL_ONLY=another-secret\n"
+        b"# ea-memorial-api-baseline-render-environment:v2\n"
+        b"EA_MEMORIAL_DATA_HOST_PATH='/srv/ea/memorial-data'\n"
+        b"EA_MEMORIAL_IMAGE='ea-runtime:memorial-main-2e5b40f9'\n"
+        b"EA_MEMORIAL_RUNTIME_HOST_PATH='/srv/ea/memorial-runtime'\n"
+        b"EA_MEMORIAL_TRUSTED_PROXY_CIDRS='127.0.0.1/32,::1/128'\n"
+        b"EA_SOURCE_REVISION='2e5b40f9fe2ef4acb7946eb7e80537fcd01ab047'\n"
+    )
+    assert Path(info["environment_files"][1]).read_bytes() == expected_local
     manifest = Path(info["manifest_path"]).read_text(encoding="utf-8")
+    manifest_payload = json.loads(manifest)
     public = json.dumps(info, sort_keys=True)
     assert "ENV_ONLY" not in manifest
     assert "LOCAL_ONLY" not in manifest
     assert "super-secret-value" not in manifest + public
-    assert all(path.stat().st_nlink == 1 for path in root.iterdir())
-    assert all(
-        stat.S_IMODE(path.stat().st_mode) == 0o600
-        for path in root.iterdir()
+    assert manifest_payload["render_environment_key_count"] == 5
+    assert manifest_payload["render_environment_key_set_sha256"] == (
+        hashlib.sha256(
+            json.dumps(
+                sorted(bundle.BASELINE_RENDER_ENV_KEYS),
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
     )
+    assert len(manifest_payload["trusted_environment_records_sha256"]) == 64
+    for key, value in RENDER_ENVIRONMENT.items():
+        assert key not in manifest
+        if key != "EA_SOURCE_REVISION":
+            assert value not in manifest + public
+    assert all(path.stat().st_nlink == 1 for path in root.iterdir())
+    assert all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in root.iterdir())
     assert all(call[0] == "/usr/bin/git" for call in runner.calls)
     assert sum(call[2:4] == ("cat-file", "blob") for call in runner.calls) == 2
     assert bundle.require_baseline_bundle_seal(info) == info
+
+
+def test_absent_trusted_local_is_synthesized_and_sealed(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    (inputs["trusted"] / ".env.local").unlink()
+
+    info = _materialize(inputs, FakeRunner())
+
+    local = Path(info["environment_files"][1])
+    assert local.read_bytes() == (
+        b"# ea-memorial-api-baseline-render-environment:v2\n"
+        b"EA_MEMORIAL_DATA_HOST_PATH='/srv/ea/memorial-data'\n"
+        b"EA_MEMORIAL_IMAGE='ea-runtime:memorial-main-2e5b40f9'\n"
+        b"EA_MEMORIAL_RUNTIME_HOST_PATH='/srv/ea/memorial-runtime'\n"
+        b"EA_MEMORIAL_TRUSTED_PROXY_CIDRS='127.0.0.1/32,::1/128'\n"
+        b"EA_SOURCE_REVISION='2e5b40f9fe2ef4acb7946eb7e80537fcd01ab047'\n"
+    )
+    assert stat.S_IMODE(local.stat().st_mode) == 0o600
+    assert len(info["environment_files"]) == 2
+    assert (
+        bundle.require_recovery_baseline_bundle(
+            bundle_path=Path(info["bundle_path"]),
+            trusted_recovery_seal=_seal(info),
+        )
+        == info
+    )
+
+
+def test_render_environment_single_quote_is_canonically_escaped(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    render_environment = dict(RENDER_ENVIRONMENT)
+    render_environment["EA_MEMORIAL_TRUSTED_PROXY_CIDRS"] = "proxy'edge"
+
+    info = _materialize(inputs, FakeRunner(), render_environment=render_environment)
+
+    local = Path(info["environment_files"][1]).read_bytes()
+    assert b"EA_MEMORIAL_TRUSTED_PROXY_CIDRS='proxy\\'edge'\n" in local
+    assert (
+        bundle.require_recovery_baseline_bundle(
+            bundle_path=Path(info["bundle_path"]),
+            trusted_recovery_seal=_seal(info),
+        )
+        == info
+    )
+
+
+@pytest.mark.parametrize("target", [".env", ".env.local"])
+def test_trusted_environment_cannot_claim_reserved_render_key(
+    tmp_path: Path, target: str
+) -> None:
+    inputs = _inputs(tmp_path)
+    path = inputs["trusted"] / target
+    _private_file(
+        path,
+        path.read_bytes() + b"EA_MEMORIAL_DATA_HOST_PATH=/forged\n",
+    )
+
+    with pytest.raises(
+        bundle.BaselineBundleError,
+        match="trusted_environment_render_key_reserved",
+    ):
+        _materialize(inputs, FakeRunner())
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        "nul\x00value",
+        "line\rreturn",
+        "line\nfeed",
+        "tab\tvalue",
+        "slash\\value",
+        "delete\x7fvalue",
+    ],
+)
+def test_render_environment_rejects_unsafe_values(tmp_path: Path, unsafe: str) -> None:
+    inputs = _inputs(tmp_path)
+    render_environment = dict(RENDER_ENVIRONMENT)
+    render_environment["EA_MEMORIAL_DATA_HOST_PATH"] = unsafe
+
+    with pytest.raises(
+        bundle.BaselineBundleError, match="render_environment_value_unsafe"
+    ):
+        _materialize(inputs, FakeRunner(), render_environment=render_environment)
+
+
+def test_render_environment_requires_exact_keys_and_string_values(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    missing = dict(RENDER_ENVIRONMENT)
+    missing.pop("EA_MEMORIAL_IMAGE")
+    with pytest.raises(
+        bundle.BaselineBundleError, match="render_environment_schema_invalid"
+    ):
+        _materialize(inputs, FakeRunner(), render_environment=missing)
+
+    extra = {**RENDER_ENVIRONMENT, "EA_EXTRA": "forbidden"}
+    with pytest.raises(
+        bundle.BaselineBundleError, match="render_environment_schema_invalid"
+    ):
+        _materialize(inputs, FakeRunner(), render_environment=extra)
+
+    non_string: dict[str, Any] = dict(RENDER_ENVIRONMENT)
+    non_string["EA_MEMORIAL_IMAGE"] = 7
+    with pytest.raises(
+        bundle.BaselineBundleError, match="render_environment_value_invalid"
+    ):
+        _materialize(inputs, FakeRunner(), render_environment=non_string)
+
+    empty = dict(RENDER_ENVIRONMENT)
+    empty["EA_MEMORIAL_DATA_HOST_PATH"] = ""
+    with pytest.raises(
+        bundle.BaselineBundleError, match="render_environment_value_invalid"
+    ):
+        _materialize(inputs, FakeRunner(), render_environment=empty)
+
+
+def test_fresh_materialization_requires_render_environment(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+
+    with pytest.raises(bundle.BaselineBundleError, match="render_environment_missing"):
+        _materialize(inputs, FakeRunner(), render_environment=None)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("EA_SOURCE_REVISION", "f" * 40),
+        ("EA_MEMORIAL_IMAGE", "ea-runtime:wrong-image"),
+    ],
+)
+def test_render_environment_is_bound_to_plan_source_identity(
+    tmp_path: Path, key: str, value: str
+) -> None:
+    inputs = _inputs(tmp_path)
+    render_environment = dict(RENDER_ENVIRONMENT)
+    render_environment[key] = value
+
+    with pytest.raises(
+        bundle.BaselineBundleError, match="render_environment_plan_mismatch"
+    ):
+        _materialize(inputs, FakeRunner(), render_environment=render_environment)
+
+
+def test_pre_journal_reuse_rejects_changed_render_environment(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    runner = FakeRunner()
+    _materialize(inputs, runner)
+    changed = dict(RENDER_ENVIRONMENT)
+    changed["EA_MEMORIAL_DATA_HOST_PATH"] = "/srv/ea/other-data"
+
+    with pytest.raises(
+        bundle.BaselineBundleError,
+        match="existing_bundle_render_environment_mismatch",
+    ):
+        _materialize(inputs, runner, render_environment=changed)
 
 
 def test_pre_journal_reuse_rejects_changed_trusted_environment(
@@ -312,6 +524,7 @@ def test_recovery_reuse_requires_external_manifest_and_plan_seal(
         plan=inputs["plan"],
         repository_root=inputs["repository_root"],
         bundle_parent=inputs["bundle_parent"],
+        render_environment=None,
         test_runner=runner,
         trusted_recovery_seal=_seal(first),
         durable_root_check=lambda _path: None,
@@ -337,6 +550,7 @@ def test_sealed_recovery_uses_no_repository_or_trusted_environment(
         plan=inputs["plan"],
         repository_root=inputs["repository_root"],
         bundle_parent=inputs["bundle_parent"],
+        render_environment=None,
         test_runner=runner,
         trusted_recovery_seal=_seal(first),
         durable_root_check=lambda _path: None,
@@ -387,9 +601,7 @@ def test_occupied_bundle_cannot_self_sign_different_override_semantics(
         override, bundle.NORMALIZATION_OVERRIDE
     )
     manifest["environment_key_count"] = 1
-    manifest["environment_key_set_sha256"] = hashlib.sha256(
-        b'["FORGED"]'
-    ).hexdigest()
+    manifest["environment_key_set_sha256"] = hashlib.sha256(b'["FORGED"]').hexdigest()
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -406,6 +618,7 @@ def test_occupied_bundle_cannot_self_sign_different_override_semantics(
             plan=inputs["plan"],
             repository_root=inputs["repository_root"],
             bundle_parent=inputs["bundle_parent"],
+            render_environment=None,
             test_runner=runner,
             trusted_recovery_seal=_seal(first),
             durable_root_check=lambda _path: None,
@@ -458,6 +671,7 @@ def test_recovery_seal_is_exact_and_externally_bound(
             plan=inputs["plan"],
             repository_root=inputs["repository_root"],
             bundle_parent=inputs["bundle_parent"],
+            render_environment=None,
             test_runner=runner,
             trusted_recovery_seal=candidate,
             durable_root_check=lambda _path: None,
@@ -472,6 +686,110 @@ def test_seal_rejects_mode_and_content_drift(tmp_path: Path) -> None:
 
     with pytest.raises(bundle.BaselineBundleError):
         bundle.require_baseline_bundle_seal(info)
+
+
+def test_seal_rejects_generated_local_content_drift(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    info = _materialize(inputs, FakeRunner())
+    local = Path(info["environment_files"][1])
+    local.write_bytes(local.read_bytes() + b"FORGED=value\n")
+
+    with pytest.raises(
+        bundle.BaselineBundleError, match="bundle_artifact_seal_mismatch"
+    ):
+        bundle.require_baseline_bundle_seal(info)
+
+
+def test_recovery_rejects_resealed_generated_local_semantic_tamper(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    info = _materialize(inputs, FakeRunner())
+    local = Path(info["environment_files"][1])
+    local.write_bytes(
+        local.read_bytes().replace(
+            b"# ea-memorial-api-baseline-render-environment:v2\n",
+            b"# forged-render-environment\n",
+        )
+    )
+    manifest_path = Path(info["manifest_path"])
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["environment_files"][1] = _file_record(local, ".env.local")
+    manifest_raw = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode(
+        "utf-8"
+    )
+    manifest_path.write_bytes(manifest_raw)
+
+    with pytest.raises(
+        bundle.BaselineBundleError, match="render_environment_marker_invalid"
+    ):
+        bundle.require_recovery_baseline_bundle(
+            bundle_path=Path(info["bundle_path"]),
+            trusted_recovery_seal={
+                "contract_name": bundle.RECOVERY_SEAL_CONTRACT,
+                "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
+                "plan_sha256": str(info["plan_sha256"]),
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "render_environment_key_count",
+        "render_environment_key_set_sha256",
+        "trusted_environment_records_sha256",
+    ],
+)
+def test_v2_manifest_requires_exact_render_metadata_schema(
+    tmp_path: Path, field: str
+) -> None:
+    inputs = _inputs(tmp_path)
+    info = _materialize(inputs, FakeRunner())
+    manifest_path = Path(info["manifest_path"])
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest.pop(field)
+    manifest_raw = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode(
+        "utf-8"
+    )
+    manifest_path.write_bytes(manifest_raw)
+
+    with pytest.raises(bundle.BaselineBundleError, match="bundle_manifest_invalid"):
+        bundle.require_recovery_baseline_bundle(
+            bundle_path=Path(info["bundle_path"]),
+            trusted_recovery_seal={
+                "contract_name": bundle.RECOVERY_SEAL_CONTRACT,
+                "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
+                "plan_sha256": str(info["plan_sha256"]),
+            },
+        )
+
+
+def test_recovery_rejects_resealed_trusted_record_digest_tamper(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    info = _materialize(inputs, FakeRunner())
+    manifest_path = Path(info["manifest_path"])
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["trusted_environment_records_sha256"] = "0" * 64
+    manifest_raw = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode(
+        "utf-8"
+    )
+    manifest_path.write_bytes(manifest_raw)
+
+    with pytest.raises(
+        bundle.BaselineBundleError,
+        match="existing_bundle_trusted_environment_mismatch",
+    ):
+        bundle.require_recovery_baseline_bundle(
+            bundle_path=Path(info["bundle_path"]),
+            trusted_recovery_seal={
+                "contract_name": bundle.RECOVERY_SEAL_CONTRACT,
+                "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
+                "plan_sha256": str(info["plan_sha256"]),
+            },
+        )
 
 
 @pytest.mark.parametrize("attack", ["mode", "symlink", "hardlink", "fifo"])
@@ -595,9 +913,7 @@ def test_rejects_non_ancestor_and_occupied_bundle_path(
     ):
         _materialize(inputs, FakeRunner(ancestor=False))
 
-    occupied = (
-        inputs["bundle_parent"] / "api-baseline-baseline-plan-001"
-    )
+    occupied = inputs["bundle_parent"] / "api-baseline-v2-baseline-plan-001"
     occupied.symlink_to(inputs["trusted"], target_is_directory=True)
     with pytest.raises(bundle.BaselineBundleError, match="bundle_path_occupied"):
         _materialize(inputs, FakeRunner())
@@ -716,9 +1032,11 @@ def test_real_git_replace_ref_cannot_change_exact_historical_blobs(
     )
     _real_git(repository, "add", "docker-compose.yml")
     replacement_tree = _real_git(repository, "write-tree").decode().strip()
-    replacement_commit = _real_git(
-        repository, "commit-tree", replacement_tree, "-m", "replacement"
-    ).decode().strip()
+    replacement_commit = (
+        _real_git(repository, "commit-tree", replacement_tree, "-m", "replacement")
+        .decode()
+        .strip()
+    )
     _real_git(repository, "reset", "-q", "--hard", revision)
     _real_git(repository, "replace", revision, replacement_commit)
     replaced = subprocess.run(
@@ -740,6 +1058,7 @@ def test_real_git_replace_ref_cannot_change_exact_historical_blobs(
         plan=inputs["plan"],
         repository_root=repository,
         bundle_parent=inputs["bundle_parent"],
+        render_environment=_render_environment(inputs),
         test_runner=None,
         durable_root_check=lambda _path: None,
     )
@@ -755,9 +1074,11 @@ def test_real_git_graft_cannot_forge_origin_main_ancestry(
     revision = _real_repository(inputs)
     repository = inputs["repository_root"]
     tree = _real_git(repository, "write-tree").decode().strip()
-    unrelated = _real_git(
-        repository, "commit-tree", tree, "-m", "unrelated-origin"
-    ).decode().strip()
+    unrelated = (
+        _real_git(repository, "commit-tree", tree, "-m", "unrelated-origin")
+        .decode()
+        .strip()
+    )
     _real_git(repository, "update-ref", "refs/remotes/origin/main", unrelated)
     graft = repository / ".git" / "info" / "grafts"
     graft.write_text(f"{unrelated} {revision}\n", encoding="ascii")
@@ -784,6 +1105,7 @@ def test_real_git_graft_cannot_forge_origin_main_ancestry(
             plan=inputs["plan"],
             repository_root=repository,
             bundle_parent=inputs["bundle_parent"],
+            render_environment=_render_environment(inputs),
             test_runner=None,
             durable_root_check=lambda _path: None,
         )
@@ -822,6 +1144,7 @@ def test_descriptor_bound_git_reads_linked_worktree(
         plan=inputs["plan"],
         repository_root=linked,
         bundle_parent=inputs["bundle_parent"],
+        render_environment=_render_environment(inputs),
         test_runner=None,
         durable_root_check=lambda _path: None,
     )
@@ -840,31 +1163,36 @@ def test_sealed_recovery_ignores_current_origin_fast_forward_and_rewrite(
         plan=inputs["plan"],
         repository_root=repository,
         bundle_parent=inputs["bundle_parent"],
+        render_environment=_render_environment(inputs),
         test_runner=None,
         durable_root_check=lambda _path: None,
     )
     tree = _real_git(repository, "write-tree").decode().strip()
-    fast_forward = _real_git(
-        repository,
-        "commit-tree",
-        tree,
-        "-p",
-        revision,
-        "-m",
-        "advanced-origin",
-    ).decode().strip()
-    _real_git(
-        repository, "update-ref", "refs/remotes/origin/main", fast_forward
+    fast_forward = (
+        _real_git(
+            repository,
+            "commit-tree",
+            tree,
+            "-p",
+            revision,
+            "-m",
+            "advanced-origin",
+        )
+        .decode()
+        .strip()
     )
+    _real_git(repository, "update-ref", "refs/remotes/origin/main", fast_forward)
     advanced_recovery = bundle.require_recovery_baseline_bundle(
         bundle_path=Path(first["bundle_path"]),
         trusted_recovery_seal=_seal(first),
     )
     assert advanced_recovery == first
 
-    rewritten = _real_git(
-        repository, "commit-tree", tree, "-m", "rewritten-origin"
-    ).decode().strip()
+    rewritten = (
+        _real_git(repository, "commit-tree", tree, "-m", "rewritten-origin")
+        .decode()
+        .strip()
+    )
     assert rewritten != revision
     _real_git(repository, "update-ref", "refs/remotes/origin/main", rewritten)
 
@@ -891,6 +1219,7 @@ def test_production_git_ignores_hostile_path(
         plan=inputs["plan"],
         repository_root=inputs["repository_root"],
         bundle_parent=inputs["bundle_parent"],
+        render_environment=_render_environment(inputs),
         test_runner=None,
         durable_root_check=lambda _path: None,
     )
@@ -919,9 +1248,7 @@ def test_repository_path_identity_is_revalidated_around_git_reads(
                 _private_dir(repository)
             return result
 
-    with pytest.raises(
-        bundle.BaselineBundleError, match="repository_root_changed"
-    ):
+    with pytest.raises(bundle.BaselineBundleError, match="repository_root_changed"):
         _materialize(inputs, SwappingRunner())
 
 
@@ -949,9 +1276,7 @@ def test_repository_ancestor_swap_is_detected_with_descriptor_bound_git(
                 _private_dir(replacement / "repository")
             return result
 
-    with pytest.raises(
-        bundle.BaselineBundleError, match="repository_root_changed"
-    ):
+    with pytest.raises(bundle.BaselineBundleError, match="repository_root_changed"):
         _materialize(inputs, AncestorSwappingRunner())
 
 
@@ -962,7 +1287,7 @@ def test_manifest_json_rejects_duplicate_keys_and_nonfinite_numbers(
     info = _materialize(inputs, FakeRunner())
     manifest_path = Path(info["manifest_path"])
     original = manifest_path.read_text(encoding="utf-8")
-    duplicate = original.rstrip()[:-1] + ', "version": 1}\n'
+    duplicate = original.rstrip()[:-1] + ', "version": 2}\n'
     manifest_path.write_text(duplicate, encoding="utf-8")
     with pytest.raises(
         bundle.BaselineBundleError,
@@ -1002,6 +1327,7 @@ def test_public_entry_point_has_no_injectable_test_or_durability_hooks(
             plan=inputs["plan"],
             repository_root=inputs["repository_root"],
             bundle_parent=inputs["bundle_parent"],
+            render_environment=RENDER_ENVIRONMENT,
             test_runner=FakeRunner(),
         )
     with pytest.raises(TypeError, match="durable_root_check"):
@@ -1009,6 +1335,7 @@ def test_public_entry_point_has_no_injectable_test_or_durability_hooks(
             plan=inputs["plan"],
             repository_root=inputs["repository_root"],
             bundle_parent=inputs["bundle_parent"],
+            render_environment=RENDER_ENVIRONMENT,
             durable_root_check=lambda _path: None,
         )
 
@@ -1018,7 +1345,7 @@ def test_crash_staging_leftover_is_never_reused_or_deleted(
 ) -> None:
     inputs = _inputs(tmp_path)
     leftover = inputs["bundle_parent"] / (
-        ".api-baseline-baseline-plan-001.staging-dead"
+        ".api-baseline-v2-baseline-plan-001.staging-dead"
     )
     _private_dir(leftover)
     _private_file(leftover / "attacker", b"occupied\n")
@@ -1060,9 +1387,7 @@ def test_publish_race_never_overwrites_and_leaves_private_staging(
     with pytest.raises(bundle.BaselineBundleError, match="bundle_creation_race"):
         _materialize(inputs, FakeRunner())
 
-    destination = (
-        inputs["bundle_parent"] / "api-baseline-baseline-plan-001"
-    )
+    destination = inputs["bundle_parent"] / "api-baseline-v2-baseline-plan-001"
     assert (destination / "owner-marker").read_bytes() == b"do-not-overwrite\n"
     staging = [
         entry
@@ -1079,9 +1404,7 @@ def test_published_directory_is_revalidated_after_atomic_rename(
     inputs = _inputs(tmp_path)
     original = bundle._rename_noreplace
 
-    def poison_after_publish(
-        parent_fd: int, source: str, destination: str
-    ) -> None:
+    def poison_after_publish(parent_fd: int, source: str, destination: str) -> None:
         original(parent_fd, source, destination)
         destination_fd = os.open(
             destination,

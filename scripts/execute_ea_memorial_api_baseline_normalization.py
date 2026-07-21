@@ -37,6 +37,8 @@ try:
         MemorialDeployLane,
         Runner,
         _NoRedirectHandler,
+        _memorial_rollback_environment,
+        _mount_identities,
         _validate_public_origin,
     )
     from scripts.deploy_ea_memorial_joint import (
@@ -47,6 +49,9 @@ try:
         JOINT_VEXP_MUTATION_PERMIT_VERSION,
     )
     from scripts.ea_memorial_baseline_bundle import (
+        BASELINE_RENDER_ENV_KEYS,
+        BUNDLE_CONTRACT,
+        BUNDLE_VERSION,
         BaselineBundleError,
         materialize_baseline_bundle,
         require_baseline_bundle_seal,
@@ -87,6 +92,8 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
         MemorialDeployLane,
         Runner,
         _NoRedirectHandler,
+        _memorial_rollback_environment,
+        _mount_identities,
         _validate_public_origin,
     )
     from deploy_ea_memorial_joint import (  # type: ignore[no-redef]
@@ -97,6 +104,9 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
         JOINT_VEXP_MUTATION_PERMIT_VERSION,
     )
     from ea_memorial_baseline_bundle import (  # type: ignore[no-redef]
+        BASELINE_RENDER_ENV_KEYS,
+        BUNDLE_CONTRACT,
+        BUNDLE_VERSION,
         BaselineBundleError,
         materialize_baseline_bundle,
         require_baseline_bundle_seal,
@@ -1817,12 +1827,14 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
         plan: Mapping[str, Any],
         bundle_parent: Path,
         repository: Mapping[str, str],
+        render_environment: Mapping[str, str],
     ) -> dict[str, Any]:
         try:
             bundle = self.bundle_materializer(
                 plan=plan,
                 repository_root=self.root,
                 bundle_parent=bundle_parent,
+                render_environment=render_environment,
             )
         except BaselineBundleError as exc:
             raise DeployError("normalization_bundle_materialization_failed") from exc
@@ -1839,6 +1851,32 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
         self._require_bundle_repository_binding(sealed, repository)
         return sealed
 
+    @staticmethod
+    def _live_bundle_render_environment(
+        live: Mapping[str, Any],
+    ) -> dict[str, str]:
+        inspection = live.get("api_raw")
+        if not isinstance(inspection, Mapping):
+            raise DeployError("normalization_live_api_config_invalid")
+        config = inspection.get("Config")
+        if not isinstance(config, Mapping):
+            raise DeployError("normalization_live_api_config_invalid")
+        expected_revision = str(live.get("expected_revision") or "")
+        expected_image_reference = str(live.get("expected_image_reference") or "")
+        derived = _memorial_rollback_environment(
+            config=config,
+            mount_identities=_mount_identities(inspection),
+            image_reference=expected_image_reference,
+        )
+        selected = {name: derived[name] for name in sorted(BASELINE_RENDER_ENV_KEYS)}
+        if (
+            set(selected) != BASELINE_RENDER_ENV_KEYS
+            or selected.get("EA_SOURCE_REVISION") != expected_revision
+            or selected.get("EA_MEMORIAL_IMAGE") != expected_image_reference
+        ):
+            raise DeployError("normalization_live_render_environment_invalid")
+        return selected
+
     def _prepare_fresh(self) -> dict[str, Any]:
         public_origin = self._fresh_public_origin()
         bundle_parent = self._private_fresh_bundle_parent()
@@ -1850,13 +1888,19 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
         )
         rollback_tag = self._require_rollback_tag_absent()
         runtime_before = self._capture_runtime_evidence(public_origin)
-        self._validate_live_split_baseline(
+        render_live_before = self._validate_live_split_baseline(
             plan=plan,
             repository=repository_before,
             api_raw=runtime_before["api_raw"],
         )
+        render_environment = self._live_bundle_render_environment(render_live_before)
 
-        bundle = self._materialize_fresh_bundle(plan, bundle_parent, repository_before)
+        bundle = self._materialize_fresh_bundle(
+            plan,
+            bundle_parent,
+            repository_before,
+            render_environment,
+        )
         compose_before = self._render_bundle_compose(
             bundle,
             expected_image_reference=live_before["expected_image_reference"],
@@ -1888,6 +1932,8 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             key: value for key, value in live_before.items() if key != "api_raw"
         }:
             raise DeployError("normalization_live_baseline_changed")
+        if self._live_bundle_render_environment(live_after) != render_environment:
+            raise DeployError("normalization_live_render_environment_changed")
         runtime_comparison = self._compare_runtime_evidence(
             runtime_before, runtime_after
         )
@@ -2418,8 +2464,8 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
                     "source_revision",
                     "version",
                 }
-                or current.get("contract_name") != "ea.memorial_api_baseline_bundle.v1"
-                or current.get("version") != 1
+                or current.get("contract_name") != BUNDLE_CONTRACT
+                or current.get("version") != BUNDLE_VERSION
                 or current.get("bundle_path") != str(bundle_path)
                 or current.get("manifest_path")
                 != str(retained.get("manifest_path") or "")
