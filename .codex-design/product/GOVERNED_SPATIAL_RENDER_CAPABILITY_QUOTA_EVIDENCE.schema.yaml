@@ -1,0 +1,1508 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: chummer://schemas/governed-spatial-render-capability-quota-evidence-v1
+title: Governed spatial-render capability and quota evidence
+description: >-
+  Private media-factory evidence for an exact governed spatial artifact family,
+  provider-route digest, environment, gate bundle, and quota posture. This
+  schema never exposes raw provider/account/task identity and never projects
+  artifact readiness.
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - contract_name
+  - receipt_id
+  - issuer
+  - issued_at
+  - expires_at
+  - artifact_family
+  - content_profile
+  - provider_route_digest
+  - environment
+  - gate_versions
+  - evidence_refs
+  - revocation
+  - capability_state
+  - readiness_projection
+  - quota_posture
+  - compose_audit
+  - authorization
+  - quota
+  - idempotency
+  - kill_switch
+  - signature
+properties:
+  schema_version:
+    const: governed_spatial_render_capability_quota_evidence_v1
+  contract_name:
+    const: governed_spatial_render_v1
+  receipt_id:
+    type: string
+    minLength: 16
+    maxLength: 160
+  issuer:
+    const: chummer6-media-factory
+  issued_at:
+    type: string
+    format: date-time
+  expires_at:
+    type: string
+    format: date-time
+  artifact_family:
+    type: string
+    enum:
+      - runsite_continuous_walkthrough
+      - runsite_private_encounter_preview
+  content_profile:
+    type: string
+    enum:
+      - spatial_orientation_no_encounter_fields
+      - private_fictional_non_graphic_encounter
+  provider_route_digest:
+    type: string
+    pattern: '^sha256:[a-f0-9]{64}$'
+  environment:
+    type: string
+    enum:
+      - development
+      - test
+      - candidate
+      - production
+  gate_versions:
+    type: object
+    minProperties: 1
+    additionalProperties:
+      type: string
+      minLength: 1
+      maxLength: 128
+  evidence_refs:
+    type: array
+    minItems: 1
+    uniqueItems: true
+    items:
+      $ref: '#/$defs/evidence_ref'
+  revocation:
+    $ref: '#/$defs/revocation'
+  capability_state:
+    type: string
+    enum:
+      - unverified
+      - blocked
+      - degraded
+      - verified
+      - revoked
+      - expired
+  readiness_projection:
+    description: Capability evidence cannot itself project artifact or product ready.
+    type: string
+    enum:
+      - unverified
+      - blocked
+  quota_posture:
+    type: string
+    enum:
+      - audit_only
+      - blocked
+      - build_allowed
+  compose_audit:
+    $ref: '#/$defs/compose_audit'
+  authorization:
+    $ref: '#/$defs/authorization'
+  quota:
+    $ref: '#/$defs/quota'
+  idempotency:
+    $ref: '#/$defs/idempotency'
+  kill_switch:
+    $ref: '#/$defs/kill_switch'
+  signature:
+    $ref: '#/$defs/signature'
+allOf:
+  - if:
+      properties:
+        artifact_family:
+          const: runsite_continuous_walkthrough
+      required:
+        - artifact_family
+    then:
+      properties:
+        content_profile:
+          const: spatial_orientation_no_encounter_fields
+  - if:
+      properties:
+        artifact_family:
+          const: runsite_private_encounter_preview
+      required:
+        - artifact_family
+    then:
+      properties:
+        content_profile:
+          const: private_fictional_non_graphic_encounter
+  - if:
+      properties:
+        revocation:
+          properties:
+            state:
+              const: active
+          required:
+            - state
+      required:
+        - revocation
+    then:
+      properties:
+        revocation:
+          properties:
+            revoked_at:
+              type: 'null'
+            reason_ref:
+              type: 'null'
+  - if:
+      properties:
+        revocation:
+          properties:
+            state:
+              const: revoked
+          required:
+            - state
+      required:
+        - revocation
+    then:
+      properties:
+        revocation:
+          properties:
+            revoked_at:
+              type: string
+              format: date-time
+            reason_ref:
+              type: string
+              minLength: 1
+              maxLength: 512
+        capability_state:
+          const: revoked
+        readiness_projection:
+          const: blocked
+        quota_posture:
+          const: blocked
+        kill_switch:
+          properties:
+            state:
+              enum:
+                - kill_switch_engaged
+                - blocked
+  - if:
+      properties:
+        capability_state:
+          const: revoked
+      required:
+        - capability_state
+    then:
+      properties:
+        revocation:
+          properties:
+            state:
+              const: revoked
+          required:
+            - state
+  - if:
+      properties:
+        capability_state:
+          const: expired
+      required:
+        - capability_state
+    then:
+      properties:
+        readiness_projection:
+          const: blocked
+        quota_posture:
+          const: blocked
+        kill_switch:
+          properties:
+            state:
+              enum:
+                - kill_switch_engaged
+                - blocked
+  - if:
+      properties:
+        capability_state:
+          const: verified
+      required:
+        - capability_state
+    then:
+      properties:
+        evidence_refs:
+          $ref: '#/$defs/evidence_refs_verified_capability'
+  - if:
+      properties:
+        authorization:
+          properties:
+            state:
+              const: valid
+          required:
+            - state
+      required:
+        - authorization
+    then:
+      properties:
+        authorization:
+          $ref: '#/$defs/authorization_valid'
+  - if:
+      properties:
+        authorization:
+          properties:
+            state:
+              const: not_present_audit_only
+          required:
+            - state
+      required:
+        - authorization
+    then:
+      properties:
+        authorization:
+          $ref: '#/$defs/authorization_audit_only'
+        quota_posture:
+          const: audit_only
+        quota:
+          properties:
+            state:
+              const: audit_only
+          required:
+            - state
+  - if:
+      properties:
+        quota_posture:
+          const: audit_only
+      required:
+        - quota_posture
+    then:
+      properties:
+        authorization:
+          $ref: '#/$defs/authorization_audit_only'
+        quota:
+          $ref: '#/$defs/quota_audit_only'
+  - if:
+      properties:
+        quota_posture:
+          const: build_allowed
+      required:
+        - quota_posture
+    then:
+      properties:
+        capability_state:
+          const: verified
+        revocation:
+          properties:
+            state:
+              const: active
+          required:
+            - state
+        authorization:
+          $ref: '#/$defs/authorization_valid'
+        evidence_refs:
+          $ref: '#/$defs/evidence_refs_build_allowed'
+        idempotency:
+          $ref: '#/$defs/idempotency_build_lineage'
+        quota:
+          allOf:
+            - $ref: '#/$defs/quota_snapshot_present'
+            - properties:
+                state:
+                  enum:
+                    - authorization_verified
+                    - reservation_held
+                    - released
+                    - attempt_committed
+                    - charge_pending
+                    - consumed
+                    - closed_consumed
+                    - compensation_pending
+                    - compensated
+                    - cancelled_reconciliation_pending
+        kill_switch:
+          properties:
+            state:
+              const: route_allowed
+  - if:
+      properties:
+        quota:
+          properties:
+            state:
+              const: compensation_failed_blocked
+          required:
+            - state
+      required:
+        - quota
+    then:
+      properties:
+        readiness_projection:
+          const: blocked
+        quota_posture:
+          const: blocked
+        kill_switch:
+          properties:
+            state:
+              enum:
+                - kill_switch_engaged
+                - blocked
+  - if:
+      properties:
+        quota:
+          properties:
+            state:
+              const: blocked
+          required:
+            - state
+      required:
+        - quota
+    then:
+      properties:
+        readiness_projection:
+          const: blocked
+        quota_posture:
+          const: blocked
+        kill_switch:
+          properties:
+            state:
+              enum:
+                - kill_switch_engaged
+                - blocked
+  - if:
+      properties:
+        quota:
+          properties:
+            state:
+              const: audit_only
+          required:
+            - state
+      required:
+        - quota
+    then:
+      properties:
+        quota:
+          $ref: '#/$defs/quota_audit_only'
+  - if:
+      properties:
+        quota:
+          properties:
+            state:
+              const: blocked
+          required:
+            - state
+      required:
+        - quota
+    then:
+      properties:
+        quota:
+          $ref: '#/$defs/quota_blocked_pre_execution'
+        idempotency:
+          allOf:
+            - $ref: '#/$defs/idempotency'
+            - type: object
+              properties:
+                key_digest:
+                  type: 'null'
+                normalized_request_digest:
+                  type: 'null'
+                composition_digest:
+                  type: 'null'
+                authorization_binding_digest:
+                  type: 'null'
+  - if:
+      properties:
+        quota:
+          properties:
+            state:
+              const: authorization_verified
+          required:
+            - state
+      required:
+        - quota
+    then:
+      properties:
+        quota:
+          $ref: '#/$defs/quota_authorization_verified'
+  - if:
+      properties:
+        quota:
+          properties:
+            state:
+              enum:
+                - reservation_held
+                - released
+          required:
+            - state
+      required:
+        - quota
+    then:
+      properties:
+        quota:
+          $ref: '#/$defs/quota_reservation_zero_attempt'
+  - if:
+      properties:
+        quota:
+          properties:
+            state:
+              enum:
+                - attempt_committed
+                - charge_pending
+                - cancelled_reconciliation_pending
+          required:
+            - state
+      required:
+        - quota
+    then:
+      properties:
+        quota:
+          $ref: '#/$defs/quota_attempt_unconsumed'
+  - if:
+      properties:
+        quota:
+          properties:
+            state:
+              enum:
+                - consumed
+                - closed_consumed
+                - compensation_pending
+          required:
+            - state
+      required:
+        - quota
+    then:
+      properties:
+        quota:
+          $ref: '#/$defs/quota_consumed_uncompensated'
+  - if:
+      properties:
+        quota:
+          properties:
+            state:
+              enum:
+                - compensated
+                - compensation_failed_blocked
+          required:
+            - state
+      required:
+        - quota
+    then:
+      properties:
+        quota:
+          $ref: '#/$defs/quota_compensated'
+  - if:
+      properties:
+        quota:
+          properties:
+            state:
+              enum:
+                - authorization_verified
+                - reservation_held
+                - released
+                - attempt_committed
+                - charge_pending
+                - cancelled_reconciliation_pending
+                - consumed
+                - closed_consumed
+                - compensation_pending
+                - compensated
+                - compensation_failed_blocked
+          required:
+            - state
+      required:
+        - quota
+    then:
+      properties:
+        authorization:
+          $ref: '#/$defs/authorization_original_build_lineage'
+        idempotency:
+          $ref: '#/$defs/idempotency_build_lineage'
+$defs:
+  digest:
+    type: string
+    pattern: '^sha256:[a-f0-9]{64}$'
+  nullable_digest:
+    oneOf:
+      - $ref: '#/$defs/digest'
+      - type: 'null'
+  nullable_datetime:
+    oneOf:
+      - type: string
+        format: date-time
+      - type: 'null'
+  nullable_string:
+    oneOf:
+      - type: string
+        minLength: 1
+        maxLength: 512
+      - type: 'null'
+  safe_non_negative_integer:
+    type: integer
+    minimum: 0
+    maximum: 9007199254740991
+  authorization_audit_only:
+    type: object
+    required:
+      - state
+      - authorization_ref
+      - issued_at
+      - expires_at
+      - maximum_provider_attempts
+      - quota_limit_digest
+    properties:
+      state:
+        const: not_present_audit_only
+      authorization_ref:
+        type: 'null'
+      issued_at:
+        type: 'null'
+      expires_at:
+        type: 'null'
+      maximum_provider_attempts:
+        const: 0
+      quota_limit_digest:
+        type: 'null'
+  authorization_valid:
+    type: object
+    required:
+      - state
+      - authorization_ref
+      - issued_at
+      - expires_at
+      - maximum_provider_attempts
+      - quota_limit_digest
+    properties:
+      state:
+        const: valid
+      authorization_ref:
+        type: string
+        minLength: 1
+        maxLength: 512
+      issued_at:
+        type: string
+        format: date-time
+      expires_at:
+        type: string
+        format: date-time
+      maximum_provider_attempts:
+        type: integer
+        minimum: 1
+        maximum: 2
+        allOf:
+          - $ref: '#/$defs/safe_non_negative_integer'
+          - minimum: 1
+          - maximum: 2
+      quota_limit_digest:
+        $ref: '#/$defs/digest'
+  authorization_original_build_lineage:
+    description: >-
+      Immutable original consumer-authorization lineage required for every
+      build lifecycle state, including blocked or revoked terminal states.
+      Current authorization state may change, but the original binding fields
+      cannot disappear or change.
+    type: object
+    required:
+      - state
+      - authorization_ref
+      - issued_at
+      - expires_at
+      - maximum_provider_attempts
+      - quota_limit_digest
+    properties:
+      state:
+        enum:
+          - valid
+          - expired
+          - revoked
+          - blocked
+      authorization_ref:
+        type: string
+        minLength: 1
+        maxLength: 512
+      issued_at:
+        type: string
+        format: date-time
+      expires_at:
+        type: string
+        format: date-time
+      maximum_provider_attempts:
+        type: integer
+        minimum: 1
+        maximum: 2
+        allOf:
+          - $ref: '#/$defs/safe_non_negative_integer'
+          - minimum: 1
+          - maximum: 2
+      quota_limit_digest:
+        $ref: '#/$defs/digest'
+  quota_audit_only:
+    type: object
+    properties:
+      state:
+        const: audit_only
+      snapshot_issued_at:
+        type: 'null'
+      snapshot_expires_at:
+        type: 'null'
+      reservation_ref_digest:
+        type: 'null'
+      reservation_expires_at:
+        type: 'null'
+      attempt_number:
+        const: 0
+      mutation_token_digest:
+        type: 'null'
+      consumption_receipt_digest:
+        type: 'null'
+      compensation_receipt_digest:
+        type: 'null'
+  quota_snapshot_present:
+    type: object
+    properties:
+      snapshot_issued_at:
+        type: string
+        format: date-time
+      snapshot_expires_at:
+        type: string
+        format: date-time
+  quota_snapshot_absent:
+    type: object
+    properties:
+      snapshot_issued_at:
+        type: 'null'
+      snapshot_expires_at:
+        type: 'null'
+  quota_reservation_present:
+    allOf:
+      - $ref: '#/$defs/quota_snapshot_present'
+      - type: object
+        properties:
+          reservation_ref_digest:
+            $ref: '#/$defs/digest'
+          reservation_expires_at:
+            type: string
+            format: date-time
+  quota_attempt_present:
+    allOf:
+      - $ref: '#/$defs/quota_reservation_present'
+      - type: object
+        properties:
+          attempt_number:
+            type: integer
+            minimum: 1
+            maximum: 2
+            allOf:
+              - $ref: '#/$defs/safe_non_negative_integer'
+              - minimum: 1
+              - maximum: 2
+          mutation_token_digest:
+            $ref: '#/$defs/digest'
+  quota_consumption_present:
+    allOf:
+      - $ref: '#/$defs/quota_attempt_present'
+      - type: object
+        properties:
+          consumption_receipt_digest:
+            $ref: '#/$defs/digest'
+  quota_compensation_present:
+    allOf:
+      - $ref: '#/$defs/quota_consumption_present'
+      - type: object
+        properties:
+          compensation_receipt_digest:
+            $ref: '#/$defs/digest'
+  quota_blocked_pre_execution:
+    description: >-
+      Generic blocked is a pre-execution state. It may preserve a coherent
+      quota snapshot explaining the block, or no snapshot, but it cannot carry
+      a reservation, attempt, mutation, consumption, or compensation lineage.
+    allOf:
+      - oneOf:
+          - $ref: '#/$defs/quota_snapshot_present'
+          - $ref: '#/$defs/quota_snapshot_absent'
+      - type: object
+        properties:
+          state:
+            const: blocked
+          reservation_ref_digest:
+            type: 'null'
+          reservation_expires_at:
+            type: 'null'
+          attempt_number:
+            const: 0
+          mutation_token_digest:
+            type: 'null'
+          consumption_receipt_digest:
+            type: 'null'
+          compensation_receipt_digest:
+            type: 'null'
+  quota_authorization_verified:
+    allOf:
+      - $ref: '#/$defs/quota_snapshot_present'
+      - type: object
+        properties:
+          state:
+            const: authorization_verified
+          reservation_ref_digest:
+            type: 'null'
+          reservation_expires_at:
+            type: 'null'
+          attempt_number:
+            const: 0
+          mutation_token_digest:
+            type: 'null'
+          consumption_receipt_digest:
+            type: 'null'
+          compensation_receipt_digest:
+            type: 'null'
+  quota_reservation_zero_attempt:
+    allOf:
+      - $ref: '#/$defs/quota_reservation_present'
+      - type: object
+        properties:
+          state:
+            enum:
+              - reservation_held
+              - released
+          attempt_number:
+            const: 0
+          mutation_token_digest:
+            type: 'null'
+          consumption_receipt_digest:
+            type: 'null'
+          compensation_receipt_digest:
+            type: 'null'
+  quota_attempt_unconsumed:
+    allOf:
+      - $ref: '#/$defs/quota_attempt_present'
+      - type: object
+        properties:
+          state:
+            enum:
+              - attempt_committed
+              - charge_pending
+              - cancelled_reconciliation_pending
+          consumption_receipt_digest:
+            type: 'null'
+          compensation_receipt_digest:
+            type: 'null'
+  quota_consumed_uncompensated:
+    allOf:
+      - $ref: '#/$defs/quota_consumption_present'
+      - type: object
+        properties:
+          state:
+            enum:
+              - consumed
+              - closed_consumed
+              - compensation_pending
+          compensation_receipt_digest:
+            type: 'null'
+  quota_compensated:
+    allOf:
+      - $ref: '#/$defs/quota_compensation_present'
+      - type: object
+        properties:
+          state:
+            enum:
+              - compensated
+              - compensation_failed_blocked
+  evidence_refs_verified_capability:
+    description: >-
+      Verified capability always carries provider capability evidence and the
+      exact canonical compose-validator family. Later artifact, canary,
+      rollback, and closeout evidence cannot substitute for either family.
+    type: array
+    allOf:
+      - contains:
+          type: object
+          required:
+            - evidence_family
+          properties:
+            evidence_family:
+              const: provider_capability
+        minContains: 1
+      - contains:
+          type: object
+          required:
+            - evidence_family
+          properties:
+            evidence_family:
+              const: canonical_compose_validator_exact_version
+        minContains: 1
+  evidence_refs_build_allowed:
+    description: >-
+      Build-allowed evidence additionally carries current quota-snapshot and
+      kill-switch families. Later artifact or canary evidence is not a
+      substitute for either build gate.
+    type: array
+    allOf:
+      - contains:
+          type: object
+          required:
+            - evidence_family
+          properties:
+            evidence_family:
+              const: quota_snapshot
+        minContains: 1
+      - contains:
+          type: object
+          required:
+            - evidence_family
+          properties:
+            evidence_family:
+              const: kill_switch
+        minContains: 1
+  idempotency_build_lineage:
+    description: >-
+      Immutable build lineage required by quota state, independent of current
+      capability, authorization, revocation, quota-posture, or kill-switch
+      posture. All five digests remain present through release, cancellation,
+      consumption, compensation, and blocked compensation failure.
+    type: object
+    required:
+      - scope_digest
+      - key_digest
+      - normalized_request_digest
+      - composition_digest
+      - authorization_binding_digest
+    properties:
+      scope_digest:
+        $ref: '#/$defs/digest'
+      key_digest:
+        $ref: '#/$defs/digest'
+      normalized_request_digest:
+        $ref: '#/$defs/digest'
+      composition_digest:
+        $ref: '#/$defs/digest'
+      authorization_binding_digest:
+        $ref: '#/$defs/digest'
+  evidence_ref:
+    type: object
+    additionalProperties: false
+    required:
+      - ref
+      - sha256
+      - evidence_family
+      - gate_version
+      - issued_at
+      - expires_at
+    properties:
+      ref:
+        type: string
+        minLength: 1
+        maxLength: 512
+      sha256:
+        type: string
+        pattern: '^[a-f0-9]{64}$'
+      evidence_family:
+        type: string
+        enum:
+          - provider_capability
+          - canonical_compose_validator_exact_version
+          - quota_snapshot
+          - kill_switch
+          - privacy_deletion_takedown
+          - provenance_rights_content
+          - spatial_continuity_quality
+          - browser_mobile_accessibility
+          - canary_48_hour
+          - rollback
+          - closeout
+      gate_version:
+        type: string
+        minLength: 1
+        maxLength: 128
+      issued_at:
+        type: string
+        format: date-time
+      expires_at:
+        type: string
+        format: date-time
+  revocation:
+    type: object
+    additionalProperties: false
+    required:
+      - state
+      - epoch
+      - revoked_at
+      - reason_ref
+    properties:
+      state:
+        type: string
+        enum:
+          - active
+          - revoked
+      epoch:
+        $ref: '#/$defs/safe_non_negative_integer'
+      revoked_at:
+        $ref: '#/$defs/nullable_datetime'
+      reason_ref:
+        $ref: '#/$defs/nullable_string'
+  compose_audit:
+    type: object
+    additionalProperties: false
+    required:
+      - authoritative_owner
+      - zero_burn
+      - provider_job_enqueued
+      - reservation_mutated
+      - consumption_mutated
+      - readiness_allowed
+      - ea_assistance_authority
+    properties:
+      authoritative_owner:
+        const: chummer6-media-factory
+      zero_burn:
+        const: true
+      provider_job_enqueued:
+        const: false
+      reservation_mutated:
+        const: false
+      consumption_mutated:
+        const: false
+      readiness_allowed:
+        const: false
+      ea_assistance_authority:
+        const: non_authoritative_synthetic_only
+  authorization:
+    type: object
+    additionalProperties: false
+    required:
+      - owner
+      - state
+      - authorization_ref
+      - issued_at
+      - expires_at
+      - maximum_provider_attempts
+      - quota_limit_digest
+    properties:
+      owner:
+        const: chummer6-hub
+      state:
+        type: string
+        enum:
+          - not_present_audit_only
+          - valid
+          - expired
+          - revoked
+          - blocked
+      authorization_ref:
+        $ref: '#/$defs/nullable_string'
+      issued_at:
+        $ref: '#/$defs/nullable_datetime'
+      expires_at:
+        $ref: '#/$defs/nullable_datetime'
+      maximum_provider_attempts:
+        description: Zero is reserved for audit-only with no provider attempt; authorized builds allow one or two attempts total.
+        type: integer
+        minimum: 0
+        maximum: 2
+        allOf:
+          - $ref: '#/$defs/safe_non_negative_integer'
+          - minimum: 0
+          - maximum: 2
+      quota_limit_digest:
+        $ref: '#/$defs/nullable_digest'
+  quota:
+    type: object
+    additionalProperties: false
+    required:
+      - state
+      - reservation_owner
+      - consumption_owner
+      - retry_owner
+      - cancellation_owner
+      - compensation_owner
+      - fleet_authority
+      - product_governor_authority
+      - ea_authority
+      - snapshot_issued_at
+      - snapshot_expires_at
+      - reservation_ref_digest
+      - reservation_expires_at
+      - attempt_number
+      - mutation_token_digest
+      - consumption_receipt_digest
+      - compensation_receipt_digest
+    properties:
+      state:
+        type: string
+        enum:
+          - audit_only
+          - blocked
+          - authorization_verified
+          - reservation_held
+          - released
+          - attempt_committed
+          - charge_pending
+          - consumed
+          - closed_consumed
+          - compensation_pending
+          - compensated
+          - compensation_failed_blocked
+          - cancelled_reconciliation_pending
+      reservation_owner:
+        const: chummer6-media-factory
+      consumption_owner:
+        const: chummer6-media-factory
+      retry_owner:
+        const: chummer6-media-factory
+      cancellation_owner:
+        const: chummer6-media-factory
+      compensation_owner:
+        const: chummer6-media-factory
+      fleet_authority:
+        const: execution_budget_gate_and_landing_control_only
+      product_governor_authority:
+        const: freeze_and_reroute_only
+      ea_authority:
+        const: read_only_none
+      snapshot_issued_at:
+        $ref: '#/$defs/nullable_datetime'
+      snapshot_expires_at:
+        $ref: '#/$defs/nullable_datetime'
+      reservation_ref_digest:
+        $ref: '#/$defs/nullable_digest'
+      reservation_expires_at:
+        $ref: '#/$defs/nullable_datetime'
+      attempt_number:
+        description: >-
+          Zero means no provider attempt has occurred; real provider attempts
+          are numbered one and two, so the contract maximum of two cannot
+          become three attempts. For attempted states the canonical semantic
+          validator additionally requires this value to be no greater than
+          authorization.maximum_provider_attempts; Draft 2020-12 cannot
+          express that sibling-field numeric comparison honestly.
+        type: integer
+        minimum: 0
+        maximum: 2
+        allOf:
+          - $ref: '#/$defs/safe_non_negative_integer'
+          - minimum: 0
+          - maximum: 2
+      mutation_token_digest:
+        $ref: '#/$defs/nullable_digest'
+      consumption_receipt_digest:
+        $ref: '#/$defs/nullable_digest'
+      compensation_receipt_digest:
+        $ref: '#/$defs/nullable_digest'
+  idempotency:
+    type: object
+    additionalProperties: false
+    required:
+      - ledger_owner
+      - scope_digest
+      - key_digest
+      - normalized_request_digest
+      - composition_digest
+      - authorization_binding_digest
+      - same_key_same_digest
+      - same_key_different_digest
+      - concurrent_duplicate
+      - retry_token_scope
+    properties:
+      ledger_owner:
+        const: chummer6-media-factory
+      scope_digest:
+        $ref: '#/$defs/digest'
+      key_digest:
+        $ref: '#/$defs/nullable_digest'
+      normalized_request_digest:
+        $ref: '#/$defs/nullable_digest'
+      composition_digest:
+        $ref: '#/$defs/nullable_digest'
+      authorization_binding_digest:
+        description: >-
+          SHA-256 digest of the RFC 8785 JCS canonical immutable authorization
+          binding containing owner, authorization_ref, issued_at, expires_at,
+          maximum_provider_attempts, and quota_limit_digest. Nullable only
+          outside the build lifecycle state set.
+        $ref: '#/$defs/nullable_digest'
+      same_key_same_digest:
+        const: return_existing_state
+      same_key_different_digest:
+        const: reject_conflict
+      concurrent_duplicate:
+        const: one_job_one_reservation_one_attempt
+      retry_token_scope:
+        const: job_id_and_attempt_number
+  kill_switch:
+    type: object
+    additionalProperties: false
+    required:
+      - owner
+      - state
+      - epoch
+      - issued_at
+      - expires_at
+    properties:
+      owner:
+        const: chummer6-media-factory
+      state:
+        description: route_allowed permits a separately authorized build; kill_switch_engaged and blocked both fail closed and prohibit provider execution.
+        type: string
+        enum:
+          - route_allowed
+          - kill_switch_engaged
+          - blocked
+      epoch:
+        $ref: '#/$defs/safe_non_negative_integer'
+      issued_at:
+        type: string
+        format: date-time
+      expires_at:
+        type: string
+        format: date-time
+  signature:
+    description: >-
+      Exact issuer-owned Ed25519 signature over the RFC 8785 JCS canonical
+      receipt object. The verifier deep-copies the receipt, then removes only
+      `signature.signature_value` and `signature.signed_payload_digest`.
+      There is no unsigned, provider-specific, alternate-algorithm, or fallback
+      profile.
+    type: object
+    additionalProperties: false
+    required:
+      - algorithm
+      - encoding
+      - signature_value
+      - key_ref
+      - key_fingerprint
+      - key_epoch
+      - canonicalization
+      - signed_payload_scope
+      - signed_payload_digest
+    properties:
+      algorithm:
+        const: ed25519
+      encoding:
+        const: base64url_no_padding
+      signature_value:
+        description: >-
+          Canonical unpadded base64url encoding of exactly 64 Ed25519 signature
+          bytes. The final character is restricted to [AQgw] to reject
+          signatures whose final sextet bits are non-canonical.
+        type: string
+        minLength: 86
+        maxLength: 86
+        pattern: '^[A-Za-z0-9_-]{85}[AQgw]$'
+      key_ref:
+        type: string
+        minLength: 1
+        maxLength: 256
+      key_epoch:
+        $ref: '#/$defs/safe_non_negative_integer'
+      key_fingerprint:
+        type: string
+        pattern: '^sha256:[a-f0-9]{64}$'
+        minLength: 71
+        maxLength: 71
+      canonicalization:
+        const: rfc8785_jcs
+      signed_payload_scope:
+        const: entire_receipt_excluding_signature_value_and_signed_payload_digest
+      signed_payload_digest:
+        $ref: '#/$defs/digest'
+x-chummer-canon:
+  amendment_state: proposed_for_independent_re_review
+  disposition: revise
+  implementation_state: blocked
+  implementation_authorized: false
+  provider_execution_authorized: false
+  quota_authorized: false
+  release_scope_widened: false
+  current_capability_projection: unverified_or_blocked
+  accepted_current_capability_receipts: 0
+  compose_audit_zero_burn: true
+  raw_json_profile:
+    encoding: utf-8
+    duplicate_member_policy: reject_before_value_construction
+    unicode_policy: reject_unpaired_surrogates
+    numeric_domain: safe_integers_only_no_floats
+    safe_integer_minimum: -9007199254740991
+    safe_integer_maximum: 9007199254740991
+    reject_non_finite: true
+    reject_negative_zero_token: true
+  freshness_windows:
+    runsite_continuous_walkthrough:
+      capability_receipt_max_age_hours: 24
+    runsite_private_encounter_preview:
+      capability_receipt_max_age_hours: 12
+    compose_validator_exact_version_max_age_hours: 720
+    browser_mobile_accessibility_max_age_hours: 168
+    quota_snapshot_max_age_minutes: 5
+    kill_switch_snapshot_max_age_minutes: 5
+    consumer_authorization_to_build_start_max_age_minutes: 15
+    reservation_lease_max_minutes: 30
+    clean_canary_required_continuous_hours: 48
+    clean_canary_receipt_max_age_hours: 24
+    allowed_clock_skew_seconds: 300
+  expiry_rule: >-
+    expires_at must be no later than the artifact-family capability window or
+    the earliest referenced evidence, quota snapshot, kill-switch snapshot,
+    authorization, reservation, signature-key, or gate expiry. A later
+    timestamp is invalid rather than an extension.
+  signature_profile:
+    algorithm: ed25519
+    encoding: base64url_no_padding
+    signature_bytes: 64
+    signature_value_characters: 86
+    canonicalization: rfc8785_jcs
+    signed_payload_scope: entire_receipt_excluding_signature_value_and_signed_payload_digest
+    digest_algorithm: sha256
+    digest_format: 'sha256:<64_lowercase_hex>'
+    verifier_implementation_requirement: installed_cryptography_ed25519_or_fail_blocked
+    key_fingerprint_required: true
+    key_resolution:
+      owner: declared_issuer
+      exact_environment_required: true
+      composite_identity:
+        - key_ref
+        - key_epoch
+        - key_fingerprint
+      required_state: active
+      immutable_record_per_fingerprint: true
+      reject_states:
+        - unknown
+        - issuer_mismatched
+        - environment_mismatched
+        - revoked
+        - duplicated_key_fingerprint
+        - duplicate_identity
+        - alias_ref_reuse
+        - alias_or_fingerprint_reused
+        - not_yet_valid
+        - expired
+      signed_payload_scope_keyed_to_key_identity: true
+      key_uniqueness_scope:
+        - algorithm
+        - exact_public_key
+        - key_fingerprint
+        - issuer
+        - environment
+        - epoch
+        - no_epoch_reuse_or_regression
+        - immutable_record
+        - no_reactivation
+        - global_fingerprint_lock
+      receipt_expiry_must_not_exceed_key_expiry: true
+      issued_at_must_not_be_before_key_not_before: true
+      key_ref_epoch_fingerprint_binding_required: true
+    mismatch_projection: unverified_or_blocked
+    alternate_algorithm_allowed: false
+    unsigned_fallback_allowed: false
+    provider_signature_shape_allowed: false
+  immutable_build_lineage:
+    applied_by_quota_state:
+      - authorization_verified
+      - reservation_held
+      - released
+      - attempt_committed
+      - charge_pending
+      - cancelled_reconciliation_pending
+      - consumed
+      - closed_consumed
+      - compensation_pending
+      - compensated
+      - compensation_failed_blocked
+    required_non_null_idempotency_fields:
+      - scope_digest
+      - key_digest
+      - normalized_request_digest
+      - composition_digest
+      - authorization_binding_digest
+    original_authorization_states_allowed:
+      - valid
+      - expired
+      - revoked
+      - blocked
+    not_present_audit_only_allowed_only_for_quota_state: audit_only
+    authorization_binding_digest:
+      algorithm: sha256
+      canonicalization: rfc8785_jcs
+      digest_format: 'sha256:<64_lowercase_hex>'
+      exact_members:
+        - owner
+        - authorization_ref
+        - issued_at
+        - expires_at
+        - maximum_provider_attempts
+        - quota_limit_digest
+      state_excluded_from_binding: true
+    immutable_from_first_build_state: true
+    survives:
+      - capability_revocation
+      - authorization_expiry
+      - authorization_revocation
+      - route_or_kill_switch_block
+      - cancellation
+      - release
+      - consumption
+      - compensation
+      - compensation_failure
+    generic_blocked_is_pre_execution: true
+    audit_only_is_zero_burn_outside_build: true
+  semantic_validator:
+    required: true
+    verifier: fleet
+    authoritative_evidence_owner: chummer6-media-factory
+    fail_projection: unverified_or_blocked
+    checks:
+      - Parse the original raw UTF-8 JSON bytes; reject BOMs, invalid UTF-8, unpaired surrogates, and duplicate member names at any nesting level before schema validation.
+      - Recursively reject every floating-point JSON token, including integral-looking decimal, exponent, and negative-zero forms; this receipt contract admits only signed safe integers, strings, booleans, nulls, arrays, and objects.
+      - Reject integers outside [-9007199254740991, 9007199254740991] and reject non-finite numeric tokens before schema validation or signature processing.
+      - Parse every timestamp as an offset-aware RFC 3339 instant and reject invalid or ambiguous time values.
+      - Require issued_at to be no later than expires_at after applying at most 300 seconds of allowed clock skew.
+      - Apply the same zero-skew rule to key validity: require `key.not_before <= issued_at <= expires_at <= key.not_after` with no clock-skew relaxation.
+      - Require expires_at minus issued_at to fit the 24-hour walkthrough or 12-hour private-encounter capability maximum.
+      - Require top-level expires_at to be no later than every referenced evidence, quota snapshot, kill-switch, authorization, reservation, and signing-key expiry.
+      - Require compose validator evidence to be exact-version and no older than 720 hours without treating it as readiness.
+      - Require browser/mobile/accessibility evidence to be no older than 168 hours.
+      - Require quota and kill-switch snapshots to be no older than 5 minutes at build start.
+      - Require consumer authorization to be no older than 15 minutes at build start and reservation lease duration to be no more than 30 minutes.
+      - Require a completed clean 48-hour canary receipt to be no older than 24 hours when promotion is separately considered.
+      - For attempt_committed, charge_pending, cancelled_reconciliation_pending, consumed, closed_consumed, compensation_pending, compensated, and compensation_failed_blocked, require quota.attempt_number to be less than or equal to authorization.maximum_provider_attempts.
+      - Deep-copy the full receipt, then remove only `signature.signature_value` and `signature.signed_payload_digest` before constructing signed bytes.
+      - Within the bounded no-float domain, RFC 8785 JCS canonicalize the entire remaining JSON value by UTF-16 code-unit key order and compact UTF-8 scalar serialization; reject unsupported, non-finite, floating-point, unsafe-integer, invalid-Unicode, or non-canonical values.
+      - SHA-256 the RFC 8785 JCS canonical UTF-8 bytes and require exact equality with signature.signed_payload_digest.
+      - Decode signature.signature_value as unpadded base64url and require exactly 64 bytes.
+      - Resolve signature.key_ref plus signature.key_epoch and key_fingerprint to an active issuer-owned Ed25519 public key for the receipt's exact environment.
+      - Resolve key identity by exact tuple `(issuer, environment, key_ref, key_epoch)`; treat `key_fingerprint` as an extra binding assertion over the same tuple.
+      - Reject any key whose `key_fingerprint` is not `sha256:` of exactly the 32-byte RFC 8032 raw Ed25519 public key referenced by the resolved `(issuer, environment, key_ref, key_epoch)` tuple.
+      - Reject any key ref/epoch/fingerprint mismatch, alias reuse, or duplicate fingerprint mapping under different tuple identity.
+      - Reject unknown keys, non-unique public-key fingerprint reuse, duplicated alias/fingerprint across issuer/environment, or any re-registration of the same fingerprint under any second tuple/alias/environment combination.
+      - Reject revoked keys, or signing keys whose revocation or invalid state invalidates any alias using that same immutable fingerprint.
+      - Reject keys not valid at receipt issuance/expires-at times, including key.not_before > issued_at, expires_at > key.not_after, or any backdated/expired acceptance.
+      - Reject issued_at before key.not_before and any signing-key-revocation or expiry violation.
+      - Reject top-level expires_at after signing-key expiry.
+      - Verify the Ed25519 signature over the same RFC 8785 JCS canonical UTF-8 bytes used for signature.signed_payload_digest.
+      - Fail every algorithm, encoding, signed-payload scope, canonicalization, digest, key reference, key epoch, key fingerprint, or key-registry mismatch closed to unverified_or_blocked; no alternate mode or unsigned fallback exists.
+      - Compute idempotency.authorization_binding_digest as SHA-256 of the RFC 8785 JCS canonical object containing exactly authorization owner, authorization_ref, issued_at, expires_at, maximum_provider_attempts, and quota_limit_digest, and require an exact digest match.
+      - For every build lifecycle state, compare scope_digest, key_digest, normalized_request_digest, composition_digest, authorization_binding_digest, and original authorization fields with authoritative first-build-state lineage and reject any mutation after authorization verification, reservation, attempt, cancellation, consumption, or compensation.
+      - Reject the same idempotency key with a different normalized request, composition, or authorization binding; reject a retry or compensation under different original authorization lineage.
+      - Reject duplicate compensation, optimistic refund assumptions, and any attempt number above the immutable original authorization maximum.
+      - For `quota.state: blocked`, fail closed if any of `key_digest`, `normalized_request_digest`, `composition_digest`, or `authorization_binding_digest` is non-null; reject also reservation/attempt/mutation/consumption/compensation lineage fields in any generic blocked smuggling shape.
+      - For `quota.state: compensation_failed_blocked`, require blocked quota/readiness posture and a blocked or engaged kill switch while retaining the complete original build, reservation, attempt, mutation, consumption, and compensation lineage.
+      - Reject any family, environment, route digest, gate version, evidence digest, signature, idempotency, revocation, authorization, or quota-state mismatch even when structural JSON Schema validation passes.
+    cross_field_comparison_enforcement: >-
+      Timestamp arithmetic and quota.attempt_number <=
+      authorization.maximum_provider_attempts are enforced by this canonical
+      semantic validator. They are not represented as Draft 2020-12 JSON
+      Schema assertions because the draft cannot compare sibling instance
+      values or perform the required time arithmetic honestly.
+    external_state_comparison_enforcement: >-
+      Cryptographic key resolution, Ed25519 verification, RFC 8785 JCS digest
+      comparison, immutable prior-lineage comparison, duplicate compensation,
+      and optimistic-refund detection require the canonical semantic validator
+      plus authoritative issuer-key and media-factory lineage evidence. Design
+      schema validation alone is not runtime implementation evidence.
+  evidence_stage_requirements:
+    canonical_compose_validator_family: canonical_compose_validator_exact_version
+    verified_capability_requires:
+      - provider_capability
+      - canonical_compose_validator_exact_version
+    build_allowed_additionally_requires:
+      - quota_snapshot
+      - kill_switch
+    later_stage_evidence_is_not_a_substitute:
+      - privacy_deletion_takedown
+      - provenance_rights_content
+      - spatial_continuity_quality
+      - browser_mobile_accessibility
+      - canary_48_hour
+      - rollback
+      - closeout
+  ownership:
+    capability_receipt_issuer: chummer6-media-factory
+    consumer_authorization_owner: chummer6-hub
+    reservation_owner: chummer6-media-factory
+    consumption_owner: chummer6-media-factory
+    retry_owner: chummer6-media-factory
+    cancellation_owner: chummer6-media-factory
+    compensation_owner: chummer6-media-factory
+    provider_route_kill_switch_owner: chummer6-media-factory
+    execution_budget_gate_and_landing_control: fleet
+    freeze_and_reroute_authority: product_governor
+    publication_and_revocation_owner: chummer6-hub-registry
+    derived_telemetry_and_synthetic_compose_only: executive-assistant
+    propertyquarry_external_authority:
+      decision_path: /docker/property/PROPERTYQUARRY_GOVERNED_SPATIAL_RENDER_AUTHORITY_DECISION.md
+      decision_sha256: 401fe42211e2d8283ea9ca2a7cfc1a1eaffc80ff13c63fdf9e6158a116eff50a
+      product_bridge:
+        repo: /docker/property
+        package: app.product
+        module: app.product.property_tour_hosting
+      privacy_lifecycle_intake_and_closeout:
+        repo: /docker/property
+        package: app.api.routes
+        module: app.api.routes.landing
+      enforcement_dependency: public_tour_payloads
+      revocation_and_deletion_execution_dependency: property_tour_hosting
+      chummer_authority: record_only_cannot_assign_implement_authorize_or_act
+      implementation_state: blocked_pending_numeric_product_policy_and_independent_re_review
+  quota_state_model:
+    compose_path:
+      - audit_only
+    build_path:
+      - authorization_verified
+      - reservation_held
+      - attempt_committed
+      - charge_pending
+      - consumed
+      - closed_consumed
+    pre_commit_exit:
+      - reservation_held
+      - released
+    cancellation_after_commit:
+      - cancelled_reconciliation_pending
+      - charge_pending
+    compensation_path:
+      - consumed
+      - compensation_pending
+      - compensated
+    compensation_failure_path:
+      - consumed
+      - compensation_pending
+      - compensation_failed_blocked
+    rules:
+      - Compose never enters the build quota state machine.
+      - Generic blocked is pre-execution and carries no reservation, attempt, mutation, consumption, or compensation lineage.
+      - Cancellation before provider commit releases the reservation.
+      - Cancellation after provider commit never assumes a refund; authoritative charge or refund evidence decides the next state.
+      - Default maximum attempts is 1 and the contract maximum is 2.
+      - Attempt number 0 means no provider attempt; the only billable attempt ordinals are 1 and 2.
+      - Every retry uses a unique job-and-attempt mutation token inside the original authorization and idempotency scope.
+      - Every build lifecycle state retains the original scope, key, normalized request, composition, authorization binding, and non-null original authorization fields even after capability, authorization, route, or quota posture becomes blocked or revoked.
+      - Compensation failure is a blocked build-lifecycle terminal, never generic pre-execution blocked; it keeps complete execution lineage and cannot use build_allowed or route_allowed posture.
+  fail_closed_conditions:
+    - missing_or_invalid_signature
+    - floating_point_non_finite_or_unsafe_integer_value
+    - missing_issued_at_or_expires_at
+    - expired_receipt_or_reference
+    - revoked_receipt_route_or_gate
+    - wrong_artifact_family_or_content_profile
+    - wrong_environment
+    - provider_route_digest_mismatch
+    - gate_version_mismatch
+    - evidence_ref_missing_stale_or_hash_mismatched
+    - quota_or_kill_switch_snapshot_older_than_5_minutes
+    - consumer_authorization_missing_expired_revoked_or_older_than_15_minutes_at_build_start
+    - reservation_lease_expired_or_older_than_30_minutes
+    - attempts_outside_0_to_2
+    - attempted_state_attempt_number_exceeds_authorization_maximum_provider_attempts
+    - missing_or_mutated_build_scope_key_request_composition_or_authorization_binding
+    - authorization_binding_digest_mismatch
+    - idempotency_key_reused_with_different_digest
+    - retry_or_compensation_bound_to_different_original_authorization
+    - duplicate_compensation
+    - compensation_failed_terminal_missing_lineage_or_blocked_posture
+    - optimistic_refund_without_authoritative_evidence
+    - unknown_mismatched_revoked_not_yet_valid_or_expired_signing_key
+    - receipt_expiry_exceeds_signing_key_expiry
+    - ed25519_signature_or_rfc8785_jcs_digest_mismatch
+    - compose_attempted_to_enqueue_reserve_consume_or_project_ready
+    - provider_name_url_task_account_credential_balance_or_raw_trace_in_product_projection
+    - environment_variable_provider_name_historical_handoff_or_prose_used_as_readiness_evidence
+  fail_closed_projection: unverified_or_blocked
+  readiness_rule: >-
+    Verified capability is not artifact ready. Ready additionally requires a
+    separately authorized idempotent build, accepted immutable output manifest,
+    privacy/provenance/content/spatial/browser/accessibility receipts, current
+    audience and rights, and Registry publication when public. This schema
+    never emits ready.

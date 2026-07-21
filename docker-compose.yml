@@ -44,6 +44,9 @@ services:
       dockerfile: ea/Dockerfile
     image: ea-runtime:latest
     container_name: ea-api
+    entrypoint: ["/bin/sh", "-ec", "umask 0007; exec /usr/local/bin/docker-entrypoint.sh \"$@\"", "--"]
+    command: ["python", "-m", "app.runner"]
+    group_add: ["1000"]
     restart: unless-stopped
     mem_limit: 4g
     mem_reservation: 1g
@@ -58,8 +61,12 @@ services:
       - EA_PORT=8090
       - EA_ASSISTANT_OWNER_LABEL=${EA_ASSISTANT_OWNER_LABEL:-the principal}
       - EA_API_TOKEN=${EA_API_TOKEN:-}
-      - EA_TRUST_API_TOKEN_PRINCIPAL_HEADER=${EA_TRUST_API_TOKEN_PRINCIPAL_HEADER:-1}
+      - EA_TRUST_API_TOKEN_PRINCIPAL_HEADER=${EA_TRUST_API_TOKEN_PRINCIPAL_HEADER:-0}
       - EA_ALLOW_LOOPBACK_NO_AUTH=${EA_ALLOW_LOOPBACK_NO_AUTH:-0}
+      # CodexEA's authenticated /v1/responses, status and profile contract.
+      # Bind the shared token to a server-configured identity; never accept the
+      # caller's X-EA-Principal-ID as the identity source in production.
+      - EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID=${EA_DEFAULT_PRINCIPAL_ID:-}
       - EA_ENABLE_LEGACY_RUNTIME_SURFACES=${EA_ENABLE_LEGACY_RUNTIME_SURFACES:-1}
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
@@ -74,12 +81,13 @@ services:
       - EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED=${EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED:-1}
       - EA_AUDIOBOOK_DURABLE_STORAGE_ROOT=${EA_AUDIOBOOK_DURABLE_STORAGE_ROOT:-/data/audiobooks}
       - EA_AUDIOBOOK_JOBS_ROOT=${EA_AUDIOBOOK_JOBS_ROOT:-/data/audiobooks/jobs}
+      - EA_AUDIOBOOK_CANARY_RECEIPT_HMAC_KEY=${EA_AUDIOBOOK_CANARY_RECEIPT_HMAC_KEY:-}
       - EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED=${EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED:-1}
       - EA_AUDIOBOOK_UNMIXR_AUTO_RENDER=${EA_AUDIOBOOK_UNMIXR_AUTO_RENDER:-1}
       - EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST:-1800}
       - EA_AUDIOBOOK_CINEMATIC_NARRATION=${EA_AUDIOBOOK_CINEMATIC_NARRATION:-1}
-      - EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS=${EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS:-1}
-      - EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST:-50000}
+      - EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS=${EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS:-0}
+      - EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST:-1800}
       - EA_AUDIOBOOK_EBOOK_CONVERT_BIN=${EA_AUDIOBOOK_EBOOK_CONVERT_BIN:-ebook-convert}
       - EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS=${EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS:-900}
       - EA_GEMINI_VORTEX_CONFIG_DIR=${EA_GEMINI_VORTEX_CONFIG_DIR:-/run/ea-gemini-cli-config}
@@ -128,31 +136,10 @@ services:
       - ${EA_GEMINI_VORTEX_CONFIG_HOST_DIR:-/home/tibor/.gemini}:/run/ea-gemini-cli-config:ro
       - ./.codex-design:/app/.codex-design:ro
       - ./.codex-studio:/app/.codex-studio:ro
-      - ./Dockerfile:/app/Dockerfile:ro
-      - ./ea/Dockerfile:/app/Dockerfile.ea:ro
-      - ./ea/Dockerfile.operator:/app/Dockerfile.operator:ro
-      - ./ea/requirements.txt:/app/requirements.txt:ro
-      - ./ea/requirements.lock:/app/requirements.lock:ro
-      - ./ea/app/runner.py:/app/app/runner.py:ro
-      - ./ea/app/api/routes:/app/app/api/routes:ro
-      - ./ea/app/api/routes/channels.py:/app/app/api/routes/channels.py:ro
-      - ./ea/app/api/routes/health.py:/app/app/api/routes/health.py:ro
-      - ./ea/app/api/routes/responses.py:/app/app/api/routes/responses.py:ro
-      - ./ea/app/api/routes/responses_local_fleet_runtime.py:/app/app/api/routes/responses_local_fleet_runtime.py:ro
-      - ./ea/app/api/routes/responses_tool_runtime.py:/app/app/api/routes/responses_tool_runtime.py:ro
-      - ./ea/app/services:/app/app/services:ro
-      - ./ea/app/templates/admin_memorial_gold.html:/app/app/templates/admin_memorial_gold.html:ro
-      - ./ea/app/services/audiobook_epub_pipeline.py:/app/app/services/audiobook_epub_pipeline.py:ro
-      - ./ea/app/product/service.py:/app/app/product/service.py:ro
-      - ./scripts/verify_deploy_context.py:/app/scripts/verify_deploy_context.py:ro
-      - ./scripts/verify_runtime_supply_chain.py:/app/scripts/verify_runtime_supply_chain.py:ro
-      - ./scripts/ea_live_ops.py:/app/scripts/ea_live_ops.py:ro
-      - ./scripts/materialize_release_authority_status.py:/app/scripts/materialize_release_authority_status.py:ro
-      - ./scripts/materialize_whatsapp_web_action_processor_readiness.py:/app/scripts/materialize_whatsapp_web_action_processor_readiness.py:ro
-      - ./docker-compose.whatsapp-web-session.yml:/app/docker-compose.whatsapp-web-session.yml:ro
-      - ./ea/app/services/whatsapp_delivery_router.py:/app/app/services/whatsapp_delivery_router.py:ro
-      - ./ea/app/services/whatsapp_inbound_actions.py:/app/app/services/whatsapp_inbound_actions.py:ro
-      - ./ea/app/services/whatsapp_web_session_delivery.py:/app/app/services/whatsapp_web_session_delivery.py:ro
+      # Mount one coherent source tree. Partial file overlays allowed stale
+      # image modules and live modules to diverge after a restart.
+      - ./ea/app:/app/app:ro
+      - ./scripts:/app/scripts:ro
       - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
       - ${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:-./data/pocket-ai-audio}:/data/pocket-ai-audio
       - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
@@ -184,6 +171,8 @@ services:
   ea-responses-proxy:
     image: ea-runtime:latest
     container_name: ea-responses-proxy
+    entrypoint: ["/bin/sh", "-ec", "umask 0007; exec /usr/local/bin/docker-entrypoint.sh \"$@\"", "--"]
+    group_add: ["1000"]
     restart: unless-stopped
     mem_limit: 2g
     mem_reservation: 512m
@@ -216,17 +205,8 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
-      - ./ea/app/api/routes:/app/app/api/routes:ro
-      - ./ea/app/api/routes/responses.py:/app/app/api/routes/responses.py:ro
-      - ./ea/app/api/routes/responses_local_fleet_runtime.py:/app/app/api/routes/responses_local_fleet_runtime.py:ro
-      - ./ea/app/api/routes/responses_tool_runtime.py:/app/app/api/routes/responses_tool_runtime.py:ro
-      - ./ea/app/services:/app/app/services:ro
-      - ./ea/app/services/audiobook_epub_pipeline.py:/app/app/services/audiobook_epub_pipeline.py:ro
-      - ./ea/app/services/whatsapp_delivery_outbox.py:/app/app/services/whatsapp_delivery_outbox.py:ro
-      - ./ea/app/services/whatsapp_delivery_router.py:/app/app/services/whatsapp_delivery_router.py:ro
-      - ./ea/app/services/whatsapp_inbound_actions.py:/app/app/services/whatsapp_inbound_actions.py:ro
-      - ./ea/app/services/whatsapp_web_session_delivery.py:/app/app/services/whatsapp_web_session_delivery.py:ro
-      - ./ea/app/services/whatsapp_web_session_readiness.py:/app/app/services/whatsapp_web_session_readiness.py:ro
+      - ./ea/app:/app/app:ro
+      - ./scripts:/app/scripts:ro
       - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
       - ${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:-./data/pocket-ai-audio}:/data/pocket-ai-audio
       - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
@@ -245,8 +225,8 @@ services:
       - /tmp
       - /run
     command:
-      - python
-      - /app/scripts/ea_responses_proxy.py
+      - /bin/sh
+      - /app/scripts/ea_responses_proxy_start_guard.sh
     healthcheck:
       test:
         - CMD-SHELL
@@ -264,7 +244,12 @@ services:
       dockerfile: ea/Dockerfile
     image: ea-runtime:latest
     container_name: ea-worker
+    entrypoint: ["/bin/sh", "-ec", "umask 0007; exec /usr/local/bin/docker-entrypoint.sh \"$@\"", "--"]
+    command: ["python", "-m", "app.runner"]
+    group_add: ["1000"]
     restart: unless-stopped
+    mem_limit: 2g
+    mem_reservation: 512m
     cpu_shares: ${EA_WORKER_CPU_SHARES:-128}
     cpus: ${EA_WORKER_CPUS:-0.75}
     env_file:
@@ -283,12 +268,13 @@ services:
       - EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED=${EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED:-1}
       - EA_AUDIOBOOK_DURABLE_STORAGE_ROOT=${EA_AUDIOBOOK_DURABLE_STORAGE_ROOT:-/data/audiobooks}
       - EA_AUDIOBOOK_JOBS_ROOT=${EA_AUDIOBOOK_JOBS_ROOT:-/data/audiobooks/jobs}
+      - EA_AUDIOBOOK_CANARY_RECEIPT_HMAC_KEY=${EA_AUDIOBOOK_CANARY_RECEIPT_HMAC_KEY:-}
       - EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED=${EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED:-1}
       - EA_AUDIOBOOK_UNMIXR_AUTO_RENDER=${EA_AUDIOBOOK_UNMIXR_AUTO_RENDER:-1}
       - EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST:-1800}
       - EA_AUDIOBOOK_CINEMATIC_NARRATION=${EA_AUDIOBOOK_CINEMATIC_NARRATION:-1}
-      - EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS=${EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS:-1}
-      - EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST:-50000}
+      - EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS=${EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS:-0}
+      - EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST:-1800}
       - EA_AUDIOBOOK_EBOOK_CONVERT_BIN=${EA_AUDIOBOOK_EBOOK_CONVERT_BIN:-ebook-convert}
       - EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS=${EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS:-900}
       - EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED=${EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED:-1}
@@ -326,13 +312,7 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
-      - ./ea/app/runner.py:/app/app/runner.py:ro
-      - ./ea/app/services/audiobook_epub_pipeline.py:/app/app/services/audiobook_epub_pipeline.py:ro
-      - ./ea/app/services/whatsapp_delivery_outbox.py:/app/app/services/whatsapp_delivery_outbox.py:ro
-      - ./ea/app/services/whatsapp_delivery_router.py:/app/app/services/whatsapp_delivery_router.py:ro
-      - ./ea/app/services/whatsapp_inbound_actions.py:/app/app/services/whatsapp_inbound_actions.py:ro
-      - ./ea/app/services/whatsapp_web_session_delivery.py:/app/app/services/whatsapp_web_session_delivery.py:ro
-      - ./ea/app/services/whatsapp_web_session_readiness.py:/app/app/services/whatsapp_web_session_readiness.py:ro
+      - ./ea/app:/app/app:ro
       - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
       - ${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:-./data/pocket-ai-audio}:/data/pocket-ai-audio
       - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
@@ -366,7 +346,12 @@ services:
       dockerfile: ea/Dockerfile
     image: ea-runtime:latest
     container_name: ea-scheduler
+    entrypoint: ["/bin/sh", "-ec", "umask 0007; exec /usr/local/bin/docker-entrypoint.sh \"$@\"", "--"]
+    command: ["python", "-m", "app.runner"]
+    group_add: ["1000"]
     restart: unless-stopped
+    mem_limit: 2g
+    mem_reservation: 512m
     cpu_shares: ${EA_SCHEDULER_CPU_SHARES:-128}
     cpus: ${EA_SCHEDULER_CPUS:-0.75}
     env_file:
@@ -388,12 +373,13 @@ services:
       - EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED=${EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED:-1}
       - EA_AUDIOBOOK_DURABLE_STORAGE_ROOT=${EA_AUDIOBOOK_DURABLE_STORAGE_ROOT:-/data/audiobooks}
       - EA_AUDIOBOOK_JOBS_ROOT=${EA_AUDIOBOOK_JOBS_ROOT:-/data/audiobooks/jobs}
+      - EA_AUDIOBOOK_CANARY_RECEIPT_HMAC_KEY=${EA_AUDIOBOOK_CANARY_RECEIPT_HMAC_KEY:-}
       - EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED=${EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED:-1}
       - EA_AUDIOBOOK_UNMIXR_AUTO_RENDER=${EA_AUDIOBOOK_UNMIXR_AUTO_RENDER:-1}
       - EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST:-1800}
       - EA_AUDIOBOOK_CINEMATIC_NARRATION=${EA_AUDIOBOOK_CINEMATIC_NARRATION:-1}
-      - EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS=${EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS:-1}
-      - EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST:-50000}
+      - EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS=${EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS:-0}
+      - EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST:-1800}
       - EA_AUDIOBOOK_EBOOK_CONVERT_BIN=${EA_AUDIOBOOK_EBOOK_CONVERT_BIN:-ebook-convert}
       - EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS=${EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS:-900}
       - EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED=${EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED:-1}
@@ -435,17 +421,12 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
-      - ./ea/app/runner.py:/app/app/runner.py:ro
-      - ./ea/app/services/audiobook_epub_pipeline.py:/app/app/services/audiobook_epub_pipeline.py:ro
-      - ./ea/app/services/whatsapp_delivery_outbox.py:/app/app/services/whatsapp_delivery_outbox.py:ro
-      - ./ea/app/services/whatsapp_delivery_router.py:/app/app/services/whatsapp_delivery_router.py:ro
-      - ./ea/app/services/whatsapp_inbound_actions.py:/app/app/services/whatsapp_inbound_actions.py:ro
-      - ./ea/app/services/whatsapp_web_session_delivery.py:/app/app/services/whatsapp_web_session_delivery.py:ro
-      - ./ea/app/services/whatsapp_web_session_readiness.py:/app/app/services/whatsapp_web_session_readiness.py:ro
+      - ./ea/app:/app/app:ro
       - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
       - ${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:-./data/pocket-ai-audio}:/data/pocket-ai-audio
       - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
       - ${EA_AUDIOBOOK_JOBS_HOST_ROOT:-./data/audiobooks/jobs}:/data/audiobooks/jobs
+      - ${EA_AUDIOBOOKSHELF_IMPORT_HOST_ROOT:-./data/audiobooks/audiobookshelf}:/data/audiobooks/audiobookshelf
       - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
     pids_limit: 512
@@ -470,6 +451,8 @@ services:
   ea-proactive-ooda:
     image: ea-runtime:latest
     container_name: ea-proactive-ooda
+    entrypoint: ["/bin/sh", "-ec", "umask 0007; exec /usr/local/bin/docker-entrypoint.sh \"$@\"", "--"]
+    group_add: ["1000"]
     restart: unless-stopped
     env_file:
       - .env
@@ -510,21 +493,23 @@ services:
       - /bin/sh
       - -ec
       - |
+        failures=0
         while :; do
           if [ "$${EA_PROACTIVE_OODA_ENABLED:-0}" = "1" ]; then
-            python /app/scripts/run_proactive_ooda.py || true
+            if python /app/scripts/run_proactive_ooda.py; then
+              failures=0
+            else
+              failures=$$((failures + 1))
+              if [ "$${failures}" -ge 3 ]; then
+                echo "proactive OODA failed three consecutive runs; exiting for supervised restart" >&2
+                exit 1
+              fi
+            fi
           fi
           sleep "$${EA_PROACTIVE_OODA_INTERVAL_SECONDS:-900}"
         done
     healthcheck:
-      test:
-        - CMD-SHELL
-        - >
-          if [ "$${EA_PROACTIVE_OODA_ENABLED:-0}" = "1" ]; then
-            python /app/scripts/verify_proactive_ooda_live_receipt.py;
-          else
-            python -c "import pathlib; p=pathlib.Path('/app/scripts/run_proactive_ooda.py'); raise SystemExit(0 if p.exists() else 1)";
-          fi
+      test: ["CMD-SHELL", "kill -0 1 && test -r /app/scripts/run_proactive_ooda.py"]
       interval: 2m
       start_period: 2m
       timeout: 10s
@@ -598,8 +583,10 @@ services:
     image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
     container_name: ea-db
     restart: unless-stopped
-    env_file:
-      - .env
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-ea}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     mem_limit: 2g
     mem_reservation: 512m
     volumes:

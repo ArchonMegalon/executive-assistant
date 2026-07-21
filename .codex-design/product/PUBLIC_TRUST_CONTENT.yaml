@@ -4,17 +4,17 @@ version: 1
 trust_pages:
   - id: help
     eyebrow: "Help"
-    heading: "Get help without guessing"
-    intro: "Pick the closest path. Keep public ideas, private bugs, and downloads separate."
+    heading: "What is wrong?"
+    intro: "Pick the next step."
     effective_date: "2026-03-25"
     updated_date: "2026-03-25"
     summary_points:
-      - "First-party help comes first"
-      - "Support is separate from participation"
+      - "Start with the right door"
+      - "Private help stays private"
       - "Downloads and setup stay clear"
     actions:
-      - label: "Open support"
-        href: "/contact#support-intake"
+      - label: "Open contact"
+        href: "/contact"
         tone: primary
       - label: "Open downloads"
         href: "/downloads"
@@ -26,7 +26,7 @@ trust_pages:
       - id: install-update
         eyebrow: "Install or update"
         heading: "Downloads"
-        body: "Get the current public build."
+        body: "Get the current build or the Linux source script."
         bullets:
           - "Stable for normal use."
           - "Source build for Linux users who want to compile it themselves."
@@ -39,15 +39,15 @@ trust_pages:
           - "Claim only when you want recovery."
       - id: product-bug
         eyebrow: "Bug report"
-        heading: "Private support"
-        body: "Use Contact when logs, screenshots, crash details, or account details are involved."
+        heading: "Contact"
+        body: "Use Discord for normal questions, confusing behavior, and quick feedback."
         bullets:
-          - "One issue per message."
-          - "Discord is better for normal questions."
+          - "The Chummer community is already there."
+          - "Keep account details out of public chat."
       - id: product-question
         eyebrow: "Product question"
         heading: "FAQ"
-        body: "Read the short answers before opening a support case."
+        body: "Read the short answers first."
         bullets:
           - "No account needed."
           - "Support stays private."
@@ -60,7 +60,7 @@ trust_pages:
     summary_points:
       - "The download file stays the same for everyone"
       - "Your account stores sign-in and help history"
-      - "Raw secret keys stay out of your account record"
+      - "Passwords and access keys stay out of your account record"
     actions:
       - label: "Open account"
         href: "/account"
@@ -68,8 +68,8 @@ trust_pages:
       - label: "Read terms"
         href: "/terms"
         tone: secondary
-      - label: "Open support"
-        href: "/contact#support-intake"
+      - label: "Open contact"
+        href: "/contact"
         tone: ghost
     sections:
       - id: hosted-account
@@ -82,8 +82,8 @@ trust_pages:
         body: "When Chummer publishes a download, everyone gets the same file. Chummer does not build a private installer just for your account. If account linking is available, the account step is a short-lived code that reconnects a local copy back to your account."
       - id: not-in-hub
         eyebrow: "What stays out"
-        heading: "Temporary sign-in tokens and raw secrets stay out of your account record"
-        body: "Short-lived third-party tokens stay on the machine or service using them. Your account keeps consent, help history, and access records, not raw secret keys."
+        heading: "Short-lived sign-in access stays out of your account record"
+        body: "Short-lived third-party access stays on the machine or service using it. Your account keeps consent, help history, and access records, not passwords or access keys."
       - id: recognition-privacy
         eyebrow: "Privacy and recognition"
         heading: "Recognition should not force publicity"
@@ -122,37 +122,25 @@ trust_pages:
         body: "Public downloads should match what is honestly available right now. If a regular installer exists later, it becomes the normal path, while manual packages stay as fallback for edge cases or support-directed setup."
   - id: contact
     eyebrow: "Contact"
-    heading: "Contact Chummer"
-    intro: "For normal questions, reach me on Discord in the Chummer5 server. Use the form only for private install trouble, crashes, logs, or account detail."
+    heading: "Contact"
+    intro: "Use the Chummer5 Discord server. Keep private details out of public comments."
     effective_date: "2026-03-25"
     updated_date: "2026-03-25"
     summary_points:
-      - "Discord first"
-      - "Private form for logs"
-      - "Account history when needed"
+      - "Discord for normal questions"
+      - "Quick feedback belongs there too"
     actions:
       - label: "Open Discord"
         href: "https://discord.gg/chummer"
         tone: primary
-      - label: "Private support"
-        href: "/contact#support-intake"
-        tone: secondary
       - label: "Read help first"
         href: "/help"
-        tone: ghost
+        tone: secondary
     sections:
       - id: discord
         eyebrow: "Discord"
         heading: "Use the Chummer5 server for normal contact"
-        body: "Questions, quick feedback, and normal discussion belong in Discord where the Chummer community already is."
-      - id: tracked-support
-        eyebrow: "Private"
-        heading: "Use the form only when Discord is the wrong place"
-        body: "Install failures, crashes, screenshots, logs, or account details should stay private. The form is for those cases."
-      - id: public-issues
-        eyebrow: "Public feedback"
-        heading: "Use Participate for roadmap items"
-        body: "Ideas and public UX feedback should go to Participate, not the private support form."
+        body: "Questions, quick feedback, and normal discussion belong in Discord where the Chummer community already is. Private details stay out of public comments."
 faq_pages:
   - id: faq
     eyebrow: "FAQ"
@@ -162,8 +150,8 @@ faq_pages:
       - label: "Open downloads"
         href: "/downloads"
         tone: primary
-      - label: "Open support"
-        href: "/contact#support-intake"
+      - label: "Open contact"
+        href: "/contact"
         tone: secondary
       - label: "Claim your copy"
         href: "/signup?next=/home"
@@ -184,10 +172,12 @@ faq_pages:
           - question: "Does the account change the download file?"
             answer: "No. The published package stays the same for everyone. Account linking is separate from the file itself."
           - question: "Where do I go if install or update goes sideways?"
-            answer: "Start with Downloads, then use Contact or Account > Support. Public issue threads are optional and not the default help door."
+            answer: "Start with Downloads, then use Discord through Contact if you still need a human answer."
       - title: "Participation and help"
         entries:
+          - question: "What went wrong?"
+            answer: "Use Contact to reach the Chummer5 Discord server."
           - question: "Do I need to participate to help or report a bug?"
-            answer: "No. Support and feedback stand on their own. Participation is optional and separate from the normal customer help path."
+            answer: "No. You can get help without using Participate."
           - question: "Can I get help without another account?"
-            answer: "Yes. Use Discord for normal questions and Contact for private details. Claim your copy only when recovery matters."
+            answer: "Yes. Use Discord through Contact. Claim your copy only when recovery matters."

@@ -184,6 +184,35 @@ def _effective_proxy_settings() -> dict[str, str]:
     if "EA_UI_BROWSER_PROXY_SERVER" not in values and _sidecar_running("ea-fastestvpn-proxy"):
         proxy_port = str(os.environ.get("FASTESTVPN_PROXY_PORT") or "3128").strip() or "3128"
         values["EA_UI_BROWSER_PROXY_SERVER"] = f"http://ea-fastestvpn-proxy:{proxy_port}"
+    live_pool: list[str] = []
+    dead_services: list[str] = []
+    for proxy_url in _browser_proxy_pool(values):
+        service_name = _proxy_service_name_for_url(proxy_url)
+        if service_name and not _sidecar_running(service_name):
+            dead_services.append(service_name)
+            continue
+        if proxy_url not in live_pool:
+            live_pool.append(proxy_url)
+    explicit_server = str(values.get("EA_UI_BROWSER_PROXY_SERVER") or "").strip()
+    explicit_service_name = _proxy_service_name_for_url(explicit_server)
+    if explicit_service_name and not _sidecar_running(explicit_service_name):
+        dead_services.append(explicit_service_name)
+        explicit_server = ""
+    if live_pool:
+        values["EA_UI_BROWSER_PROXY_POOL"] = ",".join(live_pool)
+        values["EA_UI_BROWSER_PROXY_SERVER"] = explicit_server if explicit_server in live_pool else live_pool[0]
+    else:
+        values.pop("EA_UI_BROWSER_PROXY_POOL", None)
+        if explicit_server:
+            values["EA_UI_BROWSER_PROXY_SERVER"] = explicit_server
+        else:
+            values["EA_UI_BROWSER_PROXY_SERVER"] = "direct://"
+    if dead_services:
+        values["EA_UI_BROWSER_PROXY_DEAD_SERVICES"] = ",".join(
+            sorted(dict.fromkeys(service for service in dead_services if service))
+        )
+    else:
+        values.pop("EA_UI_BROWSER_PROXY_DEAD_SERVICES", None)
     return values
 
 
@@ -202,6 +231,11 @@ def _proxy_service_name_for_url(proxy_url: str) -> str:
     if host.startswith("ea-fastestvpn-proxy"):
         return host
     return ""
+
+
+def _proxy_server_is_direct(proxy_url: object) -> bool:
+    normalized = str(proxy_url or "").strip().lower()
+    return normalized in {"", "direct://", "direct", "none", "off", "disabled"}
 
 
 def _account_proxy_settings(account_label: str, *, retry_offset: int = 0) -> dict[str, str]:
@@ -402,6 +436,80 @@ def _persist_snapshot_via_ea_api(record: AccountRecord, *, normalized: dict[str,
     return snapshot, ""
 
 
+def _persist_normalized_snapshot(record: AccountRecord, *, normalized: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
+    persisted_snapshot = None
+    persisted_error = ""
+    try:
+        persisted_snapshot, persisted_error = _persist_snapshot_via_ea_api(
+            record,
+            normalized=normalized,
+        )
+        if persisted_snapshot is None:
+            persisted_snapshot = upstream.record_onemin_billing_snapshot(
+                account_name=record.account_label,
+                snapshot_json=normalized,
+                source="browseract.onemin_billing_usage.fastestvpn_refresh",
+            )
+            if persisted_error:
+                persisted_error = f"{persisted_error}; local_process_fallback"
+    except Exception as exc:  # pragma: no cover - best effort state sync
+        persisted_error = str(exc)
+    return persisted_snapshot, persisted_error
+
+
+def _recovered_partial_refresh_result(
+    record: AccountRecord,
+    *,
+    response: dict[str, Any],
+    duration_seconds: float,
+    worker_returncode: int,
+    proxy_values: dict[str, str],
+    recovery_reason: str,
+) -> dict[str, Any] | None:
+    try:
+        normalized = BrowserActToolAdapter._normalize_onemin_billing_payload(
+            response=dict(response or {}),
+            source_url=DEFAULT_PAGE_URL,
+            account_label=record.account_label,
+        )
+    except Exception:
+        return None
+    if str(normalized.get("basis") or "").strip() == "page_seen_but_unparsed":
+        return None
+    if normalized.get("remaining_credits") is None:
+        return None
+    persisted_snapshot, persisted_error = _persist_normalized_snapshot(record, normalized=normalized)
+    warnings = [str(item or "").strip() for item in list(response.get("warnings") or []) if str(item or "").strip()]
+    recovery_marker = f"recovered_from_{str(recovery_reason or 'partial_output').strip()}"
+    if recovery_marker not in warnings:
+        warnings.append(recovery_marker)
+    return {
+        "account_label": record.account_label,
+        "owner_email": record.owner_email,
+        "status": "ok",
+        "failure_code": "",
+        "duration_seconds": duration_seconds,
+        "worker_returncode": worker_returncode,
+        "remaining_credits": normalized.get("remaining_credits"),
+        "max_credits": normalized.get("max_credits"),
+        "plan_name": normalized.get("plan_name"),
+        "billing_cycle": normalized.get("billing_cycle"),
+        "subscription_status": normalized.get("subscription_status"),
+        "daily_bonus_available": normalized.get("daily_bonus_available"),
+        "daily_bonus_credits": normalized.get("daily_bonus_credits"),
+        "basis": normalized.get("basis"),
+        "result_url": str(response.get("editor_url") or response.get("source_url") or ""),
+        "asset_path": str(response.get("asset_path") or ""),
+        "screenshot_path": str(response.get("screenshot_path") or ""),
+        "warnings": warnings,
+        "persisted_snapshot": persisted_snapshot,
+        "persisted_error": persisted_error,
+        "recovery_reason": str(recovery_reason or "").strip(),
+        "proxy_server": str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVER") or ""),
+        "proxy_service_name": str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVICE_NAME") or ""),
+    }
+
+
 def _rotate_proxy(*, service_name: str = "") -> dict[str, Any]:
     start = time.time()
     command = [str(ROTATE_SCRIPT)]
@@ -456,15 +564,33 @@ def _run_account(record: AccountRecord, *, timeout_seconds: int, proxy_retry_off
     packet_path.write_text(json.dumps(packet), encoding="utf-8")
 
     started = time.time()
-    completed = subprocess.run(
-        [sys.executable, str(WORKER_SCRIPT), "--packet-path", str(packet_path)],
-        cwd=str(ROOT),
-        env=_effective_worker_env(),
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=max(timeout_seconds + 30, 60),
-    )
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(WORKER_SCRIPT), "--packet-path", str(packet_path)],
+            cwd=str(ROOT),
+            env=_effective_worker_env(),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=max(timeout_seconds + 60, 90),
+        )
+    except subprocess.TimeoutExpired as exc:
+        duration_seconds = round(time.time() - started, 3)
+        response: dict[str, Any] | None = None
+        if output_path.exists():
+            try:
+                loaded = json.loads(output_path.read_text(encoding="utf-8"))
+            except Exception:
+                loaded = None
+            if isinstance(loaded, dict):
+                response = loaded
+        return _timed_out_worker_result(
+            record,
+            exc=exc,
+            duration_seconds=duration_seconds,
+            proxy_values=proxy_values,
+            response=response,
+        )
     duration_seconds = round(time.time() - started, 3)
     response: dict[str, Any] | None = None
     if output_path.exists():
@@ -506,6 +632,16 @@ def _run_account(record: AccountRecord, *, timeout_seconds: int, proxy_retry_off
         worker_returncode=completed.returncode,
     )
     if failed_response is not None:
+        recovered = _recovered_partial_refresh_result(
+            record,
+            response=response,
+            duration_seconds=duration_seconds,
+            worker_returncode=completed.returncode,
+            proxy_values=proxy_values,
+            recovery_reason=str(failed_response.get("failure_code") or "worker_failed"),
+        )
+        if recovered is not None:
+            return recovered
         failed_response["proxy_server"] = str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVER") or "")
         failed_response["proxy_service_name"] = str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVICE_NAME") or "")
         return failed_response
@@ -519,23 +655,7 @@ def _run_account(record: AccountRecord, *, timeout_seconds: int, proxy_retry_off
             source_url=DEFAULT_PAGE_URL,
             account_label=record.account_label,
         )
-        persisted_snapshot = None
-        persisted_error = ""
-        try:
-            persisted_snapshot, persisted_error = _persist_snapshot_via_ea_api(
-                record,
-                normalized=normalized,
-            )
-            if persisted_snapshot is None:
-                persisted_snapshot = upstream.record_onemin_billing_snapshot(
-                    account_name=record.account_label,
-                    snapshot_json=normalized,
-                    source="browseract.onemin_billing_usage.fastestvpn_refresh",
-                )
-                if persisted_error:
-                    persisted_error = f"{persisted_error}; local_process_fallback"
-        except Exception as exc:  # pragma: no cover - best effort state sync
-            persisted_error = str(exc)
+        persisted_snapshot, persisted_error = _persist_normalized_snapshot(record, normalized=normalized)
         basis = str(normalized.get("basis") or "").strip()
         if basis == "page_seen_but_unparsed" or normalized.get("remaining_credits") is None:
             return {
@@ -588,6 +708,16 @@ def _run_account(record: AccountRecord, *, timeout_seconds: int, proxy_retry_off
             "proxy_service_name": str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVICE_NAME") or ""),
         }
     except ToolExecutionError as exc:
+        recovered = _recovered_partial_refresh_result(
+            record,
+            response=dict(response or {}),
+            duration_seconds=duration_seconds,
+            worker_returncode=completed.returncode,
+            proxy_values=proxy_values,
+            recovery_reason=_failure_code_from_exception(exc),
+        )
+        if recovered is not None:
+            return recovered
         return {
             "account_label": record.account_label,
             "owner_email": record.owner_email,
@@ -625,6 +755,24 @@ def _processed_account_labels(summary: dict[str, Any]) -> set[str]:
     return labels
 
 
+def _can_retry_failed_account(result: dict[str, Any], *, summary: dict[str, Any]) -> bool:
+    proxy_service_name = str(result.get("proxy_service_name") or "").strip()
+    if proxy_service_name:
+        return True
+    current_proxy = str(result.get("proxy_server") or summary.get("proxy_server") or "").strip()
+    if _proxy_server_is_direct(current_proxy):
+        return False
+    proxy_pool = [
+        str(value or "").strip()
+        for value in list(summary.get("proxy_pool") or [])
+        if str(value or "").strip()
+    ]
+    non_direct_pool = [value for value in proxy_pool if not _proxy_server_is_direct(value)]
+    current_in_pool = current_proxy in non_direct_pool
+    alternate_proxy_count = len(non_direct_pool) - (1 if current_in_pool else 0)
+    return alternate_proxy_count > 0
+
+
 def _account_exception_result(record: AccountRecord, *, attempts: int, exc: Exception) -> dict[str, Any]:
     failure_code = "timeout" if isinstance(exc, subprocess.TimeoutExpired) else "unexpected_exception"
     result: dict[str, Any] = {
@@ -644,6 +792,40 @@ def _account_exception_result(record: AccountRecord, *, attempts: int, exc: Exce
             result["stdout_tail"] = stdout_text[-4000:]
         if stderr_text:
             result["stderr_tail"] = stderr_text[-4000:]
+    return result
+
+
+def _timed_out_worker_result(
+    record: AccountRecord,
+    *,
+    exc: subprocess.TimeoutExpired,
+    duration_seconds: float,
+    proxy_values: dict[str, str],
+    response: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    result = _account_exception_result(record, attempts=1, exc=exc)
+    result["duration_seconds"] = duration_seconds
+    result["proxy_server"] = str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVER") or "")
+    result["proxy_service_name"] = str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVICE_NAME") or "")
+    normalized_response = dict(response or {}) if isinstance(response, dict) else {}
+    if normalized_response:
+        recovered = _recovered_partial_refresh_result(
+            record,
+            response=normalized_response,
+            duration_seconds=duration_seconds,
+            worker_returncode=1,
+            proxy_values=proxy_values,
+            recovery_reason="timeout",
+        )
+        if recovered is not None:
+            return recovered
+    if normalized_response:
+        result["asset_path"] = str(normalized_response.get("asset_path") or "")
+        result["screenshot_path"] = str(normalized_response.get("screenshot_path") or "")
+        result["warnings"] = list(normalized_response.get("warnings") or [])
+        error_text = _response_failure_detail(normalized_response)
+        if error_text:
+            result["worker_error"] = error_text[:4000]
     return result
 
 
@@ -690,6 +872,11 @@ def main() -> int:
         }
     summary["proxy_server"] = str(_effective_proxy_settings().get("EA_UI_BROWSER_PROXY_SERVER") or "").strip()
     summary["proxy_pool"] = _browser_proxy_pool()
+    summary["dead_proxy_services"] = [
+        str(value or "").strip()
+        for value in str(_effective_proxy_settings().get("EA_UI_BROWSER_PROXY_DEAD_SERVICES") or "").split(",")
+        if str(value or "").strip()
+    ]
     summary["worker_docker_network"] = str(_effective_worker_env().get("EA_UI_SERVICE_DOCKER_NETWORK") or "").strip()
     summary["rotate_every"] = args.rotate_every
     summary["retry_challenge"] = args.retry_challenge
@@ -723,15 +910,23 @@ def main() -> int:
                 break
             if attempts > args.retry_challenge:
                 break
+            if not _can_retry_failed_account(result, summary=summary):
+                break
             rotation = _rotate_proxy(service_name=rotation_service_name)
-            rotation["reason"] = f"{record.account_label}:{result.get('failure_code')}:retry"
-            summary["rotations"].append(rotation)
-            _write_summary(args.output_json, summary, started=started)
+            if rotation_service_name:
+                rotation["reason"] = f"{record.account_label}:{result.get('failure_code')}:retry"
+                summary["rotations"].append(rotation)
+                _write_summary(args.output_json, summary, started=started)
             time.sleep(max(args.pause_seconds, 1.0))
         assert result is not None
         summary["results"].append(result)
         _write_summary(args.output_json, summary, started=started)
-        if args.rotate_every > 0 and index < len(pending_accounts) and index % args.rotate_every == 0:
+        if (
+            args.rotate_every > 0
+            and rotation_service_name
+            and index < len(pending_accounts)
+            and index % args.rotate_every == 0
+        ):
             rotation = _rotate_proxy(service_name=rotation_service_name)
             rotation["reason"] = f"batch:{index}"
             summary["rotations"].append(rotation)

@@ -1,0 +1,37 @@
+[Unit]
+Description=Recover stale pCloud audiobook bind mounts without an AI janitor
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+User=tibor
+Group=tibor
+SupplementaryGroups=docker
+UMask=0077
+TimeoutStartSec=25min
+Environment=HOME=/tmp
+ExecStart=/docker/EA/scripts/audiobook_mount_guard.sh
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ReadOnlyPaths=/docker/EA /docker/audiobookshelf /mnt/pcloud
+ReadWritePaths=/docker/EA/data/audiobook-mount-guard
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryDenyWriteExecute=true

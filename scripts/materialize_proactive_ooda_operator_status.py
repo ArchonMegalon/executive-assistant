@@ -63,6 +63,12 @@ SOURCE_COVERAGE_LANE_CONTRACTS = {
 }
 NON_MATERIAL_ARTIFACT_FILTER_REASONS = {
     "single_official_info_link_not_decision_ready",
+    "transcript_signal_lacks_action_intent",
+    "flat_search_disabled_property_scout",
+    "flat_search_disabled",
+}
+NON_MATERIAL_ASSISTANT_GRADE_QUALITY_ISSUES = {
+    "single_official_info_link_not_decision_ready",
     "flat_search_disabled_property_scout",
     "flat_search_disabled",
 }
@@ -104,6 +110,111 @@ def _git_head(path: Path = ROOT) -> str:
 
 def _source_fingerprint(path: Path = ROOT) -> str:
     return resolve_source_worktree_fingerprint(path)
+
+
+def _status_rank(status: str) -> int:
+    normalized = str(status or "").strip()
+    return {
+        "ready_with_live_receipt": 5,
+        "ready_with_recovery_action": 4,
+        "ready_local_runtime": 3,
+        "deferred": 2,
+        "blocked_local_runtime": 1,
+        "blocked_delivery_route": 0,
+    }.get(normalized, -1)
+
+
+def _provider_cost_pressure_checked(payload: Mapping[str, Any] | None) -> bool:
+    normalized = dict(payload or {})
+    return bool(normalized.get("checked")) and str(normalized.get("status") or "").strip() not in {"", "not_checked"}
+
+
+def _provider_cost_pressure_unchecked_placeholder(payload: Mapping[str, Any] | None) -> bool:
+    normalized = dict(payload or {})
+    return (
+        not bool(normalized.get("checked"))
+        and not bool(normalized.get("probe_ok"))
+        and str(normalized.get("status") or "").strip() == "not_checked"
+        and not str(normalized.get("source") or "").strip()
+        and not str(normalized.get("observed_at") or "").strip()
+    )
+
+
+def _expanded_source_coverage_timeout_seconds(timeout_seconds: float | None = None) -> float:
+    configured = _safe_float(
+        str(getattr(ea_live_ops, "DEFAULT_EXPANDED_PROACTIVE_SOURCE_COVERAGE_TIMEOUT_SECONDS", 180.0) or 180.0),
+        default=180.0,
+    )
+    return max(float(timeout_seconds or _live_probe_timeout_seconds()), configured, 1.0)
+
+
+def _source_coverage_transient_timeout_probe_failure(payload: Mapping[str, Any] | None) -> bool:
+    normalized = dict(payload or {})
+    if not normalized or bool(normalized.get("probe_ok")):
+        return False
+    if str(normalized.get("status") or "").strip() != "probe_failed":
+        return False
+    reason = str(normalized.get("blocking_reason") or normalized.get("reason") or "").strip()
+    if not reason:
+        return False
+    lowered = reason.lower()
+    return (
+        reason.startswith("TimeoutExpired:")
+        or lowered.startswith("timeoutexpired:")
+        or reason.startswith("runtime_source_coverage_probe_failed:exit_124")
+        or reason.startswith("runtime_source_coverage_probe_failed:exit_137")
+    )
+
+
+def _preserve_higher_authority_existing_receipt(
+    *,
+    output_path: Path,
+    candidate_receipt: Mapping[str, Any],
+) -> dict[str, Any]:
+    if not output_path.exists():
+        return dict(candidate_receipt)
+    try:
+        existing_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    except Exception:
+        existing_payload = {}
+    existing = dict(existing_payload) if isinstance(existing_payload, Mapping) else {}
+    if not existing:
+        return dict(candidate_receipt)
+    candidate = dict(candidate_receipt)
+    candidate_fingerprint = str(candidate.get("source_state_fingerprint") or "").strip()
+    existing_fingerprint = str(existing.get("source_state_fingerprint") or "").strip()
+    candidate_head = str(candidate.get("source_git_head") or "").strip()
+    existing_head = str(existing.get("source_git_head") or "").strip()
+    existing_status = str(existing.get("status") or "").strip()
+    candidate_status = str(candidate.get("status") or "").strip()
+    existing_provider_cost = dict(existing.get("provider_cost_pressure") or {})
+    candidate_provider_cost = dict(candidate.get("provider_cost_pressure") or {})
+    if str(candidate.get("route_probe_source") or "").strip() == "docker_compose_exec":
+        if (
+            str(existing.get("route_probe_source") or "").strip() == "docker_compose_exec"
+            and candidate_fingerprint
+            and candidate_fingerprint == existing_fingerprint
+            and (not candidate_head or not existing_head or candidate_head == existing_head)
+            and existing_status.startswith("ready")
+            and bool(dict(existing.get("live_receipt") or {}).get("ok")) is True
+            and _provider_cost_pressure_unchecked_placeholder(candidate_provider_cost)
+            and _provider_cost_pressure_checked(existing_provider_cost)
+        ):
+            candidate["provider_cost_pressure"] = existing_provider_cost
+        return candidate
+    if str(existing.get("route_probe_source") or "").strip() != "docker_compose_exec":
+        return candidate
+    if not candidate_fingerprint or candidate_fingerprint != existing_fingerprint:
+        return candidate
+    if candidate_head and existing_head and candidate_head != existing_head:
+        return candidate
+    if not existing_status.startswith("ready"):
+        return candidate
+    if bool(dict(existing.get("live_receipt") or {}).get("ok")) is not True:
+        return candidate
+    if _status_rank(candidate_status) > _status_rank(existing_status):
+        return candidate
+    return existing
 
 
 def _env_truthy(name: str, *, default: bool = False) -> bool:
@@ -206,14 +317,29 @@ def _gmail_draft_followthrough_probe(principal_id: str, *, timeout_seconds: floa
 
 
 def _source_coverage_probe(principal_id: str, *, timeout_seconds: float | None = None) -> dict[str, Any]:
+    effective_timeout_seconds = float(timeout_seconds or _live_probe_timeout_seconds())
     try:
-        return ea_live_ops.probe_proactive_source_coverage(
+        probe = ea_live_ops.probe_proactive_source_coverage(
             principal_id=principal_id,
-            timeout_seconds=float(timeout_seconds or _live_probe_timeout_seconds()),
+            timeout_seconds=effective_timeout_seconds,
             output_format="json",
         )
     except Exception:
         return {}
+    if not _source_coverage_transient_timeout_probe_failure(probe):
+        return probe
+    retry_timeout_seconds = _expanded_source_coverage_timeout_seconds(effective_timeout_seconds)
+    if retry_timeout_seconds <= effective_timeout_seconds:
+        return probe
+    try:
+        retry_probe = ea_live_ops.probe_proactive_source_coverage(
+            principal_id=principal_id,
+            timeout_seconds=retry_timeout_seconds,
+            output_format="json",
+        )
+    except Exception:
+        return probe
+    return dict(retry_probe) if isinstance(retry_probe, Mapping) and retry_probe else probe
 
 
 def _approval_capture_probe(principal_id: str, *, timeout_seconds: float | None = None) -> dict[str, Any]:
@@ -740,6 +866,180 @@ def _provider_cost_pressure_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
         "routing_decision": str(probe.get("routing_decision") or "").strip(),
         "requires_recovery": requires_recovery,
         "privacy": _provider_cost_privacy(privacy),
+    }
+
+
+def _onemin_direct_refresh_posture_probe() -> dict[str, Any]:
+    try:
+        return ea_live_ops.probe_onemin_direct_refresh_posture(output_format="json")
+    except Exception as exc:
+        return {
+            "checked": False,
+            "probe_ok": False,
+            "status": "probe_failed",
+            "source": "host_python_exec:onemin_direct_refresh_posture",
+            "observed_at": _utc_now(),
+            "reason": type(exc).__name__,
+            "next_action": "",
+            "controls": {},
+            "telegram_delivery": {},
+            "privacy": {
+                "raw_owner_email_exposed": False,
+                "raw_login_secret_exposed": False,
+                "raw_telegram_chat_ref_exposed": False,
+            },
+        }
+
+
+def _onemin_direct_refresh_posture_default_telegram_delivery() -> dict[str, Any]:
+    return {
+        "checked": False,
+        "sent": False,
+        "reason": "",
+        "ready": False,
+        "message_count": 0,
+        "observed_at": "",
+        "source": "",
+        "dry_run": False,
+    }
+
+
+def _onemin_direct_refresh_posture_telegram_delivery_summary(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    delivery = dict(value or {})
+    summary = _onemin_direct_refresh_posture_default_telegram_delivery()
+    summary.update(
+        {
+            "checked": bool(delivery.get("checked")),
+            "sent": bool(delivery.get("sent")),
+            "reason": str(delivery.get("reason") or "").strip(),
+            "ready": bool(delivery.get("ready")),
+            "message_count": int(delivery.get("message_count") or 0),
+            "observed_at": str(delivery.get("observed_at") or "").strip(),
+            "source": str(delivery.get("source") or "").strip(),
+            "dry_run": bool(delivery.get("dry_run")),
+        }
+    )
+    return summary
+
+
+def _onemin_direct_refresh_posture_privacy(value: Mapping[str, Any] | None) -> dict[str, bool]:
+    normalized = dict(value or {})
+    return {
+        "raw_owner_email_exposed": bool(normalized.get("raw_owner_email_exposed")),
+        "raw_login_secret_exposed": bool(normalized.get("raw_login_secret_exposed")),
+        "raw_telegram_chat_ref_exposed": bool(normalized.get("raw_telegram_chat_ref_exposed")),
+    }
+
+
+def _onemin_direct_refresh_posture_controls(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    normalized = dict(value or {})
+    default_batch_size = max(int(getattr(ea_live_ops, "DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_SIZE", 1) or 1), 1)
+    default_batch_backoff = max(
+        float(getattr(ea_live_ops, "DEFAULT_ONEMIN_DIRECT_REFRESH_BATCH_BACKOFF_SECONDS", 1.0) or 1.0),
+        0.0,
+    )
+    default_rate_limit_sleep = max(
+        float(getattr(ea_live_ops, "DEFAULT_ONEMIN_DIRECT_REFRESH_MAX_RATE_LIMIT_SLEEP_SECONDS", 120.0) or 120.0),
+        0.0,
+    )
+    return {
+        "batch_size": max(int(normalized.get("batch_size") or default_batch_size), 1),
+        "batch_backoff_seconds": max(
+            _safe_float_or_none(normalized.get("batch_backoff_seconds")) or default_batch_backoff,
+            0.0,
+        ),
+        "max_rate_limit_sleep_seconds": max(
+            _safe_float_or_none(normalized.get("max_rate_limit_sleep_seconds")) or default_rate_limit_sleep,
+            0.0,
+        ),
+        "continue_on_rate_limit": bool(
+            normalized.get("continue_on_rate_limit")
+            if "continue_on_rate_limit" in normalized
+            else True
+        ),
+        "refresh_transport": str(normalized.get("refresh_transport") or "direct_provider_api").strip(),
+        "proxy_mode": str(normalized.get("proxy_mode") or "direct_no_ui_proxy").strip(),
+        "controls_inferred_from_defaults": bool(normalized.get("controls_inferred_from_defaults", True)),
+        "single_account_batch_mode": bool(normalized.get("single_account_batch_mode", True)),
+    }
+
+
+def _onemin_direct_refresh_posture_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
+    if not probe:
+        return {
+            "checked": False,
+            "probe_ok": False,
+            "status": "not_checked",
+            "source": "",
+            "observed_at": "",
+            "reason": "",
+            "next_action": "",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
+            "ready": False,
+            "receipt_name": "",
+            "selected_account_count": 0,
+            "pending_account_count": 0,
+            "owner_row_count": 0,
+            "attempted_count": 0,
+            "current_run_refreshed_count": 0,
+            "refreshed_count": 0,
+            "error_count": 0,
+            "error_code_counts": {},
+            "rate_limited": False,
+            "remaining_credits_total": None,
+            "remaining_credits_min": None,
+            "remaining_credits_max": None,
+            "next_topup_at_earliest": "",
+            "next_topup_at_latest": "",
+            "controls": _onemin_direct_refresh_posture_controls({}),
+            "telegram_delivery": _onemin_direct_refresh_posture_default_telegram_delivery(),
+            "privacy": _onemin_direct_refresh_posture_privacy({}),
+        }
+    error_code_counts = {
+        str(key).strip(): int(value or 0)
+        for key, value in dict(probe.get("error_code_counts") or {}).items()
+        if str(key).strip()
+    }
+    next_action = str(probe.get("next_action") or "").strip()
+    surface = proactive_next_action_surface(next_action) if next_action else {"href": "", "label": "", "method": ""}
+    return {
+        "checked": bool(probe.get("checked")),
+        "probe_ok": bool(probe.get("probe_ok")),
+        "status": str(probe.get("status") or "").strip() or "unknown",
+        "source": str(probe.get("source") or "").strip(),
+        "observed_at": str(probe.get("observed_at") or "").strip(),
+        "reason": str(probe.get("reason") or "").strip(),
+        "next_action": next_action,
+        "next_action_href": str(probe.get("next_action_href") or surface.get("href") or "").strip(),
+        "next_action_label": str(probe.get("next_action_label") or surface.get("label") or "").strip(),
+        "next_action_method": str(probe.get("next_action_method") or surface.get("method") or "").strip(),
+        "ready": bool(probe.get("ready")),
+        "receipt_name": str(probe.get("receipt_name") or "").strip(),
+        "selected_account_count": int(probe.get("selected_account_count") or 0),
+        "pending_account_count": int(probe.get("pending_account_count") or 0),
+        "owner_row_count": int(probe.get("owner_row_count") or 0),
+        "attempted_count": int(probe.get("attempted_count") or 0),
+        "current_run_refreshed_count": int(probe.get("current_run_refreshed_count") or 0),
+        "refreshed_count": int(probe.get("refreshed_count") or 0),
+        "error_count": int(probe.get("error_count") or 0),
+        "error_code_counts": error_code_counts,
+        "rate_limited": bool(probe.get("rate_limited")),
+        "remaining_credits_total": _safe_float_or_none(probe.get("remaining_credits_total")),
+        "remaining_credits_min": _safe_float_or_none(probe.get("remaining_credits_min")),
+        "remaining_credits_max": _safe_float_or_none(probe.get("remaining_credits_max")),
+        "next_topup_at_earliest": str(probe.get("next_topup_at_earliest") or "").strip(),
+        "next_topup_at_latest": str(probe.get("next_topup_at_latest") or "").strip(),
+        "controls": _onemin_direct_refresh_posture_controls(
+            probe.get("controls") if isinstance(probe.get("controls"), Mapping) else {}
+        ),
+        "telegram_delivery": _onemin_direct_refresh_posture_telegram_delivery_summary(
+            probe.get("telegram_delivery") if isinstance(probe.get("telegram_delivery"), Mapping) else {}
+        ),
+        "privacy": _onemin_direct_refresh_posture_privacy(
+            probe.get("privacy") if isinstance(probe.get("privacy"), Mapping) else {}
+        ),
     }
 
 
@@ -1417,6 +1717,15 @@ def _artifact_probe_evidence_score(artifact_probe: Mapping[str, Any] | None) -> 
     return score
 
 
+def _route_artifact_probe_reusable(artifact_probe: Mapping[str, Any] | None) -> bool:
+    probe = dict(artifact_probe or {})
+    if not probe:
+        return False
+    if bool(probe.get("probe_ok")):
+        return True
+    return _artifact_probe_evidence_score(probe) > 1
+
+
 def _route_probe_live_receipt_missing(
     *,
     route_probe: Mapping[str, Any],
@@ -1625,6 +1934,14 @@ def _normalized_safe_work_audit(artifact_probe: Mapping[str, Any]) -> dict[str, 
     delivery_allowed = bool(safe_work_result) and bool(audit_passed or browser_handoff_user_action_required)
     blocking_reason = ""
     filtered_non_material = bool(materiality_issue)
+    non_material_review = bool(
+        not filtered_non_material
+        and effective_audit_status == "review"
+        and issue_codes
+        and all(code in NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES for code in issue_codes)
+    )
+    if non_material_review:
+        filtered_non_material = True
     if safe_work_result and not delivery_allowed and not filtered_non_material:
         blocking_reason = "safe_work_audit_not_pass"
         if not audit:
@@ -1886,6 +2203,7 @@ def _normalized_current_artifact_filter(artifact_probe: Mapping[str, Any]) -> di
     issue_codes: list[str] = []
     if reason in {
         "single_official_info_link_not_decision_ready",
+        "transcript_signal_lacks_action_intent",
         "flat_search_disabled_property_scout",
         "flat_search_disabled",
     }:
@@ -2011,13 +2329,18 @@ def _assistant_grade_quality_issue(artifact_probe: Mapping[str, Any]) -> str:
 
 def _assistant_grade_safe_work_requires_recovery(artifact_probe: Mapping[str, Any]) -> tuple[bool, str]:
     probe = _mapping_value(artifact_probe)
+    bundle_source = str(probe.get("assistant_grade_bundle_source") or "current_runtime_bundle").strip()
     quality_issue = _assistant_grade_quality_issue(probe)
     if quality_issue:
+        if (
+            bundle_source != "historical_browse_backed_proof_bundle"
+            and quality_issue in NON_MATERIAL_ASSISTANT_GRADE_QUALITY_ISSUES
+        ):
+            return False, ""
         return True, quality_issue
     safe_work_result = _mapping_value(probe.get("safe_work_result"))
     if not safe_work_result:
         return False, ""
-    bundle_source = str(probe.get("assistant_grade_bundle_source") or "current_runtime_bundle").strip()
     if bundle_source != "historical_browse_backed_proof_bundle":
         return False, ""
     if not _mapping_value(safe_work_result.get("audit")) and not _mapping_value(safe_work_result.get("browser_action_receipt")):
@@ -2286,6 +2609,8 @@ def _next_action(report: dict[str, Any], *, live_receipt: dict[str, Any], live_r
         return "wait_for_interruption_budget_window"
     if deferred_reason == "deferred_by_notification_cooldown":
         return "wait_for_notification_cooldown"
+    if deferred_reason == "deferred_by_host_disk_pressure":
+        return "recover_runtime_artifact_volume_pressure"
     if deferred_reason == "deferred_by_unarmed_send":
         return "arm_proactive_send_for_live_delivery"
     if not bool(stage_packets.get("ready")):
@@ -2366,6 +2691,16 @@ def _summary(
             return "Proactive OODA delivery is currently deferred by the notification cooldown."
         if deferred_reason == "deferred_by_operator_pause":
             return "Proactive OODA delivery is currently deferred by operator pause."
+        if deferred_reason == "deferred_by_host_disk_pressure":
+            host_guard = dict(dict(report.get("delivery_guard") or {}).get("host_resource_guard") or {})
+            usage_percent = host_guard.get("usage_percent")
+            available_gb = host_guard.get("available_gb")
+            if usage_percent not in (None, "") and available_gb not in (None, ""):
+                return (
+                    "Proactive OODA delivery is currently deferred because the runtime artifact volume "
+                    f"is under disk pressure ({usage_percent}% used, {available_gb} GiB free)."
+                )
+            return "Proactive OODA delivery is currently deferred because the runtime artifact volume is under disk pressure."
         return f"Proactive OODA delivery is currently deferred by {delivery_state or 'operator policy'}."
     if status == "ready_with_recovery_action":
         first_error = _report_errors(report)[0] if _report_errors(report) else ""
@@ -3043,7 +3378,10 @@ def build_proactive_ooda_operator_status(
     skip_source_coverage_probe: bool = False,
     skip_provider_cost_pressure_probe: bool = True,
 ) -> dict[str, Any]:
-    effective_report_args = argparse.Namespace(**vars(report_args)) if report_args is not None else _default_report_args()
+    effective_report_args = _default_report_args()
+    if report_args is not None:
+        for key, value in vars(report_args).items():
+            setattr(effective_report_args, key, value)
     route_probe: dict[str, Any] = {}
     artifact_probe: dict[str, Any] = {}
     approval_capture_probe: dict[str, Any] = {}
@@ -3070,6 +3408,10 @@ def build_proactive_ooda_operator_status(
         bundle_gmail_draft_probe: dict[str, Any] = {}
         bundle_source_coverage_probe: dict[str, Any] = {}
         bundle_provider_cost_pressure_probe: dict[str, Any] = {}
+        include_route_artifact_probe = bool(
+            live_receipt_path is None
+            and not _has_explicit_artifact_dirs(effective_report_args)
+        )
         with _host_runtime_proactive_probe_override(prefer_host_runtime):
             if allow_live_route_probe:
                 try:
@@ -3077,21 +3419,27 @@ def build_proactive_ooda_operator_status(
                         principal_id=principal_id,
                         receipt_path=str(configured_live_receipt_path or ""),
                         timeout_seconds=live_probe_timeout_seconds,
-                        include_artifact_probe=False,
+                        include_artifact_probe=include_route_artifact_probe,
                     )
                 except Exception:
                     bundle_route_probe = {}
-                if isinstance(bundle_route_probe.get("artifact_probe"), dict):
-                    bundle_artifact_probe = dict(bundle_route_probe.get("artifact_probe") or {})
+                route_artifact_probe = (
+                    dict(bundle_route_probe.get("artifact_probe") or {})
+                    if isinstance(bundle_route_probe.get("artifact_probe"), dict)
+                    else {}
+                )
+                if _route_artifact_probe_reusable(route_artifact_probe):
+                    bundle_artifact_probe = dict(route_artifact_probe)
                 if live_receipt_path is None:
                     route_live_receipt_path = _route_live_receipt_host_path(bundle_route_probe)
                     if not bundle_artifact_probe:
-                        bundle_artifact_probe = _local_artifact_probe(
+                        fallback_artifact_probe = _local_artifact_probe(
                             report_args=effective_report_args,
                             live_receipt_path=route_live_receipt_path or effective_live_receipt_path,
                             allow_live_runtime_probe=allow_live_artifact_probe,
                             live_probe_timeout_seconds=live_probe_timeout_seconds,
                         )
+                        bundle_artifact_probe = dict(fallback_artifact_probe or route_artifact_probe)
                     if not skip_gmail_draft_followthrough_probe:
                         bundle_gmail_draft_probe = _gmail_draft_followthrough_probe(
                             principal_id,
@@ -3252,6 +3600,9 @@ def build_proactive_ooda_operator_status(
     runtime_artifact_drift = _runtime_artifact_drift_summary(artifact_probe)
     source_coverage = _source_coverage_summary(source_coverage_probe)
     provider_cost_pressure = _provider_cost_pressure_summary(provider_cost_pressure_probe)
+    onemin_direct_refresh_posture = _onemin_direct_refresh_posture_summary(
+        _onemin_direct_refresh_posture_probe()
+    )
     status = _status(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     reason = _reason(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     if safe_work_audit_blocks:
@@ -3508,6 +3859,10 @@ def build_proactive_ooda_operator_status(
         "route_probe_source": str(route_probe.get("source") or "host_verifier").strip() or "host_verifier",
         "route_probe_runtime_service": str(route_probe.get("runtime_service") or "").strip(),
         "route_probe_observed_at": str(route_probe.get("observed_at") or "").strip(),
+        "artifact_probe_source": str(artifact_probe.get("source") or "").strip(),
+        "artifact_resolution_source": str(artifact_probe.get("artifact_resolution_source") or "").strip(),
+        "artifact_resolution_host_fallback_used": bool(artifact_probe.get("artifact_resolution_host_fallback_used")),
+        "artifact_resolution_fallback_reason": str(artifact_probe.get("artifact_resolution_fallback_reason") or "").strip(),
         "claim_limit": "operator_runtime_posture_not_real_daily_acceptance",
         "goal_completion_claim_allowed": False,
         "live_delivery_claim_allowed": False,
@@ -3537,6 +3892,7 @@ def build_proactive_ooda_operator_status(
         "source_health": runtime_source_health,
         "runtime_artifact_drift": runtime_artifact_drift,
         "provider_cost_pressure": provider_cost_pressure,
+        "onemin_direct_refresh_posture": onemin_direct_refresh_posture,
         "receipt_observation_count": int(report.get("receipt_observation_count") or 0),
         "runtime_actionable_count": runtime_actionable_count,
         "actionable_count": _operator_actionable_count(
@@ -3565,6 +3921,10 @@ def build_proactive_ooda_operator_status(
         ],
         "rules": list(RULES),
     }
+    receipt = _preserve_higher_authority_existing_receipt(
+        output_path=output_path,
+        candidate_receipt=receipt,
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return receipt

@@ -4088,10 +4088,72 @@ def test_memorial_chat_strips_llm_meta_self_reference_from_answer(
     body = response.json()
     assert "llm" not in body["answer"].lower()
     assert "sprachmodell" not in body["answer"].lower()
-    assert (
-        "ich spreche hier so, wie ihr mich erinnert" in body["answer"].lower()
-        or "so spreche ich hier" in body["answer"].lower()
+    assert "quellengebundene gedenkbegleiter" in body["answer"].lower()
+    assert "spricht nicht fuer manfred" in body["answer"].lower()
+    assert "ich bin manfred" not in body["answer"].lower()
+
+
+def test_production_narrator_policy_fails_closed_on_subtle_first_person_impersonation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(public_memorials, "_memorial_voice_release_enforced", lambda: True)
+
+    result = public_memorials._apply_memorial_narrator_response_policy(
+        {
+            "answer": "Ich erinnere mich an meine Familie und habe damals anders entschieden.",
+            "mode": "memorial_first_person_memory_chat",
+            "safety_note": "legacy",
+        },
+        question="Was war dir bei Familie wichtig?",
     )
+
+    assert result["mode"] == "memorial_source_grounded_narrator"
+    assert result["fallback_reason"] == "narrator_boundary"
+    assert "ich erinnere mich" not in str(result["answer"]).lower()
+    assert result["narrator"] == {
+        "synthetic": True,
+        "source_grounded": True,
+        "is_memorial_person": False,
+        "speaks_for_memorial_person": False,
+    }
+
+
+def test_blocked_voice_release_renders_polished_text_only_memorial_guide(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(public_memorials, "_memorial_voice_release_enforced", lambda: True)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_voice_release_decision",
+        lambda slug: {"allowed": False, "status": "blocked", "reason": "release_human_acceptance_missing"},
+    )
+
+    page = public_memorials._minimal_public_memorial_html(
+        slug="manfred",
+        person_name="Manfred Hoza",
+        page_title="Erinnerungen an Manfred Hoza",
+        subtitle="Eine ruhige Gedenkseite.",
+        memorial_avatar_url="/memorials/manfred/icon.svg",
+        pwa_short_name="Manfred",
+        clickrank_html="",
+        story_html="<section>Erinnerungen</section>",
+    )
+
+    assert 'data-voice-release="blocked"' in page
+    assert "Schriftliche Frage stellen" in page
+    assert "Zum quellengebundenen Gedenkbegleiter" in page
+    assert "ist nicht Manfred und spricht nicht für ihn" in page
+    assert "Was möchtest du Manfred fragen?" not in page
+    assert "KI-gestützten, synthetischen Manfred-Stimme" not in page
+    assert "const memorialVoiceReleaseAllowed = false;" in page
+    assert "const memorialPagePrewarmEnabled = false;" in page
+    assert 'if (!memorialVoiceReleaseAllowed) return null;' in page
+    assert 'if (!memorialVoiceReleaseAllowed) throw new Error("memorial_voice_release_not_verified");' in page
+    assert "memorialVoiceReleaseAllowed && isPwaLaunch" in page
 
 
 def test_memorial_realtime_rejects_audio_bytes_before_start(
@@ -6112,13 +6174,13 @@ def test_memorial_landing_does_not_enable_conversation_on_warmup_timeout() -> No
 
     assert "waitForMemorialVoiceReady(30000)" in source
     assert 'setMemorialLandingReady(false, "Ich bin gleich bereit.")' in source
-    assert 'if (!memorialLandingReady) void ensureMemorialReady("warmup_retry");' in source
+    assert "if (!memorialLandingReady) void primeMemorialLanding();" in source
     assert 'let contactAcknowledgementReady = false;' in source
     assert 'contactAcknowledgementReady = true;' in source
-    assert 'memorialLandingReady && completedConversationTurns === 0 && !contactAcknowledgementReady' in source
-    assert 'label = "Stimme wird vorbereitet …";' in source
-    assert 'setMemorialLandingReady(false, "Ich bereite meine Stimme noch kurz vor.");' in source
-    assert 'void ensureMemorialReady("contact_ack_retry");' in source
+    assert "if (completedConversationTurns === 0 && contactAcknowledgementReady)" in source
+    assert "Die kurze Begrüßung ist nicht vorgeladen; das Gespräch bleibt verfügbar." in source
+    assert 'retryButton.dataset.action = "voice-readiness";' in source
+    assert 'retryButton.textContent = "Stimme erneut prüfen";' in source
     assert "memorialWarmupPollDelayMs" in source
     assert "memorialLastWarmupStatus" in source
     assert "memorialLastWarmupStatus = payload;" in source

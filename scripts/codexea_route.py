@@ -166,6 +166,10 @@ DEFAULT_TIMEOUT_SECONDS = _env_int("CODEXEA_ONEMIN_TIMEOUT_SECONDS", 300, minimu
 DEFAULT_COOLDOWN_SECONDS = _env_int("CODEXEA_ONEMIN_PROBE_COOLDOWN_DEFAULT_SECONDS", 300, minimum=1, maximum=86400)
 MAX_COOLDOWN_SECONDS = _env_int("CODEXEA_ONEMIN_PROBE_COOLDOWN_MAX_SECONDS", 1800, minimum=1, maximum=86400)
 MAX_COOLDOWN_RECORDS = _env_int("CODEXEA_ONEMIN_PROBE_COOLDOWN_MAX_RECORDS", 200, minimum=1, maximum=10000)
+DEFAULT_REFRESH_BACKEND = str(os.environ.get("CODEXEA_ONEMIN_REFRESH_BACKEND") or "provider_api").strip().lower() or "provider_api"
+if DEFAULT_REFRESH_BACKEND not in {"provider_api", "scheduler"}:
+    DEFAULT_REFRESH_BACKEND = "provider_api"
+DEFAULT_REFRESH_MAX_ACCOUNTS = _env_int("CODEXEA_ONEMIN_REFRESH_MAX_ACCOUNTS", 5, minimum=1, maximum=500)
 DEFAULT_ONEMIN_ROUTE_BACKEND_ORDER = os.environ.get(
     "CODEXEA_ONEMIN_ROUTE_BACKEND_ORDER",
     "docker,local_python,http_runtime_telemetry",
@@ -283,6 +287,109 @@ def _slot_rows_from_accounts(accounts: list[object], provider_slots: list[dict[s
     return provider_slots
 
 
+def _provider_api_target_labels(*, container, refresh_all_accounts: bool, refresh_max_accounts: int) -> tuple[list[str], list[str], list[str]]:
+    owner_rows = providers_route._normalized_onemin_owner_rows()
+    owner_label_order = [
+        str(row.get("account_name") or "").strip()
+        for row in owner_rows
+        if str(row.get("account_name") or "").strip()
+    ]
+    if not owner_label_order:
+        return [], [], []
+    stale_labels, fresh_labels = providers_route._partition_onemin_browseract_account_labels(
+        container=container,
+        principal_id="",
+        binding_rows=[],
+        account_labels=owner_label_order,
+    )
+    if refresh_all_accounts:
+        return owner_label_order, stale_labels, fresh_labels
+    selected: list[str] = []
+    for source_labels in (stale_labels, fresh_labels):
+        for label in source_labels:
+            if label in selected:
+                continue
+            selected.append(label)
+            if len(selected) >= refresh_max_accounts:
+                return selected, stale_labels, fresh_labels
+    return selected, stale_labels, fresh_labels
+
+
+def _provider_api_refresh(container, request: dict[str, object]) -> dict[str, Any]:
+    refresh_all_accounts = bool(request.get("refresh_all_accounts"))
+    refresh_continue_on_rate_limit = bool(request.get("refresh_continue_on_rate_limit"))
+    refresh_max_accounts = max(1, _as_int(request.get("refresh_max_accounts"), default=5))
+    target_labels, stale_labels, fresh_labels = _provider_api_target_labels(
+        container=container,
+        refresh_all_accounts=refresh_all_accounts,
+        refresh_max_accounts=refresh_max_accounts,
+    )
+    if not target_labels:
+        return {
+            "ran": False,
+            "throttled": False,
+            "throttle_seconds_remaining": 0.0,
+            "throttle_reason": "",
+            "backend": "provider_api",
+            "scope": "all_accounts" if refresh_all_accounts else "targeted",
+            "browseract_attempted": 0,
+            "browseract_refreshed": 0,
+            "member_reconciled": 0,
+            "api_attempted": 0,
+            "api_rate_limited": False,
+            "api_recovered": 0,
+            "billing_refresh_count": 0,
+            "errors": 0,
+            "error": "owner_accounts_unavailable",
+            "targeted_account_count": 0,
+            "stale_account_count": 0,
+            "fresh_account_count": 0,
+        }
+    target_label_set = set(target_labels)
+    account_login_credentials = {
+        label: credentials
+        for label in target_labels
+        if (credentials := providers_route.upstream.onemin_account_login_credentials(account_name=label, binding_metadata={}))
+    }
+    with providers_route._managed_fastestvpn_services(
+        service_names=providers_route._onemin_direct_api_fastestvpn_service_names(
+            account_labels=None if refresh_all_accounts else target_label_set
+        ),
+        reason="codexea.onemin.provider_api.refresh",
+    ):
+        billing_results, member_results, errors, attempted_count, _skipped_count, rate_limited = providers_route._refresh_onemin_via_provider_api(
+            include_members=False,
+            timeout_seconds=max(30, _as_int(request.get("timeout_seconds"), default=300)),
+            all_accounts=refresh_all_accounts,
+            continue_on_rate_limit=refresh_continue_on_rate_limit,
+            account_labels=None if refresh_all_accounts else target_label_set,
+            account_login_credentials=None if refresh_all_accounts else account_login_credentials,
+        )
+    error_text = ""
+    if errors:
+        error_text = "; ".join(str(row.get("error") or "").strip() for row in errors[:3] if str(row.get("error") or "").strip())
+    return {
+        "ran": True,
+        "throttled": False,
+        "throttle_seconds_remaining": 0.0,
+        "throttle_reason": "",
+        "backend": "provider_api",
+        "scope": "all_accounts" if refresh_all_accounts else "targeted",
+        "browseract_attempted": 0,
+        "browseract_refreshed": 0,
+        "member_reconciled": len(member_results),
+        "api_attempted": attempted_count,
+        "api_rate_limited": rate_limited,
+        "api_recovered": len(billing_results),
+        "billing_refresh_count": len(billing_results),
+        "errors": len(errors),
+        "error": error_text,
+        "targeted_account_count": len(target_labels),
+        "stale_account_count": len(stale_labels),
+        "fresh_account_count": len(fresh_labels),
+    }
+
+
 request = json.loads(os.environ["CODEXEA_ROUTE_REQUEST_JSON"])
 container = build_container()
 refresh_requested = bool(request.get("refresh"))
@@ -331,14 +438,40 @@ if probe_enabled and probe_rows:
     invalidate_provider_health_snapshot_cache()
 
 if refresh_requested:
+    refresh_backend = str(request.get("refresh_backend") or "provider_api").strip().lower() or "provider_api"
     try:
-        from app.runner import _run_scheduler_onemin_billing_refresh
+        if refresh_backend == "scheduler":
+            from app.runner import _run_scheduler_onemin_billing_refresh
 
-        import logging
+            import logging
 
-        refresh_payload = _run_scheduler_onemin_billing_refresh(container=container, log=logging.getLogger("ea-codexea-route"))
+            refresh_payload = _run_scheduler_onemin_billing_refresh(
+                container=container,
+                log=logging.getLogger("ea-codexea-route"),
+            )
+            if isinstance(refresh_payload, dict):
+                refresh_payload = {**refresh_payload, "backend": "scheduler", "scope": "full_scheduler"}
+        else:
+            refresh_payload = _provider_api_refresh(container, request)
     except Exception as exc:
-        refresh_payload = {"ran": False, "throttled": False, "throttle_seconds_remaining": 0.0, "throttle_reason": "", "browseract_attempted": 0, "browseract_refreshed": 0, "member_reconciled": 0, "api_attempted": 0, "api_rate_limited": False, "api_recovered": 0, "browseract_failed": 0, "errors": 1, "error": str(exc)}
+        refresh_payload = {
+            "ran": False,
+            "throttled": False,
+            "throttle_seconds_remaining": 0.0,
+            "throttle_reason": "",
+            "backend": refresh_backend,
+            "scope": "all_accounts" if bool(request.get("refresh_all_accounts")) else "targeted",
+            "browseract_attempted": 0,
+            "browseract_refreshed": 0,
+            "member_reconciled": 0,
+            "api_attempted": 0,
+            "api_rate_limited": False,
+            "api_recovered": 0,
+            "billing_refresh_count": 0,
+            "browseract_failed": 0,
+            "errors": 1,
+            "error": str(exc),
+        }
 
 provider_health = upstream._provider_health_report()
 remember_provider_health_snapshot_cache(lightweight=False, payload=provider_health)
@@ -386,6 +519,30 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--billing", action="store_true", help="Accepted for compatibility; the aggregate already includes billing-derived fields.")
     parser.add_argument("--summary-json", action="store_true", help="Print bounded summary JSON without the full account corpus.")
     parser.add_argument("--json", action="store_true", help="Print raw JSON.")
+    parser.add_argument(
+        "--refresh-backend",
+        choices=("provider_api", "scheduler"),
+        default=DEFAULT_REFRESH_BACKEND,
+        help="Refresh backend for `--onemin-refresh`. `provider_api` is bounded and default; `scheduler` runs the wider BrowserAct/member lane.",
+    )
+    parser.add_argument(
+        "--refresh-all-accounts",
+        action="store_true",
+        default=_env_bool("CODEXEA_ONEMIN_REFRESH_ALL_ACCOUNTS", False),
+        help="For provider-api refresh, walk every owner account instead of the bounded targeted subset.",
+    )
+    parser.add_argument(
+        "--refresh-max-accounts",
+        type=int,
+        default=DEFAULT_REFRESH_MAX_ACCOUNTS,
+        help="For targeted provider-api refresh, cap the number of accounts refreshed this pass.",
+    )
+    parser.add_argument(
+        "--refresh-continue-on-rate-limit",
+        action="store_true",
+        default=_env_bool("CODEXEA_ONEMIN_REFRESH_CONTINUE_ON_RATE_LIMIT", False),
+        help="Allow one bounded provider-api sleep/retry when 1min.AI asks for retry-after.",
+    )
     parser.add_argument(
         "--account-label",
         action="append",
@@ -753,6 +910,10 @@ def _build_route_request(args: argparse.Namespace, *, account_rows: list[dict[st
         "probe": probe_mode != "off",
         "probe_mode": probe_mode,
         "refresh": bool(args.onemin_refresh),
+        "refresh_backend": str(args.refresh_backend or "provider_api").strip() or "provider_api",
+        "refresh_all_accounts": bool(args.refresh_all_accounts),
+        "refresh_max_accounts": max(1, int(args.refresh_max_accounts)),
+        "refresh_continue_on_rate_limit": bool(args.refresh_continue_on_rate_limit),
         "timeout_seconds": int(args.timeout_seconds),
         "max_workers": int(args.max_workers),
         "probe_limit": probe_limit,
@@ -762,6 +923,8 @@ def _build_route_request(args: argparse.Namespace, *, account_rows: list[dict[st
 
 
 def _command_timeout_seconds(args: argparse.Namespace, *, probe_mode: str) -> int:
+    if bool(args.onemin_refresh):
+        return max(60, int(args.timeout_seconds))
     if probe_mode == "all":
         return max(60, int(args.timeout_seconds) * 4)
     if probe_mode == "best_effort":
@@ -1151,7 +1314,7 @@ def _run_backend_attempt(
     if backend_kind == "http":
         return _run_http_backend(request=request, timeout_seconds=timeout_seconds, backend_name=backend_name)
     backend_timeout_seconds = timeout_seconds
-    if backend_name in {"docker", "ea_api_container"}:
+    if backend_name in {"docker", "ea_api_container"} and not bool(request.get("refresh")) and not bool(request.get("probe")):
         backend_timeout_seconds = min(int(timeout_seconds), 10)
     return _run_backend_command(
         command,
@@ -1167,6 +1330,12 @@ def _run_live_onemin_aggregate(args: argparse.Namespace) -> dict[str, Any]:
     probe_mode = str(request.get("probe_mode") or "off")
     timeout_seconds = _command_timeout_seconds(args, probe_mode=probe_mode)
     backend_attempts = _backend_attempts(request)
+    if bool(request.get("refresh")):
+        backend_attempts = [
+            attempt
+            for attempt in backend_attempts
+            if attempt[0] not in {"local_python"}
+        ]
     if not backend_attempts:
         raise RuntimeError("route_probe_failed:no_available_backend")
     errors: list[str] = []
@@ -1289,6 +1458,8 @@ def _summary_payload(payload: dict[str, Any], *, error_limit: int = 5) -> dict[s
     if onemin_refresh is not None:
         summary["onemin_refresh"] = {
             "ran": onemin_refresh.get("ran"),
+            "backend": onemin_refresh.get("backend"),
+            "scope": onemin_refresh.get("scope"),
             "throttled": onemin_refresh.get("throttled"),
             "throttle_seconds_remaining": onemin_refresh.get("throttle_seconds_remaining"),
             "throttle_reason": onemin_refresh.get("throttle_reason"),
@@ -1298,6 +1469,10 @@ def _summary_payload(payload: dict[str, Any], *, error_limit: int = 5) -> dict[s
             "api_attempted": onemin_refresh.get("api_attempted"),
             "api_rate_limited": onemin_refresh.get("api_rate_limited"),
             "api_recovered": onemin_refresh.get("api_recovered"),
+            "billing_refresh_count": onemin_refresh.get("billing_refresh_count"),
+            "targeted_account_count": onemin_refresh.get("targeted_account_count"),
+            "stale_account_count": onemin_refresh.get("stale_account_count"),
+            "fresh_account_count": onemin_refresh.get("fresh_account_count"),
             "errors": onemin_refresh.get("errors"),
         }
         if onemin_refresh.get("error"):
@@ -1470,6 +1645,10 @@ def _build_telegram_refresh_message(payload: dict[str, Any]) -> str:
     lines.append(f"Billing-backed remaining: {_fmt(payload.get('actual_free_credits_total'))}")
     if refresh_payload:
         lines.append(f"Refresh ran: {_to_bool_text(refresh_payload.get('ran'))}")
+        if refresh_payload.get("backend"):
+            lines.append(f"Refresh backend: {_fmt(refresh_payload.get('backend'))}")
+        if refresh_payload.get("scope"):
+            lines.append(f"Refresh scope: {_fmt(refresh_payload.get('scope'))}")
         lines.append(f"Throttled: {_to_bool_text(refresh_payload.get('throttled'))}")
         throttle_reason = str(refresh_payload.get("throttle_reason") or "").strip()
         if refresh_payload.get("throttled") and throttle_reason:
@@ -1480,6 +1659,9 @@ def _build_telegram_refresh_message(payload: dict[str, Any]) -> str:
         lines.append(f"Members reconciled: {_fmt(refresh_payload.get('member_reconciled'))}")
         lines.append(f"API attempted: {_fmt(refresh_payload.get('api_attempted'))}")
         lines.append(f"API recovered: {_fmt(refresh_payload.get('api_recovered'))}")
+        lines.append(f"Billing refresh count: {_fmt(refresh_payload.get('billing_refresh_count'))}")
+        if refresh_payload.get("targeted_account_count") not in (None, ""):
+            lines.append(f"Targeted account count: {_fmt(refresh_payload.get('targeted_account_count'))}")
         lines.append(f"Errors: {_fmt(refresh_payload.get('errors'))}")
         lines.append(f"API rate-limited: {_to_bool_text(refresh_payload.get('api_rate_limited'))}")
         if refresh_payload.get("error"):

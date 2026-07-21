@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from html import escape as html_escape
 from html.parser import HTMLParser
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -54,6 +54,15 @@ from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, Deadl
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
 from app.services.property_billing import enforce_property_plan_limits, property_commercial_snapshot
 from app.services.public_artifact_paths import public_tour_dir
+from app.services.public_tour_artifacts import (
+    copy_public_tour_file,
+    ensure_public_tour_directory,
+    normalize_public_tour_bundle_modes,
+    write_public_tour_bytes,
+    write_public_tour_file,
+    write_public_tour_json,
+)
+from app.services.public_tour_release_policy import PUBLIC_TOUR_VIDEO_RELEASE_CONTRACT
 from app.services.public_urls import (
     ea_public_app_base_url,
     propertyquarry_public_base_url,
@@ -11025,8 +11034,7 @@ def _download_public_tour_asset(url: str, target: Path) -> None:
         data = response.read()
     if not data:
         raise RuntimeError("tour_asset_empty")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
+    write_public_tour_bytes(target, data)
 
 
 def _download_public_tour_asset_with_type(url: str, target: Path) -> str:
@@ -11036,8 +11044,7 @@ def _download_public_tour_asset_with_type(url: str, target: Path) -> str:
         content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
     if not data:
         raise RuntimeError("tour_asset_empty")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
+    write_public_tour_bytes(target, data)
     return content_type
 
 
@@ -11078,7 +11085,7 @@ def _write_hosted_floorplan_property_tour_bundle(
         return existing_payload
     bundle_dir = public_dir / slug
     staging_dir = public_dir / f".{slug}.tmp-{uuid4().hex}"
-    staging_dir.mkdir(parents=True, exist_ok=True)
+    ensure_public_tour_directory(staging_dir)
     scenes: list[dict[str, object]] = []
     try:
         for ordinal, asset_url in enumerate(normalized_urls[:12], start=1):
@@ -11154,10 +11161,13 @@ def _write_hosted_floorplan_property_tour_bundle(
             "generated_at": _now_iso(),
             "creation_mode": "hosted_floorplan_tour",
         }
+        write_public_tour_json(staging_dir / "tour.json", payload)
+        normalize_public_tour_bundle_modes(staging_dir)
+        if bundle_dir.is_symlink():
+            raise RuntimeError("public_tour_bundle_symlink_forbidden")
         if bundle_dir.exists():
             shutil.rmtree(bundle_dir)
         staging_dir.rename(bundle_dir)
-        (bundle_dir / "tour.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return payload
     except Exception:
         shutil.rmtree(staging_dir, ignore_errors=True)
@@ -11190,7 +11200,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
         if existing_payload:
             return existing_payload
         bundle_dir = public_dir / slug
-        bundle_dir.mkdir(parents=True, exist_ok=True)
+        ensure_public_tour_directory(bundle_dir)
         facts = dict(property_facts_json or {})
         existing_address_lines = [str(value or "").strip() for value in list(facts.get("address_lines") or []) if str(value or "").strip()]
         existing_teasers = [str(value or "").strip() for value in list(facts.get("teaser_attributes") or []) if str(value or "").strip()]
@@ -11250,7 +11260,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             "generated_at": _now_iso(),
             "creation_mode": "embedded_live_360",
         }
-        (bundle_dir / "tour.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_public_tour_json(bundle_dir / "tour.json", payload)
         return payload
     if "360.kalandra.at" not in live_host and "feelestate" not in live_host:
         raise RuntimeError("pure_360_source_unsupported")
@@ -11261,7 +11271,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     if existing_payload:
         return existing_payload
     bundle_dir = public_dir / slug
-    bundle_dir.mkdir(parents=True, exist_ok=True)
+    ensure_public_tour_directory(bundle_dir)
     root = _feelestate_json_rpc("getLocationWithAuthentication", ["", 6489, None, 63379, None, ""])
     tour = dict(root.get("tour") or {})
     floors = [dict(row) for row in list(tour.get("floors") or []) if isinstance(row, dict)]
@@ -11412,7 +11422,8 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
         "generated_at": _now_iso(),
         "creation_mode": "pure_hosted_360",
     }
-    (bundle_dir / "tour.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_public_tour_json(bundle_dir / "tour.json", payload)
+    normalize_public_tour_bundle_modes(bundle_dir)
     return payload
 
 
@@ -11480,6 +11491,159 @@ def _hosted_property_tour_bundle_dir(tour_url: str) -> tuple[str, Path] | tuple[
     return (slug, bundle_dir)
 
 
+_HOSTED_PUBLIC_TOUR_ASSET_CONTENT_TYPES = {
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".json": "application/json",
+    ".mp4": "video/mp4",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+_HOSTED_PUBLIC_TOUR_ASSET_LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def _hosted_public_tour_manifest_payload(bundle_dir: Path) -> tuple[Path, dict[str, object]]:
+    public_dir = public_tour_dir()
+    ensure_public_tour_directory(bundle_dir, root=public_dir)
+    manifest_path = bundle_dir / "tour.json"
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise RuntimeError("hosted_property_tour_manifest_missing")
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError("hosted_property_tour_manifest_invalid") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("hosted_property_tour_manifest_invalid")
+    return manifest_path, dict(payload)
+
+
+def _hosted_public_tour_asset_registration(
+    *,
+    bundle_dir: Path,
+    relpath: str,
+    role: str,
+    purpose: str,
+    privacy_class: str = "public",
+) -> dict[str, object]:
+    normalized_relpath = str(relpath or "").strip()
+    relative_path = PurePosixPath(normalized_relpath)
+    if (
+        not normalized_relpath
+        or "\\" in normalized_relpath
+        or any(ord(character) < 32 for character in normalized_relpath)
+        or relative_path.is_absolute()
+        or relative_path.as_posix() != normalized_relpath
+        or any(part in {"", ".", ".."} for part in relative_path.parts)
+    ):
+        raise RuntimeError("hosted_property_tour_asset_relpath_invalid")
+    normalized_role = str(role or "").strip().lower()
+    normalized_purpose = str(purpose or "").strip().lower()
+    normalized_privacy_class = str(privacy_class or "").strip().lower()
+    if not _HOSTED_PUBLIC_TOUR_ASSET_LABEL_RE.fullmatch(normalized_role):
+        raise RuntimeError("hosted_property_tour_asset_role_invalid")
+    if not _HOSTED_PUBLIC_TOUR_ASSET_LABEL_RE.fullmatch(normalized_purpose):
+        raise RuntimeError("hosted_property_tour_asset_purpose_invalid")
+    if normalized_privacy_class not in {"internal", "public"}:
+        raise RuntimeError("hosted_property_tour_asset_privacy_invalid")
+    content_type = _HOSTED_PUBLIC_TOUR_ASSET_CONTENT_TYPES.get(relative_path.suffix.lower(), "")
+    if not content_type:
+        raise RuntimeError("hosted_property_tour_asset_content_type_unsupported")
+
+    public_dir = public_tour_dir()
+    ensure_public_tour_directory(bundle_dir, root=public_dir)
+    asset_path = bundle_dir.joinpath(*relative_path.parts)
+    cursor = bundle_dir
+    for part in relative_path.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise RuntimeError("hosted_property_tour_asset_symlink_forbidden")
+    if not asset_path.is_file():
+        raise RuntimeError("hosted_property_tour_asset_missing")
+    try:
+        resolved_bundle_dir = bundle_dir.resolve(strict=True)
+        resolved_asset_path = asset_path.resolve(strict=True)
+    except Exception as exc:
+        raise RuntimeError("hosted_property_tour_asset_missing") from exc
+    if resolved_bundle_dir not in resolved_asset_path.parents:
+        raise RuntimeError("hosted_property_tour_asset_outside_bundle")
+
+    digest = hashlib.sha256()
+    byte_size = 0
+    try:
+        with asset_path.open("rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+                byte_size += len(chunk)
+    except Exception as exc:
+        raise RuntimeError("hosted_property_tour_asset_unreadable") from exc
+    if byte_size <= 0:
+        raise RuntimeError("hosted_property_tour_asset_empty")
+    return {
+        "path": normalized_relpath,
+        "relpath": normalized_relpath,
+        "sha256": digest.hexdigest(),
+        "size_bytes": byte_size,
+        "byte_size": byte_size,
+        "mime_type": content_type,
+        "content_type": content_type,
+        "privacy_class": normalized_privacy_class,
+        "role": normalized_role,
+        "purpose": normalized_purpose,
+    }
+
+
+def _manifest_with_hosted_public_tour_asset(
+    payload: dict[str, object],
+    registration: dict[str, object],
+) -> dict[str, object]:
+    existing_assets = payload.get("public_assets")
+    if existing_assets is None:
+        existing_assets = []
+    if not isinstance(existing_assets, list) or any(not isinstance(item, dict) for item in existing_assets):
+        raise RuntimeError("hosted_property_tour_public_assets_invalid")
+    target_path = str(registration.get("path") or "").strip()
+    retained_assets: list[dict[str, object]] = []
+    for existing in existing_assets:
+        existing_row = dict(existing)
+        existing_path = str(
+            existing_row.get("path")
+            or existing_row.get("relpath")
+            or existing_row.get("asset_relpath")
+            or ""
+        ).strip()
+        if existing_path == target_path:
+            continue
+        retained_assets.append(existing_row)
+    retained_assets.append(dict(registration))
+    updated = dict(payload)
+    updated["public_assets"] = retained_assets
+    return updated
+
+
+def _register_hosted_public_tour_asset(
+    *,
+    bundle_dir: Path,
+    relpath: str,
+    role: str,
+    purpose: str,
+    privacy_class: str = "public",
+) -> dict[str, object]:
+    manifest_path, payload = _hosted_public_tour_manifest_payload(bundle_dir)
+    registration = _hosted_public_tour_asset_registration(
+        bundle_dir=bundle_dir,
+        relpath=relpath,
+        role=role,
+        purpose=purpose,
+        privacy_class=privacy_class,
+    )
+    updated = _manifest_with_hosted_public_tour_asset(payload, registration)
+    write_public_tour_json(manifest_path, updated, root=public_tour_dir())
+    return registration
+
+
 def _update_hosted_property_tour_magicfit_video_manifest(
     *,
     tour_url: str,
@@ -11489,19 +11653,28 @@ def _update_hosted_property_tour_magicfit_video_manifest(
     slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
     if not slug or bundle_dir is None:
         raise RuntimeError("hosted_property_tour_bundle_missing")
-    manifest_path = bundle_dir / "tour.json"
-    if not manifest_path.exists():
-        raise RuntimeError("hosted_property_tour_manifest_missing")
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise RuntimeError("hosted_property_tour_manifest_invalid") from exc
-    if not isinstance(payload, dict):
-        raise RuntimeError("hosted_property_tour_manifest_invalid")
+    manifest_path, payload = _hosted_public_tour_manifest_payload(bundle_dir)
     normalized_video_relpath = str(video_relpath or "").strip().lstrip("/")
     normalized_sidecar_relpath = str(sidecar_relpath or "").strip().lstrip("/")
     if not normalized_video_relpath:
         raise RuntimeError("hosted_property_tour_video_relpath_missing")
+    video_registration = _hosted_public_tour_asset_registration(
+        bundle_dir=bundle_dir,
+        relpath=normalized_video_relpath,
+        role="video",
+        purpose="magicfit_quality_review",
+    )
+    payload = _manifest_with_hosted_public_tour_asset(payload, video_registration)
+    sidecar_registration: dict[str, object] = {}
+    if normalized_sidecar_relpath:
+        sidecar_registration = _hosted_public_tour_asset_registration(
+            bundle_dir=bundle_dir,
+            relpath=normalized_sidecar_relpath,
+            role="provider_sidecar",
+            purpose="magicfit_quality_review",
+            privacy_class="internal",
+        )
+        payload = _manifest_with_hosted_public_tour_asset(payload, sidecar_registration)
     payload["video_relpath"] = normalized_video_relpath
     payload.pop("video_fallback_relpath", None)
     payload["video_provider_key"] = "magicfit"
@@ -11511,7 +11684,28 @@ def _update_hosted_property_tour_magicfit_video_manifest(
     if normalized_sidecar_relpath:
         payload["video_sidecar_relpath"] = normalized_sidecar_relpath
     payload["flythrough_url"] = _property_tour_deep_link(tour_url, pane="flythrough-pane", autoplay=True)
-    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    previous_release = payload.get("video_release")
+    previous_release = dict(previous_release) if isinstance(previous_release, dict) else {}
+    payload["video_release"] = {
+        "contract": PUBLIC_TOUR_VIDEO_RELEASE_CONTRACT,
+        "status": "pending_quality_review",
+        "provider": "magicfit",
+        "asset_relpath": normalized_video_relpath,
+        "asset_sha256": str(video_registration.get("sha256") or ""),
+        "asset_size_bytes": int(video_registration.get("size_bytes") or 0),
+        "source_sidecar_relpath": normalized_sidecar_relpath,
+        "source_sidecar_sha256": str(sidecar_registration.get("sha256") or ""),
+        "source_sidecar_size_bytes": int(sidecar_registration.get("size_bytes") or 0),
+        "captured_provider_source": False,
+        "satisfies_verified_tour_gate": False,
+        "provider_output_verified": False,
+        "quality_review_passed": False,
+        "revoked": bool(previous_release.get("revoked")),
+        "disqualified": bool(previous_release.get("disqualified")),
+        "disclosure": "Synthetic MagicFit walkthrough pending human quality review; not a captured provider tour.",
+        "updated_at": _now_iso(),
+    }
+    write_public_tour_json(manifest_path, payload, root=public_tour_dir())
     return payload
 
 
@@ -11832,8 +12026,10 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
         return {"status": "missing", "reason": "magicfit_render_script_missing"}
     video_relpath = "tour.mp4"
     sidecar_relpath = "tour.magicfit.json"
-    bundle_video_path = (bundle_dir / video_relpath).resolve()
-    bundle_sidecar_path = (bundle_dir / sidecar_relpath).resolve()
+    bundle_video_path = bundle_dir / video_relpath
+    bundle_sidecar_path = bundle_dir / sidecar_relpath
+    resolved_bundle_video_path = bundle_video_path.resolve()
+    resolved_bundle_sidecar_path = bundle_sidecar_path.resolve()
     room_count = 1
     room_visit_plan: list[str] = []
     if isinstance(property_facts, dict):
@@ -11843,7 +12039,10 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
     room_count = max(1, min(25, room_count))
     # Provider UI currently caps generation at 15s; keep prompt-level timing constraints.
     flythrough_duration_seconds = 15
-    if bundle_dir.resolve() not in bundle_video_path.parents or bundle_dir.resolve() not in bundle_sidecar_path.parents:
+    if (
+        bundle_dir.resolve() not in resolved_bundle_video_path.parents
+        or bundle_dir.resolve() not in resolved_bundle_sidecar_path.parents
+    ):
         return {"status": "missing", "reason": "hosted_tour_bundle_invalid"}
     prompt = _default_magicfit_property_flythrough_prompt(
         title=title,
@@ -11897,10 +12096,10 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
             render_log["status"] = "failed"
             render_log["reason"] = "magicfit_render_failed"
             return render_log
-        bundle_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(tmp_video, bundle_video_path)
+        ensure_public_tour_directory(bundle_dir)
+        copy_public_tour_file(tmp_video, bundle_video_path)
         if tmp_sidecar.exists():
-            shutil.copy2(tmp_sidecar, bundle_sidecar_path)
+            copy_public_tour_file(tmp_sidecar, bundle_sidecar_path)
         try:
             _update_hosted_property_tour_magicfit_video_manifest(
                 tour_url=tour_url,
@@ -12205,8 +12404,9 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str, *, diorama_s
         derived_relpath = f"telegram-preview-{style_hash}.png"
     else:
         derived_relpath = "telegram-preview.png"
-    derived_path = (bundle_dir / derived_relpath).resolve()
-    if bundle_dir.resolve() not in derived_path.parents:
+    derived_path = bundle_dir / derived_relpath
+    resolved_derived_path = derived_path.resolve()
+    if bundle_dir.resolve() not in resolved_derived_path.parents or derived_path.is_symlink():
         return ""
     diorama_scene = next((scene for scene in scenes if str(scene.get("role") or "").strip().lower() == "diorama"), {})
     asset_relpath = str(diorama_scene.get("asset_relpath") or "").strip()
@@ -12271,8 +12471,16 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str, *, diorama_s
                             tile = tile_src.copy()
                             tile.thumbnail((520, 240), Image.Resampling.LANCZOS)
                             canvas.paste(tile, (x, y))
-                    derived_path.parent.mkdir(parents=True, exist_ok=True)
-                    canvas.save(derived_path, format="PNG", optimize=True)
+                    write_public_tour_file(
+                        derived_path,
+                        lambda handle: canvas.save(handle, format="PNG", optimize=True),
+                    )
+                    _register_hosted_public_tour_asset(
+                        bundle_dir=bundle_dir,
+                        relpath=derived_relpath,
+                        role="preview",
+                        purpose="telegram_delivery_preview",
+                    )
                     return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=derived_relpath)
             except Exception:
                 pass
@@ -12301,10 +12509,21 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str, *, diorama_s
                 offset_x = (canvas_width - scaled.size[0]) // 2
                 offset_y = (canvas_height - scaled.size[1]) // 2
                 canvas.paste(scaled, (offset_x, offset_y))
-                derived_path.parent.mkdir(parents=True, exist_ok=True)
-                canvas.save(derived_path, format="PNG", optimize=True)
+                write_public_tour_file(
+                    derived_path,
+                    lambda handle: canvas.save(handle, format="PNG", optimize=True),
+                )
         except Exception:
             return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=asset_relpath)
+    try:
+        _register_hosted_public_tour_asset(
+            bundle_dir=bundle_dir,
+            relpath=derived_relpath,
+            role="preview",
+            purpose="telegram_delivery_preview",
+        )
+    except Exception:
+        return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=asset_relpath)
     return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=derived_relpath)
 
 
@@ -12385,38 +12604,54 @@ def _hosted_property_tour_magicfit_still_urls(tour_url: str, *, limit: int = 3) 
         default_offsets = [round(useful * ratio, 2) for ratio in (0.18, 0.48, 0.78)]
     for index, offset in enumerate(default_offsets[: max(1, int(limit or 3))], start=1):
         relpath = f"magicfit-still-{index}.jpg"
-        target_path = (bundle_dir / relpath).resolve()
-        if bundle_dir.resolve() not in target_path.parents:
+        target_path = bundle_dir / relpath
+        resolved_target_path = target_path.resolve()
+        if bundle_dir.resolve() not in resolved_target_path.parents or target_path.is_symlink():
             continue
         needs_refresh = (not target_path.exists()) or target_path.stat().st_mtime < local_video_path.stat().st_mtime
         if needs_refresh:
-            command = [
-                ffmpeg_bin,
-                "-y",
-                "-ss",
-                f"{max(0.0, float(offset)):.2f}",
-                "-i",
-                str(local_video_path),
-                "-frames:v",
-                "1",
-                "-vf",
-                "scale=1280:-2",
-                "-q:v",
-                "3",
-                str(target_path),
-            ]
-            try:
-                result = subprocess.run(
-                    command,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=90,
-                )
-            except Exception:
-                continue
-            if result.returncode != 0 or not target_path.exists():
-                continue
+            with tempfile.TemporaryDirectory(prefix="magicfit-tour-still-") as temporary_dir:
+                temporary_path = Path(temporary_dir) / relpath
+                command = [
+                    ffmpeg_bin,
+                    "-y",
+                    "-ss",
+                    f"{max(0.0, float(offset)):.2f}",
+                    "-i",
+                    str(local_video_path),
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    "scale=1280:-2",
+                    "-q:v",
+                    "3",
+                    str(temporary_path),
+                ]
+                try:
+                    result = subprocess.run(
+                        command,
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=90,
+                    )
+                except Exception:
+                    continue
+                if result.returncode != 0 or not temporary_path.exists():
+                    continue
+                try:
+                    copy_public_tour_file(temporary_path, target_path)
+                except Exception:
+                    continue
+        try:
+            _register_hosted_public_tour_asset(
+                bundle_dir=bundle_dir,
+                relpath=relpath,
+                role="video_still",
+                purpose="magicfit_quality_review",
+            )
+        except Exception:
+            continue
         still_url = _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=relpath)
         if still_url:
             still_urls.append(still_url)

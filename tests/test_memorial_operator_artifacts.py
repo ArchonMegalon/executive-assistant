@@ -1262,8 +1262,22 @@ def test_memorial_operator_status_fails_closed_when_whole_project_verifier_block
     assert payload["status"] == "pass"
 
 
+def _stub_public_memorial_projection_pass(module, monkeypatch) -> None:
+    monkeypatch.setattr(
+        module,
+        "_memorial_public_runtime_status",
+        lambda: {"status": "pass"},
+    )
+    monkeypatch.setattr(
+        module,
+        "_public_origin_access_status",
+        lambda *, slug: {"status": "pass"},
+    )
+
+
 def test_memorial_operator_status_uses_source_state_head(tmp_path, monkeypatch) -> None:
     module = _load_module("/docker/EA/scripts/materialize_memorial_operator_status.py", "materialize_memorial_operator_status_source_head")
+    _stub_public_memorial_projection_pass(module, monkeypatch)
     monkeypatch.setattr(module, "OUTPUT", tmp_path / "operator_status.json")
     monkeypatch.setattr(module, "resolve_source_state_head", lambda root: "SOURCE_HEAD")
     monkeypatch.setattr(
@@ -1324,6 +1338,7 @@ def test_memorial_operator_status_reports_dirty_source_snapshot(tmp_path, monkey
         "/docker/EA/scripts/materialize_memorial_operator_status.py",
         "materialize_memorial_operator_status_dirty_source",
     )
+    _stub_public_memorial_projection_pass(module, monkeypatch)
     monkeypatch.setattr(module, "OUTPUT", tmp_path / "operator_status.json")
     monkeypatch.setattr(module, "resolve_source_state_head", lambda root: "SOURCE_HEAD")
     source_metadata_calls: list[dict[str, object]] = []
@@ -1445,6 +1460,7 @@ def test_memorial_operator_status_routes_dirty_source_to_verifier_when_verifier_
         "/docker/EA/scripts/materialize_memorial_operator_status.py",
         "materialize_memorial_operator_status_dirty_source_verifier_blocked",
     )
+    _stub_public_memorial_projection_pass(module, monkeypatch)
     monkeypatch.setattr(module, "OUTPUT", tmp_path / "operator_status.json")
     monkeypatch.setattr(module, "resolve_source_state_head", lambda root: "SOURCE_HEAD")
     monkeypatch.setattr(

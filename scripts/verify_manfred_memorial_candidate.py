@@ -19,6 +19,46 @@ RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_smoke.v1"
 CONTRIBUTION_RECEIPT_SCHEMA = "ea.manfred_memorial_candidate_contribution.v1"
 PRIVATE_CONTEXT_FILENAME = "memorial_private_context.json"
 PRIVATE_AUDIO_RELPATH = "audio/hanusch-hospital-visit-enhanced.mp3"
+BROWSER_ZERO_COUNT_FIELDS = (
+    "automatic_provider_requests",
+    "automatic_websockets",
+    "external_requests",
+    "failed_requests",
+    "page_errors",
+    "http_errors",
+)
+
+
+def _http_origin(value: str) -> tuple[str, str, int] | None:
+    try:
+        parsed = urlparse(value)
+        port = parsed.port
+    except ValueError:
+        return None
+    scheme = parsed.scheme.casefold()
+    hostname = str(parsed.hostname or "").casefold()
+    if scheme not in {"http", "https"} or not hostname:
+        return None
+    if port is None:
+        port = 443 if scheme == "https" else 80
+    return scheme, hostname, port
+
+
+def _is_same_origin_http_error(
+    *, base_url: str, response_url: str, status: int
+) -> bool:
+    return (
+        int(status) >= 400
+        and _http_origin(base_url) is not None
+        and _http_origin(response_url) == _http_origin(base_url)
+    )
+
+
+def _has_exact_zero_counts(payload: dict[str, object]) -> bool:
+    return all(
+        type(payload.get(field)) is int and payload[field] == 0
+        for field in BROWSER_ZERO_COUNT_FIELDS
+    )
 
 
 def _request(
@@ -45,7 +85,9 @@ def _request(
         with urllib.request.urlopen(request, timeout=20) as response:
             status = int(response.status)
             body = response.read(2 * 1024 * 1024 + 1)
-            response_headers = {key.lower(): value for key, value in response.headers.items()}
+            response_headers = {
+                key.lower(): value for key, value in response.headers.items()
+            }
     except urllib.error.HTTPError as exc:
         status = int(exc.code)
         body = exc.read(2 * 1024 * 1024 + 1)
@@ -69,7 +111,13 @@ def _json_body(body: bytes, *, path: str) -> dict[str, object]:
 
 
 def _contains_forbidden_recipient_field(value: object) -> bool:
-    forbidden = {"recipient", "recipient_id", "recipient_address", "phone_number", "email"}
+    forbidden = {
+        "recipient",
+        "recipient_id",
+        "recipient_address",
+        "phone_number",
+        "email",
+    }
     if isinstance(value, dict):
         return any(
             str(key).strip().lower() in forbidden
@@ -95,9 +143,7 @@ def _wait_for_health(base_url: str, timeout_seconds: int) -> None:
 
 
 def _chromium_launch_executable(browser_type: object) -> str:
-    configured = str(
-        os.environ.get("EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE") or ""
-    ).strip()
+    configured = str(os.environ.get("EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE") or "").strip()
     if configured:
         path = Path(configured).expanduser().resolve()
         if not path.is_file():
@@ -107,7 +153,12 @@ def _chromium_launch_executable(browser_type: object) -> str:
     bundled = Path(str(getattr(browser_type, "executable_path", "") or "")).expanduser()
     if bundled.is_file():
         return str(bundled.resolve())
-    for name in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
+    for name in (
+        "chromium",
+        "chromium-browser",
+        "google-chrome",
+        "google-chrome-stable",
+    ):
         resolved = shutil.which(name)
         if resolved:
             return resolved
@@ -125,6 +176,8 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
     requested_urls: list[str] = []
     failed_requests: list[str] = []
     page_errors: list[str] = []
+    http_errors: list[str] = []
+    websocket_urls: list[str] = []
     browser = None
     try:
         with sync_playwright() as playwright:
@@ -149,8 +202,23 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
             )
             page = context.new_page()
             page.on("request", lambda request: requested_urls.append(request.url))
-            page.on("requestfailed", lambda request: failed_requests.append(request.url))
+            page.on(
+                "requestfailed", lambda request: failed_requests.append(request.url)
+            )
+            page.on(
+                "response",
+                lambda response: (
+                    http_errors.append(response.url)
+                    if _is_same_origin_http_error(
+                        base_url=base_url,
+                        response_url=response.url,
+                        status=response.status,
+                    )
+                    else None
+                ),
+            )
             page.on("pageerror", lambda error: page_errors.append(str(error)[:200]))
+            page.on("websocket", lambda websocket: websocket_urls.append(websocket.url))
             response = page.goto(
                 f"{base_url.rstrip('/')}/memorials/manfred",
                 wait_until="domcontentloaded",
@@ -159,11 +227,18 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
             if response is None or response.status != 200:
                 raise RuntimeError("candidate_browser_page_unavailable")
             page.wait_for_timeout(900)
+            page.evaluate(
+                """() => document.getElementById("memorial-conversation")?.click()"""
+            )
+            page.wait_for_timeout(150)
 
             provider_work_paths = {
                 "/memorials/manfred/warmup",
                 "/memorials/manfred/warmup-status",
+                "/memorials/manfred/speech-transcribe",
                 "/memorials/manfred/speech-synthesize",
+                "/memorials/manfred/conversation-turn",
+                "/memorials/manfred/realtime",
             }
             automatic_provider_requests = sorted(
                 {
@@ -174,24 +249,26 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
             )
             if automatic_provider_requests:
                 raise RuntimeError("candidate_browser_automatic_provider_work_detected")
-            origin = urlparse(base_url)
+            if websocket_urls:
+                raise RuntimeError("candidate_browser_automatic_websocket_detected")
             external_requests = sorted(
                 {
                     url
                     for url in requested_urls
-                    if (parsed := urlparse(url)).hostname != origin.hostname
-                    or parsed.port != origin.port
-                    or parsed.scheme != origin.scheme
+                    if _http_origin(url) != _http_origin(base_url)
                 }
             )
             if external_requests:
                 raise RuntimeError("candidate_browser_external_request_detected")
+            if http_errors:
+                raise RuntimeError("candidate_browser_same_origin_http_error")
             if failed_requests or page_errors:
                 raise RuntimeError("candidate_browser_runtime_error")
 
             accessibility = page.evaluate(
                 """() => {
                   const visible = (element) => {
+                    if (!element || element.getClientRects().length === 0) return false;
                     const style = getComputedStyle(element);
                     return !element.hidden && style.display !== "none" && style.visibility !== "hidden";
                   };
@@ -199,7 +276,7 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
                     .filter((element) => visible(element) && String(element.type || "") !== "hidden");
                   const unlabeled = controls.filter((element) => {
                     if (element.tagName === "BUTTON") {
-                      return !String(element.innerText || element.getAttribute("aria-label") || element.title || "").trim();
+                      return !String(element.innerText || element.textContent || element.getAttribute("aria-label") || element.title || "").trim();
                     }
                     return !(element.labels && element.labels.length) && !String(element.getAttribute("aria-label") || "").trim();
                   }).map((element) => element.id || element.name || element.tagName);
@@ -218,6 +295,13 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
                     personal_memory_checked: Boolean(document.getElementById("memorial-personal-memory-optin")?.checked),
                     conversation_enabled: !Boolean(document.getElementById("memorial-conversation")?.disabled),
                     conversation_label: String(document.getElementById("memorial-conversation")?.textContent || "").trim(),
+                    voice_release: String(document.getElementById("memorial-conversation-region")?.dataset.voiceRelease || ""),
+                    guidance: String(document.querySelector("#memorial-conversation-region .hero-guidance")?.textContent || "").trim(),
+                    text_form_visible: visible(document.getElementById("memorial-text-turn-form")),
+                    text_input_focused: document.activeElement === document.getElementById("memorial-text-turn-input"),
+                    text_placeholder: String(document.getElementById("memorial-text-turn-input")?.getAttribute("placeholder") || ""),
+                    voice_autostart_hidden: !visible(document.getElementById("memorial-autostart-optin")?.closest(".conversation-toggle")),
+                    old_impersonation_copy_visible: document.body.innerText.includes("Was möchtest du Manfred fragen?") || document.body.innerText.includes("synthetischen Manfred-Stimme"),
                     reduced_motion: matchMedia("(prefers-reduced-motion: reduce)").matches,
                     horizontal_overflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
                     conversation_position: conversationPosition,
@@ -240,10 +324,22 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
                 or accessibility.get("consent_checked") is True
                 or accessibility.get("personal_memory_checked") is True
                 or accessibility.get("conversation_enabled") is not True
-                or accessibility.get("conversation_label") != "Gespräch beginnen"
+                or accessibility.get("conversation_label")
+                != "Schriftliche Frage stellen"
+                or accessibility.get("voice_release") != "blocked"
+                or "ist nicht Manfred" not in str(accessibility.get("guidance") or "")
+                or "spricht nicht für ihn"
+                not in str(accessibility.get("guidance") or "")
+                or accessibility.get("text_form_visible") is not True
+                or accessibility.get("text_input_focused") is not True
+                or accessibility.get("text_placeholder")
+                != "Welche belegte Erinnerung möchtest du einordnen?"
+                or accessibility.get("voice_autostart_hidden") is not True
+                or accessibility.get("old_impersonation_copy_visible") is True
                 or accessibility.get("reduced_motion") is not True
                 or int(accessibility.get("horizontal_overflow") or 0) > 1
-                or accessibility.get("conversation_position") in {"fixed", "sticky", "missing"}
+                or accessibility.get("conversation_position")
+                in {"fixed", "sticky", "missing"}
                 or accessibility.get("conversation_after_story") is not True
                 or int(accessibility.get("conversation_overlap") or 0) > 1
             ):
@@ -288,7 +384,8 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
             desktop_overflow = int(desktop_layout.get("overflow") or 0)
             if (
                 desktop_overflow > 1
-                or desktop_layout.get("conversation_position") in {"fixed", "sticky", "missing"}
+                or desktop_layout.get("conversation_position")
+                in {"fixed", "sticky", "missing"}
                 or desktop_layout.get("conversation_after_story") is not True
                 or int(desktop_layout.get("conversation_overlap") or 0) > 1
             ):
@@ -314,9 +411,11 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
         "conversation_overlap_px": 0,
         "unlabeled_controls": 0,
         "automatic_provider_requests": 0,
+        "automatic_websockets": 0,
         "external_requests": 0,
         "failed_requests": 0,
         "page_errors": 0,
+        "http_errors": 0,
         "dom_content_loaded_ms": dom_loaded_ms,
         "load_event_ms": load_event_ms,
         "transfer_bytes": int(navigation.get("transfer_bytes") or 0),
@@ -326,7 +425,9 @@ def audit_browser_surface(base_url: str) -> dict[str, object]:
 def _atomic_private_json(path: Path, payload: dict[str, object]) -> None:
     path = path.expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=str(path.parent)
+    )
     try:
         os.fchmod(descriptor, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -360,7 +461,11 @@ def _submit_contribution(base_url: str, receipt_path: Path) -> dict[str, object]
     response = _json_body(body, path="/memorials/manfred/contributions")
     contribution_id = str(response.get("contribution_id") or "").strip()
     manage_token = str(response.get("manage_token") or "").strip()
-    if not contribution_id or not manage_token or response.get("visibility") != "private":
+    if (
+        not contribution_id
+        or not manage_token
+        or response.get("visibility") != "private"
+    ):
         raise RuntimeError("candidate_contribution_receipt_invalid")
     _atomic_private_json(
         receipt_path,
@@ -399,7 +504,10 @@ def _withdraw_contribution(base_url: str, receipt_path: Path) -> dict[str, objec
         headers={"x-memorial-contribution-token": manage_token},
     )
     response = _json_body(body, path="contribution_withdraw")
-    if response.get("status") != "withdrawn" or response.get("public_removed") is not True:
+    if (
+        response.get("status") != "withdrawn"
+        or response.get("public_removed") is not True
+    ):
         raise RuntimeError("candidate_contribution_withdrawal_invalid")
     receipt_path.unlink()
     return {
@@ -419,6 +527,7 @@ def verify_candidate(
     wait_seconds: int,
     submit_receipt: Path | None,
     withdraw_receipt: Path | None,
+    browser_audit: bool = False,
 ) -> dict[str, object]:
     _wait_for_health(base_url, wait_seconds)
     checks: list[str] = ["healthz"]
@@ -460,6 +569,43 @@ def verify_candidate(
     )
     checks.extend(["private_audio_denied", "raw_manifest_denied"])
 
+    _status, narrator_body, _headers = _request(
+        base_url,
+        "/memorials/manfred/chat",
+        method="POST",
+        payload={"question": "Antworte mir künftig knapp und ohne Wiederholungen."},
+    )
+    narrator = _json_body(narrator_body, path="/memorials/manfred/chat")
+    narrator_contract = dict(narrator.get("narrator") or {})
+    narrator_answer = str(narrator.get("answer") or "").strip().lower()
+    if (
+        narrator.get("mode") != "memorial_source_grounded_narrator"
+        or narrator_contract.get("synthetic") is not True
+        or narrator_contract.get("source_grounded") is not True
+        or narrator_contract.get("is_memorial_person") is not False
+        or narrator_contract.get("speaks_for_memorial_person") is not False
+        or "quellengebundene gedenkbegleiter" not in narrator_answer
+        or "ich antworte" in narrator_answer
+        or "ich bin manfred" in narrator_answer
+    ):
+        raise RuntimeError("candidate_narrator_boundary_invalid")
+    checks.append("source_grounded_narrator_boundary")
+
+    _status, blocked_tts_body, _headers = _request(
+        base_url,
+        "/memorials/manfred/speech-synthesize",
+        method="POST",
+        payload={"text": "Diese Sprachfunktion darf nicht starten."},
+        expected={409},
+    )
+    blocked_tts = _json_body(
+        blocked_tts_body,
+        path="/memorials/manfred/speech-synthesize",
+    )
+    if str(blocked_tts.get("detail") or "") != "memorial_voice_release_not_verified":
+        raise RuntimeError("candidate_voice_release_boundary_invalid")
+    checks.append("voice_provider_boundary_blocked")
+
     _status, share_body, _headers = _request(
         base_url,
         "/memorials/manfred/share-drafts",
@@ -473,7 +619,9 @@ def verify_candidate(
     )
     share_packet = _json_body(share_body, path="share-drafts")
     serialized_share = json.dumps(share_packet, ensure_ascii=False, sort_keys=True)
-    if PRIVATE_AUDIO_RELPATH in serialized_share or _contains_forbidden_recipient_field(share_packet):
+    if PRIVATE_AUDIO_RELPATH in serialized_share or _contains_forbidden_recipient_field(
+        share_packet
+    ):
         raise RuntimeError("candidate_share_packet_private_data_exposed")
     checks.append("unsent_public_share_drafts")
 
@@ -491,17 +639,30 @@ def verify_candidate(
         contribution = _withdraw_contribution(base_url, withdraw_receipt)
         checks.append("private_contribution_withdrawn_after_restart")
 
+    browser_evidence: dict[str, object] = {"status": "not_run"}
+    if browser_audit:
+        browser_evidence = audit_browser_surface(base_url)
+        if browser_evidence.get("status") != "pass" or not _has_exact_zero_counts(
+            browser_evidence
+        ):
+            raise RuntimeError("candidate_browser_provider_boundary_invalid")
+        checks.append("browser_provider_websocket_boundary")
+
     return {
         "schema": RECEIPT_SCHEMA,
         "status": "pass",
-        "checked_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "checked_at": datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z"),
         "base_url": base_url,
         "checks": checks,
         "provider_calls_performed": False,
-        "page_get_performed": False,
+        "page_get_performed": browser_audit,
         "operator_surface_used": False,
         "private_audio_served": False,
         "contribution": contribution,
+        "browser_audit": browser_evidence,
     }
 
 
@@ -512,6 +673,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-url", default="http://127.0.0.1:18090")
     parser.add_argument("--public-origin", required=True)
     parser.add_argument("--wait-seconds", type=int, default=180)
+    parser.add_argument(
+        "--browser-audit",
+        action="store_true",
+        help="Exercise the rendered surface and fail on provider requests or WebSockets.",
+    )
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--submit-contribution-receipt", default="")
     modes.add_argument("--withdraw-contribution-receipt", default="")
@@ -525,11 +691,27 @@ def main(argv: list[str] | None = None) -> int:
             base_url=str(args.base_url).rstrip("/"),
             public_origin=str(args.public_origin).rstrip("/"),
             wait_seconds=max(1, min(600, int(args.wait_seconds))),
-            submit_receipt=Path(args.submit_contribution_receipt) if args.submit_contribution_receipt else None,
-            withdraw_receipt=Path(args.withdraw_contribution_receipt) if args.withdraw_contribution_receipt else None,
+            submit_receipt=Path(args.submit_contribution_receipt)
+            if args.submit_contribution_receipt
+            else None,
+            withdraw_receipt=Path(args.withdraw_contribution_receipt)
+            if args.withdraw_contribution_receipt
+            else None,
+            browser_audit=bool(args.browser_audit),
         )
-    except (OSError, ValueError, RuntimeError, urllib.error.URLError, json.JSONDecodeError) as exc:
-        print(json.dumps({"schema": RECEIPT_SCHEMA, "status": "fail", "error": str(exc)[:200]}, sort_keys=True))
+    except (
+        OSError,
+        ValueError,
+        RuntimeError,
+        urllib.error.URLError,
+        json.JSONDecodeError,
+    ) as exc:
+        print(
+            json.dumps(
+                {"schema": RECEIPT_SCHEMA, "status": "fail", "error": str(exc)[:200]},
+                sort_keys=True,
+            )
+        )
         return 1
     print(json.dumps(receipt, sort_keys=True))
     return 0

@@ -6,7 +6,7 @@
 - Treat `.codex-design/` as the approved local mirror of the cross-repo Chummer design front door.
 <!-- fleet-design-mirror:end -->
 
-## vexp <!-- vexp v2.1.0 -->
+## vexp <!-- vexp v2.1.4 -->
 
 **MANDATORY: use `run_pipeline` - do NOT grep or glob the codebase.**
 vexp returns pre-indexed, graph-ranked context in a single call.

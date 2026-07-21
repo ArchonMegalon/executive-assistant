@@ -24,8 +24,8 @@ The shipped ALICE slice is now broader than the first compare bench:
 * rules-coach prompts that explain selectable build options without claiming rule authority beyond cited Chummer mechanics context
 * GM allowance and requirement notes that can seed ALICE guidance with bounded exceptions or constraints such as extra ware, availability, nuyen, gear, qualities, required magical activity, illegal-addiction requirements, or minimum mental-attribute requirements without mutating build truth
 * an origin-dossier lane that can generate a grounded origin draft from blank-state or active-runner context, freeze approved canon, and seed later ALICE suggestions from that canon
-* origin-dossier bundle outputs that can branch into dossier PDF, portrait candidates, scene candidates, Subscribr narration and video-script packets, approved-story audiobook requests, local media-factory render requests, and optional First Book ai premium dossier-book packets
-* voice-selection controls that let the player choose between at least a default and alternate narration posture before the audiobook packet is rendered
+* origin-dossier bundle outputs that can branch into a full-story ebook with fitted cover art, a three-portrait shortlist, chapter-scene highlight summaries, Subscribr narration and video-script packets, approved-story audiobook requests, local media-factory render requests, and optional First Book ai premium dossier-book packets
+* voice-selection controls that let the player choose the audiobook voice after ebook handoff and before audio render burn
 * player-scoped audiobook handoffs that let the desktop open the approved origin-story audio without receiving global Audiobookshelf credentials
 * GM-steered origin context that can shape the dossier tone, faction hooks, and campaign constraints before or after sheet creation without pretending that story output is mechanical truth
 
@@ -42,9 +42,9 @@ Desktop ALICE may:
 * draft a complete scratch runner from a blank or new-character state when the user chooses `Draft from scratch`
 * use an approved origin draft or origin-dossier canon as suggestion context
 * respect GM allowances and hard GM requirements as advisory context
-* generate downstream dossier media packets
-* hand approved origin canon to Subscribr for bounded narration and video-script drafting and to First Book ai for premium long-form packaging after separate approval
-* let the player choose a narration posture before generating dossier audiobook packets
+* request downstream full-story origin edition follow-through only after the approved ebook exists
+* hand approved origin canon to Subscribr for bounded full-story manuscript work after separate approval
+* let the player choose the audiobook voice after ebook handoff and before requesting the dossier audiobook
 * open an EA-issued player/runner-scoped origin-story audiobook reference when the approved dossier has one
 * keep origin-dossier generation additive for finished runners instead of treating story output as a forced rebuild lane
 * accept campaign or GM steer as bounded context for origin-dossier generation
@@ -98,7 +98,9 @@ The intended flow is:
 2. optional GM steer, allowance notes, or hard narrative/mechanical requirements
 3. origin draft
 4. approve canon
-5. choose voice posture for narration lanes when desired
-6. request an approved-story audiobook when desired
-7. render the origin dossier bundle
-8. let later ALICE suggestions read that canon without mutating established build truth
+5. render and review the real full story manuscript
+6. package and hand over the ebook with fitted cover art
+7. let the player choose one of three story-fit portraits
+8. request an approved-story audiobook after explicit voice choice when desired
+9. present important-scene summaries and request one chosen cinematic scene
+10. let later ALICE suggestions read that canon without mutating established build truth

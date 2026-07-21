@@ -84,14 +84,21 @@ public_routes:
   placeholder_allowed: false
   placeholder_requirements: release date, platform status, and known issues only
 - path: /horizons
-  title: Roadmap
+  title: Horizons
   audience: public
-  purpose: maintenance_redirect
+  purpose: working_horizons_summary
   requires_auth: false
   guest_fallback: /horizons
   must_exist: true
   placeholder_allowed: false
-  placeholder_requirements: maintenance page and roadmap pointer only
+  placeholder_requirements: minimal working-lanes summary, install-first redirect,
+    and roadmap pointer only
+  required_texts:
+  - Not the front door
+  - Working lanes
+  - Stabilize now
+  - Play at the table next
+  - Living-world later
 - path: /roadmap
   title: Roadmap
   audience: public
@@ -119,6 +126,12 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: download choices and install help only
+  required_texts:
+  - Downloads
+  - Version
+  - Stable
+  - Nightly
+  - Build from source
 - path: /docs
   title: Document Portal
   audience: public
@@ -286,6 +299,75 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: first-party session packet and launch-prep surface only
+- path: /ready/packet/{role}.md
+  title: Ready packet markdown
+  audience: public
+  purpose: ready_packet_export
+  verification_path: /ready/packet/player.md
+  requires_auth: false
+  guest_fallback: /ready
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: player-safe ready packet export only
+  required_texts:
+  - Player packet
+  - Next best screen
+  - /mobile
+  - /ready/handoff/mobile.json
+- path: /ready/packet/{role}.json
+  title: Ready packet JSON
+  audience: public
+  purpose: ready_packet_export
+  verification_path: /ready/packet/player.json
+  requires_auth: false
+  guest_fallback: /ready
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: machine-readable ready packet export only
+  required_texts:
+  - player
+  - nextBestScreen
+  - /ready/handoff/mobile.json
+- path: /ready/loadout/{kitId}.json
+  title: Ready loadout JSON
+  audience: public
+  purpose: ready_loadout_export
+  verification_path: /ready/loadout/mage.json
+  requires_auth: false
+  guest_fallback: /ready
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: starter loadout export only
+  required_texts:
+  - mage
+  - Mage starter
+  - Drain and focus reminder
+- path: /ready/handoff/mobile.json
+  title: Ready mobile handoff JSON
+  audience: public
+  purpose: ready_mobile_handoff
+  requires_auth: false
+  guest_fallback: /ready
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: mobile playtime handoff and opt-in boundaries only
+  required_texts:
+  - ready_for_tonight
+  - /mobile
+  - /mobile/player
+  - /mobile/gm
+  - /manifest.player.webmanifest
+  - /manifest.gm.webmanifest
+  - playtime_tools
+  - role_routes
+  - inventory
+  - health
+  - ammo
+  - modifiers
+  - quick_rolls
+  - living_world
+  - account opt-in
+  - followed-world selection
 - path: /play/continuity
   title: NEXUS-PAN continuity
   audience: public
@@ -358,6 +440,15 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: first-party primer and campaign-book surface only
+- path: /runbook/primer-network
+  title: RUNBOOK PRESS primer network
+  audience: public
+  purpose: product_surface_detail
+  requires_auth: false
+  guest_fallback: /runbook
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: first-party primer and campaign-book packet only
 - path: /community
   title: Community Hub
   audience: public
@@ -466,6 +557,7 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: markdown packet for known starter or recovery lane IDs only
+  verification_path: /onramp/packets/starter_lane.md
 - path: /onramp/packets/{packetId}.json
   title: ONRAMP packet JSON
   audience: public
@@ -475,6 +567,7 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: JSON packet for known starter or recovery lane IDs only
+  verification_path: /onramp/packets/starter_lane.json
 - path: /edition-studio
   title: EDITION STUDIO
   audience: public
@@ -511,6 +604,7 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: markdown packet for known edition-head IDs only
+  verification_path: /edition-studio/packets/sr5_head.md
 - path: /edition-studio/packets/{packetId}.json
   title: EDITION STUDIO packet JSON
   audience: public
@@ -520,6 +614,7 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: JSON packet for known edition-head IDs only
+  verification_path: /edition-studio/packets/sr5_head.json
 - path: /quicksilver
   title: Quicksilver
   audience: public
@@ -556,6 +651,7 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: markdown packet for known command-deck or jump-target IDs only
+  verification_path: /quicksilver/packets/command_deck.md
 - path: /quicksilver/packets/{packetId}.json
   title: Quicksilver packet JSON
   audience: public
@@ -565,6 +661,7 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: JSON packet for known command-deck or jump-target IDs only
+  verification_path: /quicksilver/packets/command_deck.json
 - path: /passport
   title: Runner Passport
   audience: public
@@ -646,6 +743,15 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: governed discovery entry only
+- path: /participate/karma-forge/discovery-network
+  title: KARMA FORGE discovery network
+  audience: public
+  purpose: governed_future_signal_detail
+  requires_auth: false
+  guest_fallback: /participate/karma-forge
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: governed discovery packet only
 - path: /alice
   title: ALICE compare bench
   audience: public
@@ -655,6 +761,15 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: first-party build compare entry with bounded public-safe framing and real first-party runtime ownership
+- path: /build
+  title: Build
+  audience: public
+  purpose: build_entry
+  requires_auth: false
+  guest_fallback: /build
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: guided build entry with public-safe framing and first-party runtime ownership
 - path: /alice/receipts/build-ghost.json
   title: ALICE build ghost receipt
   audience: public
@@ -682,6 +797,42 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: split-rail contract only
+- path: /propertyquarry
+  title: PROPERTYQUARRY
+  audience: public
+  purpose: product_surface
+  requires_auth: false
+  guest_fallback: /propertyquarry
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: first-party property scouting and location board surface only
+- path: /propertyquarry/property-network
+  title: PROPERTYQUARRY property network
+  audience: public
+  purpose: product_surface_detail
+  requires_auth: false
+  guest_fallback: /propertyquarry
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: first-party property scouting packet only
+- path: /origin-dossier
+  title: ORIGIN DOSSIER
+  audience: public
+  purpose: product_surface
+  requires_auth: false
+  guest_fallback: /origin-dossier
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: first-party origin story and dossier surface only
+- path: /origin-dossier/story-network
+  title: ORIGIN DOSSIER story network
+  audience: public
+  purpose: product_surface_detail
+  requires_auth: false
+  guest_fallback: /origin-dossier
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: first-party full-story origin ebook surface only
 - path: /participate/karma-forge/submitted/{submissionId}
   title: KARMA FORGE discovery submitted
   audience: public
@@ -753,15 +904,6 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: static markdown instructions only
-- path: /artifacts/explanation-receipt-trail
-  title: Explanation receipt trail detail
-  audience: public
-  purpose: artifact_detail
-  requires_auth: false
-  guest_fallback: /artifacts/explanation-receipt-trail
-  must_exist: true
-  placeholder_allowed: false
-  placeholder_requirements: artifact detail only
 - path: /artifacts/runsite-pack
   title: Runsite pack detail
   audience: public
@@ -980,23 +1122,23 @@ public_routes:
   placeholder_requirements: package follow intent route only
   verification_path: /packages/desktop-preview/follow
 - path: /mobile
-  title: Mobile and PWA
+  title: App alias
   audience: public
-  purpose: mobile_projection
+  purpose: app_entry_alias
   requires_auth: false
-  guest_fallback: /mobile
+  guest_fallback: /build
   must_exist: true
   placeholder_allowed: false
-  placeholder_requirements: public mobile and installability projection only
+  placeholder_requirements: redirect to the browser app entry
 - path: /pwa
-  title: PWA alias
+  title: App alias
   audience: public
-  purpose: mobile_projection
+  purpose: app_entry_alias
   requires_auth: false
-  guest_fallback: /pwa
+  guest_fallback: /build
   must_exist: true
   placeholder_allowed: false
-  placeholder_requirements: public alias into the mobile projection only
+  placeholder_requirements: redirect to the browser app entry
 - path: /play
   title: Play shell
   audience: public
@@ -1013,6 +1155,7 @@ public_routes:
   requires_auth: false
   guest_fallback: /player
   must_exist: true
+  required_redirect_location_prefix: /mobile/player
   placeholder_allowed: false
   placeholder_requirements: bounded play alias only
 - path: /gm
@@ -1022,6 +1165,7 @@ public_routes:
   requires_auth: false
   guest_fallback: /gm
   must_exist: true
+  required_redirect_location_prefix: /mobile/gm
   placeholder_allowed: false
   placeholder_requirements: bounded play alias only
 - path: /observer
@@ -1031,6 +1175,7 @@ public_routes:
   requires_auth: false
   guest_fallback: /observer
   must_exist: true
+  required_redirect_location_prefix: /mobile/observer
   placeholder_allowed: false
   placeholder_requirements: bounded play alias only
 - path: /session
@@ -1274,7 +1419,7 @@ registered_routes:
   audience: registered
   purpose: signed_in_dashboard
   requires_auth: true
-  guest_fallback: /login?next=/home/access
+  guest_fallback: /account/access
   must_exist: true
   placeholder_allowed: true
   placeholder_requirements: signed-in access focus
@@ -1283,7 +1428,7 @@ registered_routes:
   audience: registered
   purpose: signed_in_dashboard
   requires_auth: true
-  guest_fallback: /login?next=/home/work
+  guest_fallback: /account/roster
   must_exist: true
   placeholder_allowed: true
   placeholder_requirements: signed-in work focus
@@ -1301,7 +1446,7 @@ registered_routes:
   audience: registered
   purpose: profile_and_preferences
   requires_auth: true
-  guest_fallback: /login?next=/account
+  guest_fallback: /account/access
   must_exist: true
   placeholder_allowed: true
   placeholder_requirements: profile and linked-identity shell
@@ -1328,7 +1473,7 @@ registered_routes:
   audience: registered
   purpose: profile_and_preferences
   requires_auth: true
-  guest_fallback: /login?next=/account/work
+  guest_fallback: /login?next=/account/roster
   must_exist: true
   placeholder_allowed: true
   placeholder_requirements: campaign and operator route
@@ -1350,6 +1495,33 @@ registered_routes:
   must_exist: true
   placeholder_allowed: true
   placeholder_requirements: signed-in build handoff detail route
+- path: /account/propertyquarry
+  title: Account PROPERTYQUARRY
+  audience: registered
+  purpose: signed_in_horizon
+  requires_auth: true
+  guest_fallback: /login?next=/account/propertyquarry
+  must_exist: true
+  placeholder_allowed: true
+  placeholder_requirements: signed-in property desk redirect or empty-state route
+- path: /account/propertyquarry/open
+  title: Account PROPERTYQUARRY open
+  audience: registered
+  purpose: signed_in_horizon
+  requires_auth: true
+  guest_fallback: /login?next=/account/propertyquarry/open
+  must_exist: true
+  placeholder_allowed: true
+  placeholder_requirements: signed-in property desk open route
+- path: /account/propertyquarry/{propertyId}
+  title: Account PROPERTYQUARRY property
+  audience: registered
+  purpose: signed_in_horizon
+  requires_auth: true
+  guest_fallback: /login?next=/account/propertyquarry/{propertyId}
+  must_exist: true
+  placeholder_allowed: true
+  placeholder_requirements: signed-in property workspace detail route
 - path: /account/community
   title: Account Community Hub
   audience: registered
@@ -1608,7 +1780,7 @@ registered_routes:
   audience: registered
   purpose: profile_and_preferences
   requires_auth: true
-  guest_fallback: /login?next=/account/advanced
+  guest_fallback: /account/settings
   must_exist: true
   placeholder_allowed: true
   placeholder_requirements: advanced account diagnostics route
@@ -1715,9 +1887,9 @@ sections:
 registered_overlays:
 - id: follow_horizons
   path: /home
-  title: Follow upcoming updates
-  summary: Track the areas you care about without mistaking early signals for
-    shipped product.
+  title: Follow working lanes
+  summary: Track stabilization, table-play, and living-world direction without
+    mistaking early signals for shipped product.
 - id: beta_interest
   path: /home
   title: Beta interest

@@ -1,0 +1,114 @@
+version: 1
+owner: chummer6-design
+status: accepted_design_posture
+purpose: Shared taxonomy for ProductLift categories, public signal routing, discovery lanes, public content optimization, and closeout status mapping.
+
+categories:
+  - key: desktop_and_install
+    label: Desktop / Install / Updates
+    owner_repo: chummer6-ui
+    support_misroute_likely: true
+    discovery_lane: none
+
+  - key: build_and_explain
+    label: Build & Explain
+    owner_repo: chummer6-core
+    discovery_lane: productlift
+
+  - key: karma_forge_house_rules
+    label: KARMA FORGE / House Rules
+    owner_repo: chummer6-design
+    discovery_lane: icanpreneur
+    prescreen: deftform
+    followup: lunacal
+
+  - key: black_ledger_world
+    label: BLACK LEDGER / Living World
+    owner_repo: chummer6-hub
+    discovery_lane: icanpreneur
+    prescreen: deftform
+
+  - key: community_hub_open_runs
+    label: Community Hub / Open Runs
+    owner_repo: chummer6-hub
+    discovery_lane: productlift_plus_deftform
+
+  - key: gm_tools
+    label: GM Tools
+    owner_repo: chummer6-hub
+    discovery_lane: productlift_plus_icanpreneur
+
+  - key: mobile_companion
+    label: Mobile Companion
+    owner_repo: chummer6-mobile
+    discovery_lane: productlift_plus_metasurvey
+
+  - key: table_pulse
+    label: Table Pulse / Debrief
+    owner_repo: chummer6-hub
+    discovery_lane: icanpreneur
+    privacy_sensitive: true
+
+  - key: creator_publishing
+    label: Creator Publishing
+    owner_repo: chummer6-hub
+    discovery_lane: productlift_plus_icanpreneur
+
+  - key: guide_and_docs
+    label: Guide / Docs / Help
+    owner_repo: chummer6-hub
+    optimization_lane: katteb
+
+statuses:
+  - key: new
+    internal_meaning: unreviewed_public_signal
+    evidence_required:
+      - public_post_receipt
+
+  - key: needs_clarification
+    internal_meaning: routed_to_followup
+    evidence_required:
+      - followup_route
+
+  - key: under_review
+    internal_meaning: ea_or_governor_triage
+    evidence_required:
+      - digest_or_triage_record
+
+  - key: researching
+    internal_meaning: routed_to_discovery_lane
+    evidence_required:
+      - discovery_packet_owner
+
+  - key: planned
+    internal_meaning: accepted_into_design_or_milestone
+    evidence_required:
+      - design_doc_or_milestone_or_governor_decision
+
+  - key: in_progress
+    internal_meaning: implementation_has_owner
+    evidence_required:
+      - repo_or_milestone_owner
+
+  - key: shipped
+    internal_meaning: user_available_with_closeout
+    evidence_required:
+      - release_public_guide_hub_route_or_artifact_proof
+      - closeout_packet
+      - voter_notification_allowed
+
+  - key: declined
+    internal_meaning: rejected_with_reason
+    evidence_required:
+      - public_safe_reason
+
+  - key: duplicate
+    internal_meaning: merged_or_clustered
+    evidence_required:
+      - merge_target_or_cluster_id
+
+rules:
+  - ProductLift categories route public signal; they do not assign implementation priority.
+  - Planned requires Chummer-owned design, milestone, horizon, or Product Governor evidence.
+  - Shipped requires user availability and closeout evidence, not only merged code.
+  - Support, crash, account, install, private log, and private campaign posts are misroutes, not feature votes.

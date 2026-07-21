@@ -25,6 +25,9 @@ optional_fields:
 - booster_nudge
 - free_later_intent
 - recognition_eligible
+- private_adjacent_recipes
+- governed_capability_posture
+- external_authority_records
 horizons:
 - id: alice
   title: ALICE
@@ -76,7 +79,7 @@ horizons:
     order: 25
     group: core_product
   pain_label: A runner can start as math before they feel like a person.
-  wow_promise: The player gets an accepted origin story, portraits, narration, and later ALICE context without letting backstory prose rewrite the sheet.
+  wow_promise: The player gets a full private origin story ebook with fitted cover art, then three portrait choices, an optional chosen-voice audiobook request, one later cinematic scene choice, and later ALICE context without letting backstory prose rewrite the sheet.
   table_scene: A player drafts a troll decker, the GM adds a clinic-favor constraint, and Chummer turns the approved origin into a dossier bundle that ALICE can use later.
   build_path:
     intent: eventual_product_lane
@@ -89,12 +92,12 @@ horizons:
   - chummer6-media-factory
   allowed_surfaces:
   - desktop_alice_origin_dossier
-  - origin_canon_bundle
-  - dossier_media_packet
+  - origin_story_edition
+  - origin_edition_media_followthrough
   - alice_followup_context
   - player_scoped_origin_audiobook
-  proof_gate: Origin Dossier packets must prove approved canon, mechanics snapshot lineage, GM/player approval, provider export validation, media provenance, scoped audiobook access, and non-mutating mechanics posture before any public claim widens.
-  public_claim_posture: Public copy may describe Origin Dossier as a shipped desktop ALICE lane for approved origin canon, dossier-media packets, and optional player-scoped origin-story audiobooks; it must not claim mechanical mutation, automatic legality, provider-owned character truth, or broad Audiobookshelf access.
+  proof_gate: Origin Dossier receipts must prove approved canon, mechanics snapshot lineage, GM/player approval, full-story ebook packaging, cover-portrait-scene media provenance, scoped audiobook access, and non-mutating mechanics posture before any public claim widens.
+  public_claim_posture: Public copy may describe Origin Dossier as a shipped desktop ALICE lane for approved origin canon, a full-story ebook handoff with fitted cover, three-portrait selection, one chosen-scene cinematic request, and optional player-scoped origin-story audiobooks; it must not claim mechanical mutation, automatic legality, provider-owned character truth, or broad Audiobookshelf access.
   stop_condition: Stop promotion if approved canon can mutate sheet mechanics, if GM steer becomes automatic entitlement, if provider output loses source or approval lineage, or if the desktop can reach a global Audiobookshelf library instead of a scoped EA reference.
   milestone_family: H3
   release_blocking: false
@@ -117,25 +120,30 @@ horizons:
   success_signals:
   - Blank-state and active-runner origin drafts can become approved canon without hidden sheet mutation.
   - GM allowances and hard requirements remain advisory until normal character editing commits matching mechanics.
-  - Dossier media and narration packets preserve source hashes, approval state, selected assets, provider receipts, and render receipts.
+  - The ebook handoff includes fitted cover art before portrait, audiobook, or cinema follow-through opens.
+  - Runner link codes let players opt into shared-history context without granting access to another runner's private edition.
+  - Three portrait options, chosen voice, and scene summaries stay tied to the approved manuscript.
+  - Dossier media and narration follow-through preserves source hashes, approval state, selected assets, provider receipts, and render receipts.
   - Later ALICE answers can reference approved origin canon while still citing Chummer-owned mechanics truth for rules claims.
   artifact_types:
   - approved origin canon
   - origin dossier bundle
-  - dossier PDF
-  - portrait candidate set
-  - scene candidate set
-  - narration packet
+  - full-story ebook
+  - fitted cover art
+  - three-portrait shortlist
+  - scene highlight set
   - origin-story audiobook reference
+  - selected-scene cinematic request
+  - runner story link code
   - video storyboard
   - media-factory request
   public_signal_eligible: true
   access_posture: booster_first
   resource_burden: medium
-  booster_nudge: Origin canon, portrait, narration, audiobook, and video packets need review and media effort, so broad automated rendering should wait behind approved bundle lineage.
+  booster_nudge: Origin canon, portrait, narration, audiobook, and video follow-through need review and media effort, so broad automated rendering should wait behind approved ebook lineage.
   free_later_intent: Long-run intent is broad access after bundle approval, provider retention, media lineage, scoped audiobook access, and non-mutating ALICE follow-up prove stable.
   recognition_eligible: true
-  owner_handoff_gate: Origin Dossier must remain downstream of runner dossier identity and upstream of media packets, while core mechanics truth stays in Chummer-owned engine receipts.
+  owner_handoff_gate: Origin Dossier must remain downstream of runner dossier identity and upstream of optional portrait, audio, and cinematic follow-through, while core mechanics truth stays in Chummer-owned engine receipts.
 - id: karma-forge
   title: KARMA FORGE
   status: shipped_mvp
@@ -398,9 +406,44 @@ horizons:
   - runsite_pack_preview
   - route_overlay_preview
   - orientation_host_clip
-  proof_gate: Runsite packets must prove approved pack truth, route-summary siblings, inspection links, permissions, and media provenance before any explorable surface widens.
+  private_adjacent_recipes:
+  - id: runsite_private_encounter_preview
+    status: pending
+    amendment_state: proposed_for_independent_re_review
+    implementation_state: blocked
+    audience: explicit_campaign_private_allowlist
+    public_signal_eligible: false
+    public_runsite_meaning: excluded
+    propertyquarry_input: forbidden
+    live_mechanics: forbidden
+    tactical_authority: forbidden
+    vtt_meaning: forbidden
+  governed_capability_posture:
+    contract: governed_spatial_render_v1
+    current_projection: unverified_or_blocked
+    provider_ready: false
+    implementation_authorized: false
+    release_scope_widened: false
+    evidence_schema: GOVERNED_SPATIAL_RENDER_CAPABILITY_QUOTA_EVIDENCE.schema.yaml
+  external_authority_records:
+    propertyquarry:
+      decision_path: /docker/property/PROPERTYQUARRY_GOVERNED_SPATIAL_RENDER_AUTHORITY_DECISION.md
+      decision_sha256: 401fe42211e2d8283ea9ca2a7cfc1a1eaffc80ff13c63fdf9e6158a116eff50a
+      product_bridge:
+        repo: /docker/property
+        package: app.product
+        module: app.product.property_tour_hosting
+      privacy_lifecycle_intake_and_closeout:
+        repo: /docker/property
+        package: app.api.routes
+        module: app.api.routes.landing
+      enforcement_dependency: public_tour_payloads
+      revocation_and_deletion_execution_dependency: property_tour_hosting
+      chummer_authority: record_only_cannot_assign_implement_authorize_or_act
+      implementation_state: blocked_pending_numeric_product_policy_and_independent_re_review
+  proof_gate: Runsite packets must prove approved pack truth, route-summary siblings, inspection links, permissions, media provenance, privacy/retention, deletion/takedown, and current exact-family capability evidence before any governed walkthrough or explorable surface widens; prose alone passes no gate.
   public_claim_posture: Public copy may describe RUNSITE as a shipped first-party prep lane; it must not claim live map, combat, VTT replacement, or tactical authority.
-  stop_condition: Stop promotion if media becomes the only inspectable route surface or if route, tour, and approved pack truth are not visible before playback.
+  stop_condition: Stop promotion if media becomes the only inspectable route surface, if route, tour, and approved pack truth are not visible before playback, if private encounter semantics leak into public RUNSITE or PropertyQuarry input, or if stale/unverified capability evidence is projected as ready.
   milestone_family: H3
   release_blocking: false
   foundations:
@@ -419,13 +462,15 @@ horizons:
   success_signals:
   - Explorable location packs stay bounded artifacts rather than live session truth.
   - Spatial packs preserve permissions, embeds, manifests, and preview receipts.
+  - A continuous orientation walkthrough remains valid with all encounter or combat fields absent.
+  - Any private encounter preview remains a separate audience-restricted fictional rendering of immutable refs, never mechanics calculation, tactical authority, PropertyQuarry input, or public RUNSITE meaning.
   artifact_types:
   - explorable runsite pack
   - floor-plan preview
   - route overlay
   - narrated location brief
   public_signal_eligible: true
-  owner_handoff_gate: Spatial artifacts must remain clearly outside live mechanics and combat truth before any promotion.
+  owner_handoff_gate: Spatial artifacts must remain clearly outside live mechanics and combat truth; Hub owns the Chummer bridge and audience, media-factory owns contract/execution/quota/manifests/private receipts, Registry owns publication/revocation, and EA remains derived/zero-burn-only before any promotion.
 - id: runbook-press
   title: RUNBOOK PRESS
   status: shipped_mvp

@@ -210,6 +210,10 @@ def _load_voice_config(
                     "tts_postprocess_profile": text(payload.get("tts_postprocess_profile"), ""),
                     "consent_basis": text(payload.get("consent_basis"), str(default_config["consent_basis"])),
                     "notes": text(payload.get("notes"), str(default_config["notes"])),
+                    "synthetic_voice_clone_of_memorial_person": payload.get(
+                        "synthetic_voice_clone_of_memorial_person"
+                    )
+                    is True,
                     "voice_consent": dict(payload.get("voice_consent") or {}) if isinstance(payload.get("voice_consent"), dict) else dict(default_config.get("voice_consent") or {}),
                 }
             )
@@ -253,7 +257,10 @@ def _voice_config_to_public_payload(
         "tts_plugin_voice_id": text(payload.get("tts_plugin_voice_id"), ""),
         "tts_base_voice_variant": text(payload.get("tts_base_voice_variant"), "high") or "high",
         "notes": text(payload.get("notes"), ""),
-        "synthetic_voice_clone_of_memorial_person": False,
+        "synthetic_voice_clone_of_memorial_person": payload.get(
+            "synthetic_voice_clone_of_memorial_person"
+        )
+        is True,
     }
     safe_config["tts_mode"] = selected_plugin
     safe_config["consent_basis"] = text(payload.get("consent_basis"), "generic_or_owner_consented_voice")
@@ -316,6 +323,10 @@ def _normalize_voice_config_payload(
         "tts_postprocess_profile": text(payload.get("tts_postprocess_profile") if isinstance(payload, dict) else None, ""),
         "consent_basis": text(payload.get("consent_basis") if isinstance(payload, dict) else None, str(default_config["consent_basis"])),
         "notes": text(payload.get("notes") if isinstance(payload, dict) else None, str(default_config["notes"])),
+        "synthetic_voice_clone_of_memorial_person": payload.get(
+            "synthetic_voice_clone_of_memorial_person"
+        )
+        is True,
         "voice_consent": dict(payload.get("voice_consent") or {}) if isinstance(payload.get("voice_consent"), dict) else {},
         "tts_mode": requested_plugin,
     }
@@ -352,6 +363,10 @@ def _save_voice_config_payload(
         "tts_postprocess_profile": existing_config.get("tts_postprocess_profile"),
         "consent_basis": existing_config.get("consent_basis"),
         "notes": existing_config.get("notes"),
+        "synthetic_voice_clone_of_memorial_person": existing_config.get(
+            "synthetic_voice_clone_of_memorial_person"
+        )
+        is True,
         "voice_consent": dict(existing_config.get("voice_consent") or {}),
     }
     merged_payload.update(dict(payload or {}))

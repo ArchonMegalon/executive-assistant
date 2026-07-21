@@ -1,9 +1,5 @@
 # RUNBOOK PRESS
 
-## Explanation video
-
-[Watch the RUNBOOK PRESS 90-second deep dive](https://chummer.run/media/horizons/runbook-press-90s-deepdive.mp4). [Captions](https://chummer.run/media/horizons/runbook-press-90s-deepdive.vtt).
-
 ## The problem
 
 GMs, creators, and operators need consistent runbooks, tutorials, primers, and manuals without turning prose tooling into a second source of truth.

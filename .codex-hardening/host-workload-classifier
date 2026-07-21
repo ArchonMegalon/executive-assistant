@@ -1,0 +1,385 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+from collections import defaultdict
+from pathlib import Path
+
+
+SELF_PID = os.getpid()
+CGROUP_ROOT = Path("/sys/fs/cgroup")
+MIB = 1024 * 1024
+
+CGROUP_PROFILES: dict[str, dict[str, int | str]] = {
+    # Shared ceilings for automation classes. These caps protect interactive
+    # shells, Plex, and rclone from buffered writeback bursts.
+    "background": {
+        "name": "host-background-lowprio",
+        "cpu_weight": 10,
+        "cpu_quota_us": 50000,
+        "cpu_period_us": 100000,
+        "io_weight": 10,
+        "write_bps": 4 * MIB,
+    },
+    "fleet": {
+        "name": "host-codex-fleet-lowprio",
+        "cpu_weight": 100,
+        "cpu_quota_us": 300000,
+        "cpu_period_us": 100000,
+        "io_weight": 100,
+        "write_bps": 32 * MIB,
+    },
+}
+
+
+def _ps_rows() -> list[dict[str, object]]:
+    proc = subprocess.run(
+        ["ps", "-eo", "pid=,ppid=,comm=,args="],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    rows: list[dict[str, object]] = []
+    for line in proc.stdout.splitlines():
+        parts = line.strip().split(None, 3)
+        if len(parts) < 3:
+            continue
+        try:
+            pid = int(parts[0])
+            ppid = int(parts[1])
+        except ValueError:
+            continue
+        rows.append(
+            {
+                "pid": pid,
+                "ppid": ppid,
+                "comm": parts[2],
+                "args": parts[3] if len(parts) > 3 else parts[2],
+            }
+        )
+    return rows
+
+
+def _matches(row: dict[str, object], pattern: re.Pattern[str]) -> bool:
+    text = f"{row.get('comm') or ''} {row.get('args') or ''}"
+    return bool(pattern.search(text))
+
+
+def _descendants(root_pids: set[int], children: dict[int, list[int]]) -> set[int]:
+    seen: set[int] = set()
+    stack = list(root_pids)
+    while stack:
+        pid = stack.pop()
+        if pid in seen or pid == SELF_PID:
+            continue
+        seen.add(pid)
+        stack.extend(children.get(pid, ()))
+    return seen
+
+
+def _run(command: list[str]) -> None:
+    if len(command) <= 3:
+        return
+    subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def _write(path: Path, value: str) -> bool:
+    try:
+        path.write_text(value, encoding="utf-8")
+        return True
+    except OSError:
+        return False
+
+
+def _in_docker_scope(pid: int) -> bool:
+    """Keep Docker processes inside their Compose-owned resource domain."""
+    try:
+        memberships = Path(f"/proc/{pid}/cgroup").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return any(
+        "/docker/" in line or ("/docker-" in line and ".scope" in line)
+        for line in memberships.splitlines()
+    )
+
+
+def _enable_cgroup_controllers() -> None:
+    subtree = CGROUP_ROOT / "cgroup.subtree_control"
+    if not subtree.exists():
+        return
+    for controller in ("+cpu", "+io"):
+        _write(subtree, controller)
+
+
+def _root_block_devices() -> list[str]:
+    proc = subprocess.run(
+        ["findmnt", "-T", "/", "-n", "-o", "SOURCE"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    source = proc.stdout.strip()
+    if not source.startswith("/dev/"):
+        return []
+
+    paths = [source]
+    parent = subprocess.run(
+        ["lsblk", "-no", "PKNAME", source],
+        text=True,
+        capture_output=True,
+        check=False,
+    ).stdout.strip()
+    if parent:
+        paths.append(f"/dev/{parent.splitlines()[0].strip()}")
+
+    devices: list[str] = []
+    for path in paths:
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        major = os.major(st.st_rdev)
+        minor = os.minor(st.st_rdev)
+        device = f"{major}:{minor}"
+        if device not in devices:
+            devices.append(device)
+    return devices
+
+
+def _apply_cgroup(profile_name: str | None, pids: set[int]) -> str:
+    if not profile_name:
+        return ""
+    profile = CGROUP_PROFILES.get(profile_name)
+    if not profile:
+        return ""
+
+    _enable_cgroup_controllers()
+    cgroup = CGROUP_ROOT / str(profile["name"])
+    try:
+        cgroup.mkdir(exist_ok=True)
+    except OSError:
+        return ""
+
+    _write(cgroup / "cpu.weight", str(int(profile["cpu_weight"])))
+    _write(
+        cgroup / "cpu.max",
+        f"{int(profile['cpu_quota_us'])} {int(profile['cpu_period_us'])}\n",
+    )
+    _write(cgroup / "io.weight", str(int(profile["io_weight"])))
+
+    devices = _root_block_devices()
+    write_bps = int(profile["write_bps"])
+    for device in devices:
+        _write(cgroup / "io.max", f"{device} wbps={write_bps}\n")
+
+    # Renice/ionice still applies to matching container processes, but moving
+    # them to a host-global cgroup would bypass Compose CPU, memory, PID and OOM
+    # limits and can split a container's process tree. Only host processes may
+    # enter these classifier-owned cgroups.
+    movable_pids = {pid for pid in pids if not _in_docker_scope(pid)}
+    moved = 0
+    for pid in sorted(movable_pids):
+        if _write(cgroup / "cgroup.procs", f"{pid}\n"):
+            moved += 1
+    if not moved:
+        return ""
+    cap = f"{write_bps // MIB}MiB/s" if write_bps else "max"
+    quota_cpus = int(profile["cpu_quota_us"]) / int(profile["cpu_period_us"])
+    return f"{profile['name']} moved={moved} cpu={quota_cpus:g} wbps={cap}"
+
+
+def _apply(
+    label: str,
+    pids: set[int],
+    nice_value: int,
+    io_class: int,
+    io_priority: int | None,
+    cgroup_profile: str | None,
+    protected_pids: set[int] | None = None,
+) -> None:
+    protected = protected_pids or set()
+    pids = {pid for pid in pids if pid > 1 and pid != SELF_PID and pid not in protected}
+    if not pids:
+        return
+    pid_args = [str(pid) for pid in sorted(pids)]
+    _run(["renice", "-n", str(nice_value), "-p", *pid_args])
+    if io_class == 3:
+        _run(["ionice", "-c", "3", "-p", *pid_args])
+        io_text = "3/0"
+    else:
+        priority = 4 if io_priority is None else int(io_priority)
+        _run(["ionice", "-c", str(io_class), "-n", str(priority), "-p", *pid_args])
+        io_text = f"{io_class}/{priority}"
+    cgroup_text = _apply_cgroup(cgroup_profile, pids)
+    suffix = f" cgroup={cgroup_text}" if cgroup_text else ""
+    print(f"{label} pids={len(pids)} nice={nice_value} ionice={io_text}{suffix}")
+
+
+def _docker_root_pids(container_names: tuple[str, ...]) -> set[int]:
+    if not container_names:
+        return set()
+    proc = subprocess.run(
+        ["docker", "inspect", "--format", "{{.State.Pid}}", *container_names],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    pids: set[int] = set()
+    for line in proc.stdout.splitlines():
+        try:
+            pid = int(line.strip())
+        except ValueError:
+            continue
+        if pid > 1:
+            pids.add(pid)
+    return pids
+
+
+def main() -> int:
+    rows = _ps_rows()
+    children: dict[int, list[int]] = defaultdict(list)
+    for row in rows:
+        pid = int(row["pid"])
+        ppid = int(row["ppid"])
+        children[ppid].append(pid)
+
+    propertyquarry_runtime_roots = _docker_root_pids(
+        ("propertyquarry-api", "propertyquarry-scheduler", "propertyquarry-db-live", "propertyquarry-cloudflared")
+    )
+    propertyquarry_runtime_pids = propertyquarry_runtime_roots | _descendants(propertyquarry_runtime_roots, children)
+
+    patterns: tuple[tuple[str, str, bool, int, int, int | None, str | None], ...] = (
+        (
+            "plex-media",
+            r"Plex Media Server|Plex Transcoder|Plex Tuner Service|Plex DLNA Server",
+            False,
+            0,
+            2,
+            2,
+            None,
+        ),
+        (
+            "media-rclone",
+            r"/usr/bin/rclone mount (pcloud|internxt):|/usr/bin/rclone mount \"(pcloud|internxt):\"",
+            False,
+            0,
+            2,
+            2,
+            None,
+        ),
+        (
+            "codex-fleet-tree",
+            r"/usr/lib/node_modules/@openai/codex|/node_modules/@openai/codex/|node /usr/bin/codex|codexea status|codexea fleet",
+            True,
+            5,
+            2,
+            4,
+            "fleet",
+        ),
+        (
+            "test-workers",
+            r"/home/tibor/.local/bin/pytest|/usr/bin/python3 .*pytest|(^|[ /])(pytest|vitest|playwright)( |$)",
+            False,
+            10,
+            3,
+            None,
+            "background",
+        ),
+        (
+            "build-workers",
+            r"dotnet (restore|build|test|publish)|MSBuild\.dll|VBCSCompiler|(^|[ /])csc( |$)|csc\.dll|Roslyn/bincore/csc|docker-buildx bake|docker build|npm (run )?(test|build)|pnpm (test|build)|yarn (test|build)",
+            True,
+            10,
+            3,
+            None,
+            "background",
+        ),
+        (
+            "browser-automation",
+            r"chrome-headless-shell|chromium.*--headless|playwright/driver|propertyquarry_.*browser|propertyquarry_live_mobile_surface_smoke.py",
+            False,
+            10,
+            2,
+            7,
+            "background",
+        ),
+        (
+            "walkthrough-3d-rendering",
+            r"3dvista|3d-vista|matterport|walkthrough|walk-through|virtual[ _-]?tour|property_3d|scene_video|video_readiness|render(_|-)job|blender|threejs|three\.js|ffmpeg|chromium.*(webgl|gpu|screenshot|video)|chrome-headless.*(webgl|gpu|screenshot|video)",
+            False,
+            10,
+            2,
+            7,
+            "background",
+        ),
+        (
+            "source-scans",
+            r"(^|[ /])(du|find|updatedb)( .* )?(/docker|/mnt|/var/lib/docker|/var/cache/rclone|/tmp)",
+            False,
+            15,
+            3,
+            None,
+            "background",
+        ),
+        (
+            "property-batch",
+            r"property_scene_video_readiness_report.py|willhaben_property_packet.py|propertyquarry_.*(smoke|gate|report|readiness)",
+            True,
+            19,
+            3,
+            None,
+            "background",
+        ),
+        (
+            "sidecar-batch",
+            r"process_whatsapp_web_session_actions.py",
+            False,
+            10,
+            3,
+            None,
+            "background",
+        ),
+        (
+            "background-containers",
+            r"clickhouse-server|redis-server|postgres:|python -m app\.runner|dotnet Chummer\.|Sonarr|Radarr|Readarr|Lidarr|Prowlarr|jackett|qbittorrent-nox|flaresolverr|Tautulli\.py|flexget|calibre-web|calibre\b|Chaptarr|LazyLibrarian|rreading-glasses|filebrowser|cloudflared|node dist/index\.js|/usr/local/bin/node /app/dist/cluster\.js|ea_responses_proxy\.py",
+            False,
+            10,
+            3,
+            None,
+            "background",
+        ),
+    )
+
+    for label, raw_pattern, include_tree, nice_value, io_class, io_priority, cgroup_profile in patterns:
+        pattern = re.compile(raw_pattern)
+        roots = {int(row["pid"]) for row in rows if _matches(row, pattern)}
+        pids = _descendants(roots, children) if include_tree else roots
+        _apply(
+            label,
+            pids,
+            nice_value,
+            io_class,
+            io_priority,
+            cgroup_profile,
+            protected_pids=propertyquarry_runtime_pids,
+        )
+
+    # PropertyQuarry is a live product surface. Keep its API, scheduler, DB, and
+    # tunnel out of the host's background batch lane; demote only host-side
+    # PropertyQuarry batch scripts below.
+
+    propertyquarry_host_pattern = re.compile(
+        r"propertyquarry|property_quarry|property_scene_|willhaben_property_"
+    )
+    propertyquarry_host_roots = {
+        int(row["pid"]) for row in rows if _matches(row, propertyquarry_host_pattern)
+    }
+    propertyquarry_host_pids = _descendants(propertyquarry_host_roots, children)
+    _apply("propertyquarry-host-work", propertyquarry_host_pids, 19, 3, None, "background")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -21,7 +21,11 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import _verify_signed_payload, authenticated_principal_override_allowed
+from app.api.dependencies import (
+    _verify_signed_payload,
+    authenticated_principal_override_allowed,
+    get_request_context,
+)
 from app.api.app import create_app
 from app.api.routes import landing_access_support
 from app.api.routes import landing_channel
@@ -696,6 +700,113 @@ class HardeningTests(unittest.TestCase):
         }
         with patch.dict(os.environ, env, clear=False):
             self.assertFalse(authenticated_principal_override_allowed(request))
+
+    def test_codexea_token_uses_server_bound_principal_and_ignores_spoofed_header(self) -> None:
+        settings = _base_settings(mode="prod")
+        container = SimpleNamespace(
+            settings=settings,
+            orchestrator=SimpleNamespace(
+                fetch_operator_profile=lambda *args, **kwargs: None,
+                list_operator_profiles=lambda **kwargs: [],
+            ),
+        )
+        request = SimpleNamespace(
+            method="GET",
+            headers={
+                "authorization": "Bearer token",
+                "x-ea-principal-id": "spoofed-user",
+            },
+            cookies={},
+            client=SimpleNamespace(host="198.51.100.10"),
+            url=SimpleNamespace(path="/v1/codex/status"),
+            state=SimpleNamespace(),
+            scope={},
+            app=SimpleNamespace(state=SimpleNamespace(container=container)),
+        )
+        env = {
+            "EA_RUNTIME_MODE": "prod",
+            "EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID": "principal-bound-to-token",
+            "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER": "0",
+            "EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER": "0",
+            "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER": "0",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            context = get_request_context(request, container, None)
+
+        self.assertTrue(context.authenticated)
+        self.assertEqual(context.auth_source, "api_token")
+        self.assertEqual(context.principal_id, "principal-bound-to-token")
+
+    def test_codexea_token_without_server_bound_principal_fails_closed(self) -> None:
+        settings = _base_settings(mode="prod")
+        container = SimpleNamespace(
+            settings=settings,
+            orchestrator=SimpleNamespace(
+                fetch_operator_profile=lambda *args, **kwargs: None,
+                list_operator_profiles=lambda **kwargs: [],
+            ),
+        )
+        request = SimpleNamespace(
+            method="GET",
+            headers={
+                "authorization": "Bearer token",
+                "x-ea-principal-id": "spoofed-user",
+            },
+            cookies={},
+            client=SimpleNamespace(host="198.51.100.10"),
+            url=SimpleNamespace(path="/v1/codex/status"),
+            state=SimpleNamespace(),
+            scope={},
+            app=SimpleNamespace(state=SimpleNamespace(container=container)),
+        )
+        env = {
+            "EA_RUNTIME_MODE": "prod",
+            "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER": "0",
+            "EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER": "0",
+            "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER": "0",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaises(HTTPException) as raised:
+                get_request_context(request, container, None)
+
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(raised.exception.detail, "principal_required")
+
+    def test_codexea_server_bound_principal_still_requires_valid_token(self) -> None:
+        settings = _base_settings(mode="prod")
+        container = SimpleNamespace(
+            settings=settings,
+            orchestrator=SimpleNamespace(
+                fetch_operator_profile=lambda *args, **kwargs: None,
+                list_operator_profiles=lambda **kwargs: [],
+            ),
+        )
+        request = SimpleNamespace(
+            method="GET",
+            headers={"authorization": "Bearer wrong-token"},
+            cookies={},
+            client=SimpleNamespace(host="198.51.100.10"),
+            url=SimpleNamespace(path="/v1/codex/status"),
+            state=SimpleNamespace(),
+            scope={},
+            app=SimpleNamespace(state=SimpleNamespace(container=container)),
+        )
+        env = {
+            "EA_RUNTIME_MODE": "prod",
+            "EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID": "principal-bound-to-token",
+            "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER": "0",
+            "EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER": "0",
+            "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER": "0",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaises(HTTPException) as raised:
+                get_request_context(request, container, None)
+
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(raised.exception.detail, "auth_required")
 
     def test_channel_action_does_not_trust_raw_principal_header(self) -> None:
         request = SimpleNamespace(

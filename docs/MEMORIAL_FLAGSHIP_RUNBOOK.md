@@ -14,7 +14,7 @@ This runbook matches the current public memorial product as it exists now: a cal
 
 4. Show the restrained hero and choose `Zum Gespräch mit Manfred Hoza`. The conversation card stays in normal document flow and must never cover the title or source content.
 5. Start one short conversation turn.
-6. Let Manfred answer fully once.
+6. Let the source-grounded memorial guide answer fully once.
 7. Interrupt once briefly to demonstrate natural turn-taking if the machine is stable.
 8. Ask one grounded follow-up question.
 9. End cleanly without drifting into source browsing, archive browsing, or admin tooling.
@@ -38,7 +38,7 @@ Was hättest du über Schuld in der Familie gesagt?
 
 Expected behavior:
 
-- first-person tone remains stable
+- the guide remains transparent that it is not Manfred and does not speak for him
 - no `LLM` or model self-description
 - difficult memory remains source-bound and guarded
 
@@ -55,6 +55,20 @@ Do not present live if any of these fail:
 - the first spoken answer still clips at the beginning or end
 
 ## Preflight
+
+Prepare the release from an attached temporary branch, not detached `HEAD`. The upstream is part of the strict release-authority binding. Apply and commit only the approved memorial release changes in this worktree before running preflight:
+
+```bash
+release_branch="release/manfred-$(date -u +%Y%m%dT%H%M%SZ)"
+release_root="/docker/EA-releases/$release_branch"
+git worktree add -b "$release_branch" "$release_root" HEAD
+git -C "$release_root" branch --set-upstream-to=origin/main "$release_branch"
+git -C "$release_root" status --short
+```
+
+`make deploy-ea-memorial` requires a unique explicit `EA_DEPLOYMENT_ID`, an immutable revision-bound `EA_MEMORIAL_IMAGE`, and the private runtime-v3 receipt from a passing isolated candidate; it never invents deployment identity or accepts unproved image bytes. The scoped lane binds that receipt to the exact image, source revision, memorial projection root/digest, isolated project and port lock, unchanged live EA snapshot, OpenAPI proof, and provider-free rendered browser audit. The memorial override is rendered with the exact candidate reference and `pull_policy: never`, then the running container must match the preflight image ID. It preserves the API's captured ordered Compose topology by rebasing those layer paths into the clean release root, appends exactly one memorial override, leaves healthy Redis untouched, and force-recreates only `ea-api`. It proves local and public Manfred routes plus the runtime source-revision header, rejects browser subresource 4xx/5xx responses, and automatically restores the protected prior API image through the exact Compose working directory and config-file list recorded on the prior container if a post-change check fails. Set `EA_MEMORIAL_CONTROL_TOUR_SLUG` for the priority 3D tour so promotion also requires its HTML/JSON to stay `200` and its JSON digest to remain unchanged. It refuses to mutate when any baseline cannot be restored or mapped safely. See `docs/MANFRED_MEMORIAL_SCOPED_DEPLOY_RUNBOOK.md` for the exact preparation, receipt, and rollback contract.
+
+The release worktree is a live bind-mount source after promotion. Keep it on durable storage and do not remove it while the deployed API uses it.
 
 Filesystem and live-route preflight:
 
@@ -163,57 +177,59 @@ python3 scripts/memorial_recovery_inventory.py verify \
 
 ## Isolated production candidate
 
-Never restart the warmed `ea-api` to test a new memorial release and never build from the shared dirty checkout. The candidate lane uses an exact `git archive`, an immutable image tag and revision label, a private hash-receipted data projection outside the repository, isolated Postgres and Redis volumes, and an internal backend network with no provider egress. A fixed-target, no-secret TCP gateway is the only service attached to the loopback ingress network; the API itself remains internal-only.
+Never restart the warmed `ea-api` to test a new memorial release and never build from the shared dirty checkout. The candidate lane uses an exact `git archive`, a prepared image ID plus revision label, a private hash-receipted data projection outside the repository, isolated Postgres and Redis volumes, and an internal backend network with no provider egress. The image tag is only a mutable locator; the prepared `sha256:` image ID and 40-character projection commit are the authorities. A fixed-target, no-secret TCP gateway is the only service attached to the loopback ingress network; the API itself remains internal-only.
 
 ```bash
 cd "$EA_REPO_ROOT"
 commit="$(git rev-parse HEAD)"
 tag="ea-runtime:manfred-${commit:0:12}"
-deploy_root="${EA_MANFRED_DEPLOY_ROOT:-$HOME/.local/share/ea-deploy/manfred-memorial}"
+deployment_id="$(date -u +%Y%m%d%H%M%S)-${commit:0:8}"
+project_name="ea-manfred-candidate-${deployment_id}"
+deploy_root="${EA_MANFRED_DEPLOY_ROOT:-$HOME/.local/share/ea-deploy/manfred-memorial/$deployment_id}"
 
 python3 scripts/build_manfred_memorial_image.py \
-  --ref "$commit" --tag "$tag" \
+  --source-root "$EA_REPO_ROOT" --ref "$commit" --tag "$tag" \
   --receipt "$deploy_root/image-build.json"
 
 python3 scripts/prepare_manfred_memorial_candidate.py \
-  --ref "$commit" --image "$tag" \
+  --source-root "$EA_REPO_ROOT" --ref "$commit" --image "$tag" \
   --deploy-root "$deploy_root" \
   --public-base-url "${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}" \
-  --host-port 18090
+  --host-port 18091 \
+  --project-name "$project_name" \
+  --rotate-secrets
 
 candidate_env="$deploy_root/candidate.env"
 candidate_compose="deploy/manfred-memorial/docker-compose.candidate.yml"
-docker compose --env-file "$candidate_env" -f "$candidate_compose" config -q
-docker compose --env-file "$candidate_env" -f "$candidate_compose" up -d --wait
-docker compose --env-file "$candidate_env" -f "$candidate_compose" exec -T redis redis-cli ping
-```
-
-The first smoke is deliberately provider-free. With `EA_MEMORIAL_PAGE_PREWARM_ENABLED=0`, both server rendering and page JavaScript defer warmup and speech synthesis until a visitor explicitly starts a conversation. The proof uses `HEAD` for the route checks, then a real reduced-motion mobile/desktop browser load that fails on automatic provider requests, external requests, unlabeled controls, horizontal overflow, page errors, or a slow local load. It also exercises public JSON/archive/PWA/share routes, denies the private audio path, and submits a synthetic private contribution. It does not prove microphone quality, speech recognition, voice identity, or family approval, and it must not be relabeled as the `real-public` exit-gate result.
-
-```bash
-contribution_receipt="$deploy_root/candidate-contribution.json"
-python3 scripts/verify_manfred_memorial_candidate.py \
-  --base-url http://127.0.0.1:18090 \
-  --public-origin "${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}" \
-  --submit-contribution-receipt "$contribution_receipt"
-
-docker compose --env-file "$candidate_env" -f "$candidate_compose" restart api
-
-python3 scripts/verify_manfred_memorial_candidate.py \
-  --base-url http://127.0.0.1:18090 \
-  --public-origin "${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}" \
-  --withdraw-contribution-receipt "$contribution_receipt"
-```
-
-For the same sequence with live-API identity snapshots, compose isolation checks, Redis gates, permission checks, import-log checks, and one mode-`0600` runtime receipt:
-
-```bash
 python3 scripts/run_manfred_memorial_candidate.py \
   --env-file "$candidate_env" \
+  --compose-file "$candidate_compose" \
   --receipt "$deploy_root/receipts/candidate-runtime.json"
 ```
 
-Promotion must reuse the exact accepted image ID; do not rebuild it. The immutable build embeds its 40-character source revision, and the API exposes that non-secret revision in `X-EA-Source-Revision`. Public voice, browser, meaningful-turn, and room receipts must all observe the same revision, slug, origin, and source-state fingerprint; the gold verifier rejects mixed receipt sets or a deployed revision that differs from the current release source. Before promotion, prove the live container identity did not change, inspect candidate logs for import failures, verify private ledger mode `0600` and public projection mode `0644`, complete the full provider-backed/browser gates with explicit quota authority, and obtain family listening/usability approval. Candidate evidence is non-authoritative until the real HTTPS origin passes the public launch gates.
+Do not replace the governed runner with raw `docker compose` commands. It pins the explicit deployment project, removes hostile ambient Compose interpolation, and holds host-stable nonblocking locks for both the project name and loopback port across absence checks, startup, proof, receipt writing, and cleanup. It fails before mutation if the project, its exact resource names, or the loopback port already exist. Before startup it rehashes the locked projection tree, including file modes, and confirms that the tag still resolves to the projection's prepared image ID and revision. Projection directories are mode `0550`, private files are `0440`, public files are `0444`, and the preparing operator's group retains read/traverse access for this verification while the runtime UID owns the tree. At the end it inspects the actual API and gateway containers and requires both `.Image` IDs to equal the prepared image ID. A tag is never accepted as immutability evidence.
+
+After startup begins, any ordinary failure, `Ctrl-C`, `SIGTERM`, or `SIGHUP` enters bounded cleanup: only that preflight-proven-new project and its volumes are removed, cleanup is shielded from a second interrupt, candidate absence and port release are checked, and the complete live `project=ea` container/network/volume and HTTP/OpenAPI snapshots are reverified before both locks are released. The runtime receipt stores only bounded OpenAPI counts and digests; candidate proof requires every live path+HTTP method operation, effective security requirement, parameter, request body, response contract, referenced schema, and referenced security scheme to remain equivalent. Additive candidate operations are allowed, but any live contract loss or change fails closed. The OpenAPI bodies themselves are not written to the receipt.
+
+`PATH`, the selected Docker endpoint/context (`DOCKER_HOST`, `DOCKER_CONTEXT`, TLS/config variables), and `EA_PLAYWRIGHT_CHROMIUM_EXECUTABLE` are trusted operator execution inputs. Review or pin them before invoking the lane; the candidate env and provider credentials are separately sanitized and do not make hostile executable selection safe.
+
+The first smoke is deliberately provider-free. With `EA_MEMORIAL_PAGE_PREWARM_ENABLED=0`, both server rendering and page JavaScript defer warmup and speech synthesis until a visitor explicitly starts a conversation. The proof uses `HEAD` for the route checks, then a real reduced-motion mobile/desktop browser load that fails on automatic provider requests, external requests, unlabeled controls, horizontal overflow, page errors, or a slow local load. It also exercises public JSON/archive/PWA/share routes, denies the private audio path, and submits a synthetic private contribution. It does not prove microphone quality, speech recognition, voice identity, or family approval, and it must not be relabeled as the `real-public` exit-gate result.
+
+For a non-mutating diagnostic repeat against the candidate left running by the governed runner:
+
+```bash
+python3 scripts/verify_manfred_memorial_candidate.py \
+  --base-url http://127.0.0.1:18091 \
+  --public-origin "${MEMORIAL_PUBLIC_ORIGIN:?set the real HTTPS origin}"
+```
+
+The governed runner above already performs this submit/restart/withdraw sequence, browser audit, full live-project identity snapshots, Compose isolation checks, Redis gates, permission checks, import-log checks, source-revision binding, and one mode-`0600` runtime receipt. The manual commands are diagnostic repetition only; do not use them as a substitute for that receipt.
+
+```bash
+python3 scripts/run_manfred_memorial_candidate.py --help
+```
+
+Promotion must reuse the exact accepted image ID; do not rebuild it. The build embeds its 40-character source revision, and the API exposes that non-secret revision in `X-EA-Source-Revision`. Public voice, browser, meaningful-turn, and room receipts must all observe the same revision, slug, origin, and source-state fingerprint; the gold verifier rejects mixed receipt sets or a deployed revision that differs from the current release source. Before promotion, prove the live container identity did not change, inspect candidate logs for import failures, verify private ledger mode `0600` and public projection mode `0644`, complete the full provider-backed/browser gates with explicit quota authority, and obtain family listening/usability approval. Candidate evidence is non-authoritative until the real HTTPS origin passes the public launch gates.
 
 ## Narration cast handoff
 

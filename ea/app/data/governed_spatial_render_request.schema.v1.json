@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ea:governed-spatial-render-request:v1",
+  "title": "EA governed spatial render request v1 (draft)",
+  "type": "object",
+  "additionalProperties": false,
+  "x-design-authority-status": "draft_pending_design_acceptance",
+  "required": [
+    "contract_name",
+    "request_id",
+    "idempotency_key",
+    "consumer",
+    "artifact",
+    "source_packet_ref",
+    "truth_refs",
+    "evidence_refs",
+    "spatial_plan",
+    "style",
+    "scene_overlays",
+    "camera",
+    "output",
+    "content_policy",
+    "quota",
+    "callback"
+  ],
+  "properties": {
+    "contract_name": {"const": "ea.governed_spatial_render_request.v1"},
+    "request_id": {"type": "string", "format": "uuid"},
+    "idempotency_key": {"$ref": "#/$defs/token"},
+    "consumer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "tenant_ref", "subject_ref"],
+      "properties": {
+        "product": {"enum": ["propertyquarry", "chummer"]},
+        "tenant_ref": {"$ref": "#/$defs/ref"},
+        "subject_ref": {"$ref": "#/$defs/ref"}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "purpose", "locale"],
+      "properties": {
+        "kind": {
+          "enum": ["rendered_diorama", "interactive_tour", "continuous_walkthrough", "onboarding_vignette"]
+        },
+        "purpose": {"enum": ["inspection", "walkthrough", "encounter_preview", "first_use_gimmick"]},
+        "locale": {"type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$"}
+      }
+    },
+    "source_packet_ref": {"$ref": "#/$defs/ref"},
+    "truth_refs": {"$ref": "#/$defs/nonempty_refs"},
+    "evidence_refs": {"$ref": "#/$defs/nonempty_refs"},
+    "spatial_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "room_graph_ref",
+        "walkable_mesh_ref",
+        "portal_graph_ref",
+        "required_room_ids",
+        "route_policy",
+        "allow_revisit"
+      ],
+      "properties": {
+        "room_graph_ref": {"$ref": "#/$defs/ref"},
+        "walkable_mesh_ref": {"$ref": "#/$defs/ref"},
+        "portal_graph_ref": {"$ref": "#/$defs/ref"},
+        "required_room_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/token"}
+        },
+        "route_policy": {"const": "continuous_all_walkable_rooms"},
+        "start_anchor": {"$ref": "#/$defs/ref"},
+        "end_anchor": {"$ref": "#/$defs/ref"},
+        "allow_revisit": {"const": false}
+      }
+    },
+    "style": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["style_pack_id", "room_overrides", "asset_license_policy", "brand_claim_policy"],
+      "properties": {
+        "style_pack_id": {"$ref": "#/$defs/token"},
+        "room_overrides": {"type": "object", "additionalProperties": {"type": "object"}},
+        "asset_license_policy": {"const": "verified_reuse_only"},
+        "brand_claim_policy": {"const": "truthful_no_affiliation_claim"},
+        "real_product_claim": {"type": "boolean"},
+        "asset_reuse_proof_refs": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/ref"}}
+      }
+    },
+    "scene_overlays": {"type": "array", "items": {"$ref": "#/$defs/overlay"}},
+    "camera": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "height_m",
+        "target_delivery_fps",
+        "minimum_effective_motion_fps",
+        "motion_profile",
+        "cuts_allowed",
+        "teleports_allowed",
+        "collision_avoidance",
+        "rotation_smoothing"
+      ],
+      "properties": {
+        "height_m": {"type": "number", "minimum": 0.8, "maximum": 2.2},
+        "target_delivery_fps": {"type": "integer", "minimum": 60},
+        "minimum_effective_motion_fps": {"type": "integer", "minimum": 30},
+        "motion_profile": {"$ref": "#/$defs/token"},
+        "cuts_allowed": {"const": false},
+        "teleports_allowed": {"const": false},
+        "collision_avoidance": {"const": true},
+        "rotation_smoothing": {"const": true}
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["desktop", "mobile", "video_codec", "interactive_package", "poster_frame", "contact_sheet"],
+      "properties": {
+        "desktop": {"const": true},
+        "mobile": {"const": true},
+        "video_codec": {"const": "h264"},
+        "interactive_package": {"type": "boolean"},
+        "poster_frame": {"const": true},
+        "contact_sheet": {"const": true}
+      }
+    },
+    "content_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rating", "graphic_injury", "real_person_likeness", "minor_combatants"],
+      "properties": {
+        "rating": {"enum": ["general", "teen_fictional_combat"]},
+        "graphic_injury": {"const": false},
+        "real_person_likeness": {"const": false},
+        "minor_combatants": {"const": false}
+      }
+    },
+    "quota": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consume_quota", "maximum_provider_attempts"],
+      "properties": {
+        "consume_quota": {"const": false},
+        "maximum_provider_attempts": {"const": 0}
+      }
+    },
+    "callback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product_event_ref"],
+      "properties": {"product_event_ref": {"$ref": "#/$defs/ref"}}
+    }
+  },
+  "$defs": {
+    "token": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$"},
+    "ref": {"type": "string", "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$"},
+    "nonempty_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/ref"}
+    },
+    "participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_ref", "role"],
+      "properties": {
+        "actor_ref": {"$ref": "#/$defs/ref"},
+        "role": {"$ref": "#/$defs/token"},
+        "minor": {"const": false},
+        "real_person": {"const": false},
+        "identity_ref": {"$ref": "#/$defs/ref"},
+        "wardrobe_ref": {"$ref": "#/$defs/ref"},
+        "equipment_ref": {"$ref": "#/$defs/ref"},
+        "transform_track_ref": {"$ref": "#/$defs/ref"},
+        "handedness": {"$ref": "#/$defs/token"}
+      }
+    },
+    "beat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at_s", "action", "actor_ref"],
+      "properties": {
+        "at_s": {"type": "number", "minimum": 0},
+        "action": {
+          "enum": ["advance", "hold_position", "move", "non_graphic_exchange", "retreat", "take_cover"]
+        },
+        "actor_ref": {"$ref": "#/$defs/ref"},
+        "target_ref": {"$ref": "#/$defs/ref"},
+        "location_anchor": {"$ref": "#/$defs/ref"},
+        "transform_ref": {"$ref": "#/$defs/ref"}
+      }
+    },
+    "overlay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "overlay_id",
+        "kind",
+        "gameplay_truth_ref",
+        "location_anchor",
+        "start_time_s",
+        "end_time_s",
+        "participants",
+        "beats",
+        "provided_outcome",
+        "camera_policy",
+        "graphic_injury"
+      ],
+      "properties": {
+        "overlay_id": {"$ref": "#/$defs/token"},
+        "kind": {"const": "fictional_combat_choreography"},
+        "gameplay_truth_ref": {"$ref": "#/$defs/ref"},
+        "location_anchor": {"$ref": "#/$defs/ref"},
+        "start_time_s": {"type": "number", "minimum": 0},
+        "end_time_s": {"type": "number", "exclusiveMinimum": 0},
+        "participants": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/participant"}},
+        "beats": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/beat"}},
+        "provided_outcome": {"$ref": "#/$defs/ref"},
+        "camera_policy": {"const": "continuous_witness_path"},
+        "graphic_injury": {"const": false}
+      }
+    }
+  }
+}

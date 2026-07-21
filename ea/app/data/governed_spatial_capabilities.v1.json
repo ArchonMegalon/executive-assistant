@@ -1,0 +1,93 @@
+{
+  "contract_name": "ea.governed_spatial_capability_registry.v1",
+  "contract_version": "2026-07-11-draft",
+  "design_authority_status": "draft_pending_design_acceptance",
+  "orchestration_lane": "ea_governed_render",
+  "capabilities": [
+    {
+      "capability_id": "governed_spatial_request_composition",
+      "artifact_kinds": [
+        "rendered_diorama",
+        "interactive_tour",
+        "continuous_walkthrough",
+        "onboarding_vignette"
+      ],
+      "consumer_products": ["propertyquarry", "chummer"],
+      "provider_candidates": [],
+      "base_status": "degraded",
+      "base_status_reason": "Local draft composition tests pass, but canonical acceptance and an external proof reference are pending.",
+      "quota_posture": "audit_only"
+    },
+    {
+      "capability_id": "rendered_diorama_generation",
+      "artifact_kinds": ["rendered_diorama"],
+      "consumer_products": ["propertyquarry", "chummer"],
+      "provider_candidates": ["omagic_magicai"],
+      "base_status": "unverified",
+      "base_status_reason": "No current EA diorama provider execution receipt proves this artifact family.",
+      "quota_posture": "blocked"
+    },
+    {
+      "capability_id": "3dvista_interactive_tour_intake",
+      "artifact_kinds": ["interactive_tour"],
+      "consumer_products": ["propertyquarry", "chummer"],
+      "provider_candidates": ["3dvista"],
+      "base_status": "unverified",
+      "base_status_reason": "A current same-origin browser receipt is required at runtime.",
+      "quota_posture": "audit_only"
+    },
+    {
+      "capability_id": "magicfit_continuous_walkthrough_generation",
+      "artifact_kinds": ["continuous_walkthrough", "onboarding_vignette"],
+      "consumer_products": ["propertyquarry", "chummer"],
+      "provider_candidates": ["magicfit"],
+      "base_status": "degraded",
+      "base_status_reason": "Known outputs are rejected for cuts or spatial mutation; no launch artifact is accepted.",
+      "quota_posture": "blocked"
+    },
+    {
+      "capability_id": "omagic_magicai_spatial_model_generation",
+      "artifact_kinds": ["rendered_diorama", "continuous_walkthrough"],
+      "consumer_products": ["propertyquarry", "chummer"],
+      "provider_candidates": ["omagic_magicai"],
+      "base_status": "unverified",
+      "base_status_reason": "Model generation, upload, retrieval, and browser-use proof are not current.",
+      "quota_posture": "blocked"
+    },
+    {
+      "capability_id": "spatial_quality_and_provenance_verification",
+      "artifact_kinds": [
+        "rendered_diorama",
+        "interactive_tour",
+        "continuous_walkthrough",
+        "onboarding_vignette"
+      ],
+      "consumer_products": ["propertyquarry", "chummer"],
+      "provider_candidates": [],
+      "base_status": "degraded",
+      "base_status_reason": "Contract gates are draft-local and the 48-hour canary has not started.",
+      "quota_posture": "audit_only"
+    }
+  ],
+  "providers": [
+    {
+      "provider_key": "3dvista",
+      "accepted_evidence": "same_origin_playable_browser_receipt",
+      "artifact_kinds": ["interactive_tour"],
+      "active_for_propertyquarry": true
+    },
+    {
+      "provider_key": "magicfit",
+      "accepted_evidence": "receipt_backed_playable_walkthrough_with_spatial_stability",
+      "artifact_kinds": ["continuous_walkthrough", "onboarding_vignette"],
+      "active_for_propertyquarry": false,
+      "disqualified_artifact_prefixes": ["5a1c238", "a665e4e9"]
+    },
+    {
+      "provider_key": "omagic_magicai",
+      "accepted_evidence": "model_generation_upload_retrieval_and_browser_use_receipt",
+      "artifact_kinds": ["rendered_diorama", "continuous_walkthrough"],
+      "active_for_propertyquarry": false
+    }
+  ]
+}

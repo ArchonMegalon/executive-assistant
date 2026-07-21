@@ -7,7 +7,7 @@ sections:
     entries:
       - question: Can I actually use this now?
         required: true
-        answer: "Yes. Chummer6 is still preview software, but the preview is real: there are live downloads, current pages, and clear labels for what is still rough."
+        answer: "Yes. Start with Download and Status: the current promoted shelf names the supported platforms, while each optional campaign tool keeps its own availability label."
       - question: Is it offline-safe?
         required: true
         answer: That is one of the core goals. Chummer6 is being built so bad connectivity does not destroy your flow or your work.

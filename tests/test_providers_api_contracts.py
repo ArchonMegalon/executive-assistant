@@ -8011,6 +8011,7 @@ def test_onemin_billing_refresh_fans_out_browseract_jobs_in_parallel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv("ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH", "3")
     monkeypatch.setenv("ONEMIN_BROWSERACT_PARALLELISM", "3")
     for index, account_label in enumerate(
         [

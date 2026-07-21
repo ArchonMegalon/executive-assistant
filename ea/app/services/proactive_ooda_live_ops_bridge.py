@@ -141,6 +141,19 @@ def _bundle_has_current_packet_evidence(bundle: Mapping[str, Any]) -> bool:
     return False
 
 
+def _bundle_has_coherent_run_receipt(bundle: Mapping[str, Any]) -> bool:
+    run_receipt = dict(dict(bundle or {}).get("run_receipt") or {})
+    if not run_receipt:
+        return False
+    if str(run_receipt.get("notification_status") or "").strip():
+        return True
+    if int(run_receipt.get("item_count") or 0) > 0:
+        return True
+    stage_hashes = [str(item or "").strip() for item in list(run_receipt.get("stage_packet_ref_hashes") or []) if str(item or "").strip()]
+    safe_hashes = [str(item or "").strip() for item in list(run_receipt.get("safe_work_result_ref_hashes") or []) if str(item or "").strip()]
+    return bool(stage_hashes and safe_hashes)
+
+
 def _runtime_artifact_drift_summary(
     *,
     live_bundle: Mapping[str, Any],
@@ -180,6 +193,25 @@ def _runtime_artifact_drift_summary(
             "mismatch_fields": [],
             "material_mismatch_fields": [],
             "host_artifacts_present": False,
+            "privacy": {
+                "raw_packet_ref_exposed": False,
+                "raw_staged_artifact_ref_exposed": False,
+                "raw_private_paths_exposed": False,
+            },
+        }
+    if not _bundle_has_coherent_run_receipt(host_bundle):
+        return {
+            "checked": False,
+            "present": False,
+            "status": "host_bundle_not_checked",
+            "requires_recovery": False,
+            "blocking_reason": "",
+            "next_action": "",
+            "mismatch_count": 0,
+            "material_mismatch_count": 0,
+            "mismatch_fields": [],
+            "material_mismatch_fields": [],
+            "host_artifacts_present": _bundle_has_runtime_artifacts(host_bundle),
             "privacy": {
                 "raw_packet_ref_exposed": False,
                 "raw_staged_artifact_ref_exposed": False,

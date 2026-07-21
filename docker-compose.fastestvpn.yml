@@ -123,8 +123,6 @@ services:
     read_only: true
     cap_drop:
       - ALL
-    security_opt:
-      - no-new-privileges:true
     tmpfs:
       - /tmp
       - /run
@@ -157,8 +155,6 @@ services:
     read_only: true
     cap_drop:
       - ALL
-    security_opt:
-      - no-new-privileges:true
     tmpfs:
       - /tmp
       - /run
@@ -191,8 +187,6 @@ services:
     read_only: true
     cap_drop:
       - ALL
-    security_opt:
-      - no-new-privileges:true
     tmpfs:
       - /tmp
       - /run

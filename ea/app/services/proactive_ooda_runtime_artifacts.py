@@ -238,6 +238,40 @@ def load_runtime_artifact_bundle(
         if materiality_issue:
             artifact_filter_reason = materiality_issue
             stage_packet_path, stage_packet, safe_work_result_path, safe_work_result = None, {}, None, {}
+    selected_approval = select_current_approval_outcome_for_bundle(
+        {
+            "stage_packet": stage_packet,
+            "safe_work_result": safe_work_result,
+            "approval_outcome": approval_outcome,
+        }
+    )
+    if not current_packet_user_approval_surface(stage_packet=stage_packet, safe_work_result=safe_work_result) and not dict(
+        selected_approval.get("approval_outcome") or {}
+    ):
+        pending_candidate = choose_best_pending_approval_artifact_candidate(
+            root=root,
+            primary_run_receipt_path=primary_run_receipt_path,
+            primary_run_receipt=primary_run_receipt,
+            run_receipt_dir=run_receipt_dir,
+            default_stage_packet_dir=resolved_stage_dir,
+            default_safe_work_result_dir=resolved_safe_dir,
+            explicit_stage_packet_dir=bool(stage_packet_dir),
+            explicit_safe_work_result_dir=bool(safe_work_result_dir),
+            approval_outcome=approval_outcome,
+            approval_callback_dir=approval_callback_dir,
+        )
+        if pending_candidate is not None:
+            (
+                _run_receipt_path_for_artifacts,
+                _run_receipt_for_artifacts,
+                resolved_stage_dir,
+                resolved_safe_dir,
+                stage_packet_path,
+                stage_packet,
+                safe_work_result_path,
+                safe_work_result,
+            ) = pending_candidate
+            artifact_filter_reason = ""
     run_receipt_path, run_receipt = choose_run_receipt(
         primary_run_receipt_path=primary_run_receipt_path,
         primary_run_receipt=primary_run_receipt,
@@ -376,6 +410,102 @@ def choose_best_run_receipt_artifact_candidate(
             1 if item_count > 0 else 0,
             1 if str(teable_sync.get("status") or "").strip() in {"synced", "partial"} else 0,
             1 if operator_safe_mirror else 0,
+            mtime,
+            1 if notification_status == "sent" else 0,
+            message_count,
+        )
+        if best_score is None or score > best_score:
+            best = (path, payload, stage_dir, safe_dir, stage_path, stage_packet, safe_path, safe_work_result)
+            best_score = score
+    return best
+
+
+def choose_best_pending_approval_artifact_candidate(
+    *,
+    root: Path,
+    primary_run_receipt_path: Path | None,
+    primary_run_receipt: dict[str, Any],
+    run_receipt_dir: Path,
+    default_stage_packet_dir: Path,
+    default_safe_work_result_dir: Path,
+    explicit_stage_packet_dir: bool,
+    explicit_safe_work_result_dir: bool,
+    approval_outcome: Mapping[str, Any],
+    approval_callback_dir: Path,
+) -> tuple[Path | None, dict[str, Any], Path, Path, Path | None, dict[str, Any], Path | None, dict[str, Any]] | None:
+    best: tuple[
+        Path | None,
+        dict[str, Any],
+        Path,
+        Path,
+        Path | None,
+        dict[str, Any],
+        Path | None,
+        dict[str, Any],
+    ] | None = None
+    best_score: tuple[int, int, int, int, int, int, int, float, int, int] | None = None
+    for path, payload, mtime in _run_receipt_candidates(
+        primary_run_receipt_path=primary_run_receipt_path,
+        primary_run_receipt=primary_run_receipt,
+        run_receipt_dir=run_receipt_dir,
+    ):
+        stage_dir = default_stage_packet_dir
+        safe_dir = default_safe_work_result_dir
+        if not explicit_stage_packet_dir:
+            stage_dir = _path_from_value(root, str(payload.get("stage_packet_output_dir") or "")) or default_stage_packet_dir
+        if not explicit_safe_work_result_dir:
+            safe_dir = _path_from_value(root, str(payload.get("safe_work_result_output_dir") or "")) or default_safe_work_result_dir
+        preferred_pair = choose_stage_and_safe_work_for_run_receipt(
+            stage_packet_dir=stage_dir,
+            safe_work_result_dir=safe_dir,
+            run_receipt=payload,
+        )
+        if preferred_pair is None:
+            continue
+        stage_path, stage_packet, safe_path, safe_work_result = preferred_pair
+        if _artifacts_are_disabled_flat_search(stage_packet=stage_packet, safe_work_result=safe_work_result):
+            continue
+        if _artifact_materiality_filter_reason(stage_packet=stage_packet, safe_work_result=safe_work_result):
+            continue
+        if not current_packet_user_approval_surface(stage_packet=stage_packet, safe_work_result=safe_work_result):
+            continue
+        callback_summary = approval_callback_runtime_summary(
+            approval_callback_dir=approval_callback_dir,
+            stage_packet=stage_packet,
+            safe_work_result=safe_work_result,
+            stage_packet_dir=stage_dir,
+            safe_work_result_dir=safe_dir,
+        )
+        selected_approval = select_current_approval_outcome_for_bundle(
+            {
+                "stage_packet": stage_packet,
+                "safe_work_result": safe_work_result,
+                "approval_outcome": dict(approval_outcome or {}),
+                "current_packet_callback_outcome": dict(callback_summary.get("current_packet_callback_outcome") or {}),
+            }
+        )
+        if dict(selected_approval.get("approval_outcome") or {}):
+            continue
+        notification_status = str(payload.get("notification_status") or "").strip().lower()
+        message_count = _message_id_count(payload)
+        item_count = int(payload.get("item_count") or 0)
+        operator_safe_mirror = _receipt_proves_operator_safe_mirror(payload)
+        delivery_proof = (
+            notification_status == "sent" and item_count > 0 and message_count > 0
+        ) or operator_safe_mirror
+        teable_sync = dict(payload.get("teable_sync") or {})
+        artifact_score = _stage_safe_pair_score(stage_packet, safe_work_result, mtime)
+        assistant_grade_score = _assistant_grade_pair_score(stage_packet, safe_work_result)
+        live_pending_count = int(callback_summary.get("current_packet_live_pending_count") or 0)
+        score = (
+            1 if live_pending_count > 0 else 0,
+            assistant_grade_score,
+            1 if delivery_proof else 0,
+            artifact_score[0],
+            artifact_score[1],
+            artifact_score[2],
+            1 if item_count > 0 else 0,
+            1 if str(teable_sync.get("status") or "").strip() in {"synced", "partial"} else 0,
             mtime,
             1 if notification_status == "sent" else 0,
             message_count,
@@ -617,7 +747,7 @@ def approval_callback_runtime_summary(
         if _approval_callback_expired(row) or not _approval_callback_matches_current(row, current_packet_rows)
     ]
     return {
-        "approval_callback_dir_exists": approval_callback_dir.is_dir(),
+        "approval_callback_dir_exists": _safe_is_dir(approval_callback_dir),
         "approval_callback_dir_writable": _dir_writable(approval_callback_dir),
         "approval_callback_record_count": len(callback_rows),
         "approval_callback_pending_count": len(live_pending_current_packet_rows),
@@ -721,7 +851,7 @@ def _approval_callback_artifact_ref_index(
         return {}
 
     artifact_payloads: dict[str, dict[str, Any]] = {}
-    if stage_packet_dir is not None and stage_packet_dir.is_dir():
+    if stage_packet_dir is not None and _safe_is_dir(stage_packet_dir):
         for _, payload, _ in latest_payloads(stage_packet_dir, schema=STAGE_PACKET_SCHEMA):
             payload_packet_ref = str(payload.get("packet_ref") or "").strip()
             if payload_packet_ref and payload_packet_ref in requested_refs:
@@ -730,7 +860,7 @@ def _approval_callback_artifact_ref_index(
             if payload_packet_id and f"stage_packet:{payload_packet_id}" in requested_refs:
                 artifact_payloads[f"stage_packet:{payload_packet_id}"] = payload
 
-    if safe_work_result_dir is not None and safe_work_result_dir.is_dir():
+    if safe_work_result_dir is not None and _safe_is_dir(safe_work_result_dir):
         for _, payload, _ in latest_payloads(safe_work_result_dir, schema=SAFE_WORK_RESULT_SCHEMA):
             payload_artifact_ref = str(payload.get("result_ref") or "").strip()
             if payload_artifact_ref and payload_artifact_ref in requested_refs:
@@ -866,10 +996,10 @@ def display_path(root: Path, path: Path | None) -> str:
 
 
 def latest_payloads(path: Path, *, schema: str) -> list[tuple[Path, dict[str, Any], float]]:
-    if not path.is_dir():
+    if not _safe_is_dir(path):
         return []
     rows: list[tuple[Path, dict[str, Any], float]] = []
-    for candidate in path.glob("*.json"):
+    for candidate in _safe_glob(path, "*.json"):
         payload = _load_json(candidate)
         if not payload or str(payload.get("schema") or "").strip() != schema:
             continue
@@ -883,10 +1013,10 @@ def latest_payloads(path: Path, *, schema: str) -> list[tuple[Path, dict[str, An
 
 
 def latest_run_receipts(path: Path) -> list[tuple[Path, dict[str, Any], float]]:
-    if not path.is_dir():
+    if not _safe_is_dir(path):
         return []
     rows: list[tuple[Path, dict[str, Any], float]] = []
-    for candidate in path.glob("*.json"):
+    for candidate in _safe_glob(path, "*.json"):
         payload = _load_json(candidate)
         if not payload:
             continue
@@ -947,7 +1077,7 @@ def _run_receipt_candidates(
     if primary_run_receipt_path is not None:
         mtime = 0.0
         try:
-            if primary_run_receipt_path.exists():
+            if _safe_exists(primary_run_receipt_path):
                 mtime = primary_run_receipt_path.stat().st_mtime
         except OSError:
             mtime = 0.0
@@ -959,7 +1089,7 @@ def _run_receipt_candidates(
     state_dir = run_receipt_dir.parent
     for filename in LEGACY_RUN_RECEIPT_FILENAMES:
         candidate_path = state_dir / filename
-        if not candidate_path.exists():
+        if not _safe_exists(candidate_path):
             continue
         _add(candidate_path, _load_json(candidate_path), mtime=_safe_mtime(candidate_path))
 
@@ -1061,10 +1191,10 @@ def _safe_mtime(path: Path) -> float:
 
 
 def _approval_callback_rows(path: Path) -> list[dict[str, Any]]:
-    if not path.is_dir():
+    if not _safe_is_dir(path):
         return []
     rows: list[dict[str, Any]] = []
-    for candidate in sorted(path.glob("*.json")):
+    for candidate in sorted(_safe_glob(path, "*.json")):
         payload = _load_json(candidate)
         if payload:
             rows.append(payload)
@@ -1185,13 +1315,39 @@ def _parse_callback_datetime(value: str) -> datetime | None:
 
 
 def _dir_writable(path: Path) -> bool:
-    probe = path if path.exists() else path.parent
-    while not probe.exists() and probe != probe.parent:
+    try:
+        probe = path if _safe_exists(path) else path.parent
+    except OSError:
+        return False
+    while probe != probe.parent and not _safe_exists(probe):
         probe = probe.parent
     try:
-        return probe.exists() and probe.is_dir() and __import__("os").access(probe, __import__("os").W_OK)
+        return _safe_exists(probe) and _safe_is_dir(probe) and __import__("os").access(probe, __import__("os").W_OK)
     except Exception:
         return False
+
+
+def _safe_exists(path: Path) -> bool:
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
+def _safe_is_dir(path: Path) -> bool:
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
+
+
+def _safe_glob(path: Path, pattern: str) -> list[Path]:
+    if not _safe_is_dir(path):
+        return []
+    try:
+        return list(path.glob(pattern))
+    except OSError:
+        return []
 
 
 def _browse_score(safe_work_result: dict[str, Any]) -> int:

@@ -486,7 +486,57 @@ def _base_payload() -> dict[str, object]:
                 "raw_payload_exposed": False,
                 "raw_transcript_text_exposed": False,
                 "raw_credential_exposed": False,
-                "source_ids_hashed": True,
+            "source_ids_hashed": True,
+            },
+        },
+        "onemin_direct_refresh_posture": {
+            "checked": False,
+            "probe_ok": False,
+            "status": "not_checked",
+            "source": "",
+            "observed_at": "",
+            "reason": "",
+            "next_action": "",
+            "ready": False,
+            "receipt_name": "",
+            "selected_account_count": 0,
+            "pending_account_count": 0,
+            "owner_row_count": 0,
+            "attempted_count": 0,
+            "current_run_refreshed_count": 0,
+            "refreshed_count": 0,
+            "error_count": 0,
+            "error_code_counts": {},
+            "rate_limited": False,
+            "remaining_credits_total": None,
+            "remaining_credits_min": None,
+            "remaining_credits_max": None,
+            "next_topup_at_earliest": "",
+            "next_topup_at_latest": "",
+            "controls": {
+                "batch_size": 1,
+                "batch_backoff_seconds": 1.0,
+                "max_rate_limit_sleep_seconds": 120.0,
+                "continue_on_rate_limit": True,
+                "refresh_transport": "direct_provider_api",
+                "proxy_mode": "direct_no_ui_proxy",
+                "controls_inferred_from_defaults": True,
+                "single_account_batch_mode": True,
+            },
+            "telegram_delivery": {
+                "checked": False,
+                "sent": False,
+                "reason": "",
+                "ready": False,
+                "message_count": 0,
+                "observed_at": "",
+                "source": "",
+                "dry_run": False,
+            },
+            "privacy": {
+                "raw_owner_email_exposed": False,
+                "raw_login_secret_exposed": False,
+                "raw_telegram_chat_ref_exposed": False,
             },
         },
         "verifier_commands": [
@@ -789,6 +839,36 @@ def test_proactive_ooda_operator_status_verifier_rejects_provider_cost_privacy_l
     _write_receipt(receipt, **payload)
 
     assert "provider_cost_pressure.privacy.raw_provider_secret_exposed must remain false" in verifier.verify(
+        receipt,
+        root=tmp_path,
+    )
+
+
+def test_proactive_ooda_operator_status_verifier_rejects_onemin_direct_refresh_privacy_leak(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    monkeypatch.setattr(verifier, "_git_head", lambda root=tmp_path: "source-head-123")
+    monkeypatch.setattr(verifier, "_source_fingerprint", lambda root=tmp_path: "source-fingerprint-123")
+    payload = _base_payload()
+    posture = dict(payload["onemin_direct_refresh_posture"])
+    posture.update(
+        {
+            "checked": True,
+            "probe_ok": True,
+            "status": "rate_limited",
+            "source": "private_receipt:onemin_direct_refresh_live.json",
+            "observed_at": "2026-07-10T02:10:57Z",
+            "receipt_name": "onemin_direct_refresh_live.json",
+        }
+    )
+    privacy = dict(posture["privacy"])
+    privacy["raw_login_secret_exposed"] = True
+    posture["privacy"] = privacy
+    payload.update({"source_git_head": "source-head-123", "onemin_direct_refresh_posture": posture})
+    _write_receipt(receipt, **payload)
+
+    assert "onemin_direct_refresh_posture.privacy.raw_login_secret_exposed must remain false" in verifier.verify(
         receipt,
         root=tmp_path,
     )

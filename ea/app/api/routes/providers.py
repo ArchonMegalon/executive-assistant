@@ -1291,21 +1291,35 @@ def _onemin_direct_api_fastestvpn_service_name(*, account_name: str = "", retry_
 
 
 def _onemin_browseract_max_accounts_per_refresh() -> int:
+    hard_cap_raw = str(
+        upstream._env("EA_ONEMIN_BROWSERACT_HARD_MAX_ACCOUNTS_PER_REFRESH") or ""  # type: ignore[attr-defined]
+    ).strip()
+    try:
+        hard_cap = int(hard_cap_raw) if hard_cap_raw else 1
+    except Exception:
+        hard_cap = 1
+    hard_cap = max(1, min(500, hard_cap))
     raw = str(upstream._env("ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH") or "").strip()  # type: ignore[attr-defined]
     try:
-        value = int(raw) if raw else 50
+        value = int(raw) if raw else 1
     except Exception:
-        value = 50
-    return max(1, min(500, value))
+        value = 1
+    return max(1, min(500, value, hard_cap))
 
 
 def _onemin_browseract_parallelism() -> int:
+    hard_cap_raw = str(upstream._env("EA_ONEMIN_BROWSERACT_HARD_MAX_PARALLELISM") or "").strip()  # type: ignore[attr-defined]
+    try:
+        hard_cap = int(hard_cap_raw) if hard_cap_raw else 1
+    except Exception:
+        hard_cap = 1
+    hard_cap = max(1, min(12, hard_cap))
     raw = str(upstream._env("ONEMIN_BROWSERACT_PARALLELISM") or "").strip()  # type: ignore[attr-defined]
     try:
-        value = int(raw) if raw else 6
+        value = int(raw) if raw else 1
     except Exception:
-        value = 6
-    return max(1, min(12, value))
+        value = 1
+    return max(1, min(12, value, hard_cap))
 
 
 def _onemin_browseract_timeout_seconds(requested_timeout_seconds: int | None = None) -> int:

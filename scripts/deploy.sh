@@ -22,7 +22,6 @@ if [[ "${EA_ENABLE_FASTESTVPN:-0}" == "1" ]]; then
 fi
 enable_cloudflared="${PROPERTYQUARRY_ENABLE_CLOUDFLARED:-${EA_ENABLE_CLOUDFLARED:-auto}}"
 run_runtime_hard_exit_gates="${PROPERTYQUARRY_RUN_RUNTIME_HARD_EXIT_GATES:-${EA_RUN_RUNTIME_HARD_EXIT_GATES:-1}}"
-allow_dirty_worktree="${PROPERTYQUARRY_DEPLOY_ALLOW_DIRTY_WORKTREE:-${EA_DEPLOY_ALLOW_DIRTY_WORKTREE:-0}}"
 cf_tunnel_token_name="${PROPERTYQUARRY_CF_TUNNEL_TOKEN:-}"
 PYTHON_BIN="${PYTHON_BIN:-}"
 if [[ -z "${PYTHON_BIN}" ]]; then
@@ -320,7 +319,6 @@ Backward-compatible aliases:
   EA_MEMORY_ONLY, EA_BOOTSTRAP_DB, EA_ENABLE_FASTESTVPN, EA_ENABLE_CLOUDFLARED,
   EA_CF_TUNNEL_TOKEN, EA_RUN_RUNTIME_HARD_EXIT_GATES
   EA_RUN_RUNTIME_HARD_EXIT_GATES=1|0     Alias for PROPERTYQUARRY_RUN_RUNTIME_HARD_EXIT_GATES.
-  EA_DEPLOY_ALLOW_DIRTY_WORKTREE=1|0     Allow deploy from a dirty git worktree (default: 0).
 EOF
       exit 0
       ;;
@@ -452,14 +450,55 @@ EOF
   fi
 fi
 
-if [[ "${allow_dirty_worktree}" != "1" ]] && [[ -n "$(git -C "${APP_ROOT}" status --short)" ]]; then
-  cat >&2 <<'EOF'
-Refusing to deploy from a dirty git worktree.
+source_worktree_status=""
+if ! source_worktree_status="$(
+  PYTHONPATH="${APP_ROOT}/scripts${PYTHONPATH:+:${PYTHONPATH}}" "${PYTHON_BIN}" - "${APP_ROOT}" <<'PY'
+import json
+import sys
+from pathlib import Path
 
-Commit or stash local changes first, or explicitly opt in with:
-  EA_DEPLOY_ALLOW_DIRTY_WORKTREE=1 bash scripts/deploy.sh
+from source_state_head import source_worktree_metadata
+
+metadata = source_worktree_metadata(Path(sys.argv[1]), dirty_path_limit=12)
+if not bool(metadata.get("source_worktree_dirty")):
+    raise SystemExit(0)
+print(
+    json.dumps(
+        {
+            "source_dirty_count": int(metadata.get("source_dirty_count") or 0),
+            "source_dirty_files": list(metadata.get("source_dirty_files") or []),
+            "source_dirty_omitted_count": int(metadata.get("source_dirty_omitted_count") or 0),
+            "source_dirty_status_sha256": str(metadata.get("source_dirty_status_sha256") or ""),
+        },
+        separators=(",", ":"),
+    )
+)
+raise SystemExit(1)
+PY
+)"; then
+  cat >&2 <<'EOF'
+Refusing to deploy from a source-dirty git worktree.
+
+Commit the approved release source on an attached release branch before deploy.
+Only paths classified as generated-only by source_state_head are permitted; source changes are never bypassed.
 
 Release authority requires a clean worktree for deployment claims.
+EOF
+  echo "Source-dirty detail: ${source_worktree_status:-source_state_probe_failed}" >&2
+  exit 5
+fi
+
+release_branch="$(git -C "${APP_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+release_tracking_branch="$(git -C "${APP_ROOT}" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+if [[ -z "${release_branch}" || "${release_branch}" == "HEAD" || -z "${release_tracking_branch}" ]]; then
+  cat >&2 <<'EOF'
+Refusing to deploy from a detached or untracked Git worktree.
+
+Use an attached temporary release branch with an upstream, for example:
+  git worktree add -b release/manfred-<deployment-id> /tmp/ea-manfred-release HEAD
+  git -C /tmp/ea-manfred-release branch --set-upstream-to=origin/main
+
+Release authority requires a real branch and tracking branch bound to the deployed commit.
 EOF
   exit 5
 fi

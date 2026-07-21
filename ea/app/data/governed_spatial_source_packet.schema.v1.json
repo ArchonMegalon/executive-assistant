@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ea:governed-spatial-source-packet:v1",
+  "title": "EA governed spatial source packet v1 (draft)",
+  "type": "object",
+  "additionalProperties": false,
+  "x-design-authority-status": "draft_pending_design_acceptance",
+  "required": [
+    "contract_name",
+    "source_packet_ref",
+    "source_digest",
+    "source_retrieved_at",
+    "normalized_floorplan_ref",
+    "room_graph_ref",
+    "walkable_mesh_ref",
+    "portal_graph_ref",
+    "scale_m_per_unit",
+    "orientation_degrees",
+    "license_provenance_refs",
+    "source_media_assignments",
+    "inaccessible_rooms",
+    "route_exclusions",
+    "rooms",
+    "portals",
+    "route_room_ids",
+    "existing_artifacts"
+  ],
+  "properties": {
+    "contract_name": {"const": "ea.governed_spatial_source_packet.v1"},
+    "source_packet_ref": {"$ref": "#/$defs/ref"},
+    "source_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_retrieved_at": {"type": "string", "format": "date-time"},
+    "normalized_floorplan_ref": {"$ref": "#/$defs/ref"},
+    "room_graph_ref": {"$ref": "#/$defs/ref"},
+    "walkable_mesh_ref": {"$ref": "#/$defs/ref"},
+    "portal_graph_ref": {"$ref": "#/$defs/ref"},
+    "scale_m_per_unit": {"type": "number", "exclusiveMinimum": 0},
+    "orientation_degrees": {"type": "number", "minimum": 0, "exclusiveMaximum": 360},
+    "license_provenance_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/ref"}
+    },
+    "source_media_assignments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["media_ref", "room_id", "confidence"],
+        "properties": {
+          "media_ref": {"$ref": "#/$defs/ref"},
+          "room_id": {"$ref": "#/$defs/token"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      }
+    },
+    "inaccessible_rooms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["room_id", "reason", "provenance_ref"],
+        "properties": {
+          "room_id": {"$ref": "#/$defs/token"},
+          "reason": {"$ref": "#/$defs/token"},
+          "provenance_ref": {"$ref": "#/$defs/ref"}
+        }
+      }
+    },
+    "route_exclusions": {
+      "type": "array",
+      "maxItems": 0,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["room_id", "reason", "authorization_ref"],
+        "properties": {
+          "room_id": {"$ref": "#/$defs/token"},
+          "reason": {"$ref": "#/$defs/token"},
+          "authorization_ref": {"$ref": "#/$defs/ref"}
+        }
+      }
+    },
+    "rooms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/room"}
+    },
+    "portals": {"type": "array", "items": {"$ref": "#/$defs/portal"}},
+    "route_room_ids": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/token"}
+    },
+    "existing_artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rendered_diorama": {"$ref": "#/$defs/artifact_candidate"},
+        "interactive_tour": {"$ref": "#/$defs/artifact_candidate"},
+        "continuous_walkthrough": {"$ref": "#/$defs/artifact_candidate"},
+        "onboarding_vignette": {"$ref": "#/$defs/artifact_candidate"}
+      }
+    }
+  },
+  "$defs": {
+    "token": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$"},
+    "ref": {"type": "string", "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$"},
+    "room": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "room_id",
+        "room_type",
+        "walkable",
+        "boundary_ref",
+        "ceiling_height_m",
+        "geometry_anchor_ref",
+        "texture_anchor_refs"
+      ],
+      "properties": {
+        "room_id": {"$ref": "#/$defs/token"},
+        "room_type": {"$ref": "#/$defs/token"},
+        "walkable": {"type": "boolean"},
+        "boundary_ref": {"$ref": "#/$defs/ref"},
+        "ceiling_height_m": {"type": "number", "minimum": 1.8, "maximum": 10},
+        "geometry_anchor_ref": {"$ref": "#/$defs/ref"},
+        "texture_anchor_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/ref"}
+        },
+        "exterior_classification": {"enum": ["balcony", "terrace"]},
+        "accessible": {"type": "boolean"}
+      }
+    },
+    "portal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portal_id", "from_room_id", "to_room_id", "walkable"],
+      "properties": {
+        "portal_id": {"$ref": "#/$defs/token"},
+        "from_room_id": {"$ref": "#/$defs/token"},
+        "to_room_id": {"$ref": "#/$defs/token"},
+        "walkable": {"const": true}
+      }
+    },
+    "artifact_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_ref", "sha256", "proof_ref"],
+      "properties": {
+        "artifact_ref": {"$ref": "#/$defs/ref"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "proof_ref": {"$ref": "#/$defs/ref"}
+      }
+    }
+  }
+}

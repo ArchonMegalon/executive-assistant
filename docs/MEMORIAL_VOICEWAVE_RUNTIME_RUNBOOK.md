@@ -3,9 +3,10 @@
 Use this lane when you want a real bounded `VoiceWave.ai` studio flow for Manfred instead of only a workspace screenshot.
 
 Current status:
-- `VoiceWave` is now wired into the live memorial TTS route for `manfred`
+- `VoiceWave` is wired into the memorial TTS route for `manfred` in source
 - the active memorial voice can be `voicewave_clone`
-- live runtime needs the compose override `docker-compose.voicewave-runtime.yml` because the studio worker still shells out to a Dockerized Playwright lane
+- the explicit compose override `docker-compose.voicewave-runtime.yml` enables the public memorial routers and requires the deployed source revision
+- `scripts/voicewave_memorial_voice.py` is a host-side operator CLI; its Dockerized Playwright worker runs from the host, not from inside `ea-api`
 
 What this script can do:
 - inspect the visible `My Clones` inventory
@@ -94,20 +95,43 @@ Outputs:
 
 ## 4. Reproducible live runtime deploy
 
-The live memorial route now depends on a small compose override so `ea-api` can start the bounded Playwright worker:
+The live memorial route depends on a small compose override that enables the
+public memorial routers and stamps the exact committed source revision. Deploy
+from a clean tree so `EA_SOURCE_REVISION` cannot claim a commit while the image
+contains uncommitted source:
 
 ```bash
 cd "$EA_REPO_ROOT"
+
+test -z "$(git status --porcelain)" || {
+  echo "Refusing memorial deploy from a dirty worktree." >&2
+  exit 1
+}
+EA_SOURCE_REVISION="$(git rev-parse --verify HEAD^{commit})" || exit 1
+test -n "$EA_SOURCE_REVISION" || exit 1
+export EA_SOURCE_REVISION
+
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.voicewave-runtime.yml \
+  config --quiet
+
 docker compose \
   -f docker-compose.yml \
   -f docker-compose.voicewave-runtime.yml \
   up -d --build --force-recreate ea-api
 ```
 
-This override contributes only:
-- `/var/run/docker.sock` into `ea-api`
+This override contributes:
+- `EA_ENABLE_PUBLIC_MEMORIALS=${EA_ENABLE_PUBLIC_MEMORIALS:-1}`
+- required pass-through `EA_SOURCE_REVISION` with no fallback
 - `EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/data/artifacts/browseract_ui_worker_shared}`
 - `VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/data/artifacts/voicewave_runtime_tmp}`
+
+It deliberately does not mount `/var/run/docker.sock`. The VoiceWave studio
+automation shells out to Docker only from the host-side operator CLI. Mounting
+the host Docker socket into the API would give the service host-level control
+without an in-container caller that needs it.
 
 Live checks:
 
@@ -129,5 +153,6 @@ curl -sS \
 
 Important:
 - this is still a studio-backed lane, not a native low-latency TTS API
-- it now works in the live memorial route, but latency must still be judged operationally
-- the compose override is part of the runtime contract until a provider-native API lane replaces the Dockerized studio worker
+- source integration still needs live route and provider proof after each deploy; latency must be judged operationally
+- the compose override is part of the runtime contract for public-router enablement and source-revision provenance
+- run `catalog`, `clone`, and `render` on the Docker host; do not run the operator CLI inside `ea-api`
