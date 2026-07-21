@@ -82,12 +82,18 @@ def _performance_evidence() -> dict[str, object]:
         "all_required_proof_passed": True,
         "expected_chapter_count": 2,
         "publication_chapter_count": 2,
+        "chapter_metadata_verified": True,
+        "chapter_metadata_contract": (
+            "ea.audiobook_m4b_chapter_metadata_proof.v1"
+        ),
+        "chapter_metadata_sha256": "0" * 64,
         "narration_plan": {
             "contract_name": "ea.audiobook_narration_plan.v5",
             "status": "ready",
             "coverage_complete": True,
             "source_integrity_verified": True,
             "chapter_count": 2,
+            "speaker_count": 2,
             "plan_sha256": "1" * 64,
             "source_aggregate_sha256": "2" * 64,
             "render_signature": "3" * 64,
@@ -97,9 +103,25 @@ def _performance_evidence() -> dict[str, object]:
             "status": "ready",
             "ready_and_distinct": True,
             "dialogue_span_count": 4,
+            "speaker_count": 2,
+            "resolved_speaker_count": 2,
             "distinct_dialogue_voice_count": 2,
             "narrator_voice_excluded": True,
             "cast_map_sha256": "4" * 64,
+            "assignment_count": 2,
+            "assignments_complete": True,
+            "assignments": [
+                {
+                    "speaker_id_sha256": "a" * 64,
+                    "voice_id_sha256": "c" * 64,
+                    "distinct_from_narrator": True,
+                },
+                {
+                    "speaker_id_sha256": "b" * 64,
+                    "voice_id_sha256": "d" * 64,
+                    "distinct_from_narrator": True,
+                },
+            ],
             "raw_voice_ids_exposed": False,
         },
         "mastering": {
@@ -116,9 +138,77 @@ def _performance_evidence() -> dict[str, object]:
         "publication_stt": {
             "status": "pass",
             "required": True,
+            "enabled": True,
+            "alignment_verified": True,
+            "alignment_contract": "chapter_time_token_window_v1",
+            "chapter_metadata_contract": (
+                "ea.audiobook_m4b_chapter_metadata_proof.v1"
+            ),
+            "chapter_metadata_sha256": "0" * 64,
+            "source_text_sha256": "a" * 64,
+            "source_token_count": 240,
+            "source_chapter_count": 2,
+            "probe_chapter_count": 2,
             "sample_count": 2,
             "passed_samples": 2,
             "failed_samples": 0,
+            "sample_seconds": 30,
+            "min_transcript_tokens": 8,
+            "min_book_token_overlap": 0.55,
+            "min_ordered_token_overlap": 0.55,
+            "max_position_drift_ratio": 0.125,
+            "minimum_hash_token_count": 8,
+                    "short_book_text_tolerance": "v2",
+            "distinct_source_window_count": 2,
+            "samples": [
+                {
+                    "index": 1,
+                    "offset_seconds": 0.0,
+                    "primary_offset_seconds": 0.0,
+                    "attempt_count": 1,
+                    "status": "pass",
+                    "issue": "",
+                    "warning": "",
+                    "transcript_sha256": "e" * 64,
+                    "transcript_hash_withheld_low_entropy": False,
+                    "transcript_token_count": 12,
+                    "book_token_overlap": 0.92,
+                    "book_unique_token_overlap": 0.91,
+                    "ordered_token_overlap": 0.88,
+                    "source_window_sha256": "b" * 64,
+                    "source_window_hash_withheld_low_entropy": False,
+                    "source_window_token_count": 24,
+                    "source_window_padding_token_count": 4,
+                    "source_chapter_indices": [1],
+                    "position_alignment_verified": True,
+                    "raw_text_exposed": False,
+                },
+                {
+                    "index": 2,
+                    "offset_seconds": 30.0,
+                    "primary_offset_seconds": 30.0,
+                    "attempt_count": 1,
+                    "status": "pass",
+                    "issue": "",
+                    "warning": "",
+                    "transcript_sha256": "f" * 64,
+                    "transcript_hash_withheld_low_entropy": False,
+                    "transcript_token_count": 11,
+                    "book_token_overlap": 0.89,
+                    "book_unique_token_overlap": 0.87,
+                    "ordered_token_overlap": 0.84,
+                    "source_window_sha256": "c" * 64,
+                    "source_window_hash_withheld_low_entropy": False,
+                    "source_window_token_count": 23,
+                    "source_window_padding_token_count": 4,
+                    "source_chapter_indices": [2],
+                    "position_alignment_verified": True,
+                    "raw_text_exposed": False,
+                },
+            ],
+            "issues": [],
+            "warnings": [],
+            "raw_text_exposed": False,
         },
         "source_sha256": "7" * 64,
         "artifact_sha256": "8" * 64,
@@ -852,3 +942,118 @@ def test_whatsapp_audiobook_live_delivery_verifier_blocks_malformed_performance_
         "pass status requires exact plan, cast, mastering, quality, chapter, and STT proof"
         in _verify(receipt)
     )
+
+
+@pytest.mark.parametrize(
+    "assignment_corruption",
+    ["zero", "missing", "duplicate_speaker", "tampered_voice_digest"],
+)
+def test_whatsapp_audiobook_live_delivery_verifier_rejects_incomplete_cast_assignments(
+    tmp_path: Path,
+    assignment_corruption: str,
+) -> None:
+    receipt = tmp_path / "whatsapp_audiobook_live_delivery.generated.json"
+    payload = _pass_receipt()
+    selected = deepcopy(payload["selected_delivery"])
+    dialogue_cast = selected["performance_evidence"]["dialogue_cast"]
+    assignments = dialogue_cast["assignments"]
+    if assignment_corruption == "zero":
+        dialogue_cast.update(
+            speaker_count=0,
+            resolved_speaker_count=0,
+            distinct_dialogue_voice_count=0,
+            assignment_count=0,
+            assignments=[],
+        )
+    elif assignment_corruption == "missing":
+        dialogue_cast.pop("assignments")
+    elif assignment_corruption == "duplicate_speaker":
+        assignments[1] = dict(assignments[0])
+    else:
+        assignments[0]["voice_id_sha256"] = "not-a-sha256"
+    payload["selected_delivery"] = selected
+    _write(receipt, **payload)
+
+    assert (
+        "pass status requires exact plan, cast, mastering, quality, chapter, and STT proof"
+        in _verify(receipt)
+    )
+
+
+@pytest.mark.parametrize(
+    "proof_corruption",
+    [
+        "metadata_unverified",
+        "metadata_contract",
+        "metadata_sha256",
+        "stt_metadata_contract",
+        "alignment_contract",
+        "sample_missing",
+        "position_unverified",
+        "source_window_sha256",
+        "ordered_overlap_below_threshold",
+        "declared_ordered_overlap_below_release_floor",
+        "position_drift_above_release_max",
+        "padding_missing",
+        "probe_chapter_count_mismatch",
+    ],
+)
+def test_whatsapp_audiobook_live_delivery_verifier_rejects_publication_alignment_tamper(
+    tmp_path: Path,
+    proof_corruption: str,
+) -> None:
+    receipt = tmp_path / "whatsapp_audiobook_live_delivery.generated.json"
+    payload = _pass_receipt()
+    selected = deepcopy(payload["selected_delivery"])
+    performance = selected["performance_evidence"]
+    stt = performance["publication_stt"]
+    if proof_corruption == "metadata_unverified":
+        performance["chapter_metadata_verified"] = False
+    elif proof_corruption == "metadata_contract":
+        performance["chapter_metadata_contract"] = "legacy.chapter.proof"
+    elif proof_corruption == "metadata_sha256":
+        performance["chapter_metadata_sha256"] = "not-a-sha256"
+    elif proof_corruption == "stt_metadata_contract":
+        stt["chapter_metadata_contract"] = "legacy.chapter.proof"
+    elif proof_corruption == "alignment_contract":
+        stt["alignment_contract"] = "whole_book_bag_of_words_v0"
+    elif proof_corruption == "sample_missing":
+        stt["samples"].pop()
+    elif proof_corruption == "position_unverified":
+        stt["samples"][0]["position_alignment_verified"] = False
+    elif proof_corruption == "source_window_sha256":
+        stt["samples"][0]["source_window_sha256"] = "not-a-sha256"
+    elif proof_corruption == "ordered_overlap_below_threshold":
+        stt["samples"][0]["ordered_token_overlap"] = 0.1
+    elif proof_corruption == "declared_ordered_overlap_below_release_floor":
+        stt["min_ordered_token_overlap"] = 0.1
+    elif proof_corruption == "position_drift_above_release_max":
+        stt["max_position_drift_ratio"] = 0.25
+    elif proof_corruption == "padding_missing":
+        stt["samples"][0]["source_window_padding_token_count"] = 0
+    else:
+        stt["probe_chapter_count"] = 1
+    payload["selected_delivery"] = selected
+    _write(receipt, **payload)
+
+    assert (
+        "pass status requires exact plan, cast, mastering, quality, chapter, and STT proof"
+        in _verify(receipt)
+    )
+
+
+def test_whatsapp_audiobook_live_delivery_verifier_accepts_repeated_aligned_source_window(
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / "whatsapp_audiobook_live_delivery.generated.json"
+    payload = _pass_receipt()
+    selected = deepcopy(payload["selected_delivery"])
+    stt = selected["performance_evidence"]["publication_stt"]
+    stt["samples"][1]["source_window_sha256"] = stt["samples"][0][
+        "source_window_sha256"
+    ]
+    stt["distinct_source_window_count"] = 1
+    payload["selected_delivery"] = selected
+    _write(receipt, **payload)
+
+    assert _verify(receipt) == []

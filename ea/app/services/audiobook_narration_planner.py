@@ -47,11 +47,43 @@ _PRE_VERB_SUBJECT_RE = re.compile(
     rf"(?P<verb>{_SPEECH_VERBS})\s+(?P<subject>{_SUBJECT})\s*[,;:]?\s*$",
     re.IGNORECASE,
 )
+_DASH_REPORTED_CLAUSE_PREFIXES = (
+    "as|because|dass|falls|how|if|ob|obwohl|since|that|though|unless|until|"
+    "was|weil|wenn|wer|what|when|where|whether|while|who|why|wie|wo"
+)
 _DASH_POST_ATTRIBUTION_RE = re.compile(
-    rf"(?P<tag>\s+(?:(?:{_SPEECH_VERBS})\s+(?:{_SUBJECT})|"
-    rf"(?:{_SUBJECT})\s+(?:{_SPEECH_VERBS}))\s*[.!?…]?\s*)$",
+    rf"(?<=[,;!?…])(?P<tag>\s+(?:(?:{_SPEECH_VERBS})\s+(?:{_SUBJECT})|"
+    rf"(?:{_SUBJECT})\s+(?:{_SPEECH_VERBS}))\b)"
+    rf"(?=$|[.!?…](?:\s|$)|[,;:]\s*(?!(?:{_DASH_REPORTED_CLAUSE_PREFIXES})\b))",
     re.IGNORECASE,
 )
+_ATTRIBUTION_DISCOURSE_PREFIXES = {
+    "and",
+    "aber",
+    "but",
+    "dann",
+    "doch",
+    "now",
+    "nun",
+    "so",
+    "then",
+    "und",
+}
+_ATTRIBUTION_ARTICLE_PREFIXES = {
+    "a",
+    "an",
+    "das",
+    "dem",
+    "den",
+    "der",
+    "die",
+    "ein",
+    "eine",
+    "einem",
+    "einen",
+    "einer",
+    "the",
+}
 _PRONOUN_GENDER = {
     "she": "feminine",
     "sie": "feminine",
@@ -139,6 +171,26 @@ def _looks_like_named_subject(value: object) -> bool:
     return first.isupper() or (
         first.isalpha() and not first.islower() and not first.isupper()
     )
+
+
+def _normalized_attribution_subject(value: object) -> str:
+    subject = _normalized_label(value)
+    tokens = subject.split()
+    while (
+        len(tokens) > 1
+        and tokens[0].casefold().rstrip(",")
+        in _ATTRIBUTION_DISCOURSE_PREFIXES
+    ):
+        tokens.pop(0)
+    if (
+        len(tokens) > 1
+        and tokens[0].casefold().rstrip(",")
+        in _ATTRIBUTION_ARTICLE_PREFIXES
+    ):
+        tokens.pop(0)
+        while len(tokens) > 1 and not _looks_like_named_subject(tokens[0]):
+            tokens.pop(0)
+    return _normalized_label(" ".join(tokens))
 
 
 def _profile_key(value: object) -> str:
@@ -466,7 +518,7 @@ def _attribution(paragraph: str, start: int, end: int) -> dict[str, object]:
     ):
         if candidate is None:
             continue
-        subject = _normalized_label(candidate.group("subject"))
+        subject = _normalized_attribution_subject(candidate.group("subject"))
         pronoun = subject.casefold() if subject.casefold() in _PRONOUN_GENDER else ""
         if not pronoun and not _looks_like_named_subject(subject):
             continue
@@ -1166,6 +1218,12 @@ def plan_narration(
         raise ValueError("at_least_one_chapter_required")
     if len({chapter.index for chapter in normalized_chapters}) != len(normalized_chapters):
         raise ValueError("chapter_indexes_must_be_unique")
+    chapter_indexes = [chapter.index for chapter in normalized_chapters]
+    order_issues = (
+        []
+        if chapter_indexes == sorted(chapter_indexes)
+        else ["chapter_indexes_must_be_strictly_increasing"]
+    )
 
     approved_profiles = {
         _profile_key(key): dict(value)
@@ -1200,6 +1258,7 @@ def plan_narration(
         span["span_index"] = index
 
     coverage_issues, chapter_coverage = _validate_coverage(normalized_chapters, spans)
+    coverage_issues = [*order_issues, *coverage_issues]
     passages, unsafe_issues = _passages_from_spans(
         spans,
         max_chars=max_chars,

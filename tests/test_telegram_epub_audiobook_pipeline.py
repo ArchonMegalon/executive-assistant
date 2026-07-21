@@ -1136,6 +1136,14 @@ def test_valid_cached_cinematic_master_reuses_without_synthesis_or_merge(
     assert reused["reason"] == "cinematic_master_present"
     assert reused["chapters"][0]["status"] == "already_present"
     assert reused["mastering"]["final_track_mastered_this_run_count"] == 0
+    bindings = reused["mastering"]["final_track_bindings"]
+    assert bindings[0]["track"] == "cinematic_master"
+    assert reused["mastering"]["signature_set_sha256"] == (
+        pipeline._audiobook_final_track_signature_set_sha256(bindings)
+    )
+    assert reused["mastering"]["final_audio_quality"][0]["track"] == (
+        "cinematic_master"
+    )
     assert calls == []
 
 
@@ -1956,6 +1964,67 @@ def test_passages_are_cached_unmastered_and_mastering_runs_once_on_chapter(
     assert mastered_paths[0].name.startswith(".001.")
     assert mastered_paths[0].name.endswith(".mastering.wav")
     assert (tmp_path / "audio" / "001.wav").is_file()
+    mastering = result["mastering"]
+    bindings = mastering["final_track_bindings"]
+    assert bindings == [
+        {
+            "chapter_index": 1,
+            "signature": bindings[0]["signature"],
+            "audio_sha256": pipeline._sha256_file(tmp_path / "audio" / "001.wav"),
+        }
+    ]
+    assert mastering["signature_set_sha256"] == (
+        pipeline._audiobook_final_track_signature_set_sha256(bindings)
+    )
+    assert mastering["final_audio_quality"][0]["chapter_index"] == 1
+    assert mastering["final_audio_quality"][0]["duration_seconds"] > 0.0
+
+
+def test_provider_audio_segment_write_disables_per_segment_mastering(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    target = tmp_path / "passage.wav"
+    calls: list[dict[str, object]] = []
+
+    def fake_write_provider_audio_file(**kwargs):
+        calls.append(kwargs)
+        target.write_bytes(b"canonical-pcm")
+        return target
+
+    monkeypatch.setattr(
+        pipeline,
+        "_write_provider_audio_file",
+        fake_write_provider_audio_file,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_canonicalize_provider_segment_pcm",
+        lambda path: path,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_trim_provider_wav_edge_silence",
+        lambda path: path,
+    )
+
+    rendered = pipeline._write_provider_audio_segment_file(
+        audio_bytes=b"provider-audio",
+        content_type="audio/wav",
+        target_wav=target,
+    )
+
+    assert rendered == target
+    assert calls == [
+        {
+            "audio_bytes": b"provider-audio",
+            "content_type": "audio/wav",
+            "target_wav": target,
+            "normalize": False,
+        }
+    ]
 
 
 def test_mastering_failure_blocks_before_chapter_signature_publication(
@@ -2278,6 +2347,15 @@ def test_safe_receipt_mastering_redacts_private_audio_quality_details() -> None:
     safe = pipeline._safe_receipt_mastering(
         {
             "status": "mastered",
+            "final_track_bindings": [
+                {
+                    "chapter_index": 1,
+                    "signature": "a" * 64,
+                    "audio_sha256": "b" * 64,
+                    "path": private_path,
+                    "voice_id": raw_voice_id,
+                }
+            ],
             "final_audio_quality": [
                 {
                     "status": "failed",
@@ -2292,6 +2370,13 @@ def test_safe_receipt_mastering_redacts_private_audio_quality_details() -> None:
 
     quality = safe["final_audio_quality"]
     assert quality == [{"status": "failed", "redacted_issue_count": 1}]
+    assert safe["final_track_bindings"] == [
+        {
+            "chapter_index": 1,
+            "signature": "a" * 64,
+            "audio_sha256": "b" * 64,
+        }
+    ]
     serialized = json.dumps(safe, sort_keys=True)
     assert private_path not in serialized
     assert "SECRET_TEXT" not in serialized
@@ -2409,6 +2494,112 @@ def test_safe_receipt_mastering_enforces_public_field_types_and_finite_numbers()
     assert "SECRET_TEXT" not in serialized
     assert "NaN" not in serialized
     assert "Infinity" not in serialized
+
+
+def test_audiobook_job_receipt_projects_artifact_bound_publication_mastering(
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    job_dir = tmp_path / "artifact-bound-mastering-receipt"
+    job_dir.mkdir()
+    mastering = {
+        "status": "mastered",
+        "final_track_mode": "chapter_masters",
+        "contract_sha256": "a" * 64,
+        "signature_set_sha256": "b" * 64,
+        "recomputed_signature_set_sha256": "b" * 64,
+        "artifact_signature_set_sha256": "b" * 64,
+        "expected_final_track_count": 1,
+        "final_track_ready_count": 1,
+        "final_track_mastered_this_run_count": 1,
+        "signature_published_or_verified_count": 1,
+        "segment_mastering": False,
+        "declared_final_track_bindings_complete": True,
+        "final_track_bindings_complete": True,
+        "artifact_verification_complete": True,
+        "declared_final_audio_quality_measurements_complete": True,
+        "final_audio_quality_measurements_complete": True,
+        "quality_measurements_recomputed_from_artifacts": True,
+        "quality_measurements_match_declared": True,
+        "final_track_bindings": [
+            {
+                "chapter_index": 1,
+                "signature": "c" * 64,
+                "audio_sha256": "d" * 64,
+                "artifact_sha256": "d" * 64,
+                "artifact_size_bytes": 64044,
+                "signature_sidecar_sha256": "e" * 64,
+                "output_binding_record_sha256": "f" * 64,
+                "output_binding_sidecar_sha256": "0" * 64,
+                "artifact_verified": True,
+                "signature_sidecar_verified": True,
+                "output_binding_verified": True,
+                "measurement_verified": True,
+                "private_path": "/private/audiobook/chapter-01.wav",
+            }
+        ],
+        "final_audio_quality": [
+            {
+                "chapter_index": 1,
+                "status": "pass",
+                "duration_seconds": 2.0,
+                "duration_milliseconds": 2000,
+                "channels": 1,
+                "sample_rate": 16000,
+                "sample_width_bytes": 2,
+                "peak": 0.12,
+                "trailing_silence_seconds": 0.0,
+                "trailing_silence_milliseconds": 0,
+                "speech_energy_present": True,
+                "quiet_tail": False,
+                "excessive_trailing_silence": False,
+                "issue_count": 0,
+                "artifact_audio_sha256": "d" * 64,
+                "declared_measurement_sha256": "1" * 64,
+                "measurement_sha256": "1" * 64,
+                "measurements_valid": True,
+                "measurement_matches_declared": True,
+                "private_text": "secret source words",
+            }
+        ],
+    }
+    pipeline._write_private_json(
+        job_dir / "job.json",
+        {
+            "job_id": job_dir.name,
+            "status": "audiobookshelf_imported",
+            "metadata": {
+                "title": "Book",
+                "author": "A. Writer",
+                "language": "en-US",
+            },
+            "audio_publication_gate": {
+                "contract_name": pipeline.AUDIOBOOK_PUBLICATION_GATE_CONTRACT_NAME,
+                "status": "pass",
+                "issues": [],
+                "mastering_signature_set_sha256": "b" * 64,
+                "mastering": mastering,
+            },
+        },
+    )
+
+    receipt = pipeline.build_audiobook_job_receipt(job_dir=job_dir)
+    public_mastering = receipt["audio_publication_gate"]["mastering"]
+
+    assert public_mastering["artifact_verification_complete"] is True
+    assert public_mastering["quality_measurements_recomputed_from_artifacts"] is True
+    assert public_mastering["quality_measurements_match_declared"] is True
+    assert public_mastering["artifact_signature_set_sha256"] == "b" * 64
+    assert public_mastering["final_track_bindings"][0]["artifact_sha256"] == "d" * 64
+    assert public_mastering["final_track_bindings"][0]["artifact_verified"] is True
+    assert public_mastering["final_audio_quality"][0]["measurement_sha256"] == "1" * 64
+    assert public_mastering["final_audio_quality"][0]["measurement_matches_declared"] is True
+    assert public_mastering["final_audio_quality"][0]["duration_seconds"] == 2.0
+    assert public_mastering["final_audio_quality"][0]["trailing_silence_seconds"] == 0.0
+    serialized = json.dumps(receipt, sort_keys=True)
+    assert "/private/audiobook" not in serialized
+    assert "secret source words" not in serialized
 
 
 def test_human_listened_canary_rejects_malformed_numeric_counts_without_exception(
@@ -2758,6 +2949,110 @@ def _publication_ready_job(
     text_path: str = "001 - Chapter.txt",
 ) -> dict[str, object]:
     source_text_sha256 = pipeline._sha256_bytes(source_text.encode("utf-8"))
+    source_href = "chapter.xhtml"
+    source_aggregate_sha256 = pipeline._sha256_bytes(
+        json.dumps(
+            [
+                {
+                    "chapter_index": 1,
+                    "source_href": source_href,
+                    "source_text_sha256": source_text_sha256,
+                }
+            ],
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    )
+    plan_sha256 = "a" * 64
+    render_signature = "c" * 64
+    canonical_source = pipeline._canonical_narration_text(source_text)
+    canonical_source_sha256 = pipeline._sha256_bytes(
+        canonical_source.encode("utf-8")
+    )
+    pipeline._write_private_json(
+        job_dir / "narration_plan.json",
+        {
+            "contract_name": pipeline.NARRATION_PLAN_CONTRACT_NAME,
+            "status": "ready",
+            "source_coverage": "complete",
+            "coverage_complete": True,
+            "source_integrity_verified": True,
+            "source_integrity_issues": [],
+            "chapter_count": 1,
+            "source_chapters": [
+                {
+                    "chapter_index": 1,
+                    "source_href": source_href,
+                    "source_text_sha256": source_text_sha256,
+                    "actual_source_text_sha256": source_text_sha256,
+                }
+            ],
+            "source_spans": [
+                {
+                    "span_index": 1,
+                    "source_chapter_index": 1,
+                    "char_start": 0,
+                    "char_end": len(source_text),
+                    "source_text": source_text,
+                    "source_text_sha256": source_text_sha256,
+                }
+            ],
+            "passages": [
+                {
+                    "passage_index": 1,
+                    "text": source_text,
+                    "text_sha256": source_text_sha256,
+                    "char_count": len(source_text),
+                    "speaker_role": "narrator",
+                    "speaker_id": "narrator",
+                    "voice_ref_sha256": "f" * 64,
+                    "passage_fingerprint": "e" * 64,
+                }
+            ],
+            "source_canonical_sha256": canonical_source_sha256,
+            "planned_canonical_sha256": canonical_source_sha256,
+            "planner_plan_sha256": plan_sha256,
+            "source_aggregate_sha256": source_aggregate_sha256,
+            "render_signature": render_signature,
+            "dialogue_passage_count": 0,
+            "dialogue_span_count": 0,
+            "speaker_count": 0,
+            "speaker_cast": {
+                "status": "not_required",
+                "cast_map_sha256": "",
+                "entries": [],
+            },
+        },
+    )
+    audio_dir = job_dir / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    chapter_audio_filename = "001.wav"
+    chapter_master_path = audio_dir / chapter_audio_filename
+    _write_tone_wav(chapter_master_path, seconds=2.0)
+    chapter_master_signature = "d" * 64
+    chapter_output_binding = pipeline._write_audio_cache_output_binding(
+        audio_path=chapter_master_path,
+        cache_kind="chapter_master",
+        render_fingerprint=chapter_master_signature,
+    )
+    pipeline._write_atomic_private_text(
+        chapter_master_path.with_suffix(
+            chapter_master_path.suffix + ".narration.signature"
+        ),
+        chapter_master_signature,
+    )
+    chapter_master_quality = pipeline._rendered_audio_quality_report(
+        chapter_master_path
+    )
+    assert chapter_master_quality["status"] == "pass"
+    final_track_bindings = [
+        {
+            "chapter_index": 1,
+            "signature": chapter_master_signature,
+            "audio_sha256": chapter_output_binding["audio_sha256"],
+        }
+    ]
     return {
         "status": "audiobookshelf_imported",
         "source": {"source_sha256": source_text_sha256},
@@ -2770,7 +3065,10 @@ def _publication_ready_job(
         "chapters": [
             {
                 "index": 1,
+                "title": "Chapter",
+                "source_href": source_href,
                 "text_path": text_path,
+                "audio_filename": chapter_audio_filename,
                 "char_count": len(source_text),
                 "sha256": source_text_sha256,
             }
@@ -2783,11 +3081,12 @@ def _publication_ready_job(
                 "source_coverage": "complete",
                 "coverage_complete": True,
                 "source_integrity_verified": True,
-                "plan_sha256": "a" * 64,
-                "source_aggregate_sha256": "b" * 64,
-                "render_signature": "c" * 64,
+                "plan_sha256": plan_sha256,
+                "source_aggregate_sha256": source_aggregate_sha256,
+                "render_signature": render_signature,
                 "dialogue_passage_count": 0,
                 "dialogue_span_count": 0,
+                "speaker_count": 0,
                 "speaker_cast": {"status": "not_required"},
                 "cast_map_sha256": "",
             },
@@ -2795,14 +3094,24 @@ def _publication_ready_job(
             "mastering": {
                 "status": "mastered",
                 "final_track_mode": "chapter_masters",
-                "contract_sha256": "d" * 64,
+                "contract_sha256": pipeline._audiobook_mastering_contract(),
                 "expected_final_track_count": 1,
                 "final_track_ready_count": 1,
                 "final_track_mastered_this_run_count": 1,
                 "signature_published_or_verified_count": 1,
-                "signature_set_sha256": "e" * 64,
+                "final_track_bindings": final_track_bindings,
+                "signature_set_sha256": (
+                    pipeline._audiobook_final_track_signature_set_sha256(
+                        final_track_bindings
+                    )
+                ),
                 "segment_mastering": False,
-                "final_audio_quality": [{"status": "pass"}],
+                "final_audio_quality": [
+                    {
+                        "chapter_index": 1,
+                        **chapter_master_quality,
+                    }
+                ],
             },
         },
         "merge_result": {
@@ -2812,6 +3121,209 @@ def _publication_ready_job(
             "chapter_count_matches": True,
         },
     }
+
+
+def _publication_probe_chapter(
+    *,
+    title: str = "Chapter",
+    start_seconds: float = 0.0,
+    end_seconds: float = 120.0,
+    chapter_id: int = 0,
+) -> dict[str, object]:
+    return {
+        "id": chapter_id,
+        "start_time": f"{start_seconds:.3f}",
+        "end_time": f"{end_seconds:.3f}",
+        "tags": {"title": title},
+    }
+
+
+def test_publication_stt_tokenizer_supports_non_latin_book_text() -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    assert pipeline._publication_stt_tokens(
+        "Привет мир Ελληνικά العربية 你好世界"
+    ) == [
+        "привет",
+        "мир",
+        "ελληνικά",
+        "العربية",
+        "你",
+        "好",
+        "世",
+        "界",
+    ]
+
+
+def test_publication_stt_window_allows_bounded_nonuniform_chapter_pacing() -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    tokens = [f"token{index:04d}" for index in range(1000)]
+    source_rows = [{"index": 1, "tokens": tokens}]
+    probe_rows = [
+        _publication_probe_chapter(
+            title="Chapter",
+            start_seconds=0.0,
+            end_seconds=1000.0,
+        )
+    ]
+
+    window = pipeline._audiobook_publication_aligned_source_window(
+        source_chapter_rows=source_rows,
+        probe_chapters=probe_rows,
+        offset_seconds=500.0,
+        sample_seconds=30,
+        transcript_token_count=30,
+        position_drift_ratio=0.125,
+    )
+
+    # A 100-second non-speech lead-in can place the real words around token 400
+    # even though a uniform wall-clock projection centers the sample at token 500.
+    assert set(tokens[400:430]) <= set(window["tokens"])
+    assert window["source_window_padding_token_count"] == 125
+    assert tokens[0] not in window["tokens"]
+
+
+def test_m4b_chapter_metadata_proof_binds_titles_order_timing_and_duration() -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    source_chapters = [
+        {
+            "index": 1,
+            "title": "Private Opening",
+            "char_count": 1,
+        },
+        {
+            "index": 2,
+            "title": "Private Finale",
+            "char_count": 1,
+        },
+    ]
+    probe_chapters = [
+        _publication_probe_chapter(
+            title="Private Opening",
+            start_seconds=0.0,
+            end_seconds=60.0,
+            chapter_id=0,
+        ),
+        _publication_probe_chapter(
+            title="Private Finale",
+            start_seconds=60.0,
+            end_seconds=120.0,
+            chapter_id=1,
+        ),
+    ]
+
+    evidence, issues = (
+        pipeline._audiobook_publication_m4b_chapter_metadata_evidence(
+            source_chapters=source_chapters,
+            probe_chapters=probe_chapters,
+            duration_seconds=120.0,
+        )
+    )
+
+    assert issues == []
+    assert evidence["status"] == "verified"
+    assert evidence["chapter_metadata_verified"] is True
+    assert evidence["duration_matches"] is True
+    assert evidence["chapter_metadata_sha256"]
+    assert evidence["chapter_proofs"][0]["start_milliseconds"] == 0
+    assert evidence["chapter_proofs"][1]["boundary_contiguous"] is True
+    serialized = json.dumps(evidence, sort_keys=True)
+    assert "Private Opening" not in serialized
+    assert "Private Finale" not in serialized
+    assert evidence["raw_titles_exposed"] is False
+    assert evidence["raw_text_exposed"] is False
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_issue"),
+    [
+        ("count", "m4b_probe_chapter_count_mismatch"),
+        ("zero_source", "source_chapter_manifest_row_invalid"),
+        ("source_index_gap", "source_chapter_order_invalid"),
+        ("title_order", "m4b_probe_chapter_title_order_mismatch"),
+        ("reversed_ids", "m4b_probe_chapter_id_order_invalid"),
+        ("nonfinite", "m4b_probe_chapter_timing_invalid"),
+        ("zero_duration", "m4b_probe_chapter_timing_invalid"),
+        ("overlap", "m4b_probe_chapter_overlap_or_order_invalid"),
+        ("tiny_overlap", "m4b_probe_chapter_overlap_or_order_invalid"),
+        ("gap", "m4b_probe_chapter_boundary_not_contiguous"),
+        ("small_gap", "m4b_probe_chapter_boundary_not_contiguous"),
+        ("late_first", "m4b_probe_chapter_boundary_not_contiguous"),
+        ("short_final", "m4b_probe_chapter_duration_mismatch"),
+    ],
+)
+def test_m4b_chapter_metadata_proof_rejects_ambiguous_rows(
+    case: str,
+    expected_issue: str,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    source_chapters = [
+        {"index": 1, "title": "Opening", "char_count": 10},
+        {"index": 2, "title": "Finale", "char_count": 10},
+    ]
+    probe_chapters = [
+        _publication_probe_chapter(
+            title="Opening",
+            start_seconds=0.0,
+            end_seconds=60.0,
+            chapter_id=0,
+        ),
+        _publication_probe_chapter(
+            title="Finale",
+            start_seconds=60.0,
+            end_seconds=120.0,
+            chapter_id=1,
+        ),
+    ]
+    if case == "count":
+        probe_chapters.pop()
+    elif case == "zero_source":
+        source_chapters[1]["char_count"] = 0
+    elif case == "source_index_gap":
+        source_chapters[1]["index"] = 3
+    elif case == "title_order":
+        probe_chapters[0]["tags"] = {"title": "Finale"}
+        probe_chapters[1]["tags"] = {"title": "Opening"}
+    elif case == "reversed_ids":
+        source_chapters[0]["title"] = "Chapter"
+        source_chapters[1]["title"] = "Chapter"
+        probe_chapters[0]["tags"] = {"title": "Chapter"}
+        probe_chapters[1]["tags"] = {"title": "Chapter"}
+        probe_chapters[0]["id"] = 1
+        probe_chapters[1]["id"] = 0
+    elif case == "nonfinite":
+        probe_chapters[1]["start_time"] = "nan"
+        probe_chapters[1].pop("start", None)
+    elif case == "zero_duration":
+        probe_chapters[1]["end_time"] = "60.000"
+    elif case == "overlap":
+        probe_chapters[1]["start_time"] = "59.000"
+    elif case == "tiny_overlap":
+        probe_chapters[1]["start_time"] = "59.900"
+    elif case == "gap":
+        probe_chapters[1]["start_time"] = "61.000"
+    elif case == "small_gap":
+        probe_chapters[1]["start_time"] = "60.100"
+    elif case == "late_first":
+        probe_chapters[0]["start_time"] = "1.000"
+    elif case == "short_final":
+        probe_chapters[1]["end_time"] = "119.000"
+
+    evidence, issues = (
+        pipeline._audiobook_publication_m4b_chapter_metadata_evidence(
+            source_chapters=source_chapters,
+            probe_chapters=probe_chapters,
+            duration_seconds=120.0,
+        )
+    )
+
+    assert evidence["status"] == "invalid"
+    assert evidence["chapter_metadata_verified"] is False
+    assert "m4b_chapter_metadata_invalid" in issues
+    assert expected_issue in issues
 
 
 def _mock_publication_loudness_pass(monkeypatch, pipeline) -> None:
@@ -2850,7 +3362,19 @@ def _mock_publication_gate_media_pass(
                 {"codec_type": "audio", "codec_name": "aac"},
                 {"codec_type": "video", "codec_name": "mjpeg"},
             ],
-            "chapters": [{"id": index} for index in range(chapter_count)],
+            "chapters": [
+                _publication_probe_chapter(
+                    title=(
+                        "Chapter"
+                        if chapter_count == 1
+                        else f"Chapter {index + 1}"
+                    ),
+                    start_seconds=float(index * 120),
+                    end_seconds=float((index + 1) * 120),
+                    chapter_id=index,
+                )
+                for index in range(chapter_count)
+            ],
         },
     )
     monkeypatch.setattr(
@@ -2980,7 +3504,7 @@ def test_preferred_m4b_tool_success_passes_publication_gate_chapter_counts(
     monkeypatch.setattr(
         pipeline,
         "_probe_audio_publication_file",
-        lambda _path: {"chapters": [{"id": 1}]},
+        lambda _path: {"chapters": [_publication_probe_chapter()]},
     )
 
     merge_result = pipeline._merge_m4b_if_ready(
@@ -3098,9 +3622,47 @@ def test_audio_publication_gate_v2_binds_cinematic_release_evidence(
     )
     timeline_sha256 = "f" * 64
     render_result = dict(job["render_result"])
+    chapter_mastering = dict(render_result.get("mastering") or {})
+    chapter_binding = dict(chapter_mastering["final_track_bindings"][0])
+    audio_dir = job_dir / "audio"
+    chapter_master_path = audio_dir / "001.wav"
+    cinematic_master_path = pipeline._cinematic_master_audio_path(audio_dir)
+    cinematic_master_path.write_bytes(chapter_master_path.read_bytes())
+    cinematic_output_binding = pipeline._write_audio_cache_output_binding(
+        audio_path=cinematic_master_path,
+        cache_kind="cinematic_master",
+        render_fingerprint=chapter_binding["signature"],
+    )
+    pipeline._write_atomic_private_text(
+        pipeline._cinematic_master_audio_signature_path(audio_dir),
+        chapter_binding["signature"],
+    )
+    pipeline._write_atomic_private_text(
+        pipeline._cinematic_master_audio_mode_path(audio_dir),
+        pipeline._CINEMATIC_MASTER_SEMANTIC_PASS_MODE,
+    )
+    cinematic_bindings = [
+        {
+            "track": "cinematic_master",
+            "signature": chapter_binding["signature"],
+            "audio_sha256": cinematic_output_binding["audio_sha256"],
+        }
+    ]
+    cinematic_quality = pipeline._rendered_audio_quality_report(
+        cinematic_master_path
+    )
+    assert cinematic_quality["status"] == "pass"
+    cinematic_quality["track"] = "cinematic_master"
     render_result["mastering"] = {
-        **dict(render_result.get("mastering") or {}),
+        **chapter_mastering,
         "final_track_mode": "cinematic_master",
+        "final_track_bindings": cinematic_bindings,
+        "signature_set_sha256": (
+            pipeline._audiobook_final_track_signature_set_sha256(
+                cinematic_bindings
+            )
+        ),
+        "final_audio_quality": [cinematic_quality],
     }
     render_result.update(
         {
@@ -3134,9 +3696,42 @@ def test_audio_publication_gate_v2_binds_cinematic_release_evidence(
     assert gate["source_sha256"] == pipeline._sha256_bytes(
         source_text.encode("utf-8")
     )
-    assert gate["source_aggregate_sha256"] == "b" * 64
+    assert gate["source_aggregate_sha256"] == job["render_result"][
+        "narration_plan"
+    ]["source_aggregate_sha256"]
     assert gate["render_signature_sha256"] == "c" * 64
-    assert gate["mastering_signature_set_sha256"] == "e" * 64
+    assert gate["mastering_signature_set_sha256"] == job["render_result"][
+        "mastering"
+    ]["signature_set_sha256"]
+    mastering_evidence = gate["mastering"]
+    assert mastering_evidence["artifact_verification_complete"] is True
+    assert (
+        mastering_evidence["quality_measurements_recomputed_from_artifacts"]
+        is True
+    )
+    assert mastering_evidence["quality_measurements_match_declared"] is True
+    assert (
+        mastering_evidence["artifact_signature_set_sha256"]
+        == mastering_evidence["signature_set_sha256"]
+    )
+    assert mastering_evidence["final_track_bindings"] == [
+        {
+            **mastering_evidence["final_track_bindings"][0],
+            "track": "cinematic_master",
+            "artifact_verified": True,
+            "signature_sidecar_verified": True,
+            "output_binding_verified": True,
+            "measurement_verified": True,
+            "cinematic_path_binding_verified": True,
+            "mode_sidecar_verified": True,
+        }
+    ]
+    assert mastering_evidence["final_audio_quality"][0][
+        "measurement_matches_declared"
+    ] is True
+    assert mastering_evidence["final_audio_quality"][0][
+        "artifact_audio_sha256"
+    ] == cinematic_output_binding["audio_sha256"]
     assert gate["expected_chapter_count"] == 1
     assert gate["actual_chapter_count"] == 1
     assert gate["chapter_count_matches"] is True
@@ -3159,8 +3754,49 @@ def test_audio_publication_gate_v2_binds_cinematic_release_evidence(
         ("render_signature", "narration_render_signature_sha256_invalid"),
         ("mastering_status", "final_mastering_not_complete"),
         ("mastering_counter", "mastering_final_track_count_mismatch"),
+        ("mastering_contract", "mastering_contract_sha256_mismatch"),
         ("mastering_signature", "mastering_signature_set_sha256_invalid"),
+        (
+            "mastering_signature_arbitrary_sha",
+            "mastering_signature_set_sha256_mismatch",
+        ),
+        (
+            "mastering_binding_signature_arbitrary_sha",
+            "mastering_signature_sidecar_invalid",
+        ),
+        (
+            "mastering_binding_audio_arbitrary_sha",
+            "mastering_final_track_artifact_sha256_mismatch",
+        ),
+        (
+            "mastering_artifact_bytes_tampered",
+            "mastering_final_track_artifact_sha256_mismatch",
+        ),
+        (
+            "mastering_signature_sidecar_missing",
+            "mastering_signature_sidecar_invalid",
+        ),
+        (
+            "mastering_output_binding_sidecar_missing",
+            "mastering_output_binding_sidecar_invalid",
+        ),
+        (
+            "mastering_noncanonical_chapter_index",
+            "mastering_final_track_chapter_bindings_invalid",
+        ),
         ("mastering_quality", "final_master_quality_not_acceptable"),
+        (
+            "mastering_quality_status_only",
+            "final_master_quality_measurements_invalid",
+        ),
+        (
+            "mastering_quality_invented_measurement",
+            "mastering_quality_measurement_mismatch",
+        ),
+        (
+            "mastering_actual_measurement_disabled",
+            "mastering_actual_quality_not_acceptable",
+        ),
         ("mastering_mode", "final_mastering_track_mode_invalid"),
         (
             "mastering_mode_mismatch",
@@ -3221,10 +3857,51 @@ def test_audio_publication_gate_v2_fails_closed_on_unbound_evidence(
         mastering["status"] = "incomplete"
     elif case == "mastering_counter":
         mastering["final_track_ready_count"] = 0
+    elif case == "mastering_contract":
+        mastering["contract_sha256"] = "f" * 64
     elif case == "mastering_signature":
         mastering["signature_set_sha256"] = "invalid"
+    elif case == "mastering_signature_arbitrary_sha":
+        mastering["signature_set_sha256"] = "f" * 64
+    elif case == "mastering_binding_signature_arbitrary_sha":
+        mastering["final_track_bindings"][0]["signature"] = "e" * 64
+        mastering["signature_set_sha256"] = (
+            pipeline._audiobook_final_track_signature_set_sha256(
+                mastering["final_track_bindings"]
+            )
+        )
+    elif case == "mastering_binding_audio_arbitrary_sha":
+        mastering["final_track_bindings"][0]["audio_sha256"] = "e" * 64
+        mastering["signature_set_sha256"] = (
+            pipeline._audiobook_final_track_signature_set_sha256(
+                mastering["final_track_bindings"]
+            )
+        )
+    elif case == "mastering_artifact_bytes_tampered":
+        with (job_dir / "audio" / "001.wav").open("ab") as stream:
+            stream.write(b"tampered")
+    elif case == "mastering_signature_sidecar_missing":
+        (job_dir / "audio" / "001.wav.narration.signature").unlink()
+    elif case == "mastering_output_binding_sidecar_missing":
+        pipeline._audio_cache_output_binding_path(
+            job_dir / "audio" / "001.wav"
+        ).unlink()
+    elif case == "mastering_noncanonical_chapter_index":
+        mastering["final_track_bindings"][0]["chapter_index"] = 2
+        mastering["final_audio_quality"][0]["chapter_index"] = 2
+        mastering["signature_set_sha256"] = (
+            pipeline._audiobook_final_track_signature_set_sha256(
+                mastering["final_track_bindings"]
+            )
+        )
     elif case == "mastering_quality":
         mastering["final_audio_quality"] = [{"status": "failed"}]
+    elif case == "mastering_quality_status_only":
+        mastering["final_audio_quality"] = [{"status": "pass"}]
+    elif case == "mastering_quality_invented_measurement":
+        mastering["final_audio_quality"][0]["duration_seconds"] = 999.0
+    elif case == "mastering_actual_measurement_disabled":
+        monkeypatch.setenv("EA_AUDIOBOOK_AUDIO_QUALITY_REPORT_ENABLED", "0")
     elif case == "mastering_mode":
         mastering["final_track_mode"] = "unknown"
     elif case == "mastering_mode_mismatch":
@@ -3404,7 +4081,7 @@ def test_audio_publication_gate_blocks_quiet_tail(monkeypatch, tmp_path: Path) -
                 {"codec_type": "audio", "codec_name": "aac"},
                 {"codec_type": "video", "codec_name": "mjpeg"},
             ],
-            "chapters": [{"id": 0}],
+            "chapters": [_publication_probe_chapter()],
         },
     )
 
@@ -3484,7 +4161,7 @@ def test_audio_publication_gate_blocks_stt_text_that_is_not_from_book(monkeypatc
                 {"codec_type": "audio", "codec_name": "aac"},
                 {"codec_type": "video", "codec_name": "mjpeg"},
             ],
-            "chapters": [{"id": 0}],
+            "chapters": [_publication_probe_chapter()],
         },
     )
     monkeypatch.setattr(
@@ -3529,6 +4206,30 @@ def test_audio_publication_gate_blocks_stt_text_that_is_not_from_book(monkeypatc
     assert gate["stt"]["status"] == "fail"
     assert gate["stt"]["raw_text_exposed"] is False
     assert gate["stt"]["samples"][0]["raw_text_exposed"] is False
+
+    for invalid_threshold in ("nan", "-1", "0.1"):
+        monkeypatch.setenv(
+            "EA_AUDIOBOOK_PUBLICATION_STT_MIN_BOOK_TOKEN_OVERLAP",
+            invalid_threshold,
+        )
+        monkeypatch.setenv(
+            "EA_AUDIOBOOK_PUBLICATION_STT_MIN_ORDERED_TOKEN_OVERLAP",
+            invalid_threshold,
+        )
+        invalid_threshold_gate = pipeline._build_audiobook_publication_gate(
+            job=_publication_ready_job(
+                pipeline,
+                job_dir=job_dir,
+                source_text=source_text,
+            ),
+            target_path=target_path,
+        )
+        assert invalid_threshold_gate["status"] == "fail"
+        assert (
+            "stt_threshold_configuration_invalid"
+            in invalid_threshold_gate["issues"]
+        )
+        assert invalid_threshold_gate["stt"]["status"] == "fail"
     assert "unrelated weather" not in json.dumps(gate)
     assert source_text not in json.dumps(gate)
 
@@ -3560,7 +4261,7 @@ def test_audio_publication_gate_passes_stt_text_from_book(monkeypatch, tmp_path:
                 {"codec_type": "audio", "codec_name": "aac"},
                 {"codec_type": "video", "codec_name": "mjpeg"},
             ],
-            "chapters": [{"id": 0}],
+            "chapters": [_publication_probe_chapter()],
         },
     )
     monkeypatch.setattr(
@@ -3606,6 +4307,279 @@ def test_audio_publication_gate_passes_stt_text_from_book(monkeypatch, tmp_path:
     assert gate["stt"]["raw_text_exposed"] is False
 
 
+def test_audio_publication_gate_rejects_repeated_first_chapter_at_mid_and_tail(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    import_root = tmp_path / "audiobookshelf"
+    target_path = import_root / "A. Writer" / "Positioned Book" / "Positioned Book.m4b"
+    target_path.parent.mkdir(parents=True)
+    target_path.write_bytes(b"fake position-bound m4b bytes")
+    job_dir = tmp_path / "jobs" / "job-stt-position-bound"
+    chapter_dir = job_dir / "chapters"
+    chapter_dir.mkdir(parents=True)
+    chapter_specs = [
+        (
+            "Opening",
+            "amber atlas aurora acorn aspen apricot archway anthem argent arrow artist autumn",
+        ),
+        (
+            "Middle",
+            "birch beacon bronze brook breeze banner bridge berry blossom bright bramble blue",
+        ),
+        (
+            "Finale",
+            "cedar comet copper creek candle castle cloud coral circle crystal current canyon",
+        ),
+    ]
+    chapter_rows: list[dict[str, object]] = []
+    for index, (title, text) in enumerate(chapter_specs, start=1):
+        text_path = f"{index:03d} - {title}.txt"
+        (chapter_dir / text_path).write_text(text, encoding="utf-8")
+        chapter_rows.append(
+            {
+                "index": index,
+                "title": title,
+                "text_path": text_path,
+                "char_count": len(text),
+                "sha256": pipeline._sha256_bytes(text.encode("utf-8")),
+            }
+        )
+    job = _publication_ready_job(
+        pipeline,
+        job_dir=job_dir,
+        source_text=chapter_specs[0][1],
+        title="Positioned Book",
+    )
+    job["chapters"] = chapter_rows
+    mastering = job["render_result"]["mastering"]
+    for key in (
+        "expected_final_track_count",
+        "final_track_ready_count",
+        "final_track_mastered_this_run_count",
+        "signature_published_or_verified_count",
+    ):
+        mastering[key] = 3
+    job["merge_result"].update(
+        {
+            "expected_chapter_count": 3,
+            "actual_chapter_count": 3,
+            "chapter_count_matches": True,
+        }
+    )
+
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_IMPORT_ROOT", str(import_root))
+    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_GATE_REQUIRED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_COUNT", "3")
+    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_SECONDS", "30")
+    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_MIN_TRANSCRIPT_TOKENS", "6")
+    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_RESAMPLE_SHIFTS_SECONDS", "15")
+    probe_chapters = [
+        _publication_probe_chapter(
+            title=title,
+            start_seconds=float((index - 1) * 100),
+            end_seconds=float(index * 100),
+            chapter_id=index - 1,
+        )
+        for index, (title, _text) in enumerate(chapter_specs, start=1)
+    ]
+    monkeypatch.setattr(
+        pipeline,
+        "_probe_audio_publication_file",
+        lambda _path: {
+            "format": {"duration": "300.0", "size": str(target_path.stat().st_size)},
+            "streams": [
+                {"codec_type": "audio", "codec_name": "aac"},
+                {"codec_type": "video", "codec_name": "mjpeg"},
+            ],
+            "chapters": probe_chapters,
+        },
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_audio_publication_volume",
+        lambda _path, *, position="head": {
+            "status": "checked",
+            "position": position,
+            "window_seconds": 30,
+            "mean_volume_db": "-20.0",
+            "max_volume_db": "-8.0",
+        },
+    )
+    _mock_publication_loudness_pass(monkeypatch, pipeline)
+
+    def fake_extract(**kwargs):
+        Path(kwargs["output_path"]).write_bytes(b"fake wav")
+        return {
+            "status": "ready",
+            "sample_file_size": 8,
+            "seek_mode": "output_side_audio_stream",
+        }
+
+    monkeypatch.setattr(
+        pipeline,
+        "_extract_audiobook_publication_stt_sample",
+        fake_extract,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_transcribe_audiobook_publication_stt_sample",
+        lambda **_kwargs: {
+            "status": "transcribed",
+            "transcript_text": chapter_specs[0][1],
+            "transcriber": "test",
+        },
+    )
+
+    gate = pipeline._build_audiobook_publication_gate(
+        job=job,
+        target_path=target_path,
+    )
+
+    assert gate["status"] == "fail"
+    assert "stt_transcript_not_book_text" in gate["issues"]
+    assert gate["stt"]["passed_samples"] == 1
+    assert gate["stt"]["failed_samples"] == 2
+    assert gate["stt"]["distinct_source_window_count"] == 3
+    assert [
+        sample["source_chapter_indices"]
+        for sample in gate["stt"]["samples"]
+    ] == [[1], [2], [3]]
+    assert gate["stt"]["samples"][0]["ordered_token_overlap"] >= 0.55
+    assert gate["stt"]["samples"][1]["ordered_token_overlap"] == 0.0
+    serialized = json.dumps(gate, sort_keys=True)
+    assert chapter_specs[0][1] not in serialized
+    assert chapter_specs[1][1] not in serialized
+    assert gate["stt"]["raw_text_exposed"] is False
+
+
+def test_stt_alignment_preserves_all_chapter_rows_and_fails_explicitly_on_bound(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    job_dir = tmp_path / "bounded-source"
+    chapter_dir = job_dir / "chapters"
+    chapter_dir.mkdir(parents=True)
+    source_texts = ("alpha " * 1200, "beta " * 1200)
+    chapters: list[dict[str, object]] = []
+    for index, (title, text) in enumerate(
+        zip(("Opening", "Finale"), source_texts, strict=True),
+        start=1,
+    ):
+        text_path = f"{index:03d}.txt"
+        (chapter_dir / text_path).write_text(text, encoding="utf-8")
+        chapters.append(
+            {
+                "index": index,
+                "title": title,
+                "text_path": text_path,
+                "char_count": len(text),
+                "sha256": pipeline._sha256_bytes(text.encode("utf-8")),
+            }
+        )
+    job = {
+        "storage": {"job_dir": str(job_dir)},
+        "metadata": {"language": "en-US"},
+        "chapters": chapters,
+    }
+    probe_chapters = [
+        _publication_probe_chapter(
+            title="Opening",
+            start_seconds=0.0,
+            end_seconds=60.0,
+            chapter_id=0,
+        ),
+        _publication_probe_chapter(
+            title="Finale",
+            start_seconds=60.0,
+            end_seconds=120.0,
+            chapter_id=1,
+        ),
+    ]
+    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_SOURCE_MAX_CHARS", "10000")
+    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_GATE_REQUIRED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_GATE_ENABLED", "1")
+
+    source_rows = pipeline._audiobook_publication_source_chapter_token_rows(job)
+    result = pipeline._build_audiobook_publication_stt_gate(
+        job=job,
+        target_path=tmp_path / "unused.m4b",
+        duration_seconds=120.0,
+        probe_chapters=probe_chapters,
+    )
+
+    assert len(source_rows) == 2
+    assert source_rows[0]["source_complete"] is True
+    assert source_rows[1]["source_complete"] is False
+    assert result["status"] == "fail"
+    assert result["issues"] == ["stt_source_alignment_incomplete"]
+    assert result["source_chapter_count"] == 2
+    assert result["probe_chapter_count"] == 2
+    serialized = json.dumps(result, sort_keys=True)
+    assert source_texts[0].strip() not in serialized
+    assert source_texts[1].strip() not in serialized
+    assert result["raw_text_exposed"] is False
+
+
+@pytest.mark.parametrize(
+    ("tamper", "expected_issue"),
+    (
+        ("bytes", "source_chapter_sha256_mismatch"),
+        ("char_count", "source_chapter_char_count_mismatch"),
+        ("sha256", "source_chapter_sha256_mismatch"),
+        ("index", "source_chapter_index_or_order_invalid"),
+    ),
+)
+def test_publication_stt_source_requires_exact_manifest_bound_chapter_bytes(
+    tmp_path: Path,
+    tamper: str,
+    expected_issue: str,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    job_dir = tmp_path / f"source-authority-{tamper}"
+    chapter_dir = job_dir / "chapters"
+    chapter_dir.mkdir(parents=True)
+    source_text = "Exact chapter bytes remain the publication authority."
+    text_path = chapter_dir / "001.txt"
+    text_path.write_text(source_text, encoding="utf-8")
+    manifest_sha256 = pipeline._sha256_bytes(source_text.encode("utf-8"))
+    chapter = {
+        "index": 1,
+        "title": "Chapter",
+        "source_href": "chapter.xhtml",
+        "text_path": text_path.name,
+        "char_count": len(source_text),
+        "sha256": manifest_sha256,
+    }
+    if tamper == "bytes":
+        text_path.write_text(source_text + " tampered", encoding="utf-8")
+    elif tamper == "char_count":
+        chapter["char_count"] = len(source_text) + 1
+    elif tamper == "sha256":
+        chapter["sha256"] = "f" * 64
+    else:
+        chapter["index"] = 2
+    job = {
+        "storage": {"job_dir": str(job_dir)},
+        "chapters": [chapter],
+    }
+
+    rows = pipeline._audiobook_publication_source_chapter_token_rows(job)
+
+    assert len(rows) == 1
+    assert rows[0]["source_complete"] is False
+    assert rows[0]["source_integrity_verified"] is False
+    assert rows[0]["issue"] == expected_issue
+    assert rows[0]["tokens"] == []
+    assert pipeline._audiobook_publication_source_text(job) == ""
+    assert source_text not in json.dumps(rows, sort_keys=True)
+
+
 def test_audio_publication_gate_requires_stt_by_default(monkeypatch, tmp_path: Path) -> None:
     from app.services import audiobook_epub_pipeline as pipeline
 
@@ -3634,7 +4608,7 @@ def test_audio_publication_gate_requires_stt_by_default(monkeypatch, tmp_path: P
                 {"codec_type": "audio", "codec_name": "aac"},
                 {"codec_type": "video", "codec_name": "mjpeg"},
             ],
-            "chapters": [{"id": 0}],
+            "chapters": [_publication_probe_chapter()],
         },
     )
     monkeypatch.setattr(
@@ -3741,7 +4715,7 @@ def test_audio_publication_gate_resamples_too_short_stt_window(monkeypatch, tmp_
                 {"codec_type": "audio", "codec_name": "aac"},
                 {"codec_type": "video", "codec_name": "mjpeg"},
             ],
-            "chapters": [{"id": 0}],
+            "chapters": [_publication_probe_chapter()],
         },
     )
     monkeypatch.setattr(
@@ -3815,8 +4789,8 @@ def test_audio_publication_gate_tolerates_one_short_book_text_sample(monkeypatch
     monkeypatch.setenv("EA_AUDIOBOOKSHELF_IMPORT_ROOT", str(import_root))
     monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_GATE_REQUIRED", "1")
     monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_COUNT", "3")
-    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_MIN_TRANSCRIPT_TOKENS", "6")
-    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_RESAMPLE_SHIFTS_SECONDS", "0")
+    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_MIN_TRANSCRIPT_TOKENS", "10")
+    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_RESAMPLE_SHIFTS_SECONDS", "15")
     monkeypatch.setattr(
         pipeline,
         "_probe_audio_publication_file",
@@ -3826,7 +4800,7 @@ def test_audio_publication_gate_tolerates_one_short_book_text_sample(monkeypatch
                 {"codec_type": "audio", "codec_name": "aac"},
                 {"codec_type": "video", "codec_name": "mjpeg"},
             ],
-            "chapters": [{"id": 0}],
+            "chapters": [_publication_probe_chapter()],
         },
     )
     monkeypatch.setattr(
@@ -3849,8 +4823,9 @@ def test_audio_publication_gate_tolerates_one_short_book_text_sample(monkeypatch
     transcripts = iter(
         [
             "This is the exact book sentence that should be heard",
-            "This",
-            "This is the exact book sentence that should be heard",
+            "exact book sentence that should be heard audiobook",
+            "zebra quartz violet copper meadow lantern river granite",
+            "This exact book sentence should be heard in the audiobook sample window",
         ]
     )
     monkeypatch.setattr(pipeline, "_extract_audiobook_publication_stt_sample", fake_extract)
@@ -3879,6 +4854,96 @@ def test_audio_publication_gate_tolerates_one_short_book_text_sample(monkeypatch
     assert gate["stt"]["passed_samples"] == 3
     assert gate["stt"]["samples"][1]["warning"] == "stt_transcript_too_short_tolerated_book_text"
     assert gate["stt"]["samples"][1]["issue"] == ""
+    assert gate["stt"]["short_book_text_tolerance"] == "v2"
+    assert gate["stt"]["short_tolerance_min_token_count"] == 8
+    assert gate["stt"]["short_tolerance_min_unique_token_count"] == 4
+    assert gate["stt"]["samples"][1]["transcript_token_count"] == 8
+    assert gate["stt"]["samples"][1]["transcript_unique_token_count"] == 8
+    assert gate["stt"]["samples"][1]["attempt_count"] == 2
+    assert gate["stt"]["samples"][1]["alternate_attempts_rejected"] == 1
+    assert "recovered_from_issue" not in gate["stt"]["samples"][1]
+
+
+@pytest.mark.parametrize(
+    "short_transcript",
+    (
+        "book",
+        "book book book book book book book book",
+    ),
+)
+def test_audio_publication_gate_rejects_low_evidence_short_sample_tolerance(
+    monkeypatch,
+    tmp_path: Path,
+    short_transcript: str,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    target_path = tmp_path / "common-token.m4b"
+    target_path.write_bytes(b"fake m4b bytes")
+    job_dir = tmp_path / "jobs" / "job-stt-common-token"
+    chapter_dir = job_dir / "chapters"
+    chapter_dir.mkdir(parents=True)
+    source_text = " ".join(["book"] * 60)
+    (chapter_dir / "001 - Chapter.txt").write_text(source_text, encoding="utf-8")
+    job = _publication_ready_job(
+        pipeline,
+        job_dir=job_dir,
+        source_text=source_text,
+    )
+
+    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_GATE_REQUIRED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_COUNT", "3")
+    monkeypatch.setenv("EA_AUDIOBOOK_PUBLICATION_STT_MIN_TRANSCRIPT_TOKENS", "10")
+    monkeypatch.setattr(
+        pipeline,
+        "_audiobook_publication_stt_candidate_offsets",
+        lambda **kwargs: (kwargs["offset_seconds"],),
+    )
+
+    def fake_extract(**kwargs):
+        Path(kwargs["output_path"]).write_bytes(b"fake wav")
+        return {
+            "status": "ready",
+            "sample_file_size": 8,
+            "seek_mode": "output_side_audio_stream",
+        }
+
+    transcripts = iter(
+        (
+            "book book book book book book book book book book",
+            short_transcript,
+            "book book book book book book book book book book",
+        )
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_extract_audiobook_publication_stt_sample",
+        fake_extract,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_transcribe_audiobook_publication_stt_sample",
+        lambda **_kwargs: {
+            "status": "transcribed",
+            "transcript_text": next(transcripts),
+            "transcriber": "test",
+        },
+    )
+
+    gate = pipeline._build_audiobook_publication_stt_gate(
+        job=job,
+        target_path=target_path,
+        duration_seconds=120.0,
+        probe_chapters=[_publication_probe_chapter()],
+    )
+
+    assert gate["status"] == "fail"
+    assert gate["issues"] == ["stt_transcript_too_short"]
+    assert gate["warnings"] == []
+    assert gate["short_book_text_tolerance"] == "v2"
+    assert gate["samples"][1]["status"] == "fail"
+    assert gate["samples"][1]["position_alignment_verified"] is True
+    assert gate["samples"][1]["transcript_unique_token_count"] == 1
 
 
 def test_completed_import_creates_audiobookshelf_public_share_link(monkeypatch, tmp_path: Path) -> None:
@@ -4521,18 +5586,32 @@ def test_audiobook_job_receipt_includes_sanitized_stt_gate(tmp_path: Path) -> No
                         "sample_seconds": 30,
                         "passed_samples": 1,
                         "failed_samples": 0,
-                        "source_text_sha256": "s" * 64,
+                        "alignment_contract": "chapter_time_token_window_v1",
+                        "chapter_metadata_contract": "ea.audiobook_m4b_chapter_metadata_proof.v1",
+                        "chapter_metadata_sha256": "c" * 64,
+                        "source_text_sha256": "d" * 64,
                         "source_token_count": 42,
+                        "source_chapter_count": 3,
+                        "probe_chapter_count": 3,
+                        "distinct_source_window_count": 3,
+                        "min_ordered_token_overlap": 0.55,
+                        "max_position_drift_ratio": 0.125,
                         "raw_text_exposed": False,
                         "samples": [
                             {
                                 "index": 1,
                                 "status": "pass",
                                 "transcriber": "cartesia/ink-whisper",
-                                "transcript_sha256": "t" * 64,
+                                "transcript_sha256": "e" * 64,
                                 "transcript_token_count": 12,
                                 "book_token_overlap": 1.0,
                                 "book_unique_token_overlap": 1.0,
+                                "ordered_token_overlap": 1.0,
+                                "source_window_sha256": "f" * 64,
+                                "source_window_token_count": 24,
+                                "source_window_padding_token_count": 12,
+                                "source_chapter_indices": [2],
+                                "position_alignment_verified": True,
                                 "extractor_seek_mode": "output_side_audio_stream",
                                 "raw_text_exposed": False,
                             }
@@ -4551,10 +5630,106 @@ def test_audiobook_job_receipt_includes_sanitized_stt_gate(tmp_path: Path) -> No
     assert stt["enabled"] is True
     assert stt["required"] is True
     assert stt["passed_samples"] == 1
+    assert stt["alignment_contract"] == "chapter_time_token_window_v1"
+    assert (
+        stt["chapter_metadata_contract"]
+        == "ea.audiobook_m4b_chapter_metadata_proof.v1"
+    )
+    assert stt["chapter_metadata_sha256"] == "c" * 64
+    assert stt["distinct_source_window_count"] == 3
+    assert stt["max_position_drift_ratio"] == 0.125
+    assert stt["minimum_hash_token_count"] == 8
     assert stt["raw_text_exposed"] is False
-    assert stt["samples"][0]["transcript_sha256"] == "t" * 64
+    assert stt["samples"][0]["transcript_sha256"] == "e" * 64
+    assert stt["samples"][0]["source_window_sha256"] == "f" * 64
+    assert stt["samples"][0]["source_chapter_indices"] == [2]
+    assert stt["samples"][0]["position_alignment_verified"] is True
     assert stt["samples"][0]["raw_text_exposed"] is False
     assert "transcript_text" not in json.dumps(receipt)
+
+
+def test_audiobook_stt_receipt_withholds_low_entropy_sample_hashes() -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    summary = pipeline._audio_publication_stt_receipt_summary(
+        {
+            "stt": {
+                "status": "pass",
+                "enabled": True,
+                "required": True,
+                "sample_count": 1,
+                "passed_samples": 1,
+                "failed_samples": 0,
+                "min_transcript_tokens": 8,
+                "samples": [
+                    {
+                        "index": 1,
+                        "status": "pass",
+                        "transcript_sha256": "a" * 64,
+                        "transcript_token_count": 1,
+                        "source_window_sha256": "b" * 64,
+                        "source_window_token_count": 24,
+                        "position_alignment_verified": True,
+                    }
+                ],
+            }
+        }
+    )
+
+    sample = summary["samples"][0]
+    assert summary["minimum_hash_token_count"] == 8
+    assert sample["transcript_sha256"] == ""
+    assert sample["transcript_hash_withheld_low_entropy"] is True
+    assert sample["source_window_sha256"] == ""
+    assert sample["source_window_hash_withheld_low_entropy"] is True
+
+
+def test_audiobook_stt_receipt_rejects_malformed_hashes_and_truthy_booleans() -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    private_values = (
+        "/private/chapter-metadata.json",
+        "PRIVATE SOURCE TEXT",
+        "PRIVATE TRANSCRIPT TEXT",
+        r"C:\private\source-window.txt",
+    )
+    summary = pipeline._audio_publication_stt_receipt_summary(
+        {
+            "stt": {
+                "status": "pass",
+                "enabled": "false",
+                "required": "true",
+                "sample_count": 1,
+                "passed_samples": 1,
+                "failed_samples": 0,
+                "min_transcript_tokens": 8,
+                "chapter_metadata_sha256": private_values[0],
+                "source_text_sha256": private_values[1],
+                "samples": [
+                    {
+                        "index": 1,
+                        "status": "pass",
+                        "transcript_sha256": private_values[2],
+                        "transcript_token_count": 64,
+                        "source_window_sha256": private_values[3],
+                        "source_window_token_count": 64,
+                        "position_alignment_verified": "true",
+                    }
+                ],
+            }
+        }
+    )
+
+    assert summary["enabled"] is False
+    assert summary["required"] is False
+    assert summary["chapter_metadata_sha256"] == ""
+    assert summary["source_text_sha256"] == ""
+    assert summary["samples"][0]["transcript_sha256"] == ""
+    assert summary["samples"][0]["source_window_sha256"] == ""
+    assert summary["samples"][0]["position_alignment_verified"] is False
+    serialized = json.dumps(summary, sort_keys=True)
+    for private_value in private_values:
+        assert private_value not in serialized
 
 
 def test_resume_due_audiobook_jobs_sends_public_share_after_audiobookshelf_scan(
@@ -11936,6 +13111,62 @@ def test_origin_dossier_text_job_uses_same_audiobook_pipeline(monkeypatch, tmp_p
     assert receipt["scheduler_resume"]["priority_score"] == 0
 
 
+def test_text_chapter_intake_preserves_exact_supported_whitespace(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "0")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "0")
+    monkeypatch.setenv("UNMIXR_VOICE_ID", "configured-test-voice")
+    monkeypatch.setattr(
+        pipeline,
+        "continue_job",
+        lambda job_dir: json.loads(
+            (Path(job_dir) / "job.json").read_text(encoding="utf-8")
+        ),
+    )
+    source_texts = (
+        "  Dict chapter keeps its leading spaces and trailing newline.  \n",
+        "\tString chapter keeps its leading tab and trailing spaces.  ",
+    )
+
+    job = pipeline.create_job_from_text_chapters(
+        title="Exact Text",
+        chapters=[
+            {"title": "Dictionary", "text": source_texts[0]},
+            source_texts[1],
+        ],
+        principal_id="principal-1",
+    )
+
+    job_dir = Path(job["storage"]["job_dir"])
+    for chapter, expected_text in zip(job["chapters"], source_texts, strict=True):
+        stored_text = (
+            job_dir / "chapters" / chapter["text_path"]
+        ).read_bytes().decode("utf-8")
+        assert stored_text == expected_text + "\n"
+        assert chapter["char_count"] == len(expected_text)
+        assert chapter["sha256"] == pipeline._sha256_bytes(
+            expected_text.encode("utf-8")
+        )
+
+    joined_text = "\n\n".join(source_texts)
+    source_text = Path(job["source"]["source_text"]).read_bytes().decode("utf-8")
+    assert source_text == joined_text + "\n"
+    assert job["source"]["source_sha256"] == pipeline._sha256_bytes(
+        joined_text.encode("utf-8")
+    )
+    collected = pipeline._collect_cinematic_track_input(
+        job_dir=job_dir,
+        chapters=pipeline._chapters_from_job(job),
+    )
+    assert [text for _, text in collected] == list(source_texts)
+
+
 def test_origin_dossier_audiobook_bypasses_bulk_epub_pacing(monkeypatch, tmp_path: Path) -> None:
     from app.services import audiobook_epub_pipeline as pipeline
     from app.services.audiobook_epub_pipeline import create_origin_dossier_audiobook_job
@@ -14027,6 +15258,30 @@ def test_audiobook_job_receipt_whitelists_voice_and_narration_plan_metadata(
     assert receipt["privacy"]["voice_sample_path_exposed"] is False
     assert receipt["privacy"]["private_narration_plan_path_exposed"] is False
     assert receipt["privacy"]["private_narration_plan_text_exposed"] is False
+
+
+def test_safe_receipt_private_voice_id_depth_overflow_redacts_all_strings() -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    private_voice_id = "deeply-nested-private-voice-id"
+    nested: dict[str, object] = {"voice_id": private_voice_id}
+    for _ in range(9):
+        nested = {"nested": nested}
+
+    forbidden_values = pipeline._safe_receipt_private_voice_ids(nested)
+
+    assert private_voice_id not in forbidden_values
+    assert (
+        pipeline._SAFE_RECEIPT_REDACT_ALL_VOICE_STRINGS
+        in forbidden_values
+    )
+    assert (
+        pipeline._safe_receipt_public_string(
+            "apparently safe public label",
+            forbidden_values=forbidden_values,
+        )
+        == ""
+    )
 
 
 def test_audiobook_render_lock_reports_retryable_in_progress(monkeypatch, tmp_path: Path) -> None:

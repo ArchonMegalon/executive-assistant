@@ -18,6 +18,24 @@ DEFAULT_OUTPUT = ROOT / ".codex-studio" / "published" / "telegram_audiobook_live
 CONTRACT_NAME = "ea.telegram_audiobook_live_delivery_receipt.v2"
 LEGACY_CONTRACT_NAME = "ea.telegram_audiobook_live_delivery_receipt.v1"
 NARRATION_PLAN_CONTRACT_NAME = "ea.audiobook_narration_plan.v5"
+AUDIOBOOK_MASTERING_CONTRACT_NAME = "ea.audiobook_final_track_mastering.v2"
+AUDIOBOOK_MASTERING_DEFAULT_FILTER = (
+    "dynaudnorm=f=150:g=15,loudnorm=I=-16:TP=-1.5:LRA=11"
+)
+PUBLICATION_CHAPTER_METADATA_CONTRACT_NAME = (
+    "ea.audiobook_m4b_chapter_metadata_proof.v1"
+)
+PUBLICATION_STT_ALIGNMENT_CONTRACT_NAME = "chapter_time_token_window_v1"
+PUBLICATION_STT_SHORT_TEXT_TOLERANCE = "v2"
+PUBLICATION_STT_SHORT_TEXT_WARNING = (
+    "stt_transcript_too_short_tolerated_book_text"
+)
+PUBLICATION_STT_MINIMUM_HASH_TOKEN_COUNT = 8
+PUBLICATION_STT_SHORT_TOLERANCE_MIN_TOKEN_COUNT = 8
+PUBLICATION_STT_SHORT_TOLERANCE_MIN_UNIQUE_TOKEN_COUNT = 4
+PUBLICATION_STT_MIN_BOOK_TOKEN_OVERLAP = 0.55
+PUBLICATION_STT_MIN_ORDERED_TOKEN_OVERLAP = 0.55
+PUBLICATION_STT_MAX_POSITION_DRIFT_RATIO = 0.125
 HUMAN_LISTENED_CANARY_CONTRACT_NAME = "ea.audiobook_human_listened_canary_acceptance.v1"
 PERCEPTUAL_ATTESTATION_CONTRACT_NAME = "ea.audiobook_perceptual_attestation.v1"
 PERCEPTUAL_ATTESTATION_VERSION = 1
@@ -364,6 +382,396 @@ def _canonical_perceptual_attestation_sha256(
     ).hexdigest()
 
 
+def _exact_nonnegative_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _finite_nonnegative_float(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    parsed = float(value)
+    return parsed if math.isfinite(parsed) and parsed >= 0.0 else None
+
+
+def _publication_stt_alignment_projection(
+    stt: dict[str, object],
+    *,
+    expected_chapters: int,
+    chapter_metadata_contract: str,
+    chapter_metadata_sha256: str,
+) -> tuple[dict[str, object], bool]:
+    sample_count = _exact_nonnegative_int(stt.get("sample_count"))
+    passed_samples = _exact_nonnegative_int(stt.get("passed_samples"))
+    failed_samples = _exact_nonnegative_int(stt.get("failed_samples"))
+    sample_seconds = _exact_nonnegative_int(stt.get("sample_seconds"))
+    min_transcript_tokens = _exact_nonnegative_int(
+        stt.get("min_transcript_tokens")
+    )
+    source_token_count = _exact_nonnegative_int(stt.get("source_token_count"))
+    source_chapter_count = _exact_nonnegative_int(
+        stt.get("source_chapter_count")
+    )
+    probe_chapter_count = _exact_nonnegative_int(
+        stt.get("probe_chapter_count")
+    )
+    declared_distinct_window_count = _exact_nonnegative_int(
+        stt.get("distinct_source_window_count")
+    )
+    min_book_overlap = _finite_nonnegative_float(
+        stt.get("min_book_token_overlap")
+    )
+    min_ordered_overlap = _finite_nonnegative_float(
+        stt.get("min_ordered_token_overlap")
+    )
+    max_position_drift_ratio = _finite_nonnegative_float(
+        stt.get("max_position_drift_ratio")
+    )
+    minimum_hash_token_count = max(
+        PUBLICATION_STT_MINIMUM_HASH_TOKEN_COUNT,
+        min_transcript_tokens or 0,
+    )
+    normalized_chapter_metadata_sha256 = str(
+        chapter_metadata_sha256 or ""
+    ).strip().lower()
+    stt_chapter_metadata_sha256 = str(
+        stt.get("chapter_metadata_sha256") or ""
+    ).strip().lower()
+    normalized_chapter_metadata_contract = str(
+        chapter_metadata_contract or ""
+    ).strip()
+    stt_chapter_metadata_contract = str(
+        stt.get("chapter_metadata_contract") or ""
+    ).strip()
+    source_text_sha256 = str(stt.get("source_text_sha256") or "").strip().lower()
+
+    raw_issues = stt.get("issues")
+    issues_shape_valid = isinstance(raw_issues, list) and all(
+        isinstance(item, str) for item in raw_issues
+    )
+    projected_issues = list(raw_issues) if issues_shape_valid else []
+    raw_warnings = stt.get("warnings")
+    warnings_shape_valid = isinstance(raw_warnings, list) and all(
+        isinstance(item, str) for item in raw_warnings
+    )
+    projected_warnings = (
+        sorted(set(raw_warnings)) if warnings_shape_valid else []
+    )
+
+    raw_samples = stt.get("samples")
+    samples_shape_valid = isinstance(raw_samples, list)
+    sample_rows: list[dict[str, object]] = []
+    samples_valid = samples_shape_valid
+    strict_public_input = bool(
+        "alignment_verified" in stt or "minimum_hash_token_count" in stt
+    )
+    sample_indexes: set[int] = set()
+    raw_source_window_hashes: set[str] = set()
+    visible_source_window_hashes: set[str] = set()
+    any_source_window_hash_withheld = False
+    tolerated_short_sample_count = 0
+    for raw_sample in raw_samples if isinstance(raw_samples, list) else []:
+        if not isinstance(raw_sample, dict):
+            samples_valid = False
+            continue
+        index = _exact_nonnegative_int(raw_sample.get("index"))
+        offset_seconds = _finite_nonnegative_float(
+            raw_sample.get("offset_seconds")
+        )
+        primary_offset_seconds = _finite_nonnegative_float(
+            raw_sample.get("primary_offset_seconds")
+        )
+        attempt_count = _exact_nonnegative_int(raw_sample.get("attempt_count"))
+        transcript_sha256 = str(
+            raw_sample.get("transcript_sha256") or ""
+        ).strip().lower()
+        transcript_token_count = _exact_nonnegative_int(
+            raw_sample.get("transcript_token_count")
+        )
+        book_token_overlap = _finite_nonnegative_float(
+            raw_sample.get("book_token_overlap")
+        )
+        book_unique_token_overlap = _finite_nonnegative_float(
+            raw_sample.get("book_unique_token_overlap")
+        )
+        ordered_token_overlap = _finite_nonnegative_float(
+            raw_sample.get("ordered_token_overlap")
+        )
+        source_window_sha256 = str(
+            raw_sample.get("source_window_sha256") or ""
+        ).strip().lower()
+        source_window_token_count = _exact_nonnegative_int(
+            raw_sample.get("source_window_token_count")
+        )
+        source_window_padding_token_count = _exact_nonnegative_int(
+            raw_sample.get("source_window_padding_token_count")
+        )
+        raw_chapter_indices = raw_sample.get("source_chapter_indices")
+        chapter_indices = (
+            list(raw_chapter_indices)
+            if isinstance(raw_chapter_indices, list)
+            else []
+        )
+        chapter_indices_valid = bool(
+            isinstance(raw_chapter_indices, list)
+            and chapter_indices
+            and all(
+                isinstance(chapter_index, int)
+                and not isinstance(chapter_index, bool)
+                and 1 <= chapter_index <= expected_chapters
+                for chapter_index in chapter_indices
+            )
+            and chapter_indices == sorted(set(chapter_indices))
+        )
+        warning = str(raw_sample.get("warning") or "").strip()
+        short_sample_tolerated = bool(
+            transcript_token_count is not None
+            and min_transcript_tokens is not None
+            and 0 < transcript_token_count < min_transcript_tokens
+            and warning == PUBLICATION_STT_SHORT_TEXT_WARNING
+            and str(stt.get("short_book_text_tolerance") or "")
+            == PUBLICATION_STT_SHORT_TEXT_TOLERANCE
+            and PUBLICATION_STT_SHORT_TEXT_WARNING in projected_warnings
+        )
+        if short_sample_tolerated:
+            tolerated_short_sample_count += 1
+        transcript_hash_withheld = bool(
+            transcript_token_count is not None
+            and transcript_token_count < minimum_hash_token_count
+        )
+        source_window_hash_withheld = bool(
+            transcript_token_count is not None
+            and transcript_token_count < minimum_hash_token_count
+            or source_window_token_count is not None
+            and source_window_token_count < minimum_hash_token_count
+        )
+        transcript_hash_input_valid = bool(
+            (
+                strict_public_input
+                and transcript_hash_withheld
+                and not transcript_sha256
+                and raw_sample.get("transcript_hash_withheld_low_entropy")
+                is True
+            )
+            or (
+                not (strict_public_input and transcript_hash_withheld)
+                and _is_sha256(transcript_sha256)
+            )
+        )
+        source_window_hash_input_valid = bool(
+            (
+                strict_public_input
+                and source_window_hash_withheld
+                and not source_window_sha256
+                and raw_sample.get("source_window_hash_withheld_low_entropy")
+                is True
+            )
+            or (
+                not (strict_public_input and source_window_hash_withheld)
+                and _is_sha256(source_window_sha256)
+            )
+        )
+        overlap_values = (
+            book_token_overlap,
+            book_unique_token_overlap,
+            ordered_token_overlap,
+        )
+        row_valid = bool(
+            index is not None
+            and index > 0
+            and index not in sample_indexes
+            and offset_seconds is not None
+            and primary_offset_seconds is not None
+            and attempt_count is not None
+            and attempt_count > 0
+            and str(raw_sample.get("status") or "") == "pass"
+            and not str(raw_sample.get("issue") or "").strip()
+            and transcript_hash_input_valid
+            and transcript_token_count is not None
+            and transcript_token_count > 0
+            and (
+                min_transcript_tokens is not None
+                and transcript_token_count >= min_transcript_tokens
+                or short_sample_tolerated
+            )
+            and min_book_overlap is not None
+            and 0.0 < min_book_overlap <= 1.0
+            and min_ordered_overlap is not None
+            and 0.0 < min_ordered_overlap <= 1.0
+            and all(value is not None and value <= 1.0 for value in overlap_values)
+            and book_token_overlap >= min_book_overlap
+            and book_unique_token_overlap >= min_book_overlap
+            and ordered_token_overlap >= min_ordered_overlap
+            and source_window_hash_input_valid
+            and source_window_token_count is not None
+            and source_window_token_count > 0
+            and source_window_padding_token_count is not None
+            and source_window_padding_token_count > 0
+            and chapter_indices_valid
+            and raw_sample.get("position_alignment_verified") is True
+            and raw_sample.get("raw_text_exposed") is False
+        )
+        if not row_valid:
+            samples_valid = False
+        if index is not None:
+            sample_indexes.add(index)
+        if _is_sha256(source_window_sha256):
+            raw_source_window_hashes.add(source_window_sha256)
+        if source_window_hash_withheld:
+            any_source_window_hash_withheld = True
+        elif _is_sha256(source_window_sha256):
+            visible_source_window_hashes.add(source_window_sha256)
+        sample_rows.append(
+            {
+                "index": index,
+                "offset_seconds": offset_seconds,
+                "primary_offset_seconds": primary_offset_seconds,
+                "attempt_count": attempt_count,
+                "status": str(raw_sample.get("status") or ""),
+                "issue": str(raw_sample.get("issue") or "").strip(),
+                "warning": warning,
+                "transcript_sha256": (
+                    "" if transcript_hash_withheld else transcript_sha256
+                ),
+                "transcript_hash_withheld_low_entropy": (
+                    transcript_hash_withheld
+                ),
+                "transcript_token_count": transcript_token_count,
+                "book_token_overlap": book_token_overlap,
+                "book_unique_token_overlap": book_unique_token_overlap,
+                "ordered_token_overlap": ordered_token_overlap,
+                "source_window_sha256": (
+                    "" if source_window_hash_withheld else source_window_sha256
+                ),
+                "source_window_hash_withheld_low_entropy": (
+                    source_window_hash_withheld
+                ),
+                "source_window_token_count": source_window_token_count,
+                "source_window_padding_token_count": (
+                    source_window_padding_token_count
+                ),
+                "source_chapter_indices": chapter_indices,
+                "position_alignment_verified": (
+                    raw_sample.get("position_alignment_verified") is True
+                ),
+                "raw_text_exposed": raw_sample.get("raw_text_exposed") is True,
+            }
+        )
+
+    expected_sample_indexes = (
+        set(range(1, sample_count + 1)) if sample_count is not None else set()
+    )
+    warnings_valid = bool(
+        warnings_shape_valid
+        and all(
+            warning == PUBLICATION_STT_SHORT_TEXT_WARNING
+            for warning in projected_warnings
+        )
+        and (bool(projected_warnings) == bool(tolerated_short_sample_count))
+        and (
+            tolerated_short_sample_count == 0
+            or sample_count is not None
+            and sample_count >= 3
+            and tolerated_short_sample_count <= max(1, sample_count // 3)
+        )
+    )
+    distinct_window_count_valid = bool(
+        declared_distinct_window_count is not None
+        and declared_distinct_window_count > 0
+        and (
+            strict_public_input
+            and any_source_window_hash_withheld
+            and len(visible_source_window_hashes)
+            <= declared_distinct_window_count
+            <= len(sample_rows)
+            or not strict_public_input
+            and declared_distinct_window_count
+            == len(raw_source_window_hashes)
+            or strict_public_input
+            and not any_source_window_hash_withheld
+            and declared_distinct_window_count
+            == len(visible_source_window_hashes)
+        )
+    )
+    alignment_valid = bool(
+        expected_chapters > 0
+        and stt.get("status") == "pass"
+        and stt.get("required") is True
+        and stt.get("enabled") is True
+        and issues_shape_valid
+        and not projected_issues
+        and warnings_valid
+        and stt.get("alignment_contract")
+        == PUBLICATION_STT_ALIGNMENT_CONTRACT_NAME
+        and stt.get("short_book_text_tolerance")
+        == PUBLICATION_STT_SHORT_TEXT_TOLERANCE
+        and normalized_chapter_metadata_contract
+        == PUBLICATION_CHAPTER_METADATA_CONTRACT_NAME
+        and stt_chapter_metadata_contract
+        == normalized_chapter_metadata_contract
+        and _is_sha256(normalized_chapter_metadata_sha256)
+        and stt_chapter_metadata_sha256 == normalized_chapter_metadata_sha256
+        and _is_sha256(source_text_sha256)
+        and source_token_count is not None
+        and source_token_count > 0
+        and source_chapter_count == expected_chapters
+        and probe_chapter_count == expected_chapters
+        and sample_count is not None
+        and sample_count > 0
+        and passed_samples == sample_count
+        and failed_samples == 0
+        and sample_seconds is not None
+        and sample_seconds > 0
+        and min_transcript_tokens is not None
+        and min_transcript_tokens > 0
+        and min_book_overlap is not None
+        and PUBLICATION_STT_MIN_BOOK_TOKEN_OVERLAP <= min_book_overlap <= 1.0
+        and min_ordered_overlap is not None
+        and PUBLICATION_STT_MIN_ORDERED_TOKEN_OVERLAP
+        <= min_ordered_overlap
+        <= 1.0
+        and max_position_drift_ratio is not None
+        and 0.0 < max_position_drift_ratio
+        <= PUBLICATION_STT_MAX_POSITION_DRIFT_RATIO
+        and samples_valid
+        and len(sample_rows) == sample_count
+        and sample_indexes == expected_sample_indexes
+        and distinct_window_count_valid
+        and stt.get("raw_text_exposed") is False
+    )
+    return {
+        "status": str(stt.get("status") or ""),
+        "required": stt.get("required") is True,
+        "enabled": stt.get("enabled") is True,
+        "alignment_verified": alignment_valid,
+        "alignment_contract": str(stt.get("alignment_contract") or ""),
+        "chapter_metadata_contract": stt_chapter_metadata_contract,
+        "chapter_metadata_sha256": stt_chapter_metadata_sha256,
+        "source_text_sha256": source_text_sha256,
+        "source_token_count": source_token_count,
+        "source_chapter_count": source_chapter_count,
+        "probe_chapter_count": probe_chapter_count,
+        "sample_count": sample_count,
+        "passed_samples": passed_samples,
+        "failed_samples": failed_samples,
+        "sample_seconds": sample_seconds,
+        "min_transcript_tokens": min_transcript_tokens,
+        "min_book_token_overlap": min_book_overlap,
+        "min_ordered_token_overlap": min_ordered_overlap,
+        "max_position_drift_ratio": max_position_drift_ratio,
+        "minimum_hash_token_count": minimum_hash_token_count,
+        "short_book_text_tolerance": str(
+            stt.get("short_book_text_tolerance") or ""
+        ),
+        "distinct_source_window_count": declared_distinct_window_count,
+        "samples": sample_rows,
+        "issues": projected_issues,
+        "warnings": projected_warnings,
+        "raw_text_exposed": stt.get("raw_text_exposed") is True,
+    }, alignment_valid
+
+
 def _performance_evidence(job: dict[str, object]) -> tuple[dict[str, object], list[str]]:
     render = _as_dict(job.get("render"))
     plan = _as_dict(render.get("narration_plan"))
@@ -403,11 +811,72 @@ def _performance_evidence(job: dict[str, object]) -> tuple[dict[str, object], li
         plan.get("dialogue_span_count") or plan.get("dialogue_passage_count") or 0
     )
     cast_required = dialogue_count > 0
+    plan_speaker_count = _receipt_nonnegative_int(plan.get("speaker_count") or 0)
+    cast_speaker_count = _receipt_nonnegative_int(cast.get("speaker_count") or 0)
+    resolved_speaker_count = _receipt_nonnegative_int(
+        cast.get("resolved_speaker_count") or 0
+    )
+    distinct_dialogue_voice_count = _receipt_nonnegative_int(
+        cast.get("distinct_dialogue_voice_count") or 0
+    )
+    cast_assignments: list[dict[str, object]] = []
+    cast_speaker_hashes: set[str] = set()
+    cast_voice_hashes: set[str] = set()
+    cast_assignment_proof_valid = True
+    raw_cast_rows = cast.get("cast")
+    if not isinstance(raw_cast_rows, list):
+        raw_cast_rows = []
+        cast_assignment_proof_valid = False
+    for raw_row in raw_cast_rows:
+        if not isinstance(raw_row, dict):
+            cast_assignment_proof_valid = False
+            continue
+        speaker_id_sha256 = str(raw_row.get("speaker_id_sha256") or "").strip().lower()
+        voice_id_sha256 = str(raw_row.get("voice_id_sha256") or "").strip().lower()
+        distinct_from_narrator = raw_row.get("distinct_from_narrator") is True
+        if (
+            not _is_sha256(speaker_id_sha256)
+            or not _is_sha256(voice_id_sha256)
+            or not distinct_from_narrator
+            or speaker_id_sha256 in cast_speaker_hashes
+        ):
+            cast_assignment_proof_valid = False
+        if _is_sha256(speaker_id_sha256):
+            cast_speaker_hashes.add(speaker_id_sha256)
+        if _is_sha256(voice_id_sha256):
+            cast_voice_hashes.add(voice_id_sha256)
+        cast_assignments.append(
+            {
+                "speaker_id_sha256": speaker_id_sha256,
+                "voice_id_sha256": voice_id_sha256,
+                "distinct_from_narrator": distinct_from_narrator,
+            }
+        )
+    cast_counts_complete = bool(
+        not cast_required
+        or (
+            plan_speaker_count > 0
+            and cast_speaker_count == plan_speaker_count
+            and resolved_speaker_count == cast_speaker_count
+            and distinct_dialogue_voice_count > 0
+            and distinct_dialogue_voice_count == len(cast_voice_hashes)
+        )
+    )
+    cast_assignments_complete = bool(
+        not cast_required
+        or (
+            cast_assignment_proof_valid
+            and cast_speaker_count > 0
+            and len(cast_assignments) == cast_speaker_count
+            and len(cast_speaker_hashes) == cast_speaker_count
+        )
+    )
     cast_ready = (
         str(cast.get("status") or "") == "ready"
         and _is_sha256(cast.get("cast_map_sha256"))
         and cast.get("narrator_voice_excluded") is True
-        and _receipt_nonnegative_int(cast.get("distinct_dialogue_voice_count") or 0) > 0
+        and cast_counts_complete
+        and cast_assignments_complete
     )
     if cast_required and not cast_ready:
         issues.append("dialogue_cast_not_ready_or_distinct")
@@ -467,6 +936,18 @@ def _performance_evidence(job: dict[str, object]) -> tuple[dict[str, object], li
     target_sha256 = str(imported.get("target_file_sha256") or "").strip().lower()
     publication_sha256 = str(publication.get("target_file_sha256") or "").strip().lower()
     publication_gate_sha256 = str(publication.get("gate_sha256") or "").strip().lower()
+    chapter_metadata_sha256 = str(
+        publication.get("chapter_metadata_sha256") or ""
+    ).strip().lower()
+    chapter_metadata_contract = str(
+        publication.get("chapter_metadata_contract") or ""
+    ).strip()
+    chapter_metadata_verified = bool(
+        publication.get("chapter_metadata_verified") is True
+        and chapter_metadata_contract
+        == PUBLICATION_CHAPTER_METADATA_CONTRACT_NAME
+        and _is_sha256(chapter_metadata_sha256)
+    )
     if (
         str(publication.get("status") or "") != "pass"
         or str(publication.get("contract_name") or "")
@@ -503,6 +984,8 @@ def _performance_evidence(job: dict[str, object]) -> tuple[dict[str, object], li
         != expected_chapters
     ):
         issues.append("publication_gate_evidence_binding_mismatch")
+    if not chapter_metadata_verified:
+        issues.append("publication_chapter_metadata_not_verified")
     try:
         integrated_lufs = float(loudness.get("integrated_lufs"))
         true_peak_dbtp = float(loudness.get("true_peak_dbtp"))
@@ -541,6 +1024,14 @@ def _performance_evidence(job: dict[str, object]) -> tuple[dict[str, object], li
         or _receipt_nonnegative_int(stt.get("failed_samples") or 0) != 0
     ):
         issues.append("publication_stt_not_pass")
+    public_stt, stt_alignment_valid = _publication_stt_alignment_projection(
+        stt,
+        expected_chapters=expected_chapters,
+        chapter_metadata_contract=chapter_metadata_contract,
+        chapter_metadata_sha256=chapter_metadata_sha256,
+    )
+    if not stt_alignment_valid:
+        issues.append("publication_stt_alignment_not_verified")
     if not _is_sha256(source.get("source_sha256")):
         issues.append("source_artifact_sha256_missing")
     if not _is_sha256(target_sha256) or (
@@ -566,12 +1057,16 @@ def _performance_evidence(job: dict[str, object]) -> tuple[dict[str, object], li
         "publication_chapter_count": _receipt_nonnegative_int(
             publication.get("chapters") or 0
         ),
+        "chapter_metadata_verified": chapter_metadata_verified,
+        "chapter_metadata_contract": chapter_metadata_contract,
+        "chapter_metadata_sha256": chapter_metadata_sha256,
         "narration_plan": {
             "contract_name": str(plan.get("contract_name") or ""),
             "status": str(plan.get("status") or ""),
             "coverage_complete": plan.get("coverage_complete") is True,
             "source_integrity_verified": plan.get("source_integrity_verified") is True,
             "chapter_count": _receipt_nonnegative_int(plan.get("chapter_count") or 0),
+            "speaker_count": plan_speaker_count,
             "plan_sha256": str(plan.get("plan_sha256") or ""),
             "source_aggregate_sha256": str(plan.get("source_aggregate_sha256") or ""),
             "render_signature": str(plan.get("render_signature") or ""),
@@ -581,11 +1076,14 @@ def _performance_evidence(job: dict[str, object]) -> tuple[dict[str, object], li
             "status": str(cast.get("status") or ("not_required" if not cast_required else "")),
             "ready_and_distinct": cast_ready if cast_required else True,
             "dialogue_span_count": dialogue_count,
-            "distinct_dialogue_voice_count": _receipt_nonnegative_int(
-                cast.get("distinct_dialogue_voice_count") or 0
-            ),
+            "speaker_count": cast_speaker_count,
+            "resolved_speaker_count": resolved_speaker_count,
+            "distinct_dialogue_voice_count": distinct_dialogue_voice_count,
             "narrator_voice_excluded": cast.get("narrator_voice_excluded") is True,
             "cast_map_sha256": str(cast.get("cast_map_sha256") or ""),
+            "assignment_count": len(cast_assignments),
+            "assignments_complete": cast_assignments_complete,
+            "assignments": cast_assignments,
             "raw_voice_ids_exposed": False,
         },
         "mastering": {
@@ -605,13 +1103,7 @@ def _performance_evidence(job: dict[str, object]) -> tuple[dict[str, object], li
             "segment_mastering": mastering.get("segment_mastering"),
             "final_audio_quality_pass": final_quality_pass,
         },
-        "publication_stt": {
-            "status": str(stt.get("status") or ""),
-            "required": stt.get("required") is True,
-            "sample_count": _receipt_nonnegative_int(stt.get("sample_count") or 0),
-            "passed_samples": _receipt_nonnegative_int(stt.get("passed_samples") or 0),
-            "failed_samples": _receipt_nonnegative_int(stt.get("failed_samples") or 0),
-        },
+        "publication_stt": public_stt,
         "source_sha256": str(source.get("source_sha256") or ""),
         "artifact_sha256": target_sha256,
         "publication_gate_sha256": publication_gate_sha256,
@@ -630,13 +1122,67 @@ def _public_performance_evidence_valid_strict(
     cast = _as_dict(performance.get("dialogue_cast"))
     mastering = _as_dict(performance.get("mastering"))
     stt = _as_dict(performance.get("publication_stt"))
-    cast_valid = cast.get("required") is not True or (
+    chapter_metadata_sha256 = str(
+        performance.get("chapter_metadata_sha256") or ""
+    ).strip().lower()
+    chapter_metadata_contract = str(
+        performance.get("chapter_metadata_contract") or ""
+    ).strip()
+    normalized_public_stt, stt_alignment_valid = (
+        _publication_stt_alignment_projection(
+            stt,
+            expected_chapters=expected,
+            chapter_metadata_contract=chapter_metadata_contract,
+            chapter_metadata_sha256=chapter_metadata_sha256,
+        )
+    )
+    cast_required = cast.get("required") is True
+    plan_speaker_count = _receipt_nonnegative_int(
+        narration.get("speaker_count") or 0
+    )
+    cast_speaker_count = _receipt_nonnegative_int(
+        cast.get("speaker_count") or 0
+    )
+    resolved_speaker_count = _receipt_nonnegative_int(
+        cast.get("resolved_speaker_count") or 0
+    )
+    distinct_dialogue_voice_count = _receipt_nonnegative_int(
+        cast.get("distinct_dialogue_voice_count") or 0
+    )
+    cast_rows = _as_list(cast.get("assignments"))
+    cast_speaker_hashes: set[str] = set()
+    cast_voice_hashes: set[str] = set()
+    cast_rows_valid = True
+    for raw_row in cast_rows:
+        row = _as_dict(raw_row)
+        speaker_id_sha256 = str(row.get("speaker_id_sha256") or "").strip().lower()
+        voice_id_sha256 = str(row.get("voice_id_sha256") or "").strip().lower()
+        if (
+            not row
+            or not _is_sha256(speaker_id_sha256)
+            or not _is_sha256(voice_id_sha256)
+            or row.get("distinct_from_narrator") is not True
+            or speaker_id_sha256 in cast_speaker_hashes
+        ):
+            cast_rows_valid = False
+        if _is_sha256(speaker_id_sha256):
+            cast_speaker_hashes.add(speaker_id_sha256)
+        if _is_sha256(voice_id_sha256):
+            cast_voice_hashes.add(voice_id_sha256)
+    cast_valid = not cast_required or (
         cast.get("ready_and_distinct") is True
         and str(cast.get("status") or "") == "ready"
-        and _receipt_nonnegative_int(
-            cast.get("distinct_dialogue_voice_count") or 0
-        )
-        > 0
+        and plan_speaker_count > 0
+        and cast_speaker_count == plan_speaker_count
+        and resolved_speaker_count == cast_speaker_count
+        and distinct_dialogue_voice_count > 0
+        and distinct_dialogue_voice_count == len(cast_voice_hashes)
+        and cast.get("assignments_complete") is True
+        and _receipt_nonnegative_int(cast.get("assignment_count") or 0)
+        == cast_speaker_count
+        and len(cast_rows) == cast_speaker_count
+        and len(cast_speaker_hashes) == cast_speaker_count
+        and cast_rows_valid
         and cast.get("narrator_voice_excluded") is True
         and _is_sha256(cast.get("cast_map_sha256"))
     )
@@ -649,6 +1195,10 @@ def _public_performance_evidence_valid_strict(
             performance.get("publication_chapter_count") or 0
         )
         == expected
+        and performance.get("chapter_metadata_verified") is True
+        and chapter_metadata_contract
+        == PUBLICATION_CHAPTER_METADATA_CONTRACT_NAME
+        and _is_sha256(chapter_metadata_sha256)
         and narration.get("contract_name") == NARRATION_PLAN_CONTRACT_NAME
         and narration.get("status") == "ready"
         and narration.get("coverage_complete") is True
@@ -701,12 +1251,8 @@ def _public_performance_evidence_valid_strict(
                 == expected
             )
         )
-        and stt.get("status") == "pass"
-        and stt.get("required") is True
-        and _receipt_nonnegative_int(stt.get("sample_count") or 0) > 0
-        and _receipt_nonnegative_int(stt.get("passed_samples") or 0)
-        == _receipt_nonnegative_int(stt.get("sample_count") or 0)
-        and _receipt_nonnegative_int(stt.get("failed_samples") or 0) == 0
+        and stt_alignment_valid
+        and stt == normalized_public_stt
         and _is_sha256(performance.get("source_sha256"))
         and _is_sha256(performance.get("artifact_sha256"))
         and _is_sha256(performance.get("publication_gate_sha256"))
