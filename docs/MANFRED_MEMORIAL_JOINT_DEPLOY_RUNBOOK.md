@@ -56,7 +56,7 @@ regular, current-EUID-owned, single-link, mode `0600`, status `pass`, and
 exactly equal to the candidate v4 embedded object. It is revalidated before
 every mutation boundary and before the final spatial handoff.
 
-## Split-label API baseline planning only
+## Split-label API baseline normalization
 
 If the live API's Compose labels name a working directory without `.env` and
 ordered Compose files below a different root, normal preflight must continue to
@@ -87,11 +87,82 @@ make plan-ea-memorial-api-baseline-normalization
 
 The output parent must already be a non-symlink, current-operator-owned
 mode-`0700` directory. The mode-`0600` plan is created with no-replace
-semantics. A future executor is still forbidden until independent review adds
-the complete immutable Git-object bundle, no-follow private env copy, expanded
-runtime/security/network equivalence, distinct crash journal, exact two-checkpoint
-joint-permit use, API-only mutation, unchanged ingress/public proof, and
-permit-free recovery contract.
+semantics. The plan deliberately remains non-authoritative even when consumed
+by the separately reviewed normalizer.
+
+Create a fresh private mode-`0700` bundle parent, select a fresh operation ID,
+and run the normalizer's read-only preflight first:
+
+```bash
+export EA_DEPLOYMENT_ID="api-baseline-preflight-$(date -u +%Y%m%dT%H%M%SZ)"
+export EA_BASELINE_PLAN_INPUT="$RELEASE_ROOT/.runtime/api-baseline-normalization-plan.json"
+export EA_BASELINE_BUNDLE_PARENT="$RELEASE_ROOT/.runtime/api-baseline-bundles"
+export EA_PUBLIC_ORIGIN="${MEMORIAL_PUBLIC_ORIGIN:?set the approved HTTPS origin}"
+
+make verify-ea-memorial-api-baseline-normalization
+```
+
+Preflight requires clean current `main`, exact agreement among the plan, live
+container, immutable image, and Git source revision, and an exact reconstruction
+of the live API Compose hash. It creates a private sealed, tamper-evident
+Git-object/config/environment bundle, captures the API, cloudflared, Docker
+daemon, public-network, and twice-stable 12-probe public identities, and writes
+an operational preflight receipt. It does not create the recovery journal,
+protect or retag an image, consume a permit, or invoke `compose up`.
+
+Do not execute while schema-v6 qualification is in soak, stale, unhealthy, or
+blocked. Once the root authority procedure below reports a fresh qualified
+state, issue and immediately revalidate a short-lived permit in `joint` mode.
+The normalizer validates the complete four-boundary joint contract but acquires
+leases only at `before_protect_previous_image` and `before_recreate_api`; an
+API-mode or relabelled permit is invalid. Use a new operation ID and run:
+
+```bash
+export EA_DEPLOYMENT_ID="api-baseline-normalize-$(date -u +%Y%m%dT%H%M%SZ)"
+make execute-ea-memorial-api-baseline-normalization
+```
+
+Under the global API mutation lock, the executor revalidates all preflight
+evidence, proves that joint recovery is absent, and durably creates its distinct
+normalization journal before image protection. It records each possible
+mutation before crossing it. Its sole service mutation is the sealed bundle's
+exact `docker compose ... up -d --no-build --no-deps --pull never
+--force-recreate ea-api`.
+It does not start or change Redis, build or pull an image, issue a network
+create/remove/reconfigure command, or invoke the ingress lane. API recreation
+necessarily replaces that service's endpoint; commit therefore requires final
+public-network semantic equality along with the same Docker daemon, immutable
+API runtime domains, cloudflared runtime, Compose hash, and twice-stable public
+edge. Only the three API Compose topology labels may change, and they must name
+the retained bundle.
+
+The exact terminal receipt is a private mode-`0600` no-replace file directly
+under `$RELEASE_ROOT/.runtime`, bound to the journal's transaction ID and
+separate from the evolving operational receipt. A durable commit retains both
+the sealed bundle and the protected prior-image tag. Neither receipt grants
+candidate, spatial, promotion, deploy, or public-launch authority.
+
+Crash recovery is journal-driven and permit-free. On a later non-preflight
+invocation using a fresh operation ID, the executor reads the canonical journal
+before consulting the current plan, checkout, environment files, or
+caller-supplied public origin; the journal retains the interrupted transaction's
+terminal-receipt path:
+
+| Durable state | Required recovery |
+| --- | --- |
+| `prepared` | Prove the complete baseline and absent protected tag, write `clean_abort`, then remove the journal. |
+| `protect_previous_image_possible` before API authorization | Prove any tag is the recorded image, remove only that exact tag, prove the complete baseline, write `verified_recovery`, then remove the journal. |
+| `rollback_failed` with API authorization still false | Retry the protect-only recovery path, prove the complete baseline, and finish as `verified_recovery`. |
+| `api_mutation_possible`, or `rollback_failed` with API authorization true | Prove the daemon, protected image, cloudflared, and unaffected network/runtime domains; reuse the retained sealed bundle to complete the target API topology; write `verified_forward_recovery`; retain the protected tag. |
+| `commit_pending` | Revalidate the exact terminal receipt and current terminal identities, then complete journal removal idempotently. |
+| `cleanup_pending` | Revalidate the already-bound exact terminal receipt and complete the interrupted journal removal without another mutation. |
+| Missing, malformed, or untrusted canonical state | Stop with that state byte-for-byte untouched and perform no mutation. |
+| Mismatched recovery evidence after a valid attempt starts | Retain the canonical state, durably mark `rollback_failed` when allowed, and make no further tag, API, ingress, or network change after detecting the mismatch. |
+
+After normalization, regenerate source-bound candidate and spatial evidence at
+the then-current `main`, rerun normal joint preflight, obtain a new qualified
+joint permit, and use the normal promotion lane below. Normalization makes the
+old API baseline safely renderable; it never substitutes for promotion.
 
 ## Joint preflight
 

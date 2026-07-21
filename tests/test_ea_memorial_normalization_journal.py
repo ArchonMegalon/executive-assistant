@@ -581,6 +581,61 @@ def test_recovery_retry_is_persistable_through_update(
     assert retry["recovery_attempts"] == 2
 
 
+def test_retry_can_bind_an_older_orphan_terminal_receipt_without_time_regression(
+    store: journal.NormalizationRecoveryJournal,
+) -> None:
+    prepared = _payload(store)
+    store.create(prepared)
+    protected_possible = store.with_phase(
+        prepared,
+        "protect_previous_image_possible",
+        now="2026-07-21T12:01:00.000Z",
+    )
+    store.update(expected=prepared, replacement=protected_possible)
+    recovering = store.with_phase(
+        protected_possible,
+        "rollback_in_progress",
+        now="2026-07-21T12:02:00.000Z",
+    )
+    store.update(expected=protected_possible, replacement=recovering)
+    failed = store.with_phase(
+        recovering,
+        "rollback_failed",
+        now="2026-07-21T12:04:00.000Z",
+    )
+    store.update(expected=recovering, replacement=failed)
+    retry = store.with_phase(
+        failed,
+        "rollback_in_progress",
+        now="2026-07-21T12:05:00.000Z",
+    )
+    store.update(expected=failed, replacement=retry)
+    observations = _terminal_observations(retry, kind="verified_recovery")
+    receipt_sha256 = _write_terminal_receipt(
+        store,
+        retry,
+        kind="verified_recovery",
+        observations=observations,
+        completed_at="2026-07-21T12:03:00.000Z",
+    )
+
+    evidenced = store.record_terminal_evidence(
+        retry,
+        kind="verified_recovery",
+        receipt_sha256=receipt_sha256,
+        **observations,
+        now="2026-07-21T12:03:00.000Z",
+    )
+    store.update(expected=retry, replacement=evidenced)
+
+    assert evidenced["updated_at"] == "2026-07-21T12:05:00.000Z"
+    assert evidenced["evidence"]["terminal"]["recorded_at"] == (
+        "2026-07-21T12:03:00.000Z"
+    )
+    store.remove(expected=evidenced)
+    assert store.read() is None
+
+
 @pytest.mark.parametrize(
     ("field", "value", "reason"),
     [

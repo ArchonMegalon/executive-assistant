@@ -2549,7 +2549,11 @@ class NormalizationRecoveryJournal:
             "receipt_sha256": receipt_sha256,
             **observation,
         }
-        updated["updated_at"] = timestamp
+        updated["updated_at"] = (
+            timestamp
+            if _timestamp(timestamp) >= _timestamp(current["updated_at"])
+            else current["updated_at"]
+        )
         return validate_payload(
             updated,
             expected_path=self.path,
