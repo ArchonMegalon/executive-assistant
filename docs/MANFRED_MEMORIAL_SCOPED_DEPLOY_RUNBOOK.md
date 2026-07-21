@@ -512,9 +512,10 @@ Use this sequence:
 If revoke reports a busy lock, a governed mutation still owns the shared lease.
 Wait for that action's 180-second deadline, inspect its receipt, then retry
 revoke. If the lock remains busy because its holder was externally stopped or
-is wedged, never delete or replace the stable lock. Use root process tooling to
-identify the exact holder, capture its receipt and current container state, and
-terminate only the governed deploy process tree under the incident procedure.
-Verify API and rollback truth before retrying revoke. Do not stop, restart,
-replace, or otherwise mutate sentinel or qualification units. A failed or
-expired permit is a deny, not an invitation to bypass the lane.
+is wedged, never delete or replace the stable lock. Capture the exact holder,
+its receipt, and current container state, then stop and escalate. No process
+termination is authorized unless a separately reviewed incident runbook is
+pinned by exact revision and explicitly identifies that process tree. Verify
+API and rollback truth before retrying revoke. Do not stop, restart, replace,
+or otherwise mutate sentinel or qualification units. A failed or expired
+permit is a deny, not an invitation to bypass the lane.
