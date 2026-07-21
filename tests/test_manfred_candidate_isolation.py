@@ -29,6 +29,18 @@ EXPECTED_OPENAPI_RETIREMENT_OPERATIONS = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def _exercise_existing_candidate_lanes_past_incident_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for module in (image_builder, prepare, runner):
+        monkeypatch.setattr(
+            module,
+            "_require_credential_exposure_remediation",
+            lambda: None,
+        )
+
+
 class _FakeCandidateVexpLease:
     def __init__(self, boundary: str) -> None:
         self.authority_evidence = {

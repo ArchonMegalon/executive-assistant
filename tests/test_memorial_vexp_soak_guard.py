@@ -45,6 +45,17 @@ TEST_GEMINI_OAUTH_BYTES = (
 ).encode("utf-8")
 
 
+@pytest.fixture(autouse=True)
+def _exercise_existing_soak_contract_past_incident_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        deploy,
+        "_require_credential_exposure_remediation",
+        lambda: None,
+    )
+
+
 def _gemini_oauth_snapshot() -> oauth_provision.CredentialSnapshot:
     return oauth_provision.CredentialSnapshot(
         TEST_GEMINI_OAUTH_BYTES,

@@ -239,6 +239,14 @@ CONVERSATION_VERIFY_CONTRACT = (
     "ea.manfred_realtime_conversation_release.verify.v1"
 )
 MEMORIAL_ENABLED_PROJECT_MODES = ("MEMORIAL",)
+CREDENTIAL_EXPOSURE_REMEDIATION_BLOCKER = (
+    "credential_exposure_remediation_unverified"
+)
+
+
+def _require_credential_exposure_remediation() -> None:
+    """Deny candidate work until canonical closure verification exists."""
+    raise ValueError(CREDENTIAL_EXPOSURE_REMEDIATION_BLOCKER)
 
 
 def _validate_project_name(value: object) -> str:
@@ -3475,6 +3483,7 @@ def _atomic_receipt(path: Path, payload: dict[str, object]) -> None:
 def _hold_candidate_preparation_fleet_lock(function):  # type: ignore[no-untyped-def]
     @functools.wraps(function)
     def locked(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _require_credential_exposure_remediation()
         with hold_candidate_fleet_lock() as evidence:
             if evidence is None:  # pragma: no cover - raising mode
                 raise RuntimeError("manfred_candidate_fleet_lock_held")

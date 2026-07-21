@@ -167,6 +167,14 @@ RECEIPT_PARENT_INVALID = "manfred_candidate_receipt_parent_invalid"
 RECEIPT_OUTPUT_EXISTS = "manfred_candidate_receipt_output_exists"
 RECEIPT_ARTIFACT_INVALID = "manfred_candidate_receipt_artifact_invalid"
 RECEIPT_WRITE_FAILED = "manfred_candidate_receipt_write_failed"
+CREDENTIAL_EXPOSURE_REMEDIATION_BLOCKER = (
+    "credential_exposure_remediation_unverified"
+)
+
+
+def _require_credential_exposure_remediation() -> None:
+    """Deny candidate runtime work until canonical closure verification exists."""
+    raise RuntimeError(CREDENTIAL_EXPOSURE_REMEDIATION_BLOCKER)
 
 
 class GovernedSignalInterrupt(BaseException):
@@ -5038,6 +5046,7 @@ def prove_candidate(
     vexp_state_owner_uid: int | None = None,
     vexp_authority: CandidateVexpMutationAuthority | None = None,
 ) -> dict[str, object]:
+    _require_credential_exposure_remediation()
     canonical_env_file = Path(
         os.path.abspath(os.fspath(env_file.expanduser()))
     )
