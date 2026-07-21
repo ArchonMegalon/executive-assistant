@@ -988,6 +988,16 @@ class DeployError(RuntimeError):
     """A fail-closed deployment or verification error."""
 
 
+CREDENTIAL_EXPOSURE_REMEDIATION_BLOCKER = (
+    "credential_exposure_remediation_unverified"
+)
+
+
+def _require_credential_exposure_remediation() -> None:
+    """Deny this lane until an external canonical verifier replaces the guard."""
+    raise DeployError(CREDENTIAL_EXPOSURE_REMEDIATION_BLOCKER)
+
+
 class GeminiOAuthHelperExitUnconfirmed(DeployError):
     """The one-shot helper may still own the credential mutation target."""
 
@@ -11189,6 +11199,7 @@ class MemorialDeployLane:
         }
 
     def preflight(self) -> dict[str, Any]:
+        _require_credential_exposure_remediation()
         self._write_receipt()
         if not (self.root / ".env").is_file():
             raise DeployError("env_file_missing")
@@ -11283,6 +11294,7 @@ class MemorialDeployLane:
         }
 
     def deploy(self, *, preflight_only: bool = False) -> dict[str, Any]:
+        _require_credential_exposure_remediation()
         mutation_started = False
         rollback_tag = ""
         preparation_attempted: list[str] = []

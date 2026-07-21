@@ -27,6 +27,23 @@ PROJECT = "ea-manfred-candidate-deployment-contract-a1b2c3d4"
 COMMIT = "a" * 40
 
 
+@pytest.fixture(autouse=True)
+def _exercise_existing_candidate_contracts_past_incident_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for module in (
+        candidate_prep,
+        candidate_runner,
+        image_builder,
+        memorial_deploy,
+    ):
+        monkeypatch.setattr(
+            module,
+            "_require_credential_exposure_remediation",
+            lambda: None,
+        )
+
+
 def test_production_memorial_compose_is_image_pure_and_numeric_nonroot() -> None:
     raw = (ROOT / "docker-compose.memorial.yml").read_text(encoding="utf-8")
 

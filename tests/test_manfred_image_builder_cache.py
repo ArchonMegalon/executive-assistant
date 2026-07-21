@@ -91,6 +91,11 @@ class _FakeCandidateVexpAuthority:
 def _candidate_vexp_authority(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         builder,
+        "_require_credential_exposure_remediation",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        builder,
         "candidate_vexp_authority",
         lambda **_kwargs: _FakeCandidateVexpAuthority(),
     )

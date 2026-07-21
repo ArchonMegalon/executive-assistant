@@ -26,6 +26,17 @@ from scripts import deploy_ea_memorial as deploy
 from scripts import provision_memorial_gemini_oauth as oauth_provision
 
 
+@pytest.fixture(autouse=True)
+def _exercise_existing_lane_contracts_past_incident_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        deploy,
+        "_require_credential_exposure_remediation",
+        lambda: None,
+    )
+
+
 class TestVexpMemorialMutationAuthority(deploy.VexpMemorialMutationAuthority):
     __test__ = False
 

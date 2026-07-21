@@ -157,6 +157,12 @@ def test_manfred_image_build_passes_and_records_exact_source_revision(
 ) -> None:
     import scripts.build_manfred_memorial_image as builder
 
+    monkeypatch.setattr(
+        builder,
+        "_require_credential_exposure_remediation",
+        lambda: None,
+    )
+
     class Lease:
         def __init__(self, boundary: str) -> None:
             self.authority_evidence = authority_evidence(

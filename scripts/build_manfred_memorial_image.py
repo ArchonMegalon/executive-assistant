@@ -69,6 +69,16 @@ RECEIPT_MAX_BYTES = 1024 * 1024
 IMAGE_BUILD_RECEIPT_MAX_BYTES = RECEIPT_MAX_BYTES
 RECEIPT_TEMP_BASENAME = "ea-manfred-image-receipt"
 RECEIPT_TEMP_CREATE_ATTEMPTS = 32
+CREDENTIAL_EXPOSURE_REMEDIATION_BLOCKER = (
+    "credential_exposure_remediation_unverified"
+)
+
+
+def _require_credential_exposure_remediation() -> None:
+    """Deny candidate image work until canonical closure verification exists."""
+    raise RuntimeError(CREDENTIAL_EXPOSURE_REMEDIATION_BLOCKER)
+
+
 IMAGE_BUILD_AUTHORITY_KEYS = frozenset(
     {
         "entry",
@@ -2230,6 +2240,7 @@ def build_image(
     vexp_state_owner_uid: int | None = None,
     vexp_authority: CandidateVexpMutationAuthority | None = None,
 ) -> dict[str, object]:
+    _require_credential_exposure_remediation()
     # Enforce same-owner, single-link, non-writable producer identity before
     # even creating/acquiring a per-UID lock. This makes sudo/root invocation of
     # a tibor-owned producer fail closed before Docker or lock-file mutation.
