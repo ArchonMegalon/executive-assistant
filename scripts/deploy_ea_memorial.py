@@ -1608,6 +1608,7 @@ class MemorialDeployLane:
         *,
         root: Path = ROOT,
         env: Mapping[str, str] | None = None,
+        load_release_env_file: bool = True,
         runner: Runner | None = None,
         http_get: Callable[[str, float, str], HttpResponse] = _default_http_get,
         http_no_redirect: Callable[
@@ -1626,6 +1627,8 @@ class MemorialDeployLane:
             validate_memorial_bind_sources
         ),
     ) -> None:
+        if not isinstance(load_release_env_file, bool):
+            raise TypeError("load_release_env_file_must_be_bool")
         self.root = root.resolve()
         self.env = dict(os.environ if env is None else env)
         self.runner = runner or SubprocessRunner()
@@ -1639,7 +1642,9 @@ class MemorialDeployLane:
         self.internal_openapi_snapshot = internal_openapi_snapshot
         self.durable_root_check = durable_root_check
         self.bind_source_validator = bind_source_validator
-        self.env_file_values = _parse_env_file(self.root / ".env")
+        self.env_file_values = (
+            _parse_env_file(self.root / ".env") if load_release_env_file else {}
+        )
         self.deployment_id = _safe_deployment_id(self.env)
         self.memorial_image_reference = str(
             self.env.get("EA_MEMORIAL_IMAGE") or ""

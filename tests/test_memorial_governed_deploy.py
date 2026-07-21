@@ -2229,6 +2229,71 @@ def test_explicit_deployment_id_fails_closed(value: str, tmp_path: Path) -> None
         )
 
 
+def test_constructor_loads_release_env_file_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "release"
+    root.mkdir()
+    parsed_paths: list[Path] = []
+
+    def parse_release_env(path: Path) -> dict[str, str]:
+        parsed_paths.append(path)
+        return {"EA_MEMORIAL_PUBLIC_HOST_ALLOWLIST": "from-release-env.example"}
+
+    monkeypatch.setattr(deploy, "_parse_env_file", parse_release_env)
+
+    lane = deploy.MemorialDeployLane(
+        root=root,
+        env={"EA_DEPLOYMENT_ID": "memorial-release-env-default"},
+        receipt_dir=root / "receipts",
+        global_lock_path=root / "memorial.lock",
+        durable_root_check=lambda _root: None,
+    )
+
+    assert parsed_paths == [root / ".env"]
+    assert lane.env_file_values == {
+        "EA_MEMORIAL_PUBLIC_HOST_ALLOWLIST": "from-release-env.example"
+    }
+    assert lane.allowed_public_hosts == ("from-release-env.example",)
+
+
+def test_constructor_can_skip_release_env_file_without_touching_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "release"
+    root.mkdir()
+    assert not (root / ".env").exists()
+
+    def reject_release_env_access(_path: Path) -> dict[str, str]:
+        raise AssertionError("release .env must not be inspected")
+
+    monkeypatch.setattr(deploy, "_parse_env_file", reject_release_env_access)
+
+    lane = deploy.MemorialDeployLane(
+        root=root,
+        env={"EA_DEPLOYMENT_ID": "memorial-release-env-optout"},
+        load_release_env_file=False,
+        receipt_dir=root / "receipts",
+        global_lock_path=root / "memorial.lock",
+        durable_root_check=lambda _root: None,
+    )
+
+    assert lane.env_file_values == {}
+    assert lane.allowed_public_hosts == deploy.DEFAULT_PUBLIC_HOSTS
+
+
+def test_constructor_rejects_non_boolean_release_env_optout(tmp_path: Path) -> None:
+    with pytest.raises(TypeError, match="load_release_env_file_must_be_bool"):
+        deploy.MemorialDeployLane(
+            root=tmp_path,
+            env={"EA_DEPLOYMENT_ID": "memorial-release-env-invalid"},
+            load_release_env_file=1,  # type: ignore[arg-type]
+            receipt_dir=tmp_path / "receipts",
+        )
+
+
 def test_global_lock_serializes_distinct_ids_and_receipt_roots(
     release_root: Path,
 ) -> None:
