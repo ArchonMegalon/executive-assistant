@@ -226,7 +226,10 @@ verify-manfred-memorial-source-gate:
 		tests/test_manfred_memorial_deployment_contract.py \
 		tests/test_manfred_spatial_candidate_browser.py \
 		tests/test_manfred_joint_deploy.py \
+		tests/test_ea_memorial_baseline_bundle.py \
+		tests/test_ea_memorial_runtime_identity.py \
 		tests/test_memorial_api_baseline_normalization_plan.py \
+		tests/test_memorial_api_baseline_normalization_interlock.py \
 		tests/test_memorial_governed_deploy.py
 	CI=$${CI:-1} PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q \
 		tests/test_memorial_private_context.py \
