@@ -56,6 +56,43 @@ regular, current-EUID-owned, single-link, mode `0600`, status `pass`, and
 exactly equal to the candidate v4 embedded object. It is revalidated before
 every mutation boundary and before the final spatial handoff.
 
+## Split-label API baseline planning only
+
+If the live API's Compose labels name a working directory without `.env` and
+ordered Compose files below a different root, normal preflight must continue to
+reject that baseline. Do not copy files into the recorded directory, use the
+mutable external checkout, invoke raw Compose, or relax the external-layer
+check.
+
+The following target writes only a private, non-authoritative recovery plan. It
+does not inspect or mutate Docker, invoke Compose or Git, contact HTTP origins,
+read environment/config contents, consume a permit, or write the canonical
+recovery journal. Every live, image, Git, security, network, ingress, and public
+identity assertion remains `required_unverified`; the plan has no promotion or
+mutation authority and cannot be used as candidate, spatial, deploy, or public
+launch evidence.
+
+```bash
+export EA_BASELINE_PLAN_ID="api-baseline-plan-$(date -u +%Y%m%dT%H%M%SZ)"
+export EA_BASELINE_RECORDED_WORKING_DIR="${EXACT_LABEL_WORKING_DIR:?set the audited absolute path}"
+export EA_BASELINE_EXTERNAL_CONFIG_ROOT="${EXACT_LABEL_CONFIG_ROOT:?set the audited absolute path}"
+export EA_BASELINE_TRUSTED_ENVIRONMENT_ROOT="${EXACT_TRUSTED_ENV_ROOT:?set the audited absolute path}"
+export EA_BASELINE_EXPECTED_REVISION="${EXACT_LIVE_SOURCE_REVISION:?set the audited 40-character revision}"
+export EA_BASELINE_EXPECTED_IMAGE_REFERENCE="${EXACT_LIVE_IMAGE_REFERENCE:?set the audited tagged reference}"
+export EA_BASELINE_EXPECTED_IMAGE_ID="${EXACT_LIVE_IMAGE_ID:?set the audited sha256 image ID}"
+export EA_BASELINE_PLAN_OUTPUT="$RELEASE_ROOT/.runtime/api-baseline-normalization-plan.json"
+
+make plan-ea-memorial-api-baseline-normalization
+```
+
+The output parent must already be a non-symlink, current-operator-owned
+mode-`0700` directory. The mode-`0600` plan is created with no-replace
+semantics. A future executor is still forbidden until independent review adds
+the complete immutable Git-object bundle, no-follow private env copy, expanded
+runtime/security/network equivalence, distinct crash journal, exact two-checkpoint
+joint-permit use, API-only mutation, unchanged ingress/public proof, and
+permit-free recovery contract.
+
 ## Joint preflight
 
 Prepare a clean durable release worktree with its upstream set to `origin/main`.
