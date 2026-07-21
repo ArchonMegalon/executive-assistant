@@ -3430,6 +3430,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
 
         self._acquire_lock()
         try:
+            self._require_normalization_recovery_absent()
             self._recover_interrupted_transaction(preflight_only=preflight_only)
             context = self.preflight()
             self.receipt["source_revision"] = str(

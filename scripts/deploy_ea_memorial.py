@@ -35,6 +35,19 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from source_state_head import source_worktree_metadata
 
 try:
+    from scripts.ea_memorial_recovery_interlock import (
+        MemorialRecoveryInterlockError,
+        default_normalization_recovery_journal_path,
+        require_normalization_recovery_absent,
+    )
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from ea_memorial_recovery_interlock import (  # type: ignore[no-redef]
+        MemorialRecoveryInterlockError,
+        default_normalization_recovery_journal_path,
+        require_normalization_recovery_absent,
+    )
+
+try:
     from scripts.memorial_bind_source_guard import (
         BindSourceGuardError,
         validate_memorial_bind_sources,
@@ -1676,6 +1689,14 @@ class MemorialDeployLane:
         )
         if not self.global_lock_path.is_absolute():
             raise DeployError("global_lock_path_not_absolute")
+        try:
+            self.normalization_recovery_journal_path = (
+                default_normalization_recovery_journal_path(
+                    operator_anchor=self.root
+                )
+            )
+        except MemorialRecoveryInterlockError as exc:
+            raise DeployError(str(exc)) from exc
         self._vexp_mutation_authority = VexpMemorialMutationAuthority()
         self._vexp_mutation_deadline: float | None = None
         self._vexp_mutation_expires_at: datetime | None = None
@@ -1956,6 +1977,14 @@ class MemorialDeployLane:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
             finally:
                 handle.close()
+
+    def _require_normalization_recovery_absent(self) -> None:
+        try:
+            require_normalization_recovery_absent(
+                self.normalization_recovery_journal_path
+            )
+        except MemorialRecoveryInterlockError as exc:
+            raise DeployError(str(exc)) from exc
 
     def _record_check(self, name: str, status: str, **detail: object) -> None:
         checks = list(self.receipt.get("checks") or [])
@@ -6838,6 +6867,7 @@ class MemorialDeployLane:
 
         self._acquire_lock()
         try:
+            self._require_normalization_recovery_absent()
             context = self.preflight()
             previous = dict(context["previous"])
             non_memorial_controls = dict(context["non_memorial_controls"])
