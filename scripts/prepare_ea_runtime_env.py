@@ -16,6 +16,7 @@ from typing import Any
 
 
 MAX_SOURCE_BYTES = 16 * 1024 * 1024
+RUNTIME_DIRECTORY = ".ea-runtime-secrets"
 BLOCKED_PREFIX = b"PROPERTYQUARRY_"
 REGISTRATION_MAIL_KEYS = frozenset(
     {
@@ -189,16 +190,16 @@ def sanitize_env_bytes(content: bytes) -> tuple[bytes, int]:
 
 def _open_runtime_directory(root_fd: int, *, allowed_owners: frozenset[int]) -> int:
     try:
-        metadata = os.stat(".runtime", dir_fd=root_fd, follow_symlinks=False)
+        metadata = os.stat(RUNTIME_DIRECTORY, dir_fd=root_fd, follow_symlinks=False)
     except FileNotFoundError:
         try:
-            os.mkdir(".runtime", 0o700, dir_fd=root_fd)
+            os.mkdir(RUNTIME_DIRECTORY, 0o700, dir_fd=root_fd)
         except FileExistsError:
             pass
         except OSError as exc:
             raise SanitizerError(f"could not create runtime directory: errno {exc.errno}") from None
         try:
-            metadata = os.stat(".runtime", dir_fd=root_fd, follow_symlinks=False)
+            metadata = os.stat(RUNTIME_DIRECTORY, dir_fd=root_fd, follow_symlinks=False)
         except OSError as exc:
             raise SanitizerError(f"could not inspect runtime directory: errno {exc.errno}") from None
     except OSError as exc:
@@ -213,7 +214,7 @@ def _open_runtime_directory(root_fd: int, *, allowed_owners: frozenset[int]) -> 
 
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
     try:
-        descriptor = os.open(".runtime", flags, dir_fd=root_fd)
+        descriptor = os.open(RUNTIME_DIRECTORY, flags, dir_fd=root_fd)
     except OSError as exc:
         raise SanitizerError(f"could not safely open runtime directory: errno {exc.errno}") from None
     opened = os.fstat(descriptor)
@@ -350,7 +351,7 @@ def _remove_optional_destination(
 
 def _verify_runtime_binding(root_fd: int, runtime_fd: int) -> None:
     try:
-        current = os.stat(".runtime", dir_fd=root_fd, follow_symlinks=False)
+        current = os.stat(RUNTIME_DIRECTORY, dir_fd=root_fd, follow_symlinks=False)
     except OSError:
         raise SanitizerError("runtime directory changed during materialization") from None
     opened = os.fstat(runtime_fd)
@@ -401,7 +402,7 @@ def prepare_runtime_env(root: Path) -> dict[str, Any]:
             outputs.append(
                 {
                     "source": ".env",
-                    "destination": ".runtime/ea_runtime.env",
+                    "destination": f"{RUNTIME_DIRECTORY}/ea_runtime.env",
                     "byte_count": len(primary_sanitized),
                     "removed_key_count": primary_removed,
                     "sha256": hashlib.sha256(primary_sanitized).hexdigest(),
@@ -426,7 +427,7 @@ def prepare_runtime_env(root: Path) -> dict[str, Any]:
                 outputs.append(
                     {
                         "source": ".env.local",
-                        "destination": ".runtime/ea_runtime.local.env",
+                        "destination": f"{RUNTIME_DIRECTORY}/ea_runtime.local.env",
                         "byte_count": len(local_sanitized),
                         "removed_key_count": local_removed,
                         "sha256": hashlib.sha256(local_sanitized).hexdigest(),

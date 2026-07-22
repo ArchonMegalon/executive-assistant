@@ -13,6 +13,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "prepare_ea_runtime_env.py"
+RUNTIME_DIR = ".ea-runtime-secrets"
 
 
 def _module():
@@ -58,21 +59,21 @@ def test_materialization_removes_every_propertyquarry_key_and_preserves_other_by
 
     receipt = module.prepare_runtime_env(root)
 
-    assert (root / ".runtime" / "ea_runtime.env").read_bytes() == (
+    assert (root / RUNTIME_DIR / "ea_runtime.env").read_bytes() == (
         b"# PROPERTYQUARRY_COMMENT=is-not-an-assignment\r\n"
         b"EA_API_TOKEN=ea-token\r\n"
         b"EA_LITERAL='spaces and = signs'\n"
         b"not valid PROPERTYQUARRY_TEXT=preserve-me\n"
         b"EA_FINAL=no-newline"
     )
-    assert (root / ".runtime" / "ea_runtime.local.env").read_bytes() == b"EA_LOCAL_ONLY=keep\n"
+    assert (root / RUNTIME_DIR / "ea_runtime.local.env").read_bytes() == b"EA_LOCAL_ONLY=keep\n"
     assert receipt["status"] == "prepared"
     assert receipt["output_count"] == 2
     assert receipt["removed_key_count"] == 5
     assert receipt["optional_local_source"] == "present"
-    assert stat.S_IMODE((root / ".runtime").stat().st_mode) == 0o700
-    assert stat.S_IMODE((root / ".runtime" / "ea_runtime.env").stat().st_mode) == 0o600
-    assert stat.S_IMODE((root / ".runtime" / "ea_runtime.local.env").stat().st_mode) == 0o600
+    assert stat.S_IMODE((root / RUNTIME_DIR).stat().st_mode) == 0o700
+    assert stat.S_IMODE((root / RUNTIME_DIR / "ea_runtime.env").stat().st_mode) == 0o600
+    assert stat.S_IMODE((root / RUNTIME_DIR / "ea_runtime.local.env").stat().st_mode) == 0o600
     assert (root / ".env").read_bytes() == primary
     assert (root / ".env.local").read_bytes() == local
 
@@ -86,7 +87,7 @@ def test_all_named_mail_and_google_keys_are_denied_alongside_future_prefix_keys(
 
     receipt = module.prepare_runtime_env(root)
 
-    assert (root / ".runtime" / "ea_runtime.env").read_bytes() == b"EA_KEEP=yes\n"
+    assert (root / RUNTIME_DIR / "ea_runtime.env").read_bytes() == b"EA_KEEP=yes\n"
     assert receipt["removed_key_count"] == len(blocked)
 
 
@@ -94,7 +95,7 @@ def test_absent_optional_source_removes_a_safe_stale_local_projection(tmp_path: 
     module = _module()
     root = _repo(tmp_path)
     _secret_file(root / ".env", b"EA_KEEP=yes\n")
-    runtime = root / ".runtime"
+    runtime = root / RUNTIME_DIR
     runtime.mkdir(mode=0o700)
     _secret_file(runtime / "ea_runtime.local.env", b"EA_STALE=must-not-survive\n")
 
@@ -126,7 +127,7 @@ def test_unsafe_source_metadata_is_rejected(tmp_path: Path, unsafe_source: str) 
     with pytest.raises(module.SanitizerError):
         module.prepare_runtime_env(root)
 
-    assert not (root / ".runtime" / "ea_runtime.env").exists()
+    assert not (root / RUNTIME_DIR / "ea_runtime.env").exists()
 
 
 @pytest.mark.parametrize("unsafe_destination", ["symlink", "hardlink", "permissive_mode"])
@@ -137,7 +138,7 @@ def test_unsafe_destination_metadata_is_rejected_without_touching_target(
     module = _module()
     root = _repo(tmp_path)
     _secret_file(root / ".env", b"EA_KEEP=new\n")
-    runtime = root / ".runtime"
+    runtime = root / RUNTIME_DIR
     runtime.mkdir(mode=0o700)
     target = root / "outside-target"
     _secret_file(target, b"must-stay-unchanged")
@@ -162,7 +163,7 @@ def test_runtime_directory_symlink_is_rejected(tmp_path: Path) -> None:
     _secret_file(root / ".env", b"EA_KEEP=yes\n")
     outside = tmp_path / "outside"
     outside.mkdir()
-    (root / ".runtime").symlink_to(outside, target_is_directory=True)
+    (root / RUNTIME_DIR).symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(module.SanitizerError):
         module.prepare_runtime_env(root)
@@ -182,7 +183,7 @@ def test_trusted_group_writable_repository_root_is_supported(tmp_path: Path) -> 
     receipt = module.prepare_runtime_env(root)
 
     assert receipt["removed_key_count"] == 1
-    assert (root / ".runtime" / "ea_runtime.env").read_bytes() == b"EA_KEEP=yes\n"
+    assert (root / RUNTIME_DIR / "ea_runtime.env").read_bytes() == b"EA_KEEP=yes\n"
 
 
 def test_atomic_replace_failure_preserves_previous_projection_and_cleans_temp(
@@ -192,7 +193,7 @@ def test_atomic_replace_failure_preserves_previous_projection_and_cleans_temp(
     module = _module()
     root = _repo(tmp_path)
     _secret_file(root / ".env", b"EA_KEEP=new\n")
-    runtime = root / ".runtime"
+    runtime = root / RUNTIME_DIR
     runtime.mkdir(mode=0o700)
     destination = runtime / "ea_runtime.env"
     _secret_file(destination, b"EA_KEEP=old\n")
@@ -245,6 +246,6 @@ def test_deploy_runs_runtime_isolation_preflight_after_source_exists() -> None:
 def test_generated_runtime_env_files_are_ignored_and_script_is_executable() -> None:
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
 
-    assert ".runtime/" in gitignore
+    assert ".ea-runtime-secrets/" in gitignore
     assert SCRIPT_PATH.is_file()
     assert os.access(SCRIPT_PATH, os.X_OK)
