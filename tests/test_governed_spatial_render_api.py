@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
@@ -162,6 +161,20 @@ def _compose(client: TestClient, *, request: dict[str, object] | None = None, so
         "/v1/internal/governed-spatial-render/compose",
         json={"request": request or _render_request(), "source_packet": source or _source_packet()},
     )
+
+
+def test_default_app_keeps_governed_spatial_http_operations_retired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
+    monkeypatch.setenv("EA_API_TOKEN", "")
+    from app.api.app import create_app
+
+    operation_paths = {route.path for route in create_app().routes}
+
+    assert "/v1/internal/governed-spatial-render/compose" not in operation_paths
+    assert "/v1/internal/governed-spatial-render/build" not in operation_paths
 
 
 def test_runtime_is_explicit_and_unconfigured_route_fails_closed() -> None:

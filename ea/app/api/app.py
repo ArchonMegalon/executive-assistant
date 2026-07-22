@@ -117,7 +117,6 @@ def _include_authenticated_routes(
     images_router: APIRouter,
     google_oauth_router: APIRouter,
     providers_router: APIRouter,
-    governed_spatial_render_router: APIRouter,
     product_api_delivery_router: APIRouter,
     product_api_workspace_router: APIRouter,
     product_api_router: APIRouter,
@@ -131,7 +130,6 @@ def _include_authenticated_routes(
     app.include_router(images_router, dependencies=auth_dependency)
     app.include_router(google_oauth_router)
     app.include_router(providers_router, dependencies=auth_dependency)
-    app.include_router(governed_spatial_render_router, dependencies=auth_dependency)
     app.include_router(product_api_delivery_router, dependencies=auth_dependency)
     app.include_router(product_api_workspace_router, dependencies=auth_dependency)
     app.include_router(product_api_router, dependencies=auth_dependency)
@@ -191,7 +189,6 @@ def create_app() -> FastAPI:
     from app.api.routes.fliplink_integration import authenticated_router as fliplink_authenticated_router
     from app.api.routes.fliplink_integration import public_router as fliplink_public_router
     from app.api.routes.google_oauth import router as google_oauth_router
-    from app.api.routes.governed_spatial_render import router as governed_spatial_render_router
     from app.api.routes.hedy_meeting_review_intake import router as hedy_meeting_review_router
     from app.api.routes.health import router as health_router
     from app.api.routes.images import router as images_router
@@ -266,7 +263,6 @@ def create_app() -> FastAPI:
         images_router=images_router,
         google_oauth_router=google_oauth_router,
         providers_router=providers_router,
-        governed_spatial_render_router=governed_spatial_render_router,
         product_api_delivery_router=product_api_delivery_router,
         product_api_workspace_router=product_api_workspace_router,
         product_api_router=product_api_router,

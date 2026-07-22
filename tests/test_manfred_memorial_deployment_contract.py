@@ -516,7 +516,7 @@ def test_verify_candidate_wires_archive_publication_gate(
     ]
 
 
-def test_candidate_registers_governed_spatial_routes(
+def test_candidate_keeps_governed_spatial_http_routes_retired(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     for name in (
@@ -536,8 +536,8 @@ def test_candidate_registers_governed_spatial_routes(
         paths = create_app().openapi()["paths"]
 
     assert "/tours/viewer/{slug}/{asset_path}" in paths
-    assert "/v1/internal/governed-spatial-render/compose" in paths
-    assert "/v1/internal/governed-spatial-render/build" in paths
+    assert "/v1/internal/governed-spatial-render/compose" not in paths
+    assert "/v1/internal/governed-spatial-render/build" not in paths
 
 
 def test_public_memorial_singular_alias_is_permanent_safe_and_schema_hidden() -> None:
