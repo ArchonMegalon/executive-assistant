@@ -315,6 +315,10 @@ Environment:
   TEABLE_API_KEY=...                      Verify and recover EA env/config artifacts from Teable before deploy.
   TEABLE_BASE_URL=https://app.teable.ai   Optional non-default Teable host for recovery.
 
+Runtime isolation preflight:
+  python3 scripts/prepare_ea_runtime_env.py
+      Materialize owner-only EA env files with all PropertyQuarry keys removed.
+
 Backward-compatible aliases:
   EA_MEMORY_ONLY, EA_BOOTSTRAP_DB, EA_ENABLE_FASTESTVPN, EA_ENABLE_CLOUDFLARED,
   EA_CF_TUNNEL_TOKEN, EA_RUN_RUNTIME_HARD_EXIT_GATES
@@ -363,6 +367,9 @@ if [[ ! -f "${APP_ROOT}/.env" ]]; then
   echo "Created .env from .env.example. Fill values and rerun."
   exit 1
 fi
+
+echo "Preparing isolated EA runtime environment files."
+"${PYTHON_BIN}" "${APP_ROOT}/scripts/prepare_ea_runtime_env.py" --root "${APP_ROOT}"
 
 if [[ -n "${TEABLE_API_KEY:-}" ]]; then
   proactive_teable_base_id="$(normalize_origin_like "$(effective_value EA_ENV_TEABLE_BASE_ID)")"

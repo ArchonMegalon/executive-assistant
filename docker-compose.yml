@@ -7,7 +7,7 @@ services:
     container_name: ea-teable-relay
     restart: unless-stopped
     env_file:
-      - .env
+      - .runtime/ea_runtime.env
     mem_limit: 512m
     mem_reservation: 128m
     environment:
@@ -55,8 +55,8 @@ services:
     cpu_shares: ${EA_API_CPU_SHARES:-512}
     cpus: ${EA_API_CPUS:-2.0}
     env_file:
-      - .env
-      - path: .env.local
+      - .runtime/ea_runtime.env
+      - path: .runtime/ea_runtime.local.env
         required: false
     environment:
       - EA_ROLE=api
@@ -217,8 +217,8 @@ services:
     cpu_shares: ${EA_RESPONSES_PROXY_CPU_SHARES:-128}
     cpus: ${EA_RESPONSES_PROXY_CPUS:-0.75}
     env_file:
-      - .env
-      - path: .env.local
+      - .runtime/ea_runtime.env
+      - path: .runtime/ea_runtime.local.env
         required: false
     environment:
       - EA_ROLE=api
@@ -354,8 +354,8 @@ services:
     cpu_shares: ${EA_WORKER_CPU_SHARES:-128}
     cpus: ${EA_WORKER_CPUS:-0.75}
     env_file:
-      - .env
-      - path: .env.local
+      - .runtime/ea_runtime.env
+      - path: .runtime/ea_runtime.local.env
         required: false
     environment:
       - EA_ROLE=worker
@@ -483,8 +483,8 @@ services:
     cpu_shares: ${EA_SCHEDULER_CPU_SHARES:-128}
     cpus: ${EA_SCHEDULER_CPUS:-0.75}
     env_file:
-      - .env
-      - path: .env.local
+      - .runtime/ea_runtime.env
+      - path: .runtime/ea_runtime.local.env
         required: false
     environment:
       - EA_ROLE=scheduler
@@ -610,7 +610,7 @@ services:
     group_add: ["1000"]
     restart: unless-stopped
     env_file:
-      - .env
+      - .runtime/ea_runtime.env
     mem_limit: 512m
     mem_reservation: 128m
     cpu_shares: ${EA_PROACTIVE_OODA_CPU_SHARES:-64}
@@ -727,7 +727,7 @@ services:
     container_name: ea-telegram-teable-sync
     restart: unless-stopped
     env_file:
-      - .env
+      - .runtime/ea_runtime.env
     mem_limit: 512m
     mem_reservation: 128m
     working_dir: /app
