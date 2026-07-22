@@ -32,6 +32,9 @@ RENDER_ENVIRONMENT = {
     "EA_MEMORIAL_TRUSTED_PROXY_CIDRS": "127.0.0.1/32,::1/128",
     "EA_SOURCE_REVISION": REVISION,
 }
+BASELINE_ENVIRONMENT_NAMES = frozenset(
+    {"EA_SOURCE_REVISION", "ENV_ONLY", "EXPLICIT", "LOCAL_ONLY"}
+)
 
 
 def _object_id(raw: bytes) -> str:
@@ -229,12 +232,16 @@ def _materialize(
     runner: FakeRunner,
     *,
     render_environment: Mapping[str, str] | None = RENDER_ENVIRONMENT,
+    baseline_environment_names: Sequence[str] | set[str] | frozenset[str] | None = (
+        BASELINE_ENVIRONMENT_NAMES
+    ),
 ) -> dict[str, Any]:
     return bundle._materialize_baseline_bundle_for_test(
         plan=inputs["plan"],
         repository_root=inputs["repository_root"],
         bundle_parent=inputs["bundle_parent"],
         render_environment=render_environment,
+        baseline_environment_names=baseline_environment_names,
         test_runner=runner,
         durable_root_check=lambda _path: None,
     )
@@ -269,9 +276,9 @@ def test_materializes_exact_git_blobs_and_value_free_override(
     info = _materialize(inputs, runner)
 
     root = Path(info["bundle_path"])
-    assert root.name == "api-baseline-v2-baseline-plan-001"
-    assert info["contract_name"] == "ea.memorial_api_baseline_bundle.v2"
-    assert info["version"] == 2
+    assert root.name == "api-baseline-v3-baseline-plan-001"
+    assert info["contract_name"] == "ea.memorial_api_baseline_bundle.v3"
+    assert info["version"] == 3
     assert info["origin_main_commit"] == REVISION
     assert stat.S_IMODE(root.stat().st_mode) == 0o700
     assert Path(info["compose_files"][0]).read_bytes() == BASE
@@ -459,6 +466,99 @@ def test_fresh_materialization_requires_render_environment(
         _materialize(inputs, FakeRunner(), render_environment=None)
 
 
+def test_fresh_materialization_requires_live_baseline_environment_names(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+
+    with pytest.raises(
+        bundle.BaselineBundleError, match="baseline_environment_names_missing"
+    ):
+        _materialize(inputs, FakeRunner(), baseline_environment_names=None)
+
+
+@pytest.mark.parametrize(
+    "invalid_names",
+    [
+        "ENV_ONLY",
+        b"ENV_ONLY",
+        ("ENV_ONLY", "ENV_ONLY"),
+        ("INVALID-NAME",),
+        ("ENV_ONLY", 7),
+    ],
+)
+def test_live_baseline_environment_names_are_strict_and_duplicate_free(
+    tmp_path: Path,
+    invalid_names: object,
+) -> None:
+    inputs = _inputs(tmp_path)
+
+    with pytest.raises(
+        bundle.BaselineBundleError, match="baseline_environment_names_invalid"
+    ):
+        _materialize(
+            inputs,
+            FakeRunner(),
+            baseline_environment_names=invalid_names,  # type: ignore[arg-type]
+        )
+
+
+def test_override_excludes_new_trusted_keys_absent_from_live_baseline(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    env_path = inputs["trusted"] / ".env"
+    _private_file(env_path, env_path.read_bytes() + b"FUTURE_ONLY=disabled\n")
+
+    info = _materialize(inputs, FakeRunner())
+
+    override = Path(info["compose_files"][2]).read_text(encoding="utf-8")
+    assert "ENV_ONLY=${ENV_ONLY}" in override
+    assert "LOCAL_ONLY=${LOCAL_ONLY}" in override
+    assert "FUTURE_ONLY" not in override
+    retained_environment = Path(info["environment_files"][0]).read_bytes()
+    assert b"FUTURE_ONLY=disabled\n" in retained_environment
+    manifest = json.loads(Path(info["manifest_path"]).read_bytes())
+    selected = ["ENV_ONLY", "LOCAL_ONLY"]
+    assert manifest["environment_key_count"] == len(selected)
+    assert manifest["environment_key_set_sha256"] == hashlib.sha256(
+        json.dumps(
+            selected,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    assert "FUTURE_ONLY" not in json.dumps(manifest, sort_keys=True)
+    assert (
+        bundle.require_recovery_baseline_bundle(
+            bundle_path=Path(info["bundle_path"]),
+            trusted_recovery_seal=_seal(info),
+        )
+        == info
+    )
+
+
+def test_override_includes_new_trusted_key_only_after_live_inventory_contains_it(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    env_path = inputs["trusted"] / ".env"
+    _private_file(env_path, env_path.read_bytes() + b"FUTURE_ONLY=disabled\n")
+
+    info = _materialize(
+        inputs,
+        FakeRunner(),
+        baseline_environment_names=(
+            BASELINE_ENVIRONMENT_NAMES | {"FUTURE_ONLY", "IMAGE_DEFAULT_ONLY"}
+        ),
+    )
+
+    override = Path(info["compose_files"][2]).read_text(encoding="utf-8")
+    assert "FUTURE_ONLY=${FUTURE_ONLY}" in override
+    assert "IMAGE_DEFAULT_ONLY" not in override
+
+
 @pytest.mark.parametrize(
     ("key", "value"),
     [
@@ -493,6 +593,26 @@ def test_pre_journal_reuse_rejects_changed_render_environment(
         match="existing_bundle_render_environment_mismatch",
     ):
         _materialize(inputs, runner, render_environment=changed)
+
+
+def test_pre_journal_reuse_rejects_changed_live_baseline_environment_names(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    runner = FakeRunner()
+    _materialize(inputs, runner)
+
+    with pytest.raises(
+        bundle.BaselineBundleError,
+        match="existing_bundle_semantics_mismatch",
+    ):
+        _materialize(
+            inputs,
+            runner,
+            baseline_environment_names=(
+                BASELINE_ENVIRONMENT_NAMES - {"LOCAL_ONLY"}
+            ),
+        )
 
 
 def test_pre_journal_reuse_rejects_changed_trusted_environment(
@@ -611,6 +731,18 @@ def test_occupied_bundle_cannot_self_sign_different_override_semantics(
         bundle.BaselineBundleError, match="existing_bundle_semantics_mismatch"
     ):
         _materialize(inputs, runner)
+    forged_seal = {
+        "contract_name": bundle.RECOVERY_SEAL_CONTRACT,
+        "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        "plan_sha256": first["plan_sha256"],
+    }
+    with pytest.raises(
+        bundle.BaselineBundleError, match="existing_bundle_semantics_mismatch"
+    ):
+        bundle.require_recovery_baseline_bundle(
+            bundle_path=root,
+            trusted_recovery_seal=forged_seal,
+        )
     with pytest.raises(
         bundle.BaselineBundleError, match="trusted_recovery_seal_mismatch"
     ):
@@ -913,7 +1045,7 @@ def test_rejects_non_ancestor_and_occupied_bundle_path(
     ):
         _materialize(inputs, FakeRunner(ancestor=False))
 
-    occupied = inputs["bundle_parent"] / "api-baseline-v2-baseline-plan-001"
+    occupied = inputs["bundle_parent"] / "api-baseline-v3-baseline-plan-001"
     occupied.symlink_to(inputs["trusted"], target_is_directory=True)
     with pytest.raises(bundle.BaselineBundleError, match="bundle_path_occupied"):
         _materialize(inputs, FakeRunner())
@@ -1014,7 +1146,11 @@ def test_dotenv_parser_accepts_only_bounded_single_line_quotes(
         b"EXPLICIT='fixed'\nENV_ONLY=\"one\\nline\"\nPLAIN=value # note\n",
     )
 
-    info = _materialize(inputs, FakeRunner())
+    info = _materialize(
+        inputs,
+        FakeRunner(),
+        baseline_environment_names=BASELINE_ENVIRONMENT_NAMES | {"PLAIN"},
+    )
 
     override = Path(info["compose_files"][2]).read_text(encoding="utf-8")
     assert "ENV_ONLY=${ENV_ONLY}" in override
@@ -1059,6 +1195,7 @@ def test_real_git_replace_ref_cannot_change_exact_historical_blobs(
         repository_root=repository,
         bundle_parent=inputs["bundle_parent"],
         render_environment=_render_environment(inputs),
+        baseline_environment_names=BASELINE_ENVIRONMENT_NAMES,
         test_runner=None,
         durable_root_check=lambda _path: None,
     )
@@ -1106,6 +1243,7 @@ def test_real_git_graft_cannot_forge_origin_main_ancestry(
             repository_root=repository,
             bundle_parent=inputs["bundle_parent"],
             render_environment=_render_environment(inputs),
+            baseline_environment_names=BASELINE_ENVIRONMENT_NAMES,
             test_runner=None,
             durable_root_check=lambda _path: None,
         )
@@ -1145,6 +1283,7 @@ def test_descriptor_bound_git_reads_linked_worktree(
         repository_root=linked,
         bundle_parent=inputs["bundle_parent"],
         render_environment=_render_environment(inputs),
+        baseline_environment_names=BASELINE_ENVIRONMENT_NAMES,
         test_runner=None,
         durable_root_check=lambda _path: None,
     )
@@ -1164,6 +1303,7 @@ def test_sealed_recovery_ignores_current_origin_fast_forward_and_rewrite(
         repository_root=repository,
         bundle_parent=inputs["bundle_parent"],
         render_environment=_render_environment(inputs),
+        baseline_environment_names=BASELINE_ENVIRONMENT_NAMES,
         test_runner=None,
         durable_root_check=lambda _path: None,
     )
@@ -1220,6 +1360,7 @@ def test_production_git_ignores_hostile_path(
         repository_root=inputs["repository_root"],
         bundle_parent=inputs["bundle_parent"],
         render_environment=_render_environment(inputs),
+        baseline_environment_names=BASELINE_ENVIRONMENT_NAMES,
         test_runner=None,
         durable_root_check=lambda _path: None,
     )
@@ -1387,7 +1528,7 @@ def test_publish_race_never_overwrites_and_leaves_private_staging(
     with pytest.raises(bundle.BaselineBundleError, match="bundle_creation_race"):
         _materialize(inputs, FakeRunner())
 
-    destination = inputs["bundle_parent"] / "api-baseline-v2-baseline-plan-001"
+    destination = inputs["bundle_parent"] / "api-baseline-v3-baseline-plan-001"
     assert (destination / "owner-marker").read_bytes() == b"do-not-overwrite\n"
     staging = [
         entry

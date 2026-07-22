@@ -33,8 +33,8 @@ except ModuleNotFoundError:  # pragma: no cover - direct script import
     )
 
 
-BUNDLE_CONTRACT = "ea.memorial_api_baseline_bundle.v2"
-BUNDLE_VERSION = 2
+BUNDLE_CONTRACT = "ea.memorial_api_baseline_bundle.v3"
+BUNDLE_VERSION = 3
 BASELINE_RENDER_ENV_KEYS = frozenset(
     {
         "EA_MEMORIAL_DATA_HOST_PATH",
@@ -804,6 +804,26 @@ def _trusted_environment_names(env_raw: bytes, local_raw: bytes | None) -> set[s
     return names
 
 
+def _validated_baseline_environment_names(
+    names: Sequence[str] | set[str] | frozenset[str],
+) -> set[str]:
+    if isinstance(names, (str, bytes)):
+        raise BaselineBundleError("baseline_environment_names_invalid")
+    try:
+        values = list(names)
+    except (TypeError, ValueError) as exc:
+        raise BaselineBundleError("baseline_environment_names_invalid") from exc
+    if (
+        any(
+            not isinstance(name, str) or ENV_NAME_RE.fullmatch(name) is None
+            for name in values
+        )
+        or len(set(values)) != len(values)
+    ):
+        raise BaselineBundleError("baseline_environment_names_invalid")
+    return set(values)
+
+
 def _validated_render_environment(
     render_environment: Mapping[str, str],
 ) -> dict[str, str]:
@@ -1132,6 +1152,7 @@ def _require_bundle_semantics(
     ]
     | None,
     authoritative_render_environment: Mapping[str, str] | None,
+    authoritative_baseline_environment_names: set[str] | None,
 ) -> None:
     if manifest.get("origin_main_commit") != origin_main_commit:
         raise BaselineBundleError("existing_bundle_origin_main_mismatch")
@@ -1184,8 +1205,14 @@ def _require_bundle_semantics(
             _split_augmented_environment_local(retained_local)
         )
         if authoritative_environment is not None:
-            if authoritative_render_environment is None:
+            if (
+                authoritative_render_environment is None
+                or authoritative_baseline_environment_names is None
+            ):
                 raise BaselineBundleError("authoritative_render_environment_missing")
+            baseline_environment_names = _validated_baseline_environment_names(
+                authoritative_baseline_environment_names
+            )
             trusted_env, trusted_local, trusted_records = authoritative_environment
             validated_render_environment = _validated_render_environment(
                 authoritative_render_environment
@@ -1208,8 +1235,12 @@ def _require_bundle_semantics(
                 )
             trusted_names = _trusted_environment_names(trusted_env, trusted_local)
         else:
-            if authoritative_render_environment is not None:
+            if (
+                authoritative_render_environment is not None
+                or authoritative_baseline_environment_names is not None
+            ):
                 raise BaselineBundleError("authoritative_environment_missing")
+            baseline_environment_names = None
             trusted_names = _trusted_environment_names(
                 retained_env, trusted_local_prefix
             )
@@ -1222,12 +1253,11 @@ def _require_bundle_semantics(
                     "existing_bundle_trusted_environment_mismatch"
                 )
 
-        env_only = sorted(
+        available_env_only = (
             trusted_names
             - BASELINE_RENDER_ENV_KEYS
             - _explicit_environment_names(blobs)
         )
-        expected_override = _override(env_only)
         retained_override, retained_override_record = _read_at(
             directory_fd,
             NORMALIZATION_OVERRIDE,
@@ -1235,6 +1265,16 @@ def _require_bundle_semantics(
             reason="retained_override",
         )
         assert retained_override is not None
+        retained_override_names, _reset = _compose_environment_names(
+            retained_override
+        )
+        if baseline_environment_names is None:
+            if not retained_override_names <= available_env_only:
+                raise BaselineBundleError("existing_bundle_semantics_mismatch")
+            env_only = sorted(retained_override_names)
+        else:
+            env_only = sorted(available_env_only & baseline_environment_names)
+        expected_override = _override(env_only)
         recorded_override = compose_records[2]
         if (
             retained_override != expected_override
@@ -1375,6 +1415,7 @@ def require_recovery_baseline_bundle(
         blobs=retained_blobs,
         authoritative_environment=None,
         authoritative_render_environment=None,
+        authoritative_baseline_environment_names=None,
     )
     return require_baseline_bundle_seal(_info(manifest, digest))
 
@@ -1481,6 +1522,7 @@ def _materialize_baseline_bundle(
     repository_root: Path,
     bundle_parent: Path,
     render_environment: Mapping[str, str] | None,
+    baseline_environment_names: Sequence[str] | set[str] | frozenset[str] | None,
     trusted_recovery_seal: Mapping[str, object] | None = None,
     test_hooks: _TestHooks | None,
 ) -> dict[str, Any]:
@@ -1504,10 +1546,16 @@ def _materialize_baseline_bundle(
             trusted_recovery_seal, plan_sha=plan_sha
         )
     fresh_render_environment: dict[str, str] | None = None
+    fresh_baseline_environment_names: set[str] | None = None
     if trusted_recovery_seal is None:
         if render_environment is None:
             raise BaselineBundleError("render_environment_missing")
+        if baseline_environment_names is None:
+            raise BaselineBundleError("baseline_environment_names_missing")
         fresh_render_environment = _validated_render_environment(render_environment)
+        fresh_baseline_environment_names = _validated_baseline_environment_names(
+            baseline_environment_names
+        )
         if (
             fresh_render_environment["EA_SOURCE_REVISION"] != revision
             or fresh_render_environment["EA_MEMORIAL_IMAGE"]
@@ -1523,7 +1571,7 @@ def _materialize_baseline_bundle(
     parent = _path(bundle_parent, "bundle_parent_invalid")
     durable_root_check(parent)
     parent_fd = _open_dir(parent, private=True, owner=True)
-    name = "api-baseline-v2-" + str(plan["plan_id"])
+    name = "api-baseline-v3-" + str(plan["plan_id"])
     if not NAME_RE.fullmatch(name):
         os.close(parent_fd)
         raise BaselineBundleError("bundle_name_invalid")
@@ -1591,6 +1639,9 @@ def _materialize_baseline_bundle(
                 blobs=blobs,
                 authoritative_environment=authoritative_environment,
                 authoritative_render_environment=fresh_render_environment,
+                authoritative_baseline_environment_names=(
+                    fresh_baseline_environment_names
+                ),
             )
             info = _info(manifest, digest)
             _revalidate_directory(parent, parent_fd, "bundle_parent_changed")
@@ -1609,9 +1660,12 @@ def _materialize_baseline_bundle(
             local_raw, fresh_render_environment
         )
         env_only = sorted(
-            trusted_names
-            - BASELINE_RENDER_ENV_KEYS
-            - _explicit_environment_names(blobs)
+            (
+                trusted_names
+                - BASELINE_RENDER_ENV_KEYS
+                - _explicit_environment_names(blobs)
+            )
+            & fresh_baseline_environment_names
         )
         override_raw = _override(env_only)
 
@@ -1681,6 +1735,7 @@ def _materialize_baseline_bundle(
             trusted_environment_records,
         ),
         authoritative_render_environment=fresh_render_environment,
+        authoritative_baseline_environment_names=fresh_baseline_environment_names,
     )
     return require_baseline_bundle_seal(_info(manifest, digest))
 
@@ -1691,6 +1746,9 @@ def materialize_baseline_bundle(
     repository_root: Path,
     bundle_parent: Path,
     render_environment: Mapping[str, str] | None,
+    baseline_environment_names: (
+        Sequence[str] | set[str] | frozenset[str] | None
+    ) = None,
     trusted_recovery_seal: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     """Production entry point with fixed Git and durability policy."""
@@ -1699,6 +1757,7 @@ def materialize_baseline_bundle(
         repository_root=repository_root,
         bundle_parent=bundle_parent,
         render_environment=render_environment,
+        baseline_environment_names=baseline_environment_names,
         trusted_recovery_seal=trusted_recovery_seal,
         test_hooks=None,
     )
@@ -1710,6 +1769,9 @@ def _materialize_baseline_bundle_for_test(
     repository_root: Path,
     bundle_parent: Path,
     render_environment: Mapping[str, str] | None,
+    baseline_environment_names: (
+        Sequence[str] | set[str] | frozenset[str] | None
+    ) = None,
     test_runner: Runner | None,
     trusted_recovery_seal: Mapping[str, object] | None = None,
     durable_root_check: Callable[[Path], None],
@@ -1724,6 +1786,7 @@ def _materialize_baseline_bundle_for_test(
         repository_root=repository_root,
         bundle_parent=bundle_parent,
         render_environment=render_environment,
+        baseline_environment_names=baseline_environment_names,
         trusted_recovery_seal=trusted_recovery_seal,
         test_hooks=hooks,
     )

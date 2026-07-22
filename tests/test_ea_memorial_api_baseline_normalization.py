@@ -267,9 +267,10 @@ def _bundle(bundle_root: Path) -> dict[str, Any]:
     ("contract_name", "version", "local_present", "accepted"),
     [
         ("ea.memorial_api_baseline_bundle.v1", 1, False, False),
-        ("ea.memorial_api_baseline_bundle.v2", 2, True, True),
-        ("ea.memorial_api_baseline_bundle.v1", 2, True, False),
-        ("ea.memorial_api_baseline_bundle.v2", 1, False, False),
+        ("ea.memorial_api_baseline_bundle.v2", 2, True, False),
+        ("ea.memorial_api_baseline_bundle.v3", 3, True, True),
+        ("ea.memorial_api_baseline_bundle.v1", 3, True, False),
+        ("ea.memorial_api_baseline_bundle.v3", 1, False, False),
     ],
 )
 def test_recovery_bundle_loader_accepts_only_exact_current_contract_pair(
@@ -421,6 +422,46 @@ def test_live_bundle_render_environment_is_exact_and_excludes_runtime_secret(
     assert "EA_PUBLIC_MEMORIAL_REDIS_URL" not in rendered
 
 
+def test_live_bundle_environment_names_are_value_free_and_exact(
+    lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
+) -> None:
+    lane = lane_factory()
+    inspection = _live_api_render_input()
+
+    names = lane._live_bundle_environment_names({"api_raw": inspection})
+
+    assert names == frozenset(
+        entry.split("=", 1)[0] for entry in inspection["Config"]["Env"]
+    )
+    assert "redis://private.invalid:6379/0" not in names
+
+    inspection["Config"]["Env"].append(
+        "EA_PUBLIC_MEMORIAL_REDIS_URL=duplicate-secret"
+    )
+    with pytest.raises(
+        deploy.DeployError, match="normalization_live_environment_invalid"
+    ):
+        lane._live_bundle_environment_names({"api_raw": inspection})
+
+
+@pytest.mark.parametrize(
+    "invalid_entry",
+    [None, "MISSING_EQUALS", "INVALID-NAME=value", "NUL\x00NAME=value"],
+)
+def test_live_bundle_environment_names_reject_malformed_entries(
+    lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
+    invalid_entry: object,
+) -> None:
+    lane = lane_factory()
+    inspection = _live_api_render_input()
+    inspection["Config"]["Env"].append(invalid_entry)
+
+    with pytest.raises(
+        deploy.DeployError, match="normalization_live_environment_invalid"
+    ):
+        lane._live_bundle_environment_names({"api_raw": inspection})
+
+
 def test_live_bundle_render_environment_fails_closed_on_mount_or_source_drift(
     lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
 ) -> None:
@@ -454,15 +495,18 @@ def test_live_bundle_render_environment_fails_closed_on_mount_or_source_drift(
         )
 
 
-@pytest.mark.parametrize("render_drift", [False, True])
+@pytest.mark.parametrize(
+    "drift",
+    ["none", "render_value", "environment_name"],
+)
 def test_fresh_preparation_seals_live_render_inputs_and_rechecks_drift(
     lane_factory: Callable[..., normalization.ApiBaselineNormalizationLane],
-    render_drift: bool,
+    drift: str,
 ) -> None:
     lane = lane_factory()
     before_api = _live_api_render_input()
     after_api = json.loads(json.dumps(before_api))
-    if render_drift:
+    if drift == "render_value":
         after_api["Config"]["Env"] = [
             (
                 "EA_TRUSTED_PROXY_CIDRS=10.0.0.0/8"
@@ -471,6 +515,8 @@ def test_fresh_preparation_seals_live_render_inputs_and_rechecks_drift(
             )
             for entry in after_api["Config"]["Env"]
         ]
+    elif drift == "environment_name":
+        after_api["Config"]["Env"].append("FUTURE_DISABLED_KEY=0")
     image_reference = str(before_api["Config"]["Image"])
     repository = {
         "branch": "main",
@@ -499,8 +545,9 @@ def test_fresh_preparation_seals_live_render_inputs_and_rechecks_drift(
         ]
     )
     captured: dict[str, str] = {}
+    captured_environment_names: set[str] = set()
     bundle = {
-        "bundle_path": str(lane.bundle_parent / "api-baseline-v2-plan"),
+        "bundle_path": str(lane.bundle_parent / "api-baseline-v3-plan"),
         "origin_main_commit": REVISION,
         "source_revision": REVISION,
     }
@@ -519,8 +566,10 @@ def test_fresh_preparation_seals_live_render_inputs_and_rechecks_drift(
         _parent: Path,
         _repository: Mapping[str, str],
         render_environment: Mapping[str, str],
+        baseline_environment_names: frozenset[str],
     ) -> dict[str, Any]:
         captured.update(render_environment)
+        captured_environment_names.update(baseline_environment_names)
         return dict(bundle)
 
     lane._materialize_fresh_bundle = materialize
@@ -530,10 +579,15 @@ def test_fresh_preparation_seals_live_render_inputs_and_rechecks_drift(
     lane._require_bundle_repository_binding = lambda *_args: None
     lane._compare_runtime_evidence = lambda *_args: {"status": "match"}
 
-    if render_drift:
+    if drift != "none":
+        expected_reason = (
+            "normalization_live_render_environment_changed"
+            if drift == "render_value"
+            else "normalization_live_environment_names_changed"
+        )
         with pytest.raises(
             deploy.DeployError,
-            match="normalization_live_render_environment_changed",
+            match=expected_reason,
         ):
             lane._prepare_fresh()
     else:
@@ -542,6 +596,9 @@ def test_fresh_preparation_seals_live_render_inputs_and_rechecks_drift(
         assert "render_environment" not in prepared
     assert set(captured) == normalization.BASELINE_RENDER_ENV_KEYS
     assert "EA_PUBLIC_MEMORIAL_REDIS_URL" not in captured
+    assert captured_environment_names == {
+        entry.split("=", 1)[0] for entry in before_api["Config"]["Env"]
+    }
 
 
 def test_operational_receipt_namespace_is_reserved(

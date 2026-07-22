@@ -157,6 +157,7 @@ REVISION_LABEL = "org.opencontainers.image.revision"
 REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 TRANSACTION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
 MAX_PRIVATE_JSON_BYTES = 2 * 1024 * 1024
 MAX_DOCKER_JSON_BYTES = 32 * 1024 * 1024
@@ -1828,6 +1829,7 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
         bundle_parent: Path,
         repository: Mapping[str, str],
         render_environment: Mapping[str, str],
+        baseline_environment_names: frozenset[str],
     ) -> dict[str, Any]:
         try:
             bundle = self.bundle_materializer(
@@ -1835,6 +1837,7 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
                 repository_root=self.root,
                 bundle_parent=bundle_parent,
                 render_environment=render_environment,
+                baseline_environment_names=baseline_environment_names,
             )
         except BaselineBundleError as exc:
             raise DeployError("normalization_bundle_materialization_failed") from exc
@@ -1877,6 +1880,25 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             raise DeployError("normalization_live_render_environment_invalid")
         return selected
 
+    @staticmethod
+    def _live_bundle_environment_names(
+        live: Mapping[str, Any],
+    ) -> frozenset[str]:
+        inspection = live.get("api_raw")
+        config = inspection.get("Config") if isinstance(inspection, Mapping) else None
+        entries = config.get("Env") if isinstance(config, Mapping) else None
+        if not isinstance(entries, list):
+            raise DeployError("normalization_live_environment_invalid")
+        names: set[str] = set()
+        for entry in entries:
+            if not isinstance(entry, str) or "\x00" in entry or "=" not in entry:
+                raise DeployError("normalization_live_environment_invalid")
+            name, _value = entry.split("=", 1)
+            if ENV_NAME_RE.fullmatch(name) is None or name in names:
+                raise DeployError("normalization_live_environment_invalid")
+            names.add(name)
+        return frozenset(names)
+
     def _prepare_fresh(self) -> dict[str, Any]:
         public_origin = self._fresh_public_origin()
         bundle_parent = self._private_fresh_bundle_parent()
@@ -1894,12 +1916,16 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             api_raw=runtime_before["api_raw"],
         )
         render_environment = self._live_bundle_render_environment(render_live_before)
+        baseline_environment_names = self._live_bundle_environment_names(
+            render_live_before
+        )
 
         bundle = self._materialize_fresh_bundle(
             plan,
             bundle_parent,
             repository_before,
             render_environment,
+            baseline_environment_names,
         )
         compose_before = self._render_bundle_compose(
             bundle,
@@ -1934,6 +1960,11 @@ class ApiBaselineNormalizationLane(MemorialDeployLane):
             raise DeployError("normalization_live_baseline_changed")
         if self._live_bundle_render_environment(live_after) != render_environment:
             raise DeployError("normalization_live_render_environment_changed")
+        if (
+            self._live_bundle_environment_names(live_after)
+            != baseline_environment_names
+        ):
+            raise DeployError("normalization_live_environment_names_changed")
         runtime_comparison = self._compare_runtime_evidence(
             runtime_before, runtime_after
         )

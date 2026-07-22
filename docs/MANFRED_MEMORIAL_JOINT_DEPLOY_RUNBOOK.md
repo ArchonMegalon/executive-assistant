@@ -111,7 +111,7 @@ make verify-ea-memorial-api-baseline-normalization
 Preflight requires clean current `main`, exact agreement among the plan, live
 container, immutable image, and Git source revision, and an exact reconstruction
 of the live API Compose hash. It creates a private sealed, tamper-evident
-Git-object/config/environment bundle. Bundle v2 reserves exactly five render
+Git-object/config/environment bundle. Bundle v3 reserves exactly five render
 inputs reconstructed from the already-validated live API: its immutable image,
 source revision, read-only Memorial data bind root, writable Memorial runtime
 bind root, and trusted proxy CIDRs. Those values are appended to the bundle's
@@ -120,6 +120,15 @@ never accepted from the caller environment. The two public source bindings
 (image reference and revision) remain in receipts and the recovery journal as
 required evidence; the two private host roots and proxy CIDRs do not. Any
 same-named entry in the trusted environment is an ambiguity and fails closed.
+For dotenv-only settings, v3 also derives a value-free environment-name
+inventory from the live API before and after rendering. The retained private
+environment files remain complete, but the canonical normalization override
+projects only trusted names already present in that stable live inventory.
+Newly inventoried disabled settings therefore cannot change the normalization
+baseline. The selected count and name-set digest are sealed in the manifest;
+the exact live Compose-hash equality gate proves the selected values without
+putting names or values into public receipts. Recovery replays that sealed
+canonical subset and never consults the then-current live inventory.
 The preflight also captures the API, cloudflared, Docker daemon, public-network,
 and twice-stable 12-probe public identities, and writes an operational preflight
 receipt. It does not create the recovery journal, protect or retag an image,
@@ -127,9 +136,11 @@ consume a permit, or invoke `compose up`.
 
 Bundle v1 is deliberately not recovery-compatible: it did not guarantee these
 five render values were retained and therefore cannot prove a caller-free
-restart after API mutation. Upgrade only while the canonical normalization
-journal is securely absent, retain any old bundle for audit, and create the
-distinct immutable v2 bundle. Never relabel or rewrite a v1 artifact as v2.
+restart after API mutation. Bundle v2 projected every eligible trusted
+dotenv-only name and cannot preserve an older live baseline after new disabled
+settings are inventoried. Upgrade only while the canonical normalization
+journal is securely absent, retain old bundles for audit, and create the
+distinct immutable v3 bundle. Never relabel or rewrite a v1/v2 artifact as v3.
 
 Do not execute while schema-v6 qualification is in soak, stale, unhealthy, or
 blocked. Once the root authority procedure below reports a fresh qualified
