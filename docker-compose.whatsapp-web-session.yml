@@ -55,7 +55,7 @@ services:
     container_name: ea-whatsapp-web-activator
     restart: unless-stopped
     env_file:
-      - .env
+      - .ea-runtime-secrets/ea_runtime.env
     working_dir: /app
     cpu_shares: ${EA_WHATSAPP_WEB_ACTIVATOR_CPU_SHARES:-32}
     cpus: ${EA_WHATSAPP_WEB_ACTIVATOR_CPUS:-0.25}
@@ -142,7 +142,7 @@ services:
     container_name: ea-whatsapp-web-action-processor
     restart: unless-stopped
     env_file:
-      - .env
+      - .ea-runtime-secrets/ea_runtime.env
     working_dir: /app
     cpu_shares: ${EA_WHATSAPP_WEB_ACTION_PROCESSOR_CPU_SHARES:-32}
     cpus: ${EA_WHATSAPP_WEB_ACTION_PROCESSOR_CPUS:-0.50}
@@ -288,7 +288,7 @@ services:
     container_name: ea-whatsapp-web-teable-sync
     restart: unless-stopped
     env_file:
-      - .env
+      - .ea-runtime-secrets/ea_runtime.env
     working_dir: /app
     cpu_shares: ${EA_WHATSAPP_WEB_TEABLE_SYNC_CPU_SHARES:-32}
     cpus: ${EA_WHATSAPP_WEB_TEABLE_SYNC_CPUS:-0.50}
