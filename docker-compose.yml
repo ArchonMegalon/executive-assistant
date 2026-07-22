@@ -867,8 +867,7 @@ volumes:
   ea_pgdata: {}
   ea_telegram_teable_sync: {}
   ea_public_tours:
-    external: true
-    name: property_propertyquarry_public_tours
+    name: ea_myexternalbrain_public_tours
   ea_provider_ledger: {}
   ea_whatsapp_web_actions:
     name: ea_whatsapp_web_actions

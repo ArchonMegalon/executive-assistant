@@ -388,6 +388,36 @@ def test_overlay_compose_pins_third_party_runtime_images_by_digest() -> None:
     )
 
 
+def test_ea_runtime_owns_its_tour_volume_and_tunnel_network() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.yml")
+    services = compose.get("services") or {}
+    volumes = compose.get("volumes") or {}
+    public_tours = volumes.get("ea_public_tours") or {}
+
+    assert public_tours == {"name": "ea_myexternalbrain_public_tours"}
+    for service_name in ("ea-api", "ea-worker", "ea-responses-proxy"):
+        service_volumes = [
+            str(item)
+            for item in list(
+                (services.get(service_name) or {}).get("volumes") or []
+            )
+        ]
+        assert "ea_public_tours:/data/public_property_tours" in service_volumes
+    assert "property_propertyquarry_public_tours" not in (
+        ROOT / "docker-compose.yml"
+    ).read_text(encoding="utf-8")
+
+    cloudflared = _load_yaml(ROOT / "docker-compose.cloudflared.yml")
+    cloudflared_service = (cloudflared.get("services") or {}).get(
+        "ea-cloudflared"
+    ) or {}
+    assert set(cloudflared_service.get("networks") or {}) == {"public_ingress"}
+    assert "property_default" not in cloudflared
+    assert "property_default" not in (
+        ROOT / "docker-compose.cloudflared.yml"
+    ).read_text(encoding="utf-8")
+
+
 def test_property_compose_keeps_api_loopback_only_and_applies_runtime_limits() -> None:
     compose = _load_yaml(ROOT / "docker-compose.property.yml")
     services = compose.get("services") or {}
