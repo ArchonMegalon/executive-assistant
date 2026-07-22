@@ -50,7 +50,12 @@ def _target_rendered() -> dict[str, object]:
                         ingress.PUBLIC_INGRESS_TRUSTED_PROXY_CIDR
                     ),
                 },
-                "networks": {"default": None, "public_ingress": None},
+                "networks": {
+                    "default": None,
+                    "public_ingress": {
+                        "ipv4_address": ingress.PUBLIC_INGRESS_API_IPV4
+                    },
+                },
             },
             ingress.CLOUDFLARED_SERVICE: {
                 "image": ingress.PINNED_CLOUDFLARED_IMAGE,
@@ -61,13 +66,12 @@ def _target_rendered() -> dict[str, object]:
                     "public_ingress": {
                         "ipv4_address": ingress.PUBLIC_INGRESS_CLOUDFLARED_IPV4
                     },
-                    "property_default": None,
                 },
                 **_security(),
             },
         },
         "networks": {
-            "default": {"name": "ea_default"},
+            "default": {"name": "ea_default", "ipam": {}},
             "public_ingress": {
                 "name": ingress.PUBLIC_INGRESS_NETWORK,
                 "ipam": {
@@ -79,7 +83,6 @@ def _target_rendered() -> dict[str, object]:
                     ]
                 },
             },
-            "property_default": {"name": ingress.PROPERTY_NETWORK},
         },
     }
 
@@ -98,14 +101,36 @@ def _prior_rendered() -> dict[str, object]:
         },
         "networks": {
             "default": {"name": "ea_default"},
-            "property_default": {"name": ingress.PROPERTY_NETWORK},
+            "property_default": {"name": ingress.LEGACY_PROPERTY_NETWORK},
         },
     }
 
 
 def _cloudflared_inspection(
-    root: Path, *, mounts: list[dict[str, object]] | None = None
+    root: Path,
+    *,
+    mounts: list[dict[str, object]] | None = None,
+    property_attached: bool = True,
 ) -> dict[str, object]:
+    networks = {
+        "ea_default": {
+            "NetworkID": "e" * 64,
+            "IPAddress": "172.22.0.4",
+            "Aliases": [
+                ingress.CLOUDFLARED_CONTAINER,
+                ingress.CLOUDFLARED_SERVICE,
+            ],
+        }
+    }
+    if property_attached:
+        networks[ingress.LEGACY_PROPERTY_NETWORK] = {
+            "NetworkID": PROPERTY_NETWORK_ID,
+            "IPAddress": "172.25.0.9",
+            "Aliases": [
+                ingress.CLOUDFLARED_CONTAINER,
+                ingress.CLOUDFLARED_SERVICE,
+            ],
+        }
     return {
         "Id": "cloudflared-container-id",
         "Created": "2026-07-17T00:00:00Z",
@@ -136,31 +161,17 @@ def _cloudflared_inspection(
             "SecurityOpt": ["no-new-privileges"],
         },
         "State": {"Running": True, "Restarting": False},
-        "NetworkSettings": {
-            "Networks": {
-                "ea_default": {
-                    "NetworkID": "e" * 64,
-                    "IPAddress": "172.22.0.4",
-                    "Aliases": [
-                        ingress.CLOUDFLARED_CONTAINER,
-                        ingress.CLOUDFLARED_SERVICE,
-                    ],
-                },
-                ingress.PROPERTY_NETWORK: {
-                    "NetworkID": PROPERTY_NETWORK_ID,
-                    "IPAddress": "172.25.0.9",
-                    "Aliases": [
-                        ingress.CLOUDFLARED_CONTAINER,
-                        ingress.CLOUDFLARED_SERVICE,
-                    ],
-                },
-            }
-        },
+        "NetworkSettings": {"Networks": networks},
         "Mounts": list(mounts or []),
     }
 
 
-def _api_inspection(*, stable: bool) -> dict[str, object]:
+def _api_inspection(
+    *,
+    stable: bool,
+    public_ipv4: str = ingress.PUBLIC_INGRESS_API_IPV4,
+    extra_network: bool = False,
+) -> dict[str, object]:
     environment = [
         "EA_TRUST_PROXY_HEADERS=1",
         (
@@ -175,14 +186,23 @@ def _api_inspection(*, stable: bool) -> dict[str, object]:
     ]
     networks = (
         {
+            ingress.DEFAULT_NETWORK: {
+                "NetworkID": "e" * 64,
+                "IPAddress": "172.22.0.12",
+            },
             ingress.PUBLIC_INGRESS_NETWORK: {
                 "NetworkID": NETWORK_ID,
-                "IPAddress": "172.31.254.3",
+                "IPAddress": public_ipv4,
             }
         }
         if stable
         else {"ea_default": {"NetworkID": "e" * 64, "IPAddress": "172.22.0.12"}}
     )
+    if stable and extra_network:
+        networks[ingress.LEGACY_PROPERTY_NETWORK] = {
+            "NetworkID": PROPERTY_NETWORK_ID,
+            "IPAddress": "172.25.0.12",
+        }
     return {
         "Id": "api-container-id",
         "Config": {
@@ -204,14 +224,20 @@ class FakeRunner:
         api_stable: bool = True,
         target_rendered: Mapping[str, object] | None = None,
         baseline_mounts: list[dict[str, object]] | None = None,
+        baseline_property_attached: bool = True,
         foreign_public_ipv4_owner: bool = False,
+        api_runtime_ipv4: str = ingress.PUBLIC_INGRESS_API_IPV4,
+        api_runtime_extra_network: bool = False,
         after_render: Callable[[], None] | None = None,
     ) -> None:
         self.root = root
         self.api_stable = api_stable
         self.target_rendered = dict(target_rendered or _target_rendered())
         self.baseline_mounts = list(baseline_mounts or [])
+        self.baseline_property_attached = baseline_property_attached
         self.foreign_public_ipv4_owner = foreign_public_ipv4_owner
+        self.api_runtime_ipv4 = api_runtime_ipv4
+        self.api_runtime_extra_network = api_runtime_extra_network
         self.after_render = after_render
         self.commands: list[tuple[str, ...]] = []
 
@@ -236,10 +262,16 @@ class FakeRunner:
             name = command[2]
             payload = (
                 _cloudflared_inspection(
-                    self.root, mounts=self.baseline_mounts
+                    self.root,
+                    mounts=self.baseline_mounts,
+                    property_attached=self.baseline_property_attached,
                 )
                 if name == ingress.CLOUDFLARED_CONTAINER
-                else _api_inspection(stable=self.api_stable)
+                else _api_inspection(
+                    stable=self.api_stable,
+                    public_ipv4=self.api_runtime_ipv4,
+                    extra_network=self.api_runtime_extra_network,
+                )
             )
             return _completed(args, stdout=json.dumps([payload]))
         if command[:3] == ("docker", "image", "inspect"):
@@ -268,7 +300,7 @@ class FakeRunner:
                 containers = {
                     "api-container-id": {
                         "Name": ingress.API_SERVICE,
-                        "IPv4Address": "172.31.254.3/29",
+                        "IPv4Address": f"{self.api_runtime_ipv4}/29",
                     }
                 }
                 if self.foreign_public_ipv4_owner:
@@ -310,7 +342,7 @@ class FakeRunner:
             else:
                 payload = {
                     "Id": PROPERTY_NETWORK_ID,
-                    "Name": ingress.PROPERTY_NETWORK,
+                    "Name": ingress.LEGACY_PROPERTY_NETWORK,
                     "Driver": "bridge",
                     "IPAM": {
                         "Driver": "default",
@@ -508,6 +540,79 @@ def test_target_compose_rejects_insecure_cloudflared_service(tmp_path: Path) -> 
         lane.run(preflight_only=True)
 
 
+@pytest.mark.parametrize(
+    "public_attachment",
+    [None, {"ipv4_address": "172.31.254.4"}],
+)
+def test_target_compose_requires_exact_api_static_ipv4(
+    tmp_path: Path,
+    public_attachment: object,
+) -> None:
+    root = _root(tmp_path)
+    rendered = _target_rendered()
+    rendered["services"][ingress.API_SERVICE]["networks"][
+        "public_ingress"
+    ] = public_attachment
+    lane = _lane(
+        tmp_path,
+        runner=FakeRunner(root, target_rendered=rendered),
+    )
+
+    with pytest.raises(
+        ingress.DeployError, match="target_api_public_ingress_ipv4_invalid"
+    ):
+        lane.run(preflight_only=True)
+
+
+def test_target_compose_rejects_extra_api_network(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    rendered = _target_rendered()
+    rendered["services"][ingress.API_SERVICE]["networks"][
+        "property_default"
+    ] = None
+    rendered["networks"]["property_default"] = {
+        "name": ingress.LEGACY_PROPERTY_NETWORK
+    }
+    lane = _lane(
+        tmp_path,
+        runner=FakeRunner(root, target_rendered=rendered),
+    )
+
+    with pytest.raises(ingress.DeployError, match="target_api_networks_invalid"):
+        lane.run(preflight_only=True)
+
+
+@pytest.mark.parametrize(
+    ("runner_kwargs", "reason"),
+    [
+        (
+            {"api_runtime_ipv4": "172.31.254.4"},
+            "public_ingress_api_runtime_network_missing",
+        ),
+        (
+            {"api_runtime_extra_network": True},
+            "public_ingress_api_runtime_networks_invalid",
+        ),
+    ],
+)
+def test_runtime_requires_exact_api_network_membership(
+    tmp_path: Path,
+    runner_kwargs: dict[str, object],
+    reason: str,
+) -> None:
+    root = _root(tmp_path)
+    lane = _lane(
+        tmp_path,
+        runner=FakeRunner(root, **runner_kwargs),
+    )
+
+    with pytest.raises(
+        ingress.DeployError, match="joint_api_ingress_coordinator_required"
+    ):
+        lane.run(preflight_only=True)
+    assert lane.receipt["coordinator"]["api_runtime_posture"] == reason
+
+
 def test_baseline_rejects_cloudflared_mounts(tmp_path: Path) -> None:
     root = _root(tmp_path)
     runner = FakeRunner(
@@ -525,6 +630,21 @@ def test_baseline_rejects_cloudflared_mounts(tmp_path: Path) -> None:
 
     with pytest.raises(
         ingress.DeployError, match="prior_cloudflared_mounts_invalid"
+    ):
+        lane.run(preflight_only=True)
+
+    _assert_no_mutation(runner.commands)
+
+
+def test_standalone_baseline_rejects_legacy_detached_property_render(
+    tmp_path: Path,
+) -> None:
+    root = _root(tmp_path)
+    runner = FakeRunner(root, baseline_property_attached=False)
+    lane = _lane(tmp_path, runner=runner)
+
+    with pytest.raises(
+        ingress.DeployError, match="prior_cloudflared_networks_mismatch"
     ):
         lane.run(preflight_only=True)
 

@@ -6201,6 +6201,208 @@ def test_observed_live_posture_maps_to_a_single_render_verified_capsule(
     ]["count"] == 3
 
 
+def test_static_ipv4_network_binding_round_trips_through_sealed_capsule(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    _configure_observed_live_rollback_posture(runner, release_root)
+    public_endpoint = runner.prior_networks["ea_public_ingress"]
+    assert isinstance(public_endpoint, dict)
+    public_endpoint["IPAMConfig"] = {"IPv4Address": "172.21.0.3"}
+    public_endpoint["IPAddress"] = "172.21.0.3"
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    context = lane.preflight()
+
+    capsule = json.loads(lane.rollback_capsule_path.read_text(encoding="utf-8"))
+    service_networks = capsule["services"]["ea-api"]["networks"]
+    assert [
+        options["ipv4_address"]
+        for options in service_networks.values()
+        if "ipv4_address" in options
+    ] == ["172.21.0.3"]
+    assert context["rollback_render"]["status"] == "pass"
+    assert context["rollback_render"]["network_count"] == 2
+    lane._clear_rollback_artifacts(terminal_status="discarded_test")
+
+
+def test_null_ipam_config_preserves_legacy_dynamic_attachment_shape(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    _configure_observed_live_rollback_posture(runner, release_root)
+    public_endpoint = runner.prior_networks["ea_public_ingress"]
+    assert isinstance(public_endpoint, dict)
+    public_endpoint["IPAMConfig"] = None
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+
+    lane.preflight()
+
+    capsule = json.loads(lane.rollback_capsule_path.read_text(encoding="utf-8"))
+    service_networks = capsule["services"]["ea-api"]["networks"]
+    assert all("ipv4_address" not in options for options in service_networks.values())
+    lane._clear_rollback_artifacts(terminal_status="discarded_test")
+
+
+@pytest.mark.parametrize(
+    ("ipam_config", "reason"),
+    [
+        ({}, "rollback_capsule_network_ipam_config_unsupported"),
+        (
+            {"IPv4Address": "172.21.0.3", "Unexpected": "value"},
+            "rollback_capsule_network_ipam_config_unsupported",
+        ),
+        (
+            {"IPv4Address": "172.21.0.3", "IPv6Address": ""},
+            "rollback_capsule_network_ipam_config_unsupported",
+        ),
+        (
+            {"IPv6Address": "2001:db8::3"},
+            "rollback_capsule_network_ipam_config_unsupported",
+        ),
+        ({"IPv4Address": "2001:db8::3"}, "rollback_capsule_static_ipv4_invalid"),
+        ({"IPv4Address": "172.21.0.999"}, "rollback_capsule_static_ipv4_invalid"),
+        ({"IPv4Address": 172021003}, "rollback_capsule_static_ipv4_invalid"),
+        ("172.21.0.3", "rollback_capsule_network_ipam_config_unsupported"),
+    ],
+)
+def test_unsupported_or_invalid_static_ipam_fails_before_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    ipam_config: object,
+    reason: str,
+) -> None:
+    runner = FakeRunner(release_root)
+    _configure_observed_live_rollback_posture(runner, release_root)
+    public_endpoint = runner.prior_networks["ea_public_ingress"]
+    assert isinstance(public_endpoint, dict)
+    public_endpoint["IPAMConfig"] = ipam_config
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(deploy.DeployError, match=reason):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+    assert not any(call[:3] == ["docker", "image", "tag"] for call in runner.calls)
+
+
+def test_static_ipv4_render_drift_fails_before_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    _configure_observed_live_rollback_posture(runner, release_root)
+    public_endpoint = runner.prior_networks["ea_public_ingress"]
+    assert isinstance(public_endpoint, dict)
+    public_endpoint["IPAMConfig"] = {"IPv4Address": "172.21.0.3"}
+
+    def perturb(rendered: dict[str, object]) -> None:
+        service = dict(rendered["services"])["ea-api"]
+        static_options = next(
+            options
+            for options in service["networks"].values()
+            if "ipv4_address" in options
+        )
+        static_options["ipv4_address"] = "172.21.0.4"
+
+    runner.rollback_capsule_render_mutator = perturb
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="rollback_capsule_render_functional_identity_mismatch:networks",
+    ):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+
+
+@pytest.mark.parametrize("ipv6_address", ["2001:db8::3", ""])
+def test_rendered_ipv6_network_binding_is_rejected_before_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    ipv6_address: str,
+) -> None:
+    runner = FakeRunner(release_root)
+
+    def perturb(rendered: dict[str, object]) -> None:
+        service = dict(rendered["services"])["ea-api"]
+        first_options = next(iter(service["networks"].values()))
+        first_options["ipv6_address"] = ipv6_address
+
+    _configure_observed_live_rollback_posture(runner, release_root)
+    runner.rollback_capsule_render_mutator = perturb
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match=(
+            "rollback_capsule_render_service_network_field_unsupported:"
+            "ipv6_address"
+        ),
+    ):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+
+
+@pytest.mark.parametrize(
+    "ipv4_address",
+    [False, 0, "", "2001:db8::3", "172.21.0.999"],
+)
+def test_invalid_rendered_static_ipv4_is_rejected_before_mutation(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    ipv4_address: object,
+) -> None:
+    runner = FakeRunner(release_root)
+
+    def perturb(rendered: dict[str, object]) -> None:
+        service = dict(rendered["services"])["ea-api"]
+        first_options = next(iter(service["networks"].values()))
+        first_options["ipv4_address"] = ipv4_address
+
+    _configure_observed_live_rollback_posture(runner, release_root)
+    runner.rollback_capsule_render_mutator = perturb
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+
+    with pytest.raises(
+        deploy.DeployError,
+        match="rollback_capsule_render_static_ipv4_invalid",
+    ):
+        _lane(release_root, runner).deploy(preflight_only=True)
+
+    assert not any("up" in call for call in runner.calls)
+
+
 def test_postrollback_host_config_drift_retains_crash_recovery_artifacts(
     release_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -6455,6 +6657,10 @@ def test_real_compose_config_normalization_round_trips_every_runtime_domain(
 
     runner = FakeRunner(release_root)
     _configure_observed_live_rollback_posture(runner, release_root)
+    public_endpoint = runner.prior_networks["ea_public_ingress"]
+    assert isinstance(public_endpoint, dict)
+    public_endpoint["IPAMConfig"] = {"IPv4Address": "172.21.0.3"}
+    public_endpoint["IPAddress"] = "172.21.0.3"
     lane = _lane(release_root, runner)
     inspection = json.loads(
         runner.run(
@@ -6512,6 +6718,14 @@ def test_real_compose_config_normalization_round_trips_every_runtime_domain(
     assert rendered_service["extra_hosts"] == [
         "host.docker.internal=host-gateway"
     ]
+    assert [
+        options["ipv4_address"]
+        for options in rendered_service["networks"].values()
+        if "ipv4_address" in options
+    ] == ["172.21.0.3"]
+    assert projected["NetworkSettings"]["Networks"]["ea_public_ingress"][
+        "IPAMConfig"
+    ] == {"IPv4Address": "172.21.0.3"}
     assert not any(
         token in completed.args for token in ("up", "start", "create", "run")
     )
@@ -6582,6 +6796,39 @@ def test_recover_active_reconciles_sigkill_equivalent_persisted_states(
     assert "container-ea-api" not in json.dumps(result, sort_keys=True)
     assert "container_id" not in dict(result["verification"])
     assert len(str(dict(result["verification"])["container_id_sha256"])) == 64
+    assert not lane.rollback_capsule_path.exists()
+    assert not lane.joint_recovery_journal_path.exists()
+
+
+def test_active_recovery_round_trips_static_ipv4_binding(
+    release_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner(release_root)
+    _configure_observed_live_rollback_posture(runner, release_root)
+    public_endpoint = runner.prior_networks["ea_public_ingress"]
+    assert isinstance(public_endpoint, dict)
+    public_endpoint["IPAMConfig"] = {"IPv4Address": "172.21.0.3"}
+    public_endpoint["IPAddress"] = "172.21.0.3"
+    monkeypatch.setattr(
+        deploy,
+        "source_worktree_metadata",
+        lambda *_args, **_kwargs: {"source_worktree_dirty": False},
+    )
+    lane = _lane(release_root, runner)
+    _arm_test_active_recovery(lane)
+    runner.api_present = False
+    recovery = _lane(
+        release_root,
+        runner,
+        receipt_dir=lane.receipt_dir,
+        global_lock_path=lane.global_lock_path,
+    )
+
+    result = recovery.recover_active()
+
+    assert result["status"] == "rollback_verified"
+    assert result["api_mutation_count"] == 1
     assert not lane.rollback_capsule_path.exists()
     assert not lane.joint_recovery_journal_path.exists()
 

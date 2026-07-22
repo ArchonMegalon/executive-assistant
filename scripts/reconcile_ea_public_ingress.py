@@ -81,10 +81,12 @@ CLOUDFLARED_SERVICE = "ea-cloudflared"
 CLOUDFLARED_CONTAINER = "externalbrain-cloudflared"
 TARGET_COMPOSE_FILES = ("docker-compose.yml", "docker-compose.cloudflared.yml")
 PUBLIC_INGRESS_NETWORK = "ea_public_ingress"
-PROPERTY_NETWORK = "property_default"
+DEFAULT_NETWORK = f"{PROJECT_NAME}_default"
+LEGACY_PROPERTY_NETWORK = "property_default"
 PUBLIC_INGRESS_SUBNET = "172.31.254.0/29"
 PUBLIC_INGRESS_GATEWAY = "172.31.254.1"
 PUBLIC_INGRESS_CLOUDFLARED_IPV4 = "172.31.254.2"
+PUBLIC_INGRESS_API_IPV4 = "172.31.254.3"
 PUBLIC_INGRESS_TRUSTED_PROXY_CIDR = "172.31.254.2/32"
 PINNED_CLOUDFLARED_IMAGE = (
     "cloudflare/cloudflared:latest@sha256:"
@@ -520,7 +522,11 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
             result[key] = str(definition.get("name") or key)
         return result
 
-    def _capture_cloudflared_baseline(self) -> dict[str, Any]:
+    def _capture_cloudflared_baseline(
+        self,
+        *,
+        allow_legacy_property_detached: bool = False,
+    ) -> dict[str, Any]:
         inspection = self._inspect_container(CLOUDFLARED_CONTAINER)
         self._require_compose_identity(
             inspection,
@@ -579,12 +585,26 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
             raise DeployError("prior_cloudflared_mounts_invalid")
         if _mount_identities(inspection):
             raise DeployError("prior_cloudflared_mounts_invalid")
-        rendered_networks = set(self._actual_network_names(rendered, service).values())
+        rendered_network_names = self._actual_network_names(rendered, service)
+        rendered_networks = set(rendered_network_names.values())
         runtime_network_payload = dict(
             dict(inspection.get("NetworkSettings") or {}).get("Networks") or {}
         )
-        if set(runtime_network_payload) != rendered_networks:
-            raise DeployError("prior_cloudflared_networks_mismatch")
+        runtime_networks = set(runtime_network_payload)
+        if runtime_networks != rendered_networks:
+            default_network = str(rendered_network_names.get("default") or "")
+            if not (
+                allow_legacy_property_detached
+                and set(rendered_network_names)
+                == {"default", LEGACY_PROPERTY_NETWORK}
+                and default_network
+                and rendered_network_names.get(LEGACY_PROPERTY_NETWORK)
+                == LEGACY_PROPERTY_NETWORK
+                and runtime_networks == {default_network}
+                and rendered_networks
+                == {default_network, LEGACY_PROPERTY_NETWORK}
+            ):
+                raise DeployError("prior_cloudflared_networks_mismatch")
         container_id = str(inspection.get("Id") or "")
         if not container_id:
             raise DeployError("prior_cloudflared_container_identity_invalid")
@@ -719,10 +739,7 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
         if _rendered_security_identity(cloudflared) != expected_security:
             raise DeployError("target_cloudflared_security_invalid")
         cloudflared_networks = self._actual_network_names(rendered, cloudflared)
-        if set(cloudflared_networks.values()) != {
-            PUBLIC_INGRESS_NETWORK,
-            PROPERTY_NETWORK,
-        }:
+        if set(cloudflared_networks.values()) != {PUBLIC_INGRESS_NETWORK}:
             raise DeployError("target_cloudflared_networks_invalid")
         public_key = next(
             key
@@ -740,27 +757,37 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
             != PUBLIC_INGRESS_TRUSTED_PROXY_CIDR
         ):
             raise DeployError("target_api_trusted_proxy_invalid")
-        if PUBLIC_INGRESS_NETWORK not in set(
-            self._actual_network_names(rendered, api).values()
-        ):
-            raise DeployError("target_api_public_ingress_missing")
-        networks = dict(rendered.get("networks") or {})
-        public_definition = next(
-            (
-                dict(value)
-                for value in networks.values()
-                if isinstance(value, dict)
-                and str(value.get("name") or "") == PUBLIC_INGRESS_NETWORK
-            ),
-            {},
-        )
-        ipam_configs = list(dict(public_definition.get("ipam") or {}).get("config") or [])
-        if len(ipam_configs) != 1 or not isinstance(ipam_configs[0], dict):
-            raise DeployError("target_public_ingress_ipam_invalid")
+        api_networks = self._actual_network_names(rendered, api)
+        if api_networks != {
+            "default": DEFAULT_NETWORK,
+            "public_ingress": PUBLIC_INGRESS_NETWORK,
+        }:
+            raise DeployError("target_api_networks_invalid")
+        api_public_key = "public_ingress"
+        raw_api_networks = dict(api.get("networks") or {})
+        api_public_attachment = raw_api_networks.get(api_public_key)
         if (
-            ipam_configs[0].get("subnet") != PUBLIC_INGRESS_SUBNET
-            or ipam_configs[0].get("gateway") != PUBLIC_INGRESS_GATEWAY
+            not isinstance(api_public_attachment, Mapping)
+            or dict(api_public_attachment).get("ipv4_address")
+            != PUBLIC_INGRESS_API_IPV4
         ):
+            raise DeployError("target_api_public_ingress_ipv4_invalid")
+        networks = dict(rendered.get("networks") or {})
+        expected_networks = {
+            "default": {"name": DEFAULT_NETWORK, "ipam": {}},
+            "public_ingress": {
+                "name": PUBLIC_INGRESS_NETWORK,
+                "ipam": {
+                    "config": [
+                        {
+                            "subnet": PUBLIC_INGRESS_SUBNET,
+                            "gateway": PUBLIC_INGRESS_GATEWAY,
+                        }
+                    ]
+                },
+            },
+        }
+        if networks != expected_networks:
             raise DeployError("target_public_ingress_ipam_invalid")
         self._record_check(
             "target_compose",
@@ -778,6 +805,7 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
             cloudflared_mount_count=0,
             public_ingress_network=PUBLIC_INGRESS_NETWORK,
             cloudflared_ipv4=PUBLIC_INGRESS_CLOUDFLARED_IPV4,
+            api_ipv4=PUBLIC_INGRESS_API_IPV4,
             trusted_proxy_cidr=PUBLIC_INGRESS_TRUSTED_PROXY_CIDR,
         )
         return rendered
@@ -874,8 +902,14 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
         attachments = dict(
             dict(api.get("NetworkSettings") or {}).get("Networks") or {}
         )
+        if set(attachments) != {DEFAULT_NETWORK, PUBLIC_INGRESS_NETWORK}:
+            raise DeployError("public_ingress_api_runtime_networks_invalid")
         endpoint = attachments.get(PUBLIC_INGRESS_NETWORK)
-        if not isinstance(endpoint, dict) or not str(endpoint.get("NetworkID") or ""):
+        if (
+            not isinstance(endpoint, dict)
+            or not str(endpoint.get("NetworkID") or "")
+            or str(endpoint.get("IPAddress") or "") != PUBLIC_INGRESS_API_IPV4
+        ):
             raise DeployError("public_ingress_api_runtime_network_missing")
         network = self._inspect_network(PUBLIC_INGRESS_NETWORK)
         if str(network.get("Name") or "") != PUBLIC_INGRESS_NETWORK:
@@ -887,47 +921,72 @@ class PublicIngressReconciliationLane(MemorialDeployLane):
             str(network.get("Driver") or "") != "bridge"
             or str(dict(network.get("IPAM") or {}).get("Driver") or "")
             != "default"
-            or ipam[0].get("Subnet") != PUBLIC_INGRESS_SUBNET
-            or ipam[0].get("Gateway") != PUBLIC_INGRESS_GATEWAY
+            or ipam
+            != [
+                {
+                    "Subnet": PUBLIC_INGRESS_SUBNET,
+                    "Gateway": PUBLIC_INGRESS_GATEWAY,
+                }
+            ]
+            or bool(network.get("Internal"))
+            or bool(network.get("Attachable"))
             or str(network.get("Id") or "") != str(endpoint.get("NetworkID") or "")
         ):
             raise DeployError("public_ingress_runtime_ipam_invalid")
-        baseline_container = dict(baseline.get("container") or {})
-        baseline_container_id = str(baseline_container.get("id") or "")
-        ipv4_owners = []
-        for container_id, raw_membership in dict(
-            network.get("Containers") or {}
-        ).items():
-            membership = (
-                dict(raw_membership) if isinstance(raw_membership, dict) else {}
-            )
-            address = str(membership.get("IPv4Address") or "").split("/", 1)[0]
-            if address == PUBLIC_INGRESS_CLOUDFLARED_IPV4:
-                ipv4_owners.append(
-                    {
-                        "container_id": str(container_id),
-                        "name": str(membership.get("Name") or ""),
-                    }
-                )
-        if ipv4_owners not in (
-            [],
-            [
-                {
-                    "container_id": baseline_container_id,
-                    "name": CLOUDFLARED_CONTAINER,
-                }
-            ],
+        api_container_id = str(api.get("Id") or "")
+        api_membership = dict(network.get("Containers") or {}).get(api_container_id)
+        if not isinstance(api_membership, dict) or (
+            str(api_membership.get("Name") or "") != API_SERVICE
+            or str(api_membership.get("IPv4Address") or "").split("/", 1)[0]
+            != PUBLIC_INGRESS_API_IPV4
+        ):
+            raise DeployError("public_ingress_api_runtime_membership_invalid")
+        baseline_container_id = str(
+            dict(baseline.get("container") or {}).get("id") or ""
+        )
+        expected_memberships = {
+            api_container_id: {
+                "Name": API_SERVICE,
+                "IPv4Address": f"{PUBLIC_INGRESS_API_IPV4}/29",
+                "IPv6Address": "",
+            }
+        }
+        raw_memberships = dict(network.get("Containers") or {})
+        if baseline_container_id in raw_memberships:
+            expected_memberships[baseline_container_id] = {
+                "Name": CLOUDFLARED_CONTAINER,
+                "IPv4Address": f"{PUBLIC_INGRESS_CLOUDFLARED_IPV4}/29",
+                "IPv6Address": "",
+            }
+        normalized_memberships = {
+            str(container_id): {
+                "Name": str(dict(raw).get("Name") or ""),
+                "IPv4Address": str(dict(raw).get("IPv4Address") or ""),
+                "IPv6Address": str(dict(raw).get("IPv6Address") or ""),
+            }
+            for container_id, raw in raw_memberships.items()
+            if isinstance(raw, Mapping)
+        }
+        if (
+            len(normalized_memberships) != len(raw_memberships)
+            or normalized_memberships != expected_memberships
         ):
             raise DeployError("public_ingress_cloudflared_ipv4_not_available")
-        property_network = self._inspect_network(PROPERTY_NETWORK)
         self._record_check(
             "api_runtime_public_ingress",
             "pass",
             network_id=str(network.get("Id") or ""),
-            property_network_id=str(property_network.get("Id") or ""),
+            api_ipv4=PUBLIC_INGRESS_API_IPV4,
             trusted_proxy_cidr=PUBLIC_INGRESS_TRUSTED_PROXY_CIDR,
             source_revision=self.source_revision,
-            cloudflared_ipv4_owner=(ipv4_owners[0] if ipv4_owners else None),
+            cloudflared_ipv4_owner=(
+                {
+                    "container_id": baseline_container_id,
+                    "name": CLOUDFLARED_CONTAINER,
+                }
+                if baseline_container_id in raw_memberships
+                else None
+            ),
         )
 
     def _verify_public_origin(self) -> dict[str, Any]:

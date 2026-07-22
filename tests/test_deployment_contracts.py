@@ -388,13 +388,16 @@ def test_overlay_compose_pins_third_party_runtime_images_by_digest() -> None:
     )
 
 
-def test_ea_runtime_owns_its_tour_volume_and_tunnel_network() -> None:
+def test_ea_runtime_preserves_tour_publication_volume_and_isolates_tunnel_network() -> None:
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}
     volumes = compose.get("volumes") or {}
     public_tours = volumes.get("ea_public_tours") or {}
 
-    assert public_tours == {"name": "ea_myexternalbrain_public_tours"}
+    assert public_tours == {
+        "external": True,
+        "name": "property_propertyquarry_public_tours",
+    }
     for service_name in ("ea-api", "ea-worker", "ea-responses-proxy"):
         service_volumes = [
             str(item)
@@ -403,10 +406,6 @@ def test_ea_runtime_owns_its_tour_volume_and_tunnel_network() -> None:
             )
         ]
         assert "ea_public_tours:/data/public_property_tours" in service_volumes
-    assert "property_propertyquarry_public_tours" not in (
-        ROOT / "docker-compose.yml"
-    ).read_text(encoding="utf-8")
-
     cloudflared = _load_yaml(ROOT / "docker-compose.cloudflared.yml")
     cloudflared_service = (cloudflared.get("services") or {}).get(
         "ea-cloudflared"

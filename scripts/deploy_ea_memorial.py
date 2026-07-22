@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -1244,6 +1245,18 @@ def _docker_value_is_neutral(value: object) -> bool:
     return False
 
 
+def _validated_ipv4_address(value: object, *, reason: str) -> str:
+    if not isinstance(value, str):
+        raise DeployError(reason)
+    try:
+        parsed = ipaddress.IPv4Address(value)
+    except ipaddress.AddressValueError as exc:
+        raise DeployError(reason) from exc
+    if str(parsed) != value:
+        raise DeployError(reason)
+    return value
+
+
 def _rollback_capsule_compose_literal(value: str) -> str:
     if "\x00" in value:
         raise DeployError("rollback_capsule_string_invalid")
@@ -1716,8 +1729,17 @@ def _rollback_capsule_network_identities(
         network_id = str(raw_endpoint.get("NetworkID") or "")
         if re.fullmatch(r"[0-9a-f]{64}", network_id) is None:
             raise DeployError("rollback_capsule_network_id_invalid")
-        if not _docker_value_is_neutral(raw_endpoint.get("IPAMConfig")):
-            raise DeployError("rollback_capsule_static_ip_unsupported")
+        ipv4_address = ""
+        if "IPAMConfig" in raw_endpoint and raw_endpoint["IPAMConfig"] is not None:
+            ipam_config = raw_endpoint["IPAMConfig"]
+            if not isinstance(ipam_config, dict) or set(ipam_config) != {
+                "IPv4Address"
+            }:
+                raise DeployError("rollback_capsule_network_ipam_config_unsupported")
+            ipv4_address = _validated_ipv4_address(
+                ipam_config["IPv4Address"],
+                reason="rollback_capsule_static_ipv4_invalid",
+            )
         for key, value in raw_endpoint.items():
             if key in {
                 "Aliases",
@@ -1757,13 +1779,14 @@ def _rollback_capsule_network_identities(
             for item in aliases
         ):
             raise DeployError("rollback_capsule_network_alias_invalid")
-        rows.append(
-            {
-                "name": name,
-                "network_id": network_id,
-                "aliases": aliases,
-            }
-        )
+        row: dict[str, object] = {
+            "name": name,
+            "network_id": network_id,
+            "aliases": aliases,
+        }
+        if ipv4_address:
+            row["ipv4_address"] = ipv4_address
+        rows.append(row)
     return rows
 
 
@@ -4384,7 +4407,12 @@ class MemorialDeployLane:
             key = f"rollback_network_{index}"
             networks[key] = {"external": True, "name": network["name"]}
             aliases = list(network.get("aliases") or [])
-            service_networks[key] = {"aliases": aliases} if aliases else {}
+            service_network: dict[str, object] = {}
+            if aliases:
+                service_network["aliases"] = aliases
+            if network.get("ipv4_address"):
+                service_network["ipv4_address"] = str(network["ipv4_address"])
+            service_networks[key] = service_network
         if service_networks:
             service["networks"] = service_networks
 
@@ -4422,7 +4450,7 @@ class MemorialDeployLane:
                 "compose_managed_labels",
                 "container_and_start_timestamps",
                 "container_id",
-                "dynamic_network_endpoint_identity",
+                "engine_assigned_endpoint_identity_for_dynamic_network_attachments",
             ],
         }
         document: dict[str, Any] = {
@@ -6208,8 +6236,6 @@ class MemorialDeployLane:
                 "driver_opts",
                 "gw_priority",
                 "interface_name",
-                "ipv4_address",
-                "ipv6_address",
                 "link_local_ips",
                 "mac_address",
                 "priority",
@@ -6218,12 +6244,32 @@ class MemorialDeployLane:
                     raise DeployError(
                         f"rollback_capsule_render_service_network_field_unsupported:{field}"
                     )
+            if (
+                "ipv6_address" in options
+                and options.get("ipv6_address") is not None
+            ):
+                raise DeployError(
+                    "rollback_capsule_render_service_network_field_unsupported:"
+                    "ipv6_address"
+                )
+            ipv4_address = ""
+            if (
+                "ipv4_address" in options
+                and options.get("ipv4_address") is not None
+            ):
+                ipv4_address = _validated_ipv4_address(
+                    options.get("ipv4_address"),
+                    reason="rollback_capsule_render_static_ipv4_invalid",
+                )
             binding = resolved[key]
             ordered_names.append(binding["name"])
-            endpoints[binding["name"]] = {
+            endpoint: dict[str, object] = {
                 "NetworkID": binding["network_id"],
                 "Aliases": sorted(set(aliases_value)),
             }
+            if ipv4_address:
+                endpoint["IPAMConfig"] = {"IPv4Address": ipv4_address}
+            endpoints[binding["name"]] = endpoint
         return endpoints, ordered_names[0] if ordered_names else ""
 
     def _rollback_render_runtime_projection(

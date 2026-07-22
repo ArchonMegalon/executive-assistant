@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -52,8 +53,10 @@ try:
     from scripts.reconcile_ea_public_ingress import (
         CLOUDFLARED_CONTAINER,
         CLOUDFLARED_SERVICE,
+        DEFAULT_NETWORK,
+        LEGACY_PROPERTY_NETWORK,
         PINNED_CLOUDFLARED_IMAGE,
-        PROPERTY_NETWORK,
+        PUBLIC_INGRESS_API_IPV4,
         PUBLIC_INGRESS_CLOUDFLARED_IPV4,
         PUBLIC_INGRESS_GATEWAY,
         PUBLIC_INGRESS_NETWORK,
@@ -84,8 +87,10 @@ except ModuleNotFoundError:  # pragma: no cover - direct script execution
     from reconcile_ea_public_ingress import (  # type: ignore[no-redef]
         CLOUDFLARED_CONTAINER,
         CLOUDFLARED_SERVICE,
+        DEFAULT_NETWORK,
+        LEGACY_PROPERTY_NETWORK,
         PINNED_CLOUDFLARED_IMAGE,
-        PROPERTY_NETWORK,
+        PUBLIC_INGRESS_API_IPV4,
         PUBLIC_INGRESS_CLOUDFLARED_IPV4,
         PUBLIC_INGRESS_GATEWAY,
         PUBLIC_INGRESS_NETWORK,
@@ -109,10 +114,15 @@ SPATIAL_BROWSER_RECEIPT_ENV = "EA_MEMORIAL_SPATIAL_BROWSER_RECEIPT"
 CANDIDATE_RUNTIME_SCHEMA = "ea.manfred_memorial_candidate_runtime.v4"
 CANDIDATE_BROWSER_SCHEMA = "ea.manfred_spatial_candidate_browser.v5"
 MAX_SPATIAL_RECEIPT_BYTES = 8 * 1024 * 1024
-JOINT_RECOVERY_JOURNAL_CONTRACT_NAME = "ea.memorial_joint_recovery_journal.v1"
-JOINT_RECOVERY_JOURNAL_VERSION = 1
+JOINT_RECOVERY_JOURNAL_CONTRACT_NAME = "ea.memorial_joint_recovery_journal.v2"
+JOINT_RECOVERY_JOURNAL_VERSION = 2
 JOINT_RECOVERY_JOURNAL_FILENAME = "joint-active-recovery.json"
 JOINT_RECOVERY_STATE_DIRECTORY = ".ea-memorial-deploy-state"
+INGRESS_ROLLBACK_OVERLAY_CONTRACT_NAME = (
+    "ea.memorial_ingress_rollback_overlay.v1"
+)
+INGRESS_ROLLBACK_OVERLAY_SUFFIX = "rollback-network-normalization.yml"
+MAX_INGRESS_ROLLBACK_OVERLAY_BYTES = 64 * 1024
 JOINT_DEPLOY_OPERATOR_ANCHOR = Path("/docker/EA")
 INGRESS_ROLLBACK_ENV_KEYS = frozenset(
     {
@@ -122,6 +132,10 @@ INGRESS_ROLLBACK_ENV_KEYS = frozenset(
         "EA_PUBLIC_INGRESS_NETWORK_NAME",
         "EA_PUBLIC_INGRESS_SUBNET",
     }
+)
+INGRESS_ROLLBACK_NETWORK_SHAPES = (
+    frozenset({"default"}),
+    frozenset({"public_ingress"}),
 )
 DOCKER_TRANSPORT_ENV_KEYS = frozenset(
     {
@@ -265,14 +279,17 @@ def _sha256(raw: bytes) -> str:
 
 
 def _canonical_json_sha256(value: object) -> str:
-    return _sha256(
-        json.dumps(
+    try:
+        encoded = json.dumps(
             value,
+            allow_nan=False,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
-    )
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise DeployError("joint_canonical_json_invalid") from exc
+    return _sha256(encoded)
 
 
 def _completed_json(
@@ -1097,6 +1114,19 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                         )
                         if isinstance(item, Mapping)
                     ],
+                    "rollback_working_dir": str(
+                        ingress_context.get("rollback_working_dir") or ""
+                    ),
+                    "rollback_compose_files": [
+                        str(item)
+                        for item in list(
+                            ingress_context.get("rollback_compose_files") or []
+                        )
+                        if str(item)
+                    ],
+                    "rollback_overlay": dict(
+                        ingress_context.get("rollback_overlay") or {}
+                    ),
                     "rollback_interpolation_environment": dict(
                         ingress_context.get("rollback_interpolation_environment")
                         or {}
@@ -1133,10 +1163,32 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
 
     @staticmethod
     def _recovery_hex(value: object, *, lengths: tuple[int, ...] = (64,)) -> bool:
-        text = str(value or "")
-        return len(text) in lengths and all(
-            character in "0123456789abcdef" for character in text
+        return bool(
+            isinstance(value, str)
+            and len(value) in lengths
+            and all(
+                character in "0123456789abcdef" for character in value
+            )
         )
+
+    @staticmethod
+    def _recovery_absolute_path(value: object, *, reason: str) -> Path:
+        if (
+            not isinstance(value, str)
+            or not value
+            or len(value) > 4096
+            or any(
+                ord(character) < 32
+                or ord(character) == 127
+                or 0xD800 <= ord(character) <= 0xDFFF
+                for character in value
+            )
+        ):
+            raise DeployError(reason)
+        path = Path(value)
+        if not path.is_absolute() or ".." in path.parts:
+            raise DeployError(reason)
+        return path
 
     @staticmethod
     def _recovery_timestamp(value: object) -> datetime:
@@ -1144,11 +1196,11 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             raise DeployError("joint_recovery_journal_timestamp_invalid")
         try:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError as exc:
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                raise ValueError("timezone_required")
+            return parsed.astimezone(UTC)
+        except (ValueError, OverflowError) as exc:
             raise DeployError("joint_recovery_journal_timestamp_invalid") from exc
-        if parsed.tzinfo is None or parsed.utcoffset() is None:
-            raise DeployError("joint_recovery_journal_timestamp_invalid")
-        return parsed.astimezone(UTC)
 
     def _validate_recovery_ingress_baseline_schema(
         self,
@@ -1204,6 +1256,95 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         environment_identity = container.get("environment_identity")
         security = container.get("security")
         networks = container.get("networks")
+        security_payload = dict(security) if isinstance(security, Mapping) else {}
+        security_valid = bool(
+            set(security_payload)
+            == {
+                "cap_drop",
+                "memory",
+                "memory_reservation",
+                "pids_limit",
+                "privileged",
+                "read_only",
+                "restart",
+                "security_opt",
+            }
+            and security_payload.get("cap_drop") == ["ALL"]
+            and type(security_payload.get("memory")) is int
+            and int(security_payload["memory"]) > 0
+            and type(security_payload.get("memory_reservation")) is int
+            and 0 < int(security_payload["memory_reservation"])
+            <= int(security_payload["memory"])
+            and type(security_payload.get("pids_limit")) is int
+            and int(security_payload["pids_limit"]) > 0
+            and security_payload.get("privileged") is False
+            and type(security_payload.get("read_only")) is bool
+            and security_payload.get("restart") == "unless-stopped"
+            and security_payload.get("security_opt")
+            == ["no-new-privileges"]
+        )
+
+        def valid_cloudflared_network_row(raw_row: object) -> bool:
+            if not isinstance(raw_row, Mapping):
+                return False
+            row = dict(raw_row)
+            if set(row) != {
+                "name",
+                "network_id",
+                "driver",
+                "ipam_driver",
+                "ipam_config",
+                "internal",
+                "attachable",
+                "ipv4_address",
+                "aliases",
+            }:
+                return False
+            ipam_config = row.get("ipam_config")
+            aliases = row.get("aliases")
+            if (
+                row.get("name") not in {DEFAULT_NETWORK, PUBLIC_INGRESS_NETWORK}
+                or not self._recovery_hex(row.get("network_id"))
+                or row.get("driver") != "bridge"
+                or row.get("ipam_driver") != "default"
+                or row.get("internal") is not False
+                or row.get("attachable") is not False
+                or not isinstance(ipam_config, list)
+                or len(ipam_config) != 1
+                or not isinstance(ipam_config[0], Mapping)
+                or set(ipam_config[0]) != {"Subnet", "Gateway"}
+                or not all(
+                    isinstance(ipam_config[0].get(field), str)
+                    for field in ("Subnet", "Gateway")
+                )
+                or not isinstance(row.get("ipv4_address"), str)
+                or not isinstance(aliases, list)
+                or aliases
+                != sorted([CLOUDFLARED_CONTAINER, CLOUDFLARED_SERVICE])
+            ):
+                return False
+            try:
+                subnet = ipaddress.ip_network(ipam_config[0]["Subnet"])
+                gateway = ipaddress.ip_address(ipam_config[0]["Gateway"])
+                address = ipaddress.ip_address(row["ipv4_address"])
+            except ValueError:
+                return False
+            return bool(
+                subnet.version == 4
+                and gateway.version == 4
+                and address.version == 4
+                and str(subnet) == ipam_config[0]["Subnet"]
+                and str(gateway) == ipam_config[0]["Gateway"]
+                and str(address) == row["ipv4_address"]
+                and gateway in subnet
+                and address in subnet
+            )
+
+        networks_valid = bool(
+            isinstance(networks, list)
+            and len(networks) == 1
+            and valid_cloudflared_network_row(networks[0])
+        )
         if (
             set(container) != expected_container_keys
             or not isinstance(container.get("id"), str)
@@ -1222,8 +1363,16 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 isinstance(item, str) and Path(item).is_absolute()
                 for item in container["compose_config_files"]
             )
-            or container.get("compose_input_seals")
-            != ingress_payload["rollback_input_seals"]
+            or not isinstance(container.get("compose_input_seals"), list)
+            or not container["compose_input_seals"]
+            or not all(
+                isinstance(item, Mapping)
+                for item in container["compose_input_seals"]
+            )
+            or any(
+                dict(item) not in ingress_payload["rollback_input_seals"]
+                for item in container["compose_input_seals"]
+            )
             or not isinstance(environment_identity, Mapping)
             or set(environment_identity)
             != {"environment_sha256", "environment_count"}
@@ -1237,37 +1386,9 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or not all(isinstance(item, str) for item in container["entrypoint"])
             or not isinstance(container.get("user"), str)
             or not self._recovery_hex(container.get("process_config_sha256"))
-            or not isinstance(security, Mapping)
-            or set(security)
-            != {
-                "cap_drop",
-                "memory",
-                "memory_reservation",
-                "pids_limit",
-                "privileged",
-                "read_only",
-                "restart",
-                "security_opt",
-            }
+            or not security_valid
             or container.get("mounts") != []
-            or not isinstance(networks, list)
-            or not networks
-            or not all(
-                isinstance(item, Mapping)
-                and set(item)
-                == {
-                    "name",
-                    "network_id",
-                    "driver",
-                    "ipam_driver",
-                    "ipam_config",
-                    "internal",
-                    "attachable",
-                    "ipv4_address",
-                    "aliases",
-                }
-                for item in networks
-            )
+            or not networks_valid
         ):
             raise DeployError("joint_recovery_cloudflared_baseline_invalid")
 
@@ -1275,29 +1396,81 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         if network.get("present") is False:
             if network != {"present": False}:
                 raise DeployError("joint_recovery_network_baseline_invalid")
-        elif (
-            network.get("present") is not True
-            or set(network)
-            != {
-                "present",
-                "id",
-                "name",
-                "driver",
-                "ipam_driver",
-                "ipam_config",
-                "internal",
-                "attachable",
-                "containers",
-            }
-            or not isinstance(network.get("containers"), list)
-            or not all(
-                isinstance(item, Mapping)
-                and set(item)
-                == {"container_id", "name", "ipv4_address", "ipv6_address"}
-                for item in network["containers"]
-            )
-        ):
-            raise DeployError("joint_recovery_network_baseline_invalid")
+        else:
+            containers = network.get("containers")
+            expected_ipam = [
+                {
+                    "Subnet": PUBLIC_INGRESS_SUBNET,
+                    "Gateway": PUBLIC_INGRESS_GATEWAY,
+                }
+            ]
+            rows_valid = isinstance(containers, list)
+            seen_container_ids: set[str] = set()
+            if rows_valid:
+                for raw_row in containers:
+                    if not isinstance(raw_row, Mapping):
+                        rows_valid = False
+                        break
+                    row = dict(raw_row)
+                    container_id = row.get("container_id")
+                    name = row.get("name")
+                    ipv4_address = row.get("ipv4_address")
+                    ipv6_address = row.get("ipv6_address")
+                    if (
+                        set(row)
+                        != {
+                            "container_id",
+                            "name",
+                            "ipv4_address",
+                            "ipv6_address",
+                        }
+                        or not self._recovery_hex(container_id)
+                        or container_id in seen_container_ids
+                        or name not in {API_SERVICE, CLOUDFLARED_CONTAINER}
+                        or not isinstance(ipv4_address, str)
+                        or not isinstance(ipv6_address, str)
+                        or ipv6_address
+                    ):
+                        rows_valid = False
+                        break
+                    try:
+                        endpoint = ipaddress.ip_interface(ipv4_address)
+                    except ValueError:
+                        rows_valid = False
+                        break
+                    if (
+                        endpoint.version != 4
+                        or str(endpoint) != ipv4_address
+                        or endpoint.ip
+                        not in ipaddress.ip_network(PUBLIC_INGRESS_SUBNET)
+                    ):
+                        rows_valid = False
+                        break
+                    seen_container_ids.add(container_id)
+            if (
+                network.get("present") is not True
+                or set(network)
+                != {
+                    "present",
+                    "id",
+                    "name",
+                    "driver",
+                    "ipam_driver",
+                    "ipam_config",
+                    "internal",
+                    "attachable",
+                    "containers",
+                }
+                or not self._recovery_hex(network.get("id"))
+                or network.get("name") != PUBLIC_INGRESS_NETWORK
+                or network.get("driver") != "bridge"
+                or network.get("ipam_driver") != "default"
+                or network.get("ipam_config") != expected_ipam
+                or network.get("internal") is not False
+                or network.get("attachable") is not False
+                or not rows_valid
+            ):
+                raise DeployError("joint_recovery_network_baseline_invalid")
 
         edge = dict(ingress_payload["public_edge_baseline"])
         expected_edge_keys = {
@@ -1400,13 +1573,18 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 and type(ingress_possible) is bool
             )
         )
-        recorded_root = Path(str(journal.get("root") or "")).expanduser()
-        recorded_receipt_dir = Path(
-            str(journal.get("receipt_dir") or "")
-        ).expanduser()
-        recorded_ingress_receipt_dir = Path(
-            str(journal.get("ingress_receipt_dir") or "")
-        ).expanduser()
+        recorded_root = self._recovery_absolute_path(
+            journal.get("root"),
+            reason="joint_recovery_journal_schema_invalid",
+        )
+        recorded_receipt_dir = self._recovery_absolute_path(
+            journal.get("receipt_dir"),
+            reason="joint_recovery_journal_schema_invalid",
+        )
+        recorded_ingress_receipt_dir = self._recovery_absolute_path(
+            journal.get("ingress_receipt_dir"),
+            reason="joint_recovery_journal_schema_invalid",
+        )
         expected_receipt_path = recorded_receipt_dir / f"{transaction_id}.json"
         docker_daemon_identity = journal.get("docker_daemon_identity")
         if (
@@ -1420,6 +1598,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or journal.get("contains_secret_material") is not True
             or journal.get("retention_policy")
             != "until_commit_or_verified_rollback_cleanup"
+            or not isinstance(journal.get("transaction_id"), str)
             or not transaction_id
             or len(transaction_id) > 128
             or any(
@@ -1431,12 +1610,6 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or not timestamps_valid
             or type(journal.get("recovery_attempts")) is not int
             or int(journal["recovery_attempts"]) < 0
-            or not recorded_root.is_absolute()
-            or ".." in recorded_root.parts
-            or not recorded_receipt_dir.is_absolute()
-            or ".." in recorded_receipt_dir.parts
-            or not recorded_ingress_receipt_dir.is_absolute()
-            or ".." in recorded_ingress_receipt_dir.parts
             or journal.get("recovery_journal_path")
             != str(self.recovery_journal_path)
             or journal.get("transaction_receipt_path")
@@ -1462,7 +1635,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         ):
             try:
                 directory_metadata = private_directory.lstat()
-            except OSError as exc:
+            except (OSError, ValueError, UnicodeError) as exc:
                 raise DeployError(
                     "joint_recovery_recorded_receipt_directory_invalid"
                 ) from exc
@@ -1476,34 +1649,51 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     "joint_recovery_recorded_receipt_directory_invalid"
                 )
 
-        public_origin = str(journal.get("public_origin") or "")
-        parsed_origin = urllib.parse.urlsplit(public_origin)
-        if (
-            parsed_origin.scheme != "https"
-            or not parsed_origin.hostname
-            or parsed_origin.username
-            or parsed_origin.password
-            or parsed_origin.query
-            or parsed_origin.fragment
-            or parsed_origin.path not in {"", "/"}
-            or parsed_origin.port not in {None, 443}
-            or parsed_origin.hostname.lower().rstrip(".")
-            not in set(self.allowed_public_hosts)
-        ):
+        public_origin = journal.get("public_origin")
+        if not isinstance(public_origin, str):
+            raise DeployError("joint_recovery_public_origin_invalid")
+        try:
+            parsed_origin = urllib.parse.urlsplit(public_origin)
+            origin_hostname = parsed_origin.hostname
+            origin_port = parsed_origin.port
+            origin_valid = bool(
+                parsed_origin.scheme == "https"
+                and origin_hostname
+                and not parsed_origin.username
+                and not parsed_origin.password
+                and not parsed_origin.query
+                and not parsed_origin.fragment
+                and parsed_origin.path in {"", "/"}
+                and origin_port in {None, 443}
+                and origin_hostname.lower().rstrip(".")
+                in set(self.allowed_public_hosts)
+            )
+        except ValueError as exc:
+            raise DeployError("joint_recovery_public_origin_invalid") from exc
+        if not origin_valid:
             raise DeployError("joint_recovery_public_origin_invalid")
 
-        api_local_origin = str(journal.get("api_local_origin") or "")
-        parsed_local_origin = urllib.parse.urlsplit(api_local_origin)
-        if (
-            parsed_local_origin.scheme != "http"
-            or parsed_local_origin.hostname != "127.0.0.1"
-            or parsed_local_origin.port is None
-            or parsed_local_origin.path not in {"", "/"}
-            or parsed_local_origin.query
-            or parsed_local_origin.fragment
-            or parsed_local_origin.username
-            or parsed_local_origin.password
-        ):
+        api_local_origin = journal.get("api_local_origin")
+        if not isinstance(api_local_origin, str):
+            raise DeployError("joint_recovery_api_local_origin_invalid")
+        try:
+            parsed_local_origin = urllib.parse.urlsplit(api_local_origin)
+            local_hostname = parsed_local_origin.hostname
+            local_port = parsed_local_origin.port
+            local_origin_valid = bool(
+                parsed_local_origin.scheme == "http"
+                and local_hostname == "127.0.0.1"
+                and local_port is not None
+                and 1 <= local_port <= 65535
+                and parsed_local_origin.path in {"", "/"}
+                and not parsed_local_origin.query
+                and not parsed_local_origin.fragment
+                and not parsed_local_origin.username
+                and not parsed_local_origin.password
+            )
+        except ValueError as exc:
+            raise DeployError("joint_recovery_api_local_origin_invalid") from exc
+        if not local_origin_valid:
             raise DeployError("joint_recovery_api_local_origin_invalid")
 
         rollback_tag = str(journal.get("rollback_tag") or "")
@@ -1539,8 +1729,21 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         non_memorial_controls = dict(non_memorial_controls)
         deployment_input_seal = dict(deployment_input_seal)
         ingress_payload = dict(ingress_payload)
-        working_dir = Path(str(previous.get("working_dir") or "")).expanduser()
-        compose_files = list(previous.get("compose_config_files") or [])
+        working_dir = self._recovery_absolute_path(
+            previous.get("working_dir"),
+            reason="joint_recovery_previous_api_invalid",
+        )
+        raw_compose_files = previous.get("compose_config_files")
+        compose_files = (
+            list(raw_compose_files)
+            if isinstance(raw_compose_files, list)
+            else []
+        )
+        for compose_file in compose_files:
+            self._recovery_absolute_path(
+                compose_file,
+                reason="joint_recovery_previous_api_invalid",
+            )
         expected_previous = {
             "container_id",
             "created_at",
@@ -1566,15 +1769,10 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or not 1 <= len(str(previous["container_id"])) <= 128
             or not isinstance(previous.get("created_at"), str)
             or not 1 <= len(str(previous["created_at"])) <= 128
-            or not working_dir.is_absolute()
-            or ".." in working_dir.parts
+            or not isinstance(raw_compose_files, list)
             or not compose_files
             or not all(isinstance(item, str) for item in compose_files)
             or len(set(compose_files)) != len(compose_files)
-            or any(
-                not Path(str(item)).is_absolute() or ".." in Path(str(item)).parts
-                for item in compose_files
-            )
             or not str(previous.get("image_id") or "").startswith("sha256:")
             or not self._recovery_hex(str(previous.get("image_id"))[7:])
             or not isinstance(rollback_environment, Mapping)
@@ -1655,6 +1853,10 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or not all(
                 isinstance(deployment_input_seal.get(scope), list)
                 and deployment_input_seal[scope]
+                and all(
+                    isinstance(item, Mapping)
+                    for item in deployment_input_seal[scope]
+                )
                 for scope in ("forward", "rollback")
             )
         ):
@@ -1664,10 +1866,25 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "network_baseline",
             "public_edge_baseline",
             "rollback_input_seals",
+            "rollback_working_dir",
+            "rollback_compose_files",
+            "rollback_overlay",
             "rollback_interpolation_environment",
             "rollback_render_projection",
             "rollback_render_sha256",
         }
+        rollback_working_dir = self._recovery_absolute_path(
+            ingress_payload.get("rollback_working_dir"),
+            reason="joint_recovery_ingress_baseline_invalid",
+        )
+        rollback_compose_files = ingress_payload.get("rollback_compose_files")
+        if isinstance(rollback_compose_files, list):
+            for rollback_compose_file in rollback_compose_files:
+                self._recovery_absolute_path(
+                    rollback_compose_file,
+                    reason="joint_recovery_ingress_baseline_invalid",
+                )
+        rollback_overlay = ingress_payload.get("rollback_overlay")
         rollback_interpolation_environment = ingress_payload.get(
             "rollback_interpolation_environment"
         )
@@ -1682,6 +1899,11 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             or not dict(ingress_payload["public_edge_baseline"])
             or not isinstance(ingress_payload.get("rollback_input_seals"), list)
             or not ingress_payload["rollback_input_seals"]
+            or not isinstance(rollback_compose_files, list)
+            or not rollback_compose_files
+            or not all(isinstance(item, str) for item in rollback_compose_files)
+            or len(set(rollback_compose_files)) != len(rollback_compose_files)
+            or not isinstance(rollback_overlay, Mapping)
             or not isinstance(rollback_interpolation_environment, Mapping)
             or set(rollback_interpolation_environment) != INGRESS_ROLLBACK_ENV_KEYS
             or not all(
@@ -1698,14 +1920,155 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             != ingress_payload.get("rollback_render_sha256")
         ):
             raise DeployError("joint_recovery_ingress_baseline_invalid")
+        self._validate_recovery_ingress_baseline_schema(ingress_payload)
+        overlay = dict(rollback_overlay)
+        expected_overlay_keys = {
+            "contract_name",
+            "path",
+            "sha256",
+            "contains_secret_material",
+            "runtime_network_names",
+            "logical_network_names",
+            "normalized_property_detachment",
+        }
+        overlay_path = self._recovery_absolute_path(
+            overlay.get("path"),
+            reason="joint_recovery_ingress_overlay_invalid",
+        )
+        overlay_name_suffix = f".{INGRESS_ROLLBACK_OVERLAY_SUFFIX}"
+        overlay_name_prefix = (
+            overlay_path.name[: -len(overlay_name_suffix)]
+            if overlay_path.name.endswith(overlay_name_suffix)
+            else ""
+        )
+        overlay_runtime_networks = overlay.get("runtime_network_names")
+        overlay_logical_networks = overlay.get("logical_network_names")
+        rollback_seals = [
+            dict(item)
+            for item in ingress_payload["rollback_input_seals"]
+            if isinstance(item, Mapping)
+        ]
+        cloudflared_container = dict(
+            dict(ingress_payload["cloudflared_baseline"]).get("container") or {}
+        )
+        baseline_working_dir = self._recovery_absolute_path(
+            cloudflared_container.get("compose_working_dir"),
+            reason="joint_recovery_cloudflared_baseline_invalid",
+        )
+        baseline_files = list(cloudflared_container.get("compose_config_files") or [])
+        for baseline_file in baseline_files:
+            self._recovery_absolute_path(
+                baseline_file,
+                reason="joint_recovery_cloudflared_baseline_invalid",
+            )
+        baseline_seals = list(cloudflared_container.get("compose_input_seals") or [])
+        baseline_network_rows = list(cloudflared_container.get("networks") or [])
+        baseline_runtime_networks = (
+            sorted(str(dict(row).get("name") or "") for row in baseline_network_rows)
+            if all(isinstance(row, Mapping) for row in baseline_network_rows)
+            else []
+        )
+        overlay_seals = [
+            seal
+            for seal in rollback_seals
+            if seal.get("path") == str(overlay_path)
+        ]
+        baseline_overlay_paths = [
+            item
+            for item in baseline_files
+            if Path(item).name.endswith(overlay_name_suffix)
+        ]
+        new_overlay_relation = bool(
+            rollback_compose_files[:-1] == baseline_files
+            and str(overlay_path) not in baseline_files
+            and not baseline_overlay_paths
+        )
+        reused_overlay_relation = bool(
+            rollback_compose_files == baseline_files
+            and baseline_files[-1] == str(overlay_path)
+            and baseline_overlay_paths == [str(overlay_path)]
+        )
+        rollback_seal_paths = [str(seal.get("path") or "") for seal in rollback_seals]
+        baseline_seal_paths = [
+            str(dict(seal).get("path") or "") for seal in baseline_seals
+        ]
+        expected_baseline_seal_paths = [
+            str(rollback_working_dir / ".env"),
+            *baseline_files,
+            str(rollback_working_dir / ".env.local"),
+        ]
+        expected_rollback_seal_paths = [
+            str(rollback_working_dir / ".env"),
+            *rollback_compose_files,
+            str(rollback_working_dir / ".env.local"),
+        ]
+        seal_relation_valid = bool(
+            (
+                new_overlay_relation
+                and all(dict(seal) in rollback_seals for seal in baseline_seals)
+            )
+            or (
+                reused_overlay_relation
+                and rollback_seals == [dict(seal) for seal in baseline_seals]
+            )
+        )
+        if (
+            set(overlay) != expected_overlay_keys
+            or overlay.get("contract_name")
+            != INGRESS_ROLLBACK_OVERLAY_CONTRACT_NAME
+            or overlay.get("contains_secret_material") is not False
+            or not overlay_path.is_absolute()
+            or ".." in overlay_path.parts
+            or overlay_path.parent != recorded_ingress_receipt_dir
+            or not overlay_name_prefix
+            or len(overlay_name_prefix) > 128
+            or any(
+                character
+                not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+                for character in overlay_name_prefix
+            )
+            or str(overlay_path) != rollback_compose_files[-1]
+            or not (new_overlay_relation or reused_overlay_relation)
+            or rollback_working_dir != baseline_working_dir
+            or not self._recovery_hex(overlay.get("sha256"))
+            or not isinstance(overlay_runtime_networks, list)
+            or not overlay_runtime_networks
+            or not all(
+                isinstance(item, str) and item for item in overlay_runtime_networks
+            )
+            or overlay_runtime_networks != sorted(overlay_runtime_networks)
+            or len(set(overlay_runtime_networks)) != len(overlay_runtime_networks)
+            or overlay_runtime_networks != baseline_runtime_networks
+            or not isinstance(overlay_logical_networks, list)
+            or not overlay_logical_networks
+            or not all(
+                isinstance(item, str) and item for item in overlay_logical_networks
+            )
+            or overlay_logical_networks != sorted(overlay_logical_networks)
+            or len(set(overlay_logical_networks)) != len(overlay_logical_networks)
+            or frozenset(overlay_logical_networks)
+            not in INGRESS_ROLLBACK_NETWORK_SHAPES
+            or type(overlay.get("normalized_property_detachment")) is not bool
+            or (
+                overlay.get("normalized_property_detachment") is True
+                and overlay_logical_networks != ["default"]
+            )
+            or len(rollback_seals) != len(ingress_payload["rollback_input_seals"])
+            or not all(isinstance(seal, Mapping) for seal in baseline_seals)
+            or baseline_seal_paths != expected_baseline_seal_paths
+            or rollback_seal_paths != expected_rollback_seal_paths
+            or not seal_relation_valid
+            or len(overlay_seals) != 1
+            or overlay_seals[0].get("sha256") != overlay.get("sha256")
+            or overlay_seals[0].get("mode") != "0600"
+            or overlay_seals[0].get("uid") != self._recovery_state_owner_uid
+        ):
+            raise DeployError("joint_recovery_ingress_overlay_invalid")
+        self._revalidate_ingress_input_seals(rollback_seals)
         if self._ingress_rollback_environment(
             dict(rollback_render_projection)
         ) != dict(rollback_interpolation_environment):
             raise DeployError("joint_recovery_ingress_environment_invalid")
-        self._validate_recovery_ingress_baseline_schema(ingress_payload)
-        cloudflared_container = dict(
-            dict(ingress_payload["cloudflared_baseline"]).get("container") or {}
-        )
         if not cloudflared_container:
             raise DeployError("joint_recovery_cloudflared_baseline_invalid")
 
@@ -1749,6 +2112,11 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     for item in ingress_payload["rollback_input_seals"]
                     if isinstance(item, Mapping)
                 ],
+                "rollback_working_dir": str(rollback_working_dir),
+                "rollback_compose_files": [
+                    str(item) for item in rollback_compose_files
+                ],
+                "rollback_overlay": dict(overlay),
                 "rollback_interpolation_environment": dict(
                     rollback_interpolation_environment
                 ),
@@ -2145,14 +2513,12 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         ingress_lane = ingress_context["lane"]
         if not isinstance(ingress_lane, PublicIngressReconciliationLane):
             raise DeployError("joint_recovery_ingress_lane_invalid")
-        baseline = dict(ingress_context["cloudflared_baseline"])
-        container = dict(baseline.get("container") or {})
         prior_root = Path(
-            str(container.get("compose_working_dir") or "")
+            str(ingress_context.get("rollback_working_dir") or "")
         ).expanduser()
         prior_files = [
             str(item)
-            for item in list(container.get("compose_config_files") or [])
+            for item in list(ingress_context.get("rollback_compose_files") or [])
             if str(item)
         ]
         if not prior_root.is_absolute() or ".." in prior_root.parts or not prior_files:
@@ -2441,7 +2807,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             network_names = set(service_networks)
         else:
             raise DeployError("joint_ingress_rollback_projection_invalid")
-        if network_names != {"public_ingress", "property_default"}:
+        if frozenset(network_names) not in INGRESS_ROLLBACK_NETWORK_SHAPES:
             raise DeployError("joint_ingress_rollback_projection_invalid")
         selected_networks = {
             name: dict(networks)[name]
@@ -2471,25 +2837,67 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             raise DeployError("joint_ingress_rollback_environment_invalid")
         public_endpoint = dict(service_networks).get("public_ingress")
         public_network = dict(networks).get("public_ingress")
+        if public_endpoint is None and public_network is None:
+            public_endpoint = {
+                "ipv4_address": PUBLIC_INGRESS_CLOUDFLARED_IPV4,
+            }
+            public_network = {
+                "name": PUBLIC_INGRESS_NETWORK,
+                "ipam": {
+                    "config": [
+                        {
+                            "subnet": PUBLIC_INGRESS_SUBNET,
+                            "gateway": PUBLIC_INGRESS_GATEWAY,
+                        }
+                    ]
+                },
+            }
         if not isinstance(public_endpoint, Mapping) or not isinstance(
             public_network, Mapping
         ):
             raise DeployError("joint_ingress_rollback_environment_invalid")
-        ipam = dict(public_network).get("ipam")
-        configs = dict(ipam).get("config") if isinstance(ipam, Mapping) else None
-        if (
-            not isinstance(configs, list)
-            or len(configs) != 1
-            or not isinstance(configs[0], Mapping)
-        ):
-            raise DeployError("joint_ingress_rollback_environment_invalid")
+        public_network_mapping = dict(public_network)
+        if public_network_mapping.get("external") is True:
+            if (
+                set(public_network_mapping)
+                not in (
+                    {"external", "name"},
+                    {"external", "ipam", "name"},
+                )
+                or (
+                    "ipam" in public_network_mapping
+                    and public_network_mapping.get("ipam") != {}
+                )
+                or public_network_mapping.get("name") != PUBLIC_INGRESS_NETWORK
+                or dict(public_endpoint).get("ipv4_address")
+                != PUBLIC_INGRESS_CLOUDFLARED_IPV4
+            ):
+                raise DeployError("joint_ingress_rollback_environment_invalid")
+            configs: list[Mapping[str, object]] = [
+                {
+                    "subnet": PUBLIC_INGRESS_SUBNET,
+                    "gateway": PUBLIC_INGRESS_GATEWAY,
+                }
+            ]
+        else:
+            ipam = public_network_mapping.get("ipam")
+            raw_configs = (
+                dict(ipam).get("config") if isinstance(ipam, Mapping) else None
+            )
+            if (
+                not isinstance(raw_configs, list)
+                or len(raw_configs) != 1
+                or not isinstance(raw_configs[0], Mapping)
+            ):
+                raise DeployError("joint_ingress_rollback_environment_invalid")
+            configs = [dict(raw_configs[0])]
         values = {
             "EA_CF_TUNNEL_TOKEN": str(dict(environment).get("TUNNEL_TOKEN") or ""),
             "EA_PUBLIC_INGRESS_CLOUDFLARED_IPV4": str(
                 dict(public_endpoint).get("ipv4_address") or ""
             ),
             "EA_PUBLIC_INGRESS_NETWORK_NAME": str(
-                dict(public_network).get("name") or ""
+                public_network_mapping.get("name") or ""
             ),
             "EA_PUBLIC_INGRESS_SUBNET": str(dict(configs[0]).get("subnet") or ""),
             "EA_PUBLIC_INGRESS_GATEWAY": str(dict(configs[0]).get("gateway") or ""),
@@ -2500,6 +2908,380 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         ):
             raise DeployError("joint_ingress_rollback_environment_invalid")
         return values
+
+    def _write_ingress_rollback_overlay(
+        self,
+        path: Path,
+        raw: bytes,
+    ) -> dict[str, object]:
+        if (
+            not path.is_absolute()
+            or ".." in path.parts
+            or path.parent != self.ingress_receipt_dir
+            or not 0 < len(raw) <= MAX_INGRESS_ROLLBACK_OVERLAY_BYTES
+        ):
+            raise DeployError("joint_ingress_rollback_overlay_path_invalid")
+        try:
+            directory_metadata = path.parent.lstat()
+        except OSError as exc:
+            raise DeployError(
+                "joint_ingress_rollback_overlay_directory_invalid"
+            ) from exc
+        if (
+            not stat.S_ISDIR(directory_metadata.st_mode)
+            or stat.S_ISLNK(directory_metadata.st_mode)
+            or directory_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(directory_metadata.st_mode) != 0o700
+        ):
+            raise DeployError("joint_ingress_rollback_overlay_directory_invalid")
+        if not hasattr(os, "O_NOFOLLOW"):
+            raise DeployError("joint_ingress_rollback_overlay_nofollow_unavailable")
+        directory_descriptor = -1
+        descriptor = -1
+        created = False
+        try:
+            directory_descriptor = os.open(
+                path.parent,
+                os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+            opened_directory = os.fstat(directory_descriptor)
+            if (
+                (opened_directory.st_dev, opened_directory.st_ino)
+                != (directory_metadata.st_dev, directory_metadata.st_ino)
+                or opened_directory.st_uid != os.geteuid()
+                or stat.S_IMODE(opened_directory.st_mode) != 0o700
+            ):
+                raise DeployError(
+                    "joint_ingress_rollback_overlay_directory_changed"
+                )
+            descriptor = os.open(
+                path.name,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | os.O_CLOEXEC
+                | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=directory_descriptor,
+            )
+            created = True
+            os.fchmod(descriptor, 0o600)
+            remaining = memoryview(raw)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise DeployError(
+                        "joint_ingress_rollback_overlay_write_failed"
+                    )
+                remaining = remaining[written:]
+            os.fsync(descriptor)
+            metadata = os.fstat(descriptor)
+            path_metadata = os.stat(
+                path.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o600
+                or metadata.st_size != len(raw)
+                or (metadata.st_dev, metadata.st_ino)
+                != (path_metadata.st_dev, path_metadata.st_ino)
+            ):
+                raise DeployError("joint_ingress_rollback_overlay_identity_invalid")
+            os.fsync(directory_descriptor)
+            final_directory = os.fstat(directory_descriptor)
+            if (
+                (final_directory.st_dev, final_directory.st_ino)
+                != (opened_directory.st_dev, opened_directory.st_ino)
+                or final_directory.st_uid != os.geteuid()
+                or stat.S_IMODE(final_directory.st_mode) != 0o700
+            ):
+                raise DeployError(
+                    "joint_ingress_rollback_overlay_directory_changed"
+                )
+        except FileExistsError as exc:
+            raise DeployError("joint_ingress_rollback_overlay_exists") from exc
+        except DeployError:
+            raise
+        except OSError as exc:
+            raise DeployError("joint_ingress_rollback_overlay_unavailable") from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if directory_descriptor >= 0:
+                os.close(directory_descriptor)
+        if not created:
+            raise DeployError("joint_ingress_rollback_overlay_unavailable")
+        return _trusted_file_seal(
+            path,
+            private=True,
+            expected_uid=os.geteuid(),
+        )
+
+    def _prepare_ingress_rollback_bundle(
+        self,
+        ingress: PublicIngressReconciliationLane,
+        baseline: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        container = dict(baseline.get("container") or {})
+        prior_root = Path(
+            str(container.get("compose_working_dir") or "")
+        ).expanduser()
+        prior_files = [
+            str(item)
+            for item in list(container.get("compose_config_files") or [])
+            if str(item)
+        ]
+        baseline_seals = [
+            dict(item)
+            for item in list(container.get("compose_input_seals") or [])
+            if isinstance(item, Mapping)
+        ]
+        if (
+            not prior_root.is_absolute()
+            or ".." in prior_root.parts
+            or not prior_files
+            or len(baseline_seals)
+            != len(list(container.get("compose_input_seals") or []))
+        ):
+            raise DeployError("joint_ingress_rollback_topology_missing")
+        prior_rendered, prior_render_seals = ingress._render_compose(
+            root=prior_root,
+            files=prior_files,
+            expected_input_seals=baseline_seals,
+        )
+        if prior_render_seals != baseline_seals:
+            raise DeployError("joint_ingress_rollback_render_seals_changed")
+        prior_service = ingress._service(prior_rendered, CLOUDFLARED_SERVICE)
+        rendered_network_names = ingress._actual_network_names(
+            prior_rendered,
+            prior_service,
+        )
+        if (
+            not rendered_network_names
+            or len(set(rendered_network_names.values()))
+            != len(rendered_network_names)
+        ):
+            raise DeployError("joint_ingress_rollback_network_mapping_invalid")
+        logical_by_actual = {
+            actual: logical for logical, actual in rendered_network_names.items()
+        }
+        runtime_rows: dict[str, dict[str, Any]] = {}
+        for raw_row in list(container.get("networks") or []):
+            if not isinstance(raw_row, Mapping):
+                raise DeployError("joint_ingress_rollback_network_mapping_invalid")
+            row = dict(raw_row)
+            actual_name = str(row.get("name") or "")
+            if not actual_name or actual_name in runtime_rows:
+                raise DeployError("joint_ingress_rollback_network_mapping_invalid")
+            runtime_rows[actual_name] = row
+        runtime_networks = set(runtime_rows)
+        rendered_networks = set(rendered_network_names.values())
+        if not runtime_networks or not runtime_networks.issubset(rendered_networks):
+            raise DeployError("joint_ingress_rollback_network_mapping_invalid")
+        runtime_logical_names = {
+            logical_by_actual[name] for name in runtime_networks
+        }
+        if frozenset(runtime_logical_names) not in INGRESS_ROLLBACK_NETWORK_SHAPES:
+            raise DeployError("joint_ingress_rollback_network_mapping_invalid")
+        if runtime_networks != rendered_networks and not (
+            set(rendered_network_names) == {"default", LEGACY_PROPERTY_NETWORK}
+            and runtime_logical_names == {"default"}
+            and rendered_network_names.get(LEGACY_PROPERTY_NETWORK)
+            == LEGACY_PROPERTY_NETWORK
+        ):
+            raise DeployError("joint_ingress_rollback_network_mapping_invalid")
+
+        lines = [
+            f"# {INGRESS_ROLLBACK_OVERLAY_CONTRACT_NAME}",
+            "services:",
+            f"  {CLOUDFLARED_SERVICE}:",
+            "    networks: !override",
+        ]
+        for logical_name in sorted(runtime_logical_names):
+            actual_name = rendered_network_names[logical_name]
+            row = runtime_rows[actual_name]
+            ipv4_address = str(row.get("ipv4_address") or "")
+            aliases = row.get("aliases")
+            try:
+                parsed_ip = ipaddress.ip_address(ipv4_address)
+            except ValueError as exc:
+                raise DeployError(
+                    "joint_ingress_rollback_network_endpoint_invalid"
+                ) from exc
+            if (
+                parsed_ip.version != 4
+                or str(parsed_ip) != ipv4_address
+                or not isinstance(aliases, list)
+                or not aliases
+                or not all(
+                    isinstance(alias, str)
+                    and alias
+                    and "\x00" not in alias
+                    and "\n" not in alias
+                    and "\r" not in alias
+                    for alias in aliases
+                )
+                or len(set(aliases)) != len(aliases)
+                or not 1 <= len(actual_name) <= 255
+                or any(ord(character) < 32 for character in actual_name)
+            ):
+                raise DeployError(
+                    "joint_ingress_rollback_network_endpoint_invalid"
+                )
+            lines.extend(
+                [
+                    f"      {json.dumps(logical_name)}:",
+                    f"        ipv4_address: {json.dumps(ipv4_address)}",
+                    "        aliases:",
+                    *[
+                        f"          - {json.dumps(alias)}"
+                        for alias in sorted(aliases)
+                    ],
+                ]
+            )
+        lines.append("networks:")
+        for logical_name in sorted(runtime_logical_names):
+            actual_name = rendered_network_names[logical_name]
+            lines.extend(
+                [
+                    f"  {json.dumps(logical_name)}: !override",
+                    "    external: true",
+                    f"    name: {json.dumps(actual_name)}",
+                ]
+            )
+        overlay_raw = ("\n".join(lines) + "\n").encode("utf-8")
+        existing_overlay_paths = [
+            Path(item)
+            for item in prior_files
+            if Path(item).name.endswith(
+                f".{INGRESS_ROLLBACK_OVERLAY_SUFFIX}"
+            )
+        ]
+        if len(existing_overlay_paths) > 1:
+            raise DeployError("joint_ingress_rollback_overlay_chain_invalid")
+        if existing_overlay_paths:
+            overlay_path = existing_overlay_paths[0]
+            matching_seals = [
+                seal
+                for seal in baseline_seals
+                if seal.get("path") == str(overlay_path)
+            ]
+            if (
+                str(overlay_path) != prior_files[-1]
+                or overlay_path.parent != self.ingress_receipt_dir
+                or len(matching_seals) != 1
+                or matching_seals[0].get("mode") != "0600"
+                or matching_seals[0].get("uid") != os.geteuid()
+                or matching_seals[0].get("link_count") != 1
+            ):
+                raise DeployError("joint_ingress_rollback_overlay_chain_invalid")
+            overlay_seal = dict(matching_seals[0])
+            existing_raw = self._read_trusted_guard_file(
+                overlay_path,
+                expected_mode=0o600,
+                expected_uid=os.geteuid(),
+                max_bytes=MAX_INGRESS_ROLLBACK_OVERLAY_BYTES,
+                reason_prefix="joint_ingress_existing_rollback_overlay",
+            )
+            self._revalidate_ingress_input_seals([overlay_seal])
+            if (
+                existing_raw != overlay_raw
+                or _sha256(existing_raw) != overlay_seal.get("sha256")
+            ):
+                raise DeployError("joint_ingress_rollback_overlay_chain_invalid")
+            rollback_files = list(prior_files)
+            rollback_seals = list(baseline_seals)
+        else:
+            overlay_path = self.ingress_receipt_dir / (
+                f"{self.deployment_id}.{INGRESS_ROLLBACK_OVERLAY_SUFFIX}"
+            )
+            overlay_seal = self._write_ingress_rollback_overlay(
+                overlay_path,
+                overlay_raw,
+            )
+            rollback_files = [*prior_files, str(overlay_path)]
+            rollback_seals = ingress._capture_compose_input_seals(
+                root=prior_root,
+                files=rollback_files,
+            )
+            if (
+                any(seal not in rollback_seals for seal in baseline_seals)
+                or overlay_seal not in rollback_seals
+            ):
+                raise DeployError("joint_ingress_rollback_bundle_seals_invalid")
+        first_rendered, first_seals = ingress._render_compose(
+            root=prior_root,
+            files=rollback_files,
+            expected_input_seals=rollback_seals,
+        )
+        second_rendered, second_seals = ingress._render_compose(
+            root=prior_root,
+            files=rollback_files,
+            expected_input_seals=rollback_seals,
+        )
+        if (
+            first_seals != rollback_seals
+            or second_seals != rollback_seals
+            or first_rendered != second_rendered
+        ):
+            raise DeployError("joint_ingress_rollback_bundle_render_unstable")
+        normalized_service = ingress._service(
+            first_rendered,
+            CLOUDFLARED_SERVICE,
+        )
+        prior_non_network = dict(prior_service)
+        normalized_non_network = dict(normalized_service)
+        prior_non_network.pop("networks", None)
+        normalized_non_network.pop("networks", None)
+        if prior_non_network != normalized_non_network:
+            raise DeployError("joint_ingress_rollback_overlay_scope_invalid")
+        normalized_network_names = ingress._actual_network_names(
+            first_rendered,
+            normalized_service,
+        )
+        if normalized_network_names != {
+            logical: rendered_network_names[logical]
+            for logical in sorted(runtime_logical_names)
+        }:
+            raise DeployError("joint_ingress_rollback_overlay_scope_invalid")
+        normalized_attachments = dict(normalized_service.get("networks") or {})
+        for logical_name, actual_name in normalized_network_names.items():
+            attachment = normalized_attachments.get(logical_name)
+            if (
+                not isinstance(attachment, Mapping)
+                or set(attachment) != {"aliases", "ipv4_address"}
+                or dict(attachment).get("ipv4_address")
+                != runtime_rows[actual_name].get("ipv4_address")
+                or dict(attachment).get("aliases")
+                != sorted(runtime_rows[actual_name].get("aliases") or [])
+            ):
+                raise DeployError("joint_ingress_rollback_overlay_scope_invalid")
+        projection = self._ingress_rollback_projection(first_rendered)
+        projection_sha256 = _canonical_json_sha256(projection)
+        interpolation_environment = self._ingress_rollback_environment(projection)
+        return {
+            "working_dir": str(prior_root),
+            "compose_files": rollback_files,
+            "input_seals": rollback_seals,
+            "interpolation_environment": interpolation_environment,
+            "render_projection": projection,
+            "render_sha256": projection_sha256,
+            "overlay": {
+                "contract_name": INGRESS_ROLLBACK_OVERLAY_CONTRACT_NAME,
+                "path": str(overlay_path),
+                "sha256": str(overlay_seal["sha256"]),
+                "contains_secret_material": False,
+                "runtime_network_names": sorted(runtime_networks),
+                "logical_network_names": sorted(runtime_logical_names),
+                "normalized_property_detachment": (
+                    runtime_networks != rendered_networks
+                ),
+            },
+        }
 
     @staticmethod
     def _check_detail(receipt: Mapping[str, Any], name: str) -> dict[str, Any]:
@@ -2534,8 +3316,22 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "ctime_ns",
         }
         for raw_expected in seals:
+            if not isinstance(raw_expected, Mapping):
+                raise DeployError("joint_ingress_input_seal_invalid")
             expected = dict(raw_expected)
-            path = Path(str(expected.get("path") or ""))
+            path_value = expected.get("path")
+            if (
+                not isinstance(path_value, str)
+                or not path_value
+                or len(path_value) > 4096
+                or any(
+                    ord(character) < 32 or ord(character) == 127
+                    or 0xD800 <= ord(character) <= 0xDFFF
+                    for character in path_value
+                )
+            ):
+                raise DeployError("joint_ingress_input_seal_invalid")
+            path = Path(path_value)
             if not path.is_absolute() or ".." in path.parts:
                 raise DeployError("joint_ingress_input_seal_invalid")
             optional_absent = (
@@ -2555,12 +3351,40 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 if current_optional != expected:
                     raise DeployError(f"joint_ingress_input_changed:{path.name}")
                 continue
-            if set(expected) != file_seal_keys:
+            if (
+                set(expected) != file_seal_keys
+                or not isinstance(expected.get("path"), str)
+                or not isinstance(expected.get("sha256"), str)
+                or len(str(expected["sha256"])) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in str(expected["sha256"])
+                )
+                or type(expected.get("size_bytes")) is not int
+                or int(expected["size_bytes"]) <= 0
+                or not isinstance(expected.get("mode"), str)
+                or len(str(expected["mode"])) != 4
+                or any(character not in "01234567" for character in expected["mode"])
+                or any(
+                    type(expected.get(key)) is not int
+                    or int(expected[key]) < 0
+                    for key in (
+                        "device",
+                        "inode",
+                        "uid",
+                        "gid",
+                        "mtime_ns",
+                        "ctime_ns",
+                    )
+                )
+                or type(expected.get("link_count")) is not int
+                or expected.get("link_count") != 1
+            ):
                 raise DeployError("joint_ingress_input_seal_invalid")
             current = _trusted_file_seal(
                 path,
                 private=str(expected["mode"]) == "0600",
-                expected_uid=int(expected["uid"]),
+                expected_uid=expected["uid"],
             )
             if current != expected:
                 raise DeployError(f"joint_ingress_input_changed:{path.name}")
@@ -2697,6 +3521,125 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         }
 
     @staticmethod
+    def _cloudflared_runtime_identity(
+        baseline: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        container = dict(baseline.get("container") or {})
+        return {
+            key: container.get(key)
+            for key in (
+                "image_id",
+                "image_reference",
+                "environment_identity",
+                "command",
+                "entrypoint",
+                "user",
+                "process_config_sha256",
+                "security",
+                "mounts",
+                "networks",
+            )
+        }
+
+    @staticmethod
+    def _validate_ingress_rollback_networks(
+        ingress: PublicIngressReconciliationLane,
+        baseline: Mapping[str, Any],
+    ) -> None:
+        container = dict(baseline.get("container") or {})
+        network_rows = list(container.get("networks") or [])
+        if len(network_rows) != 1 or not isinstance(network_rows[0], Mapping):
+            raise DeployError("joint_ingress_rollback_network_baseline_invalid")
+        row = dict(network_rows[0])
+        expected_row_keys = {
+            "name",
+            "network_id",
+            "driver",
+            "ipam_driver",
+            "ipam_config",
+            "internal",
+            "attachable",
+            "ipv4_address",
+            "aliases",
+        }
+        network_name = str(row.get("name") or "")
+        desired_ipv4 = str(row.get("ipv4_address") or "")
+        try:
+            parsed_desired_ipv4 = ipaddress.ip_address(desired_ipv4)
+        except ValueError as exc:
+            raise DeployError(
+                "joint_ingress_rollback_network_baseline_invalid"
+            ) from exc
+        if (
+            set(row) != expected_row_keys
+            or network_name not in {DEFAULT_NETWORK, PUBLIC_INGRESS_NETWORK}
+            or parsed_desired_ipv4.version != 4
+            or str(parsed_desired_ipv4) != desired_ipv4
+            or not isinstance(row.get("ipam_config"), list)
+            or not row["ipam_config"]
+            or not all(isinstance(item, Mapping) for item in row["ipam_config"])
+        ):
+            raise DeployError("joint_ingress_rollback_network_baseline_invalid")
+        current = ingress._inspect_network(network_name)
+        current_ipam = dict(current.get("IPAM") or {})
+        if (
+            str(current.get("Id") or "") != row.get("network_id")
+            or str(current.get("Name") or "") != network_name
+            or str(current.get("Driver") or "") != row.get("driver")
+            or str(current_ipam.get("Driver") or "") != row.get("ipam_driver")
+            or list(current_ipam.get("Config") or []) != row.get("ipam_config")
+            or bool(current.get("Internal")) is not row.get("internal")
+            or bool(current.get("Attachable")) is not row.get("attachable")
+        ):
+            raise DeployError("joint_ingress_rollback_network_changed")
+        raw_memberships = dict(current.get("Containers") or {})
+        normalized_memberships: list[dict[str, str]] = []
+        for container_id, raw_membership in raw_memberships.items():
+            if not isinstance(raw_membership, Mapping):
+                raise DeployError("joint_ingress_rollback_network_members_invalid")
+            membership = dict(raw_membership)
+            raw_ipv4 = str(membership.get("IPv4Address") or "")
+            ipv4_address = raw_ipv4.split("/", 1)[0]
+            normalized_memberships.append(
+                {
+                    "container_id": str(container_id),
+                    "name": str(membership.get("Name") or ""),
+                    "ipv4_address": ipv4_address,
+                    "ipv6_address": str(membership.get("IPv6Address") or ""),
+                }
+            )
+        desired_owners = [
+            membership
+            for membership in normalized_memberships
+            if membership["ipv4_address"] == desired_ipv4
+        ]
+        if len(desired_owners) > 1 or any(
+            owner["name"] != CLOUDFLARED_CONTAINER
+            or owner["ipv6_address"]
+            for owner in desired_owners
+        ):
+            raise DeployError("joint_ingress_rollback_ipv4_unavailable")
+        if network_name == PUBLIC_INGRESS_NETWORK:
+            if (
+                len({item["container_id"] for item in normalized_memberships})
+                != len(normalized_memberships)
+                or len({item["ipv4_address"] for item in normalized_memberships})
+                != len(normalized_memberships)
+                or any(
+                    item["ipv6_address"]
+                    or not (
+                        item["name"] == API_SERVICE
+                        and item["ipv4_address"] == PUBLIC_INGRESS_API_IPV4
+                        or item["name"] == CLOUDFLARED_CONTAINER
+                        and item["ipv4_address"]
+                        == PUBLIC_INGRESS_CLOUDFLARED_IPV4
+                    )
+                    for item in normalized_memberships
+                )
+            ):
+                raise DeployError("joint_ingress_rollback_network_members_invalid")
+
+    @staticmethod
     def _network_rollback_identity(snapshot: Mapping[str, Any]) -> dict[str, Any]:
         """Compare stable network topology while tolerating recreated container IDs."""
         if not snapshot.get("present"):
@@ -2731,6 +3674,136 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             )
         } | {"containers": containers}
 
+    def _validate_ingress_address_reservations(
+        self,
+        *,
+        context: Mapping[str, Any],
+        network_baseline: Mapping[str, Any],
+        cloudflared_baseline: Mapping[str, Any],
+        phase: str = "preflight",
+        expected_network_baseline: Mapping[str, Any] | None = None,
+    ) -> None:
+        if (
+            phase not in {"preflight", "before_recreate_api"}
+            or (phase == "preflight" and expected_network_baseline is not None)
+            or (phase == "before_recreate_api" and expected_network_baseline is None)
+        ):
+            raise DeployError("joint_ingress_address_reservation_phase_invalid")
+        if (
+            expected_network_baseline is not None
+            and dict(network_baseline) != dict(expected_network_baseline)
+        ):
+            raise DeployError("joint_ingress_network_topology_changed")
+        if not network_baseline.get("present"):
+            if dict(network_baseline) != {"present": False}:
+                raise DeployError("joint_ingress_address_reservation_invalid")
+            return
+        previous_api_id = str(
+            dict(context.get("previous") or {}).get("container_id") or ""
+        )
+        baseline_cloudflared_id = str(
+            dict(cloudflared_baseline.get("container") or {}).get("id") or ""
+        )
+        if not previous_api_id or not baseline_cloudflared_id:
+            raise DeployError("joint_ingress_address_reservation_identity_missing")
+        expected_network_keys = {
+            "present",
+            "id",
+            "name",
+            "driver",
+            "ipam_driver",
+            "ipam_config",
+            "internal",
+            "attachable",
+            "containers",
+        }
+        if (
+            set(network_baseline) != expected_network_keys
+            or not str(network_baseline.get("id") or "")
+            or network_baseline.get("name") != PUBLIC_INGRESS_NETWORK
+            or network_baseline.get("driver") != "bridge"
+            or network_baseline.get("ipam_driver") != "default"
+            or network_baseline.get("ipam_config")
+            != [
+                {
+                    "Subnet": PUBLIC_INGRESS_SUBNET,
+                    "Gateway": PUBLIC_INGRESS_GATEWAY,
+                }
+            ]
+            or network_baseline.get("internal") is not False
+            or network_baseline.get("attachable") is not False
+            or not isinstance(network_baseline.get("containers"), list)
+        ):
+            raise DeployError("joint_ingress_address_reservation_invalid")
+        normalized_members: list[dict[str, str]] = []
+        for raw_row in list(network_baseline.get("containers") or []):
+            if (
+                not isinstance(raw_row, Mapping)
+                or set(raw_row)
+                != {"container_id", "name", "ipv4_address", "ipv6_address"}
+            ):
+                raise DeployError("joint_ingress_address_reservation_invalid")
+            raw_ipv4 = str(raw_row.get("ipv4_address") or "")
+            address, separator, prefix = raw_ipv4.partition("/")
+            row: dict[str, str] = {
+                "container_id": str(raw_row.get("container_id") or ""),
+                "name": str(raw_row.get("name") or ""),
+                "ipv4_address": address,
+                "ipv6_address": str(raw_row.get("ipv6_address") or ""),
+            }
+            if (
+                not row["container_id"]
+                or separator != "/"
+                or prefix != "29"
+                or row["ipv6_address"]
+                or not (
+                    row["container_id"] == previous_api_id
+                    and row["name"] == API_SERVICE
+                    and address
+                    in {
+                        PUBLIC_INGRESS_CLOUDFLARED_IPV4,
+                        PUBLIC_INGRESS_API_IPV4,
+                    }
+                    or row["container_id"] == baseline_cloudflared_id
+                    and row["name"] == CLOUDFLARED_CONTAINER
+                    and address == PUBLIC_INGRESS_CLOUDFLARED_IPV4
+                )
+            ):
+                raise DeployError("joint_ingress_address_reservation_conflict")
+            normalized_members.append(row)
+        if len({row["container_id"] for row in normalized_members}) != len(
+            normalized_members
+        ) or len({row["ipv4_address"] for row in normalized_members}) != len(
+            normalized_members
+        ):
+            raise DeployError("joint_ingress_address_reservation_conflict")
+        cloudflared_owner = next(
+            (
+                row
+                for row in normalized_members
+                if row["container_id"] == baseline_cloudflared_id
+            ),
+            None,
+        )
+        api_owner = next(
+            (
+                row
+                for row in normalized_members
+                if row["container_id"] == previous_api_id
+            ),
+            None,
+        )
+        self._record_check(
+            "joint_ingress_address_reservations",
+            "pass",
+            cloudflared_ipv4=PUBLIC_INGRESS_CLOUDFLARED_IPV4,
+            api_ipv4=PUBLIC_INGRESS_API_IPV4,
+            cloudflared_owner=cloudflared_owner,
+            api_owner=api_owner,
+            member_count=len(normalized_members),
+            phase=phase,
+        )
+
     def _preflight_ingress(
         self,
         context: Mapping[str, Any],
@@ -2744,7 +3817,14 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             files=ingress.target_compose_files,
         )
         network_baseline = self._capture_public_network(ingress)
-        cloudflared_baseline = ingress._capture_cloudflared_baseline()
+        cloudflared_baseline = ingress._capture_cloudflared_baseline(
+            allow_legacy_property_detached=True,
+        )
+        self._validate_ingress_address_reservations(
+            context=context,
+            network_baseline=network_baseline,
+            cloudflared_baseline=cloudflared_baseline,
+        )
         target_rendered = ingress._validate_target_compose(
             expected_input_seals=target_input_seals,
         )
@@ -2756,36 +3836,15 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         ]
         if target_seals != [dict(item) for item in target_input_seals]:
             raise DeployError("joint_ingress_target_input_seals_changed")
-        rollback_seals = [
-            dict(item)
-            for item in list(
-                dict(cloudflared_baseline.get("container") or {}).get(
-                    "compose_input_seals"
-                )
-                or []
-            )
-            if isinstance(item, dict)
-        ]
-        baseline_container = dict(cloudflared_baseline.get("container") or {})
-        rollback_root = Path(
-            str(baseline_container.get("compose_working_dir") or "")
+        rollback_bundle = self._prepare_ingress_rollback_bundle(
+            ingress,
+            cloudflared_baseline,
         )
-        rollback_files = [
-            str(item)
-            for item in list(baseline_container.get("compose_config_files") or [])
-            if str(item)
-        ]
-        rollback_rendered, rollback_render_seals = ingress._render_compose(
-            root=rollback_root,
-            files=rollback_files,
-            expected_input_seals=rollback_seals,
-        )
-        if rollback_render_seals != rollback_seals:
-            raise DeployError("joint_ingress_rollback_render_seals_changed")
-        rollback_projection = self._ingress_rollback_projection(rollback_rendered)
-        rollback_render_sha256 = _canonical_json_sha256(rollback_projection)
-        rollback_interpolation_environment = self._ingress_rollback_environment(
-            rollback_projection
+        rollback_seals = list(rollback_bundle["input_seals"])
+        rollback_projection = dict(rollback_bundle["render_projection"])
+        rollback_render_sha256 = str(rollback_bundle["render_sha256"])
+        rollback_interpolation_environment = dict(
+            rollback_bundle["interpolation_environment"]
         )
         self._revalidate_ingress_input_seals([*target_seals, *rollback_seals])
         public_origin = str(context["public_origin"])
@@ -2819,6 +3878,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "public_edge_stability_sample_count": 2,
             "public_edge_request_count_per_sample": len(public_edge_baseline),
             "public_edge_request_count": len(public_edge_baseline) * 2,
+            "rollback_overlay": dict(rollback_bundle["overlay"]),
         }
         self._record_check(
             "joint_ingress_preflight",
@@ -2830,6 +3890,10 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             public_edge_stability_sample_count=2,
             public_edge_request_count_per_sample=len(public_edge_baseline),
             public_edge_request_count=len(public_edge_baseline) * 2,
+            rollback_overlay_sha256=dict(rollback_bundle["overlay"])["sha256"],
+            rollback_network_names=dict(rollback_bundle["overlay"])[
+                "runtime_network_names"
+            ],
         )
         return {
             "lane": ingress,
@@ -2837,6 +3901,9 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "network_baseline": network_baseline,
             "public_edge_baseline": public_edge_baseline,
             "rollback_input_seals": rollback_seals,
+            "rollback_working_dir": str(rollback_bundle["working_dir"]),
+            "rollback_compose_files": list(rollback_bundle["compose_files"]),
+            "rollback_overlay": dict(rollback_bundle["overlay"]),
             "rollback_interpolation_environment": (
                 rollback_interpolation_environment
             ),
@@ -3071,11 +4138,7 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             container.get("image_reference") != PINNED_CLOUDFLARED_IMAGE
             or container.get("compose_working_dir") != str(self.root)
             or container.get("compose_config_files") != expected_files
-            or set(networks)
-            != {
-                PUBLIC_INGRESS_NETWORK,
-                PROPERTY_NETWORK,
-            }
+            or set(networks) != {PUBLIC_INGRESS_NETWORK}
             or public_network.get("ipv4_address") != PUBLIC_INGRESS_CLOUDFLARED_IPV4
         ):
             raise DeployError("joint_forward_cloudflared_identity_mismatch")
@@ -3119,13 +4182,13 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
         baseline = dict(ingress_context["cloudflared_baseline"])
         container = dict(baseline.get("container") or {})
         prior_root = Path(
-            str(container.get("compose_working_dir") or "")
+            str(ingress_context.get("rollback_working_dir") or "")
         ).expanduser()
         if not prior_root.is_absolute() or ".." in prior_root.parts:
             raise DeployError("joint_ingress_rollback_working_dir_invalid")
         prior_files = [
             str(item)
-            for item in list(container.get("compose_config_files") or [])
+            for item in list(ingress_context.get("rollback_compose_files") or [])
             if str(item)
         ]
         if not prior_files:
@@ -3146,6 +4209,10 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             != ingress_context["rollback_render_sha256"]
         ):
             raise DeployError("joint_ingress_rollback_render_changed")
+        self._validate_ingress_rollback_networks(ingress, baseline)
+        self._revalidate_ingress_input_seals(
+            list(ingress_context["rollback_input_seals"])
+        )
         args = ingress._compose_args(root=prior_root, files=prior_files)
         self._run(
             [
@@ -3158,7 +4225,17 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 CLOUDFLARED_SERVICE,
             ],
             cwd=prior_root,
-            env=self._rollback_ingress_environment(ingress.release_env),
+            env=self._rollback_ingress_environment(
+                {
+                    **ingress.release_env,
+                    **dict(
+                        ingress_context.get(
+                            "rollback_interpolation_environment"
+                        )
+                        or {}
+                    ),
+                }
+            ),
         )
         self._revalidate_ingress_input_seals(
             list(ingress_context["rollback_input_seals"])
@@ -3171,7 +4248,15 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             restored = ingress._capture_cloudflared_baseline()
         finally:
             ingress.baseline_path = original_path
-        if self._cloudflared_identity(restored) != self._cloudflared_identity(baseline):
+        restored_container = dict(restored.get("container") or {})
+        if (
+            self._cloudflared_runtime_identity(restored)
+            != self._cloudflared_runtime_identity(baseline)
+            or restored_container.get("compose_working_dir") != str(prior_root)
+            or restored_container.get("compose_config_files") != prior_files
+            or restored_container.get("compose_input_seals")
+            != list(ingress_context["rollback_input_seals"])
+        ):
             raise DeployError("joint_ingress_rollback_identity_mismatch")
         return {
             "status": "pass",
@@ -3179,6 +4264,10 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             "receipt_path": str(restore_path),
             "receipt_sha256": _sha256(restore_path.read_bytes()),
             "identity_restored": True,
+            "normalized_compose_identity_restored": True,
+            "rollback_overlay_sha256": dict(
+                ingress_context.get("rollback_overlay") or {}
+            ).get("sha256"),
         }
 
     def _restore_public_network(
@@ -3198,10 +4287,14 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             return {"status": "pass", "preexisting": True, "removed": False}
         if not current.get("present"):
             return {"status": "pass", "preexisting": False, "removed": False}
+        current_id = str(current.get("id") or "")
         if (
-            current.get("name") != PUBLIC_INGRESS_NETWORK
+            not self._recovery_hex(current_id)
+            or current.get("name") != PUBLIC_INGRESS_NETWORK
             or current.get("driver") != "bridge"
             or current.get("ipam_driver") != "default"
+            or current.get("internal") is not False
+            or current.get("attachable") is not False
             or current.get("containers") != []
             or current.get("ipam_config")
             != [
@@ -3212,11 +4305,52 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             ]
         ):
             raise DeployError("joint_public_network_cleanup_unsafe")
-        self._run(["docker", "network", "rm", PUBLIC_INGRESS_NETWORK])
+        raw_network = ingress._inspect_network(current_id)
+        labels = raw_network.get("Labels")
+        expected_label_keys = {
+            "com.docker.compose.config-hash",
+            "com.docker.compose.network",
+            "com.docker.compose.project",
+            "com.docker.compose.version",
+        }
+        compose_version = (
+            str(dict(labels).get("com.docker.compose.version") or "")
+            if isinstance(labels, Mapping)
+            else ""
+        )
+        if (
+            str(raw_network.get("Id") or "") != current_id
+            or str(raw_network.get("Name") or "") != PUBLIC_INGRESS_NETWORK
+            or str(raw_network.get("Driver") or "") != "bridge"
+            or bool(raw_network.get("Internal"))
+            or bool(raw_network.get("Attachable"))
+            or dict(raw_network.get("Containers") or {})
+            or not isinstance(labels, Mapping)
+            or set(labels) != expected_label_keys
+            or dict(labels).get("com.docker.compose.network") != "public_ingress"
+            or dict(labels).get("com.docker.compose.project") != "ea"
+            or not self._recovery_hex(
+                dict(labels).get("com.docker.compose.config-hash")
+            )
+            or not 1 <= len(compose_version) <= 32
+            or any(
+                character
+                not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.+-"
+                for character in compose_version
+            )
+        ):
+            raise DeployError("joint_public_network_cleanup_ownership_unproven")
+        self._run(["docker", "network", "rm", current_id])
         final = self._capture_public_network(ingress)
         if final.get("present"):
             raise DeployError("joint_public_network_cleanup_failed")
-        return {"status": "pass", "preexisting": False, "removed": True}
+        return {
+            "status": "pass",
+            "preexisting": False,
+            "removed": True,
+            "network_id_sha256": _sha256(current_id.encode("ascii")),
+            "ownership": "exact_compose_network_labels_verified",
+        }
 
     def _perform_joint_rollback(
         self,
@@ -3502,12 +4636,40 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
             self._require_deployment_input_seal(context["deployment_input_seal"])
             self._require_spatial_browser_binding(context)
             self._revalidate_ingress_input_seals(ingress_context["target_input_seals"])
+            self._validate_ingress_address_reservations(
+                context=context,
+                network_baseline=self._capture_public_network(ingress),
+                cloudflared_baseline=ingress_context["cloudflared_baseline"],
+                phase="before_recreate_api",
+                expected_network_baseline=ingress_context["network_baseline"],
+            )
             self.receipt["status"] = "changing_api"
             pending_action = "recreate_api"
             persist_preparation("api_authorization_pending")
             with self._vexp_mutation_lease("before_recreate_api"):
                 self._revalidate_bind_source_access(
                     boundary="before_recreate_api"
+                )
+                self._require_deployment_input_seal(
+                    context["deployment_input_seal"]
+                )
+                self._require_spatial_browser_binding(context)
+                self._revalidate_ingress_input_seals(
+                    [
+                        *ingress_context["target_input_seals"],
+                        *ingress_context["rollback_input_seals"],
+                    ]
+                )
+                self._validate_ingress_address_reservations(
+                    context=context,
+                    network_baseline=self._capture_public_network(ingress),
+                    cloudflared_baseline=ingress_context[
+                        "cloudflared_baseline"
+                    ],
+                    phase="before_recreate_api",
+                    expected_network_baseline=ingress_context[
+                        "network_baseline"
+                    ],
                 )
                 pending_action = None
                 active_action = "recreate_api"
@@ -3520,11 +4682,50 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     api_mutation_possible=True,
                     ingress_mutation_possible=False,
                 )
-                api_mutation_started = True
                 persist_preparation(
                     "api_mutation_in_progress",
                     api_runtime_state="mutation_possible",
                 )
+                try:
+                    self._revalidate_bind_source_access(
+                        boundary="before_recreate_api"
+                    )
+                    self._require_deployment_input_seal(
+                        context["deployment_input_seal"]
+                    )
+                    self._require_spatial_browser_binding(context)
+                    self._revalidate_ingress_input_seals(
+                        [
+                            *ingress_context["target_input_seals"],
+                            *ingress_context["rollback_input_seals"],
+                        ]
+                    )
+                    self._validate_ingress_address_reservations(
+                        context=context,
+                        network_baseline=self._capture_public_network(ingress),
+                        cloudflared_baseline=ingress_context[
+                            "cloudflared_baseline"
+                        ],
+                        phase="before_recreate_api",
+                        expected_network_baseline=ingress_context[
+                            "network_baseline"
+                        ],
+                    )
+                except BaseException:
+                    try:
+                        self._set_recovery_phase(
+                            recovery_journal,
+                            "prepared",
+                            api_mutation_possible=False,
+                            ingress_mutation_possible=False,
+                        )
+                    except BaseException:
+                        # If the durable journal cannot be downgraded, preserve
+                        # its conservative mutation-possible interpretation and
+                        # force the ordinary verified rollback path.
+                        api_mutation_started = True
+                    raise
+                api_mutation_started = True
                 self._recreate_api()
             preparation_completed.append("recreate_api")
             active_action = None
@@ -3603,6 +4804,19 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                 api_runtime_state="changed_verified_locally",
             )
             with self._vexp_mutation_lease(INGRESS_MUTATION_BOUNDARY):
+                self._require_deployment_input_seal(
+                    context["deployment_input_seal"]
+                )
+                self._require_spatial_browser_binding(context)
+                self._revalidate_ingress_input_seals(
+                    [
+                        *ingress_context["target_input_seals"],
+                        *ingress_context["rollback_input_seals"],
+                    ]
+                )
+                ingress._validate_api_runtime_posture(
+                    ingress_context["cloudflared_baseline"]
+                )
                 pending_action = None
                 active_action = "recreate_cloudflared"
                 preparation_attempted.append("recreate_cloudflared")
@@ -3614,12 +4828,39 @@ class JointMemorialIngressDeployLane(MemorialDeployLane):
                     api_mutation_possible=True,
                     ingress_mutation_possible=True,
                 )
-                ingress_mutation_started = True
                 persist_preparation(
                     "ingress_mutation_in_progress",
                     api_runtime_state="changed_verified_locally",
                     ingress_runtime_state="mutation_possible",
                 )
+                try:
+                    self._require_deployment_input_seal(
+                        context["deployment_input_seal"]
+                    )
+                    self._require_spatial_browser_binding(context)
+                    self._revalidate_ingress_input_seals(
+                        [
+                            *ingress_context["target_input_seals"],
+                            *ingress_context["rollback_input_seals"],
+                        ]
+                    )
+                    ingress._validate_api_runtime_posture(
+                        ingress_context["cloudflared_baseline"]
+                    )
+                except BaseException:
+                    try:
+                        self._set_recovery_phase(
+                            recovery_journal,
+                            "api_mutation_possible",
+                            api_mutation_possible=True,
+                            ingress_mutation_possible=False,
+                        )
+                    except BaseException:
+                        # The API is already changed. If the journal cannot be
+                        # narrowed, conservatively restore ingress as well.
+                        ingress_mutation_started = True
+                    raise
+                ingress_mutation_started = True
                 self._recreate_cloudflared(ingress)
             preparation_completed.append("recreate_cloudflared")
             active_action = None

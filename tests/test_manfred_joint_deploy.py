@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Iterator, Mapping, Sequence
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pytest
 
@@ -207,11 +207,84 @@ def _ingress_lane(
     )
 
 
+def _materialize_ingress_rollback_fixture(
+    lane: joint.JointMemorialIngressDeployLane,
+    ingress_lane: ingress.PublicIngressReconciliationLane,
+) -> dict[str, object]:
+    compose_path = lane.root / "docker-compose.yml"
+    if not compose_path.exists():
+        compose_path.write_text(
+            "services:\n  ea-cloudflared:\n    image: test-cloudflared\n",
+            encoding="utf-8",
+        )
+        compose_path.chmod(0o644)
+
+    lane.ingress_receipt_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+    lane.ingress_receipt_dir.chmod(0o700)
+    overlay_path = lane.ingress_receipt_dir / (
+        f"{lane.deployment_id}.{joint.INGRESS_ROLLBACK_OVERLAY_SUFFIX}"
+    )
+    overlay_raw = (
+        f"# {joint.INGRESS_ROLLBACK_OVERLAY_CONTRACT_NAME}\n"
+        "services:\n"
+        f"  {ingress.CLOUDFLARED_SERVICE}:\n"
+        "    networks: !override\n"
+        "      public_ingress:\n"
+        f'        ipv4_address: "{ingress.PUBLIC_INGRESS_CLOUDFLARED_IPV4}"\n'
+        "        aliases:\n"
+        f'          - "{ingress.CLOUDFLARED_SERVICE}"\n'
+        f'          - "{ingress.CLOUDFLARED_CONTAINER}"\n'
+        "networks:\n"
+        "  public_ingress: !override\n"
+        "    external: true\n"
+        f'    name: "{ingress.PUBLIC_INGRESS_NETWORK}"\n'
+    ).encode("utf-8")
+    if not overlay_path.exists():
+        overlay_path.write_bytes(overlay_raw)
+        overlay_path.chmod(0o600)
+    elif overlay_path.read_bytes() != overlay_raw:
+        raise AssertionError("rollback overlay fixture changed unexpectedly")
+
+    baseline_files = [str(compose_path)]
+    rollback_files = [*baseline_files, str(overlay_path)]
+    baseline_seals = ingress_lane._capture_compose_input_seals(
+        root=lane.root,
+        files=baseline_files,
+    )
+    rollback_seals = ingress_lane._capture_compose_input_seals(
+        root=lane.root,
+        files=rollback_files,
+    )
+    overlay_seal = next(
+        seal for seal in rollback_seals if seal.get("path") == str(overlay_path)
+    )
+    return {
+        "baseline_files": baseline_files,
+        "baseline_seals": baseline_seals,
+        "working_dir": str(lane.root),
+        "compose_files": rollback_files,
+        "input_seals": rollback_seals,
+        "overlay": {
+            "contract_name": joint.INGRESS_ROLLBACK_OVERLAY_CONTRACT_NAME,
+            "path": str(overlay_path),
+            "sha256": str(overlay_seal["sha256"]),
+            "contains_secret_material": False,
+            "runtime_network_names": [ingress.PUBLIC_INGRESS_NETWORK],
+            "logical_network_names": ["public_ingress"],
+            "normalized_property_detachment": False,
+        },
+    }
+
+
 def _context(
     lane: joint.JointMemorialIngressDeployLane,
     tmp_path: Path,
 ) -> dict[str, object]:
     ingress_lane = _ingress_lane(lane, tmp_path)
+    rollback_fixture = _materialize_ingress_rollback_fixture(
+        lane,
+        ingress_lane,
+    )
     public_edge = {"version_get": {"status": 421}}
     rollback_projection = {
         "service": {
@@ -219,23 +292,20 @@ def _context(
             "environment": {"TUNNEL_TOKEN": "test-tunnel-token"},
             "networks": {
                 "public_ingress": {
-                    "ipv4_address": ingress.PUBLIC_INGRESS_CLOUDFLARED_IPV4
+                    "ipv4_address": ingress.PUBLIC_INGRESS_CLOUDFLARED_IPV4,
+                    "aliases": sorted(
+                        [
+                            ingress.CLOUDFLARED_CONTAINER,
+                            ingress.CLOUDFLARED_SERVICE,
+                        ]
+                    ),
                 },
-                "property_default": None,
             },
         },
         "networks": {
-            "property_default": {"external": True, "name": "property_default"},
             "public_ingress": {
+                "external": True,
                 "name": ingress.PUBLIC_INGRESS_NETWORK,
-                "ipam": {
-                    "config": [
-                        {
-                            "subnet": ingress.PUBLIC_INGRESS_SUBNET,
-                            "gateway": ingress.PUBLIC_INGRESS_GATEWAY,
-                        }
-                    ]
-                },
             },
         },
     }
@@ -290,7 +360,10 @@ def _context(
             "cloudflared_baseline": {"container": {}},
             "network_baseline": {"present": False},
             "public_edge_baseline": public_edge,
-            "rollback_input_seals": [{"scope": "rollback"}],
+            "rollback_input_seals": list(rollback_fixture["input_seals"]),
+            "rollback_working_dir": str(rollback_fixture["working_dir"]),
+            "rollback_compose_files": list(rollback_fixture["compose_files"]),
+            "rollback_overlay": dict(rollback_fixture["overlay"]),
             "rollback_interpolation_environment": {
                 "EA_CF_TUNNEL_TOKEN": "test-tunnel-token",
                 "EA_PUBLIC_INGRESS_CLOUDFLARED_IPV4": (
@@ -344,7 +417,15 @@ def _recovery_context(
     previous_root = tmp_path / "previous"
     previous_compose = previous_root / "docker-compose.yml"
     ingress_root = lane.root
-    ingress_compose = ingress_root / "docker-compose.yml"
+    rollback_files = list(ingress_context["rollback_compose_files"])
+    rollback_seals = list(ingress_context["rollback_input_seals"])
+    rollback_overlay = dict(ingress_context["rollback_overlay"])
+    ingress_compose_files = rollback_files[:-1]
+    ingress_baseline_seals = [
+        dict(item)
+        for item in rollback_seals
+        if dict(item).get("path") != rollback_overlay["path"]
+    ]
     context["previous"] = {
         "container_id": "prior-api-container",
         "created_at": "2026-07-20T09:00:00Z",
@@ -386,7 +467,6 @@ def _recovery_context(
         "forward": [{"path": str(lane.root / ".env")}],
         "rollback": [{"path": str(previous_root / ".env")}],
     }
-    rollback_seals = [{"path": str(ingress_root / ".env")}]
     rollback_projection = context["ingress"]["rollback_render_projection"]
     assert isinstance(rollback_projection, dict)
     public_edge_baseline = {}
@@ -411,8 +491,8 @@ def _recovery_context(
             "image_id": "sha256:" + "9" * 64,
             "image_reference": ingress.PINNED_CLOUDFLARED_IMAGE,
             "compose_working_dir": str(ingress_root),
-            "compose_config_files": [str(ingress_compose)],
-            "compose_input_seals": rollback_seals,
+            "compose_config_files": ingress_compose_files,
+            "compose_input_seals": ingress_baseline_seals,
             "environment_identity": {
                 "environment_sha256": "a" * 64,
                 "environment_count": 1,
@@ -435,7 +515,7 @@ def _recovery_context(
             "networks": [
                 {
                     "name": ingress.PUBLIC_INGRESS_NETWORK,
-                    "network_id": "network-id",
+                    "network_id": "c" * 64,
                     "driver": "bridge",
                     "ipam_driver": "default",
                     "ipam_config": [
@@ -448,8 +528,8 @@ def _recovery_context(
                     "attachable": False,
                     "ipv4_address": ingress.PUBLIC_INGRESS_CLOUDFLARED_IPV4,
                     "aliases": [
-                        ingress.CLOUDFLARED_CONTAINER,
                         ingress.CLOUDFLARED_SERVICE,
+                        ingress.CLOUDFLARED_CONTAINER,
                     ],
                 }
             ],
@@ -469,6 +549,9 @@ def _recovery_context(
             "network_baseline": {"present": False},
             "public_edge_baseline": public_edge_baseline,
             "rollback_input_seals": rollback_seals,
+            "rollback_working_dir": str(ingress_root),
+            "rollback_compose_files": rollback_files,
+            "rollback_overlay": rollback_overlay,
             "rollback_render_sha256": joint._canonical_json_sha256(
                 rollback_projection
             ),
@@ -545,6 +628,10 @@ def _install_success_path(
         )
     )
     lane._recreate_api = Mock(side_effect=lambda: actions.append("recreate_api"))
+    lane._capture_public_network = Mock(  # type: ignore[method-assign]
+        return_value={"present": False}
+    )
+    lane._validate_ingress_address_reservations = Mock()  # type: ignore[method-assign]
     lane._wait_container = Mock(return_value={"running": "true"})
     lane._verify_forward_api = Mock(return_value={"source_revision": SOURCE_REVISION})
     lane._local_origin = Mock(return_value="http://127.0.0.1:8090")
@@ -567,6 +654,290 @@ def _install_success_path(
     )
     lane._materialize_and_verify_release_evidence = Mock(return_value={})
     return context, actions
+
+
+def test_final_api_revalidation_failure_before_compose_requires_no_rollback(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    _context_value, actions = _install_success_path(lane, tmp_path)
+    phases: list[str] = []
+    real_set_recovery_phase = lane._set_recovery_phase
+
+    def track_phase(
+        journal_payload: dict[str, object],
+        phase: str,
+        *,
+        api_mutation_possible: bool,
+        ingress_mutation_possible: bool,
+    ) -> None:
+        real_set_recovery_phase(
+            journal_payload,
+            phase,
+            api_mutation_possible=api_mutation_possible,
+            ingress_mutation_possible=ingress_mutation_possible,
+        )
+        phases.append(phase)
+
+    lane._set_recovery_phase = Mock(  # type: ignore[method-assign]
+        side_effect=track_phase
+    )
+
+    def fail_final_api_seal(_seals: object) -> None:
+        if phases and phases[-1] == "api_mutation_possible":
+            raise api_deploy.DeployError("final_api_seal_changed")
+
+    lane._revalidate_ingress_input_seals = Mock(  # type: ignore[method-assign]
+        side_effect=fail_final_api_seal
+    )
+    lane._perform_joint_rollback = Mock()  # type: ignore[method-assign]
+
+    with pytest.raises(api_deploy.DeployError, match="final_api_seal_changed"):
+        lane.deploy()
+
+    assert phases == ["api_mutation_possible", "prepared"]
+    assert "recreate_api" not in actions
+    assert "recreate_cloudflared" not in actions
+    lane._perform_joint_rollback.assert_not_called()
+    assert lane.receipt["failure"]["api_mutation_started"] is False
+    assert lane.receipt["failure"]["ingress_mutation_started"] is False
+    assert lane.receipt["rollback"] == {
+        "status": "not_required",
+        "reason": "api_and_ingress_unchanged",
+        "protected_api_image_tag": joint._safe_rollback_tag(lane.deployment_id),
+    }
+    assert not lane.recovery_journal_path.exists()
+
+
+def test_failed_api_journal_downgrade_uses_conservative_rollback(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    _context_value, actions = _install_success_path(lane, tmp_path)
+    phases: list[str] = []
+    real_set_recovery_phase = lane._set_recovery_phase
+
+    def track_or_fail_phase(
+        journal_payload: dict[str, object],
+        phase: str,
+        *,
+        api_mutation_possible: bool,
+        ingress_mutation_possible: bool,
+    ) -> None:
+        if phase == "prepared" and phases == ["api_mutation_possible"]:
+            raise api_deploy.DeployError("journal_downgrade_failed")
+        real_set_recovery_phase(
+            journal_payload,
+            phase,
+            api_mutation_possible=api_mutation_possible,
+            ingress_mutation_possible=ingress_mutation_possible,
+        )
+        phases.append(phase)
+
+    lane._set_recovery_phase = Mock(  # type: ignore[method-assign]
+        side_effect=track_or_fail_phase
+    )
+
+    def fail_final_api_seal(_seals: object) -> None:
+        if phases and phases[-1] == "api_mutation_possible":
+            raise api_deploy.DeployError("final_api_seal_changed")
+
+    lane._revalidate_ingress_input_seals = Mock(  # type: ignore[method-assign]
+        side_effect=fail_final_api_seal
+    )
+    lane._perform_joint_rollback = Mock(  # type: ignore[method-assign]
+        return_value={"status": "pass"}
+    )
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_deployment_failed_rolled_back:final_api_seal_changed",
+    ):
+        lane.deploy()
+
+    assert "recreate_api" not in actions
+    assert "recreate_cloudflared" not in actions
+    lane._perform_joint_rollback.assert_called_once()
+    assert lane._perform_joint_rollback.call_args.kwargs[
+        "api_mutation_started"
+    ] is True
+    assert lane._perform_joint_rollback.call_args.kwargs[
+        "ingress_mutation_started"
+    ] is False
+    assert not lane.recovery_journal_path.exists()
+
+
+def test_final_ingress_revalidation_failure_rolls_back_api_only(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    _context_value, actions = _install_success_path(lane, tmp_path)
+    phases: list[str] = []
+    real_set_recovery_phase = lane._set_recovery_phase
+
+    def track_phase(
+        journal_payload: dict[str, object],
+        phase: str,
+        *,
+        api_mutation_possible: bool,
+        ingress_mutation_possible: bool,
+    ) -> None:
+        real_set_recovery_phase(
+            journal_payload,
+            phase,
+            api_mutation_possible=api_mutation_possible,
+            ingress_mutation_possible=ingress_mutation_possible,
+        )
+        phases.append(phase)
+
+    lane._set_recovery_phase = Mock(  # type: ignore[method-assign]
+        side_effect=track_phase
+    )
+
+    def fail_final_ingress_seal(_seals: object) -> None:
+        if phases and phases[-1] == "ingress_mutation_possible":
+            raise api_deploy.DeployError("final_ingress_seal_changed")
+
+    lane._revalidate_ingress_input_seals = Mock(  # type: ignore[method-assign]
+        side_effect=fail_final_ingress_seal
+    )
+    lane._perform_joint_rollback = Mock(  # type: ignore[method-assign]
+        return_value={"status": "pass"}
+    )
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_deployment_failed_rolled_back:final_ingress_seal_changed",
+    ):
+        lane.deploy()
+
+    assert "recreate_api" in actions
+    assert "recreate_cloudflared" not in actions
+    assert phases[:3] == [
+        "api_mutation_possible",
+        "ingress_mutation_possible",
+        "api_mutation_possible",
+    ]
+    lane._perform_joint_rollback.assert_called_once()
+    assert lane._perform_joint_rollback.call_args.kwargs[
+        "api_mutation_started"
+    ] is True
+    assert lane._perform_joint_rollback.call_args.kwargs[
+        "ingress_mutation_started"
+    ] is False
+    assert not lane.recovery_journal_path.exists()
+
+
+@pytest.mark.parametrize("authority", ["source", "spatial"])
+def test_final_api_authority_drift_before_compose_requires_no_rollback(
+    tmp_path: Path,
+    authority: str,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    _context_value, actions = _install_success_path(lane, tmp_path)
+    phases: list[str] = []
+    real_set_recovery_phase = lane._set_recovery_phase
+
+    def track_phase(
+        journal_payload: dict[str, object],
+        phase: str,
+        *,
+        api_mutation_possible: bool,
+        ingress_mutation_possible: bool,
+    ) -> None:
+        real_set_recovery_phase(
+            journal_payload,
+            phase,
+            api_mutation_possible=api_mutation_possible,
+            ingress_mutation_possible=ingress_mutation_possible,
+        )
+        phases.append(phase)
+
+    lane._set_recovery_phase = Mock(  # type: ignore[method-assign]
+        side_effect=track_phase
+    )
+
+    def fail_final_authority(*_args: object, **_kwargs: object) -> None:
+        if phases and phases[-1] == "api_mutation_possible":
+            raise api_deploy.DeployError(f"final_{authority}_authority_changed")
+
+    if authority == "source":
+        lane._revalidate_bind_source_access = Mock(  # type: ignore[method-assign]
+            side_effect=fail_final_authority
+        )
+    else:
+        lane._require_spatial_browser_binding = Mock(  # type: ignore[method-assign]
+            side_effect=fail_final_authority
+        )
+    lane._perform_joint_rollback = Mock()  # type: ignore[method-assign]
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match=f"final_{authority}_authority_changed",
+    ):
+        lane.deploy()
+
+    assert phases == ["api_mutation_possible", "prepared"]
+    assert "recreate_api" not in actions
+    assert "recreate_cloudflared" not in actions
+    lane._perform_joint_rollback.assert_not_called()
+    assert not lane.recovery_journal_path.exists()
+
+
+def test_final_ingress_spatial_drift_rolls_back_api_only(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    _context_value, actions = _install_success_path(lane, tmp_path)
+    phases: list[str] = []
+    real_set_recovery_phase = lane._set_recovery_phase
+
+    def track_phase(
+        journal_payload: dict[str, object],
+        phase: str,
+        *,
+        api_mutation_possible: bool,
+        ingress_mutation_possible: bool,
+    ) -> None:
+        real_set_recovery_phase(
+            journal_payload,
+            phase,
+            api_mutation_possible=api_mutation_possible,
+            ingress_mutation_possible=ingress_mutation_possible,
+        )
+        phases.append(phase)
+
+    lane._set_recovery_phase = Mock(  # type: ignore[method-assign]
+        side_effect=track_phase
+    )
+
+    def fail_final_spatial(*_args: object, **_kwargs: object) -> None:
+        if phases and phases[-1] == "ingress_mutation_possible":
+            raise api_deploy.DeployError("final_ingress_spatial_changed")
+
+    lane._require_spatial_browser_binding = Mock(  # type: ignore[method-assign]
+        side_effect=fail_final_spatial
+    )
+    lane._perform_joint_rollback = Mock(  # type: ignore[method-assign]
+        return_value={"status": "pass"}
+    )
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_deployment_failed_rolled_back:final_ingress_spatial_changed",
+    ):
+        lane.deploy()
+
+    assert "recreate_api" in actions
+    assert "recreate_cloudflared" not in actions
+    lane._perform_joint_rollback.assert_called_once()
+    assert lane._perform_joint_rollback.call_args.kwargs[
+        "api_mutation_started"
+    ] is True
+    assert lane._perform_joint_rollback.call_args.kwargs[
+        "ingress_mutation_started"
+    ] is False
+    assert not lane.recovery_journal_path.exists()
 
 
 def test_joint_permit_contract_is_exact_and_distinct() -> None:
@@ -899,9 +1270,10 @@ def test_happy_path_orders_api_local_proof_before_ingress_and_public_proof(
         "recreate_cloudflared",
     ]
     assert runner.commands == []
-    lane._revalidate_bind_source_access.assert_called_once_with(
-        boundary="before_recreate_api"
-    )
+    assert lane._revalidate_bind_source_access.call_args_list == [
+        call(boundary="before_recreate_api"),
+        call(boundary="before_recreate_api"),
+    ]
     lane._verify_non_memorial_controls.assert_called_once()
     lane._verify_deployed_surface.assert_called_once()
     assert receipt["joint_atomicity"] == materializer.JOINT_ATOMICITY
@@ -1316,6 +1688,99 @@ def test_tampered_or_incomplete_recovery_journal_fails_before_runtime_mutation(
     restarted._prevalidate_recovery_context.assert_not_called()
     restarted._perform_joint_rollback.assert_not_called()
     assert restarted.recovery_journal_path.exists()
+
+
+def test_v1_recovery_journal_is_rejected_before_runtime_mutation(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    journal_payload = _write_recovery_journal(
+        lane,
+        tmp_path,
+        phase="api_mutation_possible",
+    )
+    journal_payload.update(
+        {
+            "contract_name": "ea.memorial_joint_recovery_journal.v1",
+            "version": 1,
+        }
+    )
+    lane._write_recovery_journal(journal_payload)
+    restarted = _restart_lane(lane, tmp_path)
+    restarted._build_ingress_lane = Mock(  # type: ignore[method-assign]
+        side_effect=AssertionError("v1 journal reached ingress construction")
+    )
+    restarted._perform_joint_rollback = Mock(  # type: ignore[method-assign]
+        side_effect=AssertionError("v1 journal reached rollback")
+    )
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_recovery_journal_schema_invalid",
+    ):
+        restarted._recover_interrupted_transaction(preflight_only=False)
+
+    restarted._build_ingress_lane.assert_not_called()
+    restarted._perform_joint_rollback.assert_not_called()
+    assert restarted.runner.commands == []
+    assert restarted.recovery_journal_path.exists()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "reason"),
+    (
+        ("metadata", "joint_recovery_ingress_overlay_invalid"),
+        ("hash", "joint_ingress_input_changed"),
+        ("mode", "reconciliation_input_untrusted"),
+    ),
+)
+def test_recovery_overlay_tamper_is_rejected_before_compose(
+    tmp_path: Path,
+    mutation: str,
+    reason: str,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    journal_payload = _write_recovery_journal(
+        lane,
+        tmp_path,
+        phase="api_mutation_possible",
+    )
+    ingress_payload = journal_payload["rollback_context"]["ingress"]
+    overlay = ingress_payload["rollback_overlay"]
+    overlay_path = Path(str(overlay["path"]))
+    restarted = _restart_lane(lane, tmp_path)
+
+    if mutation == "metadata":
+        overlay["contains_secret_material"] = True
+        restarted._build_ingress_lane = Mock(  # type: ignore[method-assign]
+            side_effect=AssertionError("altered metadata reached ingress construction")
+        )
+        with pytest.raises(api_deploy.DeployError, match=reason):
+            restarted._validate_recovery_journal(journal_payload)
+        restarted._build_ingress_lane.assert_not_called()
+        assert restarted.runner.commands == []
+        return
+
+    _journal, context = restarted._validate_recovery_journal(journal_payload)
+    recovered_ingress = context["ingress"]["lane"]
+    recovered_ingress._render_compose = Mock(  # type: ignore[method-assign]
+        side_effect=AssertionError("altered overlay reached Compose")
+    )
+    restarted._require_docker_daemon_identity = Mock()  # type: ignore[method-assign]
+    restarted._require_deployment_input_seal = Mock()  # type: ignore[method-assign]
+    if mutation == "hash":
+        overlay_path.write_bytes(overlay_path.read_bytes() + b"# tampered\n")
+    else:
+        overlay_path.chmod(0o640)
+
+    with pytest.raises(api_deploy.DeployError, match=reason):
+        restarted._prevalidate_recovery_context(
+            context,
+            str(journal_payload["rollback_tag"]),
+        )
+
+    recovered_ingress._render_compose.assert_not_called()
+    assert restarted.runner.commands == []
 
 
 def test_preflight_only_never_mutates_an_interrupted_transaction(
@@ -2487,24 +2952,32 @@ def test_ingress_rollback_rerenders_sealed_baseline_with_exact_forward_environme
             "CUSTOM_INTERPOLATION": "exact-value",
         }
     )
-    rollback_seals = [{"path": "/sealed", "scope": "rollback"}]
     context = _context(lane, tmp_path)
+    context_ingress = context["ingress"]
+    rollback_seals = list(context_ingress["rollback_input_seals"])
+    rollback_files = list(context_ingress["rollback_compose_files"])
+    rollback_overlay = dict(context_ingress["rollback_overlay"])
+    baseline_seals = [
+        dict(item)
+        for item in rollback_seals
+        if dict(item).get("path") != rollback_overlay["path"]
+    ]
     rendered = {
         "services": {
-            ingress.CLOUDFLARED_SERVICE: context["ingress"][
+            ingress.CLOUDFLARED_SERVICE: context_ingress[
                 "rollback_render_projection"
             ]["service"]
         },
-        "networks": context["ingress"]["rollback_render_projection"]["networks"],
+        "networks": context_ingress["rollback_render_projection"]["networks"],
     }
     rollback_projection = lane._ingress_rollback_projection(rendered)
     baseline = {
         "container": {
             "compose_working_dir": str(lane.root),
-            "compose_config_files": [str(lane.root / "docker-compose.yml")],
+            "compose_config_files": rollback_files[:-1],
             "image_id": "sha256:" + "1" * 64,
             "image_reference": "cloudflare/cloudflared:2026.6.0",
-            "compose_input_seals": rollback_seals,
+            "compose_input_seals": baseline_seals,
             "environment_identity": {"environment_sha256": "2" * 64},
             "command": ["tunnel", "run"],
             "entrypoint": ["cloudflared"],
@@ -2519,12 +2992,19 @@ def test_ingress_rollback_rerenders_sealed_baseline_with_exact_forward_environme
         "lane": ingress_lane,
         "cloudflared_baseline": baseline,
         "rollback_input_seals": rollback_seals,
+        "rollback_working_dir": str(lane.root),
+        "rollback_compose_files": rollback_files,
+        "rollback_overlay": rollback_overlay,
+        "rollback_interpolation_environment": dict(
+            context_ingress["rollback_interpolation_environment"]
+        ),
         "rollback_render_projection": rollback_projection,
         "rollback_render_sha256": joint._canonical_json_sha256(
             rollback_projection
         ),
     }
     lane._revalidate_ingress_input_seals = Mock()  # type: ignore[method-assign]
+    lane._validate_ingress_rollback_networks = Mock()  # type: ignore[method-assign]
     ingress_lane._render_compose = Mock(  # type: ignore[method-assign]
         return_value=(rendered, rollback_seals)
     )
@@ -2539,8 +3019,11 @@ def test_ingress_rollback_rerenders_sealed_baseline_with_exact_forward_environme
     lane._wait_container = Mock(return_value={"running": "true"})
 
     def capture_restored() -> dict[str, object]:
-        ingress_lane._write_private_json(ingress_lane.baseline_path, baseline)
-        return baseline
+        restored = json.loads(json.dumps(baseline))
+        restored["container"]["compose_config_files"] = rollback_files
+        restored["container"]["compose_input_seals"] = rollback_seals
+        ingress_lane._write_private_json(ingress_lane.baseline_path, restored)
+        return restored
 
     ingress_lane._capture_cloudflared_baseline = Mock(  # type: ignore[method-assign]
         side_effect=capture_restored
@@ -2552,14 +3035,58 @@ def test_ingress_rollback_rerenders_sealed_baseline_with_exact_forward_environme
     assert observed_environments == [
         {
             **ingress_lane.release_env,
+            **context_ingress["rollback_interpolation_environment"],
             "COMPOSE_PROJECT_NAME": "ea",
         }
     ]
     ingress_lane._render_compose.assert_called_once_with(
         root=lane.root,
-        files=[str(lane.root / "docker-compose.yml")],
+        files=rollback_files,
         expected_input_seals=rollback_seals,
     )
+    lane._validate_ingress_rollback_networks.assert_called_once_with(  # type: ignore[attr-defined]
+        ingress_lane,
+        baseline,
+    )
+
+
+def test_rollback_overlay_change_after_render_blocks_before_compose(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    context = _recovery_context(lane, tmp_path)
+    ingress_context = context["ingress"]
+    ingress_lane = ingress_context["lane"]
+    rollback_projection = ingress_context["rollback_render_projection"]
+    rendered = {
+        "services": {
+            ingress.CLOUDFLARED_SERVICE: rollback_projection["service"]
+        },
+        "networks": rollback_projection["networks"],
+    }
+    rollback_seals = list(ingress_context["rollback_input_seals"])
+    ingress_lane._render_compose = Mock(  # type: ignore[method-assign]
+        return_value=(rendered, rollback_seals)
+    )
+    overlay_path = Path(str(ingress_context["rollback_overlay"]["path"]))
+
+    def mutate_after_network_check(
+        _ingress: ingress.PublicIngressReconciliationLane,
+        _baseline: Mapping[str, object],
+    ) -> None:
+        overlay_path.write_text("# changed after render\n", encoding="utf-8")
+        overlay_path.chmod(0o600)
+
+    lane._validate_ingress_rollback_networks = mutate_after_network_check  # type: ignore[method-assign]
+    lane._run = Mock()  # type: ignore[method-assign]
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_ingress_input_changed",
+    ):
+        lane._rollback_cloudflared(ingress_context)
+
+    lane._run.assert_not_called()  # type: ignore[attr-defined]
 
 
 def test_broken_421_edge_is_a_valid_prechange_rollback_fingerprint(
@@ -2655,13 +3182,577 @@ def test_optional_env_local_seal_rejects_drift_and_symlink(tmp_path: Path) -> No
         joint.JointMemorialIngressDeployLane._revalidate_ingress_input_seals([absent])
 
 
+def test_exact_legacy_property_detached_baseline_gets_private_sealed_overlay(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    ingress_lane = _ingress_lane(lane, tmp_path)
+    lane.ingress_receipt_dir.mkdir(parents=True, mode=0o700)
+    lane.ingress_receipt_dir.chmod(0o700)
+    compose_path = lane.root / "docker-compose.yml"
+    compose_path.write_text(
+        "services:\n  ea-cloudflared:\n    image: test-cloudflared\n",
+        encoding="utf-8",
+    )
+    compose_path.chmod(0o644)
+    prior_files = [str(compose_path)]
+    baseline_seals = ingress_lane._capture_compose_input_seals(
+        root=lane.root,
+        files=prior_files,
+    )
+    prior_service = {
+        "image": ingress.PINNED_CLOUDFLARED_IMAGE,
+        "environment": {"TUNNEL_TOKEN": "test-tunnel-token"},
+        "networks": {
+            "default": None,
+            ingress.LEGACY_PROPERTY_NETWORK: None,
+        },
+    }
+    prior_rendered = {
+        "services": {ingress.CLOUDFLARED_SERVICE: prior_service},
+        "networks": {
+            "default": {"name": "ea_default"},
+            ingress.LEGACY_PROPERTY_NETWORK: {
+                "external": True,
+                "name": ingress.LEGACY_PROPERTY_NETWORK,
+            },
+        },
+    }
+    normalized_service = {
+        **prior_service,
+        "networks": {
+            "default": {
+                "ipv4_address": "172.30.0.2",
+                "aliases": sorted(
+                    [
+                        ingress.CLOUDFLARED_CONTAINER,
+                        ingress.CLOUDFLARED_SERVICE,
+                    ]
+                ),
+            }
+        },
+    }
+    normalized_rendered = {
+        "services": {ingress.CLOUDFLARED_SERVICE: normalized_service},
+        "networks": {
+            "default": {"external": True, "name": "ea_default"},
+        },
+    }
+    baseline = {
+        "container": {
+            "compose_working_dir": str(lane.root),
+            "compose_config_files": prior_files,
+            "compose_input_seals": baseline_seals,
+            "networks": [
+                {
+                    "name": "ea_default",
+                    "ipv4_address": "172.30.0.2",
+                    "aliases": [
+                        ingress.CLOUDFLARED_CONTAINER,
+                        ingress.CLOUDFLARED_SERVICE,
+                    ],
+                }
+            ],
+        }
+    }
+    render_calls: list[list[str]] = []
+
+    def render_compose(
+        *,
+        root: Path,
+        files: Sequence[str],
+        expected_input_seals: Sequence[Mapping[str, object]],
+    ) -> tuple[dict[str, object], list[dict[str, object]]]:
+        assert root == lane.root
+        selected_files = list(files)
+        render_calls.append(selected_files)
+        if selected_files == prior_files:
+            assert list(expected_input_seals) == baseline_seals
+            return prior_rendered, baseline_seals
+        current_seals = ingress_lane._capture_compose_input_seals(
+            root=root,
+            files=selected_files,
+        )
+        assert list(expected_input_seals) == current_seals
+        return normalized_rendered, current_seals
+
+    ingress_lane._render_compose = Mock(  # type: ignore[method-assign]
+        side_effect=render_compose
+    )
+
+    bundle = lane._prepare_ingress_rollback_bundle(
+        ingress_lane,
+        baseline,
+    )
+
+    overlay = dict(bundle["overlay"])
+    overlay_path = Path(str(overlay["path"]))
+    overlay_metadata = overlay_path.stat()
+    overlay_text = overlay_path.read_text(encoding="utf-8")
+    assert overlay == {
+        "contract_name": joint.INGRESS_ROLLBACK_OVERLAY_CONTRACT_NAME,
+        "path": str(overlay_path),
+        "sha256": ingress._trusted_file_seal(
+            overlay_path,
+            private=True,
+            expected_uid=os.geteuid(),
+        )["sha256"],
+        "contains_secret_material": False,
+        "runtime_network_names": ["ea_default"],
+        "logical_network_names": ["default"],
+        "normalized_property_detachment": True,
+    }
+    assert stat.S_IMODE(overlay_metadata.st_mode) == 0o600
+    assert overlay_metadata.st_uid == os.geteuid()
+    assert overlay_metadata.st_nlink == 1
+    assert ingress.LEGACY_PROPERTY_NETWORK not in overlay_text
+    assert "test-tunnel-token" not in overlay_text
+    assert render_calls == [
+        prior_files,
+        list(bundle["compose_files"]),
+        list(bundle["compose_files"]),
+    ]
+
+    reused_baseline = {
+        "container": {
+            **baseline["container"],
+            "compose_config_files": list(bundle["compose_files"]),
+            "compose_input_seals": list(bundle["input_seals"]),
+        }
+    }
+    reused_bundle = lane._prepare_ingress_rollback_bundle(
+        ingress_lane,
+        reused_baseline,
+    )
+
+    assert reused_bundle["compose_files"] == bundle["compose_files"]
+    assert reused_bundle["input_seals"] == bundle["input_seals"]
+    assert reused_bundle["overlay"] == bundle["overlay"] | {
+        "normalized_property_detachment": False
+    }
+    assert sum(
+        Path(item).name.endswith(f".{joint.INGRESS_ROLLBACK_OVERLAY_SUFFIX}")
+        for item in reused_bundle["compose_files"]
+    ) == 1
+
+
+def test_reused_overlay_round_trips_through_v2_recovery_journal(
+    tmp_path: Path,
+) -> None:
+    lane, runner = _lane(tmp_path)
+    context = _recovery_context(lane, tmp_path)
+    ingress_context = context["ingress"]
+    assert isinstance(ingress_context, dict)
+    cloudflared_baseline = ingress_context["cloudflared_baseline"]
+    assert isinstance(cloudflared_baseline, dict)
+    container = cloudflared_baseline["container"]
+    assert isinstance(container, dict)
+    container["compose_config_files"] = list(
+        ingress_context["rollback_compose_files"]
+    )
+    container["compose_input_seals"] = list(
+        ingress_context["rollback_input_seals"]
+    )
+    journal_payload = lane._new_recovery_journal(
+        context=context,
+        rollback_tag=joint._safe_rollback_tag(lane.deployment_id),
+    )
+
+    _validated, recovery_context = lane._validate_recovery_journal(
+        journal_payload
+    )
+
+    recovered_ingress = recovery_context["ingress"]
+    assert recovered_ingress["rollback_compose_files"] == (
+        ingress_context["rollback_compose_files"]
+    )
+    assert recovered_ingress["rollback_input_seals"] == (
+        ingress_context["rollback_input_seals"]
+    )
+    assert runner.commands == []
+
+
+def _strict_public_network_snapshot() -> dict[str, object]:
+    return {
+        "present": True,
+        "id": "network-id",
+        "name": ingress.PUBLIC_INGRESS_NETWORK,
+        "driver": "bridge",
+        "ipam_driver": "default",
+        "ipam_config": [
+            {
+                "Subnet": ingress.PUBLIC_INGRESS_SUBNET,
+                "Gateway": ingress.PUBLIC_INGRESS_GATEWAY,
+            }
+        ],
+        "internal": False,
+        "attachable": False,
+        "containers": [
+            {
+                "container_id": "prior-api-container",
+                "name": ingress.API_SERVICE,
+                "ipv4_address": (
+                    f"{ingress.PUBLIC_INGRESS_CLOUDFLARED_IPV4}/29"
+                ),
+                "ipv6_address": "",
+            }
+        ],
+    }
+
+
+def test_pre_api_network_recheck_binds_exact_preflight_membership(
+    tmp_path: Path,
+) -> None:
+    lane, runner = _lane(tmp_path)
+    baseline = _strict_public_network_snapshot()
+    context = {"previous": {"container_id": "prior-api-container"}}
+    cloudflared = {"container": {"id": "prior-cloudflared-container"}}
+
+    lane._validate_ingress_address_reservations(
+        context=context,
+        network_baseline=baseline,
+        cloudflared_baseline=cloudflared,
+    )
+    changed = json.loads(json.dumps(baseline))
+    changed["containers"][0]["ipv4_address"] = (
+        f"{ingress.PUBLIC_INGRESS_API_IPV4}/29"
+    )
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_ingress_network_topology_changed",
+    ):
+        lane._validate_ingress_address_reservations(
+            context=context,
+            network_baseline=changed,
+            cloudflared_baseline=cloudflared,
+            phase="before_recreate_api",
+            expected_network_baseline=baseline,
+        )
+
+    assert runner.commands == []
+
+
+@pytest.mark.parametrize(
+    ("mutation", "reason"),
+    [
+        ("network_id", "joint_ingress_rollback_network_changed"),
+        ("foreign_member", "joint_ingress_rollback_network_members_invalid"),
+        ("occupied_ipv4", "joint_ingress_rollback_ipv4_unavailable"),
+    ],
+)
+def test_rollback_network_recheck_blocks_changed_or_occupied_topology(
+    tmp_path: Path,
+    mutation: str,
+    reason: str,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    ingress_lane = _ingress_lane(lane, tmp_path)
+    baseline = _recovery_context(lane, tmp_path)["ingress"][
+        "cloudflared_baseline"
+    ]
+    current = {
+        "Id": "c" * 64,
+        "Name": ingress.PUBLIC_INGRESS_NETWORK,
+        "Driver": "bridge",
+        "IPAM": {
+            "Driver": "default",
+            "Config": [
+                {
+                    "Subnet": ingress.PUBLIC_INGRESS_SUBNET,
+                    "Gateway": ingress.PUBLIC_INGRESS_GATEWAY,
+                }
+            ],
+        },
+        "Internal": False,
+        "Attachable": False,
+        "Containers": {
+            "api-current": {
+                "Name": ingress.API_SERVICE,
+                "IPv4Address": f"{ingress.PUBLIC_INGRESS_API_IPV4}/29",
+                "IPv6Address": "",
+            },
+            "cloudflared-current": {
+                "Name": ingress.CLOUDFLARED_CONTAINER,
+                "IPv4Address": (
+                    f"{ingress.PUBLIC_INGRESS_CLOUDFLARED_IPV4}/29"
+                ),
+                "IPv6Address": "",
+            },
+        },
+    }
+    if mutation == "network_id":
+        current["Id"] = "d" * 64
+    elif mutation == "foreign_member":
+        current["Containers"]["foreign"] = {
+            "Name": "foreign",
+            "IPv4Address": "172.31.254.4/29",
+            "IPv6Address": "",
+        }
+    else:
+        current["Containers"]["cloudflared-current"]["Name"] = "foreign"
+    ingress_lane._inspect_network = Mock(return_value=current)  # type: ignore[method-assign]
+
+    with pytest.raises(api_deploy.DeployError, match=reason):
+        lane._validate_ingress_rollback_networks(ingress_lane, baseline)
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "previous_compose_type",
+        "previous_compose_nul",
+        "cloudflared_container_type",
+        "cloudflared_compose_nul",
+        "cloudflared_networks_type",
+        "cloudflared_security_memory_type",
+        "cloudflared_aliases_type",
+        "deployment_rollback_seal_type",
+        "rollback_compose_nul",
+        "overlay_path_nul",
+        "top_receipt_nul",
+        "top_ingress_receipt_surrogate",
+        "rollback_projection_surrogate",
+        "rollback_seal_type",
+        "rollback_seal_uid_type",
+    ],
+)
+def test_malformed_v2_recovery_nested_types_fail_as_deploy_error_without_commands(
+    tmp_path: Path,
+    corruption: str,
+) -> None:
+    lane, runner = _lane(tmp_path)
+    payload = _write_recovery_journal(
+        lane,
+        tmp_path,
+        phase="api_mutation_possible",
+    )
+    damaged = json.loads(json.dumps(payload))
+    rollback_context = damaged["rollback_context"]
+    ingress_payload = rollback_context["ingress"]
+    if corruption == "previous_compose_type":
+        rollback_context["previous"]["compose_config_files"] = 7
+    elif corruption == "previous_compose_nul":
+        rollback_context["previous"]["compose_config_files"][0] += "\x00bad"
+    elif corruption == "cloudflared_container_type":
+        ingress_payload["cloudflared_baseline"]["container"] = 7
+    elif corruption == "cloudflared_compose_nul":
+        ingress_payload["cloudflared_baseline"]["container"][
+            "compose_config_files"
+        ][0] += "\x00bad"
+    elif corruption == "cloudflared_networks_type":
+        ingress_payload["cloudflared_baseline"]["container"]["networks"] = 7
+    elif corruption == "cloudflared_security_memory_type":
+        ingress_payload["cloudflared_baseline"]["container"]["security"][
+            "memory"
+        ] = []
+    elif corruption == "cloudflared_aliases_type":
+        ingress_payload["cloudflared_baseline"]["container"]["networks"][0][
+            "aliases"
+        ] = 7
+    elif corruption == "deployment_rollback_seal_type":
+        rollback_context["deployment_input_seal"]["rollback"] = [7]
+    elif corruption == "rollback_compose_nul":
+        ingress_payload["rollback_compose_files"][0] += "\x00bad"
+    elif corruption == "overlay_path_nul":
+        ingress_payload["rollback_overlay"]["path"] += "\x00bad"
+    elif corruption == "top_receipt_nul":
+        damaged["receipt_dir"] += "\x00bad"
+    elif corruption == "top_ingress_receipt_surrogate":
+        damaged["ingress_receipt_dir"] += "\ud800"
+    elif corruption == "rollback_projection_surrogate":
+        ingress_payload["rollback_render_projection"]["service"][
+            "image"
+        ] = "\ud800"
+    elif corruption == "rollback_seal_type":
+        ingress_payload["rollback_input_seals"] = [7]
+    else:
+        ingress_payload["rollback_input_seals"][-2]["uid"] = "not-an-int"
+
+    with pytest.raises(api_deploy.DeployError):
+        lane._validate_recovery_journal(damaged)
+
+    assert runner.commands == []
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    [
+        "0001-01-01T00:00:00+14:00",
+        "9999-12-31T23:59:59-14:00",
+    ],
+)
+def test_v2_recovery_timestamp_overflow_is_a_controlled_deploy_error(
+    tmp_path: Path,
+    timestamp: str,
+) -> None:
+    lane, runner = _lane(tmp_path)
+    payload = _write_recovery_journal(
+        lane,
+        tmp_path,
+        phase="api_mutation_possible",
+    )
+    damaged = json.loads(json.dumps(payload))
+    damaged["created_at"] = timestamp
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_recovery_journal_schema_invalid",
+    ):
+        lane._validate_recovery_journal(damaged)
+
+    assert runner.commands == []
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["timestamp_overflow", "path_surrogate", "projection_surrogate", "security_type"],
+)
+def test_malformed_v2_journal_is_classified_invalid_before_recovery_mutation(
+    tmp_path: Path,
+    corruption: str,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    payload = _write_recovery_journal(
+        lane,
+        tmp_path,
+        phase="api_mutation_possible",
+    )
+    damaged = json.loads(json.dumps(payload))
+    ingress_payload = damaged["rollback_context"]["ingress"]
+    if corruption == "timestamp_overflow":
+        damaged["created_at"] = "0001-01-01T00:00:00+14:00"
+    elif corruption == "path_surrogate":
+        damaged["ingress_receipt_dir"] += "\ud800"
+    elif corruption == "projection_surrogate":
+        ingress_payload["rollback_render_projection"]["service"][
+            "image"
+        ] = "\ud800"
+    else:
+        ingress_payload["cloudflared_baseline"]["container"]["security"][
+            "memory"
+        ] = []
+    _write_json(lane.recovery_journal_path, damaged, mode=0o600)
+    restarted = _restart_lane(lane, tmp_path)
+    restarted._perform_joint_rollback = Mock(  # type: ignore[method-assign]
+        side_effect=AssertionError("invalid journal reached rollback")
+    )
+
+    with pytest.raises(api_deploy.DeployError):
+        restarted._recover_interrupted_transaction(preflight_only=False)
+
+    assert restarted.receipt["status"] == "recovery_journal_invalid"
+    assert restarted.receipt["recovery"]["mutation_attempted"] is False
+    restarted._perform_joint_rollback.assert_not_called()
+    assert restarted.runner.commands == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    [
+        (
+            "public_origin",
+            "https://myexternalbrain.com:99999",
+            "joint_recovery_public_origin_invalid",
+        ),
+        (
+            "public_origin",
+            "https://[broken",
+            "joint_recovery_public_origin_invalid",
+        ),
+        (
+            "api_local_origin",
+            "http://127.0.0.1:99999",
+            "joint_recovery_api_local_origin_invalid",
+        ),
+        (
+            "api_local_origin",
+            "http://[broken",
+            "joint_recovery_api_local_origin_invalid",
+        ),
+    ],
+)
+def test_malformed_v2_recovery_origins_are_controlled_deploy_errors(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    reason: str,
+) -> None:
+    lane, runner = _lane(tmp_path)
+    payload = _write_recovery_journal(
+        lane,
+        tmp_path,
+        phase="api_mutation_possible",
+    )
+    damaged = json.loads(json.dumps(payload))
+    damaged[field] = value
+
+    with pytest.raises(api_deploy.DeployError, match=reason):
+        lane._validate_recovery_journal(damaged)
+
+    assert runner.commands == []
+
+
+def test_ingress_input_seal_rejects_control_character_path_before_io() -> None:
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_ingress_input_seal_invalid",
+    ):
+        joint.JointMemorialIngressDeployLane._revalidate_ingress_input_seals(
+            [
+                {
+                    "path": "/tmp/invalid\x00seal",
+                    "present": False,
+                }
+            ]
+        )
+
+
+def test_external_public_rollback_projection_accepts_only_empty_compose_ipam(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    projection = _context(lane, tmp_path)["ingress"][
+        "rollback_render_projection"
+    ]
+    projection["networks"]["public_ingress"]["ipam"] = {}
+
+    environment = lane._ingress_rollback_environment(projection)
+
+    assert environment["EA_PUBLIC_INGRESS_NETWORK_NAME"] == (
+        ingress.PUBLIC_INGRESS_NETWORK
+    )
+    projection["networks"]["public_ingress"]["ipam"] = {
+        "config": [{"subnet": "10.0.0.0/8"}]
+    }
+    with pytest.raises(
+        api_deploy.DeployError,
+        match="joint_ingress_rollback_environment_invalid",
+    ):
+        lane._ingress_rollback_environment(projection)
+
+
 def test_real_joint_ingress_preflight_passes_captured_seals_to_render_and_is_read_only(
     tmp_path: Path,
 ) -> None:
     lane, runner = _lane(tmp_path)
     ingress_lane = _ingress_lane(lane, tmp_path)
+    fixture_context = _context(lane, tmp_path)["ingress"]
     target_seals = [{"path": "/target", "scope": "target"}]
-    rollback_seals = [{"path": "/rollback", "scope": "rollback"}]
+    rollback_seals = list(fixture_context["rollback_input_seals"])
+    rollback_bundle = {
+        "working_dir": fixture_context["rollback_working_dir"],
+        "compose_files": list(fixture_context["rollback_compose_files"]),
+        "input_seals": rollback_seals,
+        "interpolation_environment": dict(
+            fixture_context["rollback_interpolation_environment"]
+        ),
+        "render_projection": dict(
+            fixture_context["rollback_render_projection"]
+        ),
+        "render_sha256": fixture_context["rollback_render_sha256"],
+        "overlay": dict(fixture_context["rollback_overlay"]),
+    }
     events: list[str] = []
     lane._build_ingress_lane = Mock(return_value=ingress_lane)  # type: ignore[method-assign]
     ingress_lane._git_source_preflight = Mock()  # type: ignore[method-assign]
@@ -2675,7 +3766,10 @@ def test_real_joint_ingress_preflight_passes_captured_seals_to_render_and_is_rea
         or {"present": False}
     )
 
-    def capture_baseline() -> dict[str, object]:
+    def capture_baseline(
+        *, allow_legacy_property_detached: bool = False
+    ) -> dict[str, object]:
+        assert allow_legacy_property_detached is True
         events.append("capture_cloudflared_baseline")
         payload = {"container": {"compose_input_seals": rollback_seals}}
         ingress_lane._write_private_json(ingress_lane.baseline_path, payload)
@@ -2700,21 +3794,19 @@ def test_real_joint_ingress_preflight_passes_captured_seals_to_render_and_is_rea
     ingress_lane._validate_target_compose = Mock(  # type: ignore[method-assign]
         side_effect=validate_target
     )
-    ingress_lane._render_compose = Mock(  # type: ignore[method-assign]
-        side_effect=lambda **_kwargs: events.append("render_rollback")
-        or (
-            {
-                "services": {
-                    ingress.CLOUDFLARED_SERVICE: _context(lane, tmp_path)[
-                        "ingress"
-                    ]["rollback_render_projection"]["service"]
-                },
-                "networks": _context(lane, tmp_path)["ingress"][
-                    "rollback_render_projection"
-                ]["networks"],
-            },
-            rollback_seals,
+    def prepare_rollback(
+        selected_ingress: ingress.PublicIngressReconciliationLane,
+        selected_baseline: Mapping[str, object],
+    ) -> dict[str, object]:
+        assert selected_ingress is ingress_lane
+        assert selected_baseline["container"]["compose_input_seals"] == (
+            rollback_seals
         )
+        events.append("prepare_rollback")
+        return rollback_bundle
+
+    lane._prepare_ingress_rollback_bundle = Mock(  # type: ignore[method-assign]
+        side_effect=prepare_rollback
     )
     lane._revalidate_ingress_input_seals = Mock()  # type: ignore[method-assign]
     lane._capture_public_edge = Mock(  # type: ignore[method-assign]
@@ -2731,7 +3823,7 @@ def test_real_joint_ingress_preflight_passes_captured_seals_to_render_and_is_rea
         "capture_network",
         "capture_cloudflared_baseline",
         "validate_target",
-        "render_rollback",
+        "prepare_rollback",
     ]
     assert runner.commands == []
 
@@ -2838,6 +3930,119 @@ def test_network_cleanup_refuses_nonempty_network(
 
     with pytest.raises(
         api_deploy.DeployError, match="joint_public_network_cleanup_unsafe"
+    ):
+        lane._restore_public_network(
+            {
+                "lane": ingress_lane,
+                "network_baseline": {"present": False},
+            }
+        )
+
+    lane._run.assert_not_called()
+
+
+def _empty_compose_owned_public_network() -> tuple[dict[str, object], dict[str, object]]:
+    network_id = "a" * 64
+    snapshot = {
+        "present": True,
+        "id": network_id,
+        "name": ingress.PUBLIC_INGRESS_NETWORK,
+        "driver": "bridge",
+        "ipam_driver": "default",
+        "ipam_config": [
+            {
+                "Subnet": ingress.PUBLIC_INGRESS_SUBNET,
+                "Gateway": ingress.PUBLIC_INGRESS_GATEWAY,
+            }
+        ],
+        "internal": False,
+        "attachable": False,
+        "containers": [],
+    }
+    inspection = {
+        "Id": network_id,
+        "Name": ingress.PUBLIC_INGRESS_NETWORK,
+        "Driver": "bridge",
+        "Internal": False,
+        "Attachable": False,
+        "Containers": {},
+        "Labels": {
+            "com.docker.compose.config-hash": "b" * 64,
+            "com.docker.compose.network": "public_ingress",
+            "com.docker.compose.project": "ea",
+            "com.docker.compose.version": "5.1.3",
+        },
+    }
+    return snapshot, inspection
+
+
+def test_absent_baseline_cleanup_removes_only_exact_compose_owned_network_id(
+    tmp_path: Path,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    ingress_lane = _ingress_lane(lane, tmp_path)
+    snapshot, inspection = _empty_compose_owned_public_network()
+    lane._capture_public_network = Mock(  # type: ignore[method-assign]
+        side_effect=[snapshot, {"present": False}]
+    )
+    ingress_lane._inspect_network = Mock(  # type: ignore[method-assign]
+        return_value=inspection
+    )
+    lane._run = Mock()  # type: ignore[method-assign]
+
+    result = lane._restore_public_network(
+        {
+            "lane": ingress_lane,
+            "network_baseline": {"present": False},
+        }
+    )
+
+    lane._run.assert_called_once_with(
+        ["docker", "network", "rm", "a" * 64]
+    )
+    assert result == {
+        "status": "pass",
+        "preexisting": False,
+        "removed": True,
+        "network_id_sha256": joint._sha256(("a" * 64).encode("ascii")),
+        "ownership": "exact_compose_network_labels_verified",
+    }
+
+
+@pytest.mark.parametrize(
+    "drift",
+    ["replacement_id", "project_label", "internal", "attachable"],
+)
+def test_absent_baseline_cleanup_refuses_replacement_or_flag_drift(
+    tmp_path: Path,
+    drift: str,
+) -> None:
+    lane, _runner = _lane(tmp_path)
+    ingress_lane = _ingress_lane(lane, tmp_path)
+    snapshot, inspection = _empty_compose_owned_public_network()
+    if drift == "replacement_id":
+        inspection["Id"] = "c" * 64
+    elif drift == "project_label":
+        inspection["Labels"]["com.docker.compose.project"] = "foreign"
+    elif drift == "internal":
+        snapshot["internal"] = True
+    else:
+        snapshot["attachable"] = True
+    lane._capture_public_network = Mock(  # type: ignore[method-assign]
+        return_value=snapshot
+    )
+    ingress_lane._inspect_network = Mock(  # type: ignore[method-assign]
+        return_value=inspection
+    )
+    lane._run = Mock()  # type: ignore[method-assign]
+
+    with pytest.raises(
+        api_deploy.DeployError,
+        match=(
+            "joint_public_network_cleanup_unsafe"
+            if drift in {"internal", "attachable"}
+            else "joint_public_network_cleanup_ownership_unproven"
+        ),
     ):
         lane._restore_public_network(
             {
